@@ -5,12 +5,21 @@ const { config } = require("../config");
 const attachmentService = require("./attachment.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const permissionService = require("./permission.service");
+const knowledgeVectorStore = require("./knowledgeVectorStore.service");
+const knowledgeContracts = require("./knowledgeContracts.service");
+const knowledgeAuthorization = require("./knowledgeAuthorization.service");
+const {
+  PRODUCT_HELP_VERSION,
+  rankProductHelpSections
+} = require("./knowledgeProductCatalog.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const cacheService = require("../utils/cache");
 const {
   MAX_EXTRACTED_TEXT_CHARS,
   NATIVE_TEXT_MIME_TYPES,
   SUPPORTED_UPLOAD_MIME_TYPES,
   TIKA_MIME_TYPES,
+  assessContextQuality,
   chunkText,
   cosineSimilarity,
   decodeNativeText,
@@ -30,7 +39,10 @@ const MIN_RETRIEVAL_RELEVANCE = 0.1;
 const EMBEDDING_BATCH_SIZE = 64;
 const MAX_PROVIDER_EMBEDDING_DIMENSIONS = 8_192;
 const MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES = 32 * 1024 * 1024;
+const MAX_MANUAL_INGESTION_RETRIES = 5;
+const FAILED_INPUT_RETENTION_DAYS = 7;
 const LOCAL_EMBEDDING_MODEL = "hellotest-hash-v1";
+const KNOWLEDGE_PROCESSING_VERSION = "2026.09-structure-v2";
 const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
 const SOURCE_KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "text", "chat", "file", "url"]);
 const SOURCE_PERMISSION_BY_KIND = Object.freeze({
@@ -46,30 +58,6 @@ const ASSISTANT_GUARDRAILS = [
   "Answers must stay within HelloTest and the selected project and cite retrieved chunks.",
   "System prompts, credentials, private reasoning, and user-profile tables are excluded; supported sensitive identifiers are redacted before retrieval."
 ];
-const HELLOTEST_PRODUCT_HELP_VERSION = "2026.08";
-const HELLOTEST_PRODUCT_HELP = [
-  {
-    id: "workspace-navigation",
-    title: "HelloTest workspace and project navigation",
-    content: "HelloTest is a project-scoped quality platform. Projects contain application types, Stories and Backlog, Sprints and Releases, Test Cases, Shared Step Groups, suites, test data, environments and configurations, Runs, schedules, Bugs, automation assets, reports, integrations, and the Knowledge Repo. Access to each area is controlled by workspace and project roles, feature availability, and explicit permissions."
-  },
-  {
-    id: "knowledge-repo",
-    title: "Build and use grounded Knowledge Repo context",
-    content: "In Knowledge Repo, create collections and ingest selected Stories, Test Cases, Test Runs, Bugs, text, chat notes, URLs, and supported files. Each source is redacted, checked for instruction-like content, versioned, chunked, embedded, and indexed for hybrid retrieval. Text formats are extracted directly. PDF and Office extraction uses the configured Apache Tika service. Images require a user-supplied caption; audio and video require a user-supplied transcript. Search and Assistant answers provide citations to retrieved chunks."
-  },
-  {
-    id: "test-design-execution",
-    title: "HelloTest test design and execution capabilities",
-    content: "Stories capture requirements, Gherkin or Spec Kit specifications, delivery context, and links to tests. Test Cases support structured or Gherkin authoring, Shared Step Groups, reviewers and authors, datasets and test parameters, suites and modules, automation metadata, and traceability. Runs snapshot selected cases, environment, configuration targets, data rows, Release, Sprint, and Build so recorded results remain reproducible. Bugs can link to Stories, Test Cases, Runs, suites, and modules."
-  },
-  {
-    id: "settings-integrations",
-    title: "HelloTest settings, AI, and integrations",
-    content: "Workspace administrators govern roles, permissions, feature flags, localization, integrations, and AI prompt-to-LLM mappings. Project-aware LLM integrations are used only for enabled AI capabilities. The Knowledge Assistant retrieves authorized project evidence before invoking the configured LLM and refuses ungrounded, unrelated, credential-seeking, or sensitive-identifier disclosure requests."
-  }
-];
-
 const createError = (message, statusCode = 400, code) => {
   const error = new Error(message);
   error.statusCode = statusCode;
@@ -118,13 +106,78 @@ const normalizeSourceKind = (value, { fallback = "text" } = {}) => {
   const kind = aliases[normalized] || normalized;
   return SOURCE_KINDS.has(kind) ? kind : fallback;
 };
+
+const classifyIngestionError = (error, { stage = "processing" } = {}) => {
+  const internalCode = normalizeText(error?.code, 120);
+  const known = {
+    KNOWLEDGE_LEASE_LOST: {
+      code: "processing_interrupted",
+      message: "Knowledge processing was interrupted before completion. Retry the job to resume from the retained source.",
+      retryable: true
+    },
+    KNOWLEDGE_VERSION_SUPERSEDED: {
+      code: "source_revision_superseded",
+      message: "A newer source revision replaced this processing attempt. The newest revision should be used instead.",
+      retryable: false
+    },
+    KNOWLEDGE_FILE_CHECKSUM_MISMATCH: {
+      code: "source_integrity_mismatch",
+      message: "The stored file no longer matches the accepted upload. Upload the source again.",
+      retryable: false
+    },
+    KNOWLEDGE_INPUT_FINGERPRINT_MISMATCH: {
+      code: "source_integrity_mismatch",
+      message: "The retained extracted text did not match the accepted input. Upload the source again.",
+      retryable: false
+    },
+    KNOWLEDGE_ATTACHMENT_SCOPE_MISMATCH: {
+      code: "source_attachment_mismatch",
+      message: "The staged file is no longer attached to this Knowledge source. Upload the source again.",
+      retryable: false
+    }
+  };
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+  const presentation = known[internalCode]
+    || (statusCode === 403 ? {
+      code: "source_permission_denied",
+      message: "Knowledge processing no longer has access to this source. Review project permissions, then retry.",
+      retryable: true
+    } : statusCode === 404 ? {
+      code: "source_unavailable",
+      message: "The source or staged file is no longer available. Upload or select the source again.",
+      retryable: false
+    } : statusCode === 413 ? {
+      code: "source_too_large",
+      message: "The source exceeds the configured processing limit. Reduce or split it before uploading again.",
+      retryable: false
+    } : {
+      code: "knowledge_processing_failed",
+      message: "Knowledge processing stopped unexpectedly. Retry the retained source; if it repeats, share the reference code with an administrator.",
+      retryable: true
+    });
+  const safeOriginalMessage = sanitizeKnowledgeText(error instanceof Error ? error.message : "Knowledge processing failed").text;
+  return {
+    ...presentation,
+    stage,
+    error_fingerprint: fingerprint(safeOriginalMessage || "Knowledge processing failed")
+  };
+};
 const requiredPermissionForSourceKind = (sourceKind) => SOURCE_PERMISSION_BY_KIND[sourceKind] || null;
 const usesEmbeddingsForMode = (mode) => mode !== "keyword";
-const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash }) => Boolean(
+const processingProfile = (chunking = {}) => {
+  const normalizedChunking = normalizeChunkingOptions(chunking);
+  return {
+    version: KNOWLEDGE_PROCESSING_VERSION,
+    chunking: normalizedChunking,
+    fingerprint: fingerprint(JSON.stringify({ version: KNOWLEDGE_PROCESSING_VERSION, chunking: normalizedChunking }))
+  };
+};
+const canReuseSourceVersion = ({ existing, readyDocument, contentHash, documentHash, processingFingerprint }) => Boolean(
   readyDocument
   && existing?.extraction_status === "ready"
   && existing?.checksum_sha256 === contentHash
   && (!documentHash || readyDocument.checksum_sha256 === documentHash)
+  && (!processingFingerprint || asObject(readyDocument.metadata).processing_pipeline?.fingerprint === processingFingerprint)
 );
 const resolveAllowedSourcePermissions = async (user, projectId) => {
   if (!user) return [];
@@ -172,12 +225,17 @@ const toPublicDocument = (document) => document ? ({
   id: document.id,
   project_id: document.project_id,
   source_id: document.source_id,
+  canonical_id: document.source_id,
+  knowledge_id: document.id,
   title: document.title,
   version: document.version,
   token_count: document.token_count,
   char_count: document.char_count,
   checksum_sha256: document.checksum_sha256,
   is_active: document.is_active,
+  is_current: document.is_active,
+  effective_from: document.effective_from,
+  effective_to: document.effective_to,
   created_at: document.created_at,
   updated_at: document.updated_at
 }) : null;
@@ -356,21 +414,49 @@ const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
   return vectors;
 };
 
-const embedTexts = async (runtime, texts, { signal } = {}) => {
+const embeddingCacheKey = (runtime, value) => `knowledge:embedding:v1:${fingerprint(`${runtime.integration?.id || runtime.baseUrl}:${runtime.model}:${value}`)}`;
+
+const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
+  const keys = texts.map((value) => embeddingCacheKey(runtime, value));
+  const cached = await Promise.all(keys.map((key) => cacheService.getCache(key)));
+  const vectors = new Array(texts.length);
+  const missingIndexes = [];
+  for (let index = 0; index < texts.length; index += 1) {
+    const vector = cached[index]?.vector;
+    if (Array.isArray(vector) && vector.length >= 8 && vector.length <= MAX_PROVIDER_EMBEDDING_DIMENSIONS && vector.every(Number.isFinite)) vectors[index] = vector;
+    else missingIndexes.push(index);
+  }
+  if (missingIndexes.length) {
+    const generated = await requestProviderEmbeddings(runtime, missingIndexes.map((index) => texts[index]), { signal });
+    await Promise.all(missingIndexes.map(async (index, generatedIndex) => {
+      vectors[index] = generated[generatedIndex];
+      await cacheService.setCache(keys[index], { vector: vectors[index] }, 15 * 60);
+    }));
+  }
+  const dimensions = vectors[0]?.length;
+  if (!dimensions || !vectors.every((vector) => vector.length === dimensions)) throw new Error("Cached embedding dimensions did not match the configured model");
+  return vectors;
+};
+
+const embedTexts = async (runtime, texts, { signal, cacheResults = false } = {}) => {
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
   const fallback = texts.map(localEmbedding);
   if (!runtime.configured) return { vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL, provider: runtime.provider, warning: null };
   try {
-    const vectors = await requestProviderEmbeddings(runtime, texts, { signal });
+    const vectors = cacheResults && texts.length <= 10
+      ? await requestCachedProviderEmbeddings(runtime, texts, { signal })
+      : await requestProviderEmbeddings(runtime, texts, { signal });
     return { vectors, fallback, model: runtime.model, provider: runtime.provider, warning: null };
   } catch (error) {
     if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    const errorReference = fingerprint(error instanceof Error ? error.message : "Embedding request failed").slice(0, 12);
     return {
       vectors: fallback,
       fallback,
       model: LOCAL_EMBEDDING_MODEL,
       provider: "HelloTest local hash embedding",
-      warning: `Configured embeddings were unavailable; local retrieval fallback was used (${error instanceof Error ? error.message : "request failed"}).`
+      warning_code: "embedding_fallback",
+      warning: `The configured LLM model did not return compatible embeddings. Deterministic local hybrid retrieval was indexed instead (ref ${errorReference}).`
     };
   }
 };
@@ -853,8 +939,18 @@ const toPublicIngestionJob = (job, results = []) => {
     app_type_id: normalizeId(rawConfig.app_type_id) || null,
     chunking: asObject(rawConfig.chunking),
     upload: Boolean(rawConfig.upload),
-    queue_version: Number(rawConfig.queue_version || 0) || null
+    queue_version: Number(rawConfig.queue_version || 0) || null,
+    retry_count: Math.max(0, Number(rawConfig.retry_count || 0) || 0),
+    max_retries: MAX_MANUAL_INGESTION_RETRIES
   };
+  const publicErrors = asArray(job.errors).map((entry) => ({
+    input_index: Number.isInteger(entry?.input_index) ? entry.input_index : undefined,
+    code: normalizeText(entry?.code, 120) || "ingestion_failed",
+    message: normalizeText(entry?.message, 1_000) || "Knowledge processing needs attention.",
+    retryable: entry?.retryable !== false,
+    stage: normalizeText(entry?.stage, 120) || "processing",
+    error_fingerprint: normalizeText(entry?.error_fingerprint, 128) || null
+  }));
   return {
     id: job.id,
     project_id: job.project_id,
@@ -865,11 +961,10 @@ const toPublicIngestionJob = (job, results = []) => {
     failed_count: Number(job.failed_count || 0),
     chunk_count: Number(job.chunk_count || 0),
     warnings: asArray(job.warnings),
-    errors: asArray(job.errors).map((entry) => ({
-      input_index: Number.isInteger(entry?.input_index) ? entry.input_index : undefined,
-      code: normalizeText(entry?.code, 120) || "ingestion_failed",
-      error_fingerprint: normalizeText(entry?.error_fingerprint, 128) || null
-    })),
+    errors: publicErrors,
+    can_retry: job.status === "failed"
+      && safeConfig.retry_count < MAX_MANUAL_INGESTION_RETRIES
+      && (!publicErrors.length || publicErrors.some((entry) => entry.retryable)),
     config: safeConfig,
     created_at: job.created_at,
     started_at: job.started_at || null,
@@ -962,6 +1057,10 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
     `).get(projectId, appScopeKey, input.source_kind, contentHash);
   }
   if (existing) {
+    await db.prepare(`INSERT INTO ai_knowledge_security_bindings
+      (id, project_id, source_id, principal_type, principal_id, effect, inherited)
+      VALUES (?, ?, ?, 'PROJECT', ?, 'ALLOW', TRUE) ON CONFLICT (id) DO NOTHING`
+    ).run(`${existing.id}:project-read`, projectId, existing.id, projectId);
     if (collectionId) {
       await db.prepare(`
         INSERT INTO ai_knowledge_collection_sources (collection_id, source_id)
@@ -969,36 +1068,15 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
       `).run(collectionId, existing.id);
     }
     const readyDocument = await db.prepare(`
-      SELECT id, checksum_sha256 FROM ai_knowledge_documents
+      SELECT id, checksum_sha256, metadata FROM ai_knowledge_documents
       WHERE source_id = ? AND is_active = TRUE LIMIT 1
     `).get(existing.id);
-    if (canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash })) {
+    if (canReuseSourceVersion({ existing, readyDocument, contentHash, documentHash, processingFingerprint: input.processing_fingerprint })) {
       return { ...existing, _reused: true, _new: false, _had_ready_version: true };
     }
-    const structuredRecord = Boolean(requiredPermission && input.source_ref_id);
-    if (structuredRecord) {
-      // Do not publish stale record metadata before its complete evidence
-      // fingerprint has passed the activation guard. Only reserve a revision;
-      // the authoritative fields are flipped with the document transaction.
-      await db.prepare(`
-        UPDATE ai_knowledge_sources
-        SET revision_token = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(revisionToken, existing.id);
-    } else {
-      await db.prepare(`
-        UPDATE ai_knowledge_sources
-        SET app_type_id = ?, title = ?, source_uri = ?, file_name = ?, mime_type = ?, size_bytes = ?,
-          extraction_strategy = ?, metadata = ?, required_permission = ?,
-          revision_token = ?, risk_flags = '[]'::jsonb, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(
-        input.app_type_id || null, safeTitle, safeSourceUri, safeFileName || existing.file_name || null,
-        input.mime_type || existing.mime_type || null, input.size_bytes ?? existing.size_bytes ?? null,
-        input.extraction_strategy || (input.content ? "structured_record" : "metadata_only"),
-        asObject(input.metadata), requiredPermission, revisionToken, existing.id
-      );
-    }
+    // Reserve only an index attempt. Visible source metadata changes atomically
+    // with promotion after every required index is ready.
+    await db.prepare(`UPDATE ai_knowledge_sources SET revision_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(revisionToken, existing.id);
     return {
       ...existing,
       app_type_id: input.app_type_id || null,
@@ -1012,7 +1090,7 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
       required_permission: requiredPermission,
       revision_token: revisionToken,
       _pending_checksum: contentHash,
-      _pending_source_update: structuredRecord,
+      _pending_source_update: true,
       _new: false,
       _had_ready_version: Boolean(readyDocument)
     };
@@ -1047,6 +1125,10 @@ const createSource = async ({ projectId, collectionId, input, userId, jobId, lea
       VALUES (?, ?) ON CONFLICT (collection_id, source_id) DO NOTHING
     `).run(collectionId, id);
   }
+  await db.prepare(`INSERT INTO ai_knowledge_security_bindings
+    (id, project_id, source_id, principal_type, principal_id, effect, inherited)
+    VALUES (?, ?, ?, 'PROJECT', ?, 'ALLOW', TRUE) ON CONFLICT (id) DO NOTHING`
+  ).run(`${id}:project-read`, projectId, id, projectId);
   return {
     ...await db.prepare("SELECT * FROM ai_knowledge_sources WHERE id = ?").get(id),
     _new: true,
@@ -1146,6 +1228,26 @@ const persistEmbeddingVector = async (chunkId, vector) => {
   }
 };
 
+const buildChunkRetrievalText = ({ title, chunk } = {}) => [
+  normalizeText(title, 500) ? `Document: ${normalizeText(title, 500)}` : null,
+  asArray(chunk?.heading_path).length
+    ? `Section path: ${chunk.heading_path.map((item) => normalizeText(item, 240)).filter(Boolean).join(" > ")}`
+    : normalizeText(chunk?.heading, 500) ? `Section: ${normalizeText(chunk.heading, 500)}` : null,
+  normalizeText(chunk?.section_type, 80) && chunk.section_type !== "body"
+    ? `Content type: ${normalizeText(chunk.section_type, 80).replace(/_/g, " ")}`
+    : null,
+  normalizeText(chunk?.content, 100_000)
+].filter(Boolean).join("\n");
+
+const buildDocumentContextProfile = ({ title, chunks } = {}) => ({
+  title: normalizeText(title, 500) || "Untitled knowledge source",
+  headings: [...new Set(asArray(chunks).map((chunk) => normalizeText(chunk?.heading, 500)).filter(Boolean))].slice(0, 80),
+  section_paths: [...new Set(asArray(chunks).map((chunk) => asArray(chunk?.heading_path).map((item) => normalizeText(item, 240)).filter(Boolean).join(" > ")).filter(Boolean))].slice(0, 120),
+  section_types: [...new Set(asArray(chunks).map((chunk) => normalizeText(chunk?.section_type, 80)).filter(Boolean))].slice(0, 20),
+  chunk_count: asArray(chunks).length,
+  hierarchy_strategy: "document-title+section-lineage+content-type+content"
+});
+
 const persistDocument = async ({ projectId, source, content, chunking, embeddingRuntime, metadata = {}, activationGuard, signal }) => {
   const sanitized = sanitizeKnowledgeText(content);
   if (!sanitized.text) return { document: null, chunks: [], warning: "No extractable text was available; the source was retained for a caption, transcript, or extraction step." };
@@ -1154,7 +1256,11 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
   let version = null;
   const chunks = chunkText(sanitized.text, chunking);
   if (!chunks.length) return { document: null, chunks: [], warning: "No searchable chunks could be produced from this source." };
-  const embeddingResult = await embedTexts(embeddingRuntime, chunks.map((chunk) => chunk.content), { signal });
+  const contextQuality = assessContextQuality({ text: sanitized.text, chunks, redactionCount: sanitized.redaction_count });
+  const documentContext = buildDocumentContextProfile({ title: source.title, chunks });
+  const pipeline = processingProfile(chunking);
+  const retrievalTexts = chunks.map((chunk) => buildChunkRetrievalText({ title: source.title, chunk }));
+  const embeddingResult = await embedTexts(embeddingRuntime, retrievalTexts, { signal });
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
 
   const persistedChunks = [];
@@ -1185,7 +1291,10 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
     `).run(
       documentId, projectId, source.id, source.title, sanitized.text, version,
       Math.ceil(sanitized.text.length / 4), sanitized.text.length, checksum,
-      { ...metadata, redactions: sanitized.redactions, redaction_count: sanitized.redaction_count, control_character_count: sanitized.control_character_count, risk_flags: sanitized.risk_flags }
+      { ...metadata, source_snapshot: { source_kind: source.source_kind, source_ref_id: source.source_ref_id || null,
+        title: source.title, source_uri: sanitizeSourceUri(source.source_uri), attachment_id: source.attachment_id || null,
+        checksum_sha256: source._pending_checksum || source.checksum_sha256 || null },
+        processing_pipeline: pipeline, context_quality: contextQuality, document_context: documentContext, redactions: sanitized.redactions, redaction_count: sanitized.redaction_count, control_character_count: sanitized.control_character_count, risk_flags: sanitized.risk_flags }
     );
 
     for (let index = 0; index < chunks.length; index += 1) {
@@ -1198,9 +1307,10 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, to_tsvector('simple', ?), ?, ?, ?, ?)
       `).run(
         id, projectId, documentId, source.id, chunk.index, chunk.heading, chunk.content,
-        chunk.token_count, chunk.char_start, chunk.char_end, chunk.content,
+        chunk.token_count, chunk.char_start, chunk.char_end, retrievalTexts[index],
         embeddingResult.vectors[index], embeddingResult.fallback[index], embeddingResult.model,
-        { risk_flags: sanitized.risk_flags, redaction_count: sanitized.redaction_count }
+        { fragment_key: `${(chunk.heading_path || []).join("/") || "body"}:${chunk.index}`,
+          document_title: documentContext.title, section_heading: chunk.heading || null, section_path: chunk.heading_path || [], section_type: chunk.section_type || "body", section_level: chunk.section_level || null, hierarchy_strategy: documentContext.hierarchy_strategy, context_quality_grade: contextQuality.grade, context_quality_score: contextQuality.score, risk_flags: sanitized.risk_flags, redaction_count: sanitized.redaction_count }
       );
       // Keep optional pgvector writes outside the core document transaction. A
       // PostgreSQL vector-cast error aborts its transaction even when caught;
@@ -1216,14 +1326,51 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       throw createError("Knowledge evidence changed while indexing; the stale document was not activated.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
     }
     await db.prepare(`
-      UPDATE ai_knowledge_documents SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+      INSERT INTO ai_knowledge_index_states (
+        document_id, project_id, source_id, document_version, is_current,
+        lexical_state, dense_state, vector_provider, embedding_model,
+        embedding_dimensions, indexed_chunk_count, indexed_at
+      ) VALUES (?, ?, ?, ?, FALSE, 'ready', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT (document_id) DO UPDATE SET
+        is_current = FALSE,
+        lexical_state = 'ready',
+        dense_state = EXCLUDED.dense_state,
+        vector_provider = EXCLUDED.vector_provider,
+        embedding_model = EXCLUDED.embedding_model,
+        embedding_dimensions = EXCLUDED.embedding_dimensions,
+        indexed_chunk_count = EXCLUDED.indexed_chunk_count,
+        error_fingerprint = NULL,
+        indexed_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(
+      documentId, projectId, source.id, version,
+      knowledgeVectorStore.isConfigured() ? "pending" : "ready",
+      knowledgeVectorStore.isConfigured() ? "qdrant" : "postgresql",
+      embeddingResult.model, embeddingResult.vectors[0]?.length || null, persistedChunks.length
+    );
+  });
+  await commitDocumentVersion();
+  for (const pending of pendingVectorWrites) await persistEmbeddingVector(pending.id, pending.vector);
+
+  const activateDocumentVersion = db.transaction(async () => {
+    const current = await db.prepare(`SELECT id, revision_token FROM ai_knowledge_sources
+      WHERE id = ? AND project_id = ? AND extraction_status <> 'archived' FOR UPDATE`).get(source.id, projectId);
+    if (!current || current.revision_token !== source.revision_token || (activationGuard && !await activationGuard())) {
+      throw createError("Knowledge source changed before index promotion.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+    const ready = await db.prepare(`SELECT document_id FROM ai_knowledge_index_states
+      WHERE document_id = ? AND lexical_state = 'ready' AND dense_state = 'ready'`).get(documentId);
+    if (!ready) throw createError("Required knowledge indexes are not ready.", 409, "ERR_INDEX_NOT_READY");
+    await db.prepare(`
+      UPDATE ai_knowledge_documents SET is_active = FALSE, effective_to = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE source_id = ? AND id <> ? AND is_active = TRUE
     `).run(source.id, documentId);
-    await db.prepare(`
-      UPDATE ai_knowledge_documents
-      SET is_active = TRUE, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(documentId);
+    await db.prepare(`UPDATE ai_knowledge_index_states SET is_current = FALSE, updated_at = CURRENT_TIMESTAMP
+      WHERE source_id = ? AND document_id <> ? AND is_current = TRUE`).run(source.id, documentId);
+    await db.prepare(`UPDATE ai_knowledge_documents SET is_active = TRUE, effective_from = CURRENT_TIMESTAMP,
+      effective_to = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(documentId);
+    await db.prepare(`UPDATE ai_knowledge_index_states SET is_current = TRUE, required_indexes_ready = TRUE,
+      updated_at = CURRENT_TIMESTAMP WHERE document_id = ?`).run(documentId);
     await db.prepare(`
       UPDATE ai_knowledge_sources
       SET app_type_id = ?, title = ?, source_uri = ?, file_name = ?, mime_type = ?, size_bytes = ?,
@@ -1238,11 +1385,52 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       source._pending_checksum || null, sanitized.risk_flags, source.id
     );
   });
-  await commitDocumentVersion();
-  for (const pending of pendingVectorWrites) await persistEmbeddingVector(pending.id, pending.vector);
+  let projectionWarning = null;
+  if (knowledgeVectorStore.isConfigured()) {
+    try {
+      // PostgreSQL remains canonical. Qdrant stores only stable canonical IDs
+      // and ACL-filterable projection metadata; content is hydrated from the
+      // active PostgreSQL revision after vector retrieval.
+      const active = await db.prepare(`SELECT id, revision_token FROM ai_knowledge_sources
+        WHERE id = ? AND project_id = ? AND extraction_status <> 'archived'`).get(source.id, projectId);
+      if (active?.revision_token !== source.revision_token) throw createError("A newer Knowledge document superseded the vector projection.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+      const projection = await knowledgeVectorStore.replaceDocument({
+        projectId,
+        source,
+        documentId,
+        chunks: persistedChunks,
+        vectors: embeddingResult.vectors,
+        embeddingModel: embeddingResult.model,
+        signal
+      });
+      await db.prepare(`
+        UPDATE ai_knowledge_index_states
+        SET dense_state = 'ready', vector_provider = 'qdrant',
+          embedding_dimensions = ?, indexed_chunk_count = ?, error_fingerprint = NULL,
+          indexed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE document_id = ?
+      `).run(projection.dimensions, projection.indexed, documentId);
+    } catch (error) {
+      const errorReference = fingerprint(error instanceof Error ? error.message : "Qdrant projection failed");
+      await db.prepare(`
+        UPDATE ai_knowledge_index_states
+        SET dense_state = 'degraded', error_fingerprint = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE document_id = ?
+      `).run(errorReference, documentId).catch(() => undefined);
+      projectionWarning = `This revision is retained but not searchable until its vector index is ready. The previous ready revision remains current (ref ${errorReference.slice(0, 12)}).`;
+    }
+  }
+  if (!projectionWarning) await activateDocumentVersion();
 
   const document = await db.prepare("SELECT * FROM ai_knowledge_documents WHERE id = ?").get(documentId);
-  return { document, chunks: persistedChunks, warning: embeddingResult.warning };
+  const warning = [embeddingResult.warning, projectionWarning, contextQuality.requires_review ? `Context quality ${contextQuality.score}/100 requires review before relying on this source.` : null].filter(Boolean).join(" ") || null;
+  return {
+    document,
+    chunks: persistedChunks,
+    context_quality: contextQuality,
+    warning_code: embeddingResult.warning_code || (projectionWarning ? "vector_projection_degraded" : contextQuality.requires_review ? "context_quality_review" : null),
+    warning
+  };
 };
 
 const completeJob = async (jobId, { processed, failed, chunkCount, warnings, errors }, { leaseOwner } = {}) => {
@@ -1294,6 +1482,7 @@ const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selec
     try {
       const input = await normalizeInput(normalizedProjectId, rawInputs[index]);
       input.app_type_id = input.app_type_id || normalizeId(appTypeId) || null;
+      input.processing_fingerprint = processingProfile(chunkingOptions).fingerprint;
       source = await createSource({
         projectId: normalizedProjectId,
         collectionId,
@@ -1334,12 +1523,12 @@ const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selec
         await markSourceNeedsExtraction(source, { jobId: job.id, leaseOwner });
       }
       chunkCount += persisted.chunks.length;
-      if (persisted.warning) warnings.push({ input_index: index, source_id: source.id, message: persisted.warning });
+      if (persisted.warning) warnings.push({ input_index: index, source_id: source.id, code: persisted.warning_code || "indexing_warning", message: persisted.warning });
       await recordIngestionResult(job.id, index, {
         sourceId: source.id,
         documentId: persisted.document?.id,
         outcome: persisted.document ? "indexed" : "needs_extraction",
-        warningCodes: persisted.warning ? ["ingestion_warning"] : []
+        warningCodes: persisted.warning ? [persisted.warning_code || "indexing_warning"] : []
       }, { leaseOwner });
       processed += 1;
     } catch (error) {
@@ -1352,9 +1541,13 @@ const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selec
         throw persistenceError;
       }
       failed += 1;
-      const errorFingerprint = fingerprint(error instanceof Error ? error.message : "Ingestion failed");
-      errors.push({ input_index: index, code: "ingestion_failed", error_fingerprint: errorFingerprint });
-      await recordIngestionResult(job.id, index, { sourceId: source?.id, outcome: "failed", errorFingerprint }, { leaseOwner });
+      const classifiedError = classifyIngestionError(error, { stage: "indexing" });
+      errors.push({ input_index: index, ...classifiedError });
+      await recordIngestionResult(job.id, index, {
+        sourceId: source?.id,
+        outcome: "failed",
+        errorFingerprint: classifiedError.error_fingerprint
+      }, { leaseOwner });
     }
     if (existingJobId) {
       const progress = await db.prepare(`
@@ -1559,6 +1752,17 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
         OR (lease_expires_at IS NULL AND updated_at < CURRENT_TIMESTAMP - (?::INTEGER * INTERVAL '1 minute'))
       )
   `).run([{ code: "stale_lease_recovered", message: "A stale ingestion lease was recovered after a worker restart." }], normalizedStaleMinutes);
+  // Retain sanitized failed inputs long enough for a manual retry, then purge
+  // stale payload copies. Staged file retries remain reconstructable from their
+  // scoped attachment even after this retention window.
+  await db.prepare(`
+    DELETE FROM ai_knowledge_ingestion_inputs inputs
+    WHERE EXISTS (
+      SELECT 1 FROM ai_knowledge_ingestion_jobs jobs
+      WHERE jobs.id = inputs.job_id AND jobs.status = 'failed'
+        AND jobs.updated_at < CURRENT_TIMESTAMP - (?::INTEGER * INTERVAL '1 day')
+    )
+  `).run(FAILED_INPUT_RETENTION_DAYS);
 
   const outcomes = [];
   for (let index = 0; index < normalizedLimit; index += 1) {
@@ -1610,7 +1814,9 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
       terminalStatePersisted = true;
       outcomes.push({ id: job.id, status: result.job.status });
     } catch (error) {
-      const safeMessage = sanitizeKnowledgeText(error instanceof Error ? error.message : "Queued ingestion failed").text.slice(0, 1_000);
+      const classifiedError = classifyIngestionError(error, {
+        stage: jobConfig.upload ? "file_processing" : "indexing"
+      });
       if (jobConfig.upload) {
         const stagedSourceId = normalizeId(asObject(queuedInputs[0]?.payload).source_id);
         if (stagedSourceId) {
@@ -1623,17 +1829,26 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
           await recordIngestionResult(job.id, 0, {
             sourceId: stagedSourceId,
             outcome: "failed",
-            errorFingerprint: fingerprint(safeMessage)
+            errorFingerprint: classifiedError.error_fingerprint
           }, { leaseOwner: KNOWLEDGE_WORKER_ID });
         }
       }
-      await completeJob(job.id, { processed: 0, failed: Number(job.input_count || 1), chunkCount: 0, warnings: [], errors: [{ code: "job_failed", error_fingerprint: fingerprint(safeMessage) }] }, { leaseOwner: KNOWLEDGE_WORKER_ID });
+      await completeJob(job.id, {
+        processed: 0,
+        failed: Number(job.input_count || 1),
+        chunkCount: 0,
+        warnings: [],
+        errors: [classifiedError]
+      }, { leaseOwner: KNOWLEDGE_WORKER_ID });
       terminalStatePersisted = true;
       console.warn(JSON.stringify({
         event: "knowledge_ingestion_job_failed",
         job_id: job.id,
         project_id: job.project_id,
-        error_fingerprint: fingerprint(safeMessage)
+        stage: classifiedError.stage,
+        error_code: classifiedError.code,
+        retryable: classifiedError.retryable,
+        error_fingerprint: classifiedError.error_fingerprint
       }));
       outcomes.push({ id: job.id, status: "failed" });
     } finally {
@@ -1642,7 +1857,7 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
         DELETE FROM ai_knowledge_ingestion_inputs inputs
         WHERE inputs.job_id = ? AND EXISTS (
           SELECT 1 FROM ai_knowledge_ingestion_jobs jobs
-          WHERE jobs.id = inputs.job_id AND jobs.status IN ('completed', 'completed_with_warnings', 'failed')
+          WHERE jobs.id = inputs.job_id AND jobs.status IN ('completed', 'completed_with_warnings')
         )
       `).run(job.id);
     }
@@ -1650,7 +1865,109 @@ const processQueuedIngestions = async ({ limit = 2, staleAfterMinutes = 60 } = {
   return outcomes;
 };
 
+const retryIngestion = async ({ id, user }) => {
+  const visibleJob = await getIngestionJob(id, { user });
+  const retry = await db.transaction(async () => {
+    const job = await db.prepare(`
+      SELECT * FROM ai_knowledge_ingestion_jobs WHERE id = ? FOR UPDATE
+    `).get(id);
+    if (!job) throw createError("Knowledge ingestion job not found.", 404);
+    if (["queued", "running"].includes(job.status)) return { job, alreadyAccepted: true };
+    if (job.status !== "failed") {
+      throw createError("Only a failed Knowledge ingestion can be retried.", 409, "KNOWLEDGE_RETRY_NOT_ALLOWED");
+    }
+
+    const jobConfig = asObject(job.config);
+    const retryCount = Math.max(0, Number(jobConfig.retry_count || 0) || 0);
+    if (retryCount >= MAX_MANUAL_INGESTION_RETRIES) {
+      throw createError(`This ingestion reached the ${MAX_MANUAL_INGESTION_RETRIES}-retry safety limit. Upload or select the source again to start a clean job.`, 409, "KNOWLEDGE_RETRY_LIMIT_REACHED");
+    }
+
+    let queuedInputs = await db.prepare(`
+      SELECT input_index FROM ai_knowledge_ingestion_inputs
+      WHERE job_id = ? ORDER BY input_index ASC
+    `).all(id);
+    if (!queuedInputs.length && jobConfig.upload) {
+      const source = await db.prepare(`
+        SELECT sources.id, sources.project_id, sources.attachment_id, sources.checksum_sha256,
+          sources.revision_token, sources.mime_type
+        FROM ai_knowledge_ingestion_results results
+        JOIN ai_knowledge_sources sources ON sources.id = results.source_id
+        WHERE results.job_id = ? AND sources.project_id = ?
+        ORDER BY results.input_index ASC LIMIT 1
+      `).get(id, job.project_id);
+      const canReextract = source && (
+        NATIVE_TEXT_MIME_TYPES.has(source.mime_type)
+        || (TIKA_MIME_TYPES.has(source.mime_type) && Boolean(getTikaUrl()))
+      );
+      if (!source?.attachment_id || !source.checksum_sha256 || !source.revision_token || !canReextract) {
+        throw createError("The retained retry input is unavailable. Upload this source again so its text can be extracted safely.", 409, "KNOWLEDGE_RETRY_INPUT_UNAVAILABLE");
+      }
+      await db.prepare(`
+        INSERT INTO ai_knowledge_ingestion_inputs (job_id, input_index, payload)
+        VALUES (?, 0, ?)
+      `).run(id, {
+        kind: "staged_file",
+        source_id: source.id,
+        attachment_id: source.attachment_id,
+        checksum_sha256: source.checksum_sha256,
+        supplied_text: null,
+        supplied_text_hash: null,
+        revision_token: source.revision_token
+      });
+      queuedInputs = [{ input_index: 0 }];
+    }
+    if (!queuedInputs.length) {
+      throw createError("The retained retry input has expired. Start a new context build from the source records.", 409, "KNOWLEDGE_RETRY_INPUT_UNAVAILABLE");
+    }
+
+    await db.prepare(`
+      UPDATE ai_knowledge_sources sources
+      SET extraction_status = CASE
+          WHEN EXISTS (
+            SELECT 1 FROM ai_knowledge_documents documents
+            WHERE documents.source_id = sources.id AND documents.is_active = TRUE
+          ) THEN 'ready' ELSE 'processing' END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE sources.id IN (
+        SELECT results.source_id FROM ai_knowledge_ingestion_results results
+        WHERE results.job_id = ? AND results.source_id IS NOT NULL
+      ) AND sources.extraction_status = 'failed'
+    `).run(id);
+    await db.prepare("DELETE FROM ai_knowledge_ingestion_results WHERE job_id = ?").run(id);
+    const updated = await db.prepare(`
+      UPDATE ai_knowledge_ingestion_jobs
+      SET status = 'queued', processed_count = 0, failed_count = 0, chunk_count = 0,
+        warnings = ?, errors = ?, config = ?, started_at = NULL, completed_at = NULL,
+        lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'failed'
+      RETURNING *
+    `).get(
+      [{ code: "manual_retry_queued", message: `Retry ${retryCount + 1} was queued from the retained source.` }],
+      [],
+      { ...jobConfig, retry_count: retryCount + 1 },
+      id
+    );
+    if (!updated) throw createError("The ingestion changed while the retry was being queued.", 409, "KNOWLEDGE_RETRY_RACE");
+    return { job: updated, alreadyAccepted: false };
+  })();
+  return {
+    accepted: true,
+    idempotent_replay: retry.alreadyAccepted,
+    job: toPublicIngestionJob(retry.job),
+    status_url: `/knowledge/ingestions/${visibleJob.id}`
+  };
+};
+
 const archiveLegacyKnowledgeSource = async (projectId, sourceRefId) => {
+  const vectorTargets = knowledgeVectorStore.isConfigured() ? await db.prepare(`
+    SELECT sources.id AS source_id, states.embedding_dimensions
+    FROM ai_knowledge_sources sources
+    LEFT JOIN ai_knowledge_index_states states ON states.source_id = sources.id
+    WHERE sources.project_id = ? AND sources.source_kind = 'knowledge_item'
+      AND sources.source_ref_id = ? AND states.embedding_dimensions IS NOT NULL
+  `).all(projectId, sourceRefId).catch(() => []) : [];
   await db.prepare(`
     UPDATE ai_knowledge_sources
     SET extraction_status = 'archived',
@@ -1659,12 +1976,24 @@ const archiveLegacyKnowledgeSource = async (projectId, sourceRefId) => {
     WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
   `).run(projectId, sourceRefId);
   await db.prepare(`
-    UPDATE ai_knowledge_documents SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+    UPDATE ai_knowledge_documents SET is_active = FALSE, effective_to = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE source_id IN (
       SELECT id FROM ai_knowledge_sources
       WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
     ) AND is_active = TRUE
   `).run(projectId, sourceRefId);
+  await db.prepare(`
+    UPDATE ai_knowledge_index_states SET is_current = FALSE, updated_at = CURRENT_TIMESTAMP
+    WHERE source_id IN (
+      SELECT id FROM ai_knowledge_sources
+      WHERE project_id = ? AND source_kind = 'knowledge_item' AND source_ref_id = ?
+    ) AND is_current = TRUE
+  `).run(projectId, sourceRefId);
+  await Promise.allSettled(vectorTargets.map((target) => knowledgeVectorStore.deleteSource({
+    projectId,
+    sourceId: target.source_id,
+    dimensions: Number(target.embedding_dimensions)
+  })));
 };
 
 const queueLegacyKnowledgeSync = async ({ projectId, sourceRefId, userId, action = "upsert" }) => {
@@ -1822,7 +2151,11 @@ const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) =
     throw createError("Queued extracted text fingerprint is invalid.", 409, "KNOWLEDGE_INPUT_FINGERPRINT_MISMATCH");
   }
   const maxFileBytes = Math.min(Number(config.knowledge?.maxFileBytes || 50 * 1024 * 1024), Number(config.objectStorage.maxAttachmentBytes));
-  const { stream } = await attachmentService.download({ user, id: source.attachment_id, permissionCode: "knowledge.manage" });
+  const { stream } = await attachmentService.downloadManagedKnowledgeObject({
+    id: source.attachment_id,
+    projectId: job.project_id,
+    sourceId: source.id
+  });
   const buffer = await streamToBoundedBuffer(stream, maxFileBytes);
   if (signal?.aborted) throw createError("Knowledge ingestion lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
   validateUploadSignature(buffer, source.file_name, source.mime_type);
@@ -1852,6 +2185,7 @@ const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) =
   if (!extractedText && !extractionWarning) {
     extractionWarning = "The file is stored, but searchable context needs extracted_text, a caption, a transcript, or a configured supported document processor.";
   }
+  source.extraction_strategy = extractionStrategy;
   await db.prepare(`
     UPDATE ai_knowledge_sources
     SET extraction_status = CASE
@@ -1879,8 +2213,10 @@ const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) =
       return Boolean(lease?.owned) && !signal?.aborted;
     }
   });
-  const warningMessages = [extractionWarning, persisted.warning].filter(Boolean);
-  const warnings = warningMessages.map((message) => ({ source_id: source.id, code: "extraction_warning", message }));
+  const warnings = [
+    extractionWarning ? { source_id: source.id, code: "extraction_warning", message: extractionWarning } : null,
+    persisted.warning ? { source_id: source.id, code: persisted.warning_code || "indexing_warning", message: persisted.warning } : null
+  ].filter(Boolean);
   if (!persisted.document) {
     await markSourceNeedsExtraction(source, { jobId: job.id, leaseOwner });
   }
@@ -1888,7 +2224,7 @@ const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) =
     sourceId: source.id,
     documentId: persisted.document?.id,
     outcome: persisted.document ? "indexed" : "needs_extraction",
-    warningCodes: warningMessages.length ? ["extraction_warning"] : []
+    warningCodes: warnings.map((warning) => warning.code)
   }, { leaseOwner });
   const completedJob = await completeJob(job.id, {
     processed: 1,
@@ -2005,7 +2341,8 @@ const ingestUpload = async ({ user, fields, file, idempotencyKey }) => {
     mime_type: mimeType,
     size_bytes: buffer.length,
     extraction_strategy: suppliedText ? "client_supplied" : "queued_extraction",
-    metadata: { original_file_name: safeFileName }
+    metadata: { original_file_name: safeFileName },
+    processing_fingerprint: processingProfile(chunkingOptions).fingerprint
   };
   input.checksum_sha256 = checksum;
   let source;
@@ -2091,14 +2428,11 @@ const ingestUpload = async ({ user, fields, file, idempotencyKey }) => {
 const normalizeFilterIds = (value, max = 100) => [...new Set(asArray(value).map(normalizeId).filter(Boolean))].slice(0, max);
 
 const getProductHelpCandidates = (query, { includeEmbeddings = true } = {}) => {
-  const queryTokens = new Set(String(query || "").toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
-  return HELLOTEST_PRODUCT_HELP.map((section) => {
-    const contentTokens = new Set(section.content.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
-    const overlap = queryTokens.size ? [...queryTokens].filter((token) => contentTokens.has(token)).length / queryTokens.size : 0;
-    const sourceHash = fingerprint(`hellotest-product-help:${HELLOTEST_PRODUCT_HELP_VERSION}`);
-    const versionHash = fingerprint(`${section.id}:${HELLOTEST_PRODUCT_HELP_VERSION}:${section.content}`);
+  return rankProductHelpSections(query).map((section) => {
+    const sourceHash = fingerprint(`hellotest-product-help:${PRODUCT_HELP_VERSION}`);
+    const versionHash = fingerprint(`${section.id}:${PRODUCT_HELP_VERSION}:${section.content}`);
     return {
-      chunk_id: `product-help-${section.id}-${HELLOTEST_PRODUCT_HELP_VERSION.replace(/\W/g, "-")}`,
+      chunk_id: `product-help-${section.id}-${PRODUCT_HELP_VERSION.replace(/\W/g, "-")}`,
       document_id: `product-help-${section.id}`,
       source_id: "hellotest-product-help",
       content: section.content,
@@ -2109,18 +2443,18 @@ const getProductHelpCandidates = (query, { includeEmbeddings = true } = {}) => {
       embedding: includeEmbeddings ? localEmbedding(section.content) : null,
       fallback_embedding: includeEmbeddings ? localEmbedding(section.content) : null,
       embedding_model: includeEmbeddings ? LOCAL_EMBEDDING_MODEL : null,
-      lexical_rank: overlap,
+      lexical_rank: section.relevance,
       title: section.title,
       version_hash: versionHash,
       source_kind: "product_help",
-      source_ref_id: `${section.id}@${HELLOTEST_PRODUCT_HELP_VERSION}`,
+      source_ref_id: `${section.id}@${PRODUCT_HELP_VERSION}`,
       app_type_id: null,
       source_uri: null,
       risk_flags: [],
       source_hash: sourceHash,
       collection_ids: []
     };
-  }).filter((candidate) => candidate.lexical_rank > 0);
+  });
 };
 
 const search = async ({
@@ -2132,14 +2466,26 @@ const search = async ({
   user,
   userId,
   integrationId,
-  allowedSourcePermissions
+  allowedSourcePermissions,
+  preparedEmbedding,
+  signal,
+  maxCandidates
 } = {}) => {
+  if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
   const normalizedProjectId = normalizeId(projectId);
   const sanitizedQuery = sanitizeKnowledgeText(normalizeText(query, 4_000));
   if (!normalizedProjectId || !sanitizedQuery.text) throw createError("project_id and query are required.");
   const normalizedLimit = Math.max(1, Math.min(MAX_SEARCH_LIMIT, Number.parseInt(limit, 10) || 12));
+  const candidateLimit = Math.max(1, Math.min(1_000, Number(maxCandidates) || MAX_CANDIDATES));
   const normalizedMode = ["hybrid", "semantic", "keyword"].includes(mode) ? mode : "hybrid";
   const normalizedFilters = asObject(filters);
+  let asOf = null;
+  if (normalizedFilters.as_of) {
+    const timestamp = Date.parse(normalizedFilters.as_of);
+    if (!Number.isFinite(timestamp)) throw createError("as_of must be a valid timestamp.");
+    await knowledgeAuthorization.assertHistoricalAccess(user, normalizedProjectId);
+    asOf = new Date(timestamp).toISOString();
+  }
   const collectionIds = normalizeFilterIds(normalizedFilters.collection_ids || normalizedFilters.collections);
   const requestedSourceIds = normalizeFilterIds(normalizedFilters.source_ids, 100);
   const includeProductHelpBySource = !requestedSourceIds.length || requestedSourceIds.includes("hellotest-product-help");
@@ -2164,9 +2510,14 @@ const search = async ({
     "chunks.project_id = ?",
     "documents.project_id = ?",
     "sources.project_id = ?",
-    "documents.is_active = TRUE",
+    ...(asOf ? ["documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)"] : ["documents.is_active = TRUE"]),
+    "index_states.required_indexes_ready = TRUE",
     "sources.extraction_status = 'ready'"
   ];
+  if (asOf) filterParams.push(asOf, asOf);
+  const fragmentAcl = knowledgeAuthorization.predicate({ user, projectId: normalizedProjectId, document: "documents", chunk: "chunks" });
+  clauses.push(fragmentAcl.sql);
+  filterParams.push(...fragmentAcl.params);
   if (effectiveAllowedSourcePermissions.length) {
     clauses.push(`(sources.required_permission IS NULL OR sources.required_permission IN (${effectiveAllowedSourcePermissions.map(() => "?").join(", ")}))`);
     filterParams.push(...effectiveAllowedSourcePermissions);
@@ -2200,36 +2551,92 @@ const search = async ({
     SELECT chunks.id AS chunk_id, chunks.document_id, chunks.source_id, chunks.content,
       chunks.chunk_index, chunks.heading, chunks.char_start, chunks.char_end, chunks.metadata,
       ${embeddingProjection}
-      documents.title, documents.checksum_sha256 AS version_hash,
+      documents.title, documents.checksum_sha256 AS version_hash, documents.version,
+      documents.is_active AS is_current, documents.effective_from, documents.effective_to,
       sources.source_kind, sources.source_ref_id, sources.app_type_id,
       sources.source_uri, sources.risk_flags, sources.checksum_sha256 AS source_hash,
       ARRAY(SELECT collection_id FROM ai_knowledge_collection_sources links WHERE links.source_id = chunks.source_id) AS collection_ids
     FROM ai_knowledge_chunks chunks
     JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
     JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
+    JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
   `;
+  const exactIdentifiers = [...new Set((sanitizedQuery.text.match(/\b(?:[A-Z][A-Z0-9]{1,11}-\d+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi) || []).map((value) => value.toUpperCase()))].slice(0, 10);
 
   let queryEmbeddingResult = null;
   let queryVector = null;
   let fallbackQueryVector = null;
   let pgvectorAvailable = false;
   if (usesEmbeddingsForMode(normalizedMode)) {
-    const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
-    queryEmbeddingResult = await embedTexts(runtime, [sanitizedQuery.text]);
+    if (preparedEmbedding?.model && Array.isArray(preparedEmbedding.vector) && Array.isArray(preparedEmbedding.fallback)) {
+      queryEmbeddingResult = {
+        model: preparedEmbedding.model,
+        vectors: [preparedEmbedding.vector],
+        fallback: [preparedEmbedding.fallback],
+        warning: preparedEmbedding.warning || null,
+        warning_code: preparedEmbedding.warning_code || null
+      };
+    } else {
+      const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
+      queryEmbeddingResult = await embedTexts(runtime, [sanitizedQuery.text], { cacheResults: true, signal });
+    }
     queryVector = queryEmbeddingResult.vectors[0];
     fallbackQueryVector = queryEmbeddingResult.fallback[0];
     pgvectorAvailable = await getVectorCapability();
   }
-  const lexicalCandidates = includePersistedSources ? await db.prepare(`
-      ${candidateProjection.replace("SELECT ", "SELECT ts_rank_cd(chunks.search_vector, plainto_tsquery('simple', ?)) AS lexical_rank, ")}
-      WHERE ${clauses.join(" AND ")}
-      ORDER BY lexical_rank DESC, chunks.created_at DESC
-      LIMIT ?
-    `).all(
-      sanitizedQuery.text,
-      ...filterParams,
-      normalizedMode === "keyword" || pgvectorAvailable ? MAX_CANDIDATES : MAX_FALLBACK_CANDIDATES
-    ) : [];
+  const lexicalPromise = includePersistedSources ? db.prepare(`
+    ${candidateProjection.replace("SELECT ", "SELECT ts_rank_cd(chunks.search_vector, plainto_tsquery('simple', ?)) AS lexical_rank, ")}
+    WHERE ${clauses.join(" AND ")}
+    ORDER BY lexical_rank DESC, chunks.created_at DESC
+    LIMIT ?
+  `).all(
+    sanitizedQuery.text,
+    ...filterParams,
+    normalizedMode === "keyword" || pgvectorAvailable || knowledgeVectorStore.isConfigured() || maxCandidates ? candidateLimit : MAX_FALLBACK_CANDIDATES
+  ) : Promise.resolve([]);
+  const directLookupPromise = includePersistedSources && exactIdentifiers.length ? db.prepare(`
+    ${candidateProjection.replace("SELECT ", "SELECT 1::real AS lexical_rank, TRUE AS exact_match, ")}
+    WHERE ${clauses.join(" AND ")}
+      AND (
+        UPPER(COALESCE(sources.source_ref_id, '')) IN (${exactIdentifiers.map(() => "?").join(", ")})
+        OR UPPER(COALESCE(sources.metadata->>'display_id', '')) IN (${exactIdentifiers.map(() => "?").join(", ")})
+        OR UPPER(COALESCE(sources.metadata->>'key', '')) IN (${exactIdentifiers.map(() => "?").join(", ")})
+        OR UPPER(sources.id) IN (${exactIdentifiers.map(() => "?").join(", ")})
+      )
+    ORDER BY chunks.chunk_index ASC
+    LIMIT ?
+  `).all(...filterParams, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, Math.min(candidateLimit, exactIdentifiers.length * 12)) : Promise.resolve([]);
+  const qdrantPromise = usesEmbeddingsForMode(normalizedMode) && includePersistedSources && knowledgeVectorStore.isConfigured()
+    ? db.prepare(`SELECT chunks.id
+        FROM ai_knowledge_chunks chunks
+        JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
+        JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
+        JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
+        WHERE ${clauses.join(" AND ")} ORDER BY chunks.id LIMIT 10001
+      `).all(...filterParams).then((authorized) => {
+        if (authorized.length > 10_000) return { configured: true, hits: [], degraded: true, authorization_scope_exceeded: true };
+        return knowledgeVectorStore.search({
+        projectId: normalizedProjectId,
+        queryVector,
+        embeddingModel: queryEmbeddingResult.model,
+        allowedPermissions: effectiveAllowedSourcePermissions,
+        authorizedChunkIds: authorized.map((row) => row.id),
+        historical: Boolean(asOf),
+        sourceKinds,
+        sourceIds,
+        appTypeId,
+        limit: candidateLimit,
+        signal
+      });
+      }).catch((error) => ({ configured: true, hits: [], degraded: true, error_fingerprint: fingerprint(error instanceof Error ? error.message : "Qdrant retrieval failed") }))
+    : Promise.resolve({ configured: false, hits: [] });
+  const [lexicalCandidates, qdrantResult, directLookupCandidates] = await Promise.all([lexicalPromise, qdrantPromise, directLookupPromise]);
+  if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
+  const lexicalIds = new Set(lexicalCandidates.map((candidate) => candidate.chunk_id));
+  for (const candidate of directLookupCandidates.reverse()) {
+    if (!lexicalIds.has(candidate.chunk_id)) lexicalCandidates.unshift(candidate);
+    else Object.assign(lexicalCandidates.find((item) => item.chunk_id === candidate.chunk_id), { exact_match: true, lexical_rank: Math.max(1, Number(candidate.lexical_rank || 0)) });
+  }
   if (includeProductHelp && !collectionIds.length) {
     lexicalCandidates.push(...getProductHelpCandidates(sanitizedQuery.text, { includeEmbeddings: usesEmbeddingsForMode(normalizedMode) }));
     lexicalCandidates.sort((left, right) => Number(right.lexical_rank || 0) - Number(left.lexical_rank || 0));
@@ -2239,7 +2646,21 @@ const search = async ({
   let vectorMode = normalizedMode === "keyword"
     ? "postgresql-fts-only"
     : pgvectorAvailable ? "pgvector-exact+fts" : "degraded-local-jsonb-cosine+fts";
-  if (usesEmbeddingsForMode(normalizedMode) && pgvectorAvailable && includePersistedSources) {
+  if (usesEmbeddingsForMode(normalizedMode) && qdrantResult.hits.length && includePersistedSources) {
+    const qdrantScore = new Map(qdrantResult.hits.map((hit) => [hit.chunk_id, Number(hit.score || 0)]));
+    const qdrantIds = [...qdrantScore.keys()];
+    denseCandidates = await db.prepare(`
+      ${candidateProjection.replace("SELECT ", "SELECT 0::real AS lexical_rank, ")}
+      WHERE ${clauses.join(" AND ")}
+        AND chunks.id IN (${qdrantIds.map(() => "?").join(", ")})
+        AND chunks.embedding_model = ?
+    `).all(...filterParams, ...qdrantIds, queryEmbeddingResult.model);
+    denseCandidates = denseCandidates
+      .map((candidate) => ({ ...candidate, dense_similarity: qdrantScore.get(candidate.chunk_id) || 0 }))
+      .sort((left, right) => right.dense_similarity - left.dense_similarity);
+    vectorMode = "qdrant-acl-prefilter+postgresql-fts";
+  }
+  if (usesEmbeddingsForMode(normalizedMode) && !denseCandidates.length && pgvectorAvailable && includePersistedSources) {
     try {
       denseCandidates = await db.prepare(`
         ${candidateProjection.replace("SELECT ", "SELECT (1 - (chunks.embedding_vector <=> ?::vector)) AS dense_similarity, 0::real AS lexical_rank, ")}
@@ -2249,7 +2670,7 @@ const search = async ({
           AND vector_dims(chunks.embedding_vector) = ?
         ORDER BY dense_similarity DESC
         LIMIT ?
-      `).all(vectorLiteral(queryVector), ...filterParams, queryEmbeddingResult.model, queryVector.length, MAX_CANDIDATES);
+      `).all(vectorLiteral(queryVector), ...filterParams, queryEmbeddingResult.model, queryVector.length, candidateLimit);
     } catch {
       vectorMode = "degraded-local-jsonb-cosine+fts";
     }
@@ -2257,8 +2678,19 @@ const search = async ({
 
   const candidateById = new Map();
   for (const candidate of lexicalCandidates) candidateById.set(candidate.chunk_id, candidate);
-  for (const candidate of denseCandidates) candidateById.set(candidate.chunk_id, { ...candidateById.get(candidate.chunk_id), ...candidate });
-  const candidates = [...candidateById.values()];
+  for (const candidate of denseCandidates) {
+    const previous = candidateById.get(candidate.chunk_id);
+    candidateById.set(candidate.chunk_id, { ...previous, ...candidate,
+      lexical_rank: Math.max(Number(previous?.lexical_rank || 0), Number(candidate.lexical_rank || 0)) });
+  }
+  // Give exact lookup and both retrieval channels room within the caller's
+  // candidate budget before reranking the authorized union.
+  const candidateIds = new Set(directLookupCandidates.map((candidate) => candidate.chunk_id));
+  for (let index = 0; index < Math.max(lexicalCandidates.length, denseCandidates.length); index += 1) {
+    if (lexicalCandidates[index]) candidateIds.add(lexicalCandidates[index].chunk_id);
+    if (denseCandidates[index]) candidateIds.add(denseCandidates[index].chunk_id);
+  }
+  const candidates = [...candidateIds].slice(0, maxCandidates ? candidateLimit : MAX_FALLBACK_CANDIDATES).map((id) => candidateById.get(id)).filter(Boolean);
   const queryTokens = new Set(sanitizedQuery.text.toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
   const lexicalRankById = new Map(
     lexicalCandidates.filter((candidate) => Number(candidate.lexical_rank) > 0).map((candidate, index) => [candidate.chunk_id, index + 1])
@@ -2281,7 +2713,7 @@ const search = async ({
     const lexicalRank = Math.max(0, Number(candidate.lexical_rank || 0));
     const contentTokens = new Set(String(candidate.content || "").toLowerCase().match(/[a-z0-9][a-z0-9_.-]{1,48}/g) || []);
     const overlap = queryTokens.size ? [...queryTokens].filter((token) => contentTokens.has(token)).length / queryTokens.size : 0;
-    const lexical = Math.min(1, lexicalRank * 5 + overlap * 0.6 + (String(candidate.content).toLowerCase().includes(sanitizedQuery.text.toLowerCase()) ? 0.4 : 0));
+    const lexical = candidate.exact_match ? 1 : Math.min(1, lexicalRank * 5 + overlap * 0.6 + (String(candidate.content).toLowerCase().includes(sanitizedQuery.text.toLowerCase()) ? 0.4 : 0));
     const lexicalPosition = lexicalRankById.get(candidate.chunk_id);
     const semanticPosition = semanticRankById.get(candidate.chunk_id);
     const reciprocalRank = normalizedMode === "keyword"
@@ -2298,6 +2730,14 @@ const search = async ({
       chunk_id: candidate.chunk_id,
       document_id: candidate.document_id,
       source_id: candidate.source_id,
+      canonical_id: candidate.source_id,
+      knowledge_id: candidate.document_id,
+      fragment_id: candidate.chunk_id,
+      version: candidate.version || null,
+      is_current: candidate.is_current !== false,
+      effective_from: candidate.effective_from || null,
+      effective_to: candidate.effective_to || null,
+      index_ready: true,
       collection_ids: asArray(candidate.collection_ids),
       title: candidate.title,
       source_kind: candidate.source_kind,
@@ -2319,6 +2759,13 @@ const search = async ({
           : candidate.source_kind === "file" ? `/knowledge/sources/${candidate.source_id}/file` : null,
         document_id: candidate.document_id,
         chunk_id: candidate.chunk_id,
+        canonical_id: candidate.source_id,
+        knowledge_id: candidate.document_id,
+        fragment_id: candidate.chunk_id,
+        version: candidate.version || null,
+        is_current: candidate.is_current !== false,
+        effective_from: candidate.effective_from || null,
+        effective_to: candidate.effective_to || null,
         excerpt: String(candidate.content || "").slice(0, 700),
         source_hash: candidate.source_hash || null,
         version_hash: candidate.version_hash || null,
@@ -2326,6 +2773,8 @@ const search = async ({
         location: {
           chunk_index: Number(candidate.chunk_index || 0),
           heading: candidate.heading || null,
+          heading_path: asArray(candidate.metadata?.section_path),
+          section_type: candidate.metadata?.section_type || null,
           char_start: Number(candidate.char_start || 0),
           char_end: Number(candidate.char_end || 0),
           page: Number(candidate.metadata?.page || 0) || null
@@ -2345,6 +2794,20 @@ const search = async ({
     if (scored.length >= normalizedLimit) break;
   }
 
+  const selectedSourceIds = normalizeFilterIds(scored.map((hit) => hit.source_id).filter((id) => id !== "hellotest-product-help"));
+  const partialSources = selectedSourceIds.length ? await db.prepare(`SELECT DISTINCT sources.id
+    FROM ai_knowledge_sources sources
+    JOIN ai_knowledge_documents documents ON documents.source_id = sources.id
+    JOIN ai_knowledge_chunks chunks ON chunks.document_id = documents.id
+    JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
+    WHERE sources.project_id = ? AND sources.extraction_status = 'ready' AND index_states.required_indexes_ready = TRUE
+      ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
+      AND sources.id IN (${selectedSourceIds.map(() => "?").join(",")}) AND NOT (${fragmentAcl.sql})`
+  ).all(normalizedProjectId, ...(asOf ? [asOf, asOf] : []), ...selectedSourceIds, ...fragmentAcl.params) : [];
+  const partialSourceIds = new Set(partialSources.map((source) => source.id));
+  for (const hit of scored) hit.visibility = { state: partialSourceIds.has(hit.source_id) ? "PARTIAL" : "FULL" };
+  if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
+
   return {
     project_id: normalizedProjectId,
     query: sanitizedQuery.text,
@@ -2354,8 +2817,10 @@ const search = async ({
       candidate_count: candidates.length,
       result_count: scored.length,
       embedding_model: queryEmbeddingResult?.model || null,
+      query_class: knowledgeContracts.classifyQuery(sanitizedQuery.text),
+      direct_lookup_count: directLookupCandidates.length,
       vector_mode: vectorMode,
-      degraded: normalizedMode === "keyword" ? false : vectorMode.startsWith("degraded") || queryEmbeddingResult.model === LOCAL_EMBEDDING_MODEL,
+      degraded: normalizedMode === "keyword" ? false : vectorMode.startsWith("degraded") || Boolean(qdrantResult.degraded) || queryEmbeddingResult.model === LOCAL_EMBEDDING_MODEL,
       ranking: normalizedMode === "keyword"
         ? "PostgreSQL full-text lexical ranking (no embedding provider call)"
         : "reciprocal-rank fusion of PostgreSQL full-text and dense retrieval",
@@ -2363,12 +2828,151 @@ const search = async ({
       filters: { collection_ids: collectionIds, source_kinds: requestedSourceKinds, source_ids: requestedSourceIds, app_type_id: appTypeId },
       source_acl: {
         enforced: true,
-        allowed_record_permissions: effectiveAllowedSourcePermissions
+        partial: partialSourceIds.size > 0,
+        partially_visible_sources: partialSourceIds.size,
+        allowed_record_permissions: effectiveAllowedSourcePermissions,
+        vector_prefilter_enforced: vectorMode.startsWith("qdrant")
       },
+      vector_projection_error_fingerprint: qdrantResult.error_fingerprint || null,
+      authorization_scope_bounded: Boolean(qdrantResult.authorization_scope_exceeded),
+      historical: Boolean(asOf),
+      as_of: asOf,
       query_redaction_count: sanitizedQuery.redaction_count,
       query_risk_flags: sanitizedQuery.risk_flags
     },
     guardrails: ASSISTANT_GUARDRAILS
+  };
+};
+
+const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 12, asOf, signal } = {}) => {
+  if (signal?.aborted) throw signal.reason || createError("Knowledge expansion cancelled.", 408);
+  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits, asOf });
+  const seeds = access.allowed.filter((hit) => hit.source_id !== "hellotest-product-help").slice(0, 6);
+  const radius = Math.max(0, Math.min(2, Number(window) || 1));
+  const maximum = Math.max(1, Math.min(24, Number(limit) || 12));
+  const acl = knowledgeAuthorization.predicate({ user, projectId, document: "documents", chunk: "chunks" });
+  const windows = await Promise.all(seeds.map(async (seed) => {
+    const ordinal = Number(seed.citation?.location?.chunk_index || 0);
+    const rows = await db.prepare(`SELECT chunks.* FROM ai_knowledge_chunks chunks
+      JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
+      JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
+      JOIN ai_knowledge_index_states indexes ON indexes.document_id = documents.id
+      WHERE chunks.project_id = ? AND documents.project_id = ? AND sources.project_id = ?
+        AND sources.extraction_status = 'ready' AND indexes.required_indexes_ready = TRUE
+        ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
+        AND chunks.document_id = ? AND chunks.chunk_index BETWEEN ? AND ? AND ${acl.sql}
+      ORDER BY chunks.chunk_index LIMIT 5`).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []),
+      seed.document_id || seed.knowledge_id, Math.max(0, ordinal - radius), ordinal + radius, ...acl.params);
+    return rows.map((row) => ({
+      ...seed, id: row.id, chunk_id: row.id, fragment_id: row.id,
+      content: row.content, excerpt: row.content.slice(0, 700), score: Number((Number(seed.score || 0.5) * 0.85).toFixed(6)),
+      expansion_of: seed.chunk_id || seed.fragment_id,
+      citation: {
+        ...seed.citation, id: `K-${row.id}`, chunk_id: row.id, fragment_id: row.id,
+        excerpt: row.content.slice(0, 700), chunk_hash: fingerprint(row.content),
+        location: { chunk_index: row.chunk_index, heading: row.heading, heading_path: asArray(row.metadata?.section_path),
+          char_start: row.char_start, char_end: row.char_end, page: row.metadata?.page || null }
+      }
+    }));
+  }));
+  const seen = new Set(hits.map((hit) => hit.chunk_id || hit.fragment_id));
+  const results = windows.flat().filter((hit) => {
+    if (seen.has(hit.chunk_id)) return false;
+    seen.add(hit.chunk_id);
+    return true;
+  }).slice(0, maximum);
+  return { results, expansion: { kind: "adjacent_fragments", window: radius, bounded: true, seed_count: seeds.length, result_count: results.length } };
+};
+
+const expandRelationships = async ({ projectId, user, hits = [], query, mode = "hybrid", limit = 6, signal, maxCandidates } = {}) => {
+  if (signal?.aborted) throw signal.reason || createError("Knowledge expansion cancelled.", 408);
+  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits });
+  const seeds = normalizeFilterIds(access.allowed.map((hit) => hit.source_id), 6).filter((id) => id !== "hellotest-product-help");
+  if (!seeds.length) return { results: [], relationships: [] };
+  const acl = knowledgeAuthorization.predicate({ user, projectId, source: "targets" });
+  const rows = await db.prepare(`SELECT relations.id, origin.id AS source_canonical_id,
+    targets.id AS target_canonical_id, relations.relation_type,
+    COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') AS provenance_type
+    FROM ai_knowledge_relations relations
+    JOIN ai_knowledge_sources origin ON origin.source_ref_id = relations.source_id AND origin.source_kind = relations.source_type
+    JOIN ai_knowledge_sources targets ON targets.source_ref_id = relations.target_id AND targets.source_kind = relations.target_type
+    WHERE relations.project_id = ? AND origin.project_id = ? AND targets.project_id = ?
+      AND origin.id IN (${seeds.map(() => "?").join(",")}) AND targets.extraction_status = 'ready'
+      AND COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') IN ('SOURCE_EXPLICIT', 'DETERMINISTIC', 'HUMAN_VERIFIED')
+      AND COALESCE(relations.metadata->>'status', 'ACTIVE') IN ('ACTIVE', 'APPROVED') AND ${acl.sql}
+    ORDER BY relations.created_at DESC LIMIT 24`).all(projectId, projectId, projectId, ...seeds, ...acl.params);
+  const targets = normalizeFilterIds(rows.map((row) => row.target_canonical_id), 12);
+  if (!targets.length) return { results: [], relationships: [] };
+  const response = await search({ projectId, user, query, mode, signal, maxCandidates, limit: Math.min(12, Math.max(1, Number(limit) || 6)), filters: { source_ids: targets } });
+  const visible = new Set(response.results.map((hit) => hit.source_id));
+  return { results: response.results, relationships: rows.filter((row) => visible.has(row.target_canonical_id)).map((row) => ({
+    ...row, relationship_type: row.relation_type,
+    evidence_ids: [...access.allowed.filter((hit) => hit.source_id === row.source_canonical_id), ...response.results.filter((hit) => hit.source_id === row.target_canonical_id)]
+      .map((hit) => hit.citation?.id || `K-${hit.chunk_id}`)
+  })), retrieval: response.retrieval };
+};
+
+// Resolve ACL and the configured LLM embedding runtime once, then embed all
+// retrieval queries in one provider batch. The individual searches retain the
+// exact same filters and ranking contract while avoiding repeated setup/network
+// calls during multi-query and multi-round assistant retrieval.
+const allocateCandidateBudgets = (queryCount, maxCandidates) => {
+  if (maxCandidates === undefined || maxCandidates === null) return Array(queryCount).fill(undefined);
+  const total = Math.max(0, Math.min(10_000, Math.floor(Number(maxCandidates) || 0)));
+  const count = Math.min(queryCount, total);
+  return Array.from({ length: count }, (_, index) => Math.min(1_000,
+    Math.floor(total / count) + (index < total % count ? 1 : 0)));
+};
+
+const searchMany = async ({ queries, projectId, mode = "hybrid", user, userId, integrationId, ...options } = {}) => {
+  const normalizedProjectId = normalizeId(projectId);
+  const normalizedMode = ["hybrid", "semantic", "keyword"].includes(mode) ? mode : "hybrid";
+  const normalizedQueries = [...new Map(asArray(queries)
+    .map((query) => sanitizeKnowledgeText(normalizeText(query, 4_000)).text)
+    .filter(Boolean)
+    .map((query) => [query.toLowerCase(), query])).values()].slice(0, 10);
+  if (!normalizedProjectId || !normalizedQueries.length) throw createError("project_id and at least one query are required.");
+  const candidateBudgets = allocateCandidateBudgets(normalizedQueries.length, options.maxCandidates);
+  const activeQueries = normalizedQueries.slice(0, candidateBudgets.length);
+  if (!activeQueries.length) return {
+    results: [], errors: [], query_count: 0, embedding_batch_count: 0,
+    candidate_count: 0, skipped_query_count: normalizedQueries.length, candidate_budget_exhausted: true
+  };
+  const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, normalizedProjectId);
+  let embeddingBatch = null;
+  if (usesEmbeddingsForMode(normalizedMode)) {
+    const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
+    embeddingBatch = await embedTexts(runtime, activeQueries, { cacheResults: true, signal: options.signal });
+  }
+  const settled = await Promise.allSettled(activeQueries.map(async (query, index) => ({
+    query,
+    result: await search({
+      ...options,
+      maxCandidates: candidateBudgets[index],
+      projectId: normalizedProjectId,
+      query,
+      mode: normalizedMode,
+      integrationId,
+      user,
+      userId,
+      allowedSourcePermissions,
+      preparedEmbedding: embeddingBatch ? {
+        model: embeddingBatch.model,
+        vector: embeddingBatch.vectors[index],
+        fallback: embeddingBatch.fallback[index],
+        warning: embeddingBatch.warning,
+        warning_code: embeddingBatch.warning_code
+      } : null
+    })
+  })));
+  const results = settled.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
+  return {
+    results,
+    errors: settled.filter((entry) => entry.status === "rejected").map((entry) => entry.reason),
+    query_count: activeQueries.length,
+    skipped_query_count: normalizedQueries.length - activeQueries.length,
+    candidate_count: results.reduce((count, entry) => count + Number(entry.result.retrieval?.candidate_count || 0), 0),
+    embedding_batch_count: embeddingBatch ? 1 : 0
   };
 };
 
@@ -2516,6 +3120,25 @@ const getOverview = async ({ projectId, userId, user }) => {
     : await db.prepare("SELECT * FROM ai_knowledge_ingestion_jobs WHERE project_id = ? AND created_by = ? ORDER BY created_at DESC LIMIT 10").all(projectId, user?.id || "__no_user__");
   const embedding = await resolveEmbeddingRuntime({ userId, projectId });
   const pgvectorAvailable = await getVectorCapability();
+  let contextQuality = { active_documents: 0, current_pipeline_documents: 0, review_required_documents: 0, average_score: null };
+  try {
+    const qualityRow = await db.prepare(`
+      SELECT COUNT(*)::INTEGER AS active_documents,
+        COUNT(*) FILTER (WHERE metadata->'processing_pipeline'->>'version' = ?)::INTEGER AS current_pipeline_documents,
+        COUNT(*) FILTER (WHERE COALESCE((metadata->'context_quality'->>'requires_review')::BOOLEAN, FALSE))::INTEGER AS review_required_documents,
+        ROUND(AVG(NULLIF(metadata->'context_quality'->>'score', '')::NUMERIC), 1) AS average_score
+      FROM ai_knowledge_documents
+      WHERE project_id = ? AND is_active = TRUE
+    `).get(KNOWLEDGE_PROCESSING_VERSION, projectId);
+    contextQuality = {
+      active_documents: Number(qualityRow?.active_documents || 0),
+      current_pipeline_documents: Number(qualityRow?.current_pipeline_documents || 0),
+      review_required_documents: Number(qualityRow?.review_required_documents || 0),
+      average_score: qualityRow?.average_score === null || qualityRow?.average_score === undefined ? null : Number(qualityRow.average_score)
+    };
+  } catch {
+    // Overview remains available during rolling upgrades or partial schemas.
+  }
   return {
     project_id: projectId,
     counts,
@@ -2523,10 +3146,13 @@ const getOverview = async ({ projectId, userId, user }) => {
     capabilities: {
       hybrid_search: true,
       vector_store: {
-        engine: "PostgreSQL",
+        engine: knowledgeVectorStore.isConfigured() ? "Qdrant projection + PostgreSQL canonical hydration" : "PostgreSQL",
         pgvector_available: pgvectorAvailable,
-        mode: pgvectorAvailable ? "pgvector with JSONB fallback" : "JSONB cosine with PostgreSQL full-text search",
-        fallback: "PostgreSQL tsvector + deterministic local hash embeddings"
+        mode: knowledgeVectorStore.isConfigured()
+          ? "ACL-prefiltered Qdrant dense retrieval fused with PostgreSQL full-text search"
+          : pgvectorAvailable ? "pgvector with JSONB fallback" : "JSONB cosine with PostgreSQL full-text search",
+        fallback: "PostgreSQL tsvector + pgvector/JSONB cosine + deterministic local hash embeddings",
+        ...knowledgeVectorStore.getStatus()
       },
       embedding: {
         provider: embedding.provider,
@@ -2537,7 +3163,13 @@ const getOverview = async ({ projectId, userId, user }) => {
           ? "Semantic quality depends on the configured embedding model and indexed model compatibility."
           : "The local hash vector is a deterministic degraded retrieval fallback, not a semantic-accuracy substitute."
       },
-      product_help: { version: HELLOTEST_PRODUCT_HELP_VERSION, source_id: "hellotest-product-help", citation_backed: true },
+      context_processing: {
+        version: KNOWLEDGE_PROCESSING_VERSION,
+        hierarchy_strategy: "document-title+section-lineage+content-type+content",
+        ...contextQuality,
+        refresh_recommended: contextQuality.active_documents > contextQuality.current_pipeline_documents
+      },
+      product_help: { version: PRODUCT_HELP_VERSION, source_id: "hellotest-product-help", citation_backed: true },
       extraction: {
         max_file_bytes: Math.min(Number(config.knowledge?.maxFileBytes || 50 * 1024 * 1024), Number(config.objectStorage.maxAttachmentBytes)),
         max_extractable_bytes: Number(config.knowledge?.extractionMaxBytes || 20 * 1024 * 1024),
@@ -2567,7 +3199,8 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
     content: [item.description, item.content].filter(Boolean).join("\n\n"),
     source_uri: item.source_uri || null,
     extraction_strategy: "legacy_knowledge_item",
-    metadata: { content_type: item.content_type, legacy: true }
+    metadata: { content_type: item.content_type, legacy: true },
+    processing_fingerprint: processingProfile({}).fingerprint
   };
   const source = await createSource({ projectId, input, userId });
   if (source._reused) return { document: null, chunks: [], reused: true };
@@ -2612,13 +3245,24 @@ module.exports = {
   processQueuedIngestions,
   processLegacyKnowledgeSyncOutbox,
   queueLegacyKnowledgeSync,
+  retryIngestion,
   archiveLegacyKnowledgeSource,
   resolveAllowedSourcePermissions,
   search,
+  searchMany,
+  expandEvidence,
+  expandRelationships,
   syncLegacyKnowledgeItem,
   unlinkCollectionSources,
   updateCollection,
   _internals: {
+    allocateCandidateBudgets,
+    createSource,
+    persistDocument,
+    KNOWLEDGE_PROCESSING_VERSION,
+    buildChunkRetrievalText,
+    buildDocumentContextProfile,
+    classifyIngestionError,
     embedTexts,
     extractWithTika,
     loadApplicationRecord,
@@ -2627,6 +3271,7 @@ module.exports = {
     stableSourceKey,
     applicationSnapshotFingerprint,
     normalizeProviderEmbeddingBatch,
+    processingProfile,
     validateEmbeddingVector,
     sanitizeClientMetadata,
     sanitizeExternalReferences,

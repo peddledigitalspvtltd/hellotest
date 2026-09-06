@@ -1133,6 +1133,14 @@ class PlaywrightWebSession {
             timeout: prepared.options.timeoutMs
         });
     }
+    async drag(source, destination, options) {
+        const preparedSource = await this.prepareLocator(source, options);
+        const preparedDestination = await this.prepareLocator(destination, options);
+        await preparedSource.locator.dragTo(preparedDestination.locator, {
+            force: preparedSource.options.force,
+            timeout: preparedSource.options.timeoutMs
+        });
+    }
     async fill(target, value, options) {
         const prepared = await this.prepareLocator(target, options);
         const locator = prepared.locator;
@@ -1696,6 +1704,11 @@ class SeleniumWebSession {
         const element = await this.resolveElement(target);
         await this.driverOrThrow.actions().contextClick(element).perform();
     }
+    async drag(source, destination, _options) {
+        const sourceElement = await this.resolveElement(source);
+        const destinationElement = await this.resolveElement(destination);
+        await this.driverOrThrow.actions().dragAndDrop(sourceElement, destinationElement).perform();
+    }
     async fill(target, value, options) {
         const element = await this.resolveElement(target);
         const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
@@ -2044,6 +2057,7 @@ const buildBindings = (session, context, captures, envelope) => {
         hover: async (target, options) => session.hover(resolveTarget(target), options),
         dblclick: async (target, options) => session.dblclick(resolveTarget(target), options),
         rightClick: async (target, options) => session.rightClick(resolveTarget(target), options),
+        drag: async (source, destination, options) => session.drag(resolveTarget(source), resolveTarget(destination), options),
         fill: async (target, value, options) => session.fill(resolveTarget(target), interpolateText(value, context), options),
         clear: async (target, options) => session.fill(resolveTarget(target), "", { ...(options || {}), clear: true }),
         select: async (target, value, options) => session.select(resolveTarget(target), interpolateText(value, context), options),

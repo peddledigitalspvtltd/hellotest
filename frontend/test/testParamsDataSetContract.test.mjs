@@ -105,9 +105,11 @@ test("Test Case authoring names case-level values Test Params and merges linked 
   ]);
 
   assert.match(page, /buildDataSetParameterValues\(linkedDataSet/);
-  assert.match(page, /combineStepParameterValues\(\s*linkedDataSetDefaultParameterValues,\s*testCaseParameterValues/);
+  assert.match(page, /combineStepParameterValues\(\s*linkedDataSetDefaultParameterValues,\s*visibleTestCaseParameterValues/);
+  assert.match(page, /collectSensitiveDataSetParameterNames\(linkedDataSet\)/);
+  assert.match(page, /excludeSensitiveStepParameterValues\(testCaseParameterValues, linkedDataSetSensitiveParameterNames\)/);
   assert.match(page, /mergeStepParameterDefinitions\([\s\S]*linkedDataSetParameterDefinitions/);
-  assert.match(page, /parameter_values: testCaseParameterValues/);
+  assert.match(page, /parameter_values: visibleTestCaseParameterValues/);
   assert.doesNotMatch(page, /parameter_values: effectiveTestCaseParameterValues/);
   assert.match(page, /parameterPreviewScopeKey/);
   assert.match(page, /Test Params · \$\{[^}]+\}/);
@@ -124,6 +126,7 @@ test("Test Case authoring names case-level values Test Params and merges linked 
   assert.doesNotMatch(dialog, /StepParameterUtilityIcon/);
   assert.match(dialog, /scopeLabels\?\.\[parameter\.scope\] \|\| parameter\.scopeLabel/);
   assert.match(linkedModal, /buildDataSetParameterValues/);
+  assert.match(linkedModal, /excludeSensitiveStepParameterValues/);
   assert.match(linkedModal, /title="Test Params"/);
   assert.match(linkedModal, /parameterValues=\{resolvedParameterValues\}/);
   assert.match(versionHistory, /label: "Test Params"/);

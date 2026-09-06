@@ -271,17 +271,61 @@ const sanitizeKnowledgeText = (value) => {
   };
 };
 
+const decodeMarkupEntities = (value) => String(value || "")
+  .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Math.min(0x10ffff, Number(code) || 0xfffd)))
+  .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Math.min(0x10ffff, Number.parseInt(code, 16) || 0xfffd)))
+  .replace(/&nbsp;/gi, " ")
+  .replace(/&amp;/gi, "&")
+  .replace(/&lt;/gi, "<")
+  .replace(/&gt;/gi, ">")
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;|&apos;/gi, "'");
+
+// Preserve document structure before stripping HTML. Section lineage materially
+// improves retrieval because the embedding sees the heading a paragraph belongs
+// to, not only an isolated text fragment.
+const htmlToStructuredText = (value) => {
+  let text = normalizeText(value)
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(?:script|style|template|noscript|svg|canvas)\b[^>]*>[\s\S]*?<\/(?:script|style|template|noscript|svg|canvas)>/gi, " ");
+  for (let level = 1; level <= 6; level += 1) {
+    const expression = new RegExp(`<h${level}\\b[^>]*>([\\s\\S]*?)<\\/h${level}>`, "gi");
+    text = text.replace(expression, (_, heading) => `\n${"#".repeat(level)} ${String(heading).replace(/<[^>]+>/g, " ")}\n`);
+  }
+  return decodeMarkupEntities(text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<li\b[^>]*>/gi, "\n- ")
+    .replace(/<\/(?:li|p|div|section|article|header|footer|main|aside|nav|ul|ol|dl|dt|dd|pre|blockquote)>/gi, "\n")
+    .replace(/<tr\b[^>]*>/gi, "\n")
+    .replace(/<\/?(?:td|th)\b[^>]*>/gi, " | ")
+    .replace(/<[^>]+>/g, " "))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 const stripMarkup = (value, mimeType) => {
+  const normalizedMime = String(mimeType || "").toLowerCase();
   const text = normalizeText(value);
-  if (mimeType === "text/html") {
+  if (normalizedMime === "text/html") return htmlToStructuredText(text);
+  if (["application/json", "application/ld+json"].includes(normalizedMime)) {
+    try {
+      // Pretty-printing creates safe structural boundaries for nested objects.
+      return normalizeText(JSON.stringify(JSON.parse(text), null, 2));
+    } catch {
+      return text;
+    }
+  }
+  if (normalizedMime === "application/rtf") {
     return text
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">");
+      .replace(/\\(?:par|line)\b\s?/gi, "\n")
+      .replace(/\\'[0-9a-f]{2}/gi, " ")
+      .replace(/\\[a-z]+-?\d*\s?/gi, " ")
+      .replace(/[{}]/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
   return text;
 };
@@ -338,16 +382,68 @@ const findPreferredBreak = (text, start, idealEnd, minimumEnd) => {
   return idealEnd;
 };
 
-const inferHeading = (content) => {
-  const heading = String(content || "").split("\n").find((line) => /^#{1,6}\s+\S/.test(line.trim()));
-  return heading ? heading.replace(/^#{1,6}\s+/, "").slice(0, 240) : null;
+const detectStructureMarker = (line) => {
+  const value = String(line || "").trim();
+  let match = value.match(/^(#{1,6})\s+(.+)$/);
+  if (match) return { level: match[1].length, title: match[2], type: "markdown_heading" };
+  match = value.match(/^(Feature|Rule|Background|Scenario Outline|Scenario|Examples):\s*(.*)$/i);
+  if (match) {
+    const keyword = match[1].toLowerCase().replace(/\s+/g, "_");
+    const level = keyword === "feature" ? 1 : keyword === "examples" ? 3 : 2;
+    return { level, title: match[2] || match[1], type: `gherkin_${keyword}` };
+  }
+  match = value.match(/^(\d+(?:\.\d+){0,5})[.)]?\s+(.{2,180})$/);
+  if (match) return { level: Math.min(6, match[1].split(".").length), title: `${match[1]} ${match[2]}`, type: "numbered_heading" };
+  if (/^[A-Z][^.!?<>]{1,100}:$/.test(value) && !/^(?:Given|When|Then|And|But):/i.test(value)) {
+    return { level: 2, title: value.slice(0, -1), type: "plain_heading" };
+  }
+  return null;
 };
+
+const collectDocumentStructure = (value) => {
+  const text = String(value || "");
+  const markers = [];
+  const hierarchy = [];
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    const marker = detectStructureMarker(line);
+    if (marker) {
+      const title = normalizeText(marker.title, 240);
+      hierarchy.length = Math.max(0, marker.level - 1);
+      hierarchy[marker.level - 1] = title;
+      markers.push({
+        ...marker,
+        title,
+        offset,
+        path: hierarchy.filter(Boolean).slice(0, marker.level)
+      });
+    }
+    offset += line.length + 1;
+  }
+  return markers;
+};
+
+const resolveChunkStructure = (markers, start, end) => {
+  const before = markers.filter((marker) => marker.offset <= start).at(-1) || null;
+  const earlyBoundary = start + Math.max(80, Math.floor((end - start) * 0.22));
+  const earlyInside = markers.find((marker) => marker.offset > start && marker.offset <= earlyBoundary) || null;
+  const marker = earlyInside || before || markers.find((item) => item.offset < end) || null;
+  return marker ? {
+    heading: marker.title,
+    heading_path: marker.path,
+    section_type: marker.type,
+    section_level: marker.level
+  } : { heading: null, heading_path: [], section_type: "body", section_level: null };
+};
+
+const inferHeading = (content) => collectDocumentStructure(content)[0]?.title || null;
 
 const chunkText = (value, inputOptions = {}) => {
   const text = normalizeText(value);
   if (!text) return [];
   const options = normalizeChunkingOptions(inputOptions);
   const chunks = [];
+  const structure = options.strategy === "fixed" ? [] : collectDocumentStructure(text);
   let start = 0;
 
   while (start < text.length && chunks.length < 5_000) {
@@ -363,14 +459,20 @@ const chunkText = (value, inputOptions = {}) => {
     const end = idealEnd === text.length || options.strategy === "fixed"
       ? idealEnd
       : findPreferredBreak(text, start, idealEnd, minimumEnd);
-    const content = text.slice(start, end).trim();
+    const rawContent = text.slice(start, end);
+    const leadingWhitespace = rawContent.match(/^\s*/)?.[0].length || 0;
+    const trailingWhitespace = rawContent.match(/\s*$/)?.[0].length || 0;
+    const contentStart = Math.min(end, start + leadingWhitespace);
+    const contentEnd = Math.max(contentStart, end - trailingWhitespace);
+    const content = text.slice(contentStart, contentEnd);
     if (content) {
+      const section = resolveChunkStructure(structure, contentStart, contentEnd);
       chunks.push({
         index: chunks.length,
         content,
-        heading: inferHeading(content),
-        char_start: start,
-        char_end: end,
+        ...section,
+        char_start: contentStart,
+        char_end: contentEnd,
         token_count: Math.max(1, Math.ceil(content.length / 4))
       });
     }
@@ -414,6 +516,42 @@ const cosineSimilarity = (left, right) => {
   return leftMagnitude && rightMagnitude ? dot / Math.sqrt(leftMagnitude * rightMagnitude) : 0;
 };
 
+const assessContextQuality = ({ text, chunks, redactionCount = 0 } = {}) => {
+  const safeText = normalizeText(text, MAX_EXTRACTED_TEXT_CHARS);
+  const safeChunks = Array.isArray(chunks) ? chunks : [];
+  const fingerprints = safeChunks.map((chunk) => fingerprint(normalizeText(chunk?.content, 100_000)));
+  const duplicateCount = fingerprints.length - new Set(fingerprints).size;
+  const undersizedCount = safeChunks.filter((chunk) => normalizeText(chunk?.content, 100_000).length < 80).length;
+  const headingCount = safeChunks.filter((chunk) => normalizeText(chunk?.heading || inferHeading(chunk?.content), 500)).length;
+  const lineageCount = safeChunks.filter((chunk) => (Array.isArray(chunk?.heading_path) && chunk.heading_path.length) || normalizeText(chunk?.heading || inferHeading(chunk?.content), 500)).length;
+  const contentBearingCount = safeChunks.filter((chunk) => tokenize(chunk?.content).length >= 8).length;
+  const spannedChars = safeChunks.reduce((total, chunk) => total + Math.max(0, Number(chunk?.char_end || 0) - Number(chunk?.char_start || 0)), 0);
+  const overlapRatio = spannedChars && safeText.length ? Math.max(0, Math.min(1, (spannedChars - safeText.length) / spannedChars)) : 0;
+  const terms = tokenize(safeText);
+  const lexicalDiversity = terms.length ? new Set(terms).size / terms.length : 0;
+  const deductions = Math.min(35, duplicateCount * 8)
+    + Math.min(25, undersizedCount * 4)
+    + (safeChunks.length > 2 && !headingCount ? 8 : 0)
+    + (overlapRatio > 0.35 ? Math.min(12, Math.round((overlapRatio - 0.35) * 30)) : 0)
+    + (safeChunks.length && contentBearingCount / safeChunks.length < 0.7 ? 10 : 0)
+    + (terms.length && lexicalDiversity < 0.4 ? 20 : 0);
+  const score = Math.max(0, Math.min(100, Math.round(100 - deductions)));
+  return {
+    score,
+    grade: score >= 90 ? "excellent" : score >= 75 ? "good" : score >= 55 ? "review" : "poor",
+    chunk_count: safeChunks.length,
+    duplicate_chunk_count: duplicateCount,
+    undersized_chunk_count: undersizedCount,
+    heading_coverage: safeChunks.length ? Number((headingCount / safeChunks.length).toFixed(3)) : 0,
+    section_lineage_coverage: safeChunks.length ? Number((lineageCount / safeChunks.length).toFixed(3)) : 0,
+    content_bearing_ratio: safeChunks.length ? Number((contentBearingCount / safeChunks.length).toFixed(3)) : 0,
+    overlap_redundancy_ratio: Number(overlapRatio.toFixed(3)),
+    lexical_diversity: Number(lexicalDiversity.toFixed(3)),
+    redaction_count: Number(redactionCount || 0),
+    requires_review: score < 75
+  };
+};
+
 const hasHelloTestScopeSignal = (value) => {
   const text = normalizeText(value, 8_000).toLowerCase();
   if (!text) return false;
@@ -436,7 +574,9 @@ module.exports = {
   NATIVE_TEXT_MIME_TYPES,
   SUPPORTED_UPLOAD_MIME_TYPES,
   TIKA_MIME_TYPES,
+  collectDocumentStructure,
   chunkText,
+  assessContextQuality,
   cosineSimilarity,
   decodeNativeText,
   fingerprint,

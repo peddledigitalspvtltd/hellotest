@@ -1,0 +1,125 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import ts from "typescript";
+import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, stopRepositoryInspectSession } from "../src/lib/repositoryInspectSession.ts";
+
+const session = { id: "inspect-1", purpose: "repository-inspect", status: "running", status_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1", live_view_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1/live?token=secret-session-token" };
+const tab = (id, active = false) => ({ id, title: id, url: `https://app.test/${id}`, active });
+const pageSource = ts.createSourceFile("AutomationPage.tsx", readFileSync(new URL("../src/pages/AutomationPage.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const handler = (name, context) => {
+  let found;
+  const visit = (node) => { if ((ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) && node.name?.getText(pageSource) === name) found = node; else ts.forEachChild(node, visit); };
+  visit(pageSource);
+  assert.ok(found, name);
+  const code = `${ts.isVariableDeclaration(found) ? "const " : ""}${found.getText(pageSource)}; exports.handler = ${name};`;
+  const exports = {};
+  new Function(...Object.keys(context), "exports", ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(...Object.values(context), exports);
+  return exports.handler;
+};
+
+test("inspection tab refresh activates the selected tab and retains the session token", async () => {
+  const requests = [];
+  const read = async (url, options) => { requests.push({ url, options }); return url.endsWith("/tabs") ? { active_page_id: "a", tabs: [tab("a", true), tab("b")] } : {}; };
+  const result = await loadRepositoryInspectTabs(session, "b", read, true);
+  assert.equal(result.pageId, "b");
+  assert.equal(result.tabs.find((item) => item.active).id, "b");
+  assert.equal(requests[1].url, `${session.status_url}/tabs/activate`);
+  assert.equal(requests[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(requests[1].options.body), { page_id: "b" });
+  for (const request of requests) assert.equal(request.options.headers.get("X-HelloTest-Recorder-Token"), "secret-session-token");
+  const live = new URL(buildInspectLiveUrl(session, "b", 7));
+  assert.equal(live.searchParams.get("token"), "secret-session-token");
+  assert.equal(live.searchParams.get("page_id"), "b");
+  assert.equal(live.searchParams.get("refresh"), "7");
+  assert.equal(buildInspectLiveUrl({ ...session, status: "stopped" }, "b", 8), "");
+});
+
+test("a closed selected tab falls back to a real active tab; background polling never activates tabs", async () => {
+  const requests = [];
+  const result = await loadRepositoryInspectTabs(session, "closed", async (url) => { requests.push(url); return { active_page_id: "also-closed", tabs: [tab("first"), tab("active", true)] }; });
+  assert.equal(result.pageId, "active");
+  assert.equal(requests.length, 1);
+  const empty = await loadRepositoryInspectTabs(session, "closed", async () => ({ tabs: [] }), true);
+  assert.equal(empty.pageId, "");
+});
+
+test("recorder fetch forwards Headers and JSON content type for authenticated activation", async () => {
+  let received;
+  const read = handler("readRecorderJson", { fetch: async (url, options) => { received = { url, options }; return new Response(JSON.stringify({ ok: true })); } });
+  const request = inspectSessionRequest(session, "/tabs/activate", { method: "POST", body: JSON.stringify({ page_id: "b" }), headers: { "X-Request-Test": "kept" } });
+  await read(request.url, request.options);
+  assert.equal(received.options.headers.get("X-HelloTest-Recorder-Token"), "secret-session-token");
+  assert.equal(received.options.headers.get("Content-Type"), "application/json");
+  assert.equal(received.options.headers.get("X-Request-Test"), "kept");
+});
+
+test("late tab responses cannot repopulate a closed or replaced inspection session", async () => {
+  let resolve;
+  const changed = [];
+  const context = {
+    inspectSessionRef: { current: session }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "a" },
+    loadRepositoryInspectTabs: () => new Promise((done) => { resolve = done; }), readRecorderJson() {},
+    setInspectTabs: (value) => changed.push(value), setSelectedInspectTabId: (value) => changed.push(value), setInspectPreviewRevision: () => changed.push("preview")
+  };
+  const load = handler("loadInspectTabs", context);
+  const pending = load(undefined, { activate: true, refreshPreview: true });
+  context.inspectSessionGenerationRef.current += 1;
+  context.inspectSessionRef.current = null;
+  resolve({ tabs: [tab("a")], pageId: "a" });
+  await pending;
+  assert.deepEqual(changed, []);
+});
+
+test("closing the browser flushes pending capture, preserves staged fields, and allows reopening", async () => {
+  const staged = [{ locator: "#saved" }];
+  const state = { session, tabs: [tab("a")], selected: "a", closing: false };
+  const context = {
+    inspectLifecycleBusyRef: { current: false }, inspectSessionRef: { current: session }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "a" }, reinspectFieldLocatorRef: { current: "" },
+    stopLiveInspect: async () => staged.push({ locator: "#just-captured" }), stopRepositoryInspectSession,
+    readRecorderJson: async (url, options) => { assert.equal(url, `${session.status_url}/stop`); assert.equal(options.headers.get("X-HelloTest-Recorder-Token"), "secret-session-token"); return { ...session, status: "stopped" }; },
+    setIsClosingInspectBrowser: (value) => { state.closing = value; }, setInspectRecorderSession: (value) => { state.session = value; }, setSelectedInspectTabId: (value) => { state.selected = value; }, setInspectTabs: (value) => { state.tabs = value; }, setIsInspectingLiveField() {}, setHighlightedInspectLocator() {}, setReinspectFieldLocator() {}, setInspectMessage() {}
+  };
+  await handler("closeInspectBrowser", context)();
+  assert.deepEqual(staged.map((field) => field.locator), ["#saved", "#just-captured"]);
+  assert.equal(state.session, null);
+  assert.deepEqual(state.tabs, []);
+  assert.equal(state.selected, "");
+  assert.equal(state.closing, false);
+  assert.equal(context.inspectLifecycleBusyRef.current, false);
+});
+
+test("stopping an already removed session succeeds, while transport failure stays retryable", async () => {
+  assert.equal(await stopRepositoryInspectSession(session, async () => { throw Object.assign(new Error("Already removed"), { status: 404 }); }), null);
+  await assert.rejects(stopRepositoryInspectSession(session, async () => { throw new Error("Runtime unreachable"); }), /Runtime unreachable/);
+});
+
+test("reopening recovers an expired session and selects a tab from the new browser", async () => {
+  const requested = [];
+  const staged = [{ locator: "#kept" }];
+  const context = {
+    inspectLifecycleBusyRef: { current: false }, inspectSessionRef: { current: session }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "old-tab" },
+    screenUrlDraft: "https://app.test/checkout", loadRepositoryInspectTabs, stopRepositoryInspectSession,
+    readRecorderJson: async (url, options) => {
+      requested.push({ url, options });
+      if (url.includes("/inspect-1/")) throw Object.assign(new Error("Recorder session not found"), { status: 404 });
+      if (url.endsWith("/sessions")) {
+        assert.equal(JSON.parse(options.body).purpose, "repository-inspect");
+        return { ...session, id: "new-session", live_view_path: "/api/v1/recorder/sessions/new-session/live?token=new-token" };
+      }
+      if (url.endsWith("/tabs")) return { active_page_id: "new-tab", tabs: [tab("new-tab", true)] };
+      return {};
+    },
+    discoverLocalInspectRuntime: async () => ({ publicBaseUrl: "http://localhost:4311" }),
+    connectLocalInspectSession: handler("connectLocalInspectSession", {}),
+    setInspectTabs() {}, setSelectedInspectTabId() {}, setInspectPreviewRevision() {}, setInspectMessage() {}, setIsLaunchingInspectBrowser() {}, setIsInspectingLiveField() {}, setInspectRecorderSession() {}
+  };
+  context.loadInspectTabs = handler("loadInspectTabs", context);
+  const reopened = await handler("launchInspectBrowser", context)();
+  assert.equal(reopened.id, "new-session");
+  assert.equal(context.inspectSessionRef.current.id, "new-session");
+  assert.equal(context.selectedInspectTabIdRef.current, "new-tab");
+  assert.equal(context.inspectLifecycleBusyRef.current, false);
+  assert.deepEqual(staged, [{ locator: "#kept" }]);
+  assert.ok(requested.some((item) => item.url.endsWith("/new-session/tabs/activate")));
+});

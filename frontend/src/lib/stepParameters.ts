@@ -13,6 +13,7 @@ export type StepParameterDefinition = {
   occurrenceCount: number;
   source?: "authoring" | "data_set";
   sourceLabel?: string;
+  sensitive?: boolean;
 };
 
 export type StepParameterSegment =
@@ -32,7 +33,7 @@ type StepParameterSource = Pick<TestStep, "id" | "action" | "expected_result" | 
 type StepApiLike = NonNullable<TestStep["api_request"]>;
 type StepParameterDataSet = Pick<ExecutionDataSetSnapshot | TestDataSet, "columns" | "mode" | "rows">;
 
-const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\]\\\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi;
 const STEP_PARAMETER_SCOPE_LABELS: Record<StepParameterScope, string> = {
   t: "Test case",
   s: "Suite",
@@ -41,6 +42,10 @@ const STEP_PARAMETER_SCOPE_LABELS: Record<StepParameterScope, string> = {
 
 export function normalizeStepParameterScope(value?: string | null, fallback: StepParameterScope = "t"): StepParameterScope {
   const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "t" || normalized === "test" || normalized === "test_case") {
+    return "t";
+  }
 
   if (normalized === "s" || normalized === "suite") {
     return "s";
@@ -62,13 +67,25 @@ export function normalizeStepParameterName(value?: string | null, fallbackScope:
 
   const scopedMatch = trimmed.match(/^([tsr])\.(.+)$/i);
   const scope = normalizeStepParameterScope(scopedMatch?.[1], fallbackScope);
-  const rawName = String(scopedMatch?.[2] || trimmed).trim().toLowerCase();
+  const rawName = decodeStepParameterRawName(String(scopedMatch?.[2] || trimmed)).trim().toLowerCase();
 
   if (!rawName) {
     return "";
   }
 
   return `${scope}.${rawName}`;
+}
+
+export function decodeStepParameterRawName(value: string) {
+  const quoted = value.trim().match(/^\[((?:\\.|[^\]\\\r\n])+)\]$/);
+  return quoted ? quoted[1].replace(/\\([\\\]])/g, "$1") : value;
+}
+
+export function formatStepParameterToken(scope: StepParameterScope, rawName: string) {
+  const quotedName = /^[A-Za-z][A-Za-z0-9_-]*$/.test(rawName)
+    ? rawName
+    : `[${rawName.replace(/\\/g, "\\\\").replace(/\]/g, "\\]")}]`;
+  return `@${scope}.${quotedName}`;
 }
 
 export function getStepParameterScopeLabel(scope: StepParameterScope) {
@@ -92,7 +109,7 @@ export function parseStepParameterName(value?: string | null, fallbackScope: Ste
     rawName,
     scope,
     scopeLabel: getStepParameterScopeLabel(scope),
-    token: `@${scope}.${rawName}`
+    token: formatStepParameterToken(scope, rawName)
   };
 }
 
@@ -139,10 +156,12 @@ export function extractStepParameterMatches(text?: string | null) {
     return [];
   }
 
-  return [...source.matchAll(STEP_PARAMETER_PATTERN)].map((match) => ({
+  return [...source.matchAll(STEP_PARAMETER_PATTERN)]
+    .filter((match) => !(!match[1] && /^[tsr]$/i.test(match[2]) && source[(match.index || 0) + match[0].length] === "."))
+    .map((match) => ({
     token: match[0],
-    label: match[2],
-    rawName: String(match[2] || "").trim(),
+    label: decodeStepParameterRawName(match[2]),
+    rawName: decodeStepParameterRawName(String(match[2] || "")).trim(),
     scope: normalizeStepParameterScope(match[1], "t"),
     name: normalizeStepParameterName(`${match[1] || "t"}.${match[2]}`),
     index: match.index || 0
@@ -187,7 +206,7 @@ export function collectStepParameters(steps: StepParameterSource[]): StepParamet
           name: match.name,
           rawName: match.rawName.toLowerCase(),
           label: match.label,
-          token: `@${match.scope}.${match.rawName}`,
+          token: formatStepParameterToken(match.scope, match.rawName),
           scope: match.scope,
           scopeLabel: getStepParameterScopeLabel(match.scope),
           stepIds: [],
@@ -260,10 +279,11 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   }
 
   if (dataSet.mode === "key_value") {
+    const sensitiveNames = new Set(collectSensitiveDataSetParameterNames(dataSet));
     (dataSet.rows || []).forEach((row) => {
       const key = normalizeStepParameterName(String(row.key ?? ""), "t");
 
-      if (!key) {
+      if (!key || sensitiveNames.has(key)) {
         return;
       }
 
@@ -276,7 +296,7 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   const firstRow = (dataSet.rows || []).find((row) => row && typeof row === "object") || {};
   const columns = Array.from(new Set([
     ...(dataSet.columns || []),
-    ...Object.keys(firstRow)
+    ...(dataSet.rows || []).flatMap((row) => Object.keys(row || {}))
   ]));
 
   columns.forEach((column) => {
@@ -292,11 +312,48 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   return values;
 }
 
+export function isSensitiveDataSetRow(row?: Record<string, unknown> | null) {
+  const value = row?.is_secret;
+  return value === true || ["true", "1", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+export function collectSensitiveDataSetParameterNames(dataSet?: StepParameterDataSet | null) {
+  if (!dataSet || dataSet.mode !== "key_value") {
+    return [];
+  }
+
+  return (dataSet.rows || []).flatMap((row) => {
+    if (!isSensitiveDataSetRow(row)) return [];
+    const name = normalizeStepParameterName(String(row.key ?? ""), "t");
+    return name ? [name] : [];
+  });
+}
+
+export function excludeSensitiveStepParameterValues(
+  values: Record<string, string> = {},
+  sensitiveNames: Iterable<string> = []
+) {
+  const excluded = new Set(Array.from(sensitiveNames, (name) => normalizeStepParameterName(name)).filter(Boolean));
+
+  return Object.entries(normalizeStepParameterValues(values)).reduce<Record<string, string>>((next, [name, value]) => {
+    if (!excluded.has(name)) next[name] = value;
+    return next;
+  }, {});
+}
+
 export function buildDataSetParameterDefinitions(
   dataSet?: StepParameterDataSet | null,
   sourceLabel?: string
 ): StepParameterDefinition[] {
-  return Object.keys(buildDataSetParameterValues(dataSet)).flatMap((name) => {
+  const dataSetNames = !dataSet
+    ? []
+    : dataSet.mode === "key_value"
+      ? (dataSet.rows || []).map((row) => normalizeStepParameterName(String(row.key ?? ""), "t"))
+      : [...(dataSet.columns || []), ...(dataSet.rows || []).flatMap((row) => Object.keys(row || {}))]
+        .map((column) => normalizeStepParameterName(column, "t"));
+  const sensitiveNames = new Set(collectSensitiveDataSetParameterNames(dataSet));
+
+  return [...new Set(dataSetNames.filter(Boolean))].flatMap((name) => {
     const parsed = parseStepParameterName(name, "t");
 
     if (!parsed) {
@@ -313,9 +370,66 @@ export function buildDataSetParameterDefinitions(
       stepIds: [],
       occurrenceCount: 0,
       source: "data_set" as const,
-      sourceLabel
+      sourceLabel,
+      sensitive: sensitiveNames.has(parsed.name)
     }];
   });
+}
+
+/** Include saved defaults even when no step has referenced the parameter yet. */
+export function buildStepParameterDefinitionsFromValues(values: Record<string, string> = {}): StepParameterDefinition[] {
+  return Object.keys(normalizeStepParameterValues(values)).flatMap((name) => {
+    const parsed = parseStepParameterName(name);
+    return parsed ? [{ ...parsed, label: parsed.rawName, stepIds: [], occurrenceCount: 0 }] : [];
+  });
+}
+
+export type StepParameterQuery = {
+  start: number;
+  end: number;
+  scope: StepParameterScope;
+  query: string;
+};
+
+/** Only a scoped reference at a collapsed caret opens the completion menu. */
+export function getStepParameterQuery(text: string, selectionStart: number, selectionEnd = selectionStart): StepParameterQuery | null {
+  if (selectionStart !== selectionEnd || selectionStart < 0 || selectionStart > text.length) return null;
+  const quotedMatch = text.slice(0, selectionStart).match(/(?:^|[^A-Za-z0-9_@])@([tsr])\.\[((?:\\.|[^\]\\\r\n])*)$/i);
+  if (quotedMatch) {
+    const suffix = text.slice(selectionStart).match(/^(?:\\.|[^\]\\\r\n])*\]/)?.[0] || "";
+    return {
+      start: selectionStart - quotedMatch[2].length - 4,
+      end: selectionStart + suffix.length,
+      scope: normalizeStepParameterScope(quotedMatch[1]),
+      query: quotedMatch[2].replace(/\\([\\\]])/g, "$1").toLowerCase()
+    };
+  }
+  const match = text.slice(0, selectionStart).match(/(?:^|[^A-Za-z0-9_@])@([tsr])\.([A-Za-z0-9_-]*)$/i);
+  if (!match) return null;
+  const prefixLength = match[2].length + 3;
+  const suffix = text.slice(selectionStart).match(/^(?:\[(?:\\.|[^\]\\\r\n])*\]|[A-Za-z0-9_-]*)/)?.[0] || "";
+  return {
+    start: selectionStart - prefixLength,
+    end: selectionStart + suffix.length,
+    scope: normalizeStepParameterScope(match[1]),
+    query: match[2].toLowerCase()
+  };
+}
+
+export function getStepParameterSuggestions(parameters: StepParameterDefinition[], query: StepParameterQuery | null) {
+  if (!query) return [];
+  return mergeStepParameterDefinitions(parameters)
+    .filter((parameter) => parameter.scope === query.scope && (
+      !query.query || parameter.rawName.toLowerCase().includes(query.query) || parameter.label.toLowerCase().includes(query.query)
+    ))
+    .sort((left, right) => Number(right.rawName.toLowerCase().startsWith(query.query)) - Number(left.rawName.toLowerCase().startsWith(query.query)) || left.label.localeCompare(right.label));
+}
+
+export function insertStepParameterReference(text: string, query: StepParameterQuery, parameter: Pick<StepParameterDefinition, "token">) {
+  return {
+    value: text.slice(0, query.start) + parameter.token + text.slice(query.end),
+    caret: query.start + parameter.token.length
+  };
 }
 
 export function mergeStepParameterDefinitions(
@@ -342,7 +456,8 @@ export function mergeStepParameterDefinitions(
       source: current.source === "authoring" || current.occurrenceCount
         ? current.source || "authoring"
         : definition.source,
-      sourceLabel: current.sourceLabel || definition.sourceLabel
+      sourceLabel: current.sourceLabel || definition.sourceLabel,
+      sensitive: Boolean(current.sensitive || definition.sensitive)
     });
   });
 

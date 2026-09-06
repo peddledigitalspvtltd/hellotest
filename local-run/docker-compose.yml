@@ -19,6 +19,14 @@ services:
       timeout: 5s
       retries: 20
 
+  qdrant:
+    image: qdrant/qdrant:v1.19.0
+    container_name: hellotest-local-qdrant
+    ports:
+      - "${QDRANT_BIND:-127.0.0.1}:${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - hellotest-local-qdrant-data:/qdrant/storage
+
   redis:
     image: redis:7.4-alpine
     container_name: hellotest-local-redis
@@ -115,9 +123,16 @@ services:
       KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS: ${KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS:-2000000}
       KNOWLEDGE_TIKA_URL: ${KNOWLEDGE_TIKA_URL:-http://tika:9998}
       KNOWLEDGE_TIKA_TIMEOUT_MS: ${KNOWLEDGE_TIKA_TIMEOUT_MS:-30000}
+      KNOWLEDGE_VECTOR_STORE: ${KNOWLEDGE_VECTOR_STORE:-qdrant}
+      KNOWLEDGE_QDRANT_URL: ${KNOWLEDGE_QDRANT_URL:-http://qdrant:6333}
+      KNOWLEDGE_QDRANT_API_KEY: ${KNOWLEDGE_QDRANT_API_KEY:-}
+      KNOWLEDGE_QDRANT_COLLECTION_PREFIX: ${KNOWLEDGE_QDRANT_COLLECTION_PREFIX:-hellotest_knowledge_dense_v1}
+      KNOWLEDGE_QDRANT_TIMEOUT_MS: ${KNOWLEDGE_QDRANT_TIMEOUT_MS:-4000}
     depends_on:
       postgres:
         condition: service_healthy
+      qdrant:
+        condition: service_started
       redis:
         condition: service_healthy
       minio:
@@ -314,3 +329,4 @@ volumes:
   hellotest-local-postgres-data:
   hellotest-local-testengine-artifacts:
   hellotest-local-minio-data:
+  hellotest-local-qdrant-data:

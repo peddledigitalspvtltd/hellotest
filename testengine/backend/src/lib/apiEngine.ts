@@ -118,8 +118,8 @@ const resolveApiRequest = (
     })),
     captures: (normalizedRequest.captures || []).map((capture) => ({
       ...capture,
-      path: interpolateText(capture.path, context),
-      parameter: interpolateText(capture.parameter, context)
+      // Keep the destination reference literal when replacing a prior capture.
+      path: interpolateText(capture.path, context)
     }))
   });
 };

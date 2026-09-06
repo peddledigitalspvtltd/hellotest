@@ -1,39 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { AddIcon, TrashIcon } from "./AppIcons";
-import { StepParameterizedText } from "./StepParameterizedText";
-import { extractStepParameterMatches } from "../lib/stepParameters";
-import { resolveGherkinParameterText } from "../lib/gherkin";
-
-type SharedGherkinKeyword = "Given" | "When" | "Then" | "And" | "But";
-
-type SharedGherkinStep = {
-  keyword: SharedGherkinKeyword;
-  text: string;
-};
-
-const SHARED_GHERKIN_KEYWORDS: SharedGherkinKeyword[] = ["Given", "When", "Then", "And", "But"];
-const SHARED_GHERKIN_STEP_PATTERN = /^\s*(Given|When|Then|And|But)(?:[ \t])?(.*)$/i;
+import { GherkinStepTextField } from "./GherkinStepTextField";
+import { composeSharedStepGherkin, parseSharedStepGherkin, SHARED_GHERKIN_KEYWORDS, type SharedGherkinKeyword, type SharedGherkinStep } from "../lib/gherkin";
+import type { StepParameterDefinition } from "../lib/stepParameters";
 
 const normalizeKeyword = (value: string): SharedGherkinKeyword =>
   SHARED_GHERKIN_KEYWORDS.find((keyword) => keyword.toLowerCase() === value.toLowerCase()) || "And";
-
-export function parseSharedStepGherkin(value: string): SharedGherkinStep[] {
-  return String(value || "")
-    .split(/\r?\n/)
-    .map((line) => line.match(SHARED_GHERKIN_STEP_PATTERN))
-    .filter((match): match is RegExpMatchArray => Boolean(match))
-    .map((match) => ({ keyword: normalizeKeyword(match[1]), text: match[2] || "" }));
-}
-
-export function composeSharedStepGherkin(groupName: string, steps: SharedGherkinStep[]) {
-  const name = groupName.trim().replace(/\s+/g, " ") || "Reusable step group";
-  return [
-    `Feature: ${name}`,
-    "",
-    `  Scenario: ${name}`,
-    ...steps.map((step) => `    ${step.keyword} ${step.text}`)
-  ].join("\n");
-}
 
 const starterSteps = (): SharedGherkinStep[] => [
   { keyword: "Given", text: "" },
@@ -42,23 +14,24 @@ const starterSteps = (): SharedGherkinStep[] => [
 ];
 
 export function SharedStepGherkinEditor({
+  availableParameters,
   groupName,
   onChange,
   onManageParameters,
   parameterValues,
   value
 }: {
+  availableParameters?: StepParameterDefinition[];
   groupName: string;
   onChange: (value: string) => void;
   onManageParameters?: () => void;
   parameterValues?: Record<string, string>;
   value: string;
 }) {
-  const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
   const parsedSteps = useMemo(() => parseSharedStepGherkin(value), [value]);
   const steps = parsedSteps.length ? parsedSteps : starterSteps();
 
-  const commit = (nextSteps: SharedGherkinStep[]) => onChange(composeSharedStepGherkin(groupName, nextSteps));
+  const commit = (nextSteps: SharedGherkinStep[]) => onChange(composeSharedStepGherkin(nextSteps));
   const updateStep = (index: number, input: Partial<SharedGherkinStep>) => {
     commit(steps.map((step, currentIndex) => currentIndex === index ? { ...step, ...input } : step));
   };
@@ -66,6 +39,12 @@ export function SharedStepGherkinEditor({
     const lastKeyword = steps[steps.length - 1]?.keyword;
     const keyword: SharedGherkinKeyword = !steps.length ? "Given" : lastKeyword === "When" ? "Then" : "And";
     commit([...steps, { keyword, text: "" }]);
+  };
+  const insertStepAfter = (index: number) => {
+    const nextSteps = [...steps];
+    const keyword: SharedGherkinKeyword = steps[index]?.keyword === "When" ? "Then" : "And";
+    nextSteps.splice(index + 1, 0, { keyword, text: "" });
+    commit(nextSteps);
   };
   const moveStep = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
@@ -77,32 +56,22 @@ export function SharedStepGherkinEditor({
   };
 
   return (
-    <section aria-label="Shared Step Group Gherkin steps" className="shared-gherkin-step-group">
+    <section aria-label="Shared Step Group Gherkin steps" className="shared-gherkin-step-group is-document-layout">
       <header className="shared-gherkin-step-group-head">
-        <div>
-          <span>Reusable behavior group</span>
-          <strong>{groupName.trim() || "Untitled Shared Step Group"}</strong>
-          <p>Author only the reusable Given, When, and Then steps. HelloTest maintains the surrounding Gherkin document when the group is saved.</p>
+        <div className="shared-gherkin-document-heading">
+          <strong>{groupName.trim() || "Reusable behavior group"}</strong>
         </div>
         <div className="shared-gherkin-step-group-head-actions">
-          <span className="count-pill">{steps.length} step{steps.length === 1 ? "" : "s"}</span>
           {onManageParameters ? <button className="ghost-button compact" onClick={onManageParameters} type="button">Manage parameter values</button> : null}
         </div>
       </header>
 
-      <div className="shared-gherkin-parameter-guide">
-        <strong>Parameters</strong>
-        <span>Insert <code>@t.name</code>, <code>@s.name</code>, or <code>@r.name</code>. Defined values are previewed directly below the step.</span>
-      </div>
-
       <div className="shared-gherkin-step-list">
         {steps.map((step, index) => {
-          const parameters = extractStepParameterMatches(step.text);
           const keywordTone = step.keyword.toLowerCase();
 
           return (
-            <article className="shared-gherkin-step-row" key={`${index}-${step.keyword}`}>
-              <span className="shared-gherkin-step-number">{index + 1}</span>
+            <article className="shared-gherkin-step-row gherkin-minimal-step" key={`${index}-${step.keyword}`}>
               <label className={`shared-gherkin-keyword is-${keywordTone}`}>
                 <span className="sr-only">Keyword for step {index + 1}</span>
                 <select
@@ -113,23 +82,19 @@ export function SharedStepGherkinEditor({
                   {SHARED_GHERKIN_KEYWORDS.map((keyword) => <option key={keyword} value={keyword}>{keyword}</option>)}
                 </select>
               </label>
-              <div className="shared-gherkin-step-content">
-                <input
-                  aria-label={`Shared Gherkin step ${index + 1}`}
-                  className={editingStepIndex === index ? "is-editing" : ""}
-                  onBlur={() => setEditingStepIndex(null)}
-                  onChange={(event) => updateStep(index, { text: event.target.value })}
-                  onFocus={() => setEditingStepIndex(index)}
+              <div className="shared-gherkin-step-description">
+                <GherkinStepTextField
+                  ariaLabel={`Shared Gherkin step ${index + 1}`}
+                  availableParameters={availableParameters}
+                  onChange={(text) => updateStep(index, { text })}
+                  parameterValues={parameterValues}
                   placeholder={step.keyword === "Given" ? "the reusable setup, including @t.parameters" : step.keyword === "Then" ? "the expected reusable outcome" : "the reusable action"}
                   value={step.text}
                 />
-                {parameters.length ? (
-                  <span aria-hidden="true" className={`shared-gherkin-inline-value${editingStepIndex === index ? " is-hidden" : ""}`}>
-                    <StepParameterizedText fallback={resolveGherkinParameterText(step.text, parameterValues) || step.text} text={step.text} values={parameterValues} />
-                  </span>
-                ) : null}
+                {step.argument ? <pre className="gherkin-step-argument">{step.argument}</pre> : null}
               </div>
               <div className="shared-gherkin-step-actions">
+                <button aria-label={`Insert shared Gherkin step after ${index + 1}`} className="ghost-button compact" onClick={() => insertStepAfter(index)} title="Insert behavior step" type="button"><AddIcon size={13} /></button>
                 <button aria-label={`Move shared Gherkin step ${index + 1} up`} className="ghost-button compact" disabled={index === 0} onClick={() => moveStep(index, -1)} title="Move up" type="button">↑</button>
                 <button aria-label={`Move shared Gherkin step ${index + 1} down`} className="ghost-button compact" disabled={index === steps.length - 1} onClick={() => moveStep(index, 1)} title="Move down" type="button">↓</button>
                 <button aria-label={`Remove shared Gherkin step ${index + 1}`} className="ghost-button compact danger" disabled={steps.length === 1} onClick={() => commit(steps.filter((_, currentIndex) => currentIndex !== index))} title="Remove step" type="button"><TrashIcon size={14} /></button>

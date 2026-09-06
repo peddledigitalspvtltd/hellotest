@@ -3,16 +3,24 @@ import test from "node:test";
 
 import {
   composeGherkinDocument,
+  gherkinDescriptionToPlainText,
   gherkinToStructuredCase,
   matchGherkinKeyword,
   replaceGherkinBackground,
   replaceGherkinExamples,
   replaceGherkinScenarios,
   resolveGherkinParameterText,
+  sanitizeGherkinDocumentText,
   splitGherkinDocument,
   structuredCaseToGherkin,
   tokenizeGherkinInlineText
 } from "../src/lib/gherkin.ts";
+import {
+  buildDataSetParameterDefinitions,
+  buildDataSetParameterValues,
+  collectSensitiveDataSetParameterNames,
+  excludeSensitiveStepParameterValues
+} from "../src/lib/stepParameters.ts";
 import { readFile } from "node:fs/promises";
 
 const readSource = (path) => readFile(new URL(path, import.meta.url), "utf8");
@@ -69,6 +77,53 @@ test("Gherkin tags are not mistaken for test-data parameters", () => {
   assert.equal(resolved, "@smoke\nScenario: Tagged case\n  Given feature flag is enabled");
 });
 
+test("Gherkin descriptions remove rich-text markup while preserving and resolving parameters", () => {
+  const source = [
+    "Feature: Sign in",
+    "Scenario: Customer access",
+    "  Given &lt;p&gt;I enter @t.username&lt;/p&gt;",
+    "  Then <outcome> is shown"
+  ].join("\n");
+
+  const sanitized = sanitizeGherkinDocumentText(source);
+  assert.match(sanitized, /Given I enter @t\.username/);
+  assert.doesNotMatch(sanitized, /&lt;|<p>|<\/p>/);
+  assert.equal(gherkinDescriptionToPlainText("the <customer> is active"), "the <customer> is active");
+  assert.match(resolveGherkinParameterText(sanitized, { "t.username": "jay" }), /Given I enter jay/);
+  assert.match(resolveGherkinParameterText(sanitized, {}), /Given I enter @t\.username/);
+});
+
+test("sensitive linked Test Data remains a named unresolved parameter", () => {
+  const dataSet = {
+    mode: "key_value",
+    columns: ["key", "value"],
+    rows: [
+      { key: "username", value: "jay", is_secret: false },
+      { key: "password", value: "do-not-render", is_secret: true }
+    ]
+  };
+
+  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.username": "jay" });
+  assert.deepEqual(collectSensitiveDataSetParameterNames(dataSet), ["t.password"]);
+  assert.equal(buildDataSetParameterDefinitions(dataSet).find((item) => item.name === "t.password")?.sensitive, true);
+  assert.deepEqual(
+    excludeSensitiveStepParameterValues({ "t.username": "override", "t.password": "leaked override" }, ["t.password"]),
+    { "t.username": "override" }
+  );
+  assert.equal(
+    resolveGherkinParameterText("Given @t.username enters @t.password", buildDataSetParameterValues(dataSet)),
+    "Given jay enters @t.password"
+  );
+});
+
+test("key-value Test Data persistence retains its hidden-value metadata", async () => {
+  const dataPage = await readSource("../src/pages/TestEnvironmentPage.tsx");
+
+  assert.match(dataPage, /id: normalizeDataSetName\(row\.id \?\? row\.__editor_id \?\? ""\)/);
+  assert.match(dataPage, /is_secret: String\(row\.is_secret/);
+  assert.match(dataPage, /has_stored_value: String\(row\.has_stored_value/);
+});
+
 test("Gherkin inline syntax distinguishes parameters and quoted values from descriptions", () => {
   assert.deepEqual(tokenizeGherkinInlineText(' the user <role> enters "approved" using @t.account'), [
     { type: "text", value: " the user " },
@@ -81,8 +136,9 @@ test("Gherkin inline syntax distinguishes parameters and quoted values from desc
 });
 
 test("shared Gherkin editor supports accessible preview and edit presentations", async () => {
-  const [editor, styles] = await Promise.all([
+  const [editor, stepField, styles] = await Promise.all([
     readSource("../src/components/GherkinEditor.tsx"),
+    readSource("../src/components/GherkinStepTextField.tsx"),
     readSource("../src/styles.css")
   ]);
 
@@ -102,6 +158,14 @@ test("shared Gherkin editor supports accessible preview and edit presentations",
   assert.match(editor, /lastEmittedDocumentRef/);
   assert.match(editor, /Insert starter/);
   assert.match(editor, /role=\{readOnly \? "region" : undefined\}/);
+  assert.match(editor, /GherkinStepTextField/);
+  assert.match(editor, /is-document-layout/);
+  assert.match(stepField, /mapStepParameterSegments/);
+  assert.match(stepField, /isEditing && hasParameters/);
+  assert.match(stepField, /!isEditing && hasParameters/);
+  assert.match(stepField, /<code>\{segment\.token\}<\/code>/);
+  assert.match(stepField, /segment\.resolvedValue/);
+  assert.match(stepField, /onChange\(event\.target\.value\)/);
   assert.match(styles, /--gherkin-section:/);
   assert.match(styles, /--gherkin-code-bg:\s*#ffffff/);
   assert.match(styles, /--gherkin-code-text:\s*#15181d/);
@@ -124,10 +188,33 @@ test("shared Gherkin editor supports accessible preview and edit presentations",
   assert.match(styles, /\.shared-gherkin-keyword select \{[\s\S]*?font-size:\s*0\.88rem;/);
   assert.match(styles, /:root\[data-theme="dark"\] \.shared-gherkin-keyword\.is-given select/);
   assert.match(styles, /\.gherkin-scenario-region/);
+  assert.match(styles, /\.gherkin-step-resolved-preview/);
+  assert.match(styles, /\.gherkin-step-parameter-map/);
+  assert.match(styles, /\.gherkin-editor\.is-document-layout/);
   assert.match(styles, /@media \(forced-colors: active\)/);
   assert.match(styles, /\.test-case-workspace-shell \.test-case-details-form \.gherkin-code-shell textarea \{[\s\S]*?background:\s*transparent !important;[\s\S]*?-webkit-text-fill-color:\s*transparent !important;/);
   assert.match(styles, /\.test-case-workspace-shell \.test-case-details-form \.gherkin-code-shell \.gherkin-highlight \{[\s\S]*?z-index:\s*2 !important;[\s\S]*?background:\s*transparent !important;/);
   assert.match(styles, /\.test-case-workspace-shell \.test-case-details-form \.gherkin-code-shell textarea \{[\s\S]*?z-index:\s*4 !important;/);
+});
+
+test("test-case Gherkin uses inline behavior insertion and linked Test Data as Examples", async () => {
+  const [editor, cases, styles] = await Promise.all([
+    readSource("../src/components/GherkinEditor.tsx"),
+    readSource("../src/pages/TestCasesPage.tsx"),
+    readSource("../src/styles.css")
+  ]);
+  assert.match(editor, /minimalBehaviorEditor\?: boolean/);
+  assert.match(editor, /Insert behavior step after/);
+  assert.match(editor, /Add behavior step/);
+  assert.match(editor, /Scenario Outline:/);
+  assert.match(editor, /hadLinkedExamplesRef/);
+  assert.match(editor, /!hasLinkedExamples && \(isOutline \|\| item\.examples\.trim\(\)\)/);
+  assert.match(cases, /title=\{caseDraft\.authoring_mode === "gherkin" \? "Examples · Linked Test Data" : "Data Sets"\}/);
+  assert.match(cases, /exampleRows=\{linkedDataSet\?\.mode === "table" \? linkedDataSet\.rows : \[\]\}/);
+  assert.match(cases, /caseDraft\.authoring_mode === "gherkin" \? linkedDataSet\.rows : linkedDataSet\.rows\.slice\(0, 3\)/);
+  assert.match(styles, /\.gherkin-minimal-block \{[^}]*padding: 0/);
+  assert.match(styles, /\.gherkin-minimal-steps \{[^}]*padding-left: 1\.15rem/);
+  assert.match(styles, /\.gherkin-editor\.is-document-layout[\s\S]*?--gherkin-step: #0645d6;[\s\S]*?--gherkin-parameter: #2f8a26;[\s\S]*?--gherkin-value: #a43a32;/);
 });
 
 test("sectioned Gherkin editing preserves Scenario Outline and Examples associations", () => {
@@ -268,7 +355,8 @@ test("Story and Test Case surfaces share the editor without destructive format s
   assert.match(requirements, /composeGherkinDocument/);
   assert.match(testCases, /role="tablist" aria-label="Step authoring mode"/);
   assert.match(testCases, /onKeyDown=\{handleTestCaseAuthoringTabKeyDown\}/);
-  assert.match(testCases, /gherkin_document: caseDraft\.gherkin_document \|\| null/);
+  assert.match(testCases, /gherkin_document: persistedGherkinDocument \|\| null/);
+  assert.match(testCases, /sanitizeGherkinDocumentText\(caseDraft\.gherkin_document\)/);
   assert.doesNotMatch(testCases, /gherkin_document: caseDraft\.authoring_mode === "gherkin" \? caseDraft\.gherkin_document : null/);
   assert.match(testCases, /buildGherkinQualitySteps\(caseDraft\.gherkin_document\)/);
   assert.match(testCases, /caseDraft\.authoring_mode === "gherkin" \? "Scenario completeness" : "Step completeness"/);

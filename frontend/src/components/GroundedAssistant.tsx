@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconAlertTriangle,
   IconBook2,
@@ -7,6 +7,9 @@ import {
   IconDownload,
   IconExternalLink,
   IconLock,
+  IconHistory,
+  IconPlayerStop,
+  IconArchive,
   IconMessageCircle,
   IconPlus,
   IconRobot,
@@ -28,14 +31,24 @@ import type {
   KnowledgeAssistantMessageResponse,
   KnowledgeAssistantSession,
   KnowledgeAssistantIntegration,
+  KnowledgeAnswerStructure,
   KnowledgeCitation,
-  KnowledgeSearchFilters
+  KnowledgeSearchFilters,
+  KnowledgeRetrievalEvent
 } from "../types";
+import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
+import { KnowledgeAnswer } from "./KnowledgeAnswer";
+import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
+import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
+import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
+import { KnowledgeStreamError } from "../lib/knowledgeAssistantStream";
 import "./GroundedAssistant.css";
 
 const EMPTY_CITATIONS: KnowledgeCitation[] = [];
 const DEFAULT_ASSISTANT_SOURCE_KINDS = ["requirement", "test_case", "execution", "bug", "file", "text", "chat"];
 const ASSISTANT_LLM_SELECTION_STORAGE_PREFIX = "hellotest:knowledge-assistant:llm";
+const RETRIEVAL_ONLY_INTEGRATION = "__retrieval_only__";
+type AssistantRetryTurn = { clientTurnId: string; integrationId: string; prompt: string; smartContext: SmartContextSelection | null; filters: KnowledgeSearchFilters; responseMode: "answer" | "evidence" };
 
 const starterPrompts = [
   "Summarize the current project and its main quality risks.",
@@ -89,7 +102,7 @@ function normalizeAnswer(response: KnowledgeAssistantMessageResponse): Knowledge
   const groundingStatus = rawMessage?.grounding_status
     || (safetyStatus.includes("provider_unavailable") ? "provider_unavailable" : safetyStatus.includes("outside") || safetyStatus.includes("refus") ? "refused" : citations.length ? "grounded" : "insufficient_context");
 
-  return {
+  const answer: KnowledgeAssistantMessage = {
     ...rawMessage,
     id: rawMessage?.id || `assistant-${Date.now()}`,
     role: "assistant",
@@ -97,6 +110,8 @@ function normalizeAnswer(response: KnowledgeAssistantMessageResponse): Knowledge
     citations,
     grounding_status: groundingStatus,
     retrieval: rawMessage?.retrieval || response.retrieval,
+    answer_contract: rawMessage?.answer_contract || response.answer_contract || rawMessage?.retrieval?.answer_contract || response.retrieval?.answer_contract,
+    context_packet: rawMessage?.context_packet || response.context_packet || rawMessage?.retrieval?.context_packet || response.retrieval?.context_packet,
     guardrails: rawMessage?.guardrails || response.guardrails || [],
     provenance: rawMessage?.provenance || response.provenance || {
       provider: rawMessage?.provider,
@@ -105,11 +120,12 @@ function normalizeAnswer(response: KnowledgeAssistantMessageResponse): Knowledge
     },
     status: "complete"
   };
+  if (answer.answer_contract && !validateKnowledgeAnswer(answer)) throw new KnowledgeStreamError("This answer uses an unsupported evidence contract and could not be displayed.", "UNSUPPORTED_ANSWER_CONTRACT", false);
+  return answer;
 }
 
 function citationHref(citation: KnowledgeCitation) {
-  const uri = String(citation.uri || citation.source_uri || "").trim();
-  return /^https?:\/\//i.test(uri) ? uri : "";
+  return knowledgeCitationHref(citation);
 }
 
 function groundingLabel(value?: string) {
@@ -124,7 +140,48 @@ function contextRouteLabel(value?: string) {
   return String(value || "project question").replace(/_/g, " ");
 }
 
+function StructuredAssistantAnswer({ content, structure }: { content: string; structure?: KnowledgeAnswerStructure }) {
+  if (structure?.summary || structure?.findings?.length || structure?.recommendations?.length || structure?.evidence_gaps?.length) {
+    const sections = [
+      { key: "findings", title: "Findings", items: structure.findings || [] },
+      { key: "recommendations", title: "Recommended next steps", items: structure.recommendations || [] },
+      { key: "evidence-gaps", title: "Evidence gaps", items: structure.evidence_gaps || [] }
+    ].filter((section) => section.items.length);
+    return (
+      <div aria-label="Structured grounded answer" className="grounded-assistant-structured-answer">
+        {structure.summary ? <section><h3>Summary</h3><p>{structure.summary}</p></section> : null}
+        {sections.map((section) => (
+          <section key={section.key}>
+            <h3>{section.title}</h3>
+            <ul>{section.items.map((item, index) => <li key={`${section.key}-${index}`}>{item}</li>)}</ul>
+          </section>
+        ))}
+      </div>
+    );
+  }
+  const blocks = content.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  return (
+    <div className="grounded-assistant-structured-answer">
+      {blocks.map((block, blockIndex) => {
+        const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+        const first = lines[0] || "";
+        const heading = first.match(/^(?:#{1,4}\s*)?([^:]{2,60}):$/);
+        if (heading) {
+          const body = lines.slice(1);
+          const isList = body.length > 0 && body.every((line) => /^[-*]\s+/.test(line));
+          return <section key={blockIndex}><h3>{heading[1]}</h3>{isList
+            ? <ul>{body.map((line, index) => <li key={index}>{line.replace(/^[-*]\s+/, "")}</li>)}</ul>
+            : body.map((line, index) => <p key={index}>{line}</p>)}</section>;
+        }
+        if (lines.every((line) => /^[-*]\s+/.test(line))) return <ul key={blockIndex}>{lines.map((line, index) => <li key={index}>{line.replace(/^[-*]\s+/, "")}</li>)}</ul>;
+        return <p key={blockIndex}>{lines.join("\n")}</p>;
+      })}
+    </div>
+  );
+}
+
 export function GroundedAssistant() {
+  const queryClient = useQueryClient();
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
@@ -135,10 +192,16 @@ export function GroundedAssistant() {
   const [messages, setMessages] = useState<KnowledgeAssistantMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
-  const [retryTurns, setRetryTurns] = useState<Record<string, { clientTurnId: string; integrationId: string; prompt: string }>>({});
+  const [retryTurns, setRetryTurns] = useState<Record<string, AssistantRetryTurn>>({});
+  const [progressEvents, setProgressEvents] = useState<KnowledgeRetrievalEvent[]>([]);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const [selectedCitation, setSelectedCitation] = useState<KnowledgeCitation | null>(null);
   const [citationDownloadError, setCitationDownloadError] = useState("");
   const [sourceKinds, setSourceKinds] = useState<string[]>(DEFAULT_ASSISTANT_SOURCE_KINDS);
+  const [knowledgeAsOf, setKnowledgeAsOf] = useState("");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
+  const [smartContext, setSmartContext] = useState<SmartContextSelection | null>(null);
   const [activeRequestIntegrationId, setActiveRequestIntegrationId] = useState("");
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -148,6 +211,7 @@ export function GroundedAssistant() {
   const canUseAssistant = Boolean(projectId)
     && hasPermission(session, "knowledge.view", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.knowledge"]);
+  const canReviewHistory = hasPermission(session, "knowledge.manage", projectId);
 
   const integrationsQuery = useQuery({
     queryKey: ["knowledge-assistant-integrations", projectId],
@@ -155,6 +219,8 @@ export function GroundedAssistant() {
     enabled: canUseAssistant,
     staleTime: 60_000
   });
+  const sessionsQuery = useQuery({ queryKey: ["knowledge-assistant-sessions", projectId, appTypeId], queryFn: () => api.knowledgeRepo.assistant.listSessions(projectId), enabled: canUseAssistant && isOpen, staleTime: 30_000 });
+  const visibleSessions = (sessionsQuery.data || []).filter((item) => item.status !== "archived" && (!appTypeId || !item.app_type_id || item.app_type_id === appTypeId));
   const assistantIntegrations = useMemo(() => {
     const seen = new Set<string>();
     return (integrationsQuery.data || []).filter((integration) => {
@@ -179,23 +245,24 @@ export function GroundedAssistant() {
       ])), [sourceKinds]);
 
   const createSessionMutation = useMutation({
-    mutationFn: ({ appId, integrationId, project, signal }: { appId: string; integrationId: string; project: string; signal: AbortSignal }) =>
+    mutationFn: ({ appId, integrationId, project, title, signal }: { appId: string; integrationId: string; project: string; title: string; signal: AbortSignal }) =>
       api.knowledgeRepo.assistant.createSession({
         project_id: project,
         app_type_id: appId || null,
         integration_id: integrationId,
-        title: "HelloTest project assistant"
+        title
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, signal }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; signal: AbortSignal }) =>
-      api.knowledgeRepo.assistant.sendMessage(id, {
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
+      api.knowledgeRepo.assistant.streamMessage(id, {
         message,
         client_turn_id: clientTurnId,
         integration_id: integrationId,
         filters,
+        response_mode: responseMode,
         smart_context: smartContext
-      }, { signal })
+      }, { signal, onProgress })
   });
   const downloadCitationMutation = useMutation({
     mutationFn: async (citation: KnowledgeCitation) => ({
@@ -231,13 +298,19 @@ export function GroundedAssistant() {
     setRetryTurns({});
     setCitationDownloadError("");
     setSelectedIntegrationId("");
+    setSmartContext(null);
+    setKnowledgeAsOf("");
     setActiveRequestIntegrationId("");
+    setProgressEvents([]);
+    setSessionError("");
+    setSelectedCitation(null);
+    setIsRestoringSession(false);
   }, [projectId, appTypeId, session?.user.id]);
 
   useEffect(() => {
     if (!integrationsQuery.isSuccess || promptRegistryQuery.isLoading) return;
     const storedIntegrationId = readStoredLlmSelection(integrationSelectionStorageKey);
-    const hasIntegration = (id: string | undefined): id is string => Boolean(id && assistantIntegrations.some((integration) => integration.id === id));
+    const hasIntegration = (id: string | undefined): id is string => Boolean(id && (id === RETRIEVAL_ONLY_INTEGRATION || assistantIntegrations.some((integration) => integration.id === id)));
     if (storedIntegrationId && !hasIntegration(storedIntegrationId)) {
       persistLlmSelection(integrationSelectionStorageKey, "");
     }
@@ -247,7 +320,7 @@ export function GroundedAssistant() {
       configuredDefaultIntegrationId,
       assistantIntegrations.find((integration) => integration.scope === "project")?.id,
       assistantIntegrations[0]?.id
-    ].find(hasIntegration) || "";
+    ].find(hasIntegration) || RETRIEVAL_ONLY_INTEGRATION;
     setSelectedIntegrationId(nextIntegrationId);
   }, [
     assistantIntegrations,
@@ -257,7 +330,7 @@ export function GroundedAssistant() {
     promptRegistryQuery.isLoading
   ]);
 
-  useEffect(() => () => requestControllerRef.current?.abort(), []);
+  useEffect(() => () => { scopeGenerationRef.current += 1; requestControllerRef.current?.abort(); }, []);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -277,19 +350,65 @@ export function GroundedAssistant() {
 
   const startNewChat = () => {
     if (isSending) return;
+    scopeGenerationRef.current += 1;
+    setIsRestoringSession(false);
     setSessionId("");
     setMessages([]);
     setPrompt("");
     setExpandedSources({});
     setRetryTurns({});
     setCitationDownloadError("");
+    setSmartContext(null);
+    setKnowledgeAsOf("");
+    setProgressEvents([]);
+    setSessionError("");
   };
 
-  const submitPrompt = async (event?: FormEvent, retry?: { clientTurnId: string; errorMessageId: string; integrationId: string; prompt: string }) => {
+  const openConversation = async (id: string) => {
+    if (!id) { startNewChat(); return; }
+    scopeGenerationRef.current += 1;
+    const generation = scopeGenerationRef.current;
+    requestControllerRef.current?.abort();
+    setIsRestoringSession(true);
+    setSessionError("");
+    try {
+      const restored = safeSession(await api.knowledgeRepo.assistant.getSession(id));
+      if (generation !== scopeGenerationRef.current) return;
+      setSessionId(restored.id);
+      setMessages(restored.messages || []);
+      setRetryTurns({});
+      setExpandedSources({});
+      setPrompt("");
+      setSmartContext(null);
+      if (restored.filters?.source_kinds) setSourceKinds(restored.filters.source_kinds.filter((kind) => DEFAULT_ASSISTANT_SOURCE_KINDS.includes(kind)));
+      if (canReviewHistory && restored.filters?.as_of) {
+        const value = new Date(restored.filters.as_of);
+        setKnowledgeAsOf(new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+      } else setKnowledgeAsOf("");
+    } catch (error) {
+      if (generation === scopeGenerationRef.current) setSessionError(error instanceof Error ? error.message : "Conversation could not be loaded.");
+    } finally { if (generation === scopeGenerationRef.current) setIsRestoringSession(false); }
+  };
+
+  const archiveConversation = async () => {
+    if (!sessionId || isSending) return;
+    const generation = scopeGenerationRef.current;
+    setIsRestoringSession(true);
+    try {
+      await api.knowledgeRepo.assistant.updateSession(sessionId, { status: "archived" });
+      if (generation !== scopeGenerationRef.current) return;
+      startNewChat();
+      void queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-sessions", projectId] });
+    } catch (error) { if (generation === scopeGenerationRef.current) { setSessionError(error instanceof Error ? error.message : "Conversation could not be archived."); setIsRestoringSession(false); } }
+  };
+
+  const submitPrompt = async (event?: FormEvent, retry?: AssistantRetryTurn & { errorMessageId: string }) => {
     event?.preventDefault();
     const normalizedPrompt = (retry?.prompt || prompt).trim();
     const requestIntegrationId = retry?.integrationId || selectedIntegrationId;
-    if (!normalizedPrompt || !requestIntegrationId || isSending) return;
+    if (!normalizedPrompt || !requestIntegrationId || isSending || isRestoringSession || (!retry && !sourceKinds.length)) return;
+    const effectiveIntegrationId = requestIntegrationId === RETRIEVAL_ONLY_INTEGRATION ? "" : requestIntegrationId;
+    const requestSmartContext = retry ? retry.smartContext : smartContext;
     const requestGeneration = scopeGenerationRef.current;
     const requestProjectId = projectId;
     const requestAppTypeId = appTypeId;
@@ -298,10 +417,13 @@ export function GroundedAssistant() {
       ? undefined
       : apiSourceKinds;
     const clientTurnId = retry?.clientTurnId || createClientTurnId();
+    const requestFilters = retry?.filters || { app_type_id: requestAppTypeId || null, source_kinds: requestApiSourceKinds, ...(canReviewHistory && knowledgeAsOf ? { as_of: new Date(knowledgeAsOf).toISOString() } : {}) };
+    const responseMode = retry?.responseMode || (requestIntegrationId === RETRIEVAL_ONLY_INTEGRATION ? "evidence" : "answer");
     const controller = new AbortController();
     requestControllerRef.current?.abort();
     requestControllerRef.current = controller;
     setActiveRequestIntegrationId(requestIntegrationId);
+    setProgressEvents([]);
     const isStale = () => controller.signal.aborted || requestGeneration !== scopeGenerationRef.current;
 
     const userMessage: KnowledgeAssistantMessage = {
@@ -309,6 +431,7 @@ export function GroundedAssistant() {
       role: "user",
       content: normalizedPrompt,
       citations: [],
+      scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters },
       status: "complete",
       created_at: new Date().toISOString()
     };
@@ -329,11 +452,13 @@ export function GroundedAssistant() {
       if (!activeSessionId) {
         const created = safeSession(await createSessionMutation.mutateAsync({
           appId: requestAppTypeId,
-          integrationId: requestIntegrationId,
+          integrationId: effectiveIntegrationId,
           project: requestProjectId,
+          title: normalizedPrompt.slice(0, 96),
           signal: controller.signal
         }));
-        if (isStale()) return;
+        if (requestGeneration !== scopeGenerationRef.current) return;
+        if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
         activeSessionId = created.id;
         setSessionId(created.id);
         const restoredMessages = created.messages || [];
@@ -345,30 +470,41 @@ export function GroundedAssistant() {
       const response = await sendMessageMutation.mutateAsync({
         clientTurnId,
         id: activeSessionId,
-        integrationId: requestIntegrationId,
+        integrationId: effectiveIntegrationId,
         message: normalizedPrompt,
-        filters: {
-          app_type_id: requestAppTypeId || null,
-          source_kinds: requestApiSourceKinds
-        },
-        signal: controller.signal
+        filters: requestFilters,
+        responseMode,
+        smartContext: requestSmartContext ? {
+          query: requestSmartContext.query,
+          source_ids: requestSmartContext.sourceIds,
+          source_kinds: requestSmartContext.sourceKinds,
+          reviewed_context: requestSmartContext.contextText
+        } : undefined,
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (isStale()) return;
+          setProgressEvents((current) => [...current.filter((item) => !(item.stage === progress.stage && item.status === progress.status)), progress].slice(-50));
+        }
       });
-      if (isStale()) return;
+      if (requestGeneration !== scopeGenerationRef.current) return;
+      if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
       if (response.pending) {
         throw new Error(`This grounded answer is still processing. Retry in ${response.retry_after_seconds || 3} seconds; the same turn will be resumed without duplicate model work.`);
       }
-      setMessages((current) => [...current, normalizeAnswer(response)]);
+      setMessages((current) => [...current, { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } }]);
+      void queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-sessions", requestProjectId] });
     } catch (error) {
-      if (isStale()) return;
+      if (requestGeneration !== scopeGenerationRef.current) return;
+      const cancelled = controller.signal.aborted;
       const errorMessageId = `assistant-error-${Date.now()}`;
-      setRetryTurns((current) => ({ ...current, [errorMessageId]: { clientTurnId, integrationId: requestIntegrationId, prompt: normalizedPrompt } }));
+      if (!(error instanceof KnowledgeStreamError) || error.retryable || cancelled) setRetryTurns((current) => ({ ...current, [errorMessageId]: { clientTurnId, integrationId: requestIntegrationId, prompt: normalizedPrompt, smartContext: requestSmartContext, filters: requestFilters, responseMode } }));
       setMessages((current) => [...current, {
         id: errorMessageId,
         role: "assistant",
-        content: error instanceof Error ? error.message : "The grounded assistant is temporarily unavailable.",
+        content: cancelled ? "Answer stopped. Retry this turn when you are ready." : error instanceof Error ? error.message : "The grounded assistant is temporarily unavailable.",
         citations: [],
         grounding_status: "insufficient_context",
-        status: "failed",
+        status: cancelled ? "cancelled" : "failed",
         created_at: new Date().toISOString()
       }]);
     } finally {
@@ -417,7 +553,7 @@ export function GroundedAssistant() {
                 <span className="sr-only">Answer model</span>
                 <select
                   aria-label="Answer model"
-                  disabled={isSending || integrationsQuery.isLoading || !assistantIntegrations.length}
+                  disabled={isSending || integrationsQuery.isLoading}
                   onChange={(event) => {
                     setSelectedIntegrationId(event.target.value);
                     persistLlmSelection(integrationSelectionStorageKey, event.target.value);
@@ -429,6 +565,7 @@ export function GroundedAssistant() {
                       {integrationsQuery.isLoading ? "Loading models…" : integrationsQuery.isError ? "Models unavailable" : "No LLM configured"}
                     </option>
                   ) : null}
+                  <option value={RETRIEVAL_ONLY_INTEGRATION}>Retrieval only · no LLM</option>
                   {assistantIntegrations.map((integration) => (
                     <option key={integration.id} value={integration.id}>{integrationOptionLabel(integration)}</option>
                   ))}
@@ -447,15 +584,28 @@ export function GroundedAssistant() {
           <div className="grounded-assistant-scope-bar">
             <span><IconLock size={14} /> Current project only</span>
             <span>{appTypeId ? "Current application" : "All applications"}</span>
+            <span>{knowledgeAsOf ? `As of ${new Date(knowledgeAsOf).toLocaleString()}` : "Current searchable knowledge"}</span>
+            <div className="grounded-assistant-history-controls">
+              <label><IconHistory size={14} /><span className="sr-only">Conversation history</span><select aria-label="Conversation history" disabled={isSending || isRestoringSession || sessionsQuery.isLoading} onChange={(event) => void openConversation(event.target.value)} value={sessionId}>
+                <option value="">New conversation</option>
+                {sessionId && !visibleSessions.some((item) => item.id === sessionId) ? <option value={sessionId}>Current conversation</option> : null}
+                {visibleSessions.map((item) => <option key={item.id} value={item.id}>{item.title || "Project conversation"}{item.updated_at ? ` · ${new Date(item.updated_at).toLocaleDateString()}` : ""}</option>)}
+              </select></label>
+              {sessionId ? <button aria-label="Archive this conversation" className="ghost-button grounded-assistant-icon-button" disabled={isSending || isRestoringSession} onClick={() => void archiveConversation()} title="Archive conversation" type="button"><IconArchive size={15} /></button> : null}
+              {sessionsQuery.isError ? <button className="grounded-assistant-retry" onClick={() => void sessionsQuery.refetch()} type="button">Retry history</button> : null}
+            </div>
           </div>
 
           <div aria-live="polite" className="grounded-assistant-conversation">
+            {isRestoringSession ? <p role="status">Loading conversation…</p> : null}
+            {sessionError ? <p className="grounded-assistant-download-error" role="alert">{sessionError}</p> : null}
             {isSending ? (
               <div className="grounded-assistant-agent-status" role="status">
                 <span aria-hidden="true" className="grounded-assistant-agent-status-icon"><IconSparkles size={13} stroke={2} /></span>
-                <strong>{createSessionMutation.isPending ? "Preparing grounded session" : "Routing and grounding answer"}</strong>
-                <small>{createSessionMutation.isPending ? "Current project" : "Live data + Knowledge Repo"}</small>
-                <span aria-hidden="true" className="grounded-assistant-agent-status-dots"><i /><i /><i /></span>
+                <strong>{progressEvents.length ? contextRouteLabel(progressEvents[progressEvents.length - 1].stage) : createSessionMutation.isPending ? "Opening conversation" : "Waiting for retrieval"}</strong>
+                <small>{progressEvents[progressEvents.length - 1]?.message || "Using the scope selected for this turn"}</small>
+                <button className="grounded-assistant-stop" onClick={() => requestControllerRef.current?.abort()} type="button"><IconPlayerStop size={13} />Stop</button>
+                {progressEvents.length ? <details className="grounded-assistant-live-progress"><summary>{progressEvents.length} reported stage{progressEvents.length === 1 ? "" : "s"}</summary><ol>{progressEvents.map((item, index) => <li key={`${item.stage}-${index}`}><span>{contextRouteLabel(item.stage)}</span><small>{item.message || contextRouteLabel(item.status)}</small></li>)}</ol></details> : null}
               </div>
             ) : null}
             {!messages.length ? (
@@ -476,22 +626,25 @@ export function GroundedAssistant() {
 
             {messages.map((message) => {
               const isAssistant = message.role === "assistant";
-              const citations = message.citations || EMPTY_CITATIONS;
+              const validatedAnswer = isAssistant ? validateKnowledgeAnswer(message) : null;
+              const hasInterpretations = validatedAnswer?.claims.some((claim) => claim.classification === "INTERPRETATION");
+              const citations = validatedAnswer ? Array.from(validatedAnswer.citations.values()) : message.citations || EMPTY_CITATIONS;
               const sourcesExpanded = Boolean(expandedSources[message.id]);
               return (
                 <article className={`grounded-assistant-message is-${message.role}${message.status === "failed" ? " is-error" : ""}`} key={message.id}>
                   <div className="grounded-assistant-message-label">
                     {isAssistant ? <IconSparkles size={14} /> : null}
                     <span>{isAssistant ? "HelloTest" : "You"}</span>
-                    {isAssistant ? (
-                      <span className={`grounding-chip is-${message.grounding_status || "insufficient_context"}`}>
-                        {message.grounding_status === "grounded" ? <IconShieldCheck size={13} /> : <IconAlertTriangle size={13} />}
-                        {groundingLabel(message.grounding_status)}
+                    {isAssistant && !["failed", "cancelled"].includes(message.status || "") ? (
+                      <span className={`grounding-chip is-${hasInterpretations ? "evidence-linked" : message.grounding_status || "insufficient_context"}`}>
+                        {hasInterpretations ? <IconBook2 size={13} /> : message.grounding_status === "grounded" ? <IconShieldCheck size={13} /> : <IconAlertTriangle size={13} />}
+                        {hasInterpretations ? "Evidence linked" : groundingLabel(message.grounding_status)}
                       </span>
                     ) : null}
                   </div>
-                  <div className="grounded-assistant-message-content">{message.content}</div>
-                  {message.status === "failed" && retryTurns[message.id] ? (
+                  {message.scope ? <div className="grounded-assistant-message-scope">{message.scope.filters?.source_kinds?.filter((kind) => kind !== "product_help").map((kind) => kind.replace(/_/g, " ")).join(" · ") || "All permitted project sources"}{message.scope.filters?.as_of ? ` · As of ${new Date(message.scope.filters.as_of).toLocaleString()}` : " · Current knowledge"}</div> : null}
+                  <div className="grounded-assistant-message-content">{isAssistant ? validatedAnswer ? <KnowledgeAnswer message={message} onEvidenceOpen={(citation) => citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind)) ? setSelectedCitation(citation) : setExpandedSources((current) => ({ ...current, [message.id]: true }))} /> : message.answer_contract || message.retrieval?.answer_contract ? <p>This saved answer uses an unsupported evidence contract. Ask the question again to retrieve current evidence.</p> : <StructuredAssistantAnswer content={message.content} structure={message.retrieval?.answer_structure} /> : message.content}</div>
+                  {["failed", "cancelled"].includes(message.status || "") && retryTurns[message.id] ? (
                     <button
                       className="grounded-assistant-retry"
                       disabled={isSending}
@@ -518,20 +671,23 @@ export function GroundedAssistant() {
                             const canDownload = citation.source_kind === "file" && Boolean(citation.source_id);
                             const content = (
                               <>
-                                <span className="grounded-assistant-citation-index">{citation.index || index + 1}</span>
+                                <span className="grounded-assistant-citation-index">{validatedAnswer ? index + 1 : citation.index || index + 1}</span>
                                 <span>
                                   <strong>{citation.title || citation.label || "Project source"}</strong>
                                   <small>
                                     {citation.source_kind?.replace(/_/g, " ") || "knowledge"}
-                                    {citation.location?.page ? ` · page ${citation.location.page}` : citation.location?.heading ? ` · ${citation.location.heading}` : citation.location?.chunk_index !== undefined && citation.location?.chunk_index !== null ? ` · chunk ${citation.location.chunk_index + 1}` : ""}
+                                    {knowledgeCitationLocation(citation) ? ` · ${knowledgeCitationLocation(citation)}` : ""}
+                                    {citation.freshness?.current === false ? " · Historical revision" : citation.freshness?.current ? " · Current revision" : ""}
                                     {citation.excerpt ? ` · ${citation.excerpt}` : ""}
                                   </small>
                                 </span>
                                 {href ? <IconExternalLink size={14} /> : canDownload ? <IconDownload size={14} /> : null}
                               </>
                             );
-                            return <li key={`${citation.id}-${index}`}>{href
-                              ? <a href={href} rel="noreferrer" target="_blank">{content}</a>
+                            return <li key={`${citation.id}-${index}`}>{href.startsWith("/knowledge-repo?")
+                              ? <button onClick={() => setSelectedCitation(citation)} type="button">{content}</button>
+                              : href
+                              ? <a href={href} rel="noreferrer" target={href.startsWith("/") ? undefined : "_blank"}>{content}</a>
                               : canDownload
                                 ? <button disabled={downloadCitationMutation.isPending} onClick={() => downloadCitationMutation.mutate(citation)} type="button">{content}</button>
                                 : <div>{content}</div>}</li>;
@@ -541,11 +697,41 @@ export function GroundedAssistant() {
                     </div>
                   ) : null}
                   {isAssistant && message.retrieval ? (
-                    <div className="grounded-assistant-retrieval-note">
-                      <span>{contextRouteLabel(message.retrieval.context_route?.input_type)}</span>
-                      <span>{message.retrieval.live_context_count || 0} live project snapshot{message.retrieval.live_context_count === 1 ? "" : "s"}</span>
-                      <span>{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0))} Knowledge Repository result{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0)) === 1 ? "" : "s"}</span>
-                    </div>
+                    <details className="grounded-assistant-processing">
+                      <summary>
+                        <IconSparkles size={14} />
+                        How this answer was built
+                        <span>{message.retrieval.processing_trace?.length || 0} stages</span>
+                      </summary>
+                      <div className="grounded-assistant-processing-trace">
+                        <KnowledgeProcessingTrace items={message.retrieval.processing_trace || []} />
+                        <div className="grounded-assistant-retrieval-note">
+                          <span>{contextRouteLabel(message.retrieval.context_route?.query_category || message.retrieval.context_route?.input_type)}</span>
+                          {message.retrieval.query_class ? <span>{contextRouteLabel(message.retrieval.query_class)} query</span> : null}
+                          {message.retrieval.context_route?.answer_depth ? <span>{message.retrieval.context_route.answer_depth} answer</span> : null}
+                          {message.retrieval.evidence_sufficiency ? <span>Evidence {message.retrieval.evidence_sufficiency.status}</span> : null}
+                          {message.retrieval.context_packet?.coverage ? <span>{message.retrieval.context_packet.coverage.source_count || 0} authorized sources · {message.retrieval.context_packet.coverage.context_tokens_estimated || 0} context tokens</span> : null}
+                          {message.retrieval.answer_contract?.grounding ? <span>{message.retrieval.answer_contract.grounding.supported_claim_count || 0} grounded claims · {message.retrieval.answer_contract.grounding.unsupported_claim_count || 0} rejected</span> : null}
+                          <span>{message.retrieval.retrieval_round_count || 0} adaptive retrieval round{message.retrieval.retrieval_round_count === 1 ? "" : "s"}</span>
+                          <span>{message.retrieval.live_context_count || 0} live project snapshot{message.retrieval.live_context_count === 1 ? "" : "s"}</span>
+                          <span>{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0))} Knowledge Repository result{Math.max(0, (message.retrieval.returned_count ?? citations.length) - (message.retrieval.live_context_count || 0)) === 1 ? "" : "s"}</span>
+                          {message.retrieval.embedding_batch_count ? <span>{message.retrieval.embedding_batch_count} embedding batch{message.retrieval.embedding_batch_count === 1 ? "" : "es"}</span> : null}
+                          {message.retrieval.termination_reason ? <span>stopped: {contextRouteLabel(message.retrieval.termination_reason)}</span> : null}
+                        </div>
+                        {message.retrieval.planned_queries?.length ? (
+                          <div className="grounded-assistant-query-chain">
+                            <strong>Context query chain</strong>
+                            <ol>{message.retrieval.planned_queries.map((query, index) => <li key={`${query}-${index}`}>{query}</li>)}</ol>
+                          </div>
+                        ) : null}
+                        {message.retrieval.model_context_plan?.information_needs?.length ? (
+                          <div className="grounded-assistant-query-chain">
+                            <strong>Evidence plan</strong>
+                            <ol>{message.retrieval.model_context_plan.information_needs.map((need, index) => <li key={`${need}-${index}`}>{need}</li>)}</ol>
+                          </div>
+                        ) : null}
+                      </div>
+                    </details>
                   ) : null}
                 </article>
               );
@@ -572,6 +758,7 @@ export function GroundedAssistant() {
                     <label key={value}>
                       <input
                         checked={sourceKinds.includes(value)}
+                        disabled={isSending}
                         onChange={(event) => {
                           setSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((item) => item !== value));
                         }}
@@ -580,8 +767,20 @@ export function GroundedAssistant() {
                       {label}
                     </label>
                   ))}
+                  {canReviewHistory ? <label className="grounded-assistant-history-date">Knowledge as of<input aria-label="Knowledge as of; leave empty for current" disabled={isSending} onChange={(event) => setKnowledgeAsOf(event.target.value)} type="datetime-local" value={knowledgeAsOf} />{knowledgeAsOf ? <button disabled={isSending} onClick={() => setKnowledgeAsOf("")} type="button">Use current</button> : null}</label> : null}
                 </div>
               </details>
+              <SmartContextWorkbench
+                appTypeId={appTypeId}
+                buttonClassName="ghost-button compact grounded-assistant-smart-context"
+                buttonLabel={smartContext ? `Smart Context · ${smartContext.resultCount}` : "Smart Context"}
+                disabled={isSending || isRestoringSession}
+                initialQuery={prompt}
+                onApply={setSmartContext}
+                preferredSourceKinds={apiSourceKinds}
+                projectId={projectId}
+              />
+              {smartContext ? <button className="grounded-assistant-clear-context" onClick={() => setSmartContext(null)} type="button">Clear</button> : null}
             </div>
             <form className="grounded-assistant-composer" onSubmit={(event) => void submitPrompt(event)}>
               <label className="sr-only" htmlFor="grounded-assistant-input">Ask about this HelloTest project</label>
@@ -597,11 +796,11 @@ export function GroundedAssistant() {
                     void submitPrompt();
                   }
                 }}
-                placeholder="Ask about this project, its tests, runs, bugs, or HelloTest usage…"
+                placeholder={messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, bugs, or HelloTest usage…"}
                 rows={2}
                 value={prompt}
               />
-              <button aria-label="Send message" disabled={!prompt.trim() || !selectedIntegrationId || isSending || !sourceKinds.length} type="submit">
+              <button aria-label="Send message" disabled={!prompt.trim() || !selectedIntegrationId || isSending || isRestoringSession || !sourceKinds.length} type="submit">
                 <IconSend size={18} />
               </button>
             </form>
@@ -609,6 +808,7 @@ export function GroundedAssistant() {
           </footer>
         </aside>
       ) : null}
+      {isOpen && selectedCitation?.source_id ? <KnowledgeSourceDetail canManage={canReviewHistory} initialRevisionId={selectedCitation.freshness?.current === false ? selectedCitation.knowledge_id : undefined} key={selectedCitation.evidence_id || selectedCitation.id} onChanged={() => undefined} onClose={() => setSelectedCitation(null)} projectId={projectId} sourceId={selectedCitation.source_id} /> : null}
     </>
   );
 }

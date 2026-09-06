@@ -11,8 +11,13 @@ const permissionService = require("./permission.service");
 
 const assertKnowledgeSourceAttachmentAccess = async ({ user, entityType, entityId, permissionCode, operation }) => {
   if (String(entityType || "").trim().toLowerCase().replace(/[\s-]+/g, "_") !== "knowledge_source") return;
-  const requiredBasePermission = ["list", "download"].includes(operation) ? "knowledge.view" : "knowledge.manage";
-  if (permissionCode !== requiredBasePermission) {
+  // A managed ingestion downloads its staged object with knowledge.manage,
+  // while a user-facing file download uses knowledge.view. Both are Knowledge
+  // endpoint capabilities; generic attachment permissions must stay blocked.
+  const allowedBasePermissions = operation === "download"
+    ? new Set(["knowledge.view", "knowledge.manage"])
+    : new Set([operation === "list" ? "knowledge.view" : "knowledge.manage"]);
+  if (!allowedBasePermissions.has(permissionCode)) {
     const error = new Error("Managed Knowledge Repo files are available only through Knowledge endpoints.");
     error.statusCode = 403;
     throw error;
@@ -26,7 +31,7 @@ const assertKnowledgeSourceAttachmentAccess = async ({ user, entityType, entityI
     error.statusCode = 404;
     throw error;
   }
-  if (!await permissionService.hasPermission(user, requiredBasePermission, source.project_id)
+  if (!await permissionService.hasPermission(user, permissionCode, source.project_id)
     || (source.required_permission && !await permissionService.hasPermission(user, source.required_permission, source.project_id))) {
     const error = new Error("Permission required for this managed Knowledge source file.");
     error.statusCode = 403;
@@ -191,6 +196,28 @@ const download = async ({ user, id, permissionCode = "attachment.view" }) => {
   };
 };
 
+// Background Knowledge ingestion has already passed project permission checks
+// and owns a leased job. Re-authorizing through a partial worker user object made
+// staged files fragile (and previously rejected knowledge.manage as a download).
+// This internal reader instead binds the object to the exact project + source.
+const downloadManagedKnowledgeObject = async ({ id, projectId, sourceId }) => {
+  const row = await getRow(id);
+  const entityType = String(row.entity_type || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (entityType !== "knowledge_source"
+    || String(row.entity_id) !== String(sourceId)
+    || String(row.project_id) !== String(projectId)) {
+    const error = new Error("The staged Knowledge file no longer matches its project source.");
+    error.statusCode = 409;
+    error.code = "KNOWLEDGE_ATTACHMENT_SCOPE_MISMATCH";
+    throw error;
+  }
+  const storedStream = await objectStorage.getObject({ bucket: row.bucket_name, objectName: row.object_name });
+  return {
+    row,
+    stream: row.compression === "gzip" ? storedStream.pipe(createGunzip()) : storedStream
+  };
+};
+
 const listProjectObjects = async (projectId) => db.prepare(`
     SELECT bucket_name, object_name
     FROM attachments
@@ -227,6 +254,7 @@ const remove = async ({ user, id, permissionCode = "attachment.delete" }) => {
 module.exports = {
   assertKnowledgeSourceAttachmentAccess,
   download,
+  downloadManagedKnowledgeObject,
   list,
   meta: () => ({
     enabled: objectStorage.isEnabled(),

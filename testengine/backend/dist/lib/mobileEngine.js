@@ -1,3 +1,4 @@
+import { buildInitialContext, toParameterValuesRecord } from "./runtimeContext.js";
 import { buildMobileEngineRequestHeaders, resolveMobileEngineClientSecurity } from "./mobileEngineSecurity.js";
 const appendPath = (base, path) => `${base}${path.startsWith("/") ? path : `/${path}`}`;
 export function isMobileEngineConfigured() {
@@ -7,7 +8,7 @@ export function getMobileEngineConfigurationError() {
     const configuration = resolveMobileEngineClientSecurity();
     return configuration.ready ? null : configuration.reason;
 }
-export async function executeAndroidSteps(envelope, steps) {
+export async function executeAndroidSteps(envelope, steps, capturedValues = {}) {
     const configuration = resolveMobileEngineClientSecurity();
     if (!configuration.ready || !configuration.baseUrl) {
         throw new Error(configuration.reason || "Mobile Engine is not configured for Android execution.");
@@ -26,6 +27,7 @@ export async function executeAndroidSteps(envelope, steps) {
             app: envelope.mobile_engine?.app || undefined,
             config: envelope.mobile_engine || {},
             object_repository: envelope.object_repository || [],
+            parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
             steps
         })
     });

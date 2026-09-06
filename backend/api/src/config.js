@@ -1,6 +1,7 @@
 const APP_MODES = new Set(["local", "docker", "aws", "k8s"]);
 const STORAGE_PROVIDERS = new Set(["local", "minio", "s3"]);
 const QUEUE_PROVIDERS = new Set(["redis"]);
+const KNOWLEDGE_VECTOR_PROVIDERS = new Set(["postgresql", "qdrant"]);
 const { httpConfig } = require("./runtime/httpConfig");
 
 const normalizeBoolean = (value, fallback = false) => {
@@ -115,7 +116,18 @@ const config = {
     maxFileBytes: normalizeNumber(process.env.KNOWLEDGE_MAX_FILE_BYTES, 50 * 1024 * 1024),
     extractionMaxBytes: normalizeNumber(process.env.KNOWLEDGE_EXTRACTION_MAX_BYTES, 20 * 1024 * 1024),
     tikaUrl: String(process.env.KNOWLEDGE_TIKA_URL || "").trim(),
-    tikaTimeoutMs: normalizeNumber(process.env.KNOWLEDGE_TIKA_TIMEOUT_MS, 30_000)
+    tikaTimeoutMs: normalizeNumber(process.env.KNOWLEDGE_TIKA_TIMEOUT_MS, 30_000),
+    vectorStore: {
+      provider: enumValue(
+        process.env.KNOWLEDGE_VECTOR_STORE,
+        KNOWLEDGE_VECTOR_PROVIDERS,
+        process.env.KNOWLEDGE_QDRANT_URL ? "qdrant" : "postgresql"
+      ),
+      qdrantUrl: String(process.env.KNOWLEDGE_QDRANT_URL || "").trim(),
+      qdrantApiKey: String(process.env.KNOWLEDGE_QDRANT_API_KEY || "").trim(),
+      qdrantCollectionPrefix: String(process.env.KNOWLEDGE_QDRANT_COLLECTION_PREFIX || "hellotest_knowledge_dense_v1").trim(),
+      qdrantTimeoutMs: normalizeNumber(process.env.KNOWLEDGE_QDRANT_TIMEOUT_MS, 4_000)
+    }
   },
   queueProvider: enumValue(process.env.QUEUE_PROVIDER, QUEUE_PROVIDERS, "redis"),
   enableObservability: normalizeBoolean(process.env.ENABLE_OBSERVABILITY, process.env.NODE_ENV === "production"),

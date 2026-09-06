@@ -238,6 +238,11 @@ The seed file creates these users:
 - `KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS` (defaults to 2,000,000 extracted characters per source)
 - `KNOWLEDGE_TIKA_URL` (fixed internal Apache Tika endpoint; the bundled stacks use `http://tika:9998`)
 - `KNOWLEDGE_TIKA_TIMEOUT_MS` (defaults to 30 seconds)
+- `KNOWLEDGE_VECTOR_STORE` (`qdrant` in bundled stacks; `postgresql` is the safe fallback)
+- `KNOWLEDGE_QDRANT_URL` (internal Qdrant REST endpoint; bundled stacks use `http://qdrant:6333`)
+- `KNOWLEDGE_QDRANT_API_KEY` (required when the Qdrant deployment enforces API-key authentication)
+- `KNOWLEDGE_QDRANT_COLLECTION_PREFIX` (dimension-versioned collection prefix)
+- `KNOWLEDGE_QDRANT_TIMEOUT_MS` (bounded projection/query deadline; defaults to 4 seconds)
 
 Standard attachment uploads are streamed through the authenticated API. Knowledge source uploads are separately size-bounded and read once by the API for signature, extension, and unsafe Office-package checks before being persisted to object storage and queued for extraction. PostgreSQL stores the HelloTest entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Knowledge ingestion stores extracted, redacted chunks and retrieval provenance in PostgreSQL/pgvector while retaining source files in object storage. Keep object-storage and parser endpoints on the API network only—never expose them through the frontend runtime config. When an administrator configures an external embedding or chat endpoint, redacted project passages are sent to that provider; review its retention and data-handling terms before enabling it. Without that configuration, Knowledge search stays local and uses PostgreSQL full-text search plus the explicitly degraded deterministic fallback.
 

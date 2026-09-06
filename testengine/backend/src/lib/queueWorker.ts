@@ -433,25 +433,11 @@ async function executeQueuedJob(
       }
     }
 
-    const remainingAndroidSteps = remainingSteps.filter((step) => step.step_type === "android");
-    const androidResultsByStepId = new Map<string, { status: "passed" | "failed" | "blocked"; note?: string }>();
-
-    if (remainingAndroidSteps.length) {
-      if (!isMobileEngineConfigured()) {
-        const message = `${job.test_case_title} requires Android execution, but the Mobile Engine client is not ready: ${getMobileEngineConfigurationError() || "unknown configuration error"}.`;
-        for (const step of remainingAndroidSteps) {
-          androidResultsByStepId.set(step.id, { status: "blocked", note: message });
-        }
-      } else {
-        const mobileResult = await executeAndroidSteps(envelope, remainingAndroidSteps);
-        for (const result of mobileResult.results || []) {
-          androidResultsByStepId.set(result.step_id, {
-            status: result.status,
-            note: result.note
-          });
-        }
-      }
-    }
+    const androidResultsByStepId = new Map<string, {
+      status: "passed" | "failed" | "blocked";
+      note?: string;
+      captures?: Record<string, string>;
+    }>();
 
     for (const [index, step] of remainingSteps.entries()) {
       currentStep = step;
@@ -509,6 +495,32 @@ async function executeQueuedJob(
       }
 
       if (step.step_type === "android") {
+        if (!androidResultsByStepId.has(step.id)) {
+          // A contiguous mobile block shares a driver while respecting API/web
+          // preconditions and captures produced earlier in the authored plan.
+          const androidBlock: EngineRunStep[] = [];
+          for (const next of remainingSteps.slice(index)) {
+            if (next.step_type !== "android") break;
+            androidBlock.push(next);
+          }
+          if (!isMobileEngineConfigured()) {
+            const message = `${job.test_case_title} requires Android execution, but the Mobile Engine client is not ready: ${getMobileEngineConfigurationError() || "unknown configuration error"}.`;
+            for (const mobileStep of androidBlock) {
+              androidResultsByStepId.set(mobileStep.id, { status: "blocked", note: message });
+            }
+          } else {
+            const mobileResult = await executeAndroidSteps(envelope, androidBlock, capturedValues);
+            for (const mobileStep of androidBlock) {
+              androidResultsByStepId.set(mobileStep.id, {
+                status: "blocked",
+                note: "Android Mobile Engine did not return a result for this step."
+              });
+            }
+            for (const mobileStep of mobileResult.results || []) {
+              androidResultsByStepId.set(mobileStep.step_id, mobileStep);
+            }
+          }
+        }
         const result = androidResultsByStepId.get(step.id) || { status: "blocked" as const, note: "Android Mobile Engine did not return a result for this step." };
         const message = result.note || `${job.test_case_title} Android step ${step.order} finished with ${result.status}.`;
         enqueueStepReport(step.id, {
@@ -517,8 +529,10 @@ async function executeQueuedJob(
           evidence: null,
           web_detail: null,
           automation_detail: buildAutomationDetail(step, result.status, message, envelope.mobile_engine?.active || "mobile"),
-          captures: {}
+          captures: result.captures || {}
         });
+        capturedValues = { ...capturedValues, ...(result.captures || {}) };
+        syncCapturedValuesToWebContext(result.captures, webRunSession);
 
         if (result.status === "passed") {
           currentStep = null;

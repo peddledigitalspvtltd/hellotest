@@ -87,7 +87,7 @@ const fingerprint = (value) => crypto.createHash("sha256").update(String(value |
 const asArray = (value) => Array.isArray(value) ? value : [];
 
 const INTENT_RULES = [
-  { id: "product_help", scopes: ["knowledge"], pattern: /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|capabilit(?:y|ies)|feature|use hellotest|create|configure|navigate)\b/i },
+  { id: "product_help", scopes: ["knowledge"], pattern: /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|capabilit(?:y|ies)|features?|use hellotest|create|configure|navigate|knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot)\b/i },
   { id: "execution_context", scopes: ["runs", "knowledge"], pattern: /\b(?:environments?|configurations?|browsers?|devices?|platform versions?|mobile os)\b/i },
   { id: "execution_failure", scopes: ["runs", "bugs", "test-cases", "knowledge"], pattern: /\b(?:fail(?:ed|ure|ing)?|blocked|flaky|root cause|error|execution result|run result|why did)\b/i },
   { id: "run_planning", scopes: ["runs", "test-cases", "stories", "bugs", "knowledge"], pattern: /\b(?:smart run|test run|run plan|execute|execution|regression selection|impacted tests?)\b/i },
@@ -98,9 +98,30 @@ const INTENT_RULES = [
   { id: "project_overview", scopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"], pattern: /\b(?:project|summary|overview|quality|health|readiness|risk|status|metrics?)\b/i }
 ];
 
-const EXPLICIT_PRODUCT_HELP = /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|how to|use hellotest|navigate)\b/i;
+const EXPLICIT_PRODUCT_HELP = /\b(?:how (?:do|can|to)|where (?:do|can|is)|walk ?through|how to|use hellotest|navigate|explain (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot)|what (?:is|can i do (?:in|with)) (?:the )?(?:knowledge repo(?:sitory)?|context studio|ask hellotest|chatbot)|what (?:features?|capabilit(?:y|ies))|features? (?:of|in)|capabilit(?:y|ies) (?:of|in)|what (?:does|can) (?:hellotest|the chatbot|the assistant))\b/i;
 const CURRENT_PROJECT_FACTS = /\b(?:my|our|current|existing|selected|this project|how many|which|list|show|status|open|closed|failed|blocked|linked|unlinked|recent|today)\b/i;
 const REFERENTIAL_FOLLOW_UP = /^(?:and|also|then|so|what about|how about|why|which|where|when)|\b(?:it|its|that|those|them|this|these|same|ones?)\b/i;
+const ANALYTICAL_QUESTION = /\b(?:analy[sz]e|compare|explain|why|risk|recommend|improve|impact|root cause|readiness|trend|gap|quality)\b/i;
+const DETAILED_ANSWER = /\b(?:detail(?:ed)?|elaborate|deep|thorough|step[- ]by[- ]step|walk ?through|explain|why|how)\b/i;
+const SOURCE_KINDS_BY_SCOPE = Object.freeze({
+  stories: ["requirement"],
+  "test-cases": ["test_case"],
+  runs: ["execution"],
+  bugs: ["bug"],
+  automation: ["test_case"],
+  knowledge: ["knowledge_item", "file", "text", "chat", "url"]
+});
+const INFORMATION_NEED_BY_INTENT = Object.freeze({
+  product_help: "feature purpose, navigation, prerequisites, workflow, and limitations",
+  execution_context: "current environments, configurations, devices, browsers, and execution targets",
+  execution_failure: "failed or blocked results, symptoms, affected coverage, build/environment boundaries, and linked defects",
+  run_planning: "delivery scope, impacted coverage, risk, recent outcomes, environment needs, and exclusions",
+  bug_quality: "open defects, severity and priority, reproducibility, duplication, traceability, and release impact",
+  automation: "automation readiness, reusable assets, locator stability, bindings, and recent execution evidence",
+  test_design: "requirements, acceptance boundaries, existing scenarios, data, reusable steps, traceability, and gaps",
+  story_delivery: "Story intent, acceptance criteria, delivery metadata, dependencies, and linked coverage",
+  project_overview: "current project composition, coverage, execution health, open defect risk, and evidence gaps"
+});
 
 const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", history = [] } = {}) => {
   const question = normalizeText(prompt, 8_000);
@@ -112,6 +133,8 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     : question;
   const matchedIntents = INTENT_RULES.filter((rule) => rule.pattern.test(resolvedQuestion));
   const domainIntents = matchedIntents.filter((rule) => rule.id !== "product_help");
+  const hasProductHelpIntent = matchedIntents.some((rule) => rule.id === "product_help");
+  const hasCurrentProjectSignal = CURRENT_PROJECT_FACTS.test(resolvedQuestion);
   const pureProductHelp = !agentId
     && matchedIntents.some((rule) => rule.id === "product_help")
     && EXPLICIT_PRODUCT_HELP.test(resolvedQuestion)
@@ -126,7 +149,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
       ? unique(["test-cases", "stories", ...intentScopes])
       : intentScopes;
   const policy = agentId ? (AGENT_CONTEXT_POLICIES[agentId] || DEFAULT_AGENT_POLICY) : {
-    priority_scopes: chatPriorityScopes.length ? chatPriorityScopes : DEFAULT_AGENT_POLICY.priority_scopes,
+    priority_scopes: chatPriorityScopes.length ? chatPriorityScopes : ["knowledge"],
     retrieval_focus: "the user's exact question, current project facts, relevant indexed domain context, evidence currency, and explicit limitations",
     outcome_sections: ["direct answer", "supporting evidence", "risk or limitation", "useful next step"]
   };
@@ -135,6 +158,17 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     : pureProductHelp
       ? "product_help"
       : domainIntents[0]?.id || "project_question";
+  const queryCategory = agentId
+    ? "specialist_analysis"
+    : pureProductHelp
+      ? "tool_help"
+      : hasProductHelpIntent && (hasCurrentProjectSignal || domainIntents.length)
+        ? "mixed"
+        : hasCurrentProjectSignal
+          ? "project_facts"
+          : ANALYTICAL_QUESTION.test(resolvedQuestion)
+            ? "project_analysis"
+            : "project_knowledge";
   const validRequested = unique(asArray(requestedScopes).map((scope) => normalizeText(scope, 80).toLowerCase()).filter((scope) => CONTEXT_SCOPES.includes(scope)));
   const baseScopes = validRequested.length ? validRequested : unique([...policy.priority_scopes, ...intentScopes]);
   // Knowledge is a governed evidence source for every specialist. It is added
@@ -147,20 +181,47 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
     });
   const priorityScopes = policy.priority_scopes.filter((scope) => effectiveScopes.includes(scope));
   const liveScopes = unique([...validRequested, ...intentScopes, ...priorityScopes]).filter((scope) => scope !== "knowledge");
+  const indexedSourceKinds = pureProductHelp
+    ? ["product_help"]
+    : unique([
+        ...effectiveScopes.flatMap((scope) => SOURCE_KINDS_BY_SCOPE[scope] || []),
+        ...(hasProductHelpIntent ? ["product_help"] : [])
+      ]);
+  const identifiers = unique(resolvedQuestion.match(/\b(?:BUG|TC|TS|STORY|RUN|REQ|REL|SPRINT)-?[A-Z0-9_-]+\b/gi) || []).slice(0, 12);
+  const answerDepth = DETAILED_ANSWER.test(resolvedQuestion) || ["tool_help", "project_analysis", "mixed", "specialist_analysis"].includes(queryCategory)
+    ? "detailed"
+    : /\b(?:count|how many|status|list|which)\b/i.test(resolvedQuestion) ? "concise" : "standard";
+  const informationNeeds = unique(routedIntents.map((rule) => INFORMATION_NEED_BY_INTENT[rule.id])).slice(0, 8);
+  if (!informationNeeds.length) informationNeeds.push("the exact named concept, current scoped facts when requested, supporting domain context, and explicit evidence gaps");
   return {
     agent_id: agentId || null,
     input_type: inputType,
+    query_category: queryCategory,
+    answer_depth: answerDepth,
+    route_confidence: matchedIntents.length ? (domainIntents.length > 1 ? "high" : "medium") : "low",
     matched_intents: matchedIntents.map((rule) => rule.id),
     mode: mode === "agent" ? "agent" : "chat",
     effective_scopes: effectiveScopes,
     priority_scopes: priorityScopes,
     live_scopes: liveScopes,
+    indexed_source_kinds: indexedSourceKinds,
+    information_needs: informationNeeds,
+    identifiers,
+    requires_live_context: liveScopes.length > 0,
+    requires_indexed_context: indexedSourceKinds.length > 0,
+    retrieval_budget: {
+      max_queries: answerDepth === "detailed" ? 5 : 3,
+      max_rounds: answerDepth === "detailed" ? 2 : 1,
+      max_evidence_items: answerDepth === "detailed" ? 14 : 10
+    },
     knowledge_required: true,
     conversation_reference_used: conversationReferenceUsed,
     resolved_query: resolvedQuestion,
     retrieval_query: normalizeText(`${resolvedQuestion}\nSpecialist retrieval focus: ${policy.retrieval_focus}`, 4_800),
     retrieval_focus: policy.retrieval_focus,
-    outcome_sections: policy.outcome_sections,
+    outcome_sections: pureProductHelp
+      ? ["direct answer", "how to use it", "important behavior", "limitations or prerequisites"]
+      : policy.outcome_sections,
     decision_question: policy.decision_question || "What answer is supported by the available project evidence?",
     deliverable_contract: policy.deliverable_contract || "A direct evidence-backed answer with limitations and a useful next step."
   };

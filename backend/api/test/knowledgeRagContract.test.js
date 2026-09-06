@@ -7,14 +7,115 @@ const assistant = require("../src/services/knowledgeAssistant.service");
 const agenticAssistant = require("../src/services/agenticAssistant.service");
 const contextOrchestrator = require("../src/services/aiContextOrchestrator.service");
 const rag = require("../src/services/knowledgeRag.service");
+const productCatalog = require("../src/services/knowledgeProductCatalog.service");
 const legacyKnowledge = require("../src/services/aiKnowledge.service");
 const integrationService = require("../src/services/integration.service");
 const aiLlmSelectionService = require("../src/services/aiLlmSelection.service");
+const knowledgeContracts = require("../src/services/knowledgeContracts.service");
+const knowledgeVectorStore = require("../src/services/knowledgeVectorStore.service");
+const { config } = require("../src/config");
 const integrationRoutes = require("../src/routes/integrations.routes");
 const db = require("../src/db");
 const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
+
+test("knowledge contracts classify, budget, packetize, and reject unsupported claims", () => {
+  const request = knowledgeContracts.buildRetrievalRequest({
+    projectId: "project-1",
+    query: "Why did BUG-142 regress checkout?",
+    filters: { source_kinds: ["bug", "execution"] },
+    budgets: { max_rounds: 2, max_queries: 5 }
+  });
+  assert.equal(request.contract_type, "RetrievalRequest");
+  assert.equal(request.contract_version, "1.0");
+  assert.equal(request.query_class, "LOOKUP");
+  const budget = new knowledgeContracts.RetrievalBudget(request.budgets, { now: 100 });
+  assert.equal(budget.consumeRound(2, 2, 101), true);
+  const packet = knowledgeContracts.buildContextPacket({
+    retrievalRequest: request,
+    evidence: [{
+      source_id: "bug-source",
+      source_kind: "bug",
+      chunk_id: "chunk-1",
+      content: "BUG-142 is linked to failed RUN-8.",
+      citation: { id: "K-chunk-1", chunk_id: "chunk-1", source_id: "bug-source" }
+    }],
+    authorization: { enforced: true },
+    budget
+  });
+  assert.equal(packet.contract_type, "ContextPacket");
+  assert.equal(packet.contract_version, "1.0");
+  assert.equal(packet.authorization.source_acl_enforced, true);
+  const answer = knowledgeContracts.buildAnswerContract({
+    contextPacket: packet,
+    outcome: {
+      status: "answered",
+      content: "Grounded answer",
+      answer_structure: {
+        summary: "Grounded answer",
+        supported_claims: [
+          { statement: "The Bug is linked to RUN-8.", citation_ids: ["K-chunk-1"] },
+          { statement: "An invented claim.", citation_ids: ["K-invented"] }
+        ]
+      }
+    }
+  });
+  assert.equal(answer.contract_type, "AnswerContract");
+  assert.equal(answer.contract_version, "1.0");
+  assert.equal(answer.claims.length, 1);
+  assert.equal(answer.grounding.unsupported_claim_count, 1);
+  assert.equal(answer.grounding.model_confidence_accepted, false);
+});
+
+test("Qdrant query applies project, current-version, model, and ACL filters before vector retrieval", async () => {
+  const original = { ...config.knowledge.vectorStore };
+  const originalFetch = global.fetch;
+  const requests = [];
+  config.knowledge.vectorStore = {
+    provider: "qdrant",
+    qdrantUrl: "http://qdrant.test:6333",
+    qdrantApiKey: "test-key",
+    qdrantCollectionPrefix: "contract_test",
+    qdrantTimeoutMs: 1_000
+  };
+  global.fetch = async (url, options = {}) => {
+    requests.push({ url: String(url), options });
+    const isQuery = String(url).endsWith("/points/query");
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(isQuery ? {
+        result: { points: [{ id: "chunk-1", score: 0.91, payload: { chunk_id: "chunk-1", document_id: "doc-1", source_id: "source-1" } }] }
+      } : { status: "ok", result: {} })
+    };
+  };
+  try {
+    const result = await knowledgeVectorStore.search({
+      projectId: "project-1",
+      queryVector: Array.from({ length: 8 }, (_, index) => index / 10),
+      embeddingModel: "model-1",
+      allowedPermissions: ["feedback.view"],
+      authorizedChunkIds: ["chunk-1"],
+      sourceKinds: ["bug"]
+    });
+    assert.equal(result.hits[0].chunk_id, "chunk-1");
+    const queryRequest = requests.find((request) => request.url.endsWith("/points/query"));
+    const body = JSON.parse(queryRequest.options.body);
+    assert.deepEqual(body.filter.must.slice(0, 5), [
+      { key: "project_id", match: { value: "project-1" } },
+      { key: "is_current", match: { value: true } },
+      { has_id: ["chunk-1"] },
+      { key: "embedding_model", match: { value: "model-1" } },
+      { key: "allowed_scope", match: { any: ["__public__", "feedback.view"] } }
+    ]);
+    assert.equal(queryRequest.options.headers["api-key"], "test-key");
+  } finally {
+    global.fetch = originalFetch;
+    config.knowledge.vectorStore = original;
+  }
+});
 
 test("knowledge processing redacts sensitive values and neutralizes hidden instructions", () => {
   const sanitized = processing.sanitizeKnowledgeText(
@@ -28,6 +129,85 @@ test("knowledge processing redacts sensitive values and neutralizes hidden instr
   assert.equal(sanitized.control_character_count, 1);
   assert.ok(sanitized.risk_flags.includes("hidden_unicode_controls_removed"));
   assert.ok(sanitized.risk_flags.includes("ignore_instructions"));
+});
+
+test("knowledge processing scores context quality and flags weak corpora for review", () => {
+  const strong = processing.assessContextQuality({
+    text: "# Checkout policy\nCustomers can retry a declined payment.\n## Verification\nRecord the gateway response and transaction identifier.",
+    chunks: [
+      { content: "# Checkout policy\nCustomers can retry a declined payment after correcting billing details." },
+      { content: "## Verification\nRecord the gateway response and transaction identifier for audit." }
+    ],
+    redactionCount: 0
+  });
+  const weak = processing.assessContextQuality({
+    text: "same same same",
+    chunks: [{ content: "same" }, { content: "same" }],
+    redactionCount: 2
+  });
+
+  assert.ok(strong.score > weak.score);
+  assert.equal(strong.requires_review, false);
+  assert.equal(weak.requires_review, true);
+  assert.equal(weak.duplicate_chunk_count, 1);
+});
+
+test("knowledge ingestion preserves document and section context in retrieval text", () => {
+  const retrievalText = rag._internals.buildChunkRetrievalText({
+    title: "Checkout operations guide",
+    chunk: { heading: "Payment retries", content: "Retry declined payments after billing correction." }
+  });
+  assert.match(retrievalText, /^Document: Checkout operations guide/m);
+  assert.match(retrievalText, /^Section: Payment retries/m);
+  assert.match(retrievalText, /Retry declined payments/);
+  const profile = rag._internals.buildDocumentContextProfile({
+    title: "Checkout operations guide",
+    chunks: [{ heading: "Payment retries" }, { heading: "Payment retries" }, { heading: "Audit" }]
+  });
+  assert.deepEqual(profile.headings, ["Payment retries", "Audit"]);
+  assert.equal(profile.hierarchy_strategy, "document-title+section-lineage+content-type+content");
+});
+
+test("structure-aware processing preserves HTML headings and inherited section lineage", () => {
+  const decoded = processing.decodeNativeText(Buffer.from([
+    "<html><body><h1>Payments</h1><p>Overview text.</p>",
+    "<h2>Retries</h2><p>Retry a declined card after correction.</p>",
+    "<h3>Audit</h3><p>Record the gateway response.</p></body></html>"
+  ].join("")), "text/html");
+  assert.match(decoded, /^# Payments/m);
+  assert.match(decoded, /^## Retries/m);
+  assert.doesNotMatch(decoded, /<h[1-6]>/i);
+
+  const chunks = processing.chunkText(decoded.repeat(12), { strategy: "structure_aware", chunk_size: 100, chunk_overlap: 10 });
+  assert.ok(chunks.some((chunk) => chunk.heading === "Retries" || chunk.heading_path?.includes("Retries")));
+  assert.ok(chunks.every((chunk) => Array.isArray(chunk.heading_path)));
+  assert.ok(chunks.some((chunk) => chunk.section_type === "markdown_heading"));
+  const quality = processing.assessContextQuality({ text: decoded.repeat(12), chunks });
+  assert.ok(quality.section_lineage_coverage > 0);
+});
+
+test("product guidance catalog ranks feature-specific deterministic context", () => {
+  const assistantHelp = productCatalog.rankProductHelpSections("How does Ask HelloTest inject context and work without an LLM?");
+  assert.equal(assistantHelp[0].id, "ask-hellotest");
+  assert.match(assistantHelp[0].content, /deterministic citation-backed/i);
+  const bugHelp = productCatalog.rankProductHelpSections("Where do I add a root cause and regression to a bug?");
+  assert.equal(bugHelp[0].id, "bugs");
+});
+
+test("knowledge ingestion failures expose safe recovery guidance without raw exceptions", () => {
+  const known = rag._internals.classifyIngestionError(
+    Object.assign(new Error("internal lease detail"), { code: "KNOWLEDGE_LEASE_LOST" }),
+    { stage: "indexing" }
+  );
+  assert.equal(known.code, "processing_interrupted");
+  assert.equal(known.retryable, true);
+  assert.equal(known.stage, "indexing");
+  assert.doesNotMatch(known.message, /internal lease detail/);
+  assert.match(known.error_fingerprint, /^[a-f0-9]{64}$/);
+
+  const unknown = rag._internals.classifyIngestionError(new Error("password=do-not-expose"));
+  assert.equal(unknown.code, "knowledge_processing_failed");
+  assert.doesNotMatch(unknown.message, /do-not-expose/);
 });
 
 test("knowledge processing redacts the supported sensitive-identifier taxonomy", () => {
@@ -165,6 +345,19 @@ test("grounded assistant rejects model-invented citations and answers without ci
   }, hits);
   assert.equal(refused.status, "refused");
   assert.deepEqual(refused.citations, []);
+
+  const grounded = assistant._internals.normalizeModelAnswer({
+    executive_summary: "Checkout has a documented retry rule [K-real].",
+    findings: ["Retry is allowed after billing correction [K-real]."],
+    recommendations: ["Keep the regression case linked."],
+    evidence_gaps: [],
+    status: "answered",
+    citation_ids: ["K-real"],
+    supported_claims: [{ statement: "Retry is allowed after billing correction.", citation_ids: ["K-real"] }]
+  }, hits);
+  assert.equal(grounded.status, "answered");
+  assert.equal(grounded.answer_structure.findings.length, 1);
+  assert.equal(grounded.safety.claim_grounding_coverage, 1);
 });
 
 test("grounded assistant builds bounded follow-up queries and fuses project evidence", () => {
@@ -188,6 +381,13 @@ test("grounded assistant builds bounded follow-up queries and fuses project evid
     "checkout unresolved Bugs",
     "checkout release requirements"
   ]);
+  const planDetails = assistant._internals.normalizeRetrievalPlanDetails({
+    information_needs: ["current failed runs", "linked defects"],
+    source_kinds: ["execution", "bug", "users", "execution"],
+    search_queries: ["checkout failed runs"]
+  }, []);
+  assert.deepEqual(planDetails.source_kinds, ["execution", "bug"]);
+  assert.deepEqual(planDetails.information_needs, ["current failed runs", "linked defects"]);
 
   const hit = (chunkId, sourceId, score) => ({
     chunk_id: chunkId,
@@ -207,14 +407,76 @@ test("grounded assistant builds bounded follow-up queries and fuses project evid
   assert.ok(fused.some((item) => item.source_id === "run-1"));
 });
 
+test("grounded assistant builds useful deterministic retrieval queries without an LLM", () => {
+  const queries = assistant._internals.buildDeterministicRetrievalQueries("Why did BUG-142 regress checkout on mobile and which runs failed?");
+  assert.ok(queries.length >= 1 && queries.length <= 2);
+  assert.match(queries.join(" "), /BUG-142|failure|regression/i);
+});
+
+test("grounded assistant scores evidence sufficiency without treating quantity as proof", () => {
+  const weak = assistant._internals.assessEvidenceSufficiency([{ citation: { id: "K-1" }, source_id: "source-a", score: 0.2 }]);
+  const strong = assistant._internals.assessEvidenceSufficiency([
+    { citation: { id: "K-1" }, source_id: "source-a", score: 0.9, retrieval_query_match_count: 2 },
+    { citation: { id: "K-2" }, source_id: "source-b", score: 0.85, retrieval_query_match_count: 2 },
+    { citation: { id: "K-3" }, source_id: "source-c", score: 0.8 }
+  ]);
+  assert.equal(weak.status, "weak");
+  assert.equal(weak.requires_more_context, true);
+  assert.ok(strong.score > weak.score);
+  assert.equal(strong.requires_more_context, false);
+});
+
+test("grounded assistant exposes a safe high-level processing trace without private reasoning", () => {
+  const trace = assistant._internals.buildProcessingTrace({
+    retrieval: {
+      query_count: 4,
+      grounded_result_count: 9,
+      live_context_count: 2,
+      planned_queries: ["failed checkout runs"],
+      context_route: {
+        input_type: "execution_failure",
+        effective_scopes: ["runs", "bugs", "test-cases", "knowledge"],
+        conversation_reference_used: true
+      }
+    },
+    outcome: { status: "answered", safety: { model_synthesis_completed: true, model_verification_completed: true } },
+    provider: "Workspace AI",
+    model: "quality-model"
+  });
+  assert.deepEqual(trace.map((item) => item.phase), ["understand", "plan", "retrieve", "synthesize", "verify"]);
+  assert.match(trace[2].detail, /9 grounded results/);
+  assert.match(trace[3].detail, /Workspace AI · quality-model/);
+  assert.doesNotMatch(JSON.stringify(trace), /chain.of.thought|hidden reasoning|system prompt/i);
+});
+
 test("Ask HelloTest combines intent routing, live project facts, and indexed retrieval", async () => {
   const source = await readSource("../src/services/knowledgeAssistant.service.js");
+  const engine = await readSource("../src/services/knowledgeContextEngine.service.js");
+  assert.match(source, /contextEngine\.retrieve/);
   assert.match(source, /aiContextOrchestrator\.planContext/);
   assert.match(source, /buildLiveProjectEvidence/);
-  assert.match(source, /authoritative live project context/);
-  assert.match(source, /live_context_count/);
+  assert.match(engine, /authoritative live project context/);
+  assert.match(engine, /live_context_count/);
   assert.match(source, /Evidence marked authoritative_live_/);
-  assert.match(source, /context_route: contextRoute/);
+});
+
+test("context routing separates tool help, project facts, and mixed questions", () => {
+  const help = contextOrchestrator.planContext({ prompt: "How do I create a Gherkin Test Case?" });
+  assert.equal(help.query_category, "tool_help");
+  assert.deepEqual(help.indexed_source_kinds, ["product_help"]);
+  assert.deepEqual(help.live_scopes, []);
+  assert.equal(contextOrchestrator.planContext({ prompt: "What features does the chatbot have?" }).query_category, "tool_help");
+  assert.equal(contextOrchestrator.planContext({ prompt: "What can I do in the Knowledge Repository?" }).query_category, "tool_help");
+
+  const facts = contextOrchestrator.planContext({ prompt: "Which Bugs are open in the current project?" });
+  assert.equal(facts.query_category, "project_facts");
+  assert.ok(facts.live_scopes.includes("bugs"));
+  assert.ok(facts.indexed_source_kinds.includes("bug"));
+
+  const mixed = contextOrchestrator.planContext({ prompt: "How do I improve the failed Runs in my project?" });
+  assert.equal(mixed.query_category, "mixed");
+  assert.equal(mixed.answer_depth, "detailed");
+  assert.ok(mixed.information_needs.length > 0);
 });
 
 test("reviewed Smart Context stays bounded, sanitized, source-pinned, and citation-preserving", () => {
@@ -276,17 +538,6 @@ test("retrieval and grounded assistant contracts honor exact Smart Context sourc
   assert.match(knowledgeSource, /context_fingerprint/);
 });
 
-test("grounded assistant expands a zero-hit seed search before declaring insufficient context", async () => {
-  const source = await readSource("../src/services/knowledgeAssistant.service.js");
-  const initialRetrievalBranch = source.indexOf("if (!queryResults.length)");
-  const plannerCall = source.indexOf("const planCandidate = await requestRetrievalPlan", initialRetrievalBranch);
-  const postExpansionZeroHitCheck = source.indexOf("if (!hits.length)", plannerCall);
-
-  assert.ok(initialRetrievalBranch >= 0 && plannerCall > initialRetrievalBranch);
-  assert.doesNotMatch(source.slice(initialRetrievalBranch, plannerCall), /else if \(!hits\.length\)/);
-  assert.ok(postExpansionZeroHitCheck > plannerCall);
-  assert.match(source.slice(postExpansionZeroHitCheck, postExpansionZeroHitCheck + 500), /after expanding the search/);
-});
 
 test("grounded assistant timeout budget reaches the Fastify socket", async () => {
   const source = await readSource("../src/runtime/httpConfig.js");
@@ -462,6 +713,21 @@ test("LLM overrides cannot cross project boundaries", () => {
     contentHash: "raw-file-hash",
     documentHash: "same-caption-hash"
   }), true);
+  const currentPipeline = rag._internals.processingProfile({ strategy: "structure_aware" });
+  assert.equal(rag._internals.canReuseSourceVersion({
+    existing,
+    readyDocument: { checksum_sha256: "same-caption-hash", metadata: { processing_pipeline: currentPipeline } },
+    contentHash: "raw-file-hash",
+    documentHash: "same-caption-hash",
+    processingFingerprint: currentPipeline.fingerprint
+  }), true);
+  assert.equal(rag._internals.canReuseSourceVersion({
+    existing,
+    readyDocument: { checksum_sha256: "same-caption-hash", metadata: {} },
+    contentHash: "raw-file-hash",
+    documentHash: "same-caption-hash",
+    processingFingerprint: currentPipeline.fingerprint
+  }), false);
 });
 
 test("embedding batches require exact indices, finite values, and stable dimensions", () => {
@@ -524,24 +790,14 @@ test("assistant message insertion returns its persisted row and carries client t
   }
 });
 
-test("LLM embedding settings round-trip only safe project-scoped fields", () => {
+test("LLM configuration ignores retired separate embedding endpoint fields", () => {
   const config = integrationService._internals.normalizeConfig("llm", {
     project_id: "project-a",
     embedding_model: "text-embedding-model",
     embedding_base_url: "https://llm.example.test/v1/",
     secret: "must-not-survive"
   });
-  assert.deepEqual(config, {
-    project_id: "project-a",
-    embedding_model: "text-embedding-model",
-    embedding_base_url: "https://llm.example.test/v1"
-  });
-  assert.throws(() => integrationService._internals.normalizeConfig("llm", {
-    embedding_base_url: "ftp://example.test/v1"
-  }), /http or https/);
-  assert.throws(() => integrationService._internals.normalizeConfig("llm", {
-    embedding_base_url: "https://user:secret@example.test/v1"
-  }), /must not contain (?:embedded )?credentials/);
+  assert.deepEqual(config, { project_id: "project-a" });
 
   const sanitized = integrationRoutes._internals.sanitizeIntegration({
     id: "llm-1",
@@ -550,7 +806,7 @@ test("LLM embedding settings round-trip only safe project-scoped fields", () => 
     config: { ...config, another_secret: "hidden" }
   });
   assert.equal(sanitized.api_key, "********");
-  assert.deepEqual(sanitized.config, config);
+  assert.deepEqual(sanitized.config, { project_id: "project-a", model: null, base_url: null });
 });
 
 test("legacy LLM context is redacted, injection-neutralized, and metadata-minimized", () => {
@@ -588,6 +844,7 @@ test("Knowledge Repo RAG routes are explicitly permissioned", () => {
   ];
   const manageRoutes = [
     "POST /knowledge/ingestions",
+    "POST /knowledge/ingestions/:id/retry",
     "DELETE /knowledge/sources/:id",
     "POST /knowledge/collections",
     "PUT /knowledge/collections/:id",
@@ -600,7 +857,7 @@ test("Knowledge Repo RAG routes are explicitly permissioned", () => {
 });
 
 test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay aligned", async () => {
-  const [schema, bootstrap, rag, routes, legacy, openapi, features, app, backgroundTasks, agentic, contextOrchestrator, attachments, sourceLifecycle] = await Promise.all([
+  const [schema, bootstrap, rag, routes, legacy, openapi, features, app, backgroundTasks, agentic, contextOrchestrator, attachments, sourceLifecycle, productHelp] = await Promise.all([
     readSource("../../db/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../src/services/knowledgeRag.service.js"),
@@ -613,7 +870,8 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
     readSource("../src/services/agenticAssistant.service.js"),
     readSource("../src/services/aiContextOrchestrator.service.js"),
     readSource("../src/services/attachment.service.js"),
-    readSource("../src/services/knowledgeSourceLifecycle.service.js")
+    readSource("../src/services/knowledgeSourceLifecycle.service.js"),
+    readSource("../src/services/knowledgeProductCatalog.service.js")
   ]);
 
   for (const table of [
@@ -636,7 +894,10 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(rag, /pgvector-exact\+fts/);
   assert.match(rag, /vector_dims\(chunks\.embedding_vector\) = \?/);
   assert.match(rag, /reciprocal-rank fusion/);
-  assert.match(rag, /HELLOTEST_PRODUCT_HELP_VERSION/);
+  assert.match(rag, /PRODUCT_HELP_VERSION/);
+  assert.match(productHelp, /PRODUCT_HELP_VERSION/);
+  assert.match(productHelp, /Ask HelloTest grounded assistant/);
+  assert.match(rag, /const searchMany/);
   assert.match(rag, /assertRecordSourcePermissions/);
   for (const permission of ["requirement.view", "testcase.view", "run.view", "feedback.view"]) {
     assert.match(rag, new RegExp(permission.replace(".", "\\.")));
@@ -655,6 +916,10 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   assert.match(rag, /removeUnactivatedNewSourceAfterLeaseLoss/);
   assert.match(rag, /ai_knowledge_ingestion_results/);
   assert.match(rag, /processQueuedUpload/);
+  assert.match(rag, /retryIngestion/);
+  assert.match(rag, /FAILED_INPUT_RETENTION_DAYS/);
+  assert.match(rag, /status IN \('completed', 'completed_with_warnings'\)/);
+  assert.match(attachments, /downloadManagedKnowledgeObject/);
   assert.match(rag, /processLegacyKnowledgeSyncOutbox/);
   assert.match(rag, /FROM execution_results WHERE execution_id = \?/);
   assert.match(rag, /Failed or blocked case evidence/);
@@ -703,13 +968,14 @@ test("knowledge persistence, retrieval, upload, and OpenAPI contracts stay align
   for (const endpoint of [
     "/projects/{project_id}/knowledge/overview",
     "/knowledge/ingestions",
+    "/knowledge/ingestions/{id}/retry",
     "/knowledge/search",
     "/knowledge/sources/{id}",
     "/knowledge/collections",
     "/knowledge/assistant/integrations",
     "/knowledge/assistant/sessions/{id}/messages"
   ]) assert.match(openapi, new RegExp(`^  ${endpoint.replace(/[{}]/g, "\\$&")}:$`, "m"));
-  for (const schemaName of ["KnowledgeOverview", "KnowledgeSearchHit", "KnowledgeCitation", "KnowledgeIngestionResult", "KnowledgeAssistantIntegration", "KnowledgeAssistantMessageResponse"]) {
+  for (const schemaName of ["KnowledgeOverview", "KnowledgeSearchHit", "KnowledgeCitation", "KnowledgeIngestionResult", "KnowledgeIngestionError", "KnowledgeAssistantIntegration", "KnowledgeAssistantMessageResponse"]) {
     assert.match(openapi, new RegExp(`^    ${schemaName}:$`, "m"));
   }
   const componentBlock = (name) => {

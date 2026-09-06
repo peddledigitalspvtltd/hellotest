@@ -223,8 +223,11 @@ const getConfigurationDraftValidationError = (draft: ConfigurationDraft) => {
 const normalizeDataSetKeyValueRows = (rows: TestDataSetRow[]) =>
   rows
     .map((row) => ({
+      id: normalizeDataSetName(row.id ?? row.__editor_id ?? ""),
       key: normalizeDataSetName(row.key ?? ""),
-      value: sanitizeDataSetText(row.value ?? "")
+      value: sanitizeDataSetText(row.value ?? ""),
+      is_secret: String(row.is_secret ?? "").trim().toLowerCase() === "true" ? "true" : "",
+      has_stored_value: String(row.has_stored_value ?? "").trim().toLowerCase() === "true" ? "true" : ""
     }))
     .filter((row) => row.key);
 

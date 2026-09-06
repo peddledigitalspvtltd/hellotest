@@ -4,6 +4,7 @@ const FALLBACK_FOCUSABLE_SELECTOR = [
   "input:not([type='hidden']):not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "[contenteditable='true']",
   "button:not([disabled])",
   "[href]",
   "[tabindex]:not([tabindex='-1'])"
@@ -71,6 +72,13 @@ export function useDialogFocus<T extends HTMLElement>({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (openDialogStack[openDialogStack.length - 1] !== dialog) {
+        return;
+      }
+
+      const activeAutocomplete = document.activeElement?.matches("[aria-autocomplete='list'][aria-expanded='true']");
+      // Let the field close its suggestions or accept a value before the dialog
+      // handles Escape or wraps Tab at a focus boundary.
+      if (activeAutocomplete && (event.key === "Escape" || (event.key === "Tab" && !event.shiftKey && document.activeElement?.hasAttribute("aria-activedescendant")))) {
         return;
       }
 

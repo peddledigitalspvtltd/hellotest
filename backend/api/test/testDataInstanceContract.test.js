@@ -1,5 +1,8 @@
 const assert = require("node:assert/strict");
-const { readFile } = require("node:fs/promises");
+const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const os = require("node:os");
+const { stripTypeScriptTypes } = require("node:module");
+const { pathToFileURL } = require("node:url");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -67,8 +70,17 @@ test("reviewed one-of Data Set utilities resolve at runtime instead of leaking t
   assert.ok(candidates.includes(materializeTemplateValue(template)));
 });
 
-test("saved case-instance Test Params override linked source values during interpolation", async () => {
-  const runtime = await import("../../../testengine/backend/src/lib/runtimeContext.ts");
+test("saved case-instance Test Params override linked source values during interpolation", async (t) => {
+  // Exercise current TypeScript sources with the same .js import layout as the
+  // built engine, without depending on or modifying generated dist artifacts.
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "hellotest-case-parameters-"));
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  await writeFile(path.join(temporaryDirectory, "package.json"), '{"type":"module"}');
+  await Promise.all(["runtimeContext", "stepParameterReferences"].map(async (name) => {
+    const source = await readSource(`../../../testengine/backend/src/lib/${name}.ts`);
+    await writeFile(path.join(temporaryDirectory, `${name}.js`), stripTypeScriptTypes(source));
+  }));
+  const runtime = await import(pathToFileURL(path.join(temporaryDirectory, "runtimeContext.js")).href);
   const dataSet = deepFreeze({
     id: "data-set-1",
     name: "Login users",

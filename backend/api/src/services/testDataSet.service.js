@@ -16,6 +16,7 @@ const sanitizeDataSetText = (value) =>
     .replace(INVALID_DATA_SET_CHAR_PATTERN, "");
 
 const normalizeName = (value) => sanitizeDataSetText(value).trim();
+const normalizeBoolean = (value) => value === true || ["true", "1", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 
 const parseJsonArray = (value) => {
   if (Array.isArray(value)) {
@@ -61,13 +62,13 @@ const normalizeRows = (mode, rows = [], columns = [], existingRows = []) => {
     return rows
       .map((row = {}) => {
         const id = String(row.id || row.__editor_id || "").trim() || uuid();
-        const isSecret = Boolean(row.is_secret);
+        const isSecret = normalizeBoolean(row.is_secret);
         const incomingValue = sanitizeDataSetText(row.value || "");
         const existing = existingById.get(id);
         return {
           id,
           key: normalizeName(row.key || ""),
-          value: isSecret && !incomingValue && row.has_stored_value && existing?.is_secret ? String(existing.value || "") : incomingValue,
+          value: isSecret && !incomingValue && normalizeBoolean(row.has_stored_value) && existing?.is_secret ? String(existing.value || "") : incomingValue,
           is_secret: isSecret
         };
       })
@@ -87,12 +88,20 @@ const normalizeRows = (mode, rows = [], columns = [], existingRows = []) => {
     .filter((row) => Object.values(row).some((value) => String(value || "").trim()));
 };
 
+const redactTestDataSetRows = (mode, rows) => parseJsonArray(rows).map((entry) =>
+  mode === "key_value" && normalizeBoolean(entry?.is_secret)
+    ? { ...entry, is_secret: true, value: "", has_stored_value: Boolean(entry.value) }
+    : entry
+);
+
 const hydrateDataSet = (row) => ({
   ...row,
   mode: normalizeMode(row.mode),
   columns: parseJsonArray(row.columns).map((column) => normalizeName(column)).filter(Boolean),
-  rows: parseJsonArray(row.rows).map((entry) => entry?.is_secret ? { ...entry, value: "", has_stored_value: Boolean(entry.value) } : entry)
+  rows: redactTestDataSetRows(normalizeMode(row.mode), row.rows)
 });
+
+exports.redactTestDataSetRows = redactTestDataSetRows;
 
 const getStoredTestDataSet = async (id) => {
   const row = await db.prepare("SELECT * FROM test_data_sets WHERE id = ?").get(id);

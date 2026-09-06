@@ -48,6 +48,9 @@ import type {
   KnowledgeSearchMode,
   KnowledgeSearchResponse,
   KnowledgeSource,
+  KnowledgeSourceDetail,
+  KnowledgeSourceRevision,
+  KnowledgeRetrievalEvent,
   KeyValueEntry,
   Permission,
   PermissionGroup,
@@ -97,6 +100,7 @@ import type {
   WorkspaceTransactionArtifact,
   WorkspaceTransactionEvent
 } from "../types";
+import { consumeKnowledgeAssistantStream, KnowledgeStreamError } from "./knowledgeAssistantStream";
 
 export type PagedResult<T> = {
   items: T[];
@@ -593,6 +597,30 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   }
 }
 
+async function requestKnowledgeStream(path: string, input: unknown, options: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void } = {}) {
+  const scopedPath = appendCurrentProjectScope(path);
+  const token = getStoredToken();
+  const timeout = AbortSignal.timeout(210_000);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const response = await fetch(`${API_BASE_URL}${scopedPath}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(input),
+    signal
+  });
+  if (!response.ok) {
+    const error = await parseApiError(response);
+    if (response.status === 401 && token && isSessionAuthFailure(scopedPath, error.message)) {
+      sessionStorage.clear();
+      window.location.assign("/auth");
+    }
+    throw new KnowledgeStreamError(error.message, `HTTP_${response.status}`, response.status === 429 || response.status >= 500);
+  }
+  const result = await consumeKnowledgeAssistantStream(response, { ...options, signal });
+  clientGetResponseCache.clear();
+  return result;
+}
+
 async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers(init?.headers);
@@ -650,6 +678,7 @@ async function requestForm<T>(path: string, formData: FormData, options?: { idem
 type TestCaseImportSourceValue = "csv" | "junit_xml" | "testng_xml" | "postman_collection";
 
 type BatchQueueResponse = {
+  scheduled_at?: string | null;
   id: string;
   transaction_id: string;
   job_id?: string;
@@ -1271,10 +1300,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input)
     }),
-    sources: (projectId: string) =>
-      request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId })}`),
+    sources: (projectId: string, options?: { includeArchived?: boolean }) =>
+      request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId, include_archived: options?.includeArchived || undefined })}`),
+    sourceDetail: (id: string, query?: { revision_id?: string; as_of?: string }) =>
+      request<KnowledgeSourceDetail>(`/knowledge/sources/${id}${toQueryString(query)}`),
+    sourceRevisions: (id: string) =>
+      request<{ source_id: string; canonical_id?: string; revisions: KnowledgeSourceRevision[]; historical_access?: boolean }>(`/knowledge/sources/${id}/revisions`),
     deleteSource: (id: string) =>
-      request<{ deleted: boolean; id: string }>(`/knowledge/sources/${id}`, { method: "DELETE" }),
+      request<{ deleted: boolean; id: string; retained_history?: boolean }>(`/knowledge/sources/${id}`, { method: "DELETE" }),
     downloadSource: (id: string) => requestBlob(`/knowledge/sources/${id}/file`),
     contextPackage: (projectId: string, query?: { app_type_id?: string; query?: string; asset_type?: string; priority?: string }) =>
       request<{ project_id: string; knowledge: any[]; related_context?: any[] }>(
@@ -1303,7 +1336,8 @@ export const api = {
         if (extractedText?.trim()) formData.set("extracted_text", extractedText.trim());
         return requestForm<KnowledgeIngestionResponse>("/knowledge/ingestions", formData, options);
       },
-      get: (id: string) => request<KnowledgeIngestion>(`/knowledge/ingestions/${id}`)
+      get: (id: string) => request<KnowledgeIngestion>(`/knowledge/ingestions/${id}`),
+      retry: (id: string) => request<KnowledgeIngestionResponse>(`/knowledge/ingestions/${id}/retry`, { method: "POST" })
     },
     collections: {
       list: (projectId: string) =>
@@ -1343,6 +1377,9 @@ export const api = {
           signal: options?.signal
         }),
       getSession: (id: string) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`),
+      updateSession: (id: string, input: { title?: string; status?: "archived" | "active" }) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+      streamMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string; response_mode?: "answer" | "evidence"; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void }) =>
+        requestKnowledgeStream(`/knowledge/assistant/sessions/${id}/messages/stream`, input, options),
       sendMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal }) =>
         request<KnowledgeAssistantMessageResponse>(`/knowledge/assistant/sessions/${id}/messages`, {
           method: "POST",
@@ -1801,12 +1838,14 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    queueAutomationGenerator: (id: string, input?: { integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; ai_requested?: boolean }) =>
+    automationBuildStatus: (transactionId: string) =>
+      request<WorkspaceTransaction>(`/test-cases/automation/jobs/${encodeURIComponent(transactionId)}`),
+    queueAutomationGenerator: (id: string, input?: { scheduled_at?: string; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; ai_requested?: boolean }) =>
       request<BatchQueueResponse>(`/test-cases/${id}/automation/generator-jobs`, {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    buildAutomationBatch: (input: { app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; failure_threshold?: number; ai_requested?: boolean }) =>
+    buildAutomationBatch: (input: { scheduled_at?: string; app_type_id: string; test_case_ids?: string[]; integration_id?: string; start_url?: string; additional_context?: string; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; failure_threshold?: number; ai_requested?: boolean }) =>
       request<BatchQueueResponse>("/test-cases/automation/build-batch", {
         method: "POST",
         body: JSON.stringify(input)

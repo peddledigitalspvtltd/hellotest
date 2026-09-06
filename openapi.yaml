@@ -3085,6 +3085,25 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/KnowledgeIngestionJob" }
+  /knowledge/ingestions/{id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Knowledge]
+      summary: Safely retry a failed Knowledge ingestion from its retained source
+      responses:
+        "202":
+          description: Failed ingestion reset and queued with the same project-scoped source
+          headers:
+            Location:
+              schema: { type: string }
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeIngestionResponse" }
+        "409":
+          description: Job is not failed, is non-retryable, reached its retry limit, or its retained input expired
   /knowledge/search:
     post:
       tags: [Knowledge]
@@ -3114,27 +3133,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/KnowledgeSource" }
-  /knowledge/sources/{id}:
-    parameters:
-      - $ref: "#/components/parameters/IdParam"
-    delete:
-      tags: [Knowledge]
-      summary: Permanently remove a project knowledge source, its indexed versions/chunks, collection links, and protected file
-      responses:
-        "200":
-          description: Knowledge source deletion result
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [deleted, id, project_id]
-                properties:
-                  deleted: { type: boolean }
-                  id: { type: string }
-                  project_id: { type: string }
-                  attachment_deleted: { type: boolean }
-                  dependent_documents_deleted: { type: boolean }
-                  collection_links_deleted: { type: boolean }
   /knowledge/sources/{id}/file:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -3282,6 +3280,24 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
+    patch:
+      tags: [Knowledge]
+      summary: Rename or archive an owned knowledge conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, minLength: 1, maxLength: 240 }
+                status: { type: string, enum: [active, archived] }
+      responses:
+        "200":
+          description: Updated session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeAssistantSession" }
   /knowledge/assistant/sessions/{id}/messages:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -3313,6 +3329,123 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/KnowledgeAssistantMessageResponse" }
+  /knowledge/assistant/sessions/{id}/messages/stream:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Knowledge]
+      summary: Stream safe retrieval progress and the validated final answer
+      description: Authenticated POST SSE emits progress, result, and error events. Disconnect cancels work. Retry the same client_turn_id to resume or replay safely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKnowledgeAssistantMessageRequest" }
+      responses:
+        "200":
+          description: RetrievalEvent progress followed by KnowledgeAssistantMessageResponse result or structured error
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /v1/context/retrieve:
+    post:
+      tags: [Knowledge]
+      summary: Retrieve a bounded authorized ContextPacket without answer generation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContextRetrievalRequest" }
+      responses:
+        "200":
+          description: Canonical ContextPacket version 1.0; authorization comes from the authenticated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KnowledgeContextPacket" }
+  /v1/context/retrieve-stream:
+    post:
+      tags: [Knowledge]
+      summary: Stream authorized context retrieval progress and a final ContextPacket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContextRetrievalRequest" }
+      responses:
+        "200":
+          description: RetrievalEvent progress followed by ContextPacket result or structured error
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /knowledge/sources/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: Inspect visible source fragments, provenance, and index readiness
+      parameters:
+        - in: query
+          name: revision_id
+          schema: { type: string }
+          description: Historical revision selection requires knowledge.manage.
+        - in: query
+          name: as_of
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Authorized source, revision, visible fragments, and canonical KnowledgeObject
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    delete:
+      tags: [Knowledge]
+      summary: Archive a source immediately and retain revision history
+      responses:
+        "200":
+          description: Tombstoned source with retained history and index cleanup status
+  /knowledge/sources/{id}/revisions:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Knowledge]
+      summary: List authorized revision history with effective intervals (knowledge.manage required)
+      responses:
+        "200":
+          description: Source revision history
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /knowledge/sources/{id}/security:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    put:
+      tags: [Knowledge]
+      summary: Replace source, revision, or fragment security bindings
+      description: Requires knowledge.manage. Explicit DENY takes precedence over explicit ALLOW, inherited DENY, and inherited ALLOW. Target fragments and revisions must belong to the source.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bindings]
+              properties:
+                bindings:
+                  type: array
+                  maxItems: 250
+                  items:
+                    type: object
+                    required: [principal_type, principal_id, effect]
+                    properties:
+                      principal_type: { type: string, enum: [USER, ROLE, PROJECT, EVERYONE] }
+                      principal_id: { type: string }
+                      effect: { type: string, enum: [ALLOW, DENY] }
+                      inherited: { type: boolean }
+                      document_id: { type: string }
+                      chunk_id: { type: string }
+      responses:
+        "200":
+          description: Updated security policy
   /ops-telemetry/snapshot:
     get:
       tags: [Operations]
@@ -4165,9 +4298,23 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [Test Cases]
-      summary: Execute automation generator jobs
+      summary: Queue or schedule an automation generator build
+      description: Requires project membership and the automation.build permission. Scheduled jobs become eligible for processing at scheduled_at.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationGeneratorQueueRequest"
       responses:
-        "200": { description: Successful response }
+        "200":
+          description: Build queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationBuildQueueResponse"
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /test-cases/{id}/automation/recorder-session:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -4208,9 +4355,48 @@ paths:
   /test-cases/automation/build-batch:
     post:
       tags: [Test Cases]
-      summary: Execute automation build batch
+      summary: Queue or schedule an automation build batch
+      description: Requires membership and the automation.build permission in the application's project. Scheduled batches become eligible for processing at scheduled_at.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationBatchQueueRequest"
       responses:
-        "200": { description: Successful response }
+        "200":
+          description: Batch queued for processing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationBuildQueueResponse"
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /test-cases/automation/jobs/{transactionId}:
+    parameters:
+      - name: transactionId
+        in: path
+        required: true
+        description: The transaction_id returned when the generator job or build batch was queued.
+        schema: { type: string }
+    get:
+      tags: [Test Cases]
+      summary: Get automation build progress and output case identifiers
+      description: Requires membership and the automation.build permission in the transaction's project. Only automation_build transactions are returned.
+      security:
+        - bearerAuth: []
+        - apiKeyAuth: []
+      responses:
+        "200":
+          description: Current automation build transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationBuildTransaction"
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /test-cases/automation/learning-cache/{id}/ai-improve:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -4578,14 +4764,25 @@ components:
         processed_count: { type: integer }
         failed_count: { type: integer }
         chunk_count: { type: integer }
+        can_retry: { type: boolean }
         warnings: { type: array, items: { type: object, additionalProperties: true } }
-        errors: { type: array, items: { type: object, additionalProperties: true } }
+        errors: { type: array, items: { $ref: "#/components/schemas/KnowledgeIngestionError" } }
         config: { type: object, additionalProperties: true }
         created_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         completed_at: { type: string, format: date-time, nullable: true }
         updated_at: { type: string, format: date-time }
         results: { type: array, items: { $ref: "#/components/schemas/KnowledgeIngestionResult" } }
+    KnowledgeIngestionError:
+      type: object
+      required: [code, message, retryable, stage]
+      properties:
+        input_index: { type: integer, minimum: 0 }
+        code: { type: string }
+        message: { type: string, description: Allowlisted operational guidance that excludes source content and credentials. }
+        retryable: { type: boolean }
+        stage: { type: string, enum: [processing, file_processing, indexing] }
+        error_fingerprint: { type: string, nullable: true, description: Safe reference for correlating server diagnostics. }
     KnowledgeIngestionResult:
       type: object
       required: [input_index, outcome, reused]
@@ -4707,6 +4904,8 @@ components:
           properties:
             chunk_index: { type: integer }
             heading: { type: string, nullable: true }
+            heading_path: { type: array, items: { type: string } }
+            section_type: { type: string, nullable: true }
             char_start: { type: integer }
             char_end: { type: integer }
             page: { type: integer, nullable: true }
@@ -4764,6 +4963,16 @@ components:
             hybrid_search: { type: boolean }
             vector_store: { type: object, additionalProperties: true }
             embedding: { type: object, additionalProperties: true }
+            context_processing:
+              type: object
+              properties:
+                version: { type: string }
+                hierarchy_strategy: { type: string }
+                active_documents: { type: integer }
+                current_pipeline_documents: { type: integer }
+                review_required_documents: { type: integer }
+                average_score: { type: number, nullable: true }
+                refresh_recommended: { type: boolean }
             extraction:
               type: object
               properties:
@@ -4778,6 +4987,21 @@ components:
                 media_requires_caption_or_transcript: { type: boolean }
             product_help: { type: object, additionalProperties: true }
             guardrails: { type: array, items: { type: string } }
+    KnowledgeAnswerStructure:
+      type: object
+      properties:
+        summary: { type: string }
+        findings: { type: array, items: { type: string } }
+        recommendations: { type: array, items: { type: string } }
+        evidence_gaps: { type: array, items: { type: string } }
+        supported_claims:
+          type: array
+          items:
+            type: object
+            required: [statement, citation_ids]
+            properties:
+              statement: { type: string }
+              citation_ids: { type: array, items: { type: string } }
     KnowledgeAssistantMessage:
       type: object
       properties:
@@ -4790,7 +5014,12 @@ components:
         citations: { type: array, items: { $ref: "#/components/schemas/KnowledgeCitation" } }
         retrieval:
           type: object
-          description: Project-scoped chained retrieval trace, including query_chain, grounded_result_count, chain_strategy, and non-sensitive failure fingerprints.
+          description: Project-scoped chained retrieval trace, including categorized context routing, query chain, answer structure, evidence sufficiency, and non-sensitive failure fingerprints.
+          properties:
+            answer_structure: { $ref: "#/components/schemas/KnowledgeAnswerStructure" }
+            context_route: { type: object, additionalProperties: true }
+            evidence_sufficiency: { type: object, additionalProperties: true }
+            processing_trace: { type: array, items: { type: object, additionalProperties: true } }
           additionalProperties: true
         safety: { type: object, additionalProperties: true }
         provider: { type: string, nullable: true }
@@ -4834,6 +5063,8 @@ components:
       required: [message]
       properties:
         message: { type: string, maxLength: 8000 }
+        response_mode: { type: string, enum: [answer, evidence], default: answer }
+        retrieval_budgets: { $ref: "#/components/schemas/KnowledgeRetrievalBudgets" }
         integration_id: { type: string, maxLength: 255, description: Optional active LLM integration authorized for this project; overrides the session selection for this turn. }
         client_turn_id: { type: string, minLength: 8, maxLength: 255, pattern: "^[A-Za-z0-9._:-]+$" }
         filters: { type: object, additionalProperties: true }
@@ -4860,9 +5091,67 @@ components:
         retrieval:
           type: object
           description: Project-scoped chained retrieval trace, including query_chain, planned_queries, grounded_result_count, chain_strategy, and non-sensitive failure fingerprints.
+          properties:
+            answer_structure: { $ref: "#/components/schemas/KnowledgeAnswerStructure" }
+            context_route: { type: object, additionalProperties: true }
+            evidence_sufficiency: { type: object, additionalProperties: true }
+            processing_trace: { type: array, items: { type: object, additionalProperties: true } }
           additionalProperties: true
+        context_packet: { $ref: "#/components/schemas/KnowledgeContextPacket" }
+        answer_contract: { $ref: "#/components/schemas/KnowledgeAnswerContract" }
         guardrails: { type: array, items: { type: string } }
         provenance: { type: object, additionalProperties: true }
+    KnowledgeRetrievalBudgets:
+      type: object
+      description: Server-clamped bounds. Cost-limited model requests require configured pricing; unknown provider costs remain null.
+      properties:
+        deadline_ms: { type: integer, minimum: 0, maximum: 60000, default: 15000 }
+        max_retrieval_rounds: { type: integer, minimum: 0, maximum: 4 }
+        max_tool_calls: { type: integer, minimum: 0, maximum: 20 }
+        max_queries: { type: integer, minimum: 0, maximum: 10 }
+        max_candidate_documents: { type: integer, minimum: 0, maximum: 1000 }
+        max_context_tokens: { type: integer, minimum: 0, maximum: 32000 }
+        max_query_cost_usd: { type: number, minimum: 0, maximum: 10 }
+    ContextRetrievalRequest:
+      type: object
+      required: [project_id, query]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string }
+        query: { type: string, minLength: 1, maxLength: 8000 }
+        filters:
+          type: object
+          properties:
+            source_ids: { type: array, items: { type: string }, maxItems: 100 }
+            collection_ids: { type: array, items: { type: string }, maxItems: 100 }
+            source_kinds: { type: array, items: { type: string }, maxItems: 20 }
+            as_of: { type: string, format: date-time, description: Historical retrieval requires knowledge.manage. }
+        budgets: { $ref: "#/components/schemas/KnowledgeRetrievalBudgets" }
+    KnowledgeContextPacket:
+      type: object
+      description: Executable schema is defined in knowledgeContractSchemas.service.js. Evidence contains authorized fragments, immutable revision identities, citations, locations, freshness, and limitations.
+      required: [contract_type, contract_version, evidence, authorization, limitations]
+      properties:
+        contract_type: { type: string, enum: [ContextPacket] }
+        contract_version: { type: string, enum: ["1.0"] }
+        packet_id: { type: string }
+        request_id: { type: string }
+        query_id: { type: string }
+        trace_id: { type: string }
+        evidence: { type: array, items: { type: object, additionalProperties: true } }
+        authorization: { type: object, additionalProperties: true }
+        limitations: { type: object, additionalProperties: true }
+      additionalProperties: true
+    KnowledgeAnswerContract:
+      type: object
+      description: Server-produced claims, citations, limitations, and an allowlisted presentation. Unverified paraphrases are explicitly interpretations; displayed facts are rebuilt from validated claims.
+      required: [contract_type, contract_version, claims, presentation]
+      properties:
+        contract_type: { type: string, enum: [AnswerContract] }
+        contract_version: { type: string, enum: ["1.0"] }
+        claims: { type: array, items: { type: object, additionalProperties: true } }
+        presentation: { type: object, additionalProperties: true }
+      additionalProperties: true
     IdResponse:
       type: object
       properties:
@@ -7351,3 +7640,79 @@ components:
       type: object
       properties:
         message: { type: string }
+    AutomationGeneratorQueueRequest:
+      type: object
+      properties:
+        integration_id: { type: string }
+        start_url: { type: string }
+        additional_context: { type: string }
+        test_environment_id: { type: string }
+        test_configuration_id: { type: string }
+        test_data_set_id: { type: string }
+        scheduled_at:
+          type: string
+          format: date-time
+          description: Future ISO 8601 timestamp with a timezone. Omit to queue immediately; execution begins when a worker is available at or after this time.
+    AutomationBatchQueueRequest:
+      allOf:
+        - $ref: "#/components/schemas/AutomationGeneratorQueueRequest"
+        - type: object
+          required: [app_type_id]
+          properties:
+            app_type_id: { type: string }
+            test_case_ids:
+              type: array
+              items: { type: string }
+              description: Cases in the selected application to build.
+            failure_threshold: { type: number }
+    AutomationBuildQueueResponse:
+      type: object
+      required: [transaction_id, job_id, queued, status, scheduled_at]
+      properties:
+        id:
+          type: string
+          description: Transaction identifier, included for batch builds.
+        transaction_id: { type: string }
+        job_id: { type: string }
+        queued: { type: boolean, enum: [true] }
+        status: { type: string, enum: [queued] }
+        scheduled_at: { type: string, format: date-time, nullable: true }
+    AutomationBuildTransaction:
+      type: object
+      required: [id, project_id, category, action, status, title, metadata]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        category: { type: string, enum: [automation_build] }
+        action: { type: string }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        related_kind: { type: string, nullable: true }
+        related_id: { type: string, nullable: true }
+        created_by: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        event_count: { type: integer, minimum: 0 }
+        latest_event_at: { type: string, format: date-time, nullable: true }
+        created_user: { type: object, nullable: true, additionalProperties: true }
+        metadata:
+          type: object
+          additionalProperties: true
+          properties:
+            progress_percent: { type: number, minimum: 0, maximum: 100 }
+            current_phase: { type: string }
+            scheduled_at: { type: string, format: date-time, nullable: true }
+            test_case_id:
+              type: string
+              description: For a completed generator build, the resulting automated case identifier.
+            source_test_case_id: { type: string, nullable: true }
+            output_test_case_ids:
+              type: array
+              items: { type: string }
+              description: Automated case identifiers produced by a batch build.
+            generated_steps: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }

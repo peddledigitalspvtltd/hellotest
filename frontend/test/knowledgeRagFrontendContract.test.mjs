@@ -20,6 +20,7 @@ test("Knowledge RAG types and API keep ingestion, retrieval, collection, and ass
     "KnowledgeCitation",
     "KnowledgeProcessingNotice",
     "KnowledgeAssistantIntegration",
+    "KnowledgeAnswerStructure",
     "KnowledgeAssistantMessage",
     "KnowledgeAssistantSession",
     "KnowledgeOverview"
@@ -28,7 +29,7 @@ test("Knowledge RAG types and API keep ingestion, retrieval, collection, and ass
   }
   assert.match(types, /KnowledgeSelectedRecords[\s\S]*requirements: string\[\][\s\S]*test_cases: string\[\][\s\S]*executions: string\[\][\s\S]*bugs: string\[\]/);
   assert.match(types, /"product_help"/);
-  assert.match(types, /KnowledgeProcessingNotice[\s\S]*code\?: string \| null[\s\S]*message\?: string \| null[\s\S]*source_id\?: string \| null[\s\S]*input_index\?: number \| null/);
+  assert.match(types, /KnowledgeProcessingNotice[\s\S]*code\?: string \| null[\s\S]*message\?: string \| null[\s\S]*source_id\?: string \| null[\s\S]*input_index\?: number \| null[\s\S]*retryable\?: boolean[\s\S]*error_fingerprint\?: string \| null/);
   assert.match(types, /errors\?: KnowledgeProcessingNotice\[\][\s\S]*warnings\?: KnowledgeProcessingNotice\[\]/);
 
   const start = api.indexOf("knowledgeRepo:");
@@ -47,6 +48,7 @@ test("Knowledge RAG types and API keep ingestion, retrieval, collection, and ass
   assert.match(section, /formData\.set\("file", file\)/);
   assert.match(section, /formData\.set\("extracted_text", extractedText\.trim\(\)\)/);
   assert.match(section, /Idempotency-Key/);
+  assert.match(section, /retry: \(id: string\)[\s\S]*\/knowledge\/ingestions\/\$\{id\}\/retry[\s\S]*method: "POST"/);
   assert.match(section, /deleteSource:[\s\S]*\/knowledge\/sources\/\$\{id\}[\s\S]*method: "DELETE"/);
   assert.match(section, /downloadSource:[\s\S]*requestBlob/);
   assert.match(section, /createSession:[\s\S]*integration_id\?: string/);
@@ -89,6 +91,9 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /processed_count \?\? job\.processed_sources/);
   assert.match(studio, /const warningMessages = \(job\.warnings \|\| \[\]\)\.map\(processingNoticeText\)/);
   assert.match(studio, /const errorMessages = \(job\.errors \|\| \[\]\)\.map\(processingNoticeText\)/);
+  assert.match(studio, /Retry retained source/);
+  assert.match(studio, /api\.knowledgeRepo\.ingestions\.retry\(id\)/);
+  assert.match(studio, /error_fingerprint\.trim\(\)\.slice\(0, 12\)/);
   assert.match(studio, /typeof notice === "string"/);
   assert.match(studio, /job\.config\?\.title/);
   assert.match(studio, /api\.knowledgeRepo\.deleteSource\(id\)/);
@@ -97,6 +102,8 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /result\.source_kind !== "product_help"/);
   assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\)/);
   assert.match(studio, /IconLoader2[\s\S]*knowledge-processing-spinner/);
+  assert.match(studio, /Hybrid fallback ready/);
+  assert.match(studio, /Context refresh recommended/);
   assert.doesNotMatch(studio, /loading-state-spinner/);
   assert.match(styles, /\.knowledge-processing-spinner \{[\s\S]*width: 1rem;[\s\S]*height: 1rem;/);
   assert.doesNotMatch(studio, /job\.error(?!s)/);
@@ -113,8 +120,13 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
   assert.match(assistant, /Current project only/);
   assert.match(assistant, /live project \+ all Knowledge Repository sources/);
-  assert.match(assistant, /Live data \+ Knowledge Repo/);
+  assert.match(assistant, /progressEvents\[progressEvents\.length - 1\]\?\.message/);
+  assert.match(assistant, /api\.knowledgeRepo\.assistant\.streamMessage/);
   assert.match(assistant, /message\.retrieval\.context_route\?\.input_type/);
+  assert.match(assistant, /message\.retrieval\.context_route\?\.query_category/);
+  assert.match(assistant, /message\.retrieval\?\.answer_structure/);
+  assert.match(assistant, /Structured grounded answer/);
+  assert.match(assistant, /Evidence plan/);
   assert.match(assistant, /message\.retrieval\.live_context_count/);
   assert.match(assistant, /distinguish project questions from product help/);
   assert.match(assistant, /const apiSourceKinds = useMemo\(\(\) => sourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
@@ -122,8 +134,9 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /"product_help"/);
   assert.match(assistant, /sourceKinds\.includes\("text"\) \? \["knowledge_item"\]/);
   assert.match(assistant, /source_kinds: requestApiSourceKinds/);
-  assert.doesNotMatch(assistant, /<SmartContextWorkbench/);
-  assert.doesNotMatch(assistant, /Smart Context/);
+  assert.match(assistant, /<SmartContextWorkbench/);
+  assert.match(assistant, /reviewed_context: requestSmartContext\.contextText/);
+  assert.match(assistant, /Retrieval only · no LLM/);
   assert.match(assistant, /api\.knowledgeRepo\.assistant\.listIntegrations\(projectId\)/);
   assert.match(assistant, /integration\.scope === "workspace"/);
   assert.match(assistant, /integration\.scope === "project" && integration\.project_id === projectId/);
@@ -148,7 +161,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /signal: controller\.signal/);
   assert.match(assistant, /client_turn_id: clientTurnId/);
   assert.match(assistant, /api\.knowledgeRepo\.downloadSource/);
-  assert.match(assistant, /citation\.uri \|\| citation\.source_uri/);
+  assert.match(assistant, /knowledgeCitationHref\(citation\)/);
   assert.match(assistant, /Retry this turn/);
   assert.match(assistant, /grounded-assistant-agent-status/);
   assert.match(shell, /<GroundedAssistant \/>/);
@@ -204,7 +217,7 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.match(designStudio, /const base = stripSmartContextPack\(current\)/);
 });
 
-test("Knowledge embeddings and governed assistant prompt are configurable without moving secrets", async () => {
+test("Knowledge retrieval reuses the governed LLM configuration without separate embedding controls", async () => {
   const [integrations, registry, styles, assistantStyles] = await Promise.all([
     readSource("../src/pages/IntegrationsPage.tsx"),
     readSource("../src/lib/aiPromptRegistry.ts"),
@@ -212,13 +225,11 @@ test("Knowledge embeddings and governed assistant prompt are configurable withou
     readSource("../src/components/GroundedAssistant.css")
   ]);
 
-  assert.match(integrations, /embedding_model: string/);
-  assert.match(integrations, /embedding_base_url: string/);
+  assert.doesNotMatch(integrations, /embedding_model: string/);
+  assert.doesNotMatch(integrations, /embedding_base_url: string/);
   assert.match(integrations, /llm_project_id: typeof config\.project_id === "string" \? config\.project_id : ""/);
   assert.match(integrations, /draft\.llm_project_id\.trim\(\) \? \{ project_id: draft\.llm_project_id\.trim\(\) \} : \{\}/);
-  assert.match(integrations, /embedding_model: draft\.embedding_model\.trim\(\) \|\| null/);
-  assert.match(integrations, /embedding_base_url: draft\.embedding_base_url\.trim\(\) \|\| null/);
-  assert.match(integrations, /Secrets continue to use the API Key field/);
+  assert.match(integrations, /Knowledge retrieval reuses this LLM model, Base URL, and API key/);
   assert.match(registry, /key: "ai\.knowledge\.assistant"/);
   assert.match(registry, /Project-grounded Ask HelloTest assistant/);
   assert.match(styles, /:root\[data-theme="dark"\]/);

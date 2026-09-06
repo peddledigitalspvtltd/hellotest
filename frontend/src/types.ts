@@ -2785,6 +2785,7 @@ export type KnowledgeIngestionRequest = {
 
 export type KnowledgeSource = {
   id: string;
+  canonical_id?: string;
   project_id: string;
   app_type_id?: string | null;
   source_kind: KnowledgeSourceKind | string;
@@ -2806,6 +2807,29 @@ export type KnowledgeSource = {
   updated_at?: string;
 };
 
+export type KnowledgeSourceRevision = {
+  id: string;
+  knowledge_id?: string;
+  canonical_id?: string;
+  version?: number | string;
+  title?: string;
+  checksum_sha256?: string;
+  is_current?: boolean;
+  effective_from?: string;
+  effective_to?: string | null;
+  index_state?: { lexical_state?: string; dense_state?: string; required_indexes_ready?: boolean; vector_provider?: string; indexed_chunk_count?: number };
+};
+
+export type KnowledgeSourceDetail = {
+  source: KnowledgeSource;
+  revision?: KnowledgeSourceRevision | null;
+  fragments: Array<{ id: string; fragment_id?: string; knowledge_id?: string; canonical_id?: string; chunk_index?: number; heading?: string; content?: string; token_count?: number; char_start?: number; char_end?: number; metadata?: Record<string, unknown> }>;
+  authorization?: { partial?: boolean };
+  historical?: boolean;
+  latest_ingestion_id?: string | null;
+  latest_ingestion_status?: string | null;
+};
+
 export type KnowledgeProcessingNotice =
   | string
   | {
@@ -2813,6 +2837,9 @@ export type KnowledgeProcessingNotice =
       message?: string | null;
       source_id?: string | null;
       input_index?: number | null;
+      retryable?: boolean;
+      stage?: string | null;
+      error_fingerprint?: string | null;
     };
 
 export type KnowledgeIngestion = {
@@ -2832,11 +2859,14 @@ export type KnowledgeIngestion = {
   document_count?: number;
   chunk_count?: number;
   embedding_count?: number;
+  can_retry?: boolean;
   sources?: KnowledgeSource[];
   errors?: KnowledgeProcessingNotice[];
   warnings?: KnowledgeProcessingNotice[];
   config?: {
     title?: string;
+    retry_count?: number;
+    max_retries?: number;
     [key: string]: unknown;
   };
   created_at?: string;
@@ -2898,11 +2928,17 @@ export type KnowledgeSearchFilters = {
   source_kinds?: string[];
   source_ids?: string[];
   statuses?: string[];
+  as_of?: string;
 };
 
 export type KnowledgeCitation = {
   index?: number;
   id: string;
+  evidence_id?: string;
+  canonical_id?: string;
+  knowledge_id?: string;
+  fragment_id?: string;
+  freshness?: { current?: boolean; effective_from?: string; effective_to?: string | null; updated_at?: string; stale?: boolean };
   chunk_id?: string | null;
   document_id?: string | null;
   source_id?: string | null;
@@ -2920,9 +2956,13 @@ export type KnowledgeCitation = {
   location?: {
     chunk_index?: number | null;
     heading?: string | null;
+    heading_path?: string[];
+    section_type?: string | null;
     char_start?: number | null;
     char_end?: number | null;
     page?: number | null;
+    timestamp_start_ms?: number | null;
+    timestamp_end_ms?: number | null;
   };
   metadata?: Record<string, unknown>;
 };
@@ -2936,6 +2976,72 @@ export type KnowledgeSearchHit = KnowledgeCitation & {
   lexical_score?: number | null;
   semantic_score?: number | null;
   rank?: number;
+};
+
+export type KnowledgeAnswerStructure = {
+  summary?: string;
+  findings?: string[];
+  recommendations?: string[];
+  evidence_gaps?: string[];
+  supported_claims?: Array<{
+    statement: string;
+    citation_ids: string[];
+  }>;
+};
+
+export type KnowledgeRetrievalRequest = {
+  contract_version: "RetrievalRequest.v1" | string;
+  request_id: string;
+  project_id: string;
+  query: string;
+  query_class: "LOOKUP" | "SEARCH" | "ANALYTICAL" | "INVESTIGATIVE" | "MULTIMODAL" | string;
+  budgets?: Record<string, number>;
+};
+
+export type KnowledgeContextPacket = {
+  contract_type?: "ContextPacket";
+  contract_version: "ContextPacket.v1" | string;
+  schema_id?: string;
+  packet_id: string;
+  context_packet_id?: string;
+  evidence?: Array<KnowledgeCitation & { evidence_id: string; content?: string; visibility?: { state?: string }; locator?: KnowledgeCitation["location"] }>;
+  retrieval?: { status?: string; rounds?: number; termination_reason?: string };
+  authorization_coverage?: { fully_visible_objects?: number; partially_visible_objects?: number; unavailable_objects?: number };
+  request_id?: string | null;
+  coverage?: {
+    evidence_count?: number;
+    source_count?: number;
+    source_kinds?: string[];
+    context_tokens_estimated?: number;
+    context_budget_exhausted?: boolean;
+  };
+  authorization?: {
+    project_scope_enforced?: boolean;
+    source_acl_enforced?: boolean;
+  };
+};
+
+export type KnowledgeAnswerContract = {
+  contract_type?: "AnswerContract";
+  contract_version: "AnswerContract.v1" | string;
+  schema_id?: string;
+  status: string;
+  presentation: string | { recommended_type: "TEXT" | "TABLE" | "TIMELINE" | "COMPARISON" | "RELATIONSHIP_GRAPH" | "METRIC" | "DOCUMENT_RESULTS" | "IMAGE_RESULTS"; structured_payload?: Record<string, unknown> };
+  summary: string;
+  answer?: { summary?: string };
+  claims: Array<{ claim_id?: string; statement: string; text?: string; classification?: string; evidence_ids: string[] }>;
+  citation_ids: string[];
+  evidence_gaps: string[];
+  limitations?: { retrieval_status?: string; authorization_partial?: boolean; budget_partial?: boolean; stale_sources?: Array<string | Record<string, unknown>>; unavailable_sources?: number };
+  evidence_quality?: Record<string, unknown>;
+  grounding?: {
+    context_evidence_count?: number;
+    supported_claim_count?: number;
+    unsupported_claim_count?: number;
+    claim_citation_coverage?: number;
+    model_confidence_accepted?: boolean;
+  };
+  termination_reason?: string | null;
 };
 
 export type KnowledgeRetrievalSummary = {
@@ -2957,11 +3063,25 @@ export type KnowledgeRetrievalSummary = {
   context_route?: {
     agent_id?: string | null;
     input_type?: string;
+    query_category?: "tool_help" | "project_facts" | "project_analysis" | "project_knowledge" | "mixed" | "specialist_analysis" | string;
+    answer_depth?: "concise" | "standard" | "detailed" | string;
+    route_confidence?: "low" | "medium" | "high" | string;
     matched_intents?: string[];
     mode?: "chat" | "agent" | string;
     priority_scopes?: string[];
     effective_scopes?: string[];
     live_scopes?: string[];
+    adaptive_live_scopes?: string[];
+    indexed_source_kinds?: string[];
+    information_needs?: string[];
+    identifiers?: string[];
+    requires_live_context?: boolean;
+    requires_indexed_context?: boolean;
+    retrieval_budget?: {
+      max_queries?: number;
+      max_rounds?: number;
+      max_evidence_items?: number;
+    };
     retrieval_focus?: string;
     outcome_sections?: string[];
     resolved_query?: string;
@@ -2969,6 +3089,56 @@ export type KnowledgeRetrievalSummary = {
     decision_question?: string;
     deliverable_contract?: string;
   } | null;
+  query_chain?: string[];
+  planned_queries?: string[];
+  embedding_batch_count?: number;
+  model_context_plan?: {
+    source_kinds?: string[];
+    information_needs?: string[];
+    stop_if_sufficient?: boolean;
+  };
+  answer_structure?: KnowledgeAnswerStructure;
+  retrieval_round_count?: number;
+  retrieval_rounds?: Array<{
+    round: number;
+    query_count: number;
+    evidence_before: number;
+    evidence_after: number;
+    stop_reason: string;
+  }>;
+  evidence_sufficiency?: {
+    score: number;
+    status: "strong" | "usable" | "weak" | string;
+    citation_ready_count: number;
+    distinct_source_count: number;
+    live_evidence_count: number;
+    corroborated_result_count: number;
+    route_aligned_result_count?: number;
+    topically_matched_result_count?: number;
+    strongest_retrieval_score: number;
+    requires_more_context: boolean;
+  };
+  query_count?: number;
+  grounded_result_count?: number;
+  processing_trace?: Array<{
+    phase?: string;
+    label?: string;
+    detail?: string;
+    stage?: string;
+    message?: string;
+    status: "pending" | "complete" | "failed" | string;
+  }>;
+  query_class?: KnowledgeRetrievalRequest["query_class"];
+  retrieval_request?: KnowledgeRetrievalRequest;
+  context_packet?: KnowledgeContextPacket;
+  answer_contract?: KnowledgeAnswerContract;
+  termination_reason?: string | null;
+  budget?: {
+    limits?: Record<string, number>;
+    used?: Record<string, number>;
+    remaining?: Record<string, number>;
+    termination_reason?: string | null;
+  };
 };
 
 export type KnowledgeSearchResponse = {
@@ -3006,6 +3176,9 @@ export type KnowledgeAssistantMessage = {
   grounding_status?: KnowledgeAssistantGroundingStatus | string;
   citations: KnowledgeCitation[];
   retrieval?: KnowledgeRetrievalSummary;
+  answer_contract?: KnowledgeAnswerContract | null;
+  context_packet?: KnowledgeContextPacket | null;
+  scope?: { project_id: string; app_type_id?: string | null; filters?: KnowledgeSearchFilters };
   guardrails?: string[];
   provenance?: {
     provider?: string | null;
@@ -3054,8 +3227,22 @@ export type KnowledgeAssistantMessageResponse = {
   message?: KnowledgeAssistantMessage;
   citations?: KnowledgeCitation[];
   retrieval?: KnowledgeRetrievalSummary;
+  context_packet?: KnowledgeContextPacket | null;
+  answer_contract?: KnowledgeAnswerContract | null;
   guardrails?: string[];
   provenance?: KnowledgeAssistantMessage["provenance"];
+};
+
+export type KnowledgeRetrievalEvent = {
+  contract_type: "RetrievalEvent";
+  contract_version: "1.0" | string;
+  schema_id?: string;
+  request_id?: string;
+  sequence?: number;
+  stage: string;
+  status?: string;
+  message?: string;
+  metrics?: Record<string, number>;
 };
 
 export type KnowledgeOverview = {
@@ -3094,11 +3281,26 @@ export type KnowledgeOverview = {
       pgvector_available?: boolean;
       mode?: string | null;
       fallback?: string | null;
+      provider?: string | null;
+      configured?: boolean;
+      circuit_open?: boolean;
+      collection_strategy?: string;
+      acl_prefilter?: boolean;
+      canonical_store?: string;
     };
     embedding?: {
       provider?: string | null;
       model?: string | null;
       configured?: boolean;
+    };
+    context_processing?: {
+      version?: string;
+      hierarchy_strategy?: string;
+      active_documents?: number;
+      current_pipeline_documents?: number;
+      review_required_documents?: number;
+      average_score?: number | null;
+      refresh_recommended?: boolean;
     };
     extraction?: {
       max_file_bytes?: number;

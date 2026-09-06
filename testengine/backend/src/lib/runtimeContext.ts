@@ -1,10 +1,10 @@
 import type { EngineApiRequest, EngineRunEnvelope } from "../contracts/hellotest.js";
+import { decodeParameterColumnName, normalizeParameterReferenceKey, STEP_PARAMETER_PATTERN } from "./stepParameterReferences.js";
 
 export type RuntimeExecutionContext = {
   values: Record<string, string>;
 };
 
-const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
 const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
@@ -126,7 +126,7 @@ export const materializeTemplateValue = (value: unknown, now = new Date()): stri
 };
 
 export const normalizeKey = (value: string | null | undefined) => {
-  const normalized = normalizeText(value)?.replace(/^@+/, "").toLowerCase() || null;
+  const normalized = normalizeParameterReferenceKey(value || "") || null;
   return normalized;
 };
 
@@ -283,7 +283,9 @@ export const interpolateText = (
   value: string | null | undefined,
   context: RuntimeExecutionContext
 ) =>
-  String(value || "").replace(STEP_PARAMETER_PATTERN, (_match, scope, rawName) => {
+  String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
+    if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".") return token;
+    const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
     const normalizedKey = scope
       ? `${String(scope).toLowerCase()}.${String(rawName).toLowerCase()}`
       : String(rawName).toLowerCase();

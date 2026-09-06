@@ -1,0 +1,231 @@
+.automation-editor-modal.step-composer .automation-editor-body {
+  gap: 14px;
+}
+
+.automation-editor-modal.step-composer .automation-type-pill.is-active {
+  box-shadow: none;
+}
+
+.step-composer-instruction-line {
+  display: grid;
+  grid-template-columns: minmax(150px, 180px) minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.step-composer-instruction-line--1 {
+  grid-template-columns: minmax(150px, 180px) minmax(0, 1fr) auto;
+}
+
+.step-composer-instruction-line--0 {
+  grid-template-columns: minmax(150px, 240px) auto;
+  justify-content: start;
+}
+
+.step-composer .form-field,
+.step-composer .step-composer-argument,
+.step-composer .automation-repository-target-field {
+  min-width: 0;
+}
+
+.step-composer .form-field-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.step-composer-instruction-line input,
+.step-composer-instruction-line select,
+.step-composer .automation-api-request-bar input,
+.step-composer .automation-api-request-bar select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.step-composer-keyword select {
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.step-composer-add {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+.step-composer-message {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.step-composer-saved {
+  min-width: 0;
+  padding-block: 12px 2px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.step-composer-saved-heading {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.step-composer-saved .automation-instruction-source {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 8px 0;
+  background: color-mix(in srgb, var(--surface) 96%, var(--muted));
+}
+
+.step-composer-saved .automation-instruction-line {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  padding: 2px 10px 2px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.step-composer-saved .automation-line-number {
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+}
+
+.step-composer-saved .automation-instruction-line code {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.step-composer-saved .automation-instruction-keyword {
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.step-composer-saved .automation-instruction-await,
+.step-composer-saved .automation-instruction-line.is-comment code {
+  color: var(--muted);
+}
+
+.automation-editor-modal.step-composer .automation-api-request-bar {
+  padding: 0 0 10px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.automation-editor-modal.step-composer .automation-request-details {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.automation-editor-modal.step-composer .automation-request-details > summary {
+  min-height: 40px;
+  padding: 9px 0;
+  justify-content: start;
+  gap: 10px;
+  list-style: none;
+}
+
+.step-composer .automation-request-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.step-composer .automation-request-details > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  color: var(--muted);
+}
+
+.step-composer .automation-request-details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.step-composer .automation-request-details > summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.automation-editor-modal.step-composer .automation-request-details > summary > span {
+  font-weight: 500;
+}
+
+.automation-editor-modal.step-composer .automation-request-details > summary > strong {
+  min-width: 0;
+  flex-shrink: 1;
+  margin-left: auto;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.automation-editor-modal.step-composer .automation-request-details-body {
+  padding: 2px 0 12px 16px;
+}
+
+.step-composer-settings-body {
+  display: grid;
+  gap: 16px;
+  padding: 4px 0 14px 16px;
+}
+
+.step-composer-settings-group > h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.automation-editor-modal.step-composer .step-composer-settings-group > .automation-request-details-body {
+  padding: 0;
+}
+
+.step-composer .step-composer-pair-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+}
+
+.automation-editor-modal.step-composer .automation-response-shell {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.step-composer textarea {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 700px) {
+  .step-composer-instruction-line,
+  .step-composer-instruction-line--1,
+  .step-composer-instruction-line--0 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .step-composer-add {
+    justify-self: end;
+  }
+
+  .step-composer .step-composer-pair-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .step-composer .step-composer-pair-row > :first-child {
+    grid-column: 1 / -1;
+  }
+}

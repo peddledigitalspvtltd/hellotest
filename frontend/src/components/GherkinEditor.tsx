@@ -1,7 +1,13 @@
 import { type CSSProperties, type ChangeEvent, type ReactNode, type UIEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { IconAlertTriangle, IconBraces, IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
+import { StepParameterizedText } from "./StepParameterizedText";
+import { GherkinStepTextField } from "./GherkinStepTextField";
+import { BEHAVIOR_KEYWORDS, composeBehaviorBlock, parseBehaviorBlock, type BehaviorKeyword, type BehaviorStep } from "../lib/gherkinBehavior";
+import { useStepParameterAutocomplete } from "./StepParameterSuggestions";
+import { excludeSensitiveStepParameterValues, insertStepParameterReference, type StepParameterDefinition } from "../lib/stepParameters";
 import {
   composeGherkinDocument,
+  setGherkinFeatureTitle,
   matchGherkinKeyword,
   replaceGherkinBackground,
   resolveGherkinParameterText,
@@ -15,14 +21,62 @@ type GherkinEditorProps = {
   value: string;
   onChange: (value: string) => void;
   featureTitle: string;
+  featureTitleLocked?: boolean;
+  availableParameters?: StepParameterDefinition[];
   parameterValues?: Record<string, string>;
   compact?: boolean;
   readOnly?: boolean;
   exampleColumns?: string[];
   exampleRows?: Array<Record<string, string>>;
+  minimalBehaviorEditor?: boolean;
 };
 
+
+function MinimalBehaviorBlock({ availableParameters, heading, headingLabel, onChange, parameterValues, readOnly, value }: { availableParameters: StepParameterDefinition[]; heading: string; headingLabel: "Background" | "Scenario" | "Scenario Outline"; onChange: (value: string) => void; parameterValues: Record<string, string>; readOnly: boolean; value: string }) {
+  const parsed = parseBehaviorBlock(value);
+  const steps: BehaviorStep[] = parsed.steps.length ? parsed.steps : [{ keyword: "Given", text: "" }];
+  const commit = (nextHeading: string, nextSteps: BehaviorStep[]) => onChange(composeBehaviorBlock(value, headingLabel, nextHeading, nextSteps));
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= steps.length || steps[index].group?.id !== steps[target].group?.id) return;
+    const next = [...steps];
+    const [step] = next.splice(index, 1);
+    next.splice(target, 0, step);
+    commit(heading, next);
+  };
+  const insertAfter = (index: number) => {
+    const next = [...steps];
+    next.splice(index + 1, 0, { keyword: steps[index]?.keyword === "When" ? "Then" : "And", text: "", group: steps[index]?.group });
+    commit(heading, next);
+  };
+  const blocks = steps.reduce<Array<{ group?: BehaviorStep["group"]; indices: number[] }>>((result, step, index) => {
+    const previous = result[result.length - 1];
+    if (step.group && previous?.group?.id === step.group.id) previous.indices.push(index);
+    else result.push({ group: step.group, indices: [index] });
+    return result;
+  }, []);
+  const renderStep = (index: number) => {
+    const step = steps[index];
+    return <div className="gherkin-minimal-step" key={index}>
+      <select aria-label={`Gherkin keyword for behavior step ${index + 1}`} className={`is-${step.keyword.toLowerCase()}`} disabled={readOnly} onChange={(event) => commit(heading, steps.map((item, itemIndex) => itemIndex === index ? { ...item, keyword: event.target.value as BehaviorKeyword } : item))} value={step.keyword}>{BEHAVIOR_KEYWORDS.map((keyword) => <option key={keyword}>{keyword}</option>)}</select>
+      {readOnly ? <span className="gherkin-minimal-description"><StepParameterizedText fallback={resolveGherkinParameterText(step.text, parameterValues) || step.text} text={step.text} values={parameterValues} /></span> : <GherkinStepTextField availableParameters={availableParameters} ariaLabel={`Behavior step ${index + 1}`} onChange={(text) => commit(heading, steps.map((item, itemIndex) => itemIndex === index ? { ...item, text } : item))} parameterValues={parameterValues} placeholder="Describe behavior and use parameters where needed" value={step.text} />}
+      {!readOnly ? <span className="gherkin-minimal-step-actions"><button aria-label={`Insert behavior step after ${index + 1}`} onClick={() => insertAfter(index)} title="Insert behavior step" type="button">+</button><button aria-label={`Move behavior step ${index + 1} up`} disabled={index === 0 || steps[index - 1]?.group?.id !== step.group?.id} onClick={() => move(index, -1)} type="button">↑</button><button aria-label={`Move behavior step ${index + 1} down`} disabled={index === steps.length - 1 || steps[index + 1]?.group?.id !== step.group?.id} onClick={() => move(index, 1)} type="button">↓</button><button aria-label={`Remove behavior step ${index + 1}`} disabled={steps.length === 1} onClick={() => commit(heading, steps.filter((_, itemIndex) => itemIndex !== index))} type="button"><IconTrash size={13} /></button></span> : null}
+    {step.followingLines?.some((line) => line.trim()) ? <pre className="gherkin-minimal-step-arguments" style={{ gridColumn: "1 / -1", whiteSpace: "pre-wrap", margin: 0 }}>{resolveGherkinParameterText(step.followingLines.join("\n"), parameterValues)}</pre> : null}</div>;
+  };
+  return <section className="gherkin-minimal-block">
+    <div className="gherkin-minimal-heading"><strong>{headingLabel}:</strong>{headingLabel !== "Background" ? <input aria-label={`${headingLabel} name`} disabled={readOnly} onChange={(event) => commit(event.target.value, steps)} placeholder="Describe the behavior" value={heading} /> : null}</div>
+    <div className="gherkin-minimal-steps">{blocks.map((block) => block.group ? (
+      <details className="gherkin-shared-step-group" key={`${block.group.id}:${block.indices[0]}`}>
+        <summary><strong>{block.group.name}</strong><span>{block.indices.length} behavior step{block.indices.length === 1 ? "" : "s"}</span></summary>
+        <div className="gherkin-minimal-steps">{block.indices.map(renderStep)}</div>
+      </details>
+    ) : block.indices.map(renderStep))}</div>
+    {!readOnly ? <button className="gherkin-minimal-add-step" onClick={() => commit(heading, [...steps, { keyword: steps[steps.length - 1]?.keyword === "When" ? "Then" : "And", text: "" }])} type="button"><IconPlus size={14} />Add behavior step</button> : null}
+  </section>;
+}
+
 type GherkinSectionSurfaceProps = {
+  availableParameters: StepParameterDefinition[];
   actions?: ReactNode;
   autoFocus?: boolean;
   description: string;
@@ -109,13 +163,26 @@ const renderHighlightedLine = (line: string, index: number) => {
   return <span className="gherkin-code-line" key={`${index}:${line}`}>{match.indent}<strong className={match.kind === "step" ? "is-step-keyword" : "is-section-keyword"}>{match.keyword}{match.colon}</strong><span className="is-description">{renderInlineText(match.rest, index)}</span></span>;
 };
 
-function GherkinSectionSurface({ actions, autoFocus = false, description, emptyMessage, invalid = false, kind, label, onAutoFocus, onChange, onEditingChange, parameterValues, readOnly, value }: GherkinSectionSurfaceProps) {
+function GherkinSectionSurface({ availableParameters, actions, autoFocus = false, description, emptyMessage, invalid = false, kind, label, onAutoFocus, onChange, onEditingChange, parameterValues, readOnly, value }: GherkinSectionSurfaceProps) {
   const sectionId = useId().replace(/:/g, "");
   const highlightRef = useRef<HTMLPreElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [activeLineTop, setActiveLineTop] = useState(14);
+  const autocomplete = useStepParameterAutocomplete({
+    availableParameters,
+    parameterValues,
+    onSelect: (parameter, query) => {
+      const next = insertStepParameterReference(value, query, parameter);
+      onChange(next.value);
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(next.caret, next.caret);
+      });
+    }
+  });
+  const updateSuggestions = (target: HTMLTextAreaElement) => autocomplete.update(target.value, target.selectionStart, target.selectionEnd, target);
   const displayValue = useMemo(() => isEditing ? value : resolveGherkinParameterText(value, parameterValues), [isEditing, parameterValues, value]);
   const lines = (displayValue || " ").split("\n");
 
@@ -149,6 +216,7 @@ function GherkinSectionSurface({ actions, autoFocus = false, description, emptyM
   const changeValue = (event: ChangeEvent<HTMLTextAreaElement>) => {
     onChange(event.target.value);
     updateActiveLine(event.target);
+    updateSuggestions(event.target);
   };
 
   return (
@@ -164,28 +232,35 @@ function GherkinSectionSurface({ actions, autoFocus = false, description, emptyM
         {actions ? <div className="gherkin-section-actions">{actions}</div> : null}
       </header>
       {!value.trim() ? <div className="gherkin-section-empty"><span>{emptyMessage}</span></div> : (
-        <div className="gherkin-code-shell">
+        <div className="gherkin-code-shell" style={{ "--gherkin-visible-lines": Math.max(lines.length, 1) } as CSSProperties}>
           <div aria-hidden="true" className="gherkin-line-numbers" ref={lineNumbersRef}>{lines.map((_, index) => <span key={index}>{index + 1}</span>)}</div>
           {!value.trim() ? <span className="gherkin-section-empty-hint">{emptyMessage}</span> : null}
           {isEditing ? <span aria-hidden="true" className="gherkin-active-line" style={{ top: activeLineTop } as CSSProperties} /> : null}
           <pre aria-hidden={readOnly ? undefined : true} aria-label={readOnly ? `${label} Gherkin` : undefined} className="gherkin-highlight" ref={highlightRef} role={readOnly ? "region" : undefined} tabIndex={readOnly ? 0 : -1}>{lines.map(renderHighlightedLine)}</pre>
           {!readOnly ? <textarea
+            {...autocomplete.inputProps}
             aria-describedby={`${sectionId}-description`}
             aria-invalid={invalid || undefined}
             aria-label={`${label} Gherkin`}
-            onBlur={() => { setIsEditing(false); onEditingChange(false); }}
+            onBlur={() => { setIsEditing(false); onEditingChange(false); autocomplete.dismiss(); }}
             onChange={changeValue}
-            onClick={(event) => updateActiveLine(event.currentTarget)}
+            onClick={(event) => { updateActiveLine(event.currentTarget); updateSuggestions(event.currentTarget); }}
             onFocus={(event) => { setIsEditing(true); onEditingChange(true); updateActiveLine(event.currentTarget); }}
-            onKeyUp={(event) => updateActiveLine(event.currentTarget)}
+            onKeyDown={autocomplete.onKeyDown}
+            onKeyUp={(event) => {
+              updateActiveLine(event.currentTarget);
+              if (!["Escape", "Enter", "Tab", "ArrowDown", "ArrowUp"].includes(event.key)) updateSuggestions(event.currentTarget);
+            }}
             onScroll={syncScroll}
             onSelect={(event) => updateActiveLine(event.currentTarget)}
             ref={textareaRef}
+            role="combobox"
             spellCheck={false}
             value={value}
           /> : null}
         </div>
       )}
+      {autocomplete.menu}
     </section>
   );
 }
@@ -198,13 +273,15 @@ const composeLinkedExamples = (columns: string[], rows: Array<Record<string, str
   ...rows.map((row) => `  | ${columns.map((column) => escapeExampleCell(row[column] || "")).join(" | ")} |`)
 ].join("\n");
 
-export function GherkinEditor({ value, onChange, featureTitle, parameterValues = {}, compact = false, readOnly = false, exampleColumns = [], exampleRows = [] }: GherkinEditorProps) {
+export function GherkinEditor({ value, onChange, featureTitle, featureTitleLocked = false, availableParameters = [], parameterValues: suppliedParameterValues = {}, compact = false, readOnly = false, exampleColumns = [], exampleRows = [], minimalBehaviorEditor = false }: GherkinEditorProps) {
   const editorId = useId().replace(/:/g, "");
+  const parameterValues = useMemo(() => excludeSensitiveStepParameterValues(suppliedParameterValues, availableParameters.filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)), [availableParameters, suppliedParameterValues]);
   const [editingSection, setEditingSection] = useState("");
   const [focusTarget, setFocusTarget] = useState("");
-  const parsedSections = useMemo(() => splitGherkinDocument(value), [value]);
+  const parsedSections = useMemo(() => splitGherkinDocument(featureTitleLocked ? setGherkinFeatureTitle(value, featureTitle) : value), [featureTitle, featureTitleLocked, value]);
   const [sections, setSections] = useState<GherkinDocumentSections>(parsedSections);
   const lastEmittedDocumentRef = useRef(value);
+  const hadLinkedExamplesRef = useRef(Boolean(exampleColumns.length && exampleRows.length));
   const resolvedValue = useMemo(() => composeGherkinDocument(sections), [sections]);
   const issues = useMemo(() => validateGherkin(resolvedValue), [resolvedValue]);
   const preambleLines = sections.preamble.split("\n");
@@ -212,25 +289,33 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
   const featureName = featureIndex >= 0 ? preambleLines[featureIndex].replace(/^\s*Feature\s*:\s*/i, "") : "";
   const preambleMetadata = preambleLines.filter((_, index) => index !== featureIndex).filter((line) => line.trim());
   const scenarioCount = sections.scenarios.length;
+  const hasLinkedExamples = Boolean(exampleColumns.length && exampleRows.length);
   const hasResolvedData = resolveGherkinParameterText(resolvedValue, parameterValues) !== resolvedValue;
   const statusId = `${editorId}-status`;
   const commit = (next: GherkinDocumentSections) => {
-    const document = composeGherkinDocument(next);
-    setSections(next);
+    const document = featureTitleLocked ? setGherkinFeatureTitle(composeGherkinDocument(next), featureTitle) : composeGherkinDocument(next);
+    setSections(featureTitleLocked ? splitGherkinDocument(document) : next);
     lastEmittedDocumentRef.current = document;
     onChange(document);
   };
 
   useEffect(() => {
-    if (value === lastEmittedDocumentRef.current) return;
+    if (value === lastEmittedDocumentRef.current && (!featureTitleLocked || featureName === featureTitle.trim())) return;
     lastEmittedDocumentRef.current = value;
     setSections(parsedSections);
     setEditingSection("");
     setFocusTarget("");
-  }, [parsedSections, value]);
+  }, [featureName, featureTitle, featureTitleLocked, parsedSections, value]);
 
   useEffect(() => {
-    if (readOnly || !exampleColumns.length || !exampleRows.length || !sections.scenarios.length) return;
+    if (readOnly || !sections.scenarios.length) return;
+    if ((!exampleColumns.length || !exampleRows.length) && hadLinkedExamplesRef.current) {
+      hadLinkedExamplesRef.current = false;
+      commit({ ...sections, scenarios: sections.scenarios.map((item) => ({ ...item, examples: "", scenario: item.scenario.replace(/^(\s*)Scenario(?: Outline| Template)\s*:/im, "$1Scenario:") })) });
+      return;
+    }
+    if (!exampleColumns.length || !exampleRows.length) return;
+    hadLinkedExamplesRef.current = true;
     const examples = composeLinkedExamples(exampleColumns, exampleRows);
     const nextScenarios = sections.scenarios.map((item) => ({
       scenario: item.scenario.replace(/^(\s*)Scenario\s*:/im, "$1Scenario Outline:"),
@@ -267,7 +352,11 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
   };
   const updateScenario = (index: number, field: "scenario" | "examples", nextValue: string) => commit({
     ...sections,
-    scenarios: sections.scenarios.map((item, scenarioIndex) => scenarioIndex === index ? { ...item, [field]: nextValue } : item)
+    scenarios: sections.scenarios.map((item, scenarioIndex) => {
+      if (scenarioIndex !== index) return item;
+      if (field === "examples" && nextValue.trim()) return { ...item, examples: nextValue, scenario: item.scenario.replace(/^(\s*)Scenario\s*:/im, "$1Scenario Outline:") };
+      return { ...item, [field]: nextValue };
+    })
   });
   const createExamples = (index: number) => {
     setFocusTarget(`examples-${index}`);
@@ -288,7 +377,7 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
   };
 
   return (
-    <section className={`gherkin-editor is-sectioned${compact ? " is-compact" : ""}${readOnly ? " is-readonly" : ""}`} aria-label="Gherkin test authoring">
+    <section className={`gherkin-editor is-sectioned${minimalBehaviorEditor ? " is-document-layout" : ""}${compact ? " is-compact" : ""}${readOnly ? " is-readonly" : ""}`} aria-label="Gherkin test authoring">
       <div className="gherkin-editor-toolbar" role="group" aria-label="Gherkin document overview">
         <div className="gherkin-editor-heading"><span className="gherkin-editor-icon"><IconBraces size={17} /></span><div><strong>Gherkin specification</strong><span>Write executable behavior with focused setup, scenarios, and example data.</span></div></div>
         <div className="gherkin-editor-toolbar-end">
@@ -297,7 +386,14 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
         </div>
       </div>
       <div className="gherkin-section-grid">
+        <div className="gherkin-feature-bar">
+          <div><span>Feature:</span><small>{featureTitleLocked ? "Linked Requirement" : "Capability under test"}</small></div>
+          {readOnly || featureTitleLocked ? <strong>{(featureTitleLocked ? featureTitle : resolveGherkinParameterText(featureName, parameterValues)) || "No Feature defined"}</strong> : <input aria-invalid={!featureName.trim() || undefined} aria-label="Feature name" onChange={(event) => updateFeatureName(event.target.value)} placeholder={featureTitle.trim() ? `e.g. ${featureTitle.trim()}` : "Name the behavior this specification covers"} value={featureName} />}
+          {preambleMetadata.length ? <small>{preambleMetadata.join(" · ")}</small> : null}
+        </div>
+        {minimalBehaviorEditor ? (sections.background.trim() ? <MinimalBehaviorBlock availableParameters={availableParameters} heading="" headingLabel="Background" onChange={(background) => commit(replaceGherkinBackground(sections, background))} parameterValues={parameterValues} readOnly={readOnly} value={sections.background} /> : !readOnly ? <button className="gherkin-minimal-add-background" onClick={addBackground} type="button"><IconPlus size={14} />Add Background</button> : null) :
         <GherkinSectionSurface
+          availableParameters={availableParameters}
           actions={!readOnly ? sections.background ? <button className="gherkin-section-action" onClick={addBackgroundStep} type="button"><IconPlus size={14} />Add step</button> : <button className="gherkin-section-action" onClick={addBackground} type="button"><IconPlus size={14} />Create</button> : undefined}
           autoFocus={focusTarget === "background"}
           description="Setup shared by every scenario. Keep it empty when no common precondition exists."
@@ -311,18 +407,12 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
           parameterValues={parameterValues}
           readOnly={readOnly}
           value={sections.background}
-        />
-        <div className="gherkin-feature-bar">
-          <div><span>Feature:</span><small>Capability under test</small></div>
-          {readOnly ? <strong>{resolveGherkinParameterText(featureName, parameterValues) || "No Feature defined"}</strong> : <input aria-invalid={!featureName.trim() || undefined} aria-label="Feature name" onChange={(event) => updateFeatureName(event.target.value)} placeholder={featureTitle.trim() ? `e.g. ${featureTitle.trim()}` : "Name the behavior this specification covers"} value={featureName} />}
-          {preambleMetadata.length ? <small>{preambleMetadata.join(" · ")}</small> : null}
-        </div>
+        />}
         <section aria-labelledby={`${editorId}-scenarios-title`} className="gherkin-scenario-region">
           <header className="gherkin-scenario-region-head">
-            <div><strong id={`${editorId}-scenarios-title`}>{scenarioCount === 1 ? "Scenario" : "Scenarios"}</strong><span>{scenarioCount ? `${scenarioCount} behavior flow${scenarioCount === 1 ? "" : "s"}. Keep Examples beside their owning Outline.` : "Create the first observable behavior flow."}</span></div>
-            {!readOnly ? <div className="gherkin-section-actions"><button className="gherkin-section-action" onClick={addScenario} type="button"><IconPlus size={14} />Scenario</button><button className="gherkin-section-action" onClick={addOutline} type="button"><IconPlus size={14} />Outline</button></div> : null}
+            <div><strong id={`${editorId}-scenarios-title`}>{scenarioCount === 1 ? "Scenario" : "Scenarios"}</strong><span>{scenarioCount ? `${scenarioCount} behavior flow${scenarioCount === 1 ? "" : "s"}.` : "Create the first observable behavior flow."}</span></div>
           </header>
-          {!sections.scenarios.length ? <div className="gherkin-region-empty"><span>No Scenario is defined yet.</span>{!readOnly ? <button className="gherkin-section-action" onClick={addScenario} type="button"><IconPlus size={14} />Add first Scenario</button> : null}</div> : (
+          {!sections.scenarios.length ? <div className="gherkin-region-empty"><span>No Scenario is defined. Insert the starter structure to begin.</span></div> : (
             <div className="gherkin-scenario-list">
               {sections.scenarios.map((item, index) => {
                 const isOutline = /^\s*Scenario(?: Outline| Template)\s*:/im.test(item.scenario);
@@ -331,7 +421,16 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
                 const exampleRows = item.examples.split("\n").filter((line) => /^\s*\|.*\|\s*$/.test(line));
                 return (
                   <div className="gherkin-scenario-block" key={index}>
-                    <GherkinSectionSurface
+                    {minimalBehaviorEditor ? <MinimalBehaviorBlock
+                      availableParameters={availableParameters}
+                      heading={scenarioHeading?.[1] || ""}
+                      headingLabel={isOutline || item.examples.trim() ? "Scenario Outline" : "Scenario"}
+                      onChange={(nextScenario) => updateScenario(index, "scenario", nextScenario)}
+                      parameterValues={parameterValues}
+                      readOnly={readOnly}
+                      value={item.scenario}
+                    /> : <GherkinSectionSurface
+                      availableParameters={availableParameters}
                       actions={!readOnly ? <button aria-label={`Remove scenario ${index + 1}`} className="gherkin-section-action is-danger" onClick={() => removeScenario(index)} title="Remove scenario" type="button"><IconTrash size={14} /></button> : undefined}
                       autoFocus={focusTarget === `scenario-${index}`}
                       description={`${index + 1} of ${scenarioCount} · ${isOutline ? "Data-driven flow" : "Given, When, and Then behavior"}`}
@@ -345,8 +444,9 @@ export function GherkinEditor({ value, onChange, featureTitle, parameterValues =
                       parameterValues={parameterValues}
                       readOnly={readOnly}
                       value={item.scenario}
-                    />
-                    {isOutline || item.examples.trim() ? <GherkinSectionSurface
+                    />}
+                    {!hasLinkedExamples && (isOutline || item.examples.trim()) ? <GherkinSectionSurface
+                      availableParameters={availableParameters}
                       actions={!readOnly ? item.examples.trim()
                         ? <button className="gherkin-section-action" onClick={() => addExampleRow(index)} type="button"><IconPlus size={14} />Add row</button>
                         : <button className="gherkin-section-action" onClick={() => createExamples(index)} type="button"><IconPlus size={14} />Create table</button>

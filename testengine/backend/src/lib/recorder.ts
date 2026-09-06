@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { chromium, type BrowserContext, type Page, type Request } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page, type Request } from "playwright";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 
 type RecorderAction = {
@@ -61,6 +61,7 @@ type RecorderSession = {
   user_data_dir: string;
   live_token: string;
   display_mode: "browser-live-view" | "local-browser-with-live-view";
+  active_page_id?: string | null;
   last_activity_at: string;
   context: BrowserContext;
   actions: RecorderAction[];
@@ -123,9 +124,23 @@ type RecorderInspectResult = {
   selections?: RecorderInspectSelectionResult[];
 };
 
+type RecorderLocatorValidation = {
+  locator: string;
+  name: string | null;
+  match_count: number;
+  is_unique: boolean;
+  validation_status: "unique" | "missing" | "ambiguous" | "invalid";
+  warning: string | null;
+  dom_structure: string | null;
+  ancestor_dom: string | null;
+  element_screenshot_url: string | null;
+  error: string | null;
+};
+
 const sessions = new Map<string, RecorderSession>();
 const inspectResults = new Map<string, RecorderInspectResult>();
-const REPOSITORY_HIGHLIGHT_DURATION_MS = 3_000;
+const REPOSITORY_HIGHLIGHT_DURATION_MS = 1_000;
+const REPOSITORY_VALIDATION_FIELD_LIMIT = 80;
 const RECORDER_ACTION_TYPES = new Set<RecorderAction["type"]>([
   "click",
   "dblclick",
@@ -799,7 +814,8 @@ const attachPageCapture = (session: RecorderSession, page: Page, logger: Fastify
 };
 
 const resolveActivePage = async (session: RecorderSession) => {
-  const page = session.context.pages().filter((candidate) => !candidate.isClosed()).at(-1);
+  const pages = session.context.pages().filter((candidate) => !candidate.isClosed());
+  const page = pages.find((candidate) => getRecorderPageId(candidate) === session.active_page_id) || pages.at(-1);
   return page || session.context.newPage();
 };
 
@@ -811,9 +827,10 @@ const resolveRecorderPage = async (session: RecorderSession, pageId?: string | n
     if (match) {
       return match;
     }
+    throw new Error("The selected browser tab is no longer open. Refresh the tab list.");
   }
 
-  return pages.at(-1) || session.context.newPage();
+  return resolveActivePage(session);
 };
 
 const serializeRecorderPage = async (page: Page) => ({
@@ -940,13 +957,19 @@ const installInspectMode = async (page: Page) => {
       const isRepositoryHighlighted = target.dataset.hellotestRepositoryHighlight === "true";
       const isInspectSelected = target.dataset.hellotestInspectSelection === "true";
       if (isRepositoryHighlighted || isInspectSelected) {
-        target.style.outline = "3px solid #2f6df6";
-        target.style.boxShadow = `0 0 0 6px ${isInspectSelected ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.2)"}`;
+        target.style.outline = "1px solid #2f6df6";
+        target.style.outlineOffset = "1px";
+        target.style.borderRadius = "1px";
+        target.style.boxShadow = "none";
       } else {
         target.style.outline = target.dataset.hellotestInspectPreviousOutline || target.dataset.hellotestPreviousOutline || "";
+        target.style.outlineOffset = target.dataset.hellotestInspectPreviousOutlineOffset || "";
+        target.style.borderRadius = target.dataset.hellotestInspectPreviousBorderRadius || "";
         target.style.boxShadow = target.dataset.hellotestInspectPreviousBoxShadow || target.dataset.hellotestPreviousBoxShadow || "";
       }
       delete target.dataset.hellotestInspectPreviousOutline;
+      delete target.dataset.hellotestInspectPreviousOutlineOffset;
+      delete target.dataset.hellotestInspectPreviousBorderRadius;
       delete target.dataset.hellotestInspectPreviousBoxShadow;
       delete target.dataset.hellotestPreviousOutline;
       delete target.dataset.hellotestPreviousBoxShadow;
@@ -967,11 +990,14 @@ const installInspectMode = async (page: Page) => {
     };
     clearSelectionHighlight();
     let hoverFrame = 0;
+    let lastHoveredElement: Element | null = null;
     const highlight = (element: Element, selection = false) => {
       if (!(element instanceof HTMLElement)) return;
       clearHoverHighlight();
       if (element.dataset.hellotestRepositoryHighlight !== "true" && element.dataset.hellotestInspectSelection !== "true") {
         element.dataset.hellotestInspectPreviousOutline = element.style.outline || "";
+        element.dataset.hellotestInspectPreviousOutlineOffset = element.style.outlineOffset || "";
+        element.dataset.hellotestInspectPreviousBorderRadius = element.style.borderRadius || "";
         element.dataset.hellotestInspectPreviousBoxShadow = element.style.boxShadow || "";
       }
       if (selection) {
@@ -982,16 +1008,21 @@ const installInspectMode = async (page: Page) => {
       }
       const highlightToken = `${Date.now()}-${Math.random()}`;
       element.dataset.hellotestInspectHighlightToken = highlightToken;
-      element.style.outline = "3px solid #2f6df6";
-      element.style.boxShadow = `0 0 0 6px ${selection ? "rgba(47, 109, 246, 0.24)" : "rgba(47, 109, 246, 0.22)"}`;
+      element.style.outline = "1px solid #2f6df6";
+      element.style.outlineOffset = "1px";
+      element.style.borderRadius = "1px";
+      element.style.boxShadow = "none";
       if (selection) {
-        element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+        const bounds = element.getBoundingClientRect();
+        if (bounds.top < 0 || bounds.left < 0 || bounds.bottom > window.innerHeight || bounds.right > window.innerWidth) {
+          element.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+        }
         window.setTimeout(() => {
           if (element.dataset.hellotestInspectHighlightToken !== highlightToken) return;
           delete element.dataset.hellotestInspectSelection;
           delete element.dataset.hellotestInspectHighlightToken;
           restoreInspectStyle(element);
-        }, 3_000);
+        }, 1_000);
       }
     };
     const queueSelection = (selection: unknown, locator: string) => {
@@ -1015,7 +1046,10 @@ const installInspectMode = async (page: Page) => {
       hoverFrame = window.requestAnimationFrame(() => {
         hoverFrame = 0;
         const element = candidateElement(event.target, event.composedPath());
-        if (element) highlight(element);
+        if (element && element !== lastHoveredElement) {
+          lastHoveredElement = element;
+          highlight(element);
+        }
       });
     };
     const handler = (event: MouseEvent) => {
@@ -1046,6 +1080,7 @@ const installInspectMode = async (page: Page) => {
         ancestor_rect: ancestorRect ? { x: ancestorRect.x + window.scrollX, y: ancestorRect.y + window.scrollY, width: ancestorRect.width, height: ancestorRect.height } : null
       };
       queueSelection(selection, locator);
+      lastHoveredElement = null;
       highlight(element, true);
     };
 
@@ -1055,9 +1090,141 @@ const installInspectMode = async (page: Page) => {
       document.removeEventListener("mousemove", hoverHandler, true);
       document.removeEventListener("click", handler, true);
       if (hoverFrame) window.cancelAnimationFrame(hoverFrame);
+      lastHoveredElement = null;
       clearHoverHighlight();
     };
   });
+};
+
+const readRepositoryLocatorArgument = (expression: string, name = "") => {
+  const pattern = name
+    ? new RegExp(`\\b${name}\\s*:\\s*(["'\x60])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "i")
+    : /\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/;
+  const match = expression.match(pattern);
+  if (!match) return "";
+  if (match[1] === '"') {
+    try {
+      return JSON.parse(`"${match[2]}"`);
+    } catch {
+      // Fall through to the conservative literal unescape below.
+    }
+  }
+  return match[2].replace(/\\(["'`\\])/g, "$1");
+};
+
+const resolveRepositoryLocator = (page: Page, expression: string): Locator => {
+  const locator = normalizeText(expression) || "";
+  const getByMatch = locator.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\s*\(/i);
+
+  if (getByMatch) {
+    const method = getByMatch[1].toLowerCase();
+    const value = readRepositoryLocatorArgument(locator);
+    if (method === "getbytestid") return page.getByTestId(value);
+    if (method === "getbylabel") return page.getByLabel(value, { exact: true });
+    if (method === "getbyplaceholder") return page.getByPlaceholder(value, { exact: true });
+    if (method === "getbytext") return page.getByText(value, { exact: true });
+    const role = value as Parameters<Page["getByRole"]>[0];
+    const name = readRepositoryLocatorArgument(locator, "name");
+    return page.getByRole(role, name ? { name, exact: true } : undefined);
+  }
+
+  const roleMatch = locator.match(/^role=([^\[]+)(?:\[name=["']?(.+?)["']?\])?$/i);
+  if (roleMatch) {
+    const role = roleMatch[1].trim() as Parameters<Page["getByRole"]>[0];
+    return page.getByRole(role, roleMatch[2] ? { name: roleMatch[2], exact: true } : undefined);
+  }
+  const textMatch = locator.match(/^text=(.+)$/i);
+  if (textMatch) return page.getByText(textMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
+  const labelMatch = locator.match(/^label=(.+)$/i);
+  if (labelMatch) return page.getByLabel(labelMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
+  const placeholderMatch = locator.match(/^placeholder=(.+)$/i);
+  if (placeholderMatch) return page.getByPlaceholder(placeholderMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
+  const testIdMatch = locator.match(/^(?:testid|data-testid)=(.+)$/i);
+  if (testIdMatch) return page.getByTestId(testIdMatch[1].replace(/^["']|["']$/g, ""));
+  return page.locator(locator.replace(/^xpath=/i, "xpath="));
+};
+
+const captureValidatedRepositoryLocator = async (
+  page: Page,
+  field: { locator: string; name?: string | null }
+): Promise<RecorderLocatorValidation> => {
+  const locatorText = normalizeText(field.locator) || "";
+  const base = {
+    locator: locatorText,
+    name: normalizeText(field.name),
+    match_count: 0,
+    is_unique: false,
+    dom_structure: null,
+    ancestor_dom: null,
+    element_screenshot_url: null,
+    error: null
+  };
+
+  try {
+    const locator = resolveRepositoryLocator(page, locatorText);
+    const matchCount = await locator.count();
+    if (matchCount !== 1) {
+      return {
+        ...base,
+        match_count: matchCount,
+        validation_status: matchCount === 0 ? "missing" : "ambiguous",
+        warning: matchCount === 0
+          ? "Locator no longer matches this screen."
+          : `Locator matches ${matchCount} elements; choose a more specific locator.`
+      };
+    }
+
+    const target = locator.first();
+    const evidence = await target.evaluate((element) => {
+      const ancestor = element.closest("form,[role=dialog],section,fieldset,main,article") || element.parentElement;
+      const cleanClone = (source: Element | null, limit: number) => {
+        if (!source) return null;
+        const clone = source.cloneNode(true) as HTMLElement;
+        const controls = [clone, ...clone.querySelectorAll("input,textarea,select,option")];
+        controls.forEach((node) => {
+          node.removeAttribute("value");
+          node.removeAttribute("selected");
+          if (node instanceof HTMLTextAreaElement) node.textContent = "";
+        });
+        clone.querySelectorAll("[data-hellotest-inspect-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-repository-highlight='true']").forEach((node) => {
+          const highlighted = node as HTMLElement;
+          highlighted.style.outline = "";
+          highlighted.style.outlineOffset = "";
+          highlighted.style.borderRadius = "";
+          highlighted.style.boxShadow = "";
+          Object.keys(highlighted.dataset).filter((key) => key.startsWith("hellotest")).forEach((key) => delete highlighted.dataset[key]);
+        });
+        return clone.outerHTML.slice(0, limit);
+      };
+      return {
+        dom_structure: cleanClone(element, 12_000),
+        ancestor_dom: cleanClone(ancestor, 30_000)
+      };
+    });
+    const screenshot = await target.screenshot({
+      type: "jpeg",
+      quality: SCREENCAST_QUALITY,
+      timeout: 5_000
+    }).catch(() => null);
+
+    return {
+      ...base,
+      ...evidence,
+      match_count: 1,
+      is_unique: true,
+      validation_status: "unique",
+      warning: null,
+      element_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to evaluate locator";
+    return {
+      ...base,
+      validation_status: "invalid",
+      warning: "Locator syntax could not be evaluated on the selected screen.",
+      error: message.slice(0, 500)
+    };
+  }
 };
 
 const highlightRepositoryElement = async (page: Page, locator: string, label?: string | null, retainExisting = false) =>
@@ -1067,8 +1234,12 @@ const highlightRepositoryElement = async (page: Page, locator: string, label?: s
       document.querySelectorAll("[data-hellotest-repository-highlight='true']").forEach((node) => {
         const element = node as HTMLElement;
         element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
+        element.style.outlineOffset = element.dataset.hellotestRepositoryPreviousOutlineOffset || "";
+        element.style.borderRadius = element.dataset.hellotestRepositoryPreviousBorderRadius || "";
         element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
         delete element.dataset.hellotestRepositoryPreviousOutline;
+        delete element.dataset.hellotestRepositoryPreviousOutlineOffset;
+        delete element.dataset.hellotestRepositoryPreviousBorderRadius;
         delete element.dataset.hellotestRepositoryPreviousBoxShadow;
         delete element.dataset.hellotestRepositoryHighlight;
         delete element.dataset.hellotestRepositoryHighlightToken;
@@ -1183,20 +1354,27 @@ const highlightRepositoryElement = async (page: Page, locator: string, label?: s
 
     if (element.dataset.hellotestRepositoryHighlight !== "true") {
       element.dataset.hellotestRepositoryPreviousOutline = element.dataset.hellotestPreviousOutline || element.style.outline || "";
+      element.dataset.hellotestRepositoryPreviousOutlineOffset = element.style.outlineOffset || "";
+      element.dataset.hellotestRepositoryPreviousBorderRadius = element.style.borderRadius || "";
       element.dataset.hellotestRepositoryPreviousBoxShadow = element.dataset.hellotestPreviousBoxShadow || element.style.boxShadow || "";
     }
     element.dataset.hellotestRepositoryHighlight = "true";
     const highlightToken = `${Date.now()}-${Math.random()}`;
     element.dataset.hellotestRepositoryHighlightToken = highlightToken;
-    element.style.outline = "3px solid #2f6df6";
-    element.style.boxShadow = "0 0 0 6px rgba(47, 109, 246, 0.2)";
-    element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    element.style.outline = "1px solid #2f6df6";
+    element.style.outlineOffset = "1px";
+    element.style.borderRadius = "1px";
+    element.style.boxShadow = "none";
+    const bounds = element.getBoundingClientRect();
+    if (bounds.top < 0 || bounds.left < 0 || bounds.bottom > window.innerHeight || bounds.right > window.innerWidth) {
+      element.scrollIntoView({ block: "center", inline: "center", behavior: "auto" });
+    }
 
     if (!keepExisting) {
       const badge = document.createElement("div");
       badge.id = "__hellotestRepositoryHighlightLabel";
       badge.textContent = targetLabel || targetLocator;
-      badge.style.cssText = "position:fixed;z-index:2147483647;padding:5px 9px;border-radius:6px;background:#2f6df6;color:#fff;font:600 12px system-ui;pointer-events:none;box-shadow:0 6px 15px rgba(15,23,42,.2)";
+      badge.style.cssText = "position:fixed;z-index:2147483647;padding:3px 6px;border-radius:2px;background:#2f6df6;color:#fff;font:600 11px system-ui;pointer-events:none;box-shadow:none";
       const rect = element.getBoundingClientRect();
       badge.style.left = `${Math.max(8, rect.left)}px`;
       badge.style.top = `${Math.max(8, rect.top - 32)}px`;
@@ -1206,8 +1384,12 @@ const highlightRepositoryElement = async (page: Page, locator: string, label?: s
     window.setTimeout(() => {
       if (element.dataset.hellotestRepositoryHighlightToken !== highlightToken) return;
       element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || "";
+      element.style.outlineOffset = element.dataset.hellotestRepositoryPreviousOutlineOffset || "";
+      element.style.borderRadius = element.dataset.hellotestRepositoryPreviousBorderRadius || "";
       element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || "";
       delete element.dataset.hellotestRepositoryPreviousOutline;
+      delete element.dataset.hellotestRepositoryPreviousOutlineOffset;
+      delete element.dataset.hellotestRepositoryPreviousBorderRadius;
       delete element.dataset.hellotestRepositoryPreviousBoxShadow;
       delete element.dataset.hellotestRepositoryHighlight;
       delete element.dataset.hellotestRepositoryHighlightToken;
@@ -1222,12 +1404,18 @@ const clearRepositoryHighlights = async (page: Page) =>
     document.querySelectorAll("[data-hellotest-repository-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-inspect-highlight='true']").forEach((node) => {
       const element = node as HTMLElement;
       element.style.outline = element.dataset.hellotestRepositoryPreviousOutline || element.dataset.hellotestInspectPreviousOutline || element.dataset.hellotestPreviousOutline || "";
+      element.style.outlineOffset = element.dataset.hellotestRepositoryPreviousOutlineOffset || element.dataset.hellotestInspectPreviousOutlineOffset || "";
+      element.style.borderRadius = element.dataset.hellotestRepositoryPreviousBorderRadius || element.dataset.hellotestInspectPreviousBorderRadius || "";
       element.style.boxShadow = element.dataset.hellotestRepositoryPreviousBoxShadow || element.dataset.hellotestInspectPreviousBoxShadow || element.dataset.hellotestPreviousBoxShadow || "";
       delete element.dataset.hellotestRepositoryPreviousOutline;
+      delete element.dataset.hellotestRepositoryPreviousOutlineOffset;
+      delete element.dataset.hellotestRepositoryPreviousBorderRadius;
       delete element.dataset.hellotestRepositoryPreviousBoxShadow;
       delete element.dataset.hellotestRepositoryHighlight;
       delete element.dataset.hellotestRepositoryHighlightToken;
       delete element.dataset.hellotestInspectPreviousOutline;
+      delete element.dataset.hellotestInspectPreviousOutlineOffset;
+      delete element.dataset.hellotestInspectPreviousBorderRadius;
       delete element.dataset.hellotestInspectPreviousBoxShadow;
       delete element.dataset.hellotestPreviousOutline;
       delete element.dataset.hellotestPreviousBoxShadow;
@@ -1313,6 +1501,7 @@ const requireRecorderToken = (request: FastifyRequest, session: RecorderSession)
 
 const renderLiveViewHtml = (session: RecorderSession) => {
   const sessionId = JSON.stringify(session.id);
+  const inspectMode = session.purpose === "repository-inspect";
 
   return `<!doctype html>
 <html lang="en">
@@ -1329,24 +1518,80 @@ const renderLiveViewHtml = (session: RecorderSession) => {
     }
     * { box-sizing: border-box; }
     body {
-      min-height: 100vh;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
       margin: 0;
-      display: grid;
-      grid-template-rows: auto auto auto minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
       background: #f7f8f6;
     }
     header,
-    .toolbar,
-    .inputbar {
+    .action-panel {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 10px 12px;
+      padding: 8px 12px;
       border-bottom: 1px solid #dfe4dc;
       background: #ffffff;
     }
     header {
-      justify-content: space-between;
+      flex: 0 0 auto;
+      flex-wrap: wrap;
+      min-height: 44px;
+      gap: 8px 16px;
+      padding: 6px 10px;
+      position: relative;
+      z-index: 10;
+    }
+    .brand {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    header > .status {
+      min-width: 0;
+      margin-left: auto;
+      max-width: 230px;
+    }
+    .inspect-view header {
+      min-height: 38px;
+      padding: 3px 8px;
+      gap: 6px 10px;
+    }
+    .inspect-view .commandbar {
+      margin-left: auto;
+      justify-content: flex-end;
+      gap: 4px;
+    }
+    .inspect-view header > .status {
+      order: -1;
+      margin-left: 0;
+      margin-right: auto;
+      max-width: min(220px, 30vw);
+    }
+    .inspect-view #dimensionText { display: none; }
+    .inspect-view button,
+    .inspect-view .more-controls > summary {
+      min-height: 30px;
+      padding: 5px 9px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .inspect-view .action-panel {
+      padding: 5px 8px;
+    }
+    .inspect-view .action-form input {
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .embedded-inspect header,
+    .embedded-inspect .action-panel { display: none !important; }
+    #statusText {
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     strong {
       font-size: 14px;
@@ -1356,9 +1601,35 @@ const renderLiveViewHtml = (session: RecorderSession) => {
       color: #667066;
       font-size: 12px;
     }
-    .toolbar,
-    .inputbar {
+    .commandbar,
+    .action-panel {
       flex-wrap: wrap;
+    }
+    .commandbar {
+      display: flex;
+      align-items: center;
+      position: relative;
+      gap: 5px;
+      min-width: 0;
+    }
+    #dimensionText {
+      margin-left: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .action-panel[hidden],
+    .action-form[hidden] {
+      display: none;
+    }
+    .action-panel {
+      flex: 0 0 auto;
+      padding-block: 7px;
+      background: #fbfcfa;
+    }
+    .action-form {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 8px;
     }
     input {
       min-width: 180px;
@@ -1378,41 +1649,94 @@ const renderLiveViewHtml = (session: RecorderSession) => {
     button {
       border: 0;
       border-radius: 999px;
-      padding: 9px 13px;
       font: inherit;
       font-weight: 700;
       color: #fff;
       background: #b55233;
       cursor: pointer;
+      min-height: 34px;
+      font-size: 12px;
+      white-space: nowrap;
+      padding: 7px 11px;
+    }
+    button:focus-visible,
+    summary:focus-visible,
+    input:focus-visible {
+      outline: 2px solid #b55233;
+      outline-offset: 2px;
     }
     button.secondary {
       color: #8d3f27;
       background: rgba(181, 82, 51, 0.1);
+    }
+    button[aria-expanded="true"] {
+      box-shadow: 0 0 0 2px rgba(181, 82, 51, 0.18);
+    }
+    .more-controls {
+      position: relative;
+    }
+    .more-controls > summary {
+      display: inline-flex;
+      min-height: 36px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      list-style: none;
+      color: #8d3f27;
+      background: rgba(181, 82, 51, 0.1);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .more-controls > summary::-webkit-details-marker {
+      display: none;
+    }
+    .more-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 10;
+      display: grid;
+      width: 190px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px;
+      border: 1px solid #dfe4dc;
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 12px 28px rgba(20, 28, 21, 0.18);
+    }
+    .more-menu button {
+      min-width: 0;
+      padding-inline: 9px;
     }
     button:disabled {
       cursor: not-allowed;
       opacity: 0.52;
     }
     main {
+      flex: 1 1 auto;
+      min-width: 0;
       min-height: 0;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-rows: minmax(0, 1fr);
       background: #1e221f;
     }
     .viewport {
+      min-width: 0;
       min-height: 0;
       overflow: auto;
       display: grid;
-      place-items: center;
-      padding: 12px;
+      place-items: safe center;
+      padding: 4px;
       position: relative;
     }
     #screen {
       display: block;
-      max-width: 100%;
-      height: auto;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 8px;
+      max-width: none;
+      border: 0;
+      border-radius: 2px;
       background: #fff;
       box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
       cursor: pointer;
@@ -1426,23 +1750,21 @@ const renderLiveViewHtml = (session: RecorderSession) => {
     }
     .click-marker {
       position: fixed;
-      width: 22px;
-      height: 22px;
-      margin: -11px 0 0 -11px;
-      border: 2px solid #f4ad55;
+      width: 8px;
+      height: 8px;
+      margin: -4px 0 0 -4px;
+      border: 0;
       border-radius: 999px;
+      background: #f4ad55;
       pointer-events: none;
       opacity: 0;
-      transform: scale(0.7);
-      transition: opacity 180ms ease, transform 180ms ease;
+      transform: scale(0.75);
+      transition: opacity 90ms ease, transform 90ms ease;
       z-index: 5;
     }
     .click-marker.is-visible {
       opacity: 1;
       transform: scale(1);
-    }
-    .inputbar {
-      background: #ffffff;
     }
     .status {
       display: inline-flex;
@@ -1468,8 +1790,8 @@ const renderLiveViewHtml = (session: RecorderSession) => {
         color: #f1f3ef;
       }
       header,
-      .toolbar,
-      .inputbar {
+      .commandbar,
+      .action-panel {
         background: #222622;
         border-color: #343a34;
       }
@@ -1485,14 +1807,18 @@ const renderLiveViewHtml = (session: RecorderSession) => {
         color: #f3b39f;
         background: rgba(243, 179, 159, 0.12);
       }
+      .action-panel,
+      .more-menu {
+        background: #222622;
+        border-color: #414840;
+      }
+      .more-controls > summary {
+        color: #f3b39f;
+        background: rgba(243, 179, 159, 0.12);
+      }
     }
     @media (max-width: 720px) {
-      body {
-        grid-template-rows: auto auto auto minmax(58vh, 1fr);
-      }
-      header,
-      .toolbar,
-      .inputbar {
+      .action-panel {
         align-items: stretch;
       }
       input,
@@ -1503,36 +1829,61 @@ const renderLiveViewHtml = (session: RecorderSession) => {
       #textInput {
         flex-basis: 100%;
       }
-      .viewport {
-        justify-content: start;
-        align-content: start;
+      .action-form {
+        flex-wrap: wrap;
       }
-      #screen {
-        max-width: none;
+      header {
+        gap: 6px 10px;
+      }
+      .brand strong {
+        font-size: 12px;
+      }
+      header > .status {
+        max-width: 125px;
+      }
+      #dimensionText {
+        display: none;
       }
     }
   </style>
 </head>
-<body>
+<body class="${inspectMode ? "inspect-view" : "recorder-view"}">
   <header>
-    <div>
-      <strong>HelloTest live recorder</strong>
-      <div class="meta">Session ${session.id.slice(0, 8)} · ${session.display_mode.replace(/-/g, " ")}</div>
-    </div>
-    <span class="status"><span class="dot"></span><span id="statusText">Connecting</span></span>
-  </header>
-  <div class="toolbar">
-    <input id="address" autocomplete="off" placeholder="Open URL in recorder browser" />
-    <button id="goButton" type="button">Go</button>
-    <button class="secondary" data-key="Enter" type="button">Enter</button>
+    ${inspectMode ? "" : `<div class="brand" title="Session ${session.id.slice(0, 8)} · ${session.display_mode.replace(/-/g, " ")}">
+      <strong>HelloTest Live builder</strong>
+    </div>`}
+    <nav class="commandbar" aria-label="Browser controls">
+    <button id="addressToggle" aria-controls="actionPanel" aria-expanded="false" type="button">Go</button>
+    <button id="typeToggle" aria-controls="actionPanel" aria-expanded="false" class="secondary" type="button">Type</button>
     <button class="secondary" data-key="Tab" type="button">Tab</button>
-    <button class="secondary" data-key="Escape" type="button">Esc</button>
-    <button class="secondary" data-key="Backspace" type="button">Backspace</button>
-  </div>
-  <div class="inputbar">
-    <input id="textInput" autocomplete="off" placeholder="Text to type into the focused field" />
-    <button id="typeButton" type="button">Type</button>
+    <button class="secondary" data-key="Enter" type="button">Enter</button>
+    <details class="more-controls" id="moreControls">
+      <summary>More</summary>
+      <div class="more-menu">
+        <button class="secondary" data-key="Escape" type="button">Escape</button>
+        <button class="secondary" data-key="Backspace" type="button">Backspace</button>
+        <button class="secondary" data-key="ArrowUp" type="button">Arrow up</button>
+        <button class="secondary" data-key="ArrowDown" type="button">Arrow down</button>
+        <button class="secondary" data-key="ArrowLeft" type="button">Arrow left</button>
+        <button class="secondary" data-key="ArrowRight" type="button">Arrow right</button>
+      </div>
+    </details>
+    <button id="scaleToggle" class="secondary" aria-label="Show browser at actual size" aria-pressed="false" title="Show at 100% for small text and controls" type="button">100%</button>
     <span class="status" id="dimensionText"></span>
+    </nav>
+    <span class="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Connecting</span></span>
+  </header>
+  <div class="action-panel" id="actionPanel" hidden>
+    <form class="action-form" id="addressForm" hidden>
+      <input id="address" aria-label="Page URL" autocomplete="off" inputmode="url" placeholder="https://app.example.com" required />
+      <button id="goButton" type="submit">Go</button>
+      <button class="secondary" data-close-action type="button">Cancel</button>
+    </form>
+    <form class="action-form" id="textForm" hidden>
+      <input id="textInput" aria-label="Text to type" autocomplete="off" placeholder="Text for the focused field" required />
+      <button id="typeButton" type="submit">Type</button>
+      <button class="secondary" data-close-action type="button">Cancel</button>
+    </form>
   </div>
   <main>
     <div class="viewport">
@@ -1542,12 +1893,34 @@ const renderLiveViewHtml = (session: RecorderSession) => {
   </main>
   <script>
     const sessionId = ${sessionId};
+    const inspectMode = ${JSON.stringify(inspectMode)};
     const token = new URLSearchParams(window.location.search).get("token") || "";
+    const selectedPageId = new URLSearchParams(window.location.search).get("page_id") || "";
+    const parentFrameId = new URLSearchParams(window.location.search).get("parent_frame") || "";
+    const parentOrigin = (() => {
+      const value = new URLSearchParams(window.location.search).get("parent_origin") || "";
+      try {
+        const url = new URL(value);
+        return /^https?:$/.test(url.protocol) && url.origin === value ? value : "";
+      } catch { return ""; }
+    })();
+    const embeddedInspect = inspectMode && new URLSearchParams(window.location.search).get("embedded") === "repository-inspect"
+      && Boolean(parentOrigin) && Boolean(parentFrameId) && window.parent !== window;
+    if (embeddedInspect) document.body.classList.add("embedded-inspect");
+    const readyStatus = inspectMode ? "Ready" : "Live";
     const screen = document.getElementById("screen");
     const screenContext = screen.getContext("2d", { alpha: false });
+    const viewport = screen.parentElement;
+    const scaleToggle = document.getElementById("scaleToggle");
     const clickMarker = document.getElementById("clickMarker");
     const statusText = document.getElementById("statusText");
     const dimensionText = document.getElementById("dimensionText");
+    const actionPanel = document.getElementById("actionPanel");
+    const addressForm = document.getElementById("addressForm");
+    const textForm = document.getElementById("textForm");
+    const addressToggle = document.getElementById("addressToggle");
+    const typeToggle = document.getElementById("typeToggle");
+    const moreControls = document.getElementById("moreControls");
     const address = document.getElementById("address");
     const textInput = document.getElementById("textInput");
     let pendingInputs = 0;
@@ -1556,17 +1929,58 @@ const renderLiveViewHtml = (session: RecorderSession) => {
     let wheelDeltaY = 0;
     let frameSequence = 0;
     let clickMarkerTimer = null;
+    let actualSize = false;
+    let lastInputError = "";
+    let statusError = "";
+    let lastReportedState = "";
+    const reportState = () => {
+      if (!embeddedInspect) return;
+      const state = { type: "hellotest:recorder:state", session_id: sessionId, frame_id: parentFrameId,
+        width: screen.width || 0, height: screen.height || 0, actual_size: actualSize,
+        pending: pendingInputs, error: lastInputError || statusError || "" };
+      const serialized = JSON.stringify(state);
+      if (serialized === lastReportedState) return;
+      lastReportedState = serialized;
+      window.parent.postMessage(state, parentOrigin);
+    };
 
-    const withToken = (path) => path + "?token=" + encodeURIComponent(token);
+    const resizeScreen = () => {
+      if (!screen.width || !screen.height) return;
+      const availableWidth = Math.max(1, viewport.clientWidth - 8);
+      const availableHeight = Math.max(1, viewport.clientHeight - 8);
+      const scale = actualSize ? 1 : Math.min(1, availableWidth / screen.width, availableHeight / screen.height);
+      screen.style.width = Math.max(1, Math.floor(screen.width * scale)) + "px";
+      screen.style.height = Math.max(1, Math.floor(screen.height * scale)) + "px";
+      reportState();
+    };
+
+    new ResizeObserver(resizeScreen).observe(viewport);
+    const setActualSize = (value) => {
+      actualSize = value;
+      scaleToggle.textContent = actualSize ? "Fit" : "100%";
+      scaleToggle.setAttribute("aria-pressed", String(actualSize));
+      scaleToggle.setAttribute("aria-label", actualSize ? "Fit browser to available space" : "Show browser at actual size");
+      scaleToggle.title = actualSize ? "Fit the whole browser in the available space" : "Show at 100% for small text and controls";
+      resizeScreen();
+      reportState();
+    };
+    scaleToggle.addEventListener("click", () => setActualSize(!actualSize));
+
+    const withToken = (path) => path + "?token=" + encodeURIComponent(token)
+      + (selectedPageId ? "&page_id=" + encodeURIComponent(selectedPageId) : "");
     const streamUrl = () => withToken("/api/v1/recorder/sessions/" + encodeURIComponent(sessionId) + "/stream");
     const inputUrl = () => withToken("/api/v1/recorder/sessions/" + encodeURIComponent(sessionId) + "/input");
 
     const setStatus = (text, isError = false) => {
       statusText.textContent = text;
+      statusText.title = text;
       statusText.classList.toggle("error", Boolean(isError));
+      statusError = isError ? text : "";
+      reportState();
     };
 
     const markInputStarted = () => {
+      lastInputError = "";
       pendingInputs += 1;
       setStatus("Sending");
     };
@@ -1574,12 +1988,16 @@ const renderLiveViewHtml = (session: RecorderSession) => {
     const markInputFinished = () => {
       pendingInputs = Math.max(0, pendingInputs - 1);
       if (!pendingInputs) {
-        setStatus("Live");
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       }
     };
 
     const send = async (payload) => {
-      if (!token) return;
+      if (!token) {
+        lastInputError = "Live session unavailable";
+        setStatus(lastInputError, true);
+        return false;
+      }
       markInputStarted();
 
       try {
@@ -1595,9 +2013,12 @@ const renderLiveViewHtml = (session: RecorderSession) => {
         }
 
         markInputFinished();
+        return true;
       } catch (error) {
         pendingInputs = Math.max(0, pendingInputs - 1);
-        setStatus(error instanceof Error ? error.message : "Input failed", true);
+        lastInputError = error instanceof Error ? error.message : "Input failed";
+        setStatus(lastInputError, true);
+        return false;
       }
     };
 
@@ -1614,13 +2035,15 @@ const renderLiveViewHtml = (session: RecorderSession) => {
         if (width && height && (screen.width !== width || screen.height !== height)) {
           screen.width = width;
           screen.height = height;
+          resizeScreen();
         }
 
         screenContext.drawImage(image, 0, 0, screen.width || image.width, screen.height || image.height);
         dimensionText.textContent = screen.width && screen.height ? screen.width + " x " + screen.height : "";
+        reportState();
 
         if (!pendingInputs) {
-          setStatus("Live");
+          setStatus(lastInputError || readyStatus, Boolean(lastInputError));
         }
       }, { once: true });
 
@@ -1651,11 +2074,11 @@ const renderLiveViewHtml = (session: RecorderSession) => {
       const source = new EventSource(streamUrl());
 
       source.addEventListener("open", () => {
-        setStatus("Live");
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       });
 
       source.addEventListener("ready", () => {
-        setStatus("Live");
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       });
 
       source.addEventListener("frame", (event) => {
@@ -1686,6 +2109,8 @@ const renderLiveViewHtml = (session: RecorderSession) => {
 
     screen.addEventListener("keydown", (event) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Shift+Tab leaves the remote canvas so local controls remain reachable.
+      if (event.key === "Tab" && event.shiftKey) return;
       if (event.key.length === 1) {
         event.preventDefault();
         send({ type: "type", text: event.key });
@@ -1712,34 +2137,111 @@ const renderLiveViewHtml = (session: RecorderSession) => {
       }, 80);
     }, { passive: false });
 
-    document.getElementById("goButton").addEventListener("click", () => {
-      send({ type: "goto", url: address.value });
+    const closeActionPanel = (restoreFocus = false) => {
+      const activeToggle = addressToggle.getAttribute("aria-expanded") === "true" ? addressToggle : typeToggle;
+      actionPanel.hidden = true;
+      addressForm.hidden = true;
+      textForm.hidden = true;
+      addressToggle.setAttribute("aria-expanded", "false");
+      typeToggle.setAttribute("aria-expanded", "false");
+      if (restoreFocus) activeToggle.focus();
+    };
+
+    const openActionPanel = (action) => {
+      const showAddress = action === "address";
+      const activeToggle = showAddress ? addressToggle : typeToggle;
+      const wasOpen = !actionPanel.hidden && activeToggle.getAttribute("aria-expanded") === "true";
+      closeActionPanel();
+      moreControls.open = false;
+      if (wasOpen) return;
+      actionPanel.hidden = false;
+      addressForm.hidden = !showAddress;
+      textForm.hidden = showAddress;
+      activeToggle.setAttribute("aria-expanded", "true");
+      window.requestAnimationFrame(() => (showAddress ? address : textInput).focus());
+    };
+
+    addressToggle.addEventListener("click", () => openActionPanel("address"));
+    typeToggle.addEventListener("click", () => openActionPanel("type"));
+    document.querySelectorAll("[data-close-action]").forEach((button) => {
+      button.addEventListener("click", () => closeActionPanel(true));
     });
 
-    address.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        send({ type: "goto", url: address.value });
+    addressForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const goButton = document.getElementById("goButton");
+      if (goButton.disabled || !address.value.trim()) return;
+      goButton.disabled = true;
+      const succeeded = await send({ type: "goto", url: address.value.trim() });
+      goButton.disabled = false;
+      if (succeeded) {
+        closeActionPanel();
+        screen.focus({ preventScroll: true });
       }
     });
 
-    document.getElementById("typeButton").addEventListener("click", () => {
-      send({ type: "type", text: textInput.value });
-      textInput.value = "";
-    });
-
-    textInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        send({ type: "type", text: textInput.value });
+    textForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const typeButton = document.getElementById("typeButton");
+      if (typeButton.disabled || !textInput.value) return;
+      typeButton.disabled = true;
+      const succeeded = await send({ type: "type", text: textInput.value });
+      typeButton.disabled = false;
+      if (succeeded) {
         textInput.value = "";
+        closeActionPanel();
+        screen.focus({ preventScroll: true });
       }
+    });
+
+    [address, textInput].forEach((input) => {
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeActionPanel(true);
+        }
+      });
     });
 
     document.querySelectorAll("[data-key]").forEach((button) => {
-      button.addEventListener("click", () => send({ type: "press", key: button.getAttribute("data-key") }));
+      button.addEventListener("click", () => {
+        send({ type: "press", key: button.getAttribute("data-key") });
+        moreControls.open = false;
+        screen.focus({ preventScroll: true });
+      });
     });
 
+    document.addEventListener("pointerdown", (event) => {
+      if (moreControls.open && !moreControls.contains(event.target)) {
+        moreControls.open = false;
+      }
+    });
+
+    moreControls.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        moreControls.open = false;
+        moreControls.querySelector("summary").focus();
+      }
+    });
+
+    window.addEventListener("message", async (event) => {
+      if (!embeddedInspect || event.source !== window.parent || event.origin !== parentOrigin) return;
+      const message = event.data;
+      if (!message || message.type !== "hellotest:recorder:command" || message.session_id !== sessionId
+        || message.frame_id !== parentFrameId || typeof message.value !== "string") return;
+      if (message.command === "scale") {
+        if (!["fit", "actual", "toggle"].includes(message.value)) return;
+        setActualSize(message.value === "fit" ? false : message.value === "actual" ? true : !actualSize);
+        return;
+      }
+      let payload;
+      if (message.command === "navigate" && message.value.trim()) payload = { type: "goto", url: message.value.trim() };
+      else if (message.command === "type" && message.value) payload = { type: "type", text: message.value };
+      else if (message.command === "key" && ["Enter", "Tab", "Escape", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(message.value)) payload = { type: "press", key: message.value };
+      if (payload && await send(payload)) screen.focus({ preventScroll: true });
+    });
+
+    reportState();
     connectStream();
   </script>
 </body>
@@ -1830,6 +2332,39 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         active: getRecorderPageId(page) === activePageId
       })))
     };
+  });
+
+  app.post("/api/v1/recorder/sessions/:id/tabs/activate", async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = request.body as { page_id?: string | null } | null;
+    const session = sessions.get(params.id);
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    if (!requireRecorderToken(request, session)) {
+      reply.code(403);
+      return { message: "Recorder live view token is invalid or expired" };
+    }
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Recorder session is not running" };
+    }
+    const pageId = normalizeText(body?.page_id);
+    if (!pageId) {
+      reply.code(400);
+      return { message: "page_id is required" };
+    }
+    try {
+      const page = await resolveRecorderPage(session, pageId);
+      await page.bringToFront();
+      session.active_page_id = getRecorderPageId(page);
+      touchSession(session);
+      return { session_id: session.id, active_page_id: session.active_page_id, page: await serializeRecorderPage(page) };
+    } catch (error) {
+      reply.code(409);
+      return { message: error instanceof Error ? error.message : "Unable to activate the selected browser tab" };
+    }
   });
 
   app.post("/api/v1/recorder/sessions/:id/inspect/start", async (request, reply) => {
@@ -1933,6 +2468,98 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     }
   });
 
+  app.post("/api/v1/recorder/sessions/:id/inspect/validate", async (request, reply) => {
+    const params = request.params as { id: string };
+    const body = request.body as {
+      page_id?: string | null;
+      fields?: Array<{ locator?: string | null; name?: string | null }>;
+    } | null;
+    const session = sessions.get(params.id);
+
+    if (!session) {
+      reply.code(404);
+      return { message: "Recorder session not found" };
+    }
+    if (session.status !== "running") {
+      reply.code(409);
+      return { message: "Recorder session is not running" };
+    }
+
+    const requestedFields = Array.isArray(body?.fields)
+      ? body.fields
+          .map((field) => ({ locator: normalizeText(field?.locator), name: normalizeText(field?.name) }))
+          .filter((field): field is { locator: string; name: string | null } => Boolean(field.locator))
+      : [];
+    if (!requestedFields.length) {
+      reply.code(400);
+      return { message: "Select at least one locator to validate" };
+    }
+    if (requestedFields.length > REPOSITORY_VALIDATION_FIELD_LIMIT) {
+      reply.code(400);
+      return { message: `Locator validation is limited to ${REPOSITORY_VALIDATION_FIELD_LIMIT} fields per save` };
+    }
+
+    try {
+      const page = await resolveRecorderPage(session, body?.page_id);
+      await page.bringToFront().catch(() => undefined);
+      await clearRepositoryHighlights(page).catch(() => undefined);
+
+      const fields = await Promise.all(requestedFields.map((field) => captureValidatedRepositoryLocator(page, field)));
+      const [pageTitle, screenDom, accessibilityTree, screenshot] = await Promise.all([
+        resolvePageTitle(page),
+        page.evaluate(() => {
+          const source = document.documentElement;
+          if (!source) return "";
+          const cloned = source.cloneNode(true) as HTMLElement;
+          cloned.querySelectorAll("input,textarea,select,option").forEach((node) => {
+            node.removeAttribute("value");
+            node.removeAttribute("selected");
+            if (node instanceof HTMLTextAreaElement) node.textContent = "";
+          });
+          cloned.querySelectorAll("[data-hellotest-inspect-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-repository-highlight='true']").forEach((node) => {
+            const target = node as HTMLElement;
+            target.style.outline = "";
+            target.style.outlineOffset = "";
+            target.style.borderRadius = "";
+            target.style.boxShadow = "";
+            Object.keys(target.dataset).filter((key) => key.startsWith("hellotest")).forEach((key) => delete target.dataset[key]);
+          });
+          return cloned.outerHTML.slice(0, 100_000);
+        }).catch(() => ""),
+        page.locator("body").ariaSnapshot({ timeout: 2_000 }).catch(() => ""),
+        page.screenshot({
+          type: "jpeg",
+          quality: SCREENCAST_QUALITY,
+          fullPage: false,
+          timeout: 5_000
+        }).catch(() => null)
+      ]);
+      const capturedAt = new Date().toISOString();
+      const pageUrl = page.url();
+      const allUnique = fields.every((field) => field.is_unique);
+      touchSession(session);
+
+      return {
+        validated_at: capturedAt,
+        page_id: getRecorderPageId(page),
+        page_title: pageTitle,
+        page_url: pageUrl,
+        all_unique: allUnique,
+        unique_count: fields.filter((field) => field.is_unique).length,
+        screen_dom: screenDom || null,
+        accessibility_tree: accessibilityTree || null,
+        screen_fingerprint: createHash("sha256").update(`${pageUrl}\n${screenDom}`).digest("hex"),
+        screen_screenshot_url: screenshot ? `data:image/jpeg;base64,${screenshot.toString("base64")}` : null,
+        fields
+      };
+    } catch (error) {
+      reply.code(409);
+      return {
+        message: error instanceof Error ? error.message : "Unable to validate selected repository locators"
+      };
+    }
+  });
+
   app.get("/api/v1/recorder/sessions/:id/inspect/result", async (request, reply) => {
     const params = request.params as { id: string };
     const query = request.query as { page_id?: string | null };
@@ -1981,14 +2608,25 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
           const source = document.documentElement;
           if (!source) return "";
           const cloned = source.cloneNode(true) as HTMLElement;
+          cloned.querySelectorAll("input,textarea,select,option").forEach((node) => {
+            node.removeAttribute("value");
+            node.removeAttribute("selected");
+            if (node instanceof HTMLTextAreaElement) node.textContent = "";
+          });
           cloned.querySelectorAll("[data-hellotest-inspect-highlight='true'],[data-hellotest-inspect-selection='true'],[data-hellotest-repository-highlight='true']").forEach((node) => {
             const target = node as HTMLElement;
             target.style.outline = target.dataset.hellotestRepositoryPreviousOutline || target.dataset.hellotestInspectPreviousOutline || target.dataset.hellotestPreviousOutline || "";
+            target.style.outlineOffset = target.dataset.hellotestRepositoryPreviousOutlineOffset || target.dataset.hellotestInspectPreviousOutlineOffset || "";
+            target.style.borderRadius = target.dataset.hellotestRepositoryPreviousBorderRadius || target.dataset.hellotestInspectPreviousBorderRadius || "";
             target.style.boxShadow = target.dataset.hellotestRepositoryPreviousBoxShadow || target.dataset.hellotestInspectPreviousBoxShadow || target.dataset.hellotestPreviousBoxShadow || "";
             delete target.dataset.hellotestRepositoryPreviousOutline;
+            delete target.dataset.hellotestRepositoryPreviousOutlineOffset;
+            delete target.dataset.hellotestRepositoryPreviousBorderRadius;
             delete target.dataset.hellotestRepositoryPreviousBoxShadow;
             delete target.dataset.hellotestRepositoryHighlight;
             delete target.dataset.hellotestInspectPreviousOutline;
+            delete target.dataset.hellotestInspectPreviousOutlineOffset;
+            delete target.dataset.hellotestInspectPreviousBorderRadius;
             delete target.dataset.hellotestInspectPreviousBoxShadow;
             delete target.dataset.hellotestPreviousOutline;
             delete target.dataset.hellotestPreviousBoxShadow;
@@ -2081,6 +2719,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
 
   app.get("/api/v1/recorder/sessions/:id/stream", async (request, reply) => {
     const params = request.params as { id: string };
+    const query = request.query as { page_id?: string | null };
     const session = sessions.get(params.id);
 
     if (!session) {
@@ -2127,7 +2766,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     };
 
     try {
-      const page = await resolveActivePage(session);
+      const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
       touchSession(session);
       client = await session.context.newCDPSession(page);
 
@@ -2210,6 +2849,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
 
   app.get("/api/v1/recorder/sessions/:id/screenshot", async (request, reply) => {
     const params = request.params as { id: string };
+    const query = request.query as { page_id?: string | null };
     const session = sessions.get(params.id);
 
     if (!session) {
@@ -2223,7 +2863,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     }
 
     try {
-      const page = await resolveActivePage(session);
+      const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
       touchSession(session);
       const screenshot = await page.screenshot({
         type: "jpeg",
@@ -2246,6 +2886,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
 
   app.post("/api/v1/recorder/sessions/:id/input", async (request, reply) => {
     const params = request.params as { id: string };
+    const query = request.query as { page_id?: string | null };
     const session = sessions.get(params.id);
 
     if (!session) {
@@ -2276,7 +2917,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
     const type = normalizeText(body?.type);
 
     try {
-      const page = await resolveActivePage(session);
+      const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
       touchSession(session);
 
       if (type === "click") {

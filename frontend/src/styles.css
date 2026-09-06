@@ -53594,7 +53594,9 @@ button:active:not(:disabled) .explorer-toggle-glyph {
 .test-authoring-mode-card {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
   margin-top: -18px;
   padding: 0;
   border: 0;
@@ -53958,6 +53960,114 @@ html body .gherkin-editor .gherkin-code-shell textarea {
 .gherkin-highlight .is-step-keyword { color: var(--gherkin-step); font-weight: 850; }
 .gherkin-highlight .is-description { color: var(--gherkin-code-text); font-weight: 560; }
 .gherkin-highlight .is-parameter { color: var(--gherkin-parameter); font-weight: 800; }
+
+.gherkin-minimal-block { display: grid; gap: 2px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.gherkin-minimal-heading { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.gherkin-minimal-heading > strong { flex: 0 0 auto; color: var(--gherkin-section); font-size: 0.84rem; font-weight: 850; }
+.gherkin-minimal-heading > input { width: 100%; min-height: 26px; padding: 1px 0; border: 0; border-bottom: 1px solid transparent; border-radius: 0; background: transparent; color: var(--gherkin-code-text); font: inherit; }
+.gherkin-minimal-heading > input:focus { border-bottom-color: color-mix(in srgb, var(--gherkin-section) 30%, transparent); outline: 0; }
+.gherkin-minimal-steps { display: grid; gap: 0; padding-left: 1.15rem; }
+.gherkin-minimal-step { position: relative; display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; align-items: center; min-height: 27px; gap: 4px; }
+.gherkin-minimal-step:focus-within { z-index: 12; }
+.gherkin-minimal-step select { min-height: 26px; padding: 1px 18px 1px 0; border: 0; border-radius: 0; background-color: transparent; color: var(--gherkin-step); font: inherit; font-weight: 850; }
+.gherkin-minimal-description { min-width: 0; min-height: 26px; padding: 1px 0; border: 0; border-radius: 0; background: transparent; color: var(--gherkin-code-text); font: inherit; }
+.gherkin-minimal-description .step-parameter-token,
+.shared-gherkin-inline-value .step-parameter-token { color: var(--gherkin-parameter); font-weight: 800; }
+.gherkin-minimal-step-actions { display: inline-flex; gap: 1px; opacity: 0.42; transition: opacity 120ms ease; }
+.gherkin-minimal-step:hover .gherkin-minimal-step-actions,
+.gherkin-minimal-step:focus-within .gherkin-minimal-step-actions { opacity: 1; }
+.gherkin-minimal-step-actions button { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.gherkin-minimal-step-actions button:disabled { opacity: 0.3; cursor: default; }
+.gherkin-minimal-add-step,
+.gherkin-minimal-add-background { justify-self: start; display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 0.72rem; font-weight: 750; cursor: pointer; }
+.gherkin-minimal-add-step { margin-left: 1.15rem; }
+
+.gherkin-step-text-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.gherkin-step-text-input {
+  width: 100%;
+  min-height: 26px;
+  padding: 1px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gherkin-code-text, var(--text));
+  font: inherit;
+  line-height: 1.45;
+}
+
+.gherkin-step-text-input:focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section, var(--accent)) 32%, transparent);
+}
+
+.gherkin-step-text-field.has-parameters.is-previewing .gherkin-step-text-input {
+  color: transparent;
+  caret-color: transparent;
+}
+
+.gherkin-step-resolved-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  color: var(--gherkin-code-text, var(--text));
+  line-height: 1.45;
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gherkin-step-resolved-preview .step-parameter-token,
+.gherkin-minimal-description .step-parameter-token {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gherkin-parameter, #2f8a26);
+  font: inherit;
+  font-weight: 800;
+}
+
+.gherkin-step-resolved-preview .step-parameter-token.is-unresolved {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.gherkin-step-parameter-map {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  width: max-content;
+  max-width: min(36rem, calc(100vw - 4rem));
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--gherkin-section, var(--accent)) 24%, var(--line));
+  border-radius: 5px;
+  background: var(--panel-strong, #fff);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--shadow, #0f172a) 14%, transparent);
+  color: var(--text-secondary, var(--muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.gherkin-step-parameter-map > span { display: inline-flex; min-width: 0; align-items: center; gap: 5px; }
+.gherkin-step-parameter-map code { color: var(--gherkin-parameter, #2f8a26); font: inherit; font-weight: 800; }
+.gherkin-step-parameter-map i { color: var(--muted); font-style: normal; }
+.gherkin-step-parameter-map strong { overflow: hidden; max-width: 18rem; color: var(--gherkin-parameter, #2f8a26); font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.gherkin-step-parameter-map .is-unresolved strong { color: var(--muted); font-weight: 650; }
+
 .gherkin-highlight .is-string,
 .gherkin-highlight .is-table,
 .gherkin-highlight .is-doc-string { color: var(--gherkin-value); font-weight: 650; }
@@ -54170,6 +54280,147 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
 .gherkin-editor.is-compact.is-sectioned .gherkin-section-card.is-scenarios .gherkin-code-shell { min-height: 220px; }
 .gherkin-editor.is-compact.is-sectioned .gherkin-section-card.is-examples .gherkin-code-shell { min-height: 120px; }
 
+/* Test-case Gherkin follows a single document hierarchy: Feature, optional
+   Background, Scenario/Scenario Outline, then the owning Examples table. */
+.gherkin-editor.is-document-layout {
+  --gherkin-section: #0645d6;
+  --gherkin-step: #0645d6;
+  --gherkin-parameter: #2f8a26;
+  --gherkin-value: #a43a32;
+  --gherkin-code-font-size: 0.86rem;
+  --gherkin-code-line-size: 1.5rem;
+  overflow: visible;
+  border-radius: 6px;
+  background: var(--gherkin-code-bg);
+  box-shadow: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.gherkin-editor.is-document-layout .gherkin-editor-toolbar,
+.gherkin-editor.is-document-layout .gherkin-editor-status,
+.gherkin-editor.is-document-layout .gherkin-scenario-region-head {
+  display: none;
+}
+
+.gherkin-editor.is-document-layout .gherkin-section-grid {
+  gap: 1.15rem;
+  padding: 20px 22px 22px;
+  background: var(--gherkin-code-bg);
+}
+
+.gherkin-editor.is-document-layout .gherkin-feature-bar {
+  display: grid;
+  min-height: 26px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.gherkin-editor.is-document-layout .gherkin-feature-bar > div { display: block; }
+.gherkin-editor.is-document-layout .gherkin-feature-bar > div > span {
+  color: var(--gherkin-section);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+.gherkin-editor.is-document-layout .gherkin-feature-bar > div > small { display: none; }
+.gherkin-editor.is-document-layout .gherkin-feature-bar > strong {
+  color: var(--gherkin-code-text);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+.gherkin-editor.is-document-layout .gherkin-feature-bar > input {
+  min-height: 26px;
+  padding: 1px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gherkin-code-text);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+.gherkin-editor.is-document-layout .gherkin-feature-bar > input:focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section) 32%, transparent);
+  box-shadow: none;
+}
+.gherkin-editor.is-document-layout .gherkin-feature-bar > small {
+  grid-column: 2;
+  color: var(--gherkin-tag);
+  font-family: inherit;
+}
+
+.gherkin-editor.is-document-layout .gherkin-minimal-block,
+.gherkin-editor.is-document-layout .gherkin-scenario-block,
+.gherkin-editor.is-document-layout .gherkin-scenario-region,
+.gherkin-editor.is-document-layout .gherkin-scenario-list {
+  overflow: visible;
+}
+
+.gherkin-editor.is-document-layout .gherkin-minimal-heading,
+.gherkin-editor.is-document-layout .gherkin-minimal-step,
+.gherkin-editor.is-document-layout .gherkin-step-text-input,
+.gherkin-editor.is-document-layout .gherkin-step-resolved-preview {
+  font-family: inherit;
+  font-size: 0.86rem;
+}
+
+.gherkin-editor.is-document-layout .gherkin-scenario-region {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.gherkin-editor.is-document-layout .gherkin-scenario-list {
+  gap: 1.15rem;
+  padding: 0;
+}
+
+.gherkin-editor.is-document-layout .gherkin-scenario-block { gap: 0.55rem; }
+
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples {
+  margin-left: 1.15rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples > header,
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples .gherkin-line-numbers {
+  display: none;
+}
+
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples .gherkin-code-shell {
+  height: calc((var(--gherkin-visible-lines, 3) * var(--gherkin-code-line-size)) + 4px);
+  min-height: calc((var(--gherkin-visible-lines, 3) * var(--gherkin-code-line-size)) + 4px);
+  overflow: visible;
+  background: transparent !important;
+}
+
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples :is(textarea, .gherkin-highlight),
+html body .gherkin-editor.is-document-layout .gherkin-section-card.is-examples textarea {
+  padding: 0 !important;
+}
+
+.gherkin-editor.is-document-layout .gherkin-section-card.is-examples .gherkin-active-line { left: 0; }
+.gherkin-editor.is-document-layout .gherkin-highlight .is-section-keyword,
+.gherkin-editor.is-document-layout .gherkin-highlight .is-step-keyword { color: var(--gherkin-section); }
+.gherkin-editor.is-document-layout .gherkin-highlight .is-parameter { color: var(--gherkin-parameter); }
+.gherkin-editor.is-document-layout .gherkin-highlight .is-table { color: var(--gherkin-value); }
+
+:root[data-theme="dark"] .gherkin-editor.is-document-layout {
+  --gherkin-section: #79a9ff;
+  --gherkin-step: #79a9ff;
+  --gherkin-parameter: #83dc78;
+  --gherkin-value: #ff8b82;
+}
+
 @media (max-width: 720px) {
   .gherkin-editor-toolbar { align-items: flex-start; flex-direction: column; }
   .gherkin-editor-toolbar-end { width: 100%; justify-content: space-between; }
@@ -54184,6 +54435,11 @@ html body .ai-test-generator-modal .gherkin-editor .gherkin-code-shell textarea 
   .gherkin-scenario-region-head span { white-space: normal; }
   .gherkin-scenario-block > .gherkin-section-card.is-examples { margin-left: 0; }
   .gherkin-editor-status { align-items: flex-start; flex-direction: column; }
+  .gherkin-editor.is-document-layout .gherkin-section-grid { padding: 14px; }
+  .gherkin-editor.is-document-layout .gherkin-minimal-steps,
+  .gherkin-editor.is-document-layout .gherkin-section-card.is-examples { margin-left: 0; padding-left: 0; }
+  .gherkin-editor.is-document-layout .gherkin-minimal-step { grid-template-columns: 4.8rem minmax(0, 1fr); }
+  .gherkin-editor.is-document-layout .gherkin-minimal-step-actions { grid-column: 2; justify-self: end; }
 }
 
 @media (forced-colors: active) {
@@ -56910,6 +57166,595 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   }
 }
 
+/* Object Spy uses the viewport as a capture workspace. The live browser keeps
+   the largest share of the screen while discovery, selection, and evidence
+   remain in one independently scrollable rail. */
+.object-repository-inspector {
+  width: calc(100vw - 8px);
+  height: calc(100dvh - 8px);
+  max-height: calc(100dvh - 8px);
+  border-radius: 10px;
+}
+
+.object-repository-inspector-header {
+  position: relative;
+  z-index: 8;
+  min-height: 3.35rem;
+  gap: 0.75rem;
+  padding: 0.45rem 0.6rem 0.45rem 0.8rem !important;
+  overflow: visible;
+}
+
+.object-repository-inspector-title {
+  display: flex;
+  min-width: 10rem;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.object-repository-inspector-title h2 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.object-repository-inspector-title > span {
+  max-width: 14rem;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.object-repository-inspector-title > span:last-child {
+  display: inline-flex;
+  max-width: none;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 9%, transparent);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.object-repository-inspector-title > span:last-child::before {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--text-tertiary, #94a3b8);
+  content: "";
+}
+
+.object-repository-inspector-title > span.is-connected:last-child {
+  background: color-mix(in srgb, #16a34a 10%, transparent);
+  color: #15803d;
+}
+
+.object-repository-inspector-title > span.is-connected:last-child::before {
+  background: #16a34a;
+}
+
+.object-repository-inspector-toolbar {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  overflow: visible;
+}
+
+.object-repository-inspector-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.object-repository-inspector-toolbar > button {
+  min-height: 2.15rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.object-repository-inspector-toolbar .dialog-close-button {
+  margin-left: 0.15rem;
+}
+
+.object-repository-inspector-more {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.object-repository-inspector-more > summary {
+  display: inline-flex;
+  min-height: 2.15rem;
+  align-items: center;
+  gap: 0.35rem;
+  list-style: none;
+  cursor: pointer;
+}
+
+.object-repository-inspector-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.object-repository-inspector-more[open] > summary {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border-subtle));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+
+.object-repository-inspector-more-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  width: min(15.5rem, calc(100vw - 1rem));
+  gap: 0.2rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 0.85rem 2.2rem rgba(15, 23, 42, 0.18);
+}
+
+.object-repository-inspector-more-menu > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.object-repository-inspector-body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(20rem, 27vw, 26rem);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  scroll-behavior: smooth;
+}
+
+.object-repository-live-inspect {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  background: #eef2f8;
+}
+
+.object-repository-live-inspect-body {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+}
+
+.object-repository-capture-workspace,
+.object-repository-browser-preview {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.object-repository-capture-workspace {
+  display: block;
+}
+
+.object-repository-browser-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.object-repository-browser-preview iframe {
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+  border: 0;
+  background: #f4f6fa;
+}
+
+.object-repository-browser-tabs {
+  min-height: 2.6rem;
+  flex: 0 0 auto;
+  padding-top: 0.25rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.object-repository-browser-tabs button {
+  min-height: 2.35rem;
+  padding-block: 0.25rem 0.32rem;
+  flex: 0 0 auto;
+  max-width: 18rem;
+}
+
+.object-repository-selected-field-name {
+  max-width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.shared-gherkin-step-description {
+  min-width: 0;
+}
+
+.linked-test-case-step-group,
+.gherkin-shared-step-group {
+  min-width: 0;
+  border-block: 1px solid var(--border-subtle);
+}
+
+.linked-test-case-step-group > summary,
+.gherkin-shared-step-group > summary {
+  padding: 0.65rem 0.4rem;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.linked-test-case-step-group > summary > strong,
+.gherkin-shared-step-group > summary > strong {
+  margin-right: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.linked-test-case-step-group > summary > span,
+.gherkin-shared-step-group > summary > span {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.linked-test-case-step-group > summary:focus-visible,
+.gherkin-shared-step-group > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.linked-test-case-step-group > .stack-list {
+  padding: 0 0.4rem 0.65rem 1rem;
+}
+
+.gherkin-shared-step-group > .gherkin-minimal-steps {
+  padding: 0 0.4rem 0.4rem 1rem;
+}
+
+.gherkin-step-argument {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  color: inherit;
+}
+
+.object-repository-browser-locator-dock {
+  min-height: 3.3rem;
+  flex: 0 0 auto;
+  padding-block: 0.42rem;
+}
+
+.object-repository-inspect-message {
+  min-height: 2.15rem;
+  margin: 0;
+  padding: 0.46rem 0.7rem;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border-subtle));
+  border-radius: 0;
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.object-repository-inspector-review {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.45rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+  border-left: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 97%, #e8eef9 3%);
+}
+
+.object-repository-inspector-review::-webkit-scrollbar,
+.object-repository-selected-grid::-webkit-scrollbar,
+.object-repository-suggestion-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.object-repository-inspector-review::-webkit-scrollbar-thumb,
+.object-repository-selected-grid::-webkit-scrollbar-thumb,
+.object-repository-suggestion-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 28%, transparent);
+  background-clip: padding-box;
+}
+
+.object-repository-inspector-review-tabs {
+  position: sticky;
+  top: -0.45rem;
+  z-index: 4;
+  flex: 0 0 auto;
+  padding: 0.15rem;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.object-repository-inspector-review-tabs .subnav-tab {
+  min-height: 2.25rem;
+  padding-inline: 0.55rem;
+  font-size: 0.72rem;
+}
+
+.object-repository-review-panel {
+  flex: 0 0 auto;
+  border-color: var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.object-repository-selected-fields-head,
+.object-repository-field-inventory-head {
+  display: flex;
+  min-height: 2.65rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.42rem 0.55rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.object-repository-selected-fields > .object-repository-selected-grid,
+.object-repository-suggestion-list {
+  max-height: none;
+  padding: 0.4rem;
+  overflow: visible;
+}
+
+.object-repository-selected-grid article,
+.object-repository-inspector-candidate {
+  gap: 0.35rem;
+  border-radius: 7px;
+}
+
+.object-repository-selected-grid article {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 0.42rem 0.5rem;
+}
+
+.object-repository-inspector-candidate {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid transparent;
+}
+
+.object-repository-inspector-candidate.is-highlighted {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border-subtle));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 11%, transparent);
+}
+
+.object-repository-selected-grid article.needs-repair {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-color: color-mix(in srgb, #dc2626 42%, var(--border-subtle));
+  background: color-mix(in srgb, #dc2626 4%, var(--surface));
+}
+
+.object-repository-selected-grid article.needs-repair .object-repository-field-actions {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.object-repository-inspector-preview .object-repository-candidate-main {
+  gap: 0.18rem;
+  padding: 0.48rem 0.55rem;
+  border: 0;
+  background: transparent;
+}
+
+.object-repository-candidate-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.object-repository-candidate-title strong {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-source-pill,
+.object-repository-validation-pill {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0.13rem 0.36rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.015em;
+  white-space: nowrap;
+}
+
+.object-repository-source-pill {
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  color: var(--primary-strong);
+}
+
+.object-repository-source-pill.is-ai_extract {
+  background: color-mix(in srgb, #7c3aed 10%, transparent);
+  color: #6d28d9;
+}
+
+.object-repository-source-pill.is-live_inspect {
+  background: color-mix(in srgb, #0284c7 10%, transparent);
+  color: #0369a1;
+}
+
+.object-repository-validation-pill {
+  background: color-mix(in srgb, #64748b 10%, transparent);
+  color: #64748b;
+}
+
+.object-repository-validation-pill.is-unique {
+  background: color-mix(in srgb, #16a34a 11%, transparent);
+  color: #15803d;
+}
+
+.object-repository-validation-pill:is(.is-ambiguous, .is-missing, .is-invalid) {
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  color: #b91c1c;
+}
+
+.object-repository-candidate-actions {
+  flex-wrap: nowrap;
+  gap: 0.2rem;
+  padding-right: 0.35rem;
+}
+
+.object-repository-inspector-candidate .ghost-button {
+  min-height: 1.85rem;
+  padding-inline: 0.48rem;
+}
+
+.object-repository-inspector-preview {
+  display: block;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.object-repository-inspector-review .object-repository-static-evidence[open] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0.6rem;
+}
+
+.object-repository-evidence-preview {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.object-repository-evidence-preview > img {
+  display: block;
+  width: 100%;
+  max-height: 15rem;
+  object-fit: contain;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: #eef2f7;
+}
+
+.object-repository-evidence-preview > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.object-repository-evidence-preview > div:last-child > span {
+  display: grid;
+  gap: 0.08rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+}
+
+.object-repository-evidence-preview > div:last-child strong {
+  color: var(--text-primary);
+  font-size: 0.7rem;
+}
+
+.object-repository-inspector.is-browser-maximized .object-repository-inspector-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.object-repository-inspector.is-browser-maximized .object-repository-live-inspect {
+  display: block;
+}
+
+.object-repository-inspector.is-browser-maximized .object-repository-live-inspect-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 0;
+}
+
+@media (max-width: 980px) {
+  .object-repository-inspector-body {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+  }
+
+  .object-repository-inspector-title > span:not(:last-child),
+  .object-repository-inspector-toolbar > button > span {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .object-repository-inspector-header {
+    flex-wrap: wrap;
+    overflow: visible;
+    gap: 0.35rem;
+  }
+
+  .object-repository-inspector-title {
+    min-width: 0;
+  }
+
+  .object-repository-inspector-toolbar {
+    flex: 1 1 auto;
+  }
+
+  .object-repository-inspector-more-menu {
+    position: fixed;
+    top: 5.5rem;
+    right: 0.6rem;
+    max-height: calc(100dvh - 7rem);
+    overflow-y: auto;
+  }
+
+  .object-repository-inspector-body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .object-repository-live-inspect {
+    height: 68dvh;
+  }
+
+  .object-repository-inspector-review {
+    min-height: 45dvh;
+    overflow: visible;
+    border-top: 1px solid var(--border-subtle);
+    border-left: 0;
+  }
+}
+
 /* Keep the shared rich-text link modal above all feature dialogs. */
 .rich-text-link-backdrop {
   z-index: 1300;
@@ -57756,8 +58601,17 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
    full Feature document editor. The stored document remains valid Gherkin. */
 .shared-gherkin-step-group {
   display: grid;
-  gap: 0.85rem;
+  --gherkin-section: #0645d6;
+  --gherkin-parameter: #2f8a26;
+  --gherkin-code-text: #15181d;
+  gap: 1.05rem;
   min-width: 0;
+  overflow: visible;
+  padding: 18px 20px 20px;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, var(--line, #d8e0ec));
+  border-radius: 6px;
+  background: var(--panel-strong, #fff);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .shared-gherkin-step-group-head {
@@ -57765,27 +58619,37 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding-bottom: 0.8rem;
-  border-bottom: 1px solid var(--line, #d8e0ec);
+  padding: 0;
+  border: 0;
 }
 
-.shared-gherkin-step-group-head > div:first-child {
+.shared-gherkin-document-heading {
   display: grid;
-  gap: 0.2rem;
+  gap: 1rem;
   min-width: 0;
 }
 
-.shared-gherkin-step-group-head > div:first-child > span {
-  color: var(--primary-strong, #1d4ed8);
-  font-size: 0.68rem;
-  font-weight: 850;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+.shared-gherkin-document-heading > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.25rem;
 }
 
-.shared-gherkin-step-group-head strong {
-  color: var(--text-primary, #172033);
-  font-size: 1rem;
+.shared-gherkin-document-heading span {
+  color: var(--gherkin-section);
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.shared-gherkin-document-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gherkin-code-text);
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shared-gherkin-step-group-head p,
@@ -57802,6 +58666,16 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.shared-gherkin-step-group-head-actions .ghost-button {
+  min-height: 26px;
+  padding: 2px 7px;
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 0.7rem;
 }
 
 .shared-gherkin-parameter-guide {
@@ -57821,21 +58695,26 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 
 .shared-gherkin-step-list {
   display: grid;
-  gap: 0.55rem;
+  gap: 0;
   min-width: 0;
+  padding-left: 1.15rem;
 }
 
 .shared-gherkin-step-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 1.25rem 5.25rem minmax(0, 1fr) auto;
+  grid-template-columns: 5.25rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.25rem;
   min-width: 0;
+  min-height: 27px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
+
+.shared-gherkin-step-row:focus-within { z-index: 12; }
 
 .shared-gherkin-step-number {
   display: inline-grid;
@@ -57849,11 +58728,9 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   font-weight: 850;
 }
 
-.shared-gherkin-step-list { gap: 0.2rem; }
+.shared-gherkin-step-list { gap: 0; }
 .shared-gherkin-step-row + .shared-gherkin-step-row { padding-top: 0; border-top: 0; }
-.shared-gherkin-step-row .shared-gherkin-step-number { width: 1.45rem; height: 1.45rem; }
-.shared-gherkin-step-row .shared-gherkin-keyword select,
-.shared-gherkin-step-row .shared-gherkin-step-content > input { min-height: 1.75rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.shared-gherkin-step-row .shared-gherkin-keyword select { min-height: 1.7rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .shared-gherkin-step-row .shared-gherkin-step-actions { gap: 0.1rem; }
 
 .shared-gherkin-keyword select {
@@ -57866,30 +58743,20 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   background: transparent;
   box-shadow: none;
   cursor: pointer;
-  font-family: "Inter", "Segoe UI", sans-serif;
+  font-family: inherit;
   font-size: 0.88rem;
   font-weight: 850;
   line-height: 1.35;
 }
 
-.shared-gherkin-keyword.is-given select {
-  border-color: transparent;
-  background: transparent;
-  color: #1d4ed8;
-}
-
+.shared-gherkin-keyword.is-given select,
 .shared-gherkin-keyword.is-when select,
 .shared-gherkin-keyword.is-and select,
-.shared-gherkin-keyword.is-but select {
-  border-color: transparent;
-  background: transparent;
-  color: #6d28d9;
-}
-
+.shared-gherkin-keyword.is-but select,
 .shared-gherkin-keyword.is-then select {
   border-color: transparent;
   background: transparent;
-  color: #047857;
+  color: var(--gherkin-section);
 }
 
 .shared-gherkin-step-content {
@@ -57983,24 +58850,14 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   font-weight: 600;
 }
 
-:root[data-theme="dark"] .shared-gherkin-keyword.is-given select {
-  border-color: transparent;
-  background: transparent;
-  color: #9acbff;
-}
-
+:root[data-theme="dark"] .shared-gherkin-keyword.is-given select,
 :root[data-theme="dark"] .shared-gherkin-keyword.is-when select,
 :root[data-theme="dark"] .shared-gherkin-keyword.is-and select,
-:root[data-theme="dark"] .shared-gherkin-keyword.is-but select {
-  border-color: transparent;
-  background: transparent;
-  color: #d8b4fe;
-}
-
+:root[data-theme="dark"] .shared-gherkin-keyword.is-but select,
 :root[data-theme="dark"] .shared-gherkin-keyword.is-then select {
   border-color: transparent;
   background: transparent;
-  color: #8ee89a;
+  color: var(--gherkin-section);
 }
 
 :root[data-theme="dark"] .shared-gherkin-step-content input,
@@ -58024,7 +58881,12 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  opacity: 0.42;
+  transition: opacity 120ms ease;
 }
+
+.shared-gherkin-step-row:hover .shared-gherkin-step-actions,
+.shared-gherkin-step-row:focus-within .shared-gherkin-step-actions { opacity: 1; }
 
 .shared-gherkin-step-actions .ghost-button {
   width: auto;
@@ -58044,6 +58906,15 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+  color: var(--gherkin-section) !important;
+  font-family: inherit;
+  font-size: 0.72rem;
+}
+
+:root[data-theme="dark"] .shared-gherkin-step-group {
+  --gherkin-section: #79a9ff;
+  --gherkin-parameter: #83dc78;
+  --gherkin-code-text: #f0f3f6;
 }
 
 /* Test Params follows Test Data's plain field-and-utility workflow. */
@@ -58142,13 +59013,15 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
     flex-direction: column;
   }
 
+  .shared-gherkin-step-group { padding: 14px; }
+  .shared-gherkin-document-heading > div { grid-template-columns: 4.8rem minmax(0, 1fr); }
+
   .shared-gherkin-step-row {
-    grid-template-columns: 2rem minmax(0, 1fr);
+    grid-template-columns: 4.8rem minmax(0, 1fr);
   }
 
-  .shared-gherkin-step-content,
   .shared-gherkin-step-actions {
-    grid-column: 1 / -1;
+    grid-column: 2;
   }
 
   .shared-gherkin-step-actions {
@@ -58243,8 +59116,8 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
 .test-case-detail-primary .gherkin-scenario-list { gap: 7px; padding: 7px 0; }
 .test-case-detail-primary .gherkin-scenario-block { gap: 4px; }
 .test-case-detail-primary .gherkin-scenario-block > .gherkin-section-card.is-examples {
-  margin-left: 18px;
-  border-left: 2px solid color-mix(in srgb, var(--gherkin-value) 35%, var(--line));
+  margin-left: 1.15rem;
+  border-left: 0;
 }
 .test-case-detail-primary .gherkin-editor-status { padding-inline: 0; }
 
@@ -58252,5 +59125,802 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   .test-case-workspace-shell .test-case-detail-grid.editor-accordion {
     grid-template-columns: minmax(0, 1fr);
     padding: 10px;
+  }
+}
+
+/* Form controls around the editors use intentionally strong defaults. Keep
+   Gherkin's document-like text controls as the final scoped authority. */
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout :is(
+  .gherkin-feature-bar > input,
+  .gherkin-minimal-heading > input,
+  .gherkin-step-text-input
+) {
+  width: 100% !important;
+  min-height: 26px !important;
+  padding: 1px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-code-text) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.86rem !important;
+  line-height: 1.45 !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout :is(
+  .gherkin-feature-bar > input,
+  .gherkin-minimal-heading > input,
+  .gherkin-step-text-input
+):focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section) 32%, transparent) !important;
+  outline: 0 !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout .gherkin-step-text-field.has-parameters.is-previewing .gherkin-step-text-input {
+  color: transparent !important;
+  caret-color: transparent !important;
+}
+
+.test-case-workspace-shell .test-case-details-form .gherkin-editor.is-document-layout .gherkin-minimal-step > select,
+.shared-gherkin-step-group .shared-gherkin-keyword > select {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 26px !important;
+  padding: 1px 18px 1px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-section) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.86rem !important;
+  font-weight: 850 !important;
+  line-height: 1.45 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-input {
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 26px !important;
+  padding: 1px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--gherkin-code-text) !important;
+  font-family: inherit !important;
+  font-size: 0.88rem !important;
+  line-height: 1.45 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-input:focus {
+  border-bottom-color: color-mix(in srgb, var(--gherkin-section) 32%, transparent) !important;
+  outline: 0 !important;
+}
+
+.shared-gherkin-step-group .gherkin-step-text-field.has-parameters.is-previewing .gherkin-step-text-input {
+  color: transparent !important;
+  caret-color: transparent !important;
+}
+
+/* Automation Case authoring follows the same focused top-tab language as the
+   manual Test Case workspace. Keep one job visible at a time. */
+.automation-command-deck--legacy {
+  display: none;
+}
+
+.automation-workspace-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--surface) 97%, var(--primary) 3%);
+}
+
+.automation-workspace-identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.16rem 0.75rem;
+  padding: 0 0.2rem;
+}
+
+.automation-workspace-identity > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.automation-workspace-identity > strong {
+  grid-column: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-workspace-identity > span {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.automation-detail-navigation {
+  position: static;
+  margin-inline: -0.7rem;
+  padding-inline: 0.45rem !important;
+}
+
+.automation-detail-navigation .detail-section-tab-copy {
+  display: grid;
+  gap: 0.04rem;
+  text-align: left;
+}
+
+.automation-detail-navigation .detail-section-tab-copy strong {
+  font-size: 0.74rem;
+}
+
+.automation-detail-navigation .detail-section-tab-copy small {
+  color: var(--text-secondary);
+  font-size: 0.61rem;
+  font-weight: 600;
+}
+
+.automation-action-catalog {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) auto minmax(10rem, 0.5fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+.automation-action-catalog-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.automation-action-catalog-copy > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.automation-action-catalog-copy strong {
+  color: var(--text-primary);
+  font-size: 0.82rem;
+}
+
+.automation-action-catalog-copy span:last-child {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-gherkin-keyword {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: #155eef;
+  font: 800 0.76rem/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.automation-platform-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.automation-platform-picker button {
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-right: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.automation-platform-picker button:last-child {
+  border-right: 0;
+}
+
+.automation-platform-picker button.is-active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.automation-action-select {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.automation-action-select > span {
+  color: var(--text-secondary);
+  font-size: 0.61rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.automation-action-select select {
+  min-height: 2rem;
+  padding-block: 0.2rem;
+}
+
+.automation-keyword-step-summary .automation-gherkin-keyword {
+  min-width: 2.85rem;
+}
+
+.automation-step-editor-grid {
+  grid-template-columns: minmax(6rem, 0.32fr) minmax(7rem, 0.42fr) minmax(13rem, 1fr) minmax(10rem, 0.65fr);
+}
+
+.automation-step-editor-grid > .automation-api-action-grid {
+  grid-column: 1 / -1;
+}
+
+.automation-api-action-grid {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.24fr) minmax(0, 1fr) minmax(7rem, 0.24fr) minmax(7rem, 0.24fr);
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border-subtle));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 97%, var(--primary) 3%);
+}
+
+.automation-api-url-field {
+  min-width: 0;
+}
+
+.automation-api-wide-field {
+  grid-column: 1 / -1;
+}
+
+.automation-new-step-composer {
+  scroll-margin-top: 9rem;
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border-subtle));
+}
+
+.automation-run-profile-panel,
+.automation-repository-tab {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.automation-run-profile-panel {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.automation-repository-tab {
+  padding: 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.automation-repository-tab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.automation-repository-tab-head > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.automation-repository-tab-head h3,
+.automation-repository-tab-head p {
+  margin: 0;
+}
+
+.automation-repository-tab-head p {
+  max-width: 52rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.automation-repository-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.automation-repository-health-grid article {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+.automation-repository-health-grid article.is-attention {
+  border-color: color-mix(in srgb, #d97706 36%, var(--border-subtle));
+}
+
+.automation-repository-health-grid strong {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+.automation-repository-health-grid span {
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.automation-object-binding-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.4rem;
+}
+
+.automation-object-binding-list > button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.automation-object-binding-list > button:hover {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border-subtle));
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+}
+
+.automation-object-binding-list > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.automation-object-binding-list strong,
+.automation-object-binding-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-object-binding-list strong {
+  font-size: 0.75rem;
+}
+
+.automation-object-binding-list small {
+  color: var(--text-secondary);
+  font-size: 0.64rem;
+}
+
+@media (max-width: 1050px) {
+  .automation-action-catalog,
+  .automation-step-editor-grid,
+  .automation-api-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .automation-action-catalog-copy,
+  .automation-api-action-grid,
+  .automation-api-wide-field {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .automation-workspace-identity,
+  .automation-action-catalog,
+  .automation-step-editor-grid,
+  .automation-api-action-grid,
+  .automation-repository-health-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .automation-workspace-identity > span,
+  .automation-api-wide-field {
+    grid-column: 1;
+    grid-row: auto;
+    white-space: normal;
+  }
+
+  .automation-repository-tab-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.object-repository-selected-editor {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.42fr) minmax(0, 1fr);
+  gap: 0.45rem;
+  padding: 0.45rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 96%, var(--primary) 4%);
+}
+
+.object-repository-selected-editor label {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.object-repository-selected-editor label > span {
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.object-repository-selected-editor input,
+.object-repository-selected-editor select {
+  min-width: 0;
+  min-height: 2rem;
+  padding-block: 0.25rem;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 720px) {
+  .object-repository-selected-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Automation authoring uses one focused technical studio. Keyword rows remain
+   compact and business-readable while Web/API/mobile details live in the modal. */
+.automation-keyword-step:not(.automation-new-step-composer):not(.automation-code-step) > .automation-keyword-step-body {
+  display: none;
+}
+
+.automation-editor-modal {
+  width: min(78rem, calc(100vw - 2rem));
+  max-height: min(94dvh, 60rem);
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 1.5rem 4rem rgba(15, 23, 42, 0.2);
+}
+
+.automation-editor-modal .resource-modal-header {
+  padding-block: 0.8rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.automation-editor-modal .resource-form {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.automation-editor-modal .automation-editor-body {
+  min-height: 0;
+  padding: 0.85rem 1rem 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.automation-editor-modal .resource-form-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.automation-editor-modal .automation-step-type-row {
+  position: sticky;
+  top: -0.85rem;
+  z-index: 5;
+  margin: -0.85rem -1rem 0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.automation-editor-modal .automation-type-pill {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.7rem;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-weight: 750;
+}
+
+.automation-editor-modal .automation-type-pill:hover {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+}
+
+.automation-editor-modal .automation-type-pill.is-active {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
+  color: var(--primary-strong);
+  box-shadow: 0 0.2rem 0.6rem color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.automation-editor-context {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 15%, var(--border-subtle));
+  border-radius: 10px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--primary) 7%, var(--surface)), var(--surface));
+}
+
+.automation-editor-context > span {
+  padding: 0.26rem 0.48rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--primary) 11%, var(--surface));
+  color: var(--primary-strong);
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.automation-editor-context > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.automation-editor-context strong {
+  color: var(--text-primary);
+  font-size: 0.84rem;
+}
+
+.automation-editor-context small {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.automation-editor-context--api {
+  border-color: color-mix(in srgb, #7c3aed 18%, var(--border-subtle));
+  background: linear-gradient(120deg, color-mix(in srgb, #7c3aed 6%, var(--surface)), var(--surface));
+}
+
+.automation-editor-context--api > span {
+  background: color-mix(in srgb, #7c3aed 10%, var(--surface));
+  color: #6d28d9;
+}
+
+.automation-api-request-bar {
+  position: sticky;
+  top: 2.65rem;
+  z-index: 4;
+  grid-template-columns: minmax(7rem, 0.18fr) minmax(20rem, 1fr);
+  align-items: end;
+  padding: 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  box-shadow: 0 0.45rem 1.2rem rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.automation-editor-modal .automation-api-editor,
+.automation-editor-modal .automation-grid-stack {
+  gap: 0.7rem;
+}
+
+.automation-editor-modal .automation-request-details,
+.automation-editor-modal .automation-response-shell,
+.automation-editor-modal .detail-summary {
+  border-radius: 10px;
+}
+
+.automation-editor-modal .automation-response-shell {
+  padding: 0.8rem;
+  background: color-mix(in srgb, var(--surface) 96%, #eff6ff 4%);
+}
+
+.automation-editor-modal .automation-response-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+}
+
+.repository-screen-create-readiness,
+.object-repository-capture-signals {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.repository-screen-create-readiness {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 96%, #e8eef9 4%);
+}
+
+.repository-screen-create-readiness span,
+.object-repository-capture-signals span {
+  display: inline-flex;
+  min-height: 1.45rem;
+  align-items: center;
+  padding: 0.16rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #64748b 9%, transparent);
+  color: var(--text-secondary);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.repository-screen-create-readiness span::before,
+.object-repository-capture-signals span::before {
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-right: 0.28rem;
+  border-radius: 999px;
+  background: #94a3b8;
+  content: "";
+}
+
+.repository-screen-create-readiness span.is-ready,
+.object-repository-capture-signals span.is-ready {
+  background: color-mix(in srgb, #16a34a 10%, transparent);
+  color: #15803d;
+}
+
+.repository-screen-create-readiness span.is-ready::before,
+.object-repository-capture-signals span.is-ready::before {
+  background: #16a34a;
+}
+
+.repository-screen-create-readiness small {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 0.66rem;
+}
+
+.object-repository-capture-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.42rem;
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border-subtle));
+  border-radius: 8px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 5%, var(--surface)), var(--surface));
+}
+
+.object-repository-capture-context-title,
+.object-repository-capture-context label {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.object-repository-capture-context-title {
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.object-repository-capture-context-title > span,
+.object-repository-capture-context label > span {
+  color: var(--text-secondary);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.object-repository-capture-context-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-capture-context-title small {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.object-repository-capture-context input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 0.7rem;
+}
+
+.object-repository-capture-signals {
+  grid-column: 1 / -1;
+  gap: 0.25rem;
+}
+
+.object-repository-capture-signals span.is-risk {
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  color: #b91c1c;
+}
+
+.object-repository-capture-signals span.is-risk::before {
+  background: #dc2626;
+}
+
+@media (max-width: 760px) {
+  .automation-editor-modal {
+    width: calc(100vw - 0.75rem);
+    max-height: calc(100dvh - 0.75rem);
+  }
+
+  .automation-editor-context,
+  .object-repository-capture-context,
+  .automation-api-request-bar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .automation-editor-context > span,
+  .object-repository-capture-context-title,
+  .object-repository-capture-signals {
+    grid-column: 1;
+  }
+
+  .automation-api-request-bar {
+    position: static;
+  }
+
+  .automation-editor-modal .automation-response-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .repository-screen-create-readiness small {
+    width: 100%;
+    margin-left: 0;
   }
 }

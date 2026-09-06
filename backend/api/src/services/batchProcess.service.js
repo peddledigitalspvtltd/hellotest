@@ -1,4 +1,5 @@
 const db = require("../db");
+const { normalizeScheduledAt } = require("../utils/automationSchedule");
 const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -16,9 +17,10 @@ const insertJob = obsDb.prepare(`
     transaction_id,
     operation,
     payload,
-    status
+    status,
+    next_run_at
   )
-  VALUES (?, ?, ?, ?, 'queued')
+  VALUES (?, ?, ?, ?, 'queued', ?)
 `);
 
 const selectQueuedJobs = obsDb.prepare(`
@@ -270,8 +272,10 @@ exports.queueBatchJob = async ({
   related_id,
   created_by,
   operation,
-  payload
+  payload,
+  scheduled_at
 } = {}) => {
+  const scheduledAt = normalizeScheduledAt(scheduled_at);
   const normalizedOperation = normalizeText(operation || action);
 
   if (!normalizedOperation) {
@@ -293,7 +297,8 @@ exports.queueBatchJob = async ({
       imported: 0,
       progress_percent: 0,
       current_phase: "queued",
-      ...metadata
+      ...metadata,
+      ...(scheduledAt ? { scheduled_at: scheduledAt } : {})
     },
     related_kind,
     related_id,
@@ -302,7 +307,7 @@ exports.queueBatchJob = async ({
   const transaction = await workspaceTransactionService.getTransaction(createdTransaction.id);
   const id = uuid();
 
-  await insertJob.run(id, transaction.id, normalizedOperation, normalizePayload(payload));
+  await insertJob.run(id, transaction.id, normalizedOperation, normalizePayload(payload), scheduledAt);
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {
     phase: "queued",
     message: `${transaction.title} queued for background processing.`,
@@ -323,7 +328,8 @@ exports.queueBatchJob = async ({
     transaction_id: transaction.id,
     job_id: id,
     queued: true,
-    status: "queued"
+    status: "queued",
+    scheduled_at: scheduledAt
   };
 };
 
@@ -472,6 +478,7 @@ exports.queueAutomationBuild = async ({
   test_data_set_id,
   failure_threshold,
   additional_context,
+  scheduled_at,
   created_by
 } = {}) => {
   const appType = app_type_id ? await selectAppType.get(app_type_id) : null;
@@ -497,6 +504,7 @@ exports.queueAutomationBuild = async ({
       current_phase: "queued"
     },
     created_by,
+    scheduled_at,
     operation: "automation_build",
     payload: {
       app_type_id,

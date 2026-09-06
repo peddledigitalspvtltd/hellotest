@@ -17,6 +17,7 @@ import {
   IconLoader2,
   IconMessageCircle,
   IconPlayerPlay,
+  IconRefresh,
   IconSearch,
   IconSettings,
   IconShieldCheck,
@@ -28,6 +29,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "../lib/api";
 import { SelectionToggleIcon } from "./AppIcons";
+import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
 import { asArray } from "../lib/collectionGuards";
 import type {
   Execution,
@@ -65,6 +67,8 @@ type KnowledgeContextStudioProps = {
   onError: (error: unknown, fallback: string) => void;
   onSuccess: (message: string) => void;
   projectId: string;
+  initialSourceId?: string;
+  initialRevisionId?: string;
 };
 
 const emptySelectedRecords = (): KnowledgeSelectedRecords => ({
@@ -135,12 +139,14 @@ function processingNoticeText(notice: unknown) {
   if (typeof notice === "string") return notice.trim() || "Processing notice";
   if (!notice || typeof notice !== "object") return "Processing notice";
 
-  const value = notice as { code?: unknown; input_index?: unknown; message?: unknown; source_id?: unknown };
+  const value = notice as { code?: unknown; error_fingerprint?: unknown; input_index?: unknown; message?: unknown; source_id?: unknown; stage?: unknown };
   const message = typeof value.message === "string" && value.message.trim() ? value.message.trim() : "Processing notice";
   const details: string[] = [];
   if (typeof value.code === "string" && value.code.trim()) details.push(`Code ${value.code.trim()}`);
+  if (typeof value.stage === "string" && value.stage.trim()) details.push(`Stage ${humanize(value.stage.trim())}`);
   if (typeof value.source_id === "string" && value.source_id.trim()) details.push(`Source ${value.source_id.trim()}`);
   if (typeof value.input_index === "number" && Number.isFinite(value.input_index)) details.push(`Input index ${value.input_index}`);
+  if (typeof value.error_fingerprint === "string" && value.error_fingerprint.trim()) details.push(`Ref ${value.error_fingerprint.trim().slice(0, 12)}`);
   return details.length ? `${message} · ${details.join(" · ")}` : message;
 }
 
@@ -237,11 +243,11 @@ function idempotencyPrefix() {
   return `knowledge-build:${randomId}`;
 }
 
-export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSuccess, projectId }: KnowledgeContextStudioProps) {
+export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSuccess, projectId, initialSourceId = "", initialRevisionId = "" }: KnowledgeContextStudioProps) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const buildAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<StudioTab>("build");
+  const [activeTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "build");
   const [activeRecordKind, setActiveRecordKind] = useState<RecordKind>("requirements");
   const [recordSearch, setRecordSearch] = useState("");
   const [selectedRecords, setSelectedRecords] = useState<KnowledgeSelectedRecords>(emptySelectedRecords);
@@ -257,6 +263,9 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const [recentSubmittedJobs, setRecentSubmittedJobs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState<KnowledgeSearchMode>("hybrid");
+  const [searchAsOf, setSearchAsOf] = useState("");
+  const [selectedDetailSourceId, setSelectedDetailSourceId] = useState(initialSourceId);
+  const [selectedDetailRevisionId, setSelectedDetailRevisionId] = useState(initialRevisionId);
   const [searchSourceKinds, setSearchSourceKinds] = useState<string[]>([]);
   const [searchCollectionId, setSearchCollectionId] = useState("");
   const [selectedSearchSources, setSelectedSearchSources] = useState<string[]>([]);
@@ -283,8 +292,8 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
     enabled: Boolean(projectId)
   });
   const sourcesQuery = useQuery({
-    queryKey: ["knowledge-sources", projectId],
-    queryFn: () => api.knowledgeRepo.sources(projectId),
+    queryKey: ["knowledge-sources", projectId, canManage],
+    queryFn: () => api.knowledgeRepo.sources(projectId, { includeArchived: canManage }),
     enabled: Boolean(projectId)
   });
   const requirementsQuery = useQuery({
@@ -432,7 +441,8 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
       filters: {
         app_type_id: appTypeId || null,
         collection_ids: searchCollectionId ? [searchCollectionId] : [],
-        source_kinds: searchSourceKinds
+        source_kinds: searchSourceKinds,
+        ...(canManage && searchAsOf ? { as_of: new Date(searchAsOf).toISOString() } : {})
       }
     }),
     onError: (error) => onError(error, "Knowledge search failed.")
@@ -475,12 +485,23 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
       void queryClient.invalidateQueries({ queryKey: ["knowledge-overview", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["knowledge-collections", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["knowledge", projectId] });
-      onSuccess("Source and its searchable index were removed from this project.");
+      onSuccess("Source archived from current retrieval. Its revision history is retained.");
     },
     onError: (error) => {
       setArmedSourceDeleteId("");
       onError(error, "Unable to remove this knowledge source.");
     }
+  });
+
+  const retryIngestionMutation = useMutation({
+    mutationFn: (id: string) => api.knowledgeRepo.ingestions.retry(id),
+    onSuccess: (response) => {
+      setRecentSubmittedJobs((current) => [...new Set([...current, response.job.id])]);
+      void queryClient.invalidateQueries({ queryKey: ["knowledge-overview", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["knowledge-sources", projectId] });
+      onSuccess(`Retry ${response.job.config?.retry_count || 1} queued for ${response.job.config?.title || "the Knowledge source"}.`);
+    },
+    onError: (error) => onError(error, "Unable to retry this Knowledge ingestion.")
   });
 
   const addSearchSourcesMutation = useMutation({
@@ -536,18 +557,25 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           <div>
             <span className="eyebrow">Retrieval knowledge plane</span>
             <h2>Turn project evidence into trusted, searchable context</h2>
-            <p>Ingest selected HelloTest records and uploaded material through extraction, redaction, semantic chunking, embeddings, and hybrid retrieval. Every answer stays traceable to its sources.</p>
+            <p>Ingest selected HelloTest records and uploaded material through extraction, redaction, structure-aware chunking, governed embeddings, and hybrid retrieval. Every answer stays traceable to its sources.</p>
           </div>
         </div>
         <div className="knowledge-studio-health" aria-label="Knowledge system health">
-          <span className={overview?.capabilities?.embedding?.configured ? "is-ready" : "is-warning"}>
-            <i /> {overview?.capabilities?.embedding?.configured ? "Embeddings ready" : "Embeddings need setup"}
+          <span className="is-ready" title={overview?.capabilities?.embedding?.configured ? "Using the governed LLM integration for embeddings" : "Using deterministic local vectors with lexical retrieval; no separate embedding configuration is required"}>
+            <i /> {overview?.capabilities?.embedding?.configured ? "Governed embeddings" : "Hybrid fallback ready"}
           </span>
           <span className={overview?.capabilities?.hybrid_search ? "is-ready" : "is-warning"}>
             <i /> {overview?.capabilities?.hybrid_search ? "Hybrid search" : "Keyword fallback"}
           </span>
           <span className="is-ready">
             <i /> Governed provider resolution
+          </span>
+          <span className={overview?.capabilities?.context_processing?.refresh_recommended ? "is-warning" : "is-ready"} title={overview?.capabilities?.context_processing?.hierarchy_strategy}>
+            <i /> {overview?.capabilities?.context_processing?.refresh_recommended
+              ? "Context refresh recommended"
+              : overview?.capabilities?.context_processing?.average_score !== null && overview?.capabilities?.context_processing?.average_score !== undefined
+                ? `Context quality ${overview.capabilities.context_processing.average_score}/100`
+                : "Structure-aware context"}
           </span>
         </div>
       </div>
@@ -828,12 +856,14 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
             <div className="knowledge-search-filters">
               <label><span>Retrieval</span><select onChange={(event) => setSearchMode(event.target.value as KnowledgeSearchMode)} value={searchMode}><option value="hybrid">Hybrid · recommended</option><option value="semantic">Semantic</option><option value="keyword">Exact keyword</option></select></label>
               <label><span>Collection</span><select onChange={(event) => setSearchCollectionId(event.target.value)} value={searchCollectionId}><option value="">All collections</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
+              {canManage ? <label><span>Knowledge as of</span><input aria-label="Historical knowledge date; leave empty for current" onChange={(event) => setSearchAsOf(event.target.value)} type="datetime-local" value={searchAsOf} />{searchAsOf ? <button className="ghost-button compact" onClick={() => setSearchAsOf("")} type="button">Use current</button> : null}</label> : null}
               <fieldset><legend>Source types</legend>{[["requirement", "Stories"], ["test_case", "Cases"], ["execution", "Runs"], ["bug", "Bugs"], ["file", "Files"], ["text", "Notes"]].map(([value, label]) => <label className={searchSourceKinds.includes(value) ? "is-active" : ""} key={value}><input checked={searchSourceKinds.includes(value)} onChange={(event) => setSearchSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((kind) => kind !== value))} type="checkbox" />{label}</label>)}</fieldset>
             </div>
           </form>
           {searchMutation.data ? (
             <div className="knowledge-search-summary">
-              <span><strong>{results.length}</strong> grounded passages</span>
+              <span><strong>{results.length}</strong> matching passages</span>
+              <span>{searchAsOf ? `Historical · ${new Date(searchAsOf).toLocaleString()}` : "Current searchable revisions"}</span>
               <span>{searchMutation.data.retrieval?.candidate_count || results.length} candidates evaluated</span>
               <span>{searchMutation.data.retrieval?.vector_mode || searchMode} retrieval</span>
               {canManage && searchCollectionId && selectedSearchSources.length ? <button className="ghost-button" disabled={addSearchSourcesMutation.isPending} onClick={() => addSearchSourcesMutation.mutate()} type="button">Save {selectedSearchSources.length} source{selectedSearchSources.length === 1 ? "" : "s"} to collection</button> : null}
@@ -854,6 +884,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     </div>
                     <p>{result.excerpt || result.content || "No preview text returned."}</p>
                     <div className="knowledge-search-result-meta">
+                      {result.source_id ? <button className="ghost-button compact" onClick={() => { setSelectedDetailRevisionId(searchAsOf ? result.knowledge_id || result.document_id || "" : ""); setSelectedDetailSourceId(String(result.source_id)); }} type="button">Inspect source<IconChevronRight size={13} /></button> : null}
                       <span><IconShieldCheck size={14} /> Citable source</span>
                       {score !== null ? <span><strong>{score}%</strong> relevance</span> : null}
                       {normalizedScore(result.semantic_score) !== null ? <span>{normalizedScore(result.semantic_score)}% semantic</span> : null}
@@ -892,13 +923,13 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               const indexed = source.extraction_status === "ready" && Number(source.chunk_count || 0) > 0;
               const extracted = source.extraction_status === "ready" && !indexed && Number(source.document_count || 0) > 0;
               const needsText = source.extraction_status === "needs_extraction";
-              const readiness = indexed ? "Indexed & searchable" : extracted ? "Text extracted" : needsText ? (String(source.mime_type || "").startsWith("image/") ? "Caption required" : String(source.mime_type || "").match(/^(audio|video)\//) ? "Transcript required" : "Extracted text required") : source.extraction_status === "failed" ? "Processing failed" : source.extraction_status === "processing" ? "Processing" : "Stored only";
+              const readiness = source.extraction_status === "archived" ? "Archived" : indexed ? "Indexed & searchable" : extracted ? "Text extracted" : needsText ? (String(source.mime_type || "").startsWith("image/") ? "Caption required" : String(source.mime_type || "").match(/^(audio|video)\//) ? "Transcript required" : "Extracted text required") : source.extraction_status === "failed" ? "Processing failed" : source.extraction_status === "processing" ? "Processing" : "Stored only";
               const collectionNames = (source.collection_ids || []).map((id) => collections.find((collection) => collection.id === id)?.name || id).slice(0, 3);
               return (
                 <article className={`knowledge-source-inventory-row is-${source.extraction_status}`} key={source.id}>
                   <div className="knowledge-inventory-kind"><IconFileText size={19} /></div>
                   <div className="knowledge-inventory-copy">
-                    <div><span className="badge badge-neutral">{humanize(source.source_kind)}</span><strong>{source.title}</strong></div>
+                    <div><span className="badge badge-neutral">{humanize(source.source_kind)}</span><button className="knowledge-source-title-button" onClick={() => setSelectedDetailSourceId(source.id)} type="button">{source.title}</button></div>
                     <small>{source.file_name || source.source_ref_id || source.id}{source.mime_type ? ` · ${source.mime_type}` : ""}{source.size_bytes ? ` · ${formatBytes(source.size_bytes)}` : ""}</small>
                     {collectionNames.length ? <span className="knowledge-inventory-collections">{collectionNames.map((name) => <i key={name}>{name}</i>)}</span> : null}
                   </div>
@@ -906,8 +937,9 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     <span className={`is-${indexed ? "indexed" : extracted ? "extracted" : needsText ? "action" : source.extraction_status === "failed" ? "failed" : "stored"}`}><i /> {readiness}</span>
                     <small>{source.document_count || 0} document{source.document_count === 1 ? "" : "s"} · {source.chunk_count || 0} chunk{source.chunk_count === 1 ? "" : "s"}</small>
                   </div>
-                  {canManage ? <button
-                    aria-label={armedSourceDeleteId === source.id ? `Confirm removal of ${source.title}` : `Remove ${source.title}`}
+                  <button className="ghost-button compact knowledge-source-inspect" onClick={() => setSelectedDetailSourceId(source.id)} type="button">Details<IconChevronRight size={14} /></button>
+                  {canManage && source.extraction_status !== "archived" ? <button
+                    aria-label={armedSourceDeleteId === source.id ? `Confirm archive of ${source.title}` : `Archive ${source.title}`}
                     className={`knowledge-source-remove${armedSourceDeleteId === source.id ? " is-armed" : ""}`}
                     disabled={deleteSourceMutation.isPending}
                     onBlur={() => { if (armedSourceDeleteId === source.id) setArmedSourceDeleteId(""); }}
@@ -916,7 +948,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                       else setArmedSourceDeleteId(source.id);
                     }}
                     type="button"
-                  ><IconTrash size={15} /><span>{armedSourceDeleteId === source.id ? "Confirm" : "Remove"}</span></button> : null}
+                  ><IconTrash size={15} /><span>{armedSourceDeleteId === source.id ? "Confirm" : "Archive"}</span></button> : null}
                 </article>
               );
             })}
@@ -975,6 +1007,19 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     <div className="knowledge-job-meta"><span>{job.processed_count ?? job.processed_sources ?? 0}/{job.input_count ?? job.total_sources ?? job.sources?.length ?? 0} inputs</span><span>{job.failed_count || 0} failed</span><span>{job.chunk_count || 0} chunks</span><span>{humanize(job.stage || status)}</span></div>
                     {warningMessages.length ? <div className="knowledge-job-warnings">{warningMessages.map((warning, index) => <span key={`warning-${index}-${warning}`}>{warning}</span>)}</div> : null}
                     {errorMessages.length ? <div className="knowledge-job-error">{errorMessages.map((error, index) => <span key={`error-${index}-${error}`}>{error}</span>)}</div> : null}
+                    {status === "failed" && job.can_retry !== false && canManage ? (
+                      <div className="knowledge-job-actions">
+                        <button
+                          className="ghost-button compact"
+                          disabled={retryIngestionMutation.isPending}
+                          onClick={() => retryIngestionMutation.mutate(job.id)}
+                          type="button"
+                        >
+                          <IconRefresh className={retryIngestionMutation.isPending && retryIngestionMutation.variables === job.id ? "spin" : undefined} size={14} />
+                          Retry retained source
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -990,6 +1035,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           </div>
         </div>
       ) : null}
+      {selectedDetailSourceId ? <KnowledgeSourceDetail canManage={canManage} initialRevisionId={selectedDetailRevisionId} key={`${selectedDetailSourceId}:${selectedDetailRevisionId}`} onChanged={() => { void sourcesQuery.refetch(); void overviewQuery.refetch(); }} onClose={() => { setSelectedDetailSourceId(""); setSelectedDetailRevisionId(""); }} projectId={projectId} sourceId={selectedDetailSourceId} /> : null}
     </section>
   );
 }

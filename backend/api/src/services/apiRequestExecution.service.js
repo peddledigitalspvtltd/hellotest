@@ -1,7 +1,7 @@
 const { normalizeApiRequest } = require("../utils/testStepAutomation");
 const { materializeTemplateValue } = require("../utils/testDataGenerators");
 
-const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\]\\\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi;
 const API_PREVIEW_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const RETRYABLE_RESPONSE_STATUSES = new Set([429, 502, 503, 504]);
@@ -35,7 +35,14 @@ const stringifyValue = (value) => {
   }
 };
 
-const normalizeContextKey = (value) => normalizeText(String(value || "").replace(/^@+/, "")).toLowerCase();
+const normalizeContextKey = (value) => {
+  const key = normalizeText(String(value || "").replace(/^@+/, ""));
+  const scoped = key.match(/^([tsr])\.(.+)$/i);
+  const rawName = scoped?.[2] || key;
+  const quoted = rawName.match(/^\[((?:\\.|[^\]\\\r\n])+)\]$/);
+  const name = (quoted ? quoted[1].replace(/\\([\\\]])/g, "$1") : rawName).trim().toLowerCase();
+  return scoped ? `${scoped[1].toLowerCase()}.${name}` : name;
+};
 const GENERATED_CONTEXT_ALIASES = {
   "t.random": "{{randomString:3}}",
   random: "{{randomString:3}}",
@@ -240,7 +247,7 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
     return stringifyValue(values[normalizedKey]);
   }
 
-  if (!normalizedKey.includes(".")) {
+  if (!/^[tsr]\./.test(normalizedKey)) {
     const scoped = `${fallbackScope}.${normalizedKey}`;
 
     if (
@@ -267,8 +274,9 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
 };
 
 const interpolateText = (value, parameterValues = {}) =>
-  String(value || "").replace(STEP_PARAMETER_PATTERN, (_match, scope, rawName) => {
-    const normalizedKey = scope ? `${String(scope).toLowerCase()}.${String(rawName).toLowerCase()}` : String(rawName).toLowerCase();
+  String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, rawName, offset, source) => {
+    if (!scope && /^[tsr]$/i.test(rawName) && source[offset + token.length] === ".") return token;
+    const normalizedKey = scope ? `${scope}.${rawName}` : rawName;
     return resolveContextValue(parameterValues, normalizedKey, scope ? String(scope).toLowerCase() : "t");
   });
 
@@ -277,18 +285,25 @@ const resolveApiRequestParameters = (request, parameterValues = {}) => {
     return null;
   }
 
+  const contextValues = Object.fromEntries(Object.entries(parameterValues).map(([key, value]) => [normalizeContextKey(key), value]));
+
   return {
     ...request,
-    url: interpolateText(request.url, parameterValues),
-    body: interpolateText(request.body, parameterValues),
+    url: interpolateText(request.url, contextValues),
+    body: interpolateText(request.body, contextValues),
     headers: (request.headers || []).map((header) => ({
-      key: interpolateText(header.key, parameterValues),
-      value: interpolateText(header.value, parameterValues)
+      key: interpolateText(header.key, contextValues),
+      value: interpolateText(header.value, contextValues)
     })),
     validations: (request.validations || []).map((validation) => ({
       ...validation,
-      target: interpolateText(validation.target, parameterValues),
-      expected: interpolateText(validation.expected, parameterValues)
+      target: interpolateText(validation.target, contextValues),
+      expected: interpolateText(validation.expected, contextValues)
+    })),
+    captures: (request.captures || []).map((capture) => ({
+      ...capture,
+      // The output parameter keeps its name; only the input path is resolved.
+      path: interpolateText(capture.path, contextValues)
     }))
   };
 };

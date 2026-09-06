@@ -5,6 +5,8 @@ const attachmentService = require("../services/attachment.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const knowledgeSourceLifecycleService = require("../services/knowledgeSourceLifecycle.service");
+const knowledgeAuthorization = require("../services/knowledgeAuthorization.service");
+const { streamKnowledge } = require("../utils/knowledgeStream");
 const { config } = require("../config");
 
 const parseJsonField = (value, fallback) => {
@@ -188,6 +190,15 @@ module.exports = async function (fastify) {
     return job;
   });
 
+  fastify.post("/knowledge/ingestions/:id/retry", async (req, reply) => {
+    await fastify.authenticate(req);
+    const job = await knowledgeRagService.getIngestionJob(req.params.id, { user: req.user });
+    await ensureProjectAccess(req, job.project_id, "knowledge.manage");
+    const accepted = await knowledgeRagService.retryIngestion({ id: req.params.id, user: req.user });
+    reply.code(202).header("Location", accepted.status_url).header("Retry-After", "3");
+    return accepted;
+  });
+
   fastify.post("/knowledge/search", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, query: { required: true, type: "string" } }, req.body || {});
@@ -208,13 +219,13 @@ module.exports = async function (fastify) {
     const allowedSourcePermissions = await knowledgeRagService.resolveAllowedSourcePermissions(req.user, req.query.project_id);
     return knowledgeSourceLifecycleService.list({
       projectId: req.query.project_id,
-      allowedSourcePermissions
+      allowedSourcePermissions, user: req.user, includeArchived: req.query.include_archived === "true"
     });
   });
 
   fastify.get("/knowledge/sources/:id/file", async (req, reply) => {
     await fastify.authenticate(req);
-    const source = await knowledgeSourceLifecycleService.getDownload(req.params.id);
+    const source = await knowledgeSourceLifecycleService.getDownload(req.params.id, { user: req.user });
     await ensureProjectAccess(req, source.project_id, "knowledge.view");
     if (source.required_permission) {
       await fastify.requirePermission(source.required_permission, { projectId: source.project_id })(req);
@@ -321,30 +332,77 @@ module.exports = async function (fastify) {
     return knowledgeAssistantService.getSession({ id: req.params.id, user: req.user, includeMessages: true });
   });
 
-  fastify.post("/knowledge/assistant/sessions/:id/messages", async (req, reply) => {
+  fastify.get("/knowledge/sources/:id", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({
-      message: { required: true, type: "string" },
-      integration_id: { required: false, type: "string", maxLength: 255 },
-      smart_context: { required: false, type: "object" }
-    }, req.body || {});
+    const source = await knowledgeSourceLifecycleService.get(req.params.id);
+    await ensureProjectAccess(req, source.project_id, "knowledge.view");
+    return knowledgeSourceLifecycleService.getDetail(req.params.id, { user: req.user, revisionId: req.query.revision_id, asOf: req.query.as_of });
+  });
+
+  fastify.get("/knowledge/sources/:id/revisions", async (req) => {
+    await fastify.authenticate(req);
+    const source = await knowledgeSourceLifecycleService.get(req.params.id);
+    await ensureProjectAccess(req, source.project_id, "knowledge.manage");
+    return knowledgeSourceLifecycleService.listRevisions(req.params.id, { user: req.user });
+  });
+
+  fastify.put("/knowledge/sources/:id/security", async (req) => {
+    await fastify.authenticate(req);
+    const source = await knowledgeSourceLifecycleService.get(req.params.id);
+    await ensureProjectAccess(req, source.project_id, "knowledge.manage");
+    return knowledgeAuthorization.replaceBindings({ sourceId: req.params.id, bindings: req.body?.bindings, user: req.user });
+  });
+
+  fastify.patch("/knowledge/assistant/sessions/:id", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ title: { required: false, type: "string", maxLength: 240 }, status: { required: false, type: "string" } }, req.body || {});
     const session = await knowledgeAssistantService.getSession({ id: req.params.id, user: req.user, includeMessages: false });
     await ensureProjectAccess(req, session.project_id, "knowledge.view");
-    const clientTurnId = String(req.body.client_turn_id || req.headers["idempotency-key"] || "").trim();
-    if (clientTurnId && !/^[A-Za-z0-9._:-]{8,255}$/.test(clientTurnId)) {
-      const error = new Error("client_turn_id must be 8-255 characters using letters, numbers, dot, underscore, colon, or hyphen.");
-      error.statusCode = 400;
-      throw error;
+    return knowledgeAssistantService.updateSession({ id: req.params.id, title: req.body?.title, status: req.body?.status, user: req.user });
+  });
+
+  const prepareTurn = async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ message: { required: true, type: "string", maxLength: 8000 }, integration_id: { required: false, type: "string", maxLength: 255 }, smart_context: { required: false, type: "object" }, retrieval_budgets: { required: false, type: "object" }, filters: { required: false, type: "object" } }, req.body || {});
+    if (req.body.response_mode && !["answer", "evidence"].includes(req.body.response_mode)) {
+      throw Object.assign(new Error("response_mode must be answer or evidence."), { statusCode: 400 });
     }
-    const result = await knowledgeAssistantService.respond({
-      sessionId: req.params.id,
-      message: req.body.message,
-      filters: req.body.filters,
-      smartContext: req.body.smart_context,
-      integrationId: req.body.integration_id,
-      clientTurnId: clientTurnId || null,
-      user: req.user
-    });
+    const session = await knowledgeAssistantService.getSession({ id: req.params.id, user: req.user, includeMessages: false });
+    await ensureProjectAccess(req, session.project_id, "knowledge.view");
+    if (session.status !== "active") throw Object.assign(new Error("This knowledge conversation is archived."), { statusCode: 409 });
+    const clientTurnId = String(req.body.client_turn_id || req.headers["idempotency-key"] || "").trim();
+    if (clientTurnId && !/^[A-Za-z0-9._:-]{8,255}$/.test(clientTurnId)) throw Object.assign(new Error("client_turn_id must be 8-255 characters using letters, numbers, dot, underscore, colon, or hyphen."), { statusCode: 400 });
+    return { sessionId: req.params.id, message: req.body.message, filters: req.body.filters, smartContext: req.body.smart_context, integrationId: req.body.integration_id, retrievalBudgets: req.body.retrieval_budgets, responseMode: req.body.response_mode || "answer", clientTurnId: clientTurnId || null, user: req.user };
+  };
+
+  fastify.post("/knowledge/assistant/sessions/:id/messages/stream", async (req, reply) => {
+    const input = await prepareTurn(req);
+    return streamKnowledge(req, reply, (stream) => knowledgeAssistantService.respond({ ...input, ...stream }));
+  });
+
+  const prepareContext = async (req) => {
+    await fastify.authenticate(req);
+    const version = req.body?.contract_version;
+    if ((req.body?.contract_type && req.body.contract_type !== "RetrievalRequest") || (version && !["1.0", "RetrievalRequest.v1"].includes(version))) {
+      throw Object.assign(new Error("Only RetrievalRequest contract version 1.0 is supported."), { statusCode: 422, code: "ERR_CONTRACT_VERSION" });
+    }
+    fastify.validate({ project_id: { required: true, type: "string" }, query: { required: true, type: "string", maxLength: 8000 }, filters: { required: false, type: "object" }, budgets: { required: false, type: "object" } }, req.body || {});
+    await ensureProjectAccess(req, req.body.project_id, "knowledge.view");
+    const appTypeId = req.body.app_type_id || req.body.filters?.app_type_id;
+    await validateAppTypeScope(req.body.project_id, appTypeId);
+    // Identity, roles, and permission filters are never accepted from the body.
+    return { projectId: req.body.project_id, appTypeId, query: req.body.query, filters: req.body.filters, budgets: req.body.budgets, user: req.user };
+  };
+
+  fastify.post("/v1/context/retrieve", async (req) => knowledgeAssistantService.retrieve(await prepareContext(req)));
+  fastify.post("/v1/context/retrieve-stream", async (req, reply) => {
+    const input = await prepareContext(req);
+    return streamKnowledge(req, reply, (stream) => knowledgeAssistantService.retrieve({ ...input, ...stream }));
+  });
+
+  fastify.post("/knowledge/assistant/sessions/:id/messages", async (req, reply) => {
+    const input = await prepareTurn(req);
+    const result = await knowledgeAssistantService.respond(input);
     if (result.pending) reply.code(202).header("Retry-After", String(result.retry_after_seconds || 3));
     return result;
   });

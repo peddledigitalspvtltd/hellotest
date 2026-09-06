@@ -70,6 +70,15 @@ test("execution routes and background services enforce the retained mobile featu
   assert.match(mobileService, /error\.statusCode = 403/);
 });
 
+test("iOS authoring is dispatched through the shared Appium mobile engine", async () => {
+  const dispatchService = await readSource("../src/services/testEngineDispatch.service.js");
+
+  assert.match(dispatchService, /if \(normalized === "ios"\) \{\s*return "android";/);
+  assert.match(dispatchService, /stepTypes\.has\("android"\) \|\| stepTypes\.has\("ios"\)/);
+  assert.match(dispatchService, /appTypeKind === "ios"/);
+  assert.match(dispatchService, /integrationConfig\.ios_app/);
+});
+
 test("service-level authoring guards protect accepted and background-imported cases", async () => {
   const [testCaseService, testStepService, sharedGroupService, recorderService] = await Promise.all([
     readSource("../src/services/testCase.service.js"),

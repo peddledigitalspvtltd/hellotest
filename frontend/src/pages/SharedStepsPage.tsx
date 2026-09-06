@@ -16,7 +16,7 @@ import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
-import { composeSharedStepGherkin, parseSharedStepGherkin, SharedStepGherkinEditor } from "../components/SharedStepGherkinEditor";
+import { SharedStepGherkinEditor } from "../components/SharedStepGherkinEditor";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
@@ -39,7 +39,7 @@ import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay
 import { asArray } from "../lib/collectionGuards";
 import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import { gherkinToStructuredCase, structuredCaseToGherkin } from "../lib/gherkin";
+import { composeSharedStepGherkin, mergeGherkinStepMetadata, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin } from "../lib/gherkin";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { hasPermission } from "../lib/permissions";
@@ -122,7 +122,7 @@ const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
   name: group.name,
   description: group.description || "",
   authoring_mode: group.authoring_mode === "gherkin" ? "gherkin" : "structured",
-  gherkin_document: group.gherkin_document || structuredCaseToGherkin({ title: group.name, steps: asArray(group.steps) }),
+  gherkin_document: composeSharedStepGherkin(parseSharedStepGherkin(group.gherkin_document || structuredStepsToSharedGherkin(asArray(group.steps)))),
   steps: asArray(group.steps).map((step) => ({
     id: step.id || createDraftStepId(),
     action: step.action || "",
@@ -357,15 +357,7 @@ export function SharedStepsPage() {
 
   const authoredSharedSteps = useMemo<SharedGroupDraftStep[]>(() => {
     if (groupDraft.authoring_mode !== "gherkin") return groupDraft.steps;
-    const converted = gherkinToStructuredCase(groupDraft.gherkin_document);
-    return [...converted.preconditions, ...converted.steps].map((step, index) => ({
-      id: `gherkin-shared-step-${index + 1}`,
-      action: step.action,
-      expected_result: step.expected_result,
-      step_type: "web",
-      automation_code: "",
-      api_request: null
-    }));
+    return mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(groupDraft.gherkin_document), groupDraft.steps, createEmptyDraftStep);
   }, [groupDraft.authoring_mode, groupDraft.gherkin_document, groupDraft.steps]);
 
   const visualSharedSteps = useMemo<TestStep[]>(
@@ -1001,19 +993,18 @@ export function SharedStepsPage() {
     setSelectedStepIds([]);
     setGroupDraft((current) => {
       if (authoringMode === "gherkin") {
+        const previousBehavior = structuredStepsToSharedGherkin(sharedStepGherkinToStructuredSteps(current.gherkin_document));
+        const nextBehavior = structuredStepsToSharedGherkin(current.steps);
         return {
           ...current,
           authoring_mode: "gherkin",
-          gherkin_document: structuredCaseToGherkin({ title: current.name, steps: current.steps })
+          gherkin_document: previousBehavior === nextBehavior
+            ? composeSharedStepGherkin(parseSharedStepGherkin(current.gherkin_document))
+            : nextBehavior
         };
       }
 
-      const converted = gherkinToStructuredCase(current.gherkin_document);
-      const steps = [...converted.preconditions, ...converted.steps].map((step) => ({
-        ...createEmptyDraftStep(),
-        action: step.action,
-        expected_result: step.expected_result
-      }));
+      const steps = mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(current.gherkin_document), current.steps, createEmptyDraftStep);
       return { ...current, authoring_mode: "structured", steps };
     });
   };
@@ -1034,7 +1025,7 @@ export function SharedStepsPage() {
     const steps = normalizeGroupSteps(authoredSharedSteps);
     const parameterValues = filterStepParameterValues(normalizeStepParameterValues(sharedParameterValues), detectedSharedParameters);
     const gherkinDocument = groupDraft.authoring_mode === "gherkin"
-      ? composeSharedStepGherkin(groupDraft.name, parseSharedStepGherkin(groupDraft.gherkin_document))
+      ? composeSharedStepGherkin(parseSharedStepGherkin(groupDraft.gherkin_document))
       : groupDraft.gherkin_document;
     let savedGroupId = selectedGroup?.id || "";
 
@@ -1657,6 +1648,7 @@ export function SharedStepsPage() {
                   >
                     {groupDraft.authoring_mode === "gherkin" ? (
                       <SharedStepGherkinEditor
+                        availableParameters={detectedSharedParameters}
                         groupName={groupDraft.name}
                         onChange={(gherkin_document) => setGroupDraft((current) => ({ ...current, gherkin_document }))}
                         onManageParameters={() => setIsParameterDialogOpen(true)}
@@ -1725,6 +1717,7 @@ export function SharedStepsPage() {
                       <div className="step-list">
                         {!groupDraft.steps.length ? (
                           <InlineSharedGroupStepInsertSlot
+                            availableParameters={detectedSharedParameters}
                             draft={newStepDraft}
                             index={0}
                             isActive={stepInsertIndex === 0}
@@ -1740,6 +1733,7 @@ export function SharedStepsPage() {
                         {groupDraft.steps.map((step, index) => (
                           <Fragment key={step.id}>
                             <InlineSharedGroupStepInsertSlot
+                              availableParameters={detectedSharedParameters}
                               draft={newStepDraft}
                               index={index}
                               isActive={stepInsertIndex === index}
@@ -1750,6 +1744,7 @@ export function SharedStepsPage() {
                               onSubmit={handleInsertStep}
                             />
                             <SharedGroupDraftStepCard
+                              availableParameters={detectedSharedParameters}
                               canMoveDown={index < groupDraft.steps.length - 1}
                               canMoveUp={index > 0}
                               canPaste={Boolean(copiedSteps.length)}
@@ -1774,6 +1769,7 @@ export function SharedStepsPage() {
                             />
                             {index === groupDraft.steps.length - 1 ? (
                               <InlineSharedGroupStepInsertSlot
+                                availableParameters={detectedSharedParameters}
                                 draft={newStepDraft}
                                 index={index + 1}
                                 isActive={stepInsertIndex === index + 1}
@@ -2306,6 +2302,7 @@ function SharedGroupStepActionMenu({
 }
 
 function InlineSharedGroupStepInsertSlot({
+  availableParameters,
   index,
   isActive,
   isVisibleByDefault = false,
@@ -2316,6 +2313,7 @@ function InlineSharedGroupStepInsertSlot({
   onChange,
   onSubmit
 }: {
+  availableParameters: StepParameterDefinition[];
   index: number;
   isActive: boolean;
   isVisibleByDefault?: boolean;
@@ -2351,6 +2349,8 @@ function InlineSharedGroupStepInsertSlot({
           <FormField label="Action">
             <RichTextEditor
               autoFocus
+              availableParameters={availableParameters}
+              parameterValues={parameterValues}
               rows={2}
               value={draft.action}
               onChange={(action) => onChange({ ...draft, action })}
@@ -2358,6 +2358,8 @@ function InlineSharedGroupStepInsertSlot({
           </FormField>
           <FormField label="Expected result">
             <RichTextEditor
+              availableParameters={availableParameters}
+              parameterValues={parameterValues}
               rows={3}
               value={draft.expected_result}
               onChange={(expected_result) => onChange({ ...draft, expected_result })}
@@ -2376,6 +2378,7 @@ function InlineSharedGroupStepInsertSlot({
 }
 
 function SharedGroupDraftStepCard({
+  availableParameters,
   step,
   stepNumber,
   parameterValues,
@@ -2398,6 +2401,7 @@ function SharedGroupDraftStepCard({
   onToggleSelect,
   onChangeStepType,
 }: {
+  availableParameters: StepParameterDefinition[];
   step: SharedGroupDraftStep;
   stepNumber: number;
   parameterValues: Record<string, string>;
@@ -2532,6 +2536,8 @@ function SharedGroupDraftStepCard({
         <div className="step-card-body">
           <FormField label="Action">
             <RichTextEditor
+              availableParameters={availableParameters}
+              parameterValues={parameterValues}
               rows={2}
               value={step.action}
               onChange={(action) =>
@@ -2547,6 +2553,8 @@ function SharedGroupDraftStepCard({
           </FormField>
           <FormField label="Expected result">
             <RichTextEditor
+              availableParameters={availableParameters}
+              parameterValues={parameterValues}
               rows={3}
               value={step.expected_result}
               onChange={(expected_result) =>

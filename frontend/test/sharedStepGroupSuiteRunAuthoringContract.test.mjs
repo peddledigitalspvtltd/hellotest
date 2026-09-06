@@ -5,35 +5,43 @@ import test from "node:test";
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
 test("Shared Step Groups preserve Structured and step-group Gherkin authoring without breaking reusable steps", async () => {
-  const [page, gherkinGroupEditor, api, types, styles] = await Promise.all([
+  const [page, gherkinGroupEditor, stepField, api, types, styles] = await Promise.all([
     readSource("../src/pages/SharedStepsPage.tsx"),
     readSource("../src/components/SharedStepGherkinEditor.tsx"),
+    readSource("../src/components/GherkinStepTextField.tsx"),
     readSource("../src/lib/api.ts"),
     readSource("../src/types.ts"),
     readSource("../src/styles.css")
   ]);
 
   assert.match(page, /selectSharedGroupAuthoringMode/);
-  assert.match(page, /structuredCaseToGherkin/);
-  assert.match(page, /gherkinToStructuredCase/);
+  assert.match(page, /structuredStepsToSharedGherkin/);
+  assert.match(page, /sharedStepGherkinToStructuredSteps/);
   assert.match(page, /Shared Step Group authoring mode/);
   assert.match(page, /<SharedStepGherkinEditor/);
   assert.doesNotMatch(page, /<GherkinEditor/);
   assert.match(gherkinGroupEditor, /Reusable behavior group/);
   assert.match(gherkinGroupEditor, /SHARED_GHERKIN_KEYWORDS/);
-  assert.match(gherkinGroupEditor, /Feature: \$\{name\}/);
-  assert.match(gherkinGroupEditor, /Scenario: \$\{name\}/);
-  assert.match(gherkinGroupEditor, /extractStepParameterMatches/);
-  assert.match(gherkinGroupEditor, /StepParameterizedText/);
+  assert.doesNotMatch(gherkinGroupEditor, /Feature:|Scenario:/);
+  assert.match(gherkinGroupEditor, /GherkinStepTextField/);
+  assert.match(gherkinGroupEditor, /shared-gherkin-document-heading/);
   assert.match(gherkinGroupEditor, /Manage parameter values/);
+  assert.match(gherkinGroupEditor, /composeSharedStepGherkin/);
+  assert.match(gherkinGroupEditor, /Insert shared Gherkin step after/);
+  assert.match(stepField, /StepParameterizedText/);
+  assert.match(stepField, /mapStepParameterSegments/);
+  assert.match(stepField, /gherkin-step-resolved-preview/);
+  assert.match(stepField, /gherkin-step-parameter-map/);
   assert.match(page, /authoring_mode: groupDraft\.authoring_mode/);
-  assert.match(page, /composeSharedStepGherkin\(groupDraft\.name, parseSharedStepGherkin\(groupDraft\.gherkin_document\)\)/);
+  assert.match(page, /composeSharedStepGherkin\(parseSharedStepGherkin\(groupDraft\.gherkin_document\)\)/);
   assert.match(page, /gherkin_document: gherkinDocument/);
   assert.match(page, /scopeLabels=\{\{ t: "Shared Step Group" \}\}/);
   assert.match(page, /title="Shared Step Group Params"/);
   assert.match(api, /authoring_mode\?: "structured" \| "gherkin"/);
   assert.match(types, /authoring_mode\?: "structured" \| "gherkin";[\s\S]*gherkin_document\?: string \| null/);
   assert.match(styles, /\.step-editor--shared \.step-card-menu--floating \{[\s\S]*position: relative/);
+  assert.match(styles, /\.shared-gherkin-document-heading/);
+  assert.match(styles, /\.shared-gherkin-step-row \{[\s\S]*?grid-template-columns: 5\.25rem minmax\(0, 1fr\) auto/);
   assert.match(page, /Duplicate selected steps/);
   for (const action of ["Insert above", "Insert below", "Paste above", "Paste below", "Copy step", "Cut step", "Delete step"]) {
     assert.match(page, new RegExp(action));
@@ -81,7 +89,7 @@ test("suite and run creation filter against the selected metadata dimension", as
   assert.match(executions, /testCase\.module_ids/);
   assert.match(executions, /module\.display_id/);
   assert.match(executions, /ensure\(testCaseId\)\.suites/);
-  assert.match(executions, /Filter the run scope by test case, module, requirement, label, suite, or Shared Step Group metadata/);
+  assert.doesNotMatch(executions, /Available run scope|Filter the run scope by test case, module, requirement, label, suite, or Shared Step Group metadata/);
   assert.match(styles, /\.suite-reference-picker-filter-footer/);
 });
 

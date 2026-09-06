@@ -104,6 +104,7 @@ export function buildCapabilities() {
             "hover",
             "dblclick",
             "rightClick",
+            "drag",
             "fill",
             "clear",
             "select",

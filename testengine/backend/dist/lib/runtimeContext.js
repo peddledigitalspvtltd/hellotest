@@ -1,4 +1,4 @@
-const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
+import { decodeParameterColumnName, normalizeParameterReferenceKey, STEP_PARAMETER_PATTERN } from "./stepParameterReferences.js";
 const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
 const GENERATED_CONTEXT_ALIASES = {
@@ -112,7 +112,7 @@ export const materializeTemplateValue = (value, now = new Date()) => {
         .replace(GENERATOR_ALIAS_PATTERN, (match, rawAlias) => materializeTemplateValue(GENERATOR_ALIAS_TEMPLATES[String(rawAlias || "").toLowerCase()] || match, now));
 };
 export const normalizeKey = (value) => {
-    const normalized = normalizeText(value)?.replace(/^@+/, "").toLowerCase() || null;
+    const normalized = normalizeParameterReferenceKey(value || "") || null;
     return normalized;
 };
 export const registerContextValue = (context, key, value) => {
@@ -234,7 +234,10 @@ export const resolveContextValue = (context, scopedKey, fallbackScope = "t") => 
     }
     return "";
 };
-export const interpolateText = (value, context) => String(value || "").replace(STEP_PARAMETER_PATTERN, (_match, scope, rawName) => {
+export const interpolateText = (value, context) => String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
+    if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".")
+        return token;
+    const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
     const normalizedKey = scope
         ? `${String(scope).toLowerCase()}.${String(rawName).toLowerCase()}`
         : String(rawName).toLowerCase();

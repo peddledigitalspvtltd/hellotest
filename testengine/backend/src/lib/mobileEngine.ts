@@ -1,4 +1,5 @@
 import type { EngineRunEnvelope, EngineRunStep } from "../contracts/hellotest.js";
+import { buildInitialContext, toParameterValuesRecord } from "./runtimeContext.js";
 import {
   buildMobileEngineRequestHeaders,
   resolveMobileEngineClientSecurity
@@ -10,6 +11,7 @@ type MobileExecutionResult = {
     step_id: string;
     status: "passed" | "failed" | "blocked";
     note?: string;
+    captures?: Record<string, string>;
   }>;
 };
 
@@ -24,7 +26,11 @@ export function getMobileEngineConfigurationError() {
   return configuration.ready ? null : configuration.reason;
 }
 
-export async function executeAndroidSteps(envelope: EngineRunEnvelope, steps: EngineRunStep[]) {
+export async function executeAndroidSteps(
+  envelope: EngineRunEnvelope,
+  steps: EngineRunStep[],
+  capturedValues: Record<string, string> = {}
+) {
   const configuration = resolveMobileEngineClientSecurity();
   if (!configuration.ready || !configuration.baseUrl) {
     throw new Error(configuration.reason || "Mobile Engine is not configured for Android execution.");
@@ -44,6 +50,7 @@ export async function executeAndroidSteps(envelope: EngineRunEnvelope, steps: En
       app: envelope.mobile_engine?.app || undefined,
       config: envelope.mobile_engine || {},
       object_repository: envelope.object_repository || [],
+      parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
       steps
     })
   });

@@ -6,6 +6,7 @@ const mobileFeatureService = require("./mobileFeature.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const notificationService = require("./notification.service");
 const testCaseVersionService = require("./testCaseVersion.service");
+const { redactTestDataSetRows } = require("./testDataSet.service");
 const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const {
@@ -15,6 +16,7 @@ const {
 } = require("../utils/testStepAutomation");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
+const { setGherkinFeatureTitle } = require("../utils/gherkinFeatureTitle");
 
 const DEFAULT_PRIORITY = 3;
 const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
@@ -42,7 +44,7 @@ const selectSuite = db.prepare(`
 `);
 
 const selectRequirement = db.prepare(`
-  SELECT id, project_id
+  SELECT id, project_id, title
   FROM requirements
   WHERE id = ?
 `);
@@ -243,11 +245,19 @@ const hydrateTestCases = async (testCases) => {
       ORDER BY test_case_id ASC, sort_order ASC, suite_id ASC
     `).all(...ids),
     db.prepare(`
-      SELECT test_case_id, requirement_id
-      FROM requirement_test_cases
-      WHERE test_case_id IN (${placeholders})
-      ORDER BY test_case_id ASC, requirement_id ASC
-    `).all(...ids),
+      SELECT mapping.test_case_id, mapping.requirement_id, requirements.title
+      FROM (
+        SELECT test_case_id, requirement_id
+        FROM requirement_test_cases
+        WHERE test_case_id IN (${placeholders})
+        UNION
+        SELECT id AS test_case_id, requirement_id
+        FROM test_cases
+        WHERE id IN (${placeholders}) AND requirement_id IS NOT NULL
+      ) AS mapping
+      JOIN requirements ON requirements.id = mapping.requirement_id
+      ORDER BY mapping.test_case_id ASC, mapping.requirement_id ASC
+    `).all(...ids, ...ids),
     db.prepare(`
       SELECT test_case_id, module_id
       FROM test_case_module_cases
@@ -288,34 +298,39 @@ const hydrateTestCases = async (testCases) => {
   const dataSetsByCase = groupRows(dataSetRows, "test_case_id");
   const authorsByCase = groupRows(authorRows, "test_case_id");
 
-  return testCases.map((testCase) => ({
-    ...testCase,
-    external_references: normalizeStoredReferenceList(testCase.external_references),
-    labels: normalizeStoredReferenceList(testCase.labels),
-    parameter_values: normalizeParameterValues(testCase.parameter_values),
-    review_history: normalizeReviewHistory(testCase.review_history),
-    author_id: testCase.author_id || testCase.created_by || null,
-    suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
-    requirement_ids: (requirementsByCase.get(testCase.id) || []).map((row) => row.requirement_id),
-    module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
-    defect_ids: (defectsByCase.get(testCase.id) || []).map((row) => row.issue_id),
-    manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id),
-    test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
-    test_data_sets: (dataSetsByCase.get(testCase.id) || []).map((row) => ({
-      id: row.test_data_set_id,
-      app_type_id: row.app_type_id,
-      name: row.name,
-      description: row.description,
-      mode: row.mode,
-      columns: Array.isArray(row.columns) ? row.columns : [],
-      rows: Array.isArray(row.rows) ? row.rows : []
-    })),
-    author: authorsByCase.get(testCase.id)?.[0]?.id ? {
-      id: authorsByCase.get(testCase.id)[0].id,
-      name: authorsByCase.get(testCase.id)[0].name,
-      email: authorsByCase.get(testCase.id)[0].email
-    } : null
-  }));
+  return testCases.map((testCase) => {
+    const linkedRequirements = requirementsByCase.get(testCase.id) || [];
+    const primaryRequirement = linkedRequirements.find((row) => row.requirement_id === testCase.requirement_id) || linkedRequirements[0];
+    return {
+      ...testCase,
+      gherkin_document: setGherkinFeatureTitle(testCase.gherkin_document, primaryRequirement?.title),
+      external_references: normalizeStoredReferenceList(testCase.external_references),
+      labels: normalizeStoredReferenceList(testCase.labels),
+      parameter_values: normalizeParameterValues(testCase.parameter_values),
+      review_history: normalizeReviewHistory(testCase.review_history),
+      author_id: testCase.author_id || testCase.created_by || null,
+      suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
+      requirement_ids: normalizeTextList([primaryRequirement?.requirement_id, ...linkedRequirements.map((row) => row.requirement_id)]),
+      module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
+      defect_ids: (defectsByCase.get(testCase.id) || []).map((row) => row.issue_id),
+      manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id),
+      test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
+      test_data_sets: (dataSetsByCase.get(testCase.id) || []).map((row) => ({
+        id: row.test_data_set_id,
+        app_type_id: row.app_type_id,
+        name: row.name,
+        description: row.description,
+        mode: row.mode,
+        columns: Array.isArray(row.columns) ? row.columns : [],
+        rows: redactTestDataSetRows(row.mode, row.rows)
+      })),
+      author: authorsByCase.get(testCase.id)?.[0]?.id ? {
+        id: authorsByCase.get(testCase.id)[0].id,
+        name: authorsByCase.get(testCase.id)[0].name,
+        email: authorsByCase.get(testCase.id)[0].email
+      } : null
+    };
+  });
 };
 
 const hydrateSuiteIds = async (testCase) => {
@@ -1002,6 +1017,7 @@ const ensureAppTypeExists = async (appTypeId) => {
 };
 
 const ensureRequirementsExist = async (requirementIds = [], appTypeProjectId = null) => {
+  const requirements = [];
   for (const requirementId of requirementIds) {
     const requirement = await selectRequirement.get(requirementId);
 
@@ -1012,7 +1028,9 @@ const ensureRequirementsExist = async (requirementIds = [], appTypeProjectId = n
     if (appTypeProjectId && requirement.project_id !== appTypeProjectId) {
       throw new Error("Requirements must belong to the same project as the selected app type");
     }
+    requirements.push(requirement);
   }
+  return requirements;
 };
 
 const ensureSuitesMatchAppType = async (suiteIds = [], appTypeId = null) => {
@@ -1137,7 +1155,7 @@ const createPersistablePayload = async ({
   const appType = await ensureAppTypeExists(resolvedAppTypeId);
   resolvedAppTypeId = await ensureSuitesMatchAppType(resolvedSuiteIds, resolvedAppTypeId);
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
-  await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
+  const linkedRequirements = await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
   const resolvedCreatorId = normalizeText(created_by);
 
   if (!resolvedCreatorId) {
@@ -1189,7 +1207,7 @@ const createPersistablePayload = async ({
     manual_test_case_ids: resolvedManualTestCaseIds,
     authoring_mode: normalizeAuthoringMode(authoring_mode),
     test_case_type: normalizeTestCaseType(test_case_type),
-    gherkin_document: normalizeText(gherkin_document),
+    gherkin_document: setGherkinFeatureTitle(normalizeText(gherkin_document), linkedRequirements[0]?.title),
     priority: normalizePriority(priority),
     status: resolvedStatus,
     display_id,
@@ -1761,7 +1779,7 @@ exports.updateTestCase = async (id, data) => {
   const resolvedAppType = await ensureAppTypeExists(resolvedAppTypeId);
   resolvedAppTypeId = await ensureSuitesMatchAppType(requestedSuiteIds, resolvedAppTypeId);
   const finalAppType = resolvedAppTypeId !== resolvedAppType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : resolvedAppType;
-  await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
+  const linkedRequirements = await ensureRequirementsExist(requestedRequirementIds, finalAppType?.project_id || null);
   await ensureDataSetsExist(requestedDataSetIds, finalAppType?.project_id || null, resolvedAppTypeId);
   const existingAuthorId = existing.author_id || existing.author?.id || existing.created_by || null;
   const requestedAuthorId = data.author_id !== undefined
@@ -1805,7 +1823,10 @@ exports.updateTestCase = async (id, data) => {
     test_case_type: data.test_case_type !== undefined
       ? normalizeTestCaseType(data.test_case_type, existing.test_case_type || "functional")
       : normalizeTestCaseType(existing.test_case_type || "functional"),
-    gherkin_document: data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : normalizeText(existing.gherkin_document),
+    gherkin_document: setGherkinFeatureTitle(
+      data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : normalizeText(existing.gherkin_document),
+      linkedRequirements[0]?.title
+    ),
     priority: data.priority !== undefined ? normalizePriority(data.priority) : existing.priority ?? DEFAULT_PRIORITY,
     status: data.status !== undefined ? normalizeStatus(data.status) : existing.status || DEFAULT_STATUS,
     reviewer_id: requestedReviewerId,

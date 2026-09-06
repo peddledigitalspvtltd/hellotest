@@ -10,8 +10,12 @@ import { hasPermission } from "../lib/permissions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { AiEvidenceButton, AiEvidenceFlyout } from "./AgenticExperience";
 import { DialogCloseButton } from "./DialogCloseButton";
+import { useStepParameterAutocomplete } from "./StepParameterSuggestions";
+import { excludeSensitiveStepParameterValues, resolveStepParameterText, type StepParameterDefinition } from "../lib/stepParameters";
 
 type RichTextEditorProps = {
+  availableParameters?: StepParameterDefinition[];
+  parameterValues?: Record<string, string>;
   id?: string;
   value: string;
   onChange: (value: string) => void;
@@ -406,6 +410,8 @@ export function RichTextContent({ value, fallback = "", className = "", as: Comp
 }
 
 export function RichTextEditor({
+  availableParameters,
+  parameterValues,
   id,
   value,
   onChange,
@@ -427,7 +433,33 @@ export function RichTextEditor({
   const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const parameterPreviewRef = useRef<HTMLDivElement | null>(null);
+  const parameterQueryRootRef = useRef<HTMLElement | null>(null);
   const lastHtmlRef = useRef("");
+  const [isEditingParameters, setIsEditingParameters] = useState(false);
+  const hasParameterSupport = availableParameters !== undefined || parameterValues !== undefined;
+  const safeParameterValues = useMemo(() => excludeSensitiveStepParameterValues(parameterValues, (availableParameters || []).filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)), [availableParameters, parameterValues]);
+  const resolvedParameterHtml = useMemo(() => {
+    if (!hasParameterSupport || typeof document === "undefined") return "";
+    const root = document.createElement("div");
+    root.innerHTML = normalizeRichTextHtml(value);
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      node.textContent = resolveStepParameterText(node.textContent, safeParameterValues);
+      node = walker.nextNode();
+    }
+    return root.innerHTML;
+  }, [hasParameterSupport, safeParameterValues, value]);
+  const showParameterPreview = hasParameterSupport && !isEditingParameters && resolvedParameterHtml !== normalizeRichTextHtml(value);
+  const syncParameterPreviewScroll = () => {
+    const editor = editorRef.current;
+    const preview = parameterPreviewRef.current;
+    if (!editor || !preview) return;
+    const availableScroll = editor.scrollHeight - editor.clientHeight;
+    preview.scrollTop = availableScroll > 0 ? (editor.scrollTop / availableScroll) * Math.max(0, preview.scrollHeight - preview.clientHeight) : 0;
+  };
+  useEffect(syncParameterPreviewScroll, [resolvedParameterHtml, showParameterPreview]);
   const [isRephrasing, setIsRephrasing] = useState(false);
   const [aiProposal, setAiProposal] = useState<string | null>(null);
   const [aiEvidence, setAiEvidence] = useState<AiRephraseEvidence | null>(null);
@@ -474,6 +506,62 @@ export function RichTextEditor({
     lastHtmlRef.current = nextHtml;
     onChange(nextHtml);
   }, [onChange]);
+
+  const autocomplete = useStepParameterAutocomplete({
+    availableParameters,
+    parameterValues: safeParameterValues,
+    onSelect: (parameter, query) => {
+      const editor = editorRef.current;
+      if (!editor || disabled) return;
+      const root = parameterQueryRootRef.current || editor;
+      if (!editor.contains(root)) return;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let offset = 0;
+      let startFound = false;
+      let endFound = false;
+      let node = walker.nextNode();
+      while (node) {
+        const end = offset + (node.textContent || "").length;
+        if (!startFound && query.start <= end) { range.setStart(node, query.start - offset); startFound = true; }
+        if (startFound && query.end <= end) { range.setEnd(node, query.end - offset); endFound = true; break; }
+        offset = end;
+        node = walker.nextNode();
+      }
+      if (!startFound || !endFound) return;
+      editor.focus();
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      if (!document.execCommand("insertText", false, parameter.token)) {
+        range.deleteContents();
+        const token = document.createTextNode(parameter.token);
+        range.insertNode(token);
+        range.setStartAfter(token);
+        range.collapse(true);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+      emitChange();
+    }
+  });
+  const updateParameterSuggestions = () => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!hasParameterSupport || disabled || !editor || !selection?.rangeCount || !selection.isCollapsed || !editor.contains(selection.anchorNode)) {
+      autocomplete.dismiss();
+      return;
+    }
+    const anchorElement = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement;
+    const block = anchorElement?.closest<HTMLElement>("p, li, div, h3, blockquote");
+    const root = block && editor.contains(block) ? block : editor;
+    parameterQueryRootRef.current = root;
+    const preceding = selection.getRangeAt(0).cloneRange();
+    preceding.selectNodeContents(root);
+    preceding.setEnd(selection.anchorNode!, selection.anchorOffset);
+    const caret = preceding.toString().length;
+    autocomplete.update(root.textContent || "", caret, caret, editor);
+  };
 
   const runCommand = useCallback((command: string, commandValue?: string) => {
     if (disabled) {
@@ -762,7 +850,9 @@ export function RichTextEditor({
           </span>
         ))}
       </div>
+      <div className={`rich-text-parameter-surface${showParameterPreview ? " is-previewing" : ""}`}>
       <div
+        {...(hasParameterSupport ? autocomplete.inputProps : {})}
         aria-label={ariaLabel}
         aria-multiline="true"
         aria-required={required || undefined}
@@ -771,13 +861,23 @@ export function RichTextEditor({
         data-empty={isEmpty ? "true" : "false"}
         data-placeholder={placeholder || ""}
         id={id}
-        onBlur={emitChange}
-        onInput={emitChange}
+        onBlur={() => { emitChange(); setIsEditingParameters(false); autocomplete.dismiss(); }}
+        onFocus={() => setIsEditingParameters(true)}
+        onInput={() => { emitChange(); updateParameterSuggestions(); }}
+        onScroll={syncParameterPreviewScroll}
+        onClick={updateParameterSuggestions}
+        onKeyDown={autocomplete.onKeyDown}
+        onKeyUp={(event) => {
+          if (!["Escape", "Enter", "Tab", "ArrowDown", "ArrowUp"].includes(event.key)) updateParameterSuggestions();
+        }}
         ref={editorRef}
-        role="textbox"
+        role={hasParameterSupport ? "combobox" : "textbox"}
         style={editorStyle}
         suppressContentEditableWarning
       />
+      {showParameterPreview ? <div aria-hidden="true" className="rich-text-parameter-preview"><div className="rich-text-editor-surface" dangerouslySetInnerHTML={{ __html: resolvedParameterHtml }} ref={parameterPreviewRef} style={editorStyle} /></div> : null}
+      </div>
+      {hasParameterSupport ? autocomplete.menu : null}
       {isRephrasing || aiProposal !== null ? (
         <section aria-label="AI rephrase proposal" className="rich-text-ai-review">
           <header className="rich-text-ai-review__header">

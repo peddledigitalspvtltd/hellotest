@@ -1,17 +1,19 @@
-import { mapStepParameterSegments } from "../lib/stepParameters";
+import { excludeSensitiveStepParameterValues, mapStepParameterSegments } from "../lib/stepParameters";
 
 export function StepParameterizedText({
   text,
   values,
+  sensitiveNames = [],
   fallback = "—",
   className = ""
 }: {
   text?: string | null;
   values?: Record<string, string>;
+  sensitiveNames?: string[];
   fallback?: string;
   className?: string;
 }) {
-  const segments = mapStepParameterSegments(text, values);
+  const segments = mapStepParameterSegments(text, excludeSensitiveStepParameterValues(values, sensitiveNames));
 
   if (!segments.length) {
     return <span className={className}>{fallback}</span>;
@@ -28,9 +30,9 @@ export function StepParameterizedText({
           <span
             className={segment.resolvedValue !== null ? "step-parameter-token is-resolved" : "step-parameter-token is-unresolved"}
             key={`${segment.name}-${index}`}
-            title={segment.resolvedValue !== null ? `${segment.token} -> ${segment.resolvedValue}` : `${segment.token} is unresolved`}
+            title={segment.resolvedValue !== null ? `${segment.token} → ${segment.resolvedValue || "Empty value"}` : `${segment.token} is unresolved`}
           >
-            {segment.resolvedValue !== null ? segment.resolvedValue : segment.token}
+            {segment.resolvedValue !== null ? segment.resolvedValue || "Empty value" : segment.token}
           </span>
         );
       })}

@@ -44,6 +44,15 @@ export function CatalogSearchFilter({
       return;
     }
 
+    const focusableTargets = () => Array.from(popoverRef.current?.querySelectorAll<HTMLElement>(
+      "input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])"
+    ) || []).filter((target) => target.offsetParent !== null && !target.closest("[hidden], [inert], [aria-hidden='true']"));
+    const frameId = window.requestAnimationFrame(() => {
+      const targets = focusableTargets();
+      const field = targets.find((target) => target.matches("input, select, textarea"));
+      (field || targets[0] || popoverRef.current)?.focus();
+    });
+
     const handleMouseDown = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) {
@@ -58,20 +67,36 @@ export function CatalogSearchFilter({
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
+      const target = event.target;
+      if (!(target instanceof Node) || (!popoverRef.current?.contains(target) && !buttonRef.current?.contains(target))) {
         return;
       }
 
-      setIsOpen(false);
-      buttonRef.current?.focus();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsOpen(false);
+        buttonRef.current?.focus();
+      } else if (event.key === "Tab") {
+        const targets = focusableTargets();
+        const first = targets[0];
+        const last = targets[targets.length - 1];
+        if (!first || (event.shiftKey && target === first) || (!event.shiftKey && target === last) || buttonRef.current?.contains(target) || target === popoverRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          (event.shiftKey ? last : first)?.focus();
+        }
+      }
     };
 
     window.addEventListener("mousedown", handleMouseDown);
-    window.addEventListener("keydown", handleKeyDown);
+    // Capture at the window before a containing dialog handles Escape or Tab.
+    window.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
+      window.cancelAnimationFrame(frameId);
       window.removeEventListener("mousedown", handleMouseDown);
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [isOpen]);
 
@@ -153,6 +178,7 @@ export function CatalogSearchFilter({
       ref={popoverRef}
       role="dialog"
       style={popoverStyle}
+      tabIndex={-1}
     >
       <div className="catalog-filter-popover-header">
         <div className="catalog-filter-popover-title-row">

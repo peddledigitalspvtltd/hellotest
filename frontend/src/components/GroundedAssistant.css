@@ -236,6 +236,50 @@
   line-height: 1.55;
 }
 
+.grounded-assistant-structured-answer { display: grid; gap: 0.55rem; }
+.grounded-assistant-structured-answer :is(p, ul, section, h3) { margin: 0; }
+.grounded-assistant-structured-answer p { white-space: pre-line; }
+.grounded-assistant-structured-answer ul { display: grid; gap: 0.3rem; padding-left: 1.15rem; }
+.grounded-assistant-structured-answer section { display: grid; gap: 0.3rem; }
+.grounded-assistant-structured-answer h3 { color: var(--text-primary); font-size: 0.78rem; }
+
+.grounded-assistant-processing { margin-top: 0.55rem; border-top: 1px solid var(--border-subtle); }
+.grounded-assistant-processing > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.48rem 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 750;
+  list-style: none;
+}
+.grounded-assistant-processing > summary::-webkit-details-marker { display: none; }
+.grounded-assistant-processing > summary > span { margin-left: auto; font-weight: 600; }
+.grounded-assistant-processing-trace { display: grid; gap: 0.35rem; padding: 0.15rem 0 0.45rem; }
+.grounded-assistant-processing-trace > div:not(.grounded-assistant-retrieval-note) {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+}
+.grounded-assistant-processing-trace i {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, #4f46e5 10%, var(--surface));
+  color: #4f46e5;
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 800;
+}
+.grounded-assistant-processing-trace span { display: grid; gap: 0.08rem; }
+.grounded-assistant-processing-trace strong { font-size: 0.68rem; }
+.grounded-assistant-processing-trace small { color: var(--text-secondary); font-size: 0.63rem; line-height: 1.4; }
+
 .grounded-assistant-starters {
   display: grid;
   width: 100%;
@@ -348,6 +392,11 @@
 .grounding-chip.is-grounded {
   background: rgba(22, 163, 74, 0.1);
   color: #15803d;
+}
+
+.grounding-chip.is-evidence-linked {
+  background: var(--surface-secondary, #f1f5f9);
+  color: var(--text-secondary);
 }
 
 .grounding-chip.is-refused {
@@ -482,6 +531,36 @@
   color: #4f46e5;
   font-weight: 800;
   text-transform: capitalize;
+}
+
+.grounded-assistant-smart-context,
+.grounded-assistant-clear-context {
+  min-height: 1.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.grounded-assistant-clear-context {
+  padding: 0.25rem 0.55rem;
+  cursor: pointer;
+}
+
+.grounded-assistant-query-chain {
+  display: grid;
+  gap: 0.2rem;
+  padding-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+}
+
+.grounded-assistant-query-chain ol {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding-left: 1.15rem;
 }
 
 .grounded-assistant-agent-status {
@@ -735,3 +814,50 @@
   .grounded-assistant-sources-toggle svg:last-child { transition: none; }
   .grounded-assistant-agent-status-dots i { animation: none; opacity: 0.65; }
 }
+
+@media (min-width: 621px) {
+  .grounded-assistant-panel { width: min(40rem, calc(100vw - 2rem)); height: min(54rem, calc(100dvh - 2rem)); }
+}
+.grounded-assistant-scope-bar { flex-wrap: wrap; gap: 5px 12px; }
+.grounded-assistant-history-controls { display: flex; align-items: center; gap: 8px; flex-basis: 100%; min-width: 0; }
+.grounded-assistant-history-controls label { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.grounded-assistant-history-controls select { border: 0; background: transparent; font: inherit; color: inherit; width: 100%; min-width: 0; padding: 4px; }
+.grounded-assistant-message-scope { color: var(--text-secondary); font-size: 10px; margin: 2px 0 7px; overflow-wrap: anywhere; }
+.grounded-assistant-agent-status { position: sticky; top: 0; z-index: 1; display: grid; width: 100%; padding: 9px 10px; border-radius: 8px; gap: 4px 8px; background: var(--surface, white); grid-template-columns: auto minmax(0, 1fr) auto; color: var(--text-primary); }
+.grounded-assistant-agent-status > strong { grid-column: 2; grid-row: 1; white-space: normal; text-transform: capitalize; }
+.grounded-assistant-agent-status > small { grid-column: 2; grid-row: 2; max-width: none; white-space: normal; }
+.grounded-assistant-agent-status > .grounded-assistant-agent-status-icon { grid-column: 1; grid-row: 1 / span 2; }
+.grounded-assistant-stop { display: inline-flex; align-items: center; gap: 4px; grid-column: 3; grid-row: 1 / span 2; border: 1px solid var(--border-subtle); color: var(--text-primary); background: var(--surface, white); border-radius: 6px; padding: 6px 8px; cursor: pointer; font: inherit; }
+.grounded-assistant-live-progress { grid-column: 1 / -1; font-size: 11px; min-width: 0; }
+.grounded-assistant-live-progress summary { cursor: pointer; color: var(--text-secondary); }
+.grounded-assistant-live-progress ol { display: grid; gap: 5px; padding-left: 18px; max-height: 160px; overflow: auto; }
+.grounded-assistant-live-progress li { padding-left: 2px; }
+.grounded-assistant-live-progress li > span { text-transform: capitalize; }
+.grounded-assistant-live-progress small { display: block; color: var(--text-secondary); }
+.knowledge-validated-answer { display: grid; gap: 12px; min-width: 0; }
+.knowledge-answer-summary { margin: 0; line-height: 1.6; }
+.knowledge-answer-claims { display: grid; gap: 9px; margin: 0; padding-left: 18px; }
+.knowledge-answer-claims li { line-height: 1.6; }
+.knowledge-interpretation-label { display: inline-block; margin-right: 6px; padding: 1px 5px; border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); font-size: 10px; }
+.knowledge-claim-citations { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 5px; }
+.knowledge-claim-citations a, .knowledge-claim-citations button { border: 0; padding: 0 2px; background: transparent; color: var(--accent, #4f46e5); font: inherit; font-size: 11px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.knowledge-claim-citations a:hover, .knowledge-claim-citations button:hover { text-decoration: underline; }
+.knowledge-answer-limit, .knowledge-answer-limitations { border-left: 3px solid var(--warning, #b7791f); padding: 7px 10px; background: color-mix(in srgb, var(--warning, #b7791f) 7%, transparent); font-size: 12px; }
+.knowledge-answer-limit { display: grid; gap: 4px; }
+.knowledge-answer-limitations ul { padding-left: 17px; margin: 5px 0 0; }
+.knowledge-answer-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--border-subtle); border-radius: 7px; }
+.knowledge-answer-table-scroll table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.knowledge-answer-table-scroll th, .knowledge-answer-table-scroll td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }
+.knowledge-answer-table-scroll th { background: var(--surface-muted); font-weight: 600; }
+.knowledge-answer-timeline { list-style: none; margin: 0; padding: 0; }
+.knowledge-answer-timeline li { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; border-left: 2px solid var(--border-subtle); padding: 5px 0 14px 12px; }
+.knowledge-answer-timeline time { color: var(--text-secondary); font-size: 11px; }
+.knowledge-answer-timeline p { margin: 3px 0; }
+.knowledge-answer-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.knowledge-answer-metrics > div { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 6px; }
+.knowledge-answer-metrics strong { font-size: 22px; }
+.knowledge-answer-documents, .knowledge-answer-relationships { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.knowledge-answer-documents li > span { margin-left: 6px; color: var(--text-secondary); font-size: 11px; }
+.knowledge-answer-freshness { display: grid; gap: 5px; font-size: 11px; color: var(--text-secondary); }
+.grounded-assistant-context-control .grounded-assistant-history-date { flex-wrap: wrap; flex-basis: 100%; font-weight: 500; }
+.grounded-assistant-context-control input[type="datetime-local"] { width: auto; height: auto; min-height: 30px; padding: 4px 6px; font: inherit; }

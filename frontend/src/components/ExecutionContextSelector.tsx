@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FormField } from "./FormField";
-import { InfoTooltip } from "./InfoTooltip";
-import { RefreshIcon, TestDataIcon } from "./AppIcons";
+import { TestDataIcon } from "./AppIcons";
 import { useAuth } from "../auth/AuthContext";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
-import { countGeneratedTestDataFields, materializeTestDataRows } from "../lib/testDataGenerators";
 import type { TestConfiguration, TestDataSet, TestEnvironment } from "../types";
 
 type ExecutionContextSelectorProps = {
@@ -51,7 +49,6 @@ export function ExecutionContextSelector({
   const environmentPrefillScopeRef = useRef("");
   const configurationPrefillScopeRef = useRef("");
   const dataSetPrefillScopeRef = useRef("");
-  const [dataPreviewRevision, setDataPreviewRevision] = useState(0);
   const environmentsQuery = useQuery({
     queryKey: ["test-environments", projectId, appTypeId],
     queryFn: () => api.testEnvironments.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
@@ -79,18 +76,6 @@ export function ExecutionContextSelector({
   const dataSets = useMemo(
     () => filterScopedResources(dataSetsQuery.data || [], appTypeId),
     [appTypeId, dataSetsQuery.data]
-  );
-  const selectedDataSet = useMemo(
-    () => dataSets.find((dataSet) => dataSet.id === selectedDataSetId) || null,
-    [dataSets, selectedDataSetId]
-  );
-  const generatedFieldCount = useMemo(
-    () => countGeneratedTestDataFields(selectedDataSet?.rows || []),
-    [selectedDataSet]
-  );
-  const generatedPreviewRows = useMemo(
-    () => materializeTestDataRows(selectedDataSet?.rows || []),
-    [dataPreviewRevision, selectedDataSet]
   );
   const environmentPrefillScopeKey = useMemo(
     () => `${projectId}:${appTypeId}:${environments.map((item) => item.id).join(",")}`,
@@ -194,37 +179,6 @@ export function ExecutionContextSelector({
           selectedId={selectedDataSetId}
         />
       </div>
-
-      {selectedDataSet && generatedFieldCount ? (
-        <section className="execution-generated-data-preview">
-          <div className="execution-generated-data-preview-header">
-            <div>
-              <div className="execution-generated-data-title-row">
-                <strong>Generated test data sample</strong>
-                <InfoTooltip
-                  content={`${generatedFieldCount} dynamic field${generatedFieldCount === 1 ? "" : "s"}. Fresh values are generated and retained when every run or rerun is created.`}
-                  label="Generated test data information"
-                />
-              </div>
-            </div>
-            <button aria-label="Refresh generated sample" className="ghost-button explorer-icon-button" onClick={() => setDataPreviewRevision((current) => current + 1)} title="Refresh generated sample" type="button">
-              <RefreshIcon />
-            </button>
-          </div>
-          <div className="execution-generated-data-preview-rows">
-            {generatedPreviewRows.slice(0, 2).map((row, index) => (
-              <article key={`execution-data-preview-${index}`}>
-                {Object.entries(row).map(([key, value]) => (
-                  <span key={key}>
-                    <strong>{key}</strong>
-                    <code>{value || "-"}</code>
-                  </span>
-                ))}
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {projectId && !isLoading && !hasAnyContext ? (
         <div className="empty-state compact">No environment, configuration, or test data resources are available for this scope yet.</div>

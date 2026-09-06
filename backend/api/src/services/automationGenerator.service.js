@@ -1,4 +1,5 @@
 const db = require("../db");
+const { normalizeScheduledAt } = require("../utils/automationSchedule");
 const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -38,8 +39,9 @@ const selectJob = obsDb.prepare(`
 const selectQueuedJob = obsDb.prepare(`
   SELECT *
   FROM automation_generator_jobs
-  WHERE status = 'queued'
-     OR (status = 'leased' AND lease_expires_at < CURRENT_TIMESTAMP)
+  WHERE (status = 'queued'
+     OR (status = 'leased' AND lease_expires_at < CURRENT_TIMESTAMP))
+    AND (payload->>'scheduled_at' IS NULL OR (payload->>'scheduled_at')::timestamptz <= CURRENT_TIMESTAMP)
   ORDER BY created_at ASC, id ASC
   LIMIT 1
 `);
@@ -128,8 +130,10 @@ exports.queueGeneratorJob = async ({
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  scheduled_at,
   created_by
 } = {}) => {
+  const scheduledAt = normalizeScheduledAt(scheduled_at);
   const testCaseId = normalizeText(test_case_id);
 
   if (!testCaseId) {
@@ -159,7 +163,8 @@ exports.queueGeneratorJob = async ({
       test_environment_id: normalizeText(test_environment_id),
       test_configuration_id: normalizeText(test_configuration_id),
       test_data_set_id: normalizeText(test_data_set_id),
-      agent_kind: "local-llm"
+      agent_kind: "local-llm",
+      scheduled_at: scheduledAt
     },
     related_kind: "test_case",
     related_id: testCaseId,
@@ -167,6 +172,7 @@ exports.queueGeneratorJob = async ({
   });
   const jobId = uuid();
   const payload = {
+    scheduled_at: scheduledAt,
     test_case_id: testCaseId,
     title: testCase.title,
     app_type_id: testCase.app_type_id,
@@ -202,7 +208,8 @@ exports.queueGeneratorJob = async ({
     job_id: jobId,
     transaction_id: transaction.id,
     queued: true,
-    status: "queued"
+    status: "queued",
+    scheduled_at: scheduledAt
   };
 };
 

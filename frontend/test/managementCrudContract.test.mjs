@@ -485,8 +485,9 @@ test("test data authoring uses an iteration grid and module health loads before 
 });
 
 test("Object Repository separates manual screen creation from the inspection workspace", async () => {
-  const [page, styles] = await Promise.all([
+  const [page, browser, styles] = await Promise.all([
     readSource("../src/pages/AutomationPage.tsx"),
+    readSource("../src/components/RepositoryInspectBrowser.tsx"),
     readSource("../src/styles.css")
   ]);
 
@@ -494,22 +495,26 @@ test("Object Repository separates manual screen creation from the inspection wor
   assert.match(page, /addRepositoryScreen\.mutate\(\{ inspectAfterSave: true \}\)/);
   assert.match(page, /options\?\.inspectAfterSave[\s\S]*setIsInspectOpen\(true\)[\s\S]*setIsInspectOpen\(false\)/);
   assert.match(page, /setQueryData<AutomationLearningCacheEntry\[\]>\([\s\S]*"automation-learning-cache"[\s\S]*currentEntry\.id !== entry\.id/);
-  assert.match(page, /Save screen/);
-  assert.match(page, /Save and inspect/);
-  assert.match(page, /className="object-repository-browser-tabs"|object-repository-browser-tabs/);
-  assert.ok(page.indexOf('className="object-repository-tab-picker object-repository-browser-tabs"') < page.indexOf('<iframe src={inspectRecorderLiveUrl}'));
-  assert.match(page, /object-repository-live-inspect object-repository-collapsible-section/);
+  assert.match(page, /Create screen/);
+  assert.match(page, /Create &amp; inspect/);
+  assert.match(page, /Save screen & fields/);
+  assert.match(page, /<RepositoryInspectBrowser/);
+  assert.match(browser, /className="object-repository-tab-picker object-repository-browser-tabs"/);
+  assert.ok(browser.indexOf('className="object-repository-tab-picker object-repository-browser-tabs"') < browser.indexOf('<iframe ref={iframeRef}'));
+  assert.match(page, /className="object-repository-live-inspect"/);
   assert.match(page, /DialogCloseButton label="Close object repository inspector"/);
   assert.match(page, /className="object-repository-inspector-review-tabs"/);
-  assert.match(page, /Selected locators/);
-  assert.match(page, /Selector evidence/);
-  assert.match(page, /Preview all · 3s/);
-  assert.match(page, /Remove all/);
+  assert.match(page, /label: "All fields"/);
+  assert.match(page, /label: "Selected"/);
+  assert.match(page, /label: "Evidence"/);
+  assert.match(page, /Highlight all/);
+  assert.match(page, /Clear selected fields/);
   assert.match(page, /className="object-repository-selected-fields object-repository-review-panel"/);
-  assert.match(page, /object-repository-inspector-preview object-repository-collapsible-section/);
-  assert.match(styles, /\.object-repository-inspector \{[\s\S]*width: min\(1480px/);
+  assert.match(page, /object-repository-inspector-preview object-repository-review-panel/);
+  assert.match(page, /className="object-repository-inspector-toolbar"/);
+  assert.match(styles, /\.object-repository-inspector \{[\s\S]*width: calc\(100vw - 8px\)/);
   assert.match(styles, /\.object-repository-browser-tabs \{[\s\S]*display: flex/);
-  assert.match(styles, /\.object-repository-browser-preview iframe \{[\s\S]*height: clamp\(22rem, 48dvh, 35rem\)/);
+  assert.match(styles, /\.object-repository-browser-preview iframe \{[\s\S]*flex: 1 1 auto/);
   assert.match(styles, /\.object-repository-field-actions \{[\s\S]*flex-wrap: nowrap/);
 });
 

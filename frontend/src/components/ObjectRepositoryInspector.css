@@ -1,0 +1,237 @@
+.object-repository-inspector .object-repository-inspector-title {
+  min-width: 0;
+  gap: 0.6rem;
+}
+.object-repository-inspector .object-repository-inspector-title h2 {
+  font-size: 0.94rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.object-repository-inspector .object-repository-inspector-title > span:last-child {
+  padding: 0;
+  background: transparent;
+  font-size: 0.67rem;
+  font-weight: 450;
+  text-transform: none;
+}
+.object-repository-inspector .object-repository-inspector-toolbar > button > span {
+  display: inline;
+}
+.object-repository-inspector .object-repository-inspector-body {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) 26px clamp(20rem, 27vw, 26rem);
+}
+.object-repository-inspector.is-browser-maximized .object-repository-inspector-body {
+  grid-template-columns: minmax(0, 1fr) 26px;
+}
+.object-repository-properties-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 7px;
+  background: var(--surface);
+  border-left: 1px solid var(--border-subtle);
+}
+.object-repository-properties-toggle > button {
+  width: 26px;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 24px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.object-repository-properties-toggle > button:hover {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+.object-repository-inspector .object-repository-inspector-review {
+  gap: 0;
+  padding: 0 0.4rem 0.4rem;
+  background: var(--surface);
+  scrollbar-gutter: auto;
+}
+.object-repository-inspector .object-repository-inspector-review[hidden] { display: none; }
+.object-repository-properties-heading {
+  flex: 0 0 auto;
+  padding: 0.78rem 0.3rem 0.55rem;
+}
+.object-repository-properties-heading h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.object-repository-inspector .object-repository-inspector-review-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  top: 0;
+  padding: 0;
+  margin-bottom: 0.45rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: var(--surface);
+}
+.object-repository-inspector .object-repository-inspector-review-tabs .subnav-tab {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  justify-content: center;
+  padding: 0.35rem 0.2rem;
+  border-radius: 0;
+}
+.object-repository-inspector-review-tabs .subnav-tab-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.object-repository-inspector-review-tabs .subnav-tab-copy strong { font-size: 0.72rem; }
+.object-repository-inspector-review-tabs .subnav-tab-meta { font-size: 0.65rem; }
+.object-repository-inspector .object-repository-selected-fields-head {
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.object-repository-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: auto;
+}
+.object-repository-selection-actions > button { white-space: nowrap; font-size: 0.7rem; }
+.repository-inspect-browser {
+  container-type: inline-size;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  background: var(--surface);
+}
+.repository-browser-command-row {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.4rem 0 0.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface) 95%, var(--text-secondary) 5%);
+  position: relative;
+  z-index: 5;
+}
+.repository-browser-command-row .object-repository-browser-tabs {
+  display: flex;
+  flex: 1 1 160px;
+  min-width: 120px;
+  min-height: 42px;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  overflow-x: auto;
+}
+.repository-browser-command-row .object-repository-browser-tabs > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 32px;
+  max-width: 260px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+}
+.repository-browser-command-row .object-repository-browser-tabs > button.is-active {
+  border-color: var(--border-subtle);
+  background: var(--surface);
+}
+.repository-browser-command-row .object-repository-browser-tabs strong {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repository-browser-command-row .object-repository-browser-tabs .repository-browser-resolution {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.repository-browser-empty-tabs { color: var(--text-secondary); font-size: 0.72rem; padding-inline: 0.4rem; }
+.repository-browser-commands {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: 0.15rem;
+  margin-left: auto;
+}
+.repository-browser-commands > button,
+.repository-browser-key-menu > summary {
+  min-height: 30px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.71rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.repository-browser-key-menu { position: relative; }
+.repository-browser-key-menu > summary { display: flex; align-items: center; cursor: pointer; list-style: none; border-radius: 5px; }
+.repository-browser-key-menu > summary::-webkit-details-marker { display: none; }
+.repository-browser-key-menu[open] > summary { background: var(--surface); }
+.repository-browser-key-menu > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  display: grid;
+  min-width: 115px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 8px 22px #17243a24;
+}
+.repository-browser-key-menu > div > button { justify-content: flex-start; }
+.repository-browser-action {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.repository-browser-action input { flex: 1 1 auto; min-width: 0; min-height: 32px; font-size: 0.78rem; }
+.repository-browser-action button { flex: 0 0 auto; }
+.repository-browser-error { flex: 0 0 auto; padding: 0.4rem 0.6rem; font-size: 0.75rem; color: var(--danger, #b42318); overflow-wrap: anywhere; }
+.repository-browser-viewport { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.object-repository-browser-preview .repository-browser-viewport > iframe { width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0; flex: 1 1 auto; }
+.repository-browser-viewport > .empty-state { width: 100%; align-content: center; }
+.object-repository-properties-toggle button:focus-visible,
+.repository-inspect-browser :is(button, summary, input):focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+@container (max-width: 550px) {
+  .repository-browser-command-row { flex-wrap: wrap; gap: 0; padding-bottom: 0.25rem; }
+  .repository-browser-command-row .object-repository-browser-tabs { flex-basis: 100%; min-height: 36px; }
+}
+@media (max-width: 900px) {
+  .object-repository-inspector .object-repository-inspector-header { flex-wrap: wrap; gap: 0.4rem; }
+  .object-repository-inspector .object-repository-inspector-body { grid-template-columns: minmax(0, 1fr) 26px 20rem; }
+  .object-repository-inspector.is-browser-maximized .object-repository-inspector-body { grid-template-columns: minmax(0, 1fr) 26px; }
+}
+@media (max-width: 720px) {
+  .object-repository-inspector .object-repository-inspector-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(330px, 65dvh) auto; overflow-y: auto; }
+  .object-repository-inspector .object-repository-live-inspect { height: auto; }
+  .object-repository-inspector .object-repository-inspector-review { min-height: 0; padding: 0.4rem; }
+  .object-repository-inspector .object-repository-properties-toggle { position: absolute; right: 0; top: 0; z-index: 6; height: 42px; padding-top: 3px; border-bottom: 1px solid var(--border-subtle); }
+  .repository-browser-command-row { padding-right: 28px; }
+  .object-repository-inspector.is-browser-maximized .object-repository-inspector-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+}

@@ -287,12 +287,15 @@ export function StepParameterDialog({
                   {!collapsedGroups[group.scope] ? (
                     <div className="step-parameter-group-items">
                       {group.items.map((parameter) => {
-                        const inputState = getInputState?.(parameter) || {};
+                        const configuredInputState = getInputState?.(parameter) || {};
+                        const inputState = parameter.sensitive
+                          ? { ...configuredInputState, disabled: true, placeholder: "Hidden value", hint: "This linked value stays hidden and is resolved when the test runs." }
+                          : configuredInputState;
                         const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues, parameter.name);
                         const hasOverrideValue = Object.prototype.hasOwnProperty.call(overrideValues, parameter.name);
-                        const currentValue = values[parameter.name] ?? "";
+                        const currentValue = parameter.sensitive ? "" : values[parameter.name] ?? "";
                         const isDynamicValue = hasTestDataGeneratorTemplate(currentValue);
-                        const previewValue = previewValues[parameter.name] ?? currentValue;
+                        const previewValue = parameter.sensitive ? "" : previewValues[parameter.name] ?? currentValue;
                         const sourceLabel = hasOverrideValue
                           ? "Test Case override"
                           : hasDefaultValue
@@ -305,7 +308,7 @@ export function StepParameterDialog({
                               label={parameter.label || parameter.token}
                               hint={inputState.hint || (parameter.occurrenceCount
                                 ? `${parameter.occurrenceCount} reference${parameter.occurrenceCount === 1 ? "" : "s"} in this design`
-                                : `Available from ${parameter.sourceLabel || "the linked Data Set"}`)}
+                                : `Available from ${parameter.sourceLabel || (parameter.source === "data_set" ? "the linked Data Set" : parameter.scopeLabel + " defaults")}`)}
                             >
                               <div className="step-parameter-row-meta">
                                 <code>{parameter.token}</code>
@@ -355,7 +358,7 @@ export function StepParameterDialog({
                                   Reset to Data Set value
                                 </button>
                               ) : null}
-                              {activeUtilityParameter === parameter.name ? (
+                              {activeUtilityParameter === parameter.name && !parameter.sensitive ? (
                                 <div aria-label={`Data utilities for ${parameter.token}`} className="step-parameter-utility-panel" role="dialog">
                                   <div className="step-parameter-utility-modal-head">
                                     <div>

@@ -5,6 +5,12 @@ import { readFile } from "fs/promises";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 import {
+  buildMobileParameterValues,
+  interpolateMobileText,
+  interpolateMobileValue,
+  normalizeMobileParameterKey
+} from "./parameters.js";
+import {
   createGracefulShutdown,
   probeProviderReadiness,
   remoteFileToBase64,
@@ -118,31 +124,6 @@ const KEYWORDS = [
   "pause"
 ];
 
-function parseKeywordLine(line) {
-  const trimmed = normalizeText(line);
-  if (!trimmed || trimmed.startsWith("//")) return null;
-
-  const match = trimmed.match(/^await\s+android\.(\w+)\((.*)\);?$/);
-  if (!match) return null;
-
-  const keyword = match[1];
-  if (keyword === "step") return null;
-  const argsSource = `[${match[2]}]`;
-  try {
-    const args = Function(`"use strict"; return (${argsSource});`)();
-    return { keyword, args: Array.isArray(args) ? args : [] };
-  } catch {
-    return null;
-  }
-}
-
-function parseKeywordScript(source) {
-  return String(source || "")
-    .split(/\r?\n/)
-    .map(parseKeywordLine)
-    .filter(Boolean);
-}
-
 function buildCapabilities(input = {}) {
   const provider = normalizeText(input.provider || process.env.MOBILE_PROVIDER || "local-appium").toLowerCase();
   const config = input.config && typeof input.config === "object" ? input.config : {};
@@ -180,6 +161,8 @@ async function withDriver(input, fn) {
   const { appiumServerUrl, capabilities } = buildCapabilities(input);
   const parsed = new URL(appiumServerUrl);
   const driver = await remote({
+    // WebDriver protocol logs include typed values; scoped secrets stay in requests.
+    logLevel: "silent",
     protocol: parsed.protocol.replace(":", ""),
     hostname: parsed.hostname,
     port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80)),
@@ -198,6 +181,7 @@ async function createSessionDriver(input) {
   const { appiumServerUrl, capabilities } = buildCapabilities(input);
   const parsed = new URL(appiumServerUrl);
   return remote({
+    logLevel: "silent",
     protocol: parsed.protocol.replace(":", ""),
     hostname: parsed.hostname,
     port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80)),
@@ -226,6 +210,12 @@ function parsePoint(value) {
   const [x, y] = normalized.split(",").map((item) => Number(item.trim()) || 0);
   return { x, y };
 }
+
+const numericArgument = (value, fallback) => {
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 function normalizeRepositoryKey(value) {
   return String(value || "")
@@ -311,16 +301,20 @@ async function resolveElementCenter(driver, selector, resolveSelector = (value) 
   };
 }
 
-async function executeCodedAndroidScript(driver, source, resolveSelector = (value) => value) {
-  const driverFacade = createDriverFacade(driver, resolveSelector);
-  const android = buildAndroidApi(driverFacade, resolveSelector);
+async function executeCodedAndroidScript(driver, source, resolveSelector, params) {
+  const driverFacade = createDriverFacade(driver, (selector) => resolveSelector(interpolateMobileText(selector, params)));
+  const android = buildAndroidApi(driver, resolveSelector, params);
   const $ = (selector) => driverFacade.$(selector);
   const fn = new AsyncFunction("android", "driver", "browser", "$", "params", "capture", source);
   const captures = {};
   const capture = (key, value) => {
-    captures[String(key || "").replace(/^@?[trs]\./, "") || `capture_${Object.keys(captures).length + 1}`] = String(value ?? "");
+    const normalizedKey = normalizeMobileParameterKey(key) || `capture_${Object.keys(captures).length + 1}`;
+    const normalizedValue = String(value ?? "");
+    captures[normalizedKey] = normalizedValue;
+    params[normalizedKey] = normalizedValue;
+    if (!normalizedKey.includes(".")) params[`t.${normalizedKey}`] = normalizedValue;
   };
-  await fn(android, driverFacade, driverFacade, $, {}, capture);
+  await fn(android, driverFacade, driverFacade, $, params, capture);
   return captures;
 }
 
@@ -366,7 +360,7 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       return { status: "passed", note: `Double tapped ${selector}` };
     case "longPress": {
       const resolved = await resolveElementCenter(driver, selector, resolveSelector);
-      await driver.action("pointer").move({ x: resolved.x, y: resolved.y }).down().pause(Number(value) || 800).up().perform();
+      await driver.action("pointer").move({ x: resolved.x, y: resolved.y }).down().pause(numericArgument(value, 800)).up().perform();
       return { status: "passed", note: `Long pressed ${selector}` };
     }
     case "type":
@@ -383,15 +377,15 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       await driver.hideKeyboard().catch(() => undefined);
       return { status: "passed", note: "Keyboard hidden" };
     case "waitForDisplayed":
-      await driver.$(String(resolvedSelector)).waitForDisplayed({ timeout: Number(value) || 10000 });
+      await driver.$(String(resolvedSelector)).waitForDisplayed({ timeout: numericArgument(value, 10000) });
       return { status: "passed", note: `${selector} displayed` };
     case "waitForExist":
-      await driver.$(String(resolvedSelector)).waitForExist({ timeout: Number(value) || 10000 });
+      await driver.$(String(resolvedSelector)).waitForExist({ timeout: numericArgument(value, 10000) });
       return { status: "passed", note: `${selector} exists` };
     case "waitForEnabled": {
       const element = await driver.$(String(resolvedSelector));
       await driver.waitUntil(async () => element.isEnabled(), {
-        timeout: Number(value) || 10000,
+        timeout: numericArgument(value, 10000),
         timeoutMsg: `${selector} was not enabled`
       });
       return { status: "passed", note: `${selector} enabled` };
@@ -410,7 +404,7 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
     }
     case "expectNotDisplayed": {
       const element = await driver.$(String(resolvedSelector));
-      await element.waitForDisplayed({ timeout: Number(value) || 10000, reverse: true });
+      await element.waitForDisplayed({ timeout: numericArgument(value, 10000), reverse: true });
       return { status: "passed", note: `${selector} is not displayed` };
     }
     case "expectEnabled": {
@@ -428,11 +422,11 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
     }
     case "swipe":
       {
-        const [startX, startY, endX, endY, duration] = command.args.map((item) => Number(item) || 0);
+        const [startX, startY, endX, endY, duration] = command.args;
         await driver.touchAction([
-          { action: "press", x: startX || 500, y: startY || 1500 },
-          { action: "wait", ms: duration || 300 },
-          { action: "moveTo", x: endX || 500, y: endY || 500 },
+          { action: "press", x: numericArgument(startX, 500), y: numericArgument(startY, 1500) },
+          { action: "wait", ms: numericArgument(duration, 300) },
+          { action: "moveTo", x: numericArgument(endX, 500), y: numericArgument(endY, 500) },
           "release"
         ]);
       }
@@ -508,7 +502,7 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       await driver.pressKeyCode(Number(selector) || Number(value) || 0);
       return { status: "passed", note: `Pressed Android key code ${selector || value}` };
     case "backgroundApp":
-      await driver.background(Number(selector) || Number(value) || 3);
+      await driver.background(numericArgument(selector ?? value, 3));
       return { status: "passed", note: "Backgrounded app" };
     case "activateApp":
       await driver.activateApp(String(selector));
@@ -520,15 +514,18 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       await driver.setOrientation(/landscape/i.test(String(selector)) ? "LANDSCAPE" : "PORTRAIT");
       return { status: "passed", note: `Set orientation ${selector}` };
     case "pause":
-      await driver.pause(Number(selector) || 1000);
+      await driver.pause(numericArgument(selector, 1000));
       return { status: "passed", note: "Pause completed" };
     default:
       throw new Error(`Unsupported Android keyword ${command.keyword}`);
   }
 }
 
-function buildAndroidApi(driver, resolveSelector = (value) => value) {
-  const run = (keyword, args) => executeKeyword(driver, { keyword, args }, resolveSelector);
+function buildAndroidApi(driver, resolveSelector, params) {
+  const run = (keyword, args) => executeKeyword(driver, {
+    keyword,
+    args: args.map((value) => interpolateMobileValue(value, params))
+  }, resolveSelector);
   return {
     step: async (_name, fn) => (typeof fn === "function" ? fn() : undefined),
     aiStep: (instruction, options) => run("aiStep", [instruction, options]),
@@ -635,45 +632,45 @@ app.get("/api/v1/capabilities", async () => ({
 
 app.post("/api/v1/mobile/execute", async (request) => {
   const payload = request.body || {};
+  return withDriver(payload, (driver) => executeAndroidStepsWithDriver(driver, payload));
+});
+
+export async function executeAndroidStepsWithDriver(driver, payload = {}) {
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
-  const resolveSelector = buildRepositoryResolver(payload.object_repository || payload.objectRepository || []);
+  const params = buildMobileParameterValues(payload.parameter_values);
+  const repositoryResolver = buildRepositoryResolver(payload.object_repository || payload.objectRepository || []);
+  const resolveSelector = (selector) => {
+    const resolved = repositoryResolver(selector);
+    return resolved === String(selector || "") ? resolved : interpolateMobileText(resolved, params);
+  };
   const results = [];
 
-  await withDriver(payload, async (driver) => {
-    for (const step of steps) {
-      const commands = parseKeywordScript(step.automation_code);
-      const source = String(step.automation_code || "").trim();
-      if (!commands.length && !source) {
-        results.push({
-          step_id: step.id,
-          status: "blocked",
-          note: "Android step has no executable android keyword script."
-        });
-        continue;
-      }
-
-      try {
-        if (commands.length) {
-          for (const command of commands) {
-            await executeKeyword(driver, command, resolveSelector);
-          }
-        } else {
-          await executeCodedAndroidScript(driver, source, resolveSelector);
-        }
-        results.push({ step_id: step.id, status: "passed", note: "Android step completed." });
-      } catch (error) {
-        results.push({
-          step_id: step.id,
-          status: "failed",
-          note: error instanceof Error ? error.message : "Android step failed."
-        });
-        break;
-      }
+  for (const step of steps) {
+    const source = String(step.automation_code || "").trim();
+    if (!source) {
+      results.push({
+        step_id: step.id,
+        status: "blocked",
+        note: "Android step has no executable android keyword script."
+      });
+      break;
     }
-  });
+
+    try {
+      const captures = await executeCodedAndroidScript(driver, source, resolveSelector, params);
+      results.push({ step_id: step.id, status: "passed", note: "Android step completed.", captures });
+    } catch (error) {
+      results.push({
+        step_id: step.id,
+        status: "failed",
+        note: error instanceof Error ? error.message : "Android step failed."
+      });
+      break;
+    }
+  }
 
   return { status: results.some((item) => item.status === "failed") ? "failed" : results.some((item) => item.status === "blocked") ? "blocked" : "passed", results };
-});
+}
 
 app.post("/api/v1/mobile/recorder/sessions", async (request) => {
   const payload = request.body || {};

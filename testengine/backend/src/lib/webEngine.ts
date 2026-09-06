@@ -216,6 +216,7 @@ type WebSession = {
   hover: (target: string, options?: WebElementOptions) => Promise<void>;
   dblclick: (target: string, options?: WebElementOptions) => Promise<void>;
   rightClick: (target: string, options?: WebElementOptions) => Promise<void>;
+  drag: (source: string, destination: string, options?: WebElementOptions) => Promise<void>;
   fill: (target: string, value: string, options?: WebFillOptions) => Promise<void>;
   select: (target: string, value: string, options?: WebElementOptions) => Promise<void>;
   check: (target: string, options?: WebElementOptions) => Promise<void>;
@@ -1585,6 +1586,15 @@ class PlaywrightWebSession implements WebSession {
     });
   }
 
+  async drag(source: string, destination: string, options?: WebElementOptions) {
+    const preparedSource = await this.prepareLocator(source, options);
+    const preparedDestination = await this.prepareLocator(destination, options);
+    await preparedSource.locator.dragTo(preparedDestination.locator, {
+      force: preparedSource.options.force,
+      timeout: preparedSource.options.timeoutMs
+    });
+  }
+
   async fill(target: string, value: string, options?: WebFillOptions) {
     const prepared = await this.prepareLocator(target, options);
     const locator = prepared.locator;
@@ -2231,6 +2241,12 @@ class SeleniumWebSession implements WebSession {
     await this.driverOrThrow.actions().contextClick(element).perform();
   }
 
+  async drag(source: string, destination: string, _options?: WebElementOptions) {
+    const sourceElement = await this.resolveElement(source);
+    const destinationElement = await this.resolveElement(destination);
+    await this.driverOrThrow.actions().dragAndDrop(sourceElement, destinationElement).perform();
+  }
+
   async fill(target: string, value: string, options?: WebFillOptions) {
     const element = await this.resolveElement(target);
     const descendants = await element.findElements(By.css("input, textarea, select, [contenteditable='true'], [role='textbox']")).catch(() => []);
@@ -2652,6 +2668,7 @@ const buildBindings = (
     hover: async (target: string, options?: WebElementOptions) => session.hover(resolveTarget(target), options),
     dblclick: async (target: string, options?: WebElementOptions) => session.dblclick(resolveTarget(target), options),
     rightClick: async (target: string, options?: WebElementOptions) => session.rightClick(resolveTarget(target), options),
+    drag: async (source: string, destination: string, options?: WebElementOptions) => session.drag(resolveTarget(source), resolveTarget(destination), options),
     fill: async (target: string, value: string, options?: WebFillOptions) => session.fill(resolveTarget(target), interpolateText(value, context), options),
     clear: async (target: string, options?: WebElementOptions) => session.fill(resolveTarget(target), "", { ...(options || {}), clear: true }),
     select: async (target: string, value: string, options?: WebElementOptions) => session.select(resolveTarget(target), interpolateText(value, context), options),

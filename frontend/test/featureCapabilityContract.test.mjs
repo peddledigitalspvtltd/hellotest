@@ -7,7 +7,9 @@ const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.
 test("step automation exposes supported choices and scopes capability checks to the active project", async () => {
   const editor = await readSource("../src/components/StepAutomationEditor.tsx");
 
-  assert.match(editor, /AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS\.filter\(\(option\) => option\.value !== "ios"\)/);
+  assert.match(editor, /AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS/);
+  assert.match(editor, /isMobileStepType = \(value: TestStepType\) => value === "android" \|\| value === "ios"/);
+  assert.match(editor, /canUseMobileAppium \|\| !isMobileStepType\(option\.value\)/);
   assert.match(editor, /hasPermission\(session, "mobile\.manage", projectId\)/);
   assert.match(editor, /resolveCanEditAutomationCode\(session, featureFlagsQuery\.data, projectId\)/);
   assert.match(editor, /resolveCanViewAutomationCode\(session, featureFlagsQuery\.data, projectId\)/);

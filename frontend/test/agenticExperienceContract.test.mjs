@@ -108,7 +108,10 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
   assert.match(insights, /Editable review sequence/);
   assert.match(insights, /Accept review plan/);
   assert.match(bugs, /Accept into Bug form/);
-  assert.match(automation, /Accept plan/);
+  assert.match(automation, /What should the agent automate\?/);
+  assert.match(automation, /Build step plan/);
+  assert.match(automation, /aria-label="Automation step plan"/);
+  assert.match(automation, /Save section/);
   assert.match(executions, /Accept reviewed summary/);
   assert.match(executions, /Create AI Smart Run/);
 });
@@ -131,7 +134,10 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   assert.match(storyShell, /Output contract/);
   assert.match(storyShell, /Human gate/);
 
-  for (const source of [bugs, automation, executions]) assert.match(source, /briefItems=/);
+  for (const source of [bugs, executions]) assert.match(source, /briefItems=/);
+  assert.match(automation, /value=\{agentMission\}/);
+  assert.match(automation, /Additional guidance & execution context/);
+  assert.match(automation, /agentBuildReceipt/);
   assert.match(storyPage, /showPromptEditor=\{false\}/);
   assert.match(testImprove, /<AiDesignStudioModal/);
   assert.match(testImprove, /allowMultipleRequirements=\{false\}/);

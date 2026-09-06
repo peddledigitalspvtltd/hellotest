@@ -571,7 +571,10 @@
 .knowledge-source-toolbar select { min-height: 2.3rem; padding: 0.42rem 0.55rem; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface); color: var(--text-primary); font: inherit; font-size: 0.72rem; }
 .knowledge-source-toolbar > span { align-self: center; color: var(--text-secondary); font-size: 0.72rem; font-weight: 800; }
 .knowledge-source-inventory { display: grid; gap: 0.45rem; }
-.knowledge-source-inventory-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 0.65rem; padding: 0.68rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface); }
+.knowledge-source-inventory-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 0.65rem; padding: 0.68rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface); }
+.knowledge-source-title-button { background: transparent; border: 0; padding: 0; font: inherit; color: var(--text-primary); font-weight: 600; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.knowledge-source-title-button:hover { color: var(--accent, #4f46e5); text-decoration: underline; }
+.knowledge-source-inspect { display: inline-flex; gap: 3px; align-items: center; }
 .knowledge-inventory-kind { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: 9px; background: rgba(79, 70, 229, 0.08); color: #4f46e5; }
 .knowledge-inventory-copy { min-width: 0; }
 .knowledge-inventory-copy > div { display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
@@ -638,6 +641,8 @@
 .knowledge-job-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; color: var(--text-secondary); font-size: 0.72rem; }
 .knowledge-job-error { display: grid; gap: 0.2rem; margin-top: 0.45rem; padding: 0.45rem; border-radius: 7px; background: rgba(254, 226, 226, 0.65); color: #991b1b; font-size: 0.72rem; }
 .knowledge-job-warnings { display: grid; gap: 0.2rem; margin-top: 0.45rem; padding: 0.45rem; border-radius: 7px; background: rgba(254, 243, 199, 0.58); color: #92400e; font-size: 0.72rem; }
+.knowledge-job-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
+.knowledge-job-actions .ghost-button { min-height: 1.85rem; gap: 0.3rem; font-size: 0.7rem; }
 .knowledge-processing-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.9rem; padding: 0.65rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--panel-strong); color: var(--text-secondary); font-size: 0.72rem; }
 .knowledge-processing-legend strong { color: var(--text-primary); }
 .knowledge-processing-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }

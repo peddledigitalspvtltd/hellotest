@@ -6,10 +6,11 @@ const test = require("node:test");
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
 test("test case metadata and data set links are durable and scope checked", async () => {
-  const [schema, bootstrap, service, routes, versionRestore, openapi] = await Promise.all([
+  const [schema, bootstrap, service, dataSetService, routes, versionRestore, openapi] = await Promise.all([
     readSource("../../db/schema.sql"),
     readSource("../src/db/bootstrap.js"),
     readSource("../src/services/testCase.service.js"),
+    readSource("../src/services/testDataSet.service.js"),
     readSource("../src/routes/testCases.routes.js"),
     readSource("../src/services/testCaseVersionRestore.service.js"),
     readSource("../../../openapi.yaml")
@@ -28,6 +29,8 @@ test("test case metadata and data set links are durable and scope checked", asyn
   assert.match(service, /All test data sets must belong to the test case project/);
   assert.match(service, /A test case can link to only one test data set/);
   assert.match(service, /test_data_set_ids:/);
+  assert.match(service, /redactTestDataSetRows\(row\.mode, row\.rows\)/);
+  assert.match(dataSetService, /is_secret: true, value: "", has_stored_value: Boolean\(entry\.value\)/);
   assert.match(service, /author:/);
   assert.match(routes, /test_case_type:/);
   assert.match(schema, /test_case_type[^\n]*'accessibility','ios'/);
@@ -37,6 +40,19 @@ test("test case metadata and data set links are durable and scope checked", asyn
   assert.equal((openapi.match(/test_case_type: \{ type: string, enum: \[[^\]]*accessibility, ios\] \}/g) || []).length, 3);
   assert.equal((routes.match(/test_data_set_ids: \{ required: false, type: "array", items: "string", maxItems: 1 \}/g) || []).length, 2);
   assert.match(versionRestore, /version\.content\.test_data_set_ids\.slice\(0, 1\)/);
+});
+
+test("hidden key-value data is redacted from API hydration", () => {
+  const { redactTestDataSetRows } = require("../src/services/testDataSet.service");
+  const rows = redactTestDataSetRows("key_value", [
+    { id: "visible", key: "username", value: "jay", is_secret: false },
+    { id: "hidden", key: "password", value: "do-not-render", is_secret: true }
+  ]);
+
+  assert.deepEqual(rows, [
+    { id: "visible", key: "username", value: "jay", is_secret: false },
+    { id: "hidden", key: "password", value: "", is_secret: true, has_stored_value: true }
+  ]);
 });
 
 test("test case author can be selected without changing the acting audit user", async () => {

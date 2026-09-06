@@ -22,7 +22,8 @@ import { DialogCloseButton } from "../components/DialogCloseButton";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { FormField } from "../components/FormField";
 import { buildGherkinFromSteps, GherkinEditor } from "../components/GherkinEditor";
-import { gherkinToStructuredCase, structuredCaseToGherkin } from "../lib/gherkin";
+import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetadata, sanitizeGherkinDocumentText, setGherkinFeatureTitle, splitGherkinDocument, structuredCaseToGherkin } from "../lib/gherkin";
+import { annotateGherkinStepGroups, collectBehaviorRowGroups } from "../lib/gherkinBehavior";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
 import { HierarchyAutoLoadSentinel, HierarchyLoadMoreButton } from "../components/HierarchyLoadMoreButton";
@@ -37,7 +38,6 @@ import { QualityMetricStrip } from "../components/QualityMetricStrip";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { RichTextAiRephraseIcon, RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
-import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import {
@@ -121,7 +121,6 @@ import {
   canViewAutomationCode as resolveCanViewAutomationCode
 } from "../lib/automationAccess";
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
-import { splitGherkinDocument } from "../lib/gherkin";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "../lib/aiDesignStudio";
 import { assessTestCaseReviewReadiness } from "../lib/aiAssurance";
 import { buildTestCaseAssuranceAnalysis } from "../lib/artifactAssurance";
@@ -148,9 +147,12 @@ import {
 import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
 import {
   buildDataSetParameterDefinitions,
+  buildStepParameterDefinitionsFromValues,
   buildDataSetParameterValues,
   combineStepParameterValues,
+  collectSensitiveDataSetParameterNames,
   collectStepParameters,
+  excludeSensitiveStepParameterValues,
   mergeStepParameterDefinitions,
   normalizeStepParameterValues,
   parseStepParameterName,
@@ -571,6 +573,37 @@ const createCreateModeTestCaseSections = (): Record<TestCaseEditorSectionKey, bo
 
 const createDraftStepId = () =>
   globalThis.crypto?.randomUUID?.() || `draft-step-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+const buildCaseStepsFromGherkin = (value: string, previousSteps: DraftTestStep[]): DraftTestStep[] => {
+  const converted = gherkinToStructuredCase(value);
+  const createStep = (): DraftTestStep => ({ id: createDraftStepId(), action: "", expected_result: "", step_type: "web", automation_code: "", api_request: null, group_id: null, group_name: null, group_kind: null, reusable_group_id: null });
+  const isPrecondition = (step: DraftTestStep) => (step.group_name || "").toLowerCase() === "preconditions";
+  const preconditions = mergeGherkinStepMetadata(converted.preconditions, previousSteps.filter(isPrecondition), createStep)
+    .map((step) => ({ ...step, group_name: "Preconditions", group_kind: "local" as const }));
+  const groupMembership = splitGherkinDocument(value).scenarios.flatMap((scenario) => collectBehaviorRowGroups(scenario.scenario));
+  const main = mergeGherkinStepMetadata(converted.steps, previousSteps.filter((step) => !isPrecondition(step)), createStep)
+    .map((step, index) => {
+      const group = groupMembership[index];
+      if (!group) return step;
+      const previousGroup = previousSteps.find((item) => item.group_id === group.id);
+      return { ...step, group_id: group.id, group_name: group.name, group_kind: "reusable" as const, reusable_group_id: previousGroup?.reusable_group_id || step.reusable_group_id };
+    });
+  return [...preconditions, ...main];
+};
+
+const buildGroupedCaseGherkin = (input: Omit<Parameters<typeof structuredCaseToGherkin>[0], "steps"> & { steps?: Array<Partial<TestStep>> }) => {
+  const groups = (input.steps || []).reduce<Array<{ id: string; name: string; steps: Array<Partial<TestStep>> }>>((result, step) => {
+    if (!step.group_id || step.group_kind !== "reusable") return result;
+    const previous = result[result.length - 1];
+    if (previous?.id === step.group_id) previous.steps.push(step);
+    else result.push({ id: step.group_id, name: step.group_name || "Shared Step Group", steps: [step] });
+    return result;
+  }, []);
+  return annotateGherkinStepGroups(structuredCaseToGherkin(input), groups.map((group) => ({
+    id: group.id, name: group.name,
+    lines: splitGherkinDocument(structuredCaseToGherkin({ title: input.title, steps: group.steps })).scenarios[0]?.scenario.split("\n").slice(1) || []
+  })));
+};
 
 const createDraftGroupId = () =>
   globalThis.crypto?.randomUUID?.() || `draft-group-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -2485,6 +2518,7 @@ export function TestCasesPage() {
   const [stepGroupName, setStepGroupName] = useState("");
   const [saveAsReusableGroup, setSaveAsReusableGroup] = useState(false);
   const [isSharedGroupPickerOpen, setIsSharedGroupPickerOpen] = useState(false);
+  const [isInsertingSharedGroups, setIsInsertingSharedGroups] = useState(false);
   const [selectedSharedGroupIds, setSelectedSharedGroupIds] = useState<string[]>([]);
   const [sharedGroupSearchTerm, setSharedGroupSearchTerm] = useState("");
   const [isSuiteLinkModalOpen, setIsSuiteLinkModalOpen] = useState(false);
@@ -3082,6 +3116,15 @@ export function TestCasesPage() {
     const selectedRequirement = requirements.find((item: Requirement) => item.id === caseDraft.requirement_id);
     return selectedRequirement ? [selectedRequirement, ...creationRequirementOptions] : creationRequirementOptions;
   }, [caseDraft.requirement_id, creationRequirementOptions, requirements]);
+  const linkedRequirementTitle = requirements.find((requirement) => requirement.id === caseDraft.requirement_id)?.title || "";
+  const caseGherkinFeatureTitle = linkedRequirementTitle || caseDraft.title;
+  useEffect(() => {
+    if (!linkedRequirementTitle || !caseDraft.gherkin_document.trim()) return;
+    setCaseDraft((current) => {
+      const gherkin_document = setGherkinFeatureTitle(current.gherkin_document, linkedRequirementTitle);
+      return gherkin_document === current.gherkin_document ? current : { ...current, gherkin_document };
+    });
+  }, [linkedRequirementTitle, caseDraft.gherkin_document]);
   const suites = asArray(suitesQuery.data);
   const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
   const testCases = useMemo(() => {
@@ -4099,6 +4142,10 @@ export function TestCasesPage() {
     () => buildDataSetParameterDefinitions(linkedDataSet, linkedDataSet?.name),
     [linkedDataSet]
   );
+  const linkedDataSetSensitiveParameterNames = useMemo(
+    () => new Set(collectSensitiveDataSetParameterNames(linkedDataSet)),
+    [linkedDataSet]
+  );
   const linkedAutomationCases = useMemo(
     () => asArray<TestCase>(automationCaseLinksQuery.data).filter((testCase) =>
       testCase.automated === "yes" && (
@@ -4181,9 +4228,13 @@ export function TestCasesPage() {
       ? `case:${selectedTestCase.id}:${selectedTestCase.revision ?? selectedTestCase.updated_at ?? "detail"}`
       : selectedTestCaseId ? "__loading__" : "__none__";
   }, [appTypeId, isCreating, selectedTestCase, selectedTestCaseId]);
+  const visibleTestCaseParameterValues = useMemo(
+    () => excludeSensitiveStepParameterValues(testCaseParameterValues, linkedDataSetSensitiveParameterNames),
+    [linkedDataSetSensitiveParameterNames, testCaseParameterValues]
+  );
   const effectiveTestCaseParameterValues = useMemo(
-    () => combineStepParameterValues(linkedDataSetDefaultParameterValues, testCaseParameterValues),
-    [linkedDataSetDefaultParameterValues, testCaseParameterValues]
+    () => combineStepParameterValues(linkedDataSetDefaultParameterValues, visibleTestCaseParameterValues),
+    [linkedDataSetDefaultParameterValues, visibleTestCaseParameterValues]
   );
   const mergedScopedParameterValues = useMemo(
     () => combineStepParameterValues(effectiveTestCaseParameterValues, suiteParameterValues, runPreviewParameterValues),
@@ -4304,7 +4355,7 @@ export function TestCasesPage() {
   const handleScopedParameterValueChange = (name: string, value: string) => {
     const parsed = parseStepParameterName(name);
 
-    if (!parsed || resolveScopedParameterInputState(parsed.scope).disabled) {
+    if (!parsed || linkedDataSetSensitiveParameterNames.has(parsed.name) || resolveScopedParameterInputState(parsed.scope).disabled) {
       return;
     }
 
@@ -5292,9 +5343,13 @@ export function TestCasesPage() {
 		      return false;
 		    }
 
-		    try {
+	    try {
 	      await persistSelectedSuiteParameterValues();
       const labels = parseReferenceList(caseDraft.labelsText);
+      const sanitizedGherkinDocument = sanitizeGherkinDocumentText(caseDraft.gherkin_document);
+      const persistedGherkinDocument = linkedRequirementTitle
+        ? setGherkinFeatureTitle(sanitizedGherkinDocument, linkedRequirementTitle)
+        : sanitizedGherkinDocument;
       const persistedSteps = displaySteps.map((step, index) => {
         const draft = stepOverrides[step.id] || stepDrafts[step.id];
         const persistedStep = {
@@ -5311,15 +5366,20 @@ export function TestCasesPage() {
           group_kind: step.group_kind || null,
           reusable_group_id: step.reusable_group_id || null
         };
-        return canEditAutomationCode ? persistedStep : stripAutomationStepFields(persistedStep);
+        return persistedStep;
       });
+      const authoredSteps = caseDraft.authoring_mode === "gherkin"
+        ? buildCaseStepsFromGherkin(persistedGherkinDocument, persistedSteps)
+            .map((step, index) => ({ ...step, step_order: index + 1 }))
+        : persistedSteps;
+      const savedSteps = authoredSteps.map((step) => canEditAutomationCode ? step : stripAutomationStepFields(step));
       const resolvedAiQualityScore = calculateTestCaseAiQualityScore({
         title: caseDraft.title,
         description: caseDraft.description,
-        steps: persistedSteps,
+        steps: authoredSteps,
         requirementId: caseDraft.requirement_id,
         labels,
-        parameterValues: testCaseParameterValues
+        parameterValues: visibleTestCaseParameterValues
       });
 
       if (isCreating) {
@@ -5343,11 +5403,11 @@ export function TestCasesPage() {
           description: caseDraft.description || undefined,
           external_references: parseReferenceList(caseDraft.externalReferencesText),
           labels,
-          parameter_values: testCaseParameterValues,
+          parameter_values: visibleTestCaseParameterValues,
           automated: caseDraft.automated,
           authoring_mode: caseDraft.authoring_mode,
           test_case_type: caseDraft.test_case_type,
-          gherkin_document: caseDraft.gherkin_document || null,
+          gherkin_document: persistedGherkinDocument || null,
           ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1) } : {}),
           priority: Number(caseDraft.priority),
           status: caseDraft.status,
@@ -5356,7 +5416,7 @@ export function TestCasesPage() {
           reviewer_id: caseDraft.reviewer_id || null,
           review_status: caseDraft.reviewer_id ? "pending" : "not_requested",
           ai_quality_score: resolvedAiQualityScore,
-          steps: normalizeDraftSteps(draftSteps).map((step) => (
+          steps: (caseDraft.authoring_mode === "gherkin" ? normalizeDraftSteps(authoredSteps) : normalizeDraftSteps(draftSteps)).map((step) => (
             canEditAutomationCode ? step : stripAutomationStepFields(step)
           ))
         });
@@ -5425,11 +5485,11 @@ export function TestCasesPage() {
             description: caseDraft.description,
             external_references: parseReferenceList(caseDraft.externalReferencesText),
             labels,
-            parameter_values: testCaseParameterValues,
+            parameter_values: visibleTestCaseParameterValues,
             automated: caseDraft.automated,
             authoring_mode: caseDraft.authoring_mode,
             test_case_type: caseDraft.test_case_type,
-            gherkin_document: caseDraft.gherkin_document || null,
+            gherkin_document: persistedGherkinDocument || null,
             ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1) } : {}),
             automation_status: caseDraft.automated === "yes"
               ? selectedTestCase.automated === "yes" ? existingAutomationStatus : hasMappedAutomation ? "ready" : "incomplete"
@@ -5441,7 +5501,7 @@ export function TestCasesPage() {
             reviewer_id: caseDraft.reviewer_id || null,
             ai_quality_score: resolvedAiQualityScore,
             expected_revision: selectedTestCase.revision,
-            steps: persistedSteps
+            steps: savedSteps
           }
         });
 
@@ -5458,7 +5518,7 @@ export function TestCasesPage() {
           });
         }
 
-        syncCachedTestCaseParameterValues(selectedTestCase.id, testCaseParameterValues);
+        syncCachedTestCaseParameterValues(selectedTestCase.id, visibleTestCaseParameterValues);
         clearStoredTestCaseParameterDraft(selectedCaseParameterDraftScopeKey);
         await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCase.id] });
         if (persistedSteps.some((step) => step.reusable_group_id)) {
@@ -7174,42 +7234,89 @@ export function TestCasesPage() {
   };
 
   const handleInsertSharedGroup = async () => {
-    const selectedGroups = sharedStepGroups.filter((group) => selectedSharedGroupIds.includes(group.id));
-
-    if (!selectedGroups.length) {
+    if (isInsertingSharedGroups) return;
+    if (!selectedSharedGroupIds.length) {
       showError(new Error("Choose one or more Shared Step Groups to insert."), "Unable to insert Shared Step Groups");
       return;
     }
 
-    if (selectedGroups.some((group) => group.steps.some((step) => stepHasAutomation(step))) && !canEditAutomationCode) {
-      showError(new Error("Automation build and code access are required to insert a Shared Step Group containing automation."), "Unable to insert Shared Step Group");
-      return;
-    }
-
+    const successfullyInsertedGroups: string[] = [];
+    const appendGroupsToGherkin = (selectedGroups: SharedStepGroup[], insertedGroupIds: string[]) => {
+      if (caseDraft.authoring_mode !== "gherkin") return;
+        setCaseDraft((current) => {
+          const sections = splitGherkinDocument(current.gherkin_document || structuredCaseToGherkin({ title: current.title, featureTitle: caseGherkinFeatureTitle }));
+          if (!sections.scenarios.length) sections.scenarios.push({ scenario: `  Scenario: ${current.title || "Expected behavior"}`, examples: "" });
+          const scenario = sections.scenarios[sections.scenarios.length - 1];
+          const insertedBehavior = selectedGroups.map((group, index) => {
+            const behavior = splitGherkinDocument(structuredCaseToGherkin({ title: current.title, steps: group.steps }))
+              .scenarios[0]?.scenario.split("\n").slice(1).join("\n") || "";
+            const groupId = insertedGroupIds[index] || group.id;
+            return `    # Shared Step Group [${groupId}]: ${group.name.replace(/[\r\n]+/g, " ")}\n${behavior}\n    # End Shared Step Group [${groupId}]`;
+          }).join("\n");
+          scenario.scenario = `${scenario.scenario.trimEnd()}\n${insertedBehavior}`;
+          return { ...current, gherkin_document: composeGherkinDocument(sections) };
+        });
+    };
+    setIsInsertingSharedGroups(true);
     try {
+      // Resolve full definitions in selection order, including groups whose
+      // catalog entry only contains counts. Check every group before inserting.
+      const selectedGroups = await Promise.all(selectedSharedGroupIds.map((id) => api.sharedStepGroups.get(id)));
+      if (selectedGroups.some((group) => !group.steps.length)) {
+        throw new Error("Every selected Shared Step Group must contain at least one step.");
+      }
+      if (selectedGroups.some((group) => group.steps.some((step) => stepHasAutomation(step))) && !canEditAutomationCode) {
+        throw new Error("Automation build and code access are required to insert a Shared Step Group containing automation.");
+      }
+      const insertedGroupIds: string[] = [];
       if (isCreating) {
-        const insertionIndex = resolveStepInsertIndex(draftSteps);
+        const insertionIndex = caseDraft.authoring_mode === "gherkin" ? draftSteps.length : resolveStepInsertIndex(draftSteps);
         const insertedSteps = selectedGroups.flatMap((sharedGroup) => {
           const groupInstanceId = createDraftGroupId();
-          return sharedGroup.steps.map((step) => ({ id: createDraftStepId(), action: step.action || "", expected_result: step.expected_result || "", step_type: normalizeStepType(step.step_type), automation_code: normalizeAutomationCode(step.automation_code), api_request: normalizeApiRequest(step.api_request), group_id: groupInstanceId, group_name: sharedGroup.name, group_kind: "reusable" as const, reusable_group_id: sharedGroup.id }));
+          insertedGroupIds.push(groupInstanceId);
+          return sharedGroup.steps.map((step) => ({
+            id: createDraftStepId(), action: step.action || "", expected_result: step.expected_result || "",
+            step_type: normalizeStepType(step.step_type), automation_code: normalizeAutomationCode(step.automation_code),
+            api_request: normalizeApiRequest(step.api_request), group_id: groupInstanceId,
+            group_name: sharedGroup.name, group_kind: "reusable" as const, reusable_group_id: sharedGroup.id
+          }));
         });
-
         setDraftSteps((current) => {
           const next = [...current];
           next.splice(insertionIndex, 0, ...insertedSteps);
           return next;
         });
-        setExpandedStepIds((current) => [...new Set([...current, ...insertedSteps.map((step) => step.id)])]);
-        setSelectedStepIds([]);
+        appendGroupsToGherkin(selectedGroups, insertedGroupIds);
+        successfullyInsertedGroups.push(...selectedGroups.map((group) => group.id));
       } else if (selectedTestCaseId) {
-        const insertionIndex = resolveStepInsertIndex(steps);
-        const insertAfterStepId = insertionIndex > 0 ? steps[insertionIndex - 1]?.id : undefined;
-
-        for (const sharedGroup of selectedGroups) await insertSharedGroup.mutateAsync({ test_case_id: selectedTestCaseId, shared_step_group_id: sharedGroup.id, insert_after_step_id: insertAfterStepId });
+        const insertionIndex = caseDraft.authoring_mode === "gherkin" ? steps.length : resolveStepInsertIndex(steps);
+        let insertAfterStepId = insertionIndex > 0 ? steps[insertionIndex - 1]?.id : undefined;
+        let knownStepIds = new Set(steps.map((step) => step.id));
+        const insertedStepIds: string[] = [];
+        for (const sharedGroup of selectedGroups) {
+          await insertSharedGroup.mutateAsync({ test_case_id: selectedTestCaseId, shared_step_group_id: sharedGroup.id, insert_after_step_id: insertAfterStepId });
+          const updatedSteps = (await api.testSteps.list({ test_case_id: selectedTestCaseId })).slice().sort((left, right) => left.step_order - right.step_order);
+          const newSteps = updatedSteps.filter((step) => !knownStepIds.has(step.id));
+          insertedStepIds.push(...newSteps.map((step) => step.id));
+          insertedGroupIds.push(...new Set(newSteps.flatMap((step) => step.group_id ? [step.group_id] : [])));
+          insertAfterStepId = newSteps[newSteps.length - 1]?.id || insertAfterStepId;
+          knownStepIds = new Set(updatedSteps.map((step) => step.id));
+          queryClient.setQueryData(["test-case-steps", selectedTestCaseId], updatedSteps);
+          appendGroupsToGherkin([sharedGroup], [newSteps[0]?.group_id || sharedGroup.id]);
+          successfullyInsertedGroups.push(sharedGroup.id);
+        }
+        // The insert endpoint appends when there is no anchor. Move the batch
+        // to the start for an explicit insertion before the first step.
+        if (insertionIndex === 0 && steps.length && insertedStepIds.length) {
+          await api.testSteps.reorder(selectedTestCaseId, [...insertedStepIds, ...steps.map((step) => step.id)]);
+        }
         await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
         await refreshSharedGroups();
       }
 
+
+      setExpandedSections((current) => ({ ...current, steps: true }));
+      setExpandedStepGroupIds((current) => current.filter((id) => !insertedGroupIds.includes(id)));
       setIsSharedGroupPickerOpen(false);
       setSelectedSharedGroupIds([]);
       setSharedGroupSearchTerm("");
@@ -7218,7 +7325,10 @@ export function TestCasesPage() {
       setSelectedStepIds([]);
       showSuccess(`Inserted ${selectedGroups.length} Shared Step Group${selectedGroups.length === 1 ? "" : "s"}.`);
     } catch (error) {
+      setSelectedSharedGroupIds((current) => current.filter((id) => !successfullyInsertedGroups.includes(id)));
       showError(error, "Unable to insert Shared Step Group");
+    } finally {
+      setIsInsertingSharedGroups(false);
     }
   };
 
@@ -8592,7 +8702,10 @@ export function TestCasesPage() {
         .includes(search);
     });
   }, [sharedGroupSearchTerm, sharedStepGroups]);
-  const selectedSharedGroups = sharedStepGroups.filter((group) => selectedSharedGroupIds.includes(group.id));
+  const selectedSharedGroups = selectedSharedGroupIds.flatMap((id) => {
+    const group = sharedStepGroups.find((item) => item.id === id);
+    return group ? [group] : [];
+  });
   const detectedStepParameters = useMemo<StepParameterDefinition[]>(
     () => mergeStepParameterDefinitions(
       collectStepParameters([
@@ -8613,9 +8726,10 @@ export function TestCasesPage() {
             }]
           : [])
       ]).map((definition) => ({ ...definition, source: "authoring" as const })),
-      linkedDataSetParameterDefinitions
+      linkedDataSetParameterDefinitions,
+      buildStepParameterDefinitionsFromValues(mergedScopedParameterValues)
     ),
-    [canViewAutomationCode, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSetParameterDefinitions, selectedTestCaseId, stepDrafts]
+    [canViewAutomationCode, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSetParameterDefinitions, mergedScopedParameterValues, selectedTestCaseId, stepDrafts]
   );
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
   const stepCountLabel = `${mainSteps.length} step${mainSteps.length === 1 ? "" : "s"}`;
@@ -8659,7 +8773,8 @@ export function TestCasesPage() {
     || updateSuite.isPending
     || assignCasesToModule.isPending
     || removeCasesFromModule.isPending
-    || deleteTestCase.isPending;
+    || deleteTestCase.isPending
+    || isInsertingSharedGroups;
   const isTestCaseSaveDisabled =
     Boolean(testCaseSaveBlockedReason)
     || (isCreating ? !canCreateTestCases : !canUpdateTestCases || isSelectedTestCaseDetailPending || !selectedTestCase)
@@ -9748,6 +9863,8 @@ export function TestCasesPage() {
 
   const renderStepInsertSlot = (index: number, groupContext: StepInsertionGroupContext | null = null) => (
     <InlineStepInsertSlot
+      availableParameters={detectedStepParameters}
+      parameterValues={resolvedScopedParameterValues}
       draft={newStepDraft}
       index={index}
       isActive={stepInsertIndex === index && isMatchingStepInsertContext(groupContext)}
@@ -9799,6 +9916,7 @@ export function TestCasesPage() {
           showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
           parameterValues={resolvedScopedParameterValues}
+          availableParameters={detectedStepParameters}
           canPaste={Boolean(copiedSteps.length)}
           canMoveDown={canMoveDown}
           canMoveUp={canMoveUp}
@@ -9852,6 +9970,7 @@ export function TestCasesPage() {
           showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
           parameterValues={resolvedScopedParameterValues}
+          availableParameters={detectedStepParameters}
           canPaste={Boolean(copiedSteps.length)}
         canMoveDown={canMoveDown}
         canMoveUp={canMoveUp}
@@ -11043,44 +11162,58 @@ export function TestCasesPage() {
                             return queryClient.invalidateQueries({ queryKey: ["test-data-sets"] });
                           }).catch((error) => showError(error, "Structured steps were restored, but Gherkin Examples could not be saved as Test Data"));
                         }
-                        const toDraft = (step: { action: string; expected_result: string }, isPrecondition = false): DraftTestStep => ({
-                          id: createDraftStepId(), action: step.action, expected_result: step.expected_result,
-                          step_type: "web", automation_code: "", api_request: null, group_id: null,
-                          group_name: isPrecondition ? "Preconditions" : null,
-                          group_kind: isPrecondition ? "local" : null, reusable_group_id: null
-                        });
+                        const existingSteps = displaySteps.map((step) => ({ ...step, ...(stepDrafts[step.id] || {}) }));
+                        const usedIds = new Set<string>();
+                        const toDraft = (step: { action: string; expected_result: string }, index: number, isPrecondition = false): DraftTestStep => {
+                          const candidates = existingSteps.filter((item) => !usedIds.has(item.id)
+                            && ((item.group_name || "").toLowerCase() === "preconditions") === isPrecondition);
+                          const matchingStep = candidates.find((item) =>
+                            normalizeSharedGroupComparableText(item.action) === normalizeSharedGroupComparableText(step.action)
+                            && normalizeSharedGroupComparableText(item.expected_result) === normalizeSharedGroupComparableText(step.expected_result));
+                          const existing = matchingStep || (existingSteps.length === converted.preconditions.length + converted.steps.length
+                            ? candidates.find((item) => item.id === existingSteps[index]?.id) : undefined);
+                          if (existing) usedIds.add(existing.id);
+                          return {
+                            id: existing?.id || createDraftStepId(), action: step.action, expected_result: step.expected_result,
+                            step_type: normalizeStepType(existing?.step_type), automation_code: normalizeAutomationCode(existing?.automation_code),
+                            api_request: normalizeApiRequest(existing?.api_request), group_id: existing?.group_id || null,
+                            group_name: existing?.group_name || (isPrecondition ? "Preconditions" : null),
+                            group_kind: existing?.group_kind || (isPrecondition ? "local" : null), reusable_group_id: existing?.reusable_group_id || null
+                          };
+                        };
                         const convertedDrafts = [
-                          ...converted.preconditions.map((step) => toDraft(step, true)),
-                          ...converted.steps.map((step) => toDraft(step))
+                          ...converted.preconditions.map((step, index) => toDraft(step, index, true)),
+                          ...converted.steps.map((step, index) => toDraft(step, converted.preconditions.length + index))
                         ];
                         if (isCreating) {
                           setDraftSteps(convertedDrafts);
                         } else {
-                          setStepDrafts(Object.fromEntries(displaySteps.map((step, index) => {
-                            const convertedStep = convertedDrafts[index];
-                            return [step.id, {
-                              action: convertedStep?.action || "",
-                              expected_result: convertedStep?.expected_result || "",
-                              step_type: normalizeStepType(step.step_type),
-                              automation_code: normalizeAutomationCode(step.automation_code),
-                              api_request: normalizeApiRequest(step.api_request)
-                            }];
-                          })));
-                          const missingSteps = convertedDrafts.slice(displaySteps.length);
+                          setStepDrafts((current) => ({ ...current, ...Object.fromEntries(convertedDrafts
+                            .filter((step) => usedIds.has(step.id))
+                            .map((step) => [step.id, {
+                              action: step.action, expected_result: step.expected_result, step_type: step.step_type,
+                              automation_code: step.automation_code, api_request: step.api_request
+                            }])) }));
+                          const missingSteps = convertedDrafts.filter((step) => !usedIds.has(step.id));
                           if (selectedTestCaseId && missingSteps.length) {
                             void api.testSteps.createMany({
                               test_case_id: selectedTestCaseId,
                               insertion_index: displaySteps.length,
                               steps: missingSteps.map((step) => ({
-                                action: step.action || undefined,
-                                expected_result: step.expected_result || undefined,
-                                step_type: normalizeStepType(step.step_type),
-                                group_id: step.group_id || undefined,
-                                group_name: step.group_name || undefined,
-                                group_kind: step.group_kind || undefined
+                                action: step.action || undefined, expected_result: step.expected_result || undefined,
+                                step_type: normalizeStepType(step.step_type), group_id: step.group_id || undefined,
+                                group_name: step.group_name || undefined, group_kind: step.group_kind || undefined,
+                                reusable_group_id: step.reusable_group_id || undefined
                               }))
-                            }).then(() => queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] }))
-                              .catch((error) => showError(error, "Gherkin was retained, but some structured rows could not be created"));
+                            }).then(async (response) => {
+                              const createdIdByDraftId = new Map(missingSteps.map((step, index) => [step.id, response.ids[index]]));
+                              const orderedIds = convertedDrafts.map((step) => createdIdByDraftId.get(step.id) || step.id);
+                              // Retain any unmatched saved rows and their automation until
+                              // the author explicitly removes them in the structured editor.
+                              orderedIds.push(...displaySteps.filter((step) => !usedIds.has(step.id)).map((step) => step.id));
+                              await api.testSteps.reorder(selectedTestCaseId, orderedIds);
+                              await queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] });
+                            }).catch((error) => showError(error, "Gherkin was retained, but some structured rows could not be created"));
                           }
                         }
                       }
@@ -11088,10 +11221,11 @@ export function TestCasesPage() {
                         ...current,
                         authoring_mode: authoringMode,
                         gherkin_document: authoringMode === "gherkin"
-                          ? structuredCaseToGherkin({
+                          ? buildGroupedCaseGherkin({
                               title: current.title,
+                              featureTitle: caseGherkinFeatureTitle,
                               preconditions: preconditionSteps.map((step) => stepDrafts[step.id] || step),
-                              steps: mainSteps.map((step) => stepDrafts[step.id] || step),
+                              steps: mainSteps.map((step) => ({ ...step, ...(stepDrafts[step.id] || {}) })),
                               columns: activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.columns : [],
                               rows: activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.rows : []
                             })
@@ -11619,6 +11753,14 @@ export function TestCasesPage() {
                         Gherkin
                       </button>
                     </div>
+                    <button
+                      className="ghost-button compact"
+                      disabled={!appTypeId || (isCreating ? !canCreateTestCases : !canUpdateTestCases) || isInsertingSharedGroups || stepInsertIndex !== null}
+                      onClick={() => { setSelectedSharedGroupIds([]); setIsSharedGroupPickerOpen(true); }}
+                      type="button"
+                    >
+                      <StepSharedGroupIcon /> Insert Shared Step Group
+                    </button>
                   </div>
 
                   <div
@@ -11661,10 +11803,13 @@ export function TestCasesPage() {
                     </EditorAccordionSection>
                   ) : (
                     <GherkinEditor
-                      exampleColumns={activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.columns : []}
-                      exampleRows={activeLinkedDataSet?.mode === "table" ? activeLinkedDataSet.rows : []}
-                      featureTitle={caseDraft.title}
-                      onChange={(gherkin_document) => setCaseDraft((current) => ({ ...current, gherkin_document }))}
+                      exampleColumns={linkedDataSet?.mode === "table" ? linkedDataSet.columns : []}
+                      exampleRows={linkedDataSet?.mode === "table" ? linkedDataSet.rows : []}
+                      featureTitle={caseGherkinFeatureTitle}
+                      featureTitleLocked={Boolean(linkedRequirementTitle)}
+                      onChange={(gherkin_document) => setCaseDraft((current) => ({ ...current, gherkin_document: linkedRequirementTitle ? setGherkinFeatureTitle(gherkin_document, linkedRequirementTitle) : gherkin_document }))}
+                      availableParameters={detectedStepParameters}
+                      minimalBehaviorEditor
                       parameterValues={resolvedScopedParameterValues}
                       value={caseDraft.gherkin_document}
                     />
@@ -11872,8 +12017,8 @@ export function TestCasesPage() {
                     countLabel={linkedDataSet ? `${linkedDataSetIterationCount} ${linkedDataSetIterationCount === 1 ? "iteration" : "iterations"}` : "None"}
                     isExpanded={expandedSections.dataSets}
                     onToggle={() => setExpandedSections((current) => ({ ...current, dataSets: !current.dataSets }))}
-                    summary="Create or link one reusable data set. A table can carry one or many row-level execution iterations."
-                    title="Data Sets"
+                    summary={caseDraft.authoring_mode === "gherkin" ? "Create, link, change, or unlink reusable Test Data. Linked table rows are rendered under Gherkin Examples." : "Create or link one reusable data set. A table can carry one or many row-level execution iterations."}
+                    title={caseDraft.authoring_mode === "gherkin" ? "Examples · Linked Test Data" : "Data Sets"}
                   >
                     <div className="test-case-data-sets-workspace test-case-data-sets-workspace--compact">
                       {!canViewTestData ? (
@@ -11885,7 +12030,7 @@ export function TestCasesPage() {
                         <article className="test-case-data-set-card test-case-data-set-card--single">
                           <header>
                             <div>
-                              <span className="test-case-data-set-kicker">{linkedDataSet.mode === "table" ? "Tabular data set" : "Key-value data set"}</span>
+                              <span className="test-case-data-set-kicker">{caseDraft.authoring_mode === "gherkin" ? "Examples source" : linkedDataSet.mode === "table" ? "Tabular data set" : "Key-value data set"}</span>
                               <strong>{linkedDataSet.name}</strong>
                               {linkedDataSet.description ? <RichTextContent value={linkedDataSet.description} /> : null}
                             </div>
@@ -11922,20 +12067,20 @@ export function TestCasesPage() {
                               <table>
                                 <thead><tr>{linkedDataSet.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
                                 <tbody>
-                                  {linkedDataSet.rows.slice(0, 3).map((row, rowIndex) => (
+                                  {(caseDraft.authoring_mode === "gherkin" ? linkedDataSet.rows : linkedDataSet.rows.slice(0, 3)).map((row, rowIndex) => (
                                     <tr key={`${linkedDataSet.id}-${rowIndex}`}>
                                       {linkedDataSet.columns.map((column) => <td key={column}>{row[column] || "—"}</td>)}
                                     </tr>
                                   ))}
                                 </tbody>
                               </table>
-                              {linkedDataSet.rows.length > 3 ? <small>Showing 3 of {linkedDataSet.rows.length} rows</small> : null}
+                              {caseDraft.authoring_mode !== "gherkin" && linkedDataSet.rows.length > 3 ? <small>Showing 3 of {linkedDataSet.rows.length} rows</small> : null}
                             </div>
                           ) : null}
                         </article>
                       ) : (
                         <div className="test-case-data-set-inline-empty">
-                          <strong>No Data Sets Defined</strong>
+                          <strong>{caseDraft.authoring_mode === "gherkin" ? "No Examples Test Data linked" : "No Data Sets Defined"}</strong>
                           <span>
                             <button
                               className="link-button"
@@ -12367,7 +12512,9 @@ export function TestCasesPage() {
         <SharedGroupPickerModal
           groups={filteredSharedGroups}
           isLoading={sharedStepGroupsQuery.isLoading}
+          isInserting={isInsertingSharedGroups}
           onClose={() => {
+            if (isInsertingSharedGroups) return;
             setIsSharedGroupPickerOpen(false);
             setSelectedSharedGroupIds([]);
             setSharedGroupSearchTerm("");
@@ -12455,12 +12602,14 @@ export function TestCasesPage() {
       {isCaseParameterDialogOpen ? (
         <StepParameterDialog
           defaultValues={linkedDataSetDefaultParameterValues}
-          getInputState={(parameter) => resolveScopedParameterInputState(parameter.scope)}
+          getInputState={(parameter) => parameter.sensitive
+            ? { disabled: true, hint: "Hidden by the linked Data Set. The value is never inserted into visible step text." }
+            : resolveScopedParameterInputState(parameter.scope)}
           onChange={handleScopedParameterValueChange}
           onClose={() => setIsCaseParameterDialogOpen(false)}
           onRefreshPreviews={refreshParameterPreviews}
           onReset={resetTestCaseParameterOverride}
-          overrideValues={testCaseParameterValues}
+          overrideValues={visibleTestCaseParameterValues}
           parameters={detectedStepParameters}
           previewValues={resolvedScopedParameterValues}
           subtitle="Review inherited Data Set columns and edit only this Test Case's parameter overrides."
@@ -14112,7 +14261,7 @@ function TestCaseExecutionModal({
           <div className="execution-create-header">
             <div className="execution-create-title">
               <h2 className="dialog-title" id="create-test-case-execution-title">Create run</h2>
-              <p>The selected test cases will open directly in Test Runs without creating a suite first.</p>
+              <p>Run the selected test cases.</p>
             </div>
             <DialogCloseButton disabled={isSubmitting} label="Close create run dialog" onClick={onClose} />
           </div>
@@ -14165,8 +14314,7 @@ function TestCaseExecutionModal({
 
             <div className="detail-summary">
               <strong>{selectedProject || "Select a project to continue"}</strong>
-              <span>{selectedAppType ? `${selectedAppType} app type selected for this run.` : "Choose an app type to load test cases."}</span>
-              <span>{testCases.length ? `${testCases.length} test cases selected for this run.` : "No test cases selected yet."}</span>
+              <span>{selectedAppType || "Choose an app type"}</span>
             </div>
 
             <ExecutionContextSelector
@@ -14181,23 +14329,20 @@ function TestCaseExecutionModal({
               selectedEnvironmentId={selectedEnvironmentId}
             />
 
-            {canRunLocalAutomation || canRunRemoteAutomation || canConfigureParallelAutomation ? (
+            {canRunLocalAutomation || canRunRemoteAutomation || (executionStartMode !== "manual" && canConfigureParallelAutomation) ? (
               <div className="execution-create-grid">
               {canRunLocalAutomation || canRunRemoteAutomation ? (
-                <FormField label="Run type">
-                  <RunTypeSelector
-                    allowedModes={[
-                      "manual",
-                      ...(canRunLocalAutomation ? ["local" as const] : []),
-                      ...(canRunRemoteAutomation ? ["remote" as const] : [])
-                    ]}
-                    value={executionStartMode}
-                    onChange={(value) => onExecutionStartModeChange(value as ExecutionStartMode)}
-                  />
-                </FormField>
+                <label className="execution-run-mode-control">
+                  <span>Run mode</span>
+                  <select aria-label="Run mode" disabled={isSubmitting} value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                    <option value="manual">Manual</option>
+                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
+                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
+                  </select>
+                </label>
               ) : null}
 
-              {canConfigureParallelAutomation ? (
+              {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
                 <FormField label="Parallel execution">
                 <div className="execution-parallel-control">
                   <label>
@@ -14228,7 +14373,7 @@ function TestCaseExecutionModal({
                 <div className="selection-summary-header">
                   <div>
                     <strong>{testCases.length ? `${testCases.length} test cases selected` : "No test cases selected yet"}</strong>
-                    <span>These came from the checkbox selections in the test case library. Remove any chip here before creating the run.</span>
+                    <span>Click a test case to remove it.</span>
                   </div>
                 </div>
 
@@ -14834,6 +14979,8 @@ function StepActionMenu({
 }
 
 function InlineStepInsertSlot({
+  availableParameters,
+  parameterValues,
   index,
   isActive,
   draft,
@@ -14841,6 +14988,8 @@ function InlineStepInsertSlot({
   onChange,
   onSubmit
 }: {
+  availableParameters: StepParameterDefinition[];
+  parameterValues: Record<string, string>;
   index: number;
   isActive: boolean;
   draft: StepDraft;
@@ -14857,14 +15006,14 @@ function InlineStepInsertSlot({
       <form className="step-create step-create--inline" onSubmit={onSubmit}>
         <strong>{index === 0 ? "+ Add Step" : "+ Insert Step"}</strong>
         <FormField label="Action">
-          <RichTextEditor
+          <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues}
             autoFocus
             value={draft.action}
             onChange={(value) => onChange({ ...draft, action: value })}
           />
         </FormField>
         <FormField label="Expected result">
-          <RichTextEditor
+          <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues}
             value={draft.expected_result}
             onChange={(value) => onChange({ ...draft, expected_result: value })}
           />
@@ -15030,6 +15179,7 @@ function EditableStepCard({
   draft,
   displayLabel,
   parameterValues,
+  availableParameters,
   isExpanded,
   isSelected,
   isRephrasing,
@@ -15060,6 +15210,7 @@ function EditableStepCard({
   draft: StepDraft;
   displayLabel?: string;
   parameterValues: Record<string, string>;
+  availableParameters: StepParameterDefinition[];
   isExpanded: boolean;
   isSelected: boolean;
   isRephrasing: boolean;
@@ -15262,10 +15413,10 @@ function EditableStepCard({
       {isExpanded ? (
         <div className="step-card-body">
           <FormField label="Action">
-            <RichTextEditor value={draft.action} onChange={(value) => onDraftChange({ ...draft, action: value })} />
+            <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues} value={draft.action} onChange={(value) => onDraftChange({ ...draft, action: value })} />
           </FormField>
           <FormField label="Expected result">
-            <RichTextEditor value={draft.expected_result} onChange={(value) => onDraftChange({ ...draft, expected_result: value })} />
+            <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues} value={draft.expected_result} onChange={(value) => onDraftChange({ ...draft, expected_result: value })} />
           </FormField>
         </div>
       ) : null}
@@ -15277,6 +15428,7 @@ function DraftStepCard({
   step,
   displayLabel,
   parameterValues,
+  availableParameters,
   isSelected,
   isExpanded,
   isRephrasing,
@@ -15305,6 +15457,7 @@ function DraftStepCard({
   step: { id: string; step_order: number; action: string; expected_result: string; step_type: TestStep["step_type"]; automation_code: string; api_request: TestStep["api_request"]; group_id: string | null; group_name: string | null; group_kind: "local" | "reusable" | null; reusable_group_id: string | null };
   displayLabel?: string;
   parameterValues: Record<string, string>;
+  availableParameters: StepParameterDefinition[];
   isSelected: boolean;
   isExpanded: boolean;
   isRephrasing: boolean;
@@ -15495,7 +15648,7 @@ function DraftStepCard({
       {isExpanded ? (
         <div className="step-card-body">
           <FormField label="Action">
-            <RichTextEditor
+            <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues}
               value={step.action}
               onChange={(value) =>
                 onChange({
@@ -15509,7 +15662,7 @@ function DraftStepCard({
             />
           </FormField>
           <FormField label="Expected result">
-            <RichTextEditor
+            <RichTextEditor availableParameters={availableParameters} parameterValues={parameterValues}
               value={step.expected_result}
               onChange={(value) =>
                 onChange({
@@ -15724,6 +15877,7 @@ function SharedGroupPickerModal({
   selectedGroupIds,
   selectedGroups,
   isLoading,
+  isInserting,
   searchValue,
   onSearchChange,
   setSelectedGroupIds,
@@ -15734,6 +15888,7 @@ function SharedGroupPickerModal({
   selectedGroupIds: string[];
   selectedGroups: SharedStepGroup[];
   isLoading: boolean;
+  isInserting: boolean;
   searchValue: string;
   onSearchChange: (value: string) => void;
   setSelectedGroupIds: (value: string[]) => void;
@@ -15857,7 +16012,7 @@ function SharedGroupPickerModal({
                 <strong>{selectedGroups.length === 1 ? selectedGroups[0].name : `${selectedGroups.length} Shared Step Groups`}</strong>
               </div>
               <span>
-                {selectedGroups.reduce((count, group) => count + group.steps.length, 0)} linked steps will be inserted in selection order.
+                {selectedGroups.reduce((count, group) => count + (group.step_count ?? group.steps.length), 0)} linked steps will be inserted in selection order.
               </span>
             </div>
           ) : null}
@@ -15867,8 +16022,8 @@ function SharedGroupPickerModal({
           <button className="ghost-button" onClick={onClose} type="button">
             Cancel
           </button>
-          <button className="primary-button" disabled={!selectedGroupIds.length} onClick={onConfirm} type="button">
-            Insert {selectedGroupIds.length || "selected"} group{selectedGroupIds.length === 1 ? "" : "s"}
+          <button className="primary-button" disabled={!selectedGroupIds.length || isLoading || isInserting} onClick={onConfirm} type="button">
+            {isInserting ? "Inserting…" : `Insert ${selectedGroupIds.length || "selected"} group${selectedGroupIds.length === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { useMemo, useState, FormEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useCurrentProject, useCurrentAppType } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
@@ -23,6 +24,7 @@ import { KnowledgeContextStudio } from "../components/KnowledgeContextStudio";
 
 export function KnowledgeRepoPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
@@ -169,13 +171,16 @@ export function KnowledgeRepoPage() {
       
       <div className="workspace-main">
         <PageHeader
-          eyebrow="AI knowledge plane"
+          eyebrow="Project knowledge"
           title="Knowledge Repo"
-          description="Build governed project context from HelloTest records, documents, media, notes, and conversations—then validate retrieval and power citation-grounded AI assistance."
+          description="Add project evidence, inspect searchable revisions, and verify the sources behind Ask HelloTest answers."
         />
 
         <div className="workspace-content page-content--knowledge">
           <KnowledgeContextStudio
+            key={`${projectId}:${appTypeId}`}
+            initialSourceId={searchParams.get("source_id") || ""}
+            initialRevisionId={searchParams.get("revision_id") || ""}
             appTypeId={appTypeId}
             canManage={canManageKnowledge}
             onError={showError}

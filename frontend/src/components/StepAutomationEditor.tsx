@@ -15,7 +15,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
-import { parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
+import { collectStepParameters, excludeSensitiveStepParameterValues, mergeStepParameterDefinitions, parseStepParameterName, resolveStepParameterText, type StepParameterDefinition, type StepParameterScope } from "../lib/stepParameters";
 import {
   buildAutomationKeywordMappings,
   buildApiValidationAssertionCode,
@@ -29,8 +29,15 @@ import {
 } from "../lib/stepAutomation";
 import type { ApiRequestPreview, AutomationLearningCacheEntry, StepApiRequest, StepApiValidation, TestStepType } from "../types";
 import { DialogCloseButton } from "./DialogCloseButton";
+import { StepParameterizedText } from "./StepParameterizedText";
+import { AutomationParameterInput, AutomationReferencedParameters, AutomationRepositoryFieldPicker } from "./AutomationAuthoringInputs";
+import { AutomationInstructionPreview, automationProgramLines } from "./AutomationInstructionPreview";
+import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, resolveAutomationRepositoryTarget } from "../lib/automationKeywordInputs";
+import "./StepAutomationEditor.css";
 
-const AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS.filter((option) => option.value !== "ios");
+const AUTHORING_STEP_TYPE_OPTIONS = STEP_TYPE_OPTIONS;
+
+const isMobileStepType = (value: TestStepType) => value === "android" || value === "ios";
 
 type StepAutomationInput = {
   id?: string;
@@ -210,7 +217,7 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
         `await page.waitForLoadState(${quoteCodeString(loadState)});`
       ].join("\n");
     case "waitForLoadState":
-      return `await page.waitForLoadState(${quoteCodeString(loadState)});`;
+      return `await page.waitForLoadState(${automationParameterArgument(value) || quoteCodeString(loadState)});`;
     case "click":
       return targetBlock([
         `await target.waitFor({ state: "visible", timeout: 10000 });`,
@@ -264,14 +271,16 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
           ])
         : `await page.press("body", ${quoteCodeString(value)});`;
     case "scroll": {
-      const direction = /^(up|left)$/i.test(target) ? target.toLowerCase() : "down";
-      const amount = Math.max(1, Number.parseInt(value, 10) || 600);
-      const deltaX = direction === "left" ? -amount : direction === "right" ? amount : 0;
-      const deltaY = direction === "up" ? -amount : direction === "down" ? amount : 0;
+      const parameterDirection = automationParameterArgument(target);
+      if (parameterDirection) return `{ const direction = String(${parameterDirection}).toLowerCase(); const amount = ${automationNumericArgument(value, 600)}; await page.mouse.wheel(direction === "left" ? -amount : direction === "right" ? amount : 0, direction === "up" ? -amount : direction === "down" ? amount : 0); }`;
+      const direction = /^(up|down|left|right)$/i.test(target) ? target.toLowerCase() : "down";
+      const amount = automationNumericArgument(value, 600);
+      const deltaX = direction === "left" ? `-(${amount})` : direction === "right" ? amount : "0";
+      const deltaY = direction === "up" ? `-(${amount})` : direction === "down" ? amount : "0";
       return `await page.mouse.wheel(${deltaX}, ${deltaY});`;
     }
     case "wait":
-      return `await page.waitForTimeout(${Math.max(0, Number.parseInt(value, 10) || 1000)});`;
+      return `await page.waitForTimeout(${automationNumericArgument(value, 1000)});`;
     case "expectVisible":
       return `await expect(${locatorExpression}).toBeVisible();`;
     case "expectText":
@@ -298,7 +307,7 @@ function buildWebKeywordSnippet(option: WebKeywordOption, locator: string, data:
 function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: string, data: string) {
   const target = selector.trim();
   const value = data.trim();
-  const splitNumbers = (source: string) => source.split(",").map((item) => Number.parseInt(item.trim(), 10) || 0);
+  const splitNumbers = (source: string) => source.split(",").map((item) => automationNumericArgument(item, 0));
   const pointTarget = target.replace(/^point:/i, "");
   const [pointX, pointY] = splitNumbers(pointTarget);
 
@@ -327,7 +336,7 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
         `await element.click();`
       ]);
     case "longPress": {
-      const duration = Math.max(250, Number.parseInt(value, 10) || 800);
+      const duration = automationNumericArgument(value, 800);
       if (/^(point:)?\d+\s*,\s*\d+$/i.test(target)) {
         return `await driver.action("pointer").move({ x: ${pointX || 0}, y: ${pointY || 0} }).down().pause(${duration}).up().perform();`;
       }
@@ -353,11 +362,11 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
       return "await driver.hideKeyboard().catch(() => undefined);";
     case "waitForDisplayed":
       return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)} });`
+        `await element.waitForDisplayed({ timeout: ${automationNumericArgument(value, 10000)} });`
       ]);
     case "waitForExist":
       return webdriverElementBlock(target, [
-        `await element.waitForExist({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)} });`
+        `await element.waitForExist({ timeout: ${automationNumericArgument(value, 10000)} });`
       ]);
     case "expectText":
       return webdriverElementBlock(target, [
@@ -373,7 +382,7 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
       ]);
     case "expectNotDisplayed":
       return webdriverElementBlock(target, [
-        `await element.waitForDisplayed({ timeout: ${Math.max(250, Number.parseInt(value, 10) || 10000)}, reverse: true });`
+        `await element.waitForDisplayed({ timeout: ${automationNumericArgument(value, 10000)}, reverse: true });`
       ]);
     case "expectEnabled":
       return webdriverElementBlock(target, [
@@ -405,7 +414,7 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
     case "scrollIntoView":
       return [
         "{",
-        `  const direction = ${quoteCodeString(/^(up|left)$/i.test(value) ? "up" : "down")};`,
+        `  const direction = ${automationParameterArgument(value) || quoteCodeString(/^(up|left)$/i.test(value) ? "up" : "down")};`,
         `  for (let attempt = 0; attempt < 6; attempt += 1) {`,
         `    const element = await driver.$(${quoteCodeString(target)});`,
         `    if (await element.isDisplayed().catch(() => false)) break;`,
@@ -425,17 +434,17 @@ function buildAndroidKeywordSnippet(option: AndroidKeywordOption, selector: stri
     case "pressBack":
       return "await driver.back();";
     case "pressKeyCode":
-      return `await driver.pressKeyCode(${Math.max(0, Number.parseInt(target, 10) || 0)});`;
+      return `await driver.pressKeyCode(${automationNumericArgument(target, 0)});`;
     case "backgroundApp":
-      return `await driver.background(${Math.max(1, Number.parseInt(target || value, 10) || 3)});`;
+      return `await driver.background(${automationNumericArgument(target, 3)});`;
     case "activateApp":
       return `await driver.activateApp(${quoteCodeString(target)});`;
     case "terminateApp":
       return `await driver.terminateApp(${quoteCodeString(target)});`;
     case "setOrientation":
-      return `await driver.setOrientation(${quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
+      return `await driver.setOrientation(${automationParameterArgument(target) ? `String(${automationParameterArgument(target)}).toUpperCase()` : quoteCodeString(/landscape/i.test(target) ? "LANDSCAPE" : "PORTRAIT")});`;
     case "pause":
-      return `await driver.pause(${Math.max(0, Number.parseInt(target, 10) || 1000)});`;
+      return `await driver.pause(${automationNumericArgument(target, 1000)});`;
     default:
       return "";
   }
@@ -798,15 +807,6 @@ export function AutomationCodeIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function RepositorySearchIcon({ size = 16 }: { size?: number }) {
-  return (
-    <IconFrame size={size}>
-      <path d="M10.5 18a7.5 7.5 0 1 1 5.3-2.2" />
-      <path d="m16 16 4.5 4.5" />
-    </IconFrame>
-  );
-}
-
 export function WebStepIcon({ size = 16 }: { size?: number }) {
   return (
     <IconFrame size={size}>
@@ -985,7 +985,7 @@ export function StepTypePickerButton({
       </button>
       {isOpen ? (
         <div className="step-type-menu" ref={menuRef} role="menu">
-          {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || option.value !== "android").map((option) => (
+          {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !isMobileStepType(option.value)).map((option) => (
             <button
               className={option.value === stepType ? "step-type-menu-item is-active" : "step-type-menu-item"}
               key={option.value}
@@ -1010,12 +1010,16 @@ export function StepTypePickerButton({
 function ApiHeaderRowsEditor({
   headers,
   onChange,
+  availableParameters = [],
+  parameterValues = {},
   keyPlaceholder = "Header name",
   valuePlaceholder = "Header value",
   addLabel = "Add header"
 }: {
   headers: Array<{ key: string; value: string }>;
   onChange: (headers: Array<{ key: string; value: string }>) => void;
+  availableParameters?: StepParameterDefinition[];
+  parameterValues?: Record<string, string>;
   keyPlaceholder?: string;
   valuePlaceholder?: string;
   addLabel?: string;
@@ -1025,8 +1029,9 @@ function ApiHeaderRowsEditor({
   return (
     <div className="automation-grid-stack">
       {nextHeaders.map((header, index) => (
-        <div className="automation-inline-grid" key={`header-${index}`}>
+        <div className="automation-inline-grid step-composer-pair-row" key={`header-${index}`}>
           <input
+            aria-label={`${keyPlaceholder} ${index + 1}`}
             placeholder={keyPlaceholder}
             value={header.key}
             onChange={(event) => {
@@ -1036,12 +1041,15 @@ function ApiHeaderRowsEditor({
               onChange(updated);
             }}
           />
-          <input
+          <AutomationParameterInput
+            ariaLabel={`${valuePlaceholder} ${index + 1}`}
+            availableParameters={availableParameters}
+            parameterValues={parameterValues}
             placeholder={valuePlaceholder}
             value={header.value}
-            onChange={(event) => {
+            onChange={(value) => {
               const updated = nextHeaders.map((item, itemIndex) =>
-                itemIndex === index ? { ...item, value: event.target.value } : item
+                itemIndex === index ? { ...item, value } : item
               );
               onChange(updated);
             }}
@@ -1070,12 +1078,14 @@ function ApiValidationRowsEditor({
   validations,
   onChange,
   results = [],
-  parameterValues = {}
+  parameterValues = {},
+  availableParameters = []
 }: {
   validations: StepApiValidation[];
   onChange: (validations: StepApiValidation[]) => void;
   results?: ApiValidationResultPreview[];
   parameterValues?: Record<string, string>;
+  availableParameters?: StepParameterDefinition[];
 }) {
   const nextValidations: StepApiValidation[] = validations.length ? validations : [{ kind: "status", operator: "eq", target: "", expected: "200" }];
 
@@ -1144,13 +1154,15 @@ function ApiValidationRowsEditor({
                   onChange(updated);
                 }}
               />
-              <input
+              <AutomationParameterInput
+                ariaLabel={`Expected value ${index + 1}`}
+                availableParameters={availableParameters}
+                parameterValues={parameterValues}
                 placeholder={validation.kind === "status" ? "Expected status" : "Expected value"}
-                title={showResolvedPreview && resolvedExpected ? `Resolved expected: ${resolvedExpected}` : undefined}
                 value={validation.expected || ""}
-                onChange={(event) => {
+                onChange={(expected) => {
                   const updated = nextValidations.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, expected: event.target.value } : item
+                    itemIndex === index ? { ...item, expected } : item
                   ) as StepApiValidation[];
                   onChange(updated);
                 }}
@@ -1971,7 +1983,7 @@ export function StepAutomationDialog({
   subtitle,
   step,
   objectRepository = [],
-  parameterValues = {},
+  parameterValues: suppliedParameterValues = {},
   availableParameters = [],
   getParameterScopeState,
   onSaveResponseValue,
@@ -1990,6 +2002,7 @@ export function StepAutomationDialog({
   onSave: (input: { step_type: TestStepType; automation_code: string; api_request: StepApiRequest | null }) => void;
 }) {
   const { session } = useAuth();
+  const parameterValues = useMemo(() => excludeSensitiveStepParameterValues(suppliedParameterValues, availableParameters.filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)), [availableParameters, suppliedParameterValues]);
   const [projectId] = useCurrentProject();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
@@ -2013,26 +2026,20 @@ export function StepAutomationDialog({
   const [apiPreviewError, setApiPreviewError] = useState("");
   const [apiPreviewMessage, setApiPreviewMessage] = useState("");
   const [isRunningApiRequest, setIsRunningApiRequest] = useState(false);
+  const [areApiResultsOpen, setAreApiResultsOpen] = useState(false);
   const [selectedJsonPath, setSelectedJsonPath] = useState<JsonPathSelection | null>(null);
   const [responseParameterDraft, setResponseParameterDraft] = useState("");
   const [webKeywordId, setWebKeywordId] = useState(WEB_KEYWORD_OPTIONS[0].id);
   const [webKeywordLocator, setWebKeywordLocator] = useState("");
   const [webKeywordData, setWebKeywordData] = useState("");
   const [webKeywordMessage, setWebKeywordMessage] = useState("");
-  const [isRepositoryPickerOpen, setIsRepositoryPickerOpen] = useState(false);
-  const [repositorySearchTerm, setRepositorySearchTerm] = useState("");
-  const [selectedRepositoryScreen, setSelectedRepositoryScreen] = useState("");
+  const [keywordError, setKeywordError] = useState(false);
   const [androidKeywordId, setAndroidKeywordId] = useState(ANDROID_KEYWORD_OPTIONS[0].id);
   const [androidKeywordSelector, setAndroidKeywordSelector] = useState("");
   const [androidKeywordData, setAndroidKeywordData] = useState("");
   const [androidKeywordMessage, setAndroidKeywordMessage] = useState("");
   const [curlImportText, setCurlImportText] = useState("");
   const [curlImportMessage, setCurlImportMessage] = useState("");
-  const closeRepositoryPicker = () => setIsRepositoryPickerOpen(false);
-  const repositoryPickerRef = useDialogFocus<HTMLDivElement>({
-    active: isRepositoryPickerOpen,
-    onClose: closeRepositoryPicker
-  });
 
   useEffect(() => {
     if (!canEditAutomationCode) onClose();
@@ -2043,17 +2050,16 @@ export function StepAutomationDialog({
     setAutomationCode(normalizeAutomationCode(step.automation_code));
     setApiRequest(ensureApiRequest(step.api_request));
     setApiPreview(null);
+    setAreApiResultsOpen(false);
     setApiPreviewError("");
     setApiPreviewMessage("");
+    setKeywordError(false);
     setSelectedJsonPath(null);
     setResponseParameterDraft("");
     setWebKeywordId(WEB_KEYWORD_OPTIONS[0].id);
     setWebKeywordLocator("");
     setWebKeywordData("");
     setWebKeywordMessage("");
-    setIsRepositoryPickerOpen(false);
-    setRepositorySearchTerm("");
-    setSelectedRepositoryScreen("");
     setAndroidKeywordId(ANDROID_KEYWORD_OPTIONS[0].id);
     setAndroidKeywordSelector("");
     setAndroidKeywordData("");
@@ -2065,6 +2071,7 @@ export function StepAutomationDialog({
   useEffect(() => {
     if (stepType !== "api") {
       setApiPreview(null);
+      setAreApiResultsOpen(false);
       setApiPreviewError("");
       setApiPreviewMessage("");
       setSelectedJsonPath(null);
@@ -2093,9 +2100,9 @@ export function StepAutomationDialog({
       }),
     [automationCode, normalizedApiRequest, step.action, step.expected_result, step.step_order, stepType]
   );
-  const savedKeywordMappings = useMemo(
-    () => buildAutomationKeywordMappings(automationCode, objectRepository),
-    [automationCode, objectRepository]
+  const instructionLineCount = useMemo(
+    () => automationProgramLines(automationCode).length,
+    [automationCode]
   );
   const responseHeaderEntries = useMemo(
     () => Object.entries(apiPreview?.response.headers || {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
@@ -2108,70 +2115,13 @@ export function StepAutomationDialog({
   const selectedJsonValue = selectedJsonPath ? formatJsonSelectionValue(selectedJsonPath.value) : "";
   const selectedWebKeyword = WEB_KEYWORD_OPTIONS.find((option) => option.id === webKeywordId) || WEB_KEYWORD_OPTIONS[0];
   const selectedAndroidKeyword = ANDROID_KEYWORD_OPTIONS.find((option) => option.id === androidKeywordId) || ANDROID_KEYWORD_OPTIONS[0];
-  const repositoryFieldOptions = useMemo(
-    () => objectRepository
-      .filter((entry) => {
-        const metadata = entry.metadata || {};
-        return Boolean(entry.locator)
-          && entry.locator !== "__screen__"
-          && entry.locator_intent !== "__screen__"
-          && metadata.record_kind !== "screen"
-          && metadata.object_name !== "__screen__";
-      })
-      .map((entry) => {
-        const metadata = entry.metadata || {};
-        const screenName = String(metadata.screen_name || entry.page_key || "Screen").trim();
-        const rawObjectName = String(metadata.object_name || entry.locator_intent || entry.locator || "Field").trim();
-        const objectName = rawObjectName.startsWith(`${screenName}.`)
-          ? rawObjectName.slice(screenName.length + 1).trim() || rawObjectName
-          : rawObjectName;
-        const htmlTag = String(metadata.object_role || entry.locator_kind || "locator").trim();
-        const reference = `${screenName}.${objectName}`;
-
-        return {
-          id: entry.id,
-          reference,
-          locator: entry.locator,
-          objectName,
-          screenName,
-          htmlTag,
-          pageUrl: String(metadata.page_url || metadata.url_pattern || entry.page_key || "").trim()
-        };
-      }),
-    [objectRepository]
-  );
-  const repositoryScreens = useMemo(() => {
-    const searchTerm = repositorySearchTerm.trim().toLowerCase();
-    const groupedFields = new Map<string, typeof repositoryFieldOptions>();
-
-    repositoryFieldOptions.forEach((field) => {
-      if (
-        searchTerm
-        && !`${field.screenName} ${field.objectName} ${field.htmlTag} ${field.locator} ${field.pageUrl}`.toLowerCase().includes(searchTerm)
-      ) {
-        return;
-      }
-
-      groupedFields.set(field.screenName, [...(groupedFields.get(field.screenName) || []), field]);
-    });
-
-    return Array.from(groupedFields.entries()).map(([screenName, fields]) => ({
-      screenName,
-      fields,
-      pageUrl: fields[0]?.pageUrl || ""
-    }));
-  }, [repositoryFieldOptions, repositorySearchTerm]);
-  const selectedRepositoryFields = repositoryScreens.find((screen) => screen.screenName === selectedRepositoryScreen)?.fields || [];
-
-  useEffect(() => {
-    if (!isRepositoryPickerOpen) {
-      return;
-    }
-
-    if (!repositoryScreens.some((screen) => screen.screenName === selectedRepositoryScreen)) {
-      setSelectedRepositoryScreen(repositoryScreens[0]?.screenName || "");
-    }
-  }, [isRepositoryPickerOpen, repositoryScreens, selectedRepositoryScreen]);
+  const webInputSpec = getAutomationKeywordInputSpec(webKeywordId, "web");
+  const mobileInputSpec = getAutomationKeywordInputSpec(androidKeywordId, stepType);
+  const apiReferencedParameters = useMemo(() => {
+    const names = collectStepParameters([{ id: "request", action: [apiRequest.url, apiRequest.body, ...(apiRequest.headers || []).flatMap((row) => [row.key, row.value]), ...(apiRequest.query_params || []).flatMap((row) => [row.key, row.value]), ...(apiRequest.cookies || []).flatMap((row) => [row.key, row.value])].filter(Boolean).join("\n"), expected_result: "", automation_code: "", api_request: null }]);
+    const used = new Set(names.map((parameter) => parameter.name));
+    return mergeStepParameterDefinitions(names, availableParameters.filter((parameter) => used.has(parameter.name)));
+  }, [apiRequest, availableParameters]);
   const groupedAvailableParameters = useMemo(
     () => [
       {
@@ -2224,6 +2174,7 @@ export function StepAutomationDialog({
     }
 
     setIsRunningApiRequest(true);
+    setAreApiResultsOpen(true);
     setApiPreviewError("");
     setApiPreviewMessage("");
 
@@ -2359,49 +2310,55 @@ export function StepAutomationDialog({
   };
 
   const handleAddWebKeyword = () => {
+    setKeywordError(false);
     if (selectedWebKeyword.id === "codedJS") {
       handleUseCodedJavaScript("web");
       return;
     }
 
     if (selectedWebKeyword.locatorRequired && !webKeywordLocator.trim()) {
+      setKeywordError(true);
       setWebKeywordMessage(`${selectedWebKeyword.locatorLabel} is required for ${selectedWebKeyword.label}.`);
       return;
     }
 
     if (selectedWebKeyword.dataRequired && !webKeywordData.trim()) {
+      setKeywordError(true);
       setWebKeywordMessage(`${selectedWebKeyword.dataLabel} is required for ${selectedWebKeyword.label}.`);
       return;
     }
 
-    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webKeywordLocator, webKeywordData);
+    const snippet = buildWebKeywordSnippet(selectedWebKeyword, webInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(webKeywordLocator, objectRepository), webInputSpec.showValue ? webKeywordData : "");
     setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
     setWebKeywordLocator("");
     setWebKeywordData("");
-    setWebKeywordMessage(`${selectedWebKeyword.label} keyword added to the automation override.`);
+    setWebKeywordMessage(`${selectedWebKeyword.label} added.`);
   };
 
   const handleAddAndroidKeyword = () => {
+    setKeywordError(false);
     if (selectedAndroidKeyword.id === "codedJS") {
       handleUseCodedJavaScript(stepType === "ios" ? "ios" : "android");
       return;
     }
 
     if (selectedAndroidKeyword.selectorRequired && !androidKeywordSelector.trim()) {
+      setKeywordError(true);
       setAndroidKeywordMessage(`${selectedAndroidKeyword.selectorLabel} is required for ${selectedAndroidKeyword.label}.`);
       return;
     }
 
     if (selectedAndroidKeyword.valueRequired && !androidKeywordData.trim()) {
+      setKeywordError(true);
       setAndroidKeywordMessage(`${selectedAndroidKeyword.valueLabel} is required for ${selectedAndroidKeyword.label}.`);
       return;
     }
 
-    const snippet = buildAndroidKeywordSnippet(selectedAndroidKeyword, androidKeywordSelector, androidKeywordData);
+    const snippet = buildAndroidKeywordSnippet(selectedAndroidKeyword, mobileInputSpec.target === "none" ? "" : resolveAutomationRepositoryTarget(androidKeywordSelector, objectRepository), mobileInputSpec.showValue ? androidKeywordData : "");
     setAutomationCode((current) => [normalizeAutomationCode(current), snippet].filter(Boolean).join("\n"));
     setAndroidKeywordSelector("");
     setAndroidKeywordData("");
-    setAndroidKeywordMessage(`${selectedAndroidKeyword.label} keyword added to the Appium override.`);
+    setAndroidKeywordMessage(`${selectedAndroidKeyword.label} added.`);
   };
 
   const handleUseCodedJavaScript = (type: "web" | "android" | "ios") => {
@@ -2416,9 +2373,9 @@ export function StepAutomationDialog({
     }));
 
     if (type === "web") {
-      setWebKeywordMessage("Coded JavaScript web step ready. Edit the automation code and save.");
+      setWebKeywordMessage("JavaScript is ready to edit.");
     } else {
-      setAndroidKeywordMessage(`Coded JavaScript ${type === "ios" ? "iOS" : "Android"} step ready. Edit the automation code and save.`);
+      setAndroidKeywordMessage("JavaScript is ready to edit.");
     }
   };
 
@@ -2521,13 +2478,24 @@ export function StepAutomationDialog({
 
   if (!canEditAutomationCode) return null;
 
+  const isWeb = stepType === "web";
+  const keywordId = isWeb ? webKeywordId : androidKeywordId;
+  const keywordOptions = isWeb ? WEB_KEYWORD_OPTIONS : ANDROID_KEYWORD_OPTIONS;
+  const keywordSpec = isWeb ? webInputSpec : mobileInputSpec;
+  const keywordTarget = isWeb ? webKeywordLocator : androidKeywordSelector;
+  const keywordValue = isWeb ? webKeywordData : androidKeywordData;
+  const keywordMessage = isWeb ? webKeywordMessage : androidKeywordMessage;
+  const setKeywordTarget = isWeb ? setWebKeywordLocator : setAndroidKeywordSelector;
+  const setKeywordValue = isWeb ? setWebKeywordData : setAndroidKeywordData;
+  const keywordArgumentCount = Number(keywordSpec.target !== "none") + Number(keywordSpec.showValue);
+
   return (
     <>
     <div className="modal-backdrop modal-backdrop--scroll" onClick={onClose} role="presentation">
       <div
         aria-labelledby="step-automation-editor-title"
         aria-modal="true"
-        className="modal-card resource-modal-card automation-editor-modal"
+        className={`modal-card resource-modal-card automation-editor-modal automation-editor-modal--minimal step-composer automation-editor-modal--${stepType}`}
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -2545,11 +2513,12 @@ export function StepAutomationDialog({
         <div className="resource-form">
           <div className="resource-form-body automation-editor-body">
             <div className="automation-step-type-row">
-              {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || option.value !== "android").map((option) => (
+              {AUTHORING_STEP_TYPE_OPTIONS.filter((option) => canUseMobileAppium || !isMobileStepType(option.value)).map((option) => (
                 <button
+                  aria-pressed={option.value === stepType}
                   className={option.value === stepType ? "automation-type-pill is-active" : "automation-type-pill"}
                   key={option.value}
-                  onClick={() => setStepType(option.value)}
+                  onClick={() => { setStepType(option.value); setKeywordError(false); setWebKeywordMessage(""); setAndroidKeywordMessage(""); }}
                   type="button"
                 >
                   <StepTypeIcon size={15} type={option.value} />
@@ -2560,7 +2529,7 @@ export function StepAutomationDialog({
 
             {stepType === "api" ? (
               <div className="automation-api-editor">
-                <div className="automation-inline-grid">
+                <div className="automation-inline-grid automation-api-request-bar">
                   <FormField label="HTTP method">
                     <select
                       value={apiRequest.method || "GET"}
@@ -2581,36 +2550,51 @@ export function StepAutomationDialog({
                     </select>
                   </FormField>
                   <FormField label="Request URL" required>
-                    <input
-                      placeholder="https://api.example.com/orders/@orderId"
-                      value={apiRequest.url || ""}
-                      onChange={(event) =>
-                        setApiRequest((current) => ({
-                          ...current,
-                          url: event.target.value
-                        }))
-                      }
-                    />
+                    <AutomationParameterInput ariaLabel="Request URL" availableParameters={availableParameters} insertionMode="insert" parameterValues={parameterValues} placeholder="https://api.example.com/orders/@t.orderId" value={apiRequest.url || ""} onChange={(url) => setApiRequest((current) => ({ ...current, url }))} />
                   </FormField>
+                      <button
+                        className="primary-button automation-run-button"
+                        disabled={!canPreviewAutomationCode || isRunningApiRequest || !resolvedApiRequest?.url}
+                        onClick={() => void handleRunApiRequest()}
+                        title={canPreviewAutomationCode ? "Validate API request" : "API request preview access is required"}
+                        type="button"
+                      >
+                        <PlayIcon />
+                        <span>{isRunningApiRequest ? "Validating…" : "Validate"}</span>
+                      </button>
                 </div>
 
-                <FormField
-                  label="Headers"
-                  hint="Use scoped @t, @s, or @r tokens inside header names or values when request setup depends on saved test data."
-                >
-                  <ApiHeaderRowsEditor
-                    headers={apiRequest.headers || []}
-                    onChange={(headers) => setApiRequest((current) => ({ ...current, headers }))}
-                  />
-                </FormField>
-
-                <details className="automation-request-details" open>
-                  <summary>
-                    <span>Request policy and data</span>
-                    <strong>{(apiRequest.query_params || []).length + (apiRequest.cookies || []).length}</strong>
-                  </summary>
+                <AutomationReferencedParameters parameters={apiReferencedParameters} values={parameterValues} />
+                <details className="automation-request-details automation-editor-section">
+                  <summary className="automation-query-summary"><span>Query parameters</span><span className="automation-query-summary-values">{(apiRequest.query_params || []).filter((item) => item.key).map((item, index) => <span key={`${item.key}-${index}`}><b>{item.key}</b>=<StepParameterizedText text={item.value} values={parameterValues} sensitiveNames={availableParameters.filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)} fallback="(empty)" /></span>)}</span><strong>{(apiRequest.query_params || []).filter((item) => item.key).length}</strong></summary>
                   <div className="automation-request-details-body automation-grid-stack">
-                    <div className="automation-inline-grid">
+                    <FormField label="Query parameters">
+                      <ApiHeaderRowsEditor
+                    availableParameters={availableParameters}
+                    parameterValues={parameterValues}
+                        addLabel="Add query parameter"
+                        headers={apiRequest.query_params || []}
+                        keyPlaceholder="Parameter name"
+                        onChange={(query_params) => setApiRequest((current) => ({ ...current, query_params }))}
+                        valuePlaceholder="Parameter value"
+                      />
+                    </FormField>
+
+                  </div>
+                </details>
+                {apiPreviewError ? <div className="inline-message error-message automation-response-message">{apiPreviewError}</div> : null}
+                  {apiPreviewMessage ? <div className="inline-message success-message automation-response-message">{apiPreviewMessage}</div> : null}
+                <details className="automation-request-details automation-editor-section step-composer-settings">
+                  <summary><span>Request settings</span><strong>{[
+                    apiRequest.auth?.type && apiRequest.auth.type !== "none" ? apiRequest.auth.type : "",
+                    (apiRequest.headers || []).filter((item) => item.key).length ? `${(apiRequest.headers || []).filter((item) => item.key).length} headers` : "",
+                    apiRequest.body_mode && apiRequest.body_mode !== "none" ? apiRequest.body_mode.toUpperCase() : "",
+                    automationCode ? "Code override" : ""
+                  ].filter(Boolean).join(" · ") || "Authentication, headers, body & more"}</strong></summary>
+                  <div className="step-composer-settings-body">
+<section className="step-composer-settings-group"><h3>Authentication</h3>
+                  <div className="automation-request-details-body automation-grid-stack">
+<div className="automation-inline-grid">
                       <FormField label="Authentication">
                         <select
                           onChange={(event) => setApiRequest((current) => ({
@@ -2634,16 +2618,7 @@ export function StepAutomationDialog({
                           value={apiRequest.auth?.credential_reference || ""}
                         />
                       </FormField>
-                      <FormField label="Timeout (ms)">
-                        <input max="120000" min="1000" onChange={(event) => setApiRequest((current) => ({ ...current, timeout_ms: Number(event.target.value) || 30000 }))} type="number" value={apiRequest.timeout_ms || 30000} />
-                      </FormField>
-                      <FormField label="Redirects">
-                        <select onChange={(event) => setApiRequest((current) => ({ ...current, follow_redirects: event.target.value === "follow" }))} value={apiRequest.follow_redirects === false ? "manual" : "follow"}>
-                          <option value="follow">Follow redirects</option>
-                          <option value="manual">Do not follow</option>
-                        </select>
-                      </FormField>
-                    </div>
+</div>
                     {apiRequest.auth?.type === "api_key" ? (
                       <div className="automation-inline-grid">
                         <FormField label="API key name">
@@ -2664,28 +2639,27 @@ export function StepAutomationDialog({
                         </FormField>
                       </div>
                     ) : null}
-                    <FormField label="Query parameters">
-                      <ApiHeaderRowsEditor
-                        addLabel="Add query parameter"
-                        headers={apiRequest.query_params || []}
-                        keyPlaceholder="Parameter name"
-                        onChange={(query_params) => setApiRequest((current) => ({ ...current, query_params }))}
-                        valuePlaceholder="Parameter value"
-                      />
-                    </FormField>
-                    <FormField label="Cookies">
-                      <ApiHeaderRowsEditor
-                        addLabel="Add cookie"
-                        headers={apiRequest.cookies || []}
-                        keyPlaceholder="Cookie name"
-                        onChange={(cookies) => setApiRequest((current) => ({ ...current, cookies }))}
-                        valuePlaceholder="Cookie value"
-                      />
-                    </FormField>
-                  </div>
-                </details>
 
-                <div className="automation-inline-grid">
+                  </div>
+                </section>
+<section className="step-composer-settings-group"><h3>Headers</h3>
+                  <div className="automation-request-details-body automation-grid-stack">
+<FormField
+                  label="Headers"
+                  hint="Use scoped @t, @s, or @r tokens inside header names or values when request setup depends on saved test data."
+                >
+                  <ApiHeaderRowsEditor
+                    availableParameters={availableParameters}
+                    parameterValues={parameterValues}
+                    headers={apiRequest.headers || []}
+                    onChange={(headers) => setApiRequest((current) => ({ ...current, headers }))}
+                  />
+                </FormField>
+                  </div>
+                </section>
+<section className="step-composer-settings-group"><h3>Body</h3>
+                  <div className="automation-request-details-body automation-grid-stack">
+<div className="automation-inline-grid">
                   <FormField label="Body mode">
                     <select
                       value={apiRequest.body_mode || "none"}
@@ -2719,8 +2693,33 @@ export function StepAutomationDialog({
                     />
                   </FormField>
                 ) : null}
-
-                <ApiRequestInfoDetails request={normalizedApiRequest || apiRequest} resolvedRequest={resolvedApiRequest} />
+                  </div>
+                </section>
+<section className="step-composer-settings-group"><h3>Request options</h3>
+                  <div className="automation-request-details-body automation-grid-stack">
+<div className="automation-inline-grid">
+                      <FormField label="Timeout (ms)">
+                        <input max="120000" min="1000" onChange={(event) => setApiRequest((current) => ({ ...current, timeout_ms: Number(event.target.value) || 30000 }))} type="number" value={apiRequest.timeout_ms || 30000} />
+                      </FormField>
+                      <FormField label="Redirects">
+                        <select onChange={(event) => setApiRequest((current) => ({ ...current, follow_redirects: event.target.value === "follow" }))} value={apiRequest.follow_redirects === false ? "manual" : "follow"}>
+                          <option value="follow">Follow redirects</option>
+                          <option value="manual">Do not follow</option>
+                        </select>
+                      </FormField>
+</div>
+                    <FormField label="Cookies">
+                      <ApiHeaderRowsEditor
+                    availableParameters={availableParameters}
+                    parameterValues={parameterValues}
+                        addLabel="Add cookie"
+                        headers={apiRequest.cookies || []}
+                        keyPlaceholder="Cookie name"
+                        onChange={(cookies) => setApiRequest((current) => ({ ...current, cookies }))}
+                        valuePlaceholder="Cookie value"
+                      />
+                    </FormField>
+<ApiRequestInfoDetails request={normalizedApiRequest || apiRequest} resolvedRequest={resolvedApiRequest} />
 
                 <details className="automation-request-details automation-curl-builder">
                   <summary>
@@ -2745,8 +2744,97 @@ export function StepAutomationDialog({
                     {curlImportMessage ? <div className="inline-message success-message">{curlImportMessage}</div> : null}
                   </div>
                 </details>
-
-                <div className="automation-response-shell">
+<details className="automation-request-details automation-custom-code-panel">
+                  <summary>
+                    <span>Custom code override</span>
+                    <strong>{automationCode ? "Override active" : "Optional"}</strong>
+                  </summary>
+                  <div className="automation-request-details-body">
+                    <FormField
+                      label="Override JavaScript"
+                      hint="Leave blank to use the generated request snippet in group and case-level consolidated code views. JPath selections can seed this override automatically."
+                    >
+                      <textarea
+                        placeholder="// Optional: override the generated request snippet for this step."
+                        rows={5}
+                        value={automationCode}
+                        onChange={(event) => setAutomationCode(event.target.value)}
+                      />
+                    </FormField>
+                  </div>
+                </details>
+                  </div>
+                </section>
+                  </div>
+                </details>
+                <details className="automation-request-details automation-editor-section">
+                  <summary><span>Assertions</span><strong>{(apiRequest.validations || []).length}</strong></summary>
+                  <div className="automation-request-details-body automation-grid-stack">
+<FormField
+                  label="Response validations"
+                  hint="Add the checks that should run after the response returns."
+                >
+                  <ApiValidationRowsEditor
+                    availableParameters={availableParameters}
+                    parameterValues={parameterValues}
+                    results={validationResults}
+                    validations={apiRequest.validations || []}
+                    onChange={(validations) => setApiRequest((current) => ({ ...current, validations }))}
+                  />
+                </FormField>
+                  </div>
+                </details>
+                <details className="automation-request-details automation-editor-section">
+                  <summary><span>Captures</span><strong>{(apiRequest.captures || []).length}</strong></summary>
+                  <div className="automation-request-details-body automation-grid-stack">
+<FormField
+                  label="Response parsers"
+                  hint="Persist JSON paths that define scoped params from this API response. These captured tokens are treated as part of the case parameter set."
+                >
+                  <div className="automation-grid-stack">
+                    {(apiRequest.captures || []).length ? (
+                      (apiRequest.captures || []).map((capture, index) => (
+                        <div className="automation-inline-grid step-composer-pair-row" key={`capture-${index}`}>
+                          <AutomationParameterInput ariaLabel={`Capture parameter ${index + 1}`} availableParameters={availableParameters} parameterValues={parameterValues} placeholder="@t.orderId" value={capture.parameter || ""} onChange={(parameter) => setApiRequest((current) => ({ ...current, captures: (current.captures || []).map((item, itemIndex) => itemIndex === index ? { ...item, parameter } : item) }))} />
+                          <input
+                            aria-label={`Capture JSON path ${index + 1}`}
+                            placeholder="$.data.id"
+                            value={capture.path || ""}
+                            onChange={(event) =>
+                              setApiRequest((current) => ({
+                                ...current,
+                                captures: (current.captures || []).map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, path: event.target.value } : item
+                                )
+                              }))
+                            }
+                          />
+                          <button
+                            className="ghost-button inline-button"
+                            onClick={() =>
+                              setApiRequest((current) => ({
+                                ...current,
+                                captures: (current.captures || []).filter((_, itemIndex) => itemIndex !== index)
+                              }))
+                            }
+                            type="button"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="empty-state compact">No response parsers added yet.</div>
+                    )}
+                    <button className="ghost-button compact" onClick={() => setApiRequest((current) => ({ ...current, captures: [...(current.captures || []), { parameter: "", path: "" }] }))} type="button">Add capture</button>
+                  </div>
+                </FormField>
+                  </div>
+                </details>
+                <details className="automation-request-details automation-editor-section" open={areApiResultsOpen} onToggle={(event) => setAreApiResultsOpen(event.currentTarget.open)}>
+                  <summary><span>Results</span><strong>{apiPreview ? `${apiPreview.response.status} · ${apiPreview.response.duration_ms} ms` : "Not validated"}</strong></summary>
+                  <div className="automation-request-details-body automation-grid-stack">
+<div className="automation-response-shell">
                   <div className="automation-response-header">
                     <div className="automation-response-title-row">
                       <strong>API response capture</strong>
@@ -2756,16 +2844,7 @@ export function StepAutomationDialog({
                       />
                     </div>
                     <div className="automation-response-actions">
-                      <button
-                        className="primary-button automation-run-button"
-                        disabled={!canPreviewAutomationCode || isRunningApiRequest || !resolvedApiRequest?.url}
-                        onClick={() => void handleRunApiRequest()}
-                        title={canPreviewAutomationCode ? "Validate API request" : "API request preview access is required"}
-                        type="button"
-                      >
-                        <PlayIcon />
-                        <span>{isRunningApiRequest ? "Validating..." : "Validate Request"}</span>
-                      </button>
+
                       <button
                         className="ghost-button inline-button automation-ai-suggest-button"
                         disabled={!apiPreview?.ai_suggestions}
@@ -2781,8 +2860,7 @@ export function StepAutomationDialog({
                     </div>
                   </div>
 
-                  {apiPreviewError ? <div className="inline-message error-message automation-response-message">{apiPreviewError}</div> : null}
-                  {apiPreviewMessage ? <div className="inline-message success-message automation-response-message">{apiPreviewMessage}</div> : null}
+
 
                   {apiPreview ? (
                     <div className="automation-response-results">
@@ -2922,207 +3000,59 @@ export function StepAutomationDialog({
                     </div>
                   ) : null}
                 </div>
-
-                <FormField
-                  label="Response validations"
-                  hint="Add the checks that should run after the response returns."
-                >
-                  <ApiValidationRowsEditor
-                    parameterValues={parameterValues}
-                    results={validationResults}
-                    validations={apiRequest.validations || []}
-                    onChange={(validations) => setApiRequest((current) => ({ ...current, validations }))}
-                  />
-                </FormField>
-
-                <FormField
-                  label="Response parsers"
-                  hint="Persist JSON paths that define scoped params from this API response. These captured tokens are treated as part of the case parameter set."
-                >
-                  <div className="automation-grid-stack">
-                    {(apiRequest.captures || []).length ? (
-                      (apiRequest.captures || []).map((capture, index) => (
-                        <div className="automation-inline-grid" key={`capture-${index}`}>
-                          <input
-                            list={groupedAvailableParameters.length ? responseParameterOptionListId : undefined}
-                            placeholder="@t.orderId"
-                            value={capture.parameter || ""}
-                            onChange={(event) =>
-                              setApiRequest((current) => ({
-                                ...current,
-                                captures: (current.captures || []).map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, parameter: event.target.value } : item
-                                )
-                              }))
-                            }
-                          />
-                          <input
-                            placeholder="$.data.id"
-                            value={capture.path || ""}
-                            onChange={(event) =>
-                              setApiRequest((current) => ({
-                                ...current,
-                                captures: (current.captures || []).map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, path: event.target.value } : item
-                                )
-                              }))
-                            }
-                          />
-                          <button
-                            className="ghost-button inline-button"
-                            onClick={() =>
-                              setApiRequest((current) => ({
-                                ...current,
-                                captures: (current.captures || []).filter((_, itemIndex) => itemIndex !== index)
-                              }))
-                            }
-                            type="button"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="empty-state compact">No response parsers added yet.</div>
-                    )}
-                  </div>
-                </FormField>
-
-                <details className="automation-request-details automation-custom-code-panel" open={Boolean(automationCode)}>
-                  <summary>
-                    <span>Custom code override</span>
-                    <strong>{automationCode ? "Override active" : "Optional"}</strong>
-                  </summary>
-                  <div className="automation-request-details-body">
-                    <FormField
-                      label="Override JavaScript"
-                      hint="Leave blank to use the generated request snippet in group and case-level consolidated code views. JPath selections can seed this override automatically."
-                    >
-                      <textarea
-                        placeholder="// Optional: override the generated request snippet for this step."
-                        rows={5}
-                        value={automationCode}
-                        onChange={(event) => setAutomationCode(event.target.value)}
-                      />
-                    </FormField>
                   </div>
                 </details>
+
               </div>
             ) : (
               <>
-                {stepType === "web" ? (
-                  <div className="automation-response-shell">
-                    <div className="automation-response-header">
-                      <div>
-                        <strong>Web keyword builder</strong>
-                        <span>Select a reusable browser action, provide the locator and data it needs, then add it to the step automation.</span>
-                      </div>
-                      <button className="ghost-button inline-button" onClick={handleAddWebKeyword} type="button">
-                        Add
-                      </button>
-                    </div>
-                    <div className="automation-inline-grid">
-                      <FormField label="Keyword">
-                        <select value={webKeywordId} onChange={(event) => setWebKeywordId(event.target.value)}>
-                          {WEB_KEYWORD_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>{option.label}</option>
-                          ))}
+                {isWeb || canUseMobileAppium && isMobileStepType(stepType) ? (
+                  <section aria-label="Instruction composer" className="step-composer-instruction">
+                    <div className={`step-composer-instruction-line step-composer-instruction-line--${keywordArgumentCount}`}>
+                      <FormField className="step-composer-keyword" label="Keyword">
+                        <select
+                          onChange={(event) => {
+                            (isWeb ? setWebKeywordId : setAndroidKeywordId)(event.target.value);
+                            setWebKeywordMessage("");
+                            setAndroidKeywordMessage("");
+                            setKeywordError(false);
+                          }}
+                          value={keywordId}
+                        >
+                          {keywordOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
                         </select>
                       </FormField>
-                      <FormField label={selectedWebKeyword.locatorLabel}>
-                        <div className="automation-repository-target-field">
-                          <input
-                            placeholder="Login.Email or css=[data-testid='submit']"
-                            value={webKeywordLocator}
-                            onChange={(event) => setWebKeywordLocator(event.target.value)}
-                          />
-                          <button
-                            aria-label="Use object repository field"
-                            className="automation-repository-search-button"
-                            disabled={!repositoryFieldOptions.length}
-                            onClick={() => {
-                              setRepositorySearchTerm("");
-                              setSelectedRepositoryScreen(repositoryFieldOptions[0]?.screenName || "");
-                              setIsRepositoryPickerOpen(true);
-                            }}
-                            title={repositoryFieldOptions.length ? "Choose a field from the Object Repository" : "No Object Repository fields available"}
-                            type="button"
-                          >
-                            <RepositorySearchIcon />
-                          </button>
-                        </div>
-                      </FormField>
-                      <FormField label={selectedWebKeyword.dataLabel}>
-                        <input
-                          list={groupedAvailableParameters.length ? responseParameterOptionListId : undefined}
-                          placeholder={selectedWebKeyword.id.startsWith("capture") ? "@t.value" : "@t.username"}
-                          value={webKeywordData}
-                          onChange={(event) => setWebKeywordData(event.target.value)}
-                        />
-                      </FormField>
-                    </div>
-                    {webKeywordMessage ? <div className="inline-message success-message">{webKeywordMessage}</div> : null}
-                  </div>
-                ) : null}
-                {canUseMobileAppium && (stepType === "android" || stepType === "ios") ? (
-                  <div className="automation-response-shell">
-                    <div className="automation-response-header">
-                      <div>
-                        <strong>{stepType === "ios" ? "iOS" : "Android"} Appium keyword builder</strong>
-                        <span>Select a mobile action or CodedJS, then add executable WebdriverIO/Appium code to the step.</span>
-                      </div>
-                      <button className="ghost-button inline-button" onClick={handleAddAndroidKeyword} type="button">
-                        Add
+                      {keywordSpec.target !== "none" ? (
+                        <FormField className="step-composer-argument" label={keywordSpec.targetLabel} required={keywordSpec.targetRequired}>
+                          {keywordSpec.target === "repository" ? (
+                            <AutomationRepositoryFieldPicker ariaLabel={keywordSpec.targetLabel} objectRepository={objectRepository} onChange={setKeywordTarget} value={keywordTarget} />
+                          ) : (
+                            <AutomationParameterInput ariaLabel={keywordSpec.targetLabel} availableParameters={availableParameters} onChange={setKeywordTarget} parameterValues={parameterValues} placeholder={keywordSpec.targetLabel} value={keywordTarget} />
+                          )}
+                        </FormField>
+                      ) : null}
+                      {keywordSpec.showValue ? (
+                        <FormField className="step-composer-argument" label={keywordSpec.valueLabel} required={keywordSpec.valueRequired}>
+                          <AutomationParameterInput ariaLabel={keywordSpec.valueLabel} availableParameters={availableParameters} onChange={setKeywordValue} parameterValues={parameterValues} placeholder="Value or parameter" value={keywordValue} />
+                        </FormField>
+                      ) : null}
+                      <button className="primary-button step-composer-add" onClick={isWeb ? handleAddWebKeyword : handleAddAndroidKeyword} type="button">
+                        {keywordId === "codedJS" ? "Use code" : "Add"}
                       </button>
                     </div>
-                    <div className="automation-inline-grid">
-                      <FormField label="Keyword">
-                        <select value={androidKeywordId} onChange={(event) => setAndroidKeywordId(event.target.value)}>
-                          {ANDROID_KEYWORD_OPTIONS.map((option) => (
-                            <option key={option.id} value={option.id}>{option.label}</option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label={selectedAndroidKeyword.selectorLabel} hint={selectedAndroidKeyword.hint}>
-                        <input
-                          placeholder={'~loginButton or android=new UiSelector().text("Login")'}
-                          value={androidKeywordSelector}
-                          onChange={(event) => setAndroidKeywordSelector(event.target.value)}
-                        />
-                      </FormField>
-                      <FormField label={selectedAndroidKeyword.valueLabel}>
-                        <input
-                          list={groupedAvailableParameters.length ? responseParameterOptionListId : undefined}
-                          placeholder="@t.username"
-                          value={androidKeywordData}
-                          onChange={(event) => setAndroidKeywordData(event.target.value)}
-                        />
-                      </FormField>
-                    </div>
-                    {androidKeywordMessage ? <div className="inline-message success-message">{androidKeywordMessage}</div> : null}
-                  </div>
+                    {keywordMessage ? <div className={`inline-message step-composer-message ${keywordError ? "error-message" : "success-message"}`} role={keywordError ? "alert" : "status"}>{keywordMessage}</div> : null}
+                  </section>
                 ) : null}
                 {automationCode ? (
-                  <div className="detail-summary automation-step-mapping-summary">
-                    <strong>{savedKeywordMappings.length ? "Mapped keyword automation" : "Coded JavaScript automation"}</strong>
-                    {savedKeywordMappings.length ? (
-                      <>
-                        <span>Saved HelloTest keyword calls mapped on this manual step.</span>
-                        <div className="automation-step-saved-keywords">
-                          {savedKeywordMappings.map((mapping) => (
-                            <div key={mapping.id}>
-                              <strong>{mapping.keyword}</strong>
-                              <code>{mapping.displayTarget}{mapping.value ? `, ${mapping.value}` : ""}</code>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <span>This step contains saved custom code. Review or modify it in the code field below.</span>
-                    )}
-                  </div>
+                  <section aria-label="Current instructions" className="step-composer-saved">
+                    <div className="step-composer-saved-heading"><span>Instructions</span><span>{instructionLineCount} lines</span></div>
+                    <AutomationInstructionPreview code={automationCode} sectionName="Current step" />
+                  </section>
                 ) : null}
-                <FormField
+                <details className="automation-request-details automation-editor-section" open={webKeywordId === "codedJS" && stepType === "web" || androidKeywordId === "codedJS" && stepType !== "web"}>
+                  <summary><span>Automation code</span><strong>{automationCode ? "Configured" : "Optional"}</strong></summary>
+                  <div className="automation-request-details-body">
+                  <FormField
                   label="Step automation code"
                   hint="Use the same scoped tokens from the manual step text whenever automation needs case, suite, or run data."
                 >
@@ -3132,22 +3062,17 @@ export function StepAutomationDialog({
                     value={automationCode}
                     onChange={(event) => setAutomationCode(event.target.value)}
                   />
-                </FormField>
+                </FormField></div>
+                </details>
               </>
             )}
 
-            <div className="detail-summary automation-preview-shell">
-              <div className="automation-preview-title-row">
-                <strong>Consolidated preview</strong>
-                <InfoTooltip
-                  content="This is what group and test-case level code views will use for this step."
-                  label="Consolidated preview information"
-                />
+            <details className="automation-request-details automation-editor-section">
+              <summary><span>Generated code</span><strong>Preview</strong></summary>
+              <div className="automation-request-details-body">
+                <pre className="automation-code-block automation-code-block--compact"><code>{previewCode}</code></pre>
               </div>
-              <pre className="automation-code-block automation-code-block--compact">
-                <code>{previewCode}</code>
-              </pre>
-            </div>
+            </details>
           </div>
           <div className="resource-form-actions action-row">
             <button
@@ -3175,86 +3100,12 @@ export function StepAutomationDialog({
               }}
               type="button"
             >
-              Clear mapped automation
+              Clear automation
             </button>
           </div>
         </div>
       </div>
     </div>
-    {isRepositoryPickerOpen ? (
-      <div className="modal-backdrop automation-repository-picker-backdrop" onClick={closeRepositoryPicker} role="presentation">
-        <div
-          aria-labelledby="automation-repository-picker-title"
-          aria-modal="true"
-          className="modal-card resource-modal-card automation-repository-picker-modal"
-          onClick={(event) => event.stopPropagation()}
-          ref={repositoryPickerRef}
-          role="dialog"
-          tabIndex={-1}
-        >
-          <div className="resource-modal-header">
-            <div className="resource-modal-title">
-              <div className="modal-title-info-row">
-                <h2 className="dialog-title" id="automation-repository-picker-title">Use object repository field</h2>
-                <InfoTooltip
-                  content="Select a screen, then map its saved field into this step locator."
-                  label="Object repository picker information"
-                />
-              </div>
-            </div>
-            <DialogCloseButton label="Close object repository field picker" onClick={closeRepositoryPicker} />
-          </div>
-          <div className="automation-repository-picker-body">
-            <label className="automation-repository-picker-search">
-              <span>Search screens or fields</span>
-              <input
-                autoFocus
-                placeholder="Login page, submit button, data-testid..."
-                value={repositorySearchTerm}
-                onChange={(event) => setRepositorySearchTerm(event.target.value)}
-              />
-            </label>
-            <div className="automation-repository-picker-grid">
-              <div aria-label="Repository screens" className="automation-repository-screen-list">
-                {repositoryScreens.map((screen) => (
-                  <button
-                    className={screen.screenName === selectedRepositoryScreen ? "is-selected" : ""}
-                    key={screen.screenName}
-                    onClick={() => setSelectedRepositoryScreen(screen.screenName)}
-                    type="button"
-                  >
-                    <strong>{screen.screenName}</strong>
-                    <span>{screen.fields.length} field{screen.fields.length === 1 ? "" : "s"}</span>
-                    {screen.pageUrl ? <small>{screen.pageUrl}</small> : null}
-                  </button>
-                ))}
-                {!repositoryScreens.length ? <div className="empty-state compact">No matching screens found.</div> : null}
-              </div>
-              <div aria-label="Fields in selected screen" className="automation-repository-field-list">
-                {selectedRepositoryFields.map((field) => (
-                  <button
-                    key={field.id}
-                    onClick={() => {
-                      setWebKeywordLocator(field.reference);
-                      setWebKeywordMessage(`${field.reference} selected from the Object Repository.`);
-                      setIsRepositoryPickerOpen(false);
-                    }}
-                    type="button"
-                  >
-                    <strong>{field.objectName}</strong>
-                    <span>{field.htmlTag}</span>
-                    <code>{field.locator}</code>
-                  </button>
-                ))}
-                {selectedRepositoryScreen && !selectedRepositoryFields.length ? (
-                  <div className="empty-state compact">No fields are available for this screen.</div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    ) : null}
     </>
   );
 }

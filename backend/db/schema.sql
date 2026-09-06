@@ -258,6 +258,9 @@ CREATE TABLE ai_knowledge_documents (
   CONSTRAINT ai_knowledge_documents_source_version_key UNIQUE(source_id, version)
 );
 
+ALTER TABLE ai_knowledge_documents ADD COLUMN effective_from TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE ai_knowledge_documents ADD COLUMN effective_to TIMESTAMPTZ;
+
 CREATE INDEX idx_ai_knowledge_documents_source
   ON ai_knowledge_documents (project_id, source_id, is_active, updated_at DESC);
 CREATE UNIQUE INDEX idx_ai_knowledge_documents_one_active_source
@@ -294,6 +297,45 @@ BEGIN
     ALTER TABLE ai_knowledge_chunks ADD COLUMN IF NOT EXISTS embedding_vector vector;
   END IF;
 END $$;
+
+CREATE TABLE ai_knowledge_index_states (
+  document_id TEXT PRIMARY KEY REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+  document_version INTEGER NOT NULL,
+  is_current BOOLEAN NOT NULL DEFAULT FALSE,
+  lexical_state TEXT NOT NULL DEFAULT 'pending' CHECK(lexical_state IN ('pending', 'ready', 'degraded', 'failed')),
+  dense_state TEXT NOT NULL DEFAULT 'pending' CHECK(dense_state IN ('pending', 'ready', 'degraded', 'failed', 'not_configured')),
+  vector_provider TEXT NOT NULL DEFAULT 'postgresql',
+  embedding_model TEXT,
+  embedding_dimensions INTEGER,
+  indexed_chunk_count INTEGER NOT NULL DEFAULT 0,
+  error_fingerprint TEXT,
+  indexed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_knowledge_index_states_current
+  ON ai_knowledge_index_states (project_id, source_id, is_current, updated_at DESC);
+
+ALTER TABLE ai_knowledge_index_states ADD COLUMN required_indexes_ready BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE ai_knowledge_security_bindings (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+  document_id TEXT REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+  chunk_id TEXT REFERENCES ai_knowledge_chunks(id) ON DELETE CASCADE,
+  principal_type TEXT NOT NULL CHECK(principal_type IN ('PROJECT', 'USER', 'ROLE', 'EVERYONE')),
+  principal_id TEXT NOT NULL,
+  permission TEXT NOT NULL DEFAULT 'READ' CHECK(permission = 'READ'),
+  effect TEXT NOT NULL CHECK(effect IN ('ALLOW', 'DENY')),
+  inherited BOOLEAN NOT NULL DEFAULT FALSE,
+  policy_version TEXT NOT NULL DEFAULT '1',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_ai_knowledge_security_bindings_scope ON ai_knowledge_security_bindings (project_id, source_id, document_id, chunk_id);
 
 CREATE TABLE ai_knowledge_collection_sources (
   collection_id TEXT NOT NULL REFERENCES ai_knowledge_collections(id) ON DELETE CASCADE,

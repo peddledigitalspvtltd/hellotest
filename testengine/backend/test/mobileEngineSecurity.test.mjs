@@ -46,6 +46,11 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
     assert.equal(String(url), "http://mobile-engine:4312/api/v1/mobile/execute");
     assert.equal(init.headers[MOBILE_ENGINE_SECRET_HEADER], DEVELOPMENT_MOBILE_ENGINE_SECRET);
     assert.equal(init.headers["content-type"], "application/json");
+    const payload = JSON.parse(init.body);
+    assert.equal(payload.parameter_values["s.tenant"], "suite");
+    assert.equal(payload.parameter_values["t.first name"], "case override");
+    assert.equal(payload.parameter_values["t.amount"], "12");
+    assert.equal(payload.parameter_values["r.token"], "resumed token");
     return new Response(JSON.stringify({ status: "passed", results: [] }), {
       status: 200,
       headers: { "content-type": "application/json" }
@@ -53,7 +58,12 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
   };
 
   try {
-    const result = await executeAndroidSteps({}, []);
+    const result = await executeAndroidSteps({
+      suite_parameters: { tenant: "suite" },
+      case_parameters: { "first name": "case override" },
+      data_set: { source: "test_case", mode: "table", rows: [{ "First Name": "row default", amount: 12 }] },
+      environment: { variables: [{ key: "token", value: "environment token" }] }
+    }, [], { "r.token": "resumed token" });
     assert.deepEqual(result, { status: "passed", results: [] });
   } finally {
     globalThis.fetch = previous.fetch;
@@ -64,4 +74,3 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
     }
   }
 });
-

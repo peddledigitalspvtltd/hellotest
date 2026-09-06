@@ -433,8 +433,12 @@ const resolveStepEngineClass = (step = {}, appTypeKind = null) => {
     return stepType;
   }
 
+  if (stepType === "ios") {
+    return "android";
+  }
+
   const normalizedAppType = normalizeText(appTypeKind)?.toLowerCase();
-  return normalizedAppType === "api" ? "api" : normalizedAppType === "android" ? "android" : "web";
+  return normalizedAppType === "api" ? "api" : ["android", "ios"].includes(normalizedAppType) ? "android" : "web";
 };
 
 const resolveStepEngineClasses = (steps = [], appTypeKind = null) =>
@@ -443,7 +447,7 @@ const resolveStepEngineClasses = (steps = [], appTypeKind = null) =>
 const resolveOrchestrationClass = (steps = [], appTypeKind = null) => {
   const stepTypes = new Set((steps || []).map((step) => normalizeTestStepType(step?.step_type || step?.type)).filter(Boolean));
 
-  if (stepTypes.has("android")) {
+  if (stepTypes.has("android") || stepTypes.has("ios")) {
     return "android";
   }
 
@@ -456,7 +460,7 @@ const resolveOrchestrationClass = (steps = [], appTypeKind = null) => {
   }
 
   const normalizedAppType = normalizeText(appTypeKind)?.toLowerCase();
-  return normalizedAppType === "api" ? "api" : normalizedAppType === "android" ? "android" : "web";
+  return normalizedAppType === "api" ? "api" : ["android", "ios"].includes(normalizedAppType) ? "android" : "web";
 };
 
 const getQueueMaxWorkers = (engineClass) => {
@@ -969,11 +973,18 @@ const resolveEngineStepType = (stepType, appTypeKind) => {
     return normalized;
   }
 
+  // One Appium worker executes both mobile platforms. Authored iOS identity
+  // remains on the case and target configuration while dispatch uses that
+  // worker's established mobile step contract.
+  if (normalized === "ios") {
+    return "android";
+  }
+
   if (appTypeKind === "api" && !normalized) {
     return "api";
   }
 
-  if (appTypeKind === "android" && !normalized) {
+  if ((appTypeKind === "android" || appTypeKind === "ios") && !normalized) {
     return "android";
   }
 
@@ -1124,7 +1135,9 @@ const buildEngineEnvelope = async ({
         || normalizeText(configurationSnapshot.platform_version)
         || normalizeText(integrationConfig.platform_version)
         || null,
-      app: normalizeText(integrationConfig.android_app) || normalizeText(integrationConfig.app) || null
+      app: normalizeText(appTypeKind === "ios" ? integrationConfig.ios_app : integrationConfig.android_app)
+        || normalizeText(integrationConfig.app)
+        || null
     },
     manual_spec: buildManualSpec({ caseSnapshot, steps, execution }),
     auto_repair_brief: {
@@ -1470,7 +1483,7 @@ async function planExecutionDispatch(execution, options = {}) {
 
       if (!stepType) {
         stepWarnings.push(
-          `${caseSnapshot.test_case_title}: step ${stepSnapshot.step_order} is not part of the current engine-supported API/web path.`
+          `${caseSnapshot.test_case_title}: step ${stepSnapshot.step_order} is not part of the current engine-supported API, web, or mobile path.`
         );
         return null;
       }

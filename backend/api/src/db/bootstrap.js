@@ -245,6 +245,16 @@ const statements = [
    SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
    FROM ranked_active WHERE documents.id = ranked_active.id AND ranked_active.active_rank > 1`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_knowledge_documents_one_active_source ON ai_knowledge_documents (source_id) WHERE is_active = TRUE`,
+  `ALTER TABLE ai_knowledge_documents ADD COLUMN IF NOT EXISTS effective_from TIMESTAMPTZ`,
+  `ALTER TABLE ai_knowledge_documents ADD COLUMN IF NOT EXISTS effective_to TIMESTAMPTZ`,
+  `WITH revisions AS (
+    SELECT id, created_at, LEAD(created_at) OVER (PARTITION BY source_id ORDER BY version) AS next_revision_at
+    FROM ai_knowledge_documents
+  ) UPDATE ai_knowledge_documents documents SET effective_from = revisions.created_at,
+    effective_to = CASE WHEN documents.is_active THEN NULL ELSE revisions.next_revision_at END
+    FROM revisions WHERE documents.id = revisions.id AND documents.effective_from IS NULL`,
+  `ALTER TABLE ai_knowledge_documents ALTER COLUMN effective_from SET DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE ai_knowledge_documents ALTER COLUMN effective_from SET NOT NULL`,
   `
     CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
       id TEXT PRIMARY KEY,
@@ -277,6 +287,59 @@ const statements = [
       END IF;
     END $$
   `,
+  `
+    CREATE TABLE IF NOT EXISTS ai_knowledge_index_states (
+      document_id TEXT PRIMARY KEY REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+      document_version INTEGER NOT NULL,
+      is_current BOOLEAN NOT NULL DEFAULT FALSE,
+      lexical_state TEXT NOT NULL DEFAULT 'pending',
+      dense_state TEXT NOT NULL DEFAULT 'pending',
+      vector_provider TEXT NOT NULL DEFAULT 'postgresql',
+      embedding_model TEXT,
+      embedding_dimensions INTEGER,
+      indexed_chunk_count INTEGER NOT NULL DEFAULT 0,
+      error_fingerprint TEXT,
+      indexed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+  `ALTER TABLE ai_knowledge_index_states DROP CONSTRAINT IF EXISTS ai_knowledge_index_states_lexical_state_check`,
+  `ALTER TABLE ai_knowledge_index_states ADD CONSTRAINT ai_knowledge_index_states_lexical_state_check CHECK(lexical_state IN ('pending', 'ready', 'degraded', 'failed'))`,
+  `ALTER TABLE ai_knowledge_index_states DROP CONSTRAINT IF EXISTS ai_knowledge_index_states_dense_state_check`,
+  `ALTER TABLE ai_knowledge_index_states ADD CONSTRAINT ai_knowledge_index_states_dense_state_check CHECK(dense_state IN ('pending', 'ready', 'degraded', 'failed', 'not_configured'))`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_index_states_current ON ai_knowledge_index_states (project_id, source_id, is_current, updated_at DESC)`,
+  `ALTER TABLE ai_knowledge_index_states ADD COLUMN IF NOT EXISTS required_indexes_ready BOOLEAN NOT NULL DEFAULT FALSE`,
+  `UPDATE ai_knowledge_index_states SET required_indexes_ready = TRUE
+    WHERE is_current = TRUE AND lexical_state = 'ready' AND dense_state IN ('ready', 'degraded', 'not_configured')`,
+  `INSERT INTO ai_knowledge_index_states
+    (document_id, project_id, source_id, document_version, is_current, lexical_state, dense_state,
+      vector_provider, embedding_model, indexed_chunk_count, required_indexes_ready, indexed_at)
+    SELECT documents.id, documents.project_id, documents.source_id, documents.version, documents.is_active,
+      'ready', CASE WHEN BOOL_AND(chunks.embedding IS NOT NULL OR chunks.fallback_embedding IS NOT NULL) THEN 'ready' ELSE 'not_configured' END,
+      'postgresql', MAX(chunks.embedding_model), COUNT(*)::INTEGER, TRUE, CURRENT_TIMESTAMP
+    FROM ai_knowledge_documents documents JOIN ai_knowledge_chunks chunks ON chunks.document_id = documents.id
+    GROUP BY documents.id ON CONFLICT (document_id) DO NOTHING`,
+  `CREATE TABLE IF NOT EXISTS ai_knowledge_security_bindings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES ai_knowledge_sources(id) ON DELETE CASCADE,
+    document_id TEXT REFERENCES ai_knowledge_documents(id) ON DELETE CASCADE,
+    chunk_id TEXT REFERENCES ai_knowledge_chunks(id) ON DELETE CASCADE,
+    principal_type TEXT NOT NULL CHECK(principal_type IN ('PROJECT', 'USER', 'ROLE', 'EVERYONE')),
+    principal_id TEXT NOT NULL,
+    permission TEXT NOT NULL DEFAULT 'READ' CHECK(permission = 'READ'),
+    effect TEXT NOT NULL CHECK(effect IN ('ALLOW', 'DENY')),
+    inherited BOOLEAN NOT NULL DEFAULT FALSE,
+    policy_version TEXT NOT NULL DEFAULT '1',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_knowledge_security_bindings_scope ON ai_knowledge_security_bindings (project_id, source_id, document_id, chunk_id)`,
+  `INSERT INTO ai_knowledge_security_bindings (id, project_id, source_id, principal_type, principal_id, effect, inherited)
+    SELECT id || ':project-read', project_id, id, 'PROJECT', project_id, 'ALLOW', TRUE
+    FROM ai_knowledge_sources ON CONFLICT (id) DO NOTHING`,
   `
     CREATE TABLE IF NOT EXISTS ai_knowledge_collection_sources (
       collection_id TEXT NOT NULL REFERENCES ai_knowledge_collections(id) ON DELETE CASCADE,

@@ -4,14 +4,15 @@ import { SelectionToggleIcon, TestCaseIcon } from "./AppIcons";
 import { CatalogSearchFilter } from "./CatalogSearchFilter";
 import { richTextToPlainText } from "./RichTextEditor";
 import type { TestCase, TestSuite } from "../types";
+import "./SuiteCasePicker.css";
 
 type SuiteCasePickerProps = {
   cases: TestCase[];
   selectedCaseIds: string[];
   onChange: (nextIds: string[]) => void;
   disabled?: boolean;
-  heading: string;
-  description: string;
+  heading?: string;
+  description?: string;
   emptyMessage: string;
   moduleLabelByCaseId?: Record<string, string>;
   metadataByCaseId?: SuitePickerMetadataByCaseId;
@@ -21,8 +22,8 @@ type SuiteScopePickerProps = {
   suites: TestSuite[];
   selectedSuiteIds: string[];
   onChange: (nextIds: string[]) => void;
-  heading: string;
-  description: string;
+  heading?: string;
+  description?: string;
   emptyMessage: string;
   testCases?: TestCase[];
   metadataByCaseId?: SuitePickerMetadataByCaseId;
@@ -84,12 +85,10 @@ type OrderedSelectionPickerProps = {
   items: OrderedSelectionPickerItem[];
   selectedIds: string[];
   onChange: (nextIds: string[]) => void;
-  heading: string;
-  description: string;
+  heading?: string;
+  description?: string;
   emptyMessage: string;
   itemLabel: string;
-  selectedHint: string;
-  emptyHint: string;
   showCaseFilters?: boolean;
   showSelectionSummary?: boolean;
   disabled?: boolean;
@@ -148,13 +147,11 @@ export function SuiteCasePicker({
     <OrderedSelectionPicker
       description={description}
       disabled={disabled}
-      emptyHint=""
       emptyMessage={emptyMessage}
       heading={heading}
       itemLabel="test case"
       items={items}
       onChange={onChange}
-      selectedHint=""
       selectedIds={selectedCaseIds}
       showCaseFilters
       showSelectionSummary={false}
@@ -213,8 +210,8 @@ export function SuiteScopePicker({
           id: suite.id,
           displayId: suite.display_id || suite.id,
           title: suite.name,
-          description: suite.labels?.length ? `Labels: ${suite.labels.join(", ")}` : "Reusable suite",
-          meta: `${suiteCaseIds.length} test case${suiteCaseIds.length === 1 ? "" : "s"} · Captured as a suite snapshot for this run.`,
+          description: "",
+          meta: `${suiteCaseIds.length} test case${suiteCaseIds.length === 1 ? "" : "s"}`,
           labels: suite.labels || [],
           metadata: {
             suite: collectAssociatedMetadata("suite"),
@@ -233,13 +230,11 @@ export function SuiteScopePicker({
   return (
     <OrderedSelectionPicker
       description={description}
-      emptyHint="Select one or more suites to build the execution scope."
       emptyMessage={emptyMessage}
       heading={heading}
       itemLabel="suite"
       items={items}
       onChange={onChange}
-      selectedHint="Checked suites stay pinned to the top and will be used in this order for the execution snapshot."
       selectedIds={selectedSuiteIds}
       filterKeys={RUN_SCOPE_FILTER_KEYS}
     />
@@ -254,8 +249,6 @@ function OrderedSelectionPicker({
   description,
   emptyMessage,
   itemLabel,
-  selectedHint,
-  emptyHint,
   showCaseFilters = false,
   showSelectionSummary = true,
   disabled = false,
@@ -369,7 +362,7 @@ function OrderedSelectionPicker({
       placeholder={filterKey === "all"
         ? `Search ${itemLabel}s and metadata...`
         : `Search associated ${FILTER_LABELS[filterKey].toLowerCase()} metadata...`}
-      subtitle="Choose a metadata type and an optional value. Search is scoped to the selected metadata type."
+      subtitle="Filter by metadata type and value."
       title={`Filter ${itemLabel}s`}
       value={searchTerm}
     >
@@ -481,7 +474,7 @@ function OrderedSelectionPicker({
                         </span>
                         <strong>{item.title}</strong>
                       </div>
-                      <span>{item.description}</span>
+                      {item.description ? <span>{item.description}</span> : null}
                       {item.labels?.length ? <small>Labels: {item.labels.join(", ")}</small> : null}
                       {item.moduleLabel ? <small>Module: {item.moduleLabel}</small> : null}
                       {item.metadata.requirement?.length ? <small>Requirements: {item.metadata.requirement.join(", ")}</small> : null}
@@ -518,40 +511,30 @@ function OrderedSelectionPicker({
   }
 
   return (
-    <div className="modal-case-picker">
-      <div className="suite-case-picker-toolbar">
-        <div>
-          <strong>{heading}</strong>
-          {description ? <span>{description}</span> : null}
-        </div>
-        <div className="suite-case-picker-actions">
-          <button className="ghost-button" disabled={!allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
+    <div className="modal-case-picker suite-scope-picker">
+      {heading || description ? <div className="suite-scope-picker-heading">
+        {heading ? <strong>{heading}</strong> : null}
+        {description ? <span>{description}</span> : null}
+      </div> : null}
+
+      <div className="suite-reference-picker-toolbar suite-reference-picker-toolbar--scope">
+        {searchAndFilterControl}
+        <div className="suite-case-picker-actions" aria-label="Suite selection actions">
+          <button className="ghost-button" disabled={disabled || !allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
             <SelectionToggleIcon checked />
             Select all
           </button>
-          <button className="ghost-button" disabled={!selectedIds.length} onClick={() => onChange([])} type="button">
+          <button className="ghost-button" disabled={disabled || !selectedIds.length} onClick={() => onChange([])} type="button">
             <SelectionToggleIcon checked={false} />
             Clear
           </button>
         </div>
       </div>
 
-      <div className="suite-reference-picker-toolbar suite-reference-picker-toolbar--scope">
-        {searchAndFilterControl}
-      </div>
-
-      {showSelectionSummary ? (
-        <div className="detail-summary suite-case-picker-summary">
-          <strong>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</strong>
-          <span>
-            {hasActiveFilters
-              ? `${visibleSelectedCount} selected in the current filtered list.`
-              : selectedItems.length
-                ? selectedHint
-                : emptyHint}
-          </span>
-        </div>
-      ) : null}
+      {showSelectionSummary ? <div className="suite-scope-picker-summary" aria-live="polite">
+        <span>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</span>
+        {hasActiveFilters ? <span>{filteredItems.length} shown · {visibleSelectedCount} selected here</span> : null}
+      </div> : null}
 
       {!items.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
       {items.length && !orderedItems.length ? <div className="empty-state compact">No {itemLabel}s match the current filters.</div> : null}
@@ -571,7 +554,7 @@ function OrderedSelectionPicker({
                       {isSelected ? <span className="suite-case-picker-order">{selectedIndex + 1}</span> : null}
                       <strong>{item.title}</strong>
                     </div>
-                    <span>{item.description}</span>
+                    {item.description ? <span>{item.description}</span> : null}
                     {item.labels?.length ? <span className="suite-case-picker-option-meta">Labels: {item.labels.join(", ")}</span> : null}
                     {item.moduleLabel ? <span className="suite-case-picker-option-meta">Module: {item.moduleLabel}</span> : null}
                     {item.meta ? <span className="suite-case-picker-option-meta">{item.meta}</span> : null}

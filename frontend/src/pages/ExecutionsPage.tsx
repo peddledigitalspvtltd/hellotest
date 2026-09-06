@@ -75,7 +75,6 @@ import { QualityMetricStrip, type QualityMetric } from "../components/QualityMet
 import { ReportBugSplitActionButton } from "../components/ReportBugSplitActionButton";
 import { richTextToPlainText } from "../components/RichTextEditor";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
-import { RunTypeSelector } from "../components/RunTypeSelector";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
@@ -13082,6 +13081,26 @@ export function ExecutionCreateModal({
               </div>
 
               <div className="execution-run-config-stack">
+              <FormField label="Run name">
+                <input
+                  data-autofocus="true"
+                  placeholder="e.g. Q4_Regression_v2"
+                  value={executionName}
+                  onChange={(event) => onExecutionNameChange(event.target.value)}
+                />
+              </FormField>
+
+              {canRunLocalAutomation || canRunRemoteAutomation ? (
+                <label className="execution-run-mode-control">
+                  <span>Run mode</span>
+                  <select aria-label="Run mode" value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                    <option value="manual">Manual</option>
+                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
+                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
+                  </select>
+                </label>
+              ) : null}
+
               <FormField label="Project" required>
                 <ProjectDropdown
                   ariaLabel="Select a project"
@@ -13105,15 +13124,6 @@ export function ExecutionCreateModal({
                   }))}
                   placeholder="Select app type"
                   value={appTypeId}
-                />
-              </FormField>
-
-              <FormField label="Run name">
-                <input
-                  data-autofocus="true"
-                  placeholder="e.g. Q4_Regression_v2"
-                  value={executionName}
-                  onChange={(event) => onExecutionNameChange(event.target.value)}
                 />
               </FormField>
 
@@ -13188,21 +13198,7 @@ export function ExecutionCreateModal({
                 />
               </FormField>
 
-              {canRunLocalAutomation || canRunRemoteAutomation ? (
-                  <FormField label="Execution type">
-                    <RunTypeSelector
-                      allowedModes={[
-                        "manual",
-                        ...(canRunLocalAutomation ? ["local" as const] : []),
-                        ...(canRunRemoteAutomation ? ["remote" as const] : [])
-                      ]}
-                      value={executionStartMode}
-                      onChange={(value) => onExecutionStartModeChange(value as ExecutionStartMode)}
-                    />
-                  </FormField>
-                ) : null}
-
-              {canConfigureParallelAutomation ? (
+              {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
                 <FormField label="Parallel execution">
                   <div className="execution-parallel-control">
                     <label>
@@ -13231,12 +13227,8 @@ export function ExecutionCreateModal({
             <main className="execution-run-selection-workspace">
               <div className="execution-run-selection-header">
                 <div>
-                  <h3>{isSmartMode ? "Scope, rank, and review" : "Suite Selection"}</h3>
-                  <p>
-                    {isSmartMode
-                      ? "The planner keeps source evidence visible while you review every ranked recommendation."
-                      : "Choose reusable suites to capture in this run snapshot."}
-                  </p>
+                  <h3>{isSmartMode ? "Scope, rank, and review" : "Suites"}</h3>
+                  {isSmartMode ? <p>The planner keeps source evidence visible while you review every ranked recommendation.</p> : null}
                 </div>
                 {canUseRunAi ? (
                   <div className="execution-create-mode-segmented" aria-label="Run creation mode" role="group">
@@ -13661,9 +13653,7 @@ export function ExecutionCreateModal({
             ) : (
               <section className="execution-suite-selection" aria-label="Available suites">
                 <SuiteScopePicker
-                  description="Filter the run scope by test case, module, requirement, label, suite, or Shared Step Group metadata. Search is scoped to the selected metadata type."
                   emptyMessage={appTypeId ? "No suites are available for this app type. Create a suite first." : "Select an application type to load reusable suites."}
-                  heading="Available run scope"
                   metadataByCaseId={metadataByCaseId}
                   onChange={onSuiteSelectionChange}
                   selectedSuiteIds={selectedSuiteIds}

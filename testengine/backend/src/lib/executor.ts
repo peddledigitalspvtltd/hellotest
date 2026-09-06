@@ -17,6 +17,7 @@ import type {
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { materializeTemplateValue } from "./runtimeContext.js";
+import { decodeParameterColumnName, normalizeParameterReferenceKey, STEP_PARAMETER_PATTERN } from "./stepParameterReferences.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -73,7 +74,6 @@ type EngineCaseLogsPayload = {
   stepCaptures: Record<string, Record<string, string>>;
 };
 
-const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?([A-Za-z][A-Za-z0-9_-]*)/gi;
 const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
   "t.random": "{{randomString:3}}",
   random: "{{randomString:3}}",
@@ -174,7 +174,7 @@ const parseExpectedLiteral = (value?: string | null) => {
   return normalized;
 };
 
-const normalizeKey = (value: string) => normalizeText(value).replace(/^@+/, "").toLowerCase();
+const normalizeKey = (value: string) => normalizeParameterReferenceKey(value);
 
 const registerContextValue = (context: ExecutionContext, key: string, value: unknown) => {
   const normalizedKey = normalizeKey(key);
@@ -304,7 +304,9 @@ const resolveContextValue = (context: ExecutionContext, scopedKey: string, fallb
 };
 
 const interpolateText = (value: string | null | undefined, context: ExecutionContext) =>
-  String(value || "").replace(STEP_PARAMETER_PATTERN, (_match, scope, rawName) => {
+  String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
+    if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".") return token;
+    const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
     const normalizedKey = scope ? `${String(scope).toLowerCase()}.${String(rawName).toLowerCase()}` : String(rawName).toLowerCase();
     return resolveContextValue(context, normalizedKey, scope ? String(scope).toLowerCase() : "t");
   });

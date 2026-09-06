@@ -663,16 +663,25 @@ module.exports = async function (fastify) {
       metadata: { required: false, type: "object" }
     }, req.body || {});
 
+    let resolvedProjectId = req.body?.project_id || null;
+
     if (req.body?.app_type_id) {
       const appType = await appTypeService.getAppType(req.body.app_type_id);
       await projectService.getProject(appType.project_id, req.user.id);
+      if (resolvedProjectId && resolvedProjectId !== appType.project_id) {
+        throw new Error("Object repository project scope must match the selected app type");
+      }
+      resolvedProjectId = appType.project_id;
     } else if (req.body?.project_id) {
       await projectService.getProject(req.body.project_id, req.user.id);
     } else if (req.user?.role !== "admin") {
       throw new Error("Project or app type scope is required");
     }
 
-    return aiAutomationBuilderService.createLearningCacheEntry(req.body || {});
+    return aiAutomationBuilderService.createLearningCacheEntry({
+      ...(req.body || {}),
+      project_id: resolvedProjectId || undefined
+    });
   });
 
   fastify.delete("/test-cases/automation/learning-cache/:id", async (req) => {
@@ -777,6 +786,19 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/automation/jobs/:transactionId", async (req) => {
+    await fastify.authenticate(req);
+    const transaction = await workspaceTransactionService.getTransaction(req.params.transactionId);
+    if (transaction.category !== "automation_build" || !transaction.project_id) {
+      const error = new Error("Automation build not found");
+      error.statusCode = 404;
+      throw error;
+    }
+    await projectService.getProject(transaction.project_id, req.user.id);
+    await fastify.requirePermission("automation.build", { projectId: transaction.project_id })(req);
+    return transaction;
+  });
+
   fastify.post("/test-cases/automation/build-batch", async (req) => {
     await fastify.authenticate(req);
 
@@ -789,11 +811,14 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
-      failure_threshold: { required: false, type: "number" }
+      failure_threshold: { required: false, type: "number" },
+      scheduled_at: { required: false, type: "string" }
     }, req.body);
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
+    await fastify.requirePermission("automation.build", { projectId: appType.project_id })(req);
+    await ensureTestCaseDataSetAccess(fastify, req, appType.project_id, req.body?.test_data_set_id);
 
     return batchProcessService.queueAutomationBuild({
       ...req.body,
@@ -919,7 +944,8 @@ module.exports = async function (fastify) {
       additional_context: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
-      test_data_set_id: { required: false, type: "string" }
+      test_data_set_id: { required: false, type: "string" },
+      scheduled_at: { required: false, type: "string" }
     }, req.body || {});
 
     const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
@@ -927,6 +953,7 @@ module.exports = async function (fastify) {
 
     return automationGeneratorService.queueGeneratorJob({
       test_case_id: req.params.id,
+      scheduled_at: req.body?.scheduled_at,
       integration_id: req.body?.integration_id,
       start_url: req.body?.start_url,
       additional_context: req.body?.additional_context,

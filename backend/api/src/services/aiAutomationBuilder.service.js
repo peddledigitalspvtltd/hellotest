@@ -1,6 +1,7 @@
 const db = require("../db");
 const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
+const automationCasePreparationService = require("./automationCasePreparation.service");
 const integrationService = require("./integration.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const testStepService = require("./testStep.service");
@@ -30,7 +31,7 @@ const DEFAULT_BATCH_FAILURE_THRESHOLD = Math.max(1, Number(process.env.AUTOMATIO
 const RECORDER_ORPHAN_TTL_MS = Math.max(60_000, Number(process.env.RECORDER_ORPHAN_TTL_MS || 3 * 60_000));
 const MOBILE_ENGINE_SECRET_HEADER = "x-hellotest-mobile-engine-secret";
 
-const selectCaseWithScope = obsDb.prepare(`
+const selectCaseWithScope = db.prepare(`
   SELECT
     test_cases.*,
     app_types.name AS app_type_name,
@@ -43,7 +44,7 @@ const selectCaseWithScope = obsDb.prepare(`
   WHERE test_cases.id = ?
 `);
 
-const selectStepsForCase = obsDb.prepare(`
+const selectStepsForCase = db.prepare(`
   SELECT *
   FROM test_steps
   WHERE test_case_id = ?
@@ -112,6 +113,7 @@ const selectLearningCacheScreenEntries = obsDb.prepare(`
   FROM automation_learning_cache
   WHERE app_type_id IS NOT DISTINCT FROM ?
     AND COALESCE(metadata->>'screen_name', page_key, page_url, '') = ?
+    AND (?::text IS NULL OR project_id IS NOT DISTINCT FROM ?)
   ORDER BY hit_count DESC, updated_at DESC
 `);
 
@@ -165,7 +167,12 @@ const replaceTestStepRepositoryReference = db.prepare(`
 const markTestCaseAutomationReady = db.prepare(`
   UPDATE test_cases
   SET automated = 'yes',
-      automation_status = 'ready',
+      automation_status = CASE WHEN EXISTS (
+        SELECT 1 FROM test_steps
+        WHERE test_steps.test_case_id = test_cases.id
+          AND COALESCE(BTRIM(test_steps.automation_code), '') = ''
+          AND (test_steps.api_request IS NULL OR test_steps.api_request = '{}'::jsonb)
+      ) THEN 'incomplete' ELSE 'ready' END,
       updated_by = COALESCE(?, updated_by),
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
@@ -238,8 +245,13 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   const params = [];
 
   if (projectId) {
-    query += ` AND project_id = ?`;
+    const projectApps = await db.prepare(`SELECT id FROM app_types WHERE project_id = ?`).all(projectId);
+    const appIds = projectApps.map((app) => app.id);
+    query += appIds.length
+      ? ` AND (project_id = ? OR (project_id IS NULL AND app_type_id IN (${appIds.map(() => "?").join(", ")})))`
+      : ` AND project_id = ?`;
     params.push(projectId);
+    params.push(...appIds);
   }
 
   if (appTypeId) {
@@ -251,11 +263,12 @@ const listLearningCacheRows = async ({ projectId, appTypeId, limit = MAX_CACHE_R
   params.push(Math.max(1, Math.min(200, Number(limit) || MAX_CACHE_ROWS)));
   params.push(Math.max(0, Number(offset) || 0));
 
-  return obsDb.prepare(query).all(...params).map(normalizeLearningCacheRow).filter(Boolean);
+  const rows = await obsDb.prepare(query).all(...params);
+  return rows.map(normalizeLearningCacheRow).filter(Boolean);
 };
 
-const listLearningCacheScreenRows = async ({ appTypeId, screenName } = {}) =>
-  (await selectLearningCacheScreenEntries.all(normalizeText(appTypeId) || null, normalizeText(screenName)))
+const listLearningCacheScreenRows = async ({ appTypeId, projectId, screenName } = {}) =>
+  (await selectLearningCacheScreenEntries.all(normalizeText(appTypeId) || null, normalizeText(screenName), appTypeId ? null : normalizeText(projectId), appTypeId ? null : normalizeText(projectId)))
     .map(normalizeLearningCacheRow);
 
 const listAllLearningCacheRows = async ({ appTypeId } = {}) => {
@@ -295,6 +308,8 @@ const normalizeRepositoryPatch = (existing, patch = {}) => {
     url_pattern_type: "url_pattern_type",
     url_pattern_value: "url_pattern_value",
     screen_fingerprint: "screen_fingerprint",
+    screen_dom_compressed: "screen_dom_compressed",
+    screen_screenshot_url: "screen_screenshot_url",
     accessibility_tree: "accessibility_tree",
     fallback_locators: "fallback_locators",
     description: "description",
@@ -1840,6 +1855,23 @@ const buildFallbackRecorderMappings = (manualSteps = [], stepCandidates = []) =>
   return groups.filter((group) => group.candidates.length);
 };
 
+const orderRecorderCandidates = (candidates = []) => {
+  const seen = new Set();
+  return candidates.filter(Boolean).map((candidate, position) => {
+    const rawIndex = candidate.source_action_index;
+    const index = rawIndex !== null && rawIndex !== undefined && rawIndex !== "" && Number.isFinite(Number(rawIndex))
+      ? Number(rawIndex) : null;
+    return { candidate, index, position };
+  }).filter(({ index }) => {
+    // Missing identities are not interchangeable: retain their original order.
+    if (index === null) return true;
+    if (seen.has(index)) return false;
+    seen.add(index);
+    return true;
+  }).sort((left, right) => (left.index ?? Infinity) - (right.index ?? Infinity) || left.position - right.position)
+    .map(({ candidate }) => candidate);
+};
+
 const mergeRecorderMappingGroups = (groups = []) => {
   const byStepId = new Map();
 
@@ -1863,7 +1895,9 @@ const mergeRecorderMappingGroups = (groups = []) => {
     byStepId.set(group.step.id, current);
   });
 
-  return [...byStepId.values()].sort((left, right) => Number(left.step.step_order || 0) - Number(right.step.step_order || 0));
+  return [...byStepId.values()]
+    .map((group) => ({ ...group, candidates: orderRecorderCandidates(group.candidates) }))
+    .sort((left, right) => Number(left.step.step_order || 0) - Number(right.step.step_order || 0));
 };
 
 const buildRecorderMappingPrompt = ({
@@ -1978,7 +2012,7 @@ const normalizeRecorderAiMappings = (payload, manualSteps = [], stepCandidates =
 
   return {
     summary: normalizeRichText(payload?.summary) || "Recorder automation mapped to existing manual steps.",
-    mappings: [...groupsByStepId.values()]
+    mappings: [...groupsByStepId.values()].map((group) => ({ ...group, candidates: orderRecorderCandidates(group.candidates) }))
   };
 };
 
@@ -2062,7 +2096,7 @@ const buildAiRecorderMappings = async ({
 };
 
 const createRecorderAutomationCode = (candidates = []) =>
-  candidates
+  orderRecorderCandidates(candidates)
     .map((candidate) => [
       `// Recorded: ${candidate.action || "browser interaction"}`,
       candidate.automation_code
@@ -2452,6 +2486,7 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl) => {
     const candidate = byStepId.get(step.id);
     const stepType = candidate?.step_type || normalizeTestStepType(step.step_type, "web");
     const automationCode = candidate?.automation_code
+      || normalizeRichText(step.automation_code)
       || (stepType === "web" ? buildDeterministicWebCode(step, cacheRows, startUrl) : null);
 
     return {
@@ -2485,12 +2520,15 @@ const normalizeLlmBuild = (payload, steps, cacheRows, startUrl) => {
 const buildFallbackBuild = (steps, cacheRows, startUrl, reason) => ({
   summary: `Generated keyword starter automation${reason ? ` without LLM completion: ${reason}` : "."}`,
   base_url: startUrl || null,
-  updates: steps.map((step) => ({
-    step,
-    step_type: normalizeTestStepType(step.step_type, "web"),
-    automation_code: buildDeterministicWebCode(step, cacheRows, startUrl),
-    api_request: null
-  })),
+  updates: steps.map((step) => {
+    const stepType = normalizeTestStepType(step.step_type, "web");
+    return {
+      step,
+      step_type: stepType,
+      automation_code: normalizeRichText(step.automation_code) || (stepType === "web" ? buildDeterministicWebCode(step, cacheRows, startUrl) : null),
+      api_request: stepType === "api" ? normalizeApiRequest(step.api_request) : null
+    };
+  }).filter((update) => update.automation_code || update.api_request),
   learned_locators: []
 });
 
@@ -2692,7 +2730,7 @@ const buildCaseCore = async ({
   additional_context,
   transaction_id
 }) => {
-  const testCase = await selectCaseWithScope.get(test_case_id);
+  let testCase = await selectCaseWithScope.get(test_case_id);
 
   if (!testCase) {
     throw new Error("Test case not found");
@@ -2702,10 +2740,17 @@ const buildCaseCore = async ({
     throw new Error("Automation builder currently supports web and unified app types");
   }
 
-  const steps = await selectStepsForCase.all(test_case_id);
+  let steps = await selectStepsForCase.all(test_case_id);
 
   if (!steps.length) {
     throw new Error("Add manual steps before building automation");
+  }
+
+  const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by });
+  if (preparedTarget.test_case_id !== test_case_id) {
+    test_case_id = preparedTarget.test_case_id;
+    testCase = await selectCaseWithScope.get(test_case_id);
+    steps = await selectStepsForCase.all(test_case_id);
   }
 
   const cacheRows = await listLearningCacheRows({
@@ -2853,9 +2898,10 @@ const buildCaseCore = async ({
 
   return {
     test_case_id,
+    source_test_case_id: preparedTarget.source_test_case_id,
     title: testCase.title,
     automated: stepUpdates.length ? "yes" : testCase.automated || "no",
-    automation_status: stepUpdates.length ? "ready" : testCase.automation_status || "not_automated",
+    automation_status: stepUpdates.length ? (await selectCaseWithScope.get(testCase.id))?.automation_status || "incomplete" : testCase.automation_status || "not_automated",
     generated_step_count: stepUpdates.length,
     learned_locator_count: learnedCount,
     cache_hits: cacheRows.length,
@@ -2907,8 +2953,9 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
         operation: "updated",
         mapping_source: mapping.mapping_source || "fallback",
         mapping_confidence: Number(mapping.confidence || 0) || null,
-        source_action_index: mapping.candidates[0]?.source_action_index || null,
-        source_action_indexes: mapping.candidates.map((candidate) => candidate.source_action_index).filter(Boolean),
+        source_action_index: mapping.candidates[0]?.source_action_index ?? null,
+        source_action_indexes: mapping.candidates.map((candidate) => candidate.source_action_index)
+          .filter((index) => index !== null && index !== undefined && index !== "" && Number.isFinite(Number(index))),
         keywords: [...new Set(mapping.candidates.map((candidate) => candidate.keyword).filter(Boolean))],
         has_code: true,
         has_api_request: false
@@ -2940,7 +2987,8 @@ const applyRecorderSteps = async ({ testCase, stepCandidates, recorderMappings =
       automation_code: candidate.automation_code,
       operation: "created",
       source_action_index: candidate.source_action_index,
-      source_action_indexes: [candidate.source_action_index].filter(Boolean),
+      source_action_indexes: [candidate.source_action_index]
+        .filter((index) => index !== null && index !== undefined && index !== "" && Number.isFinite(Number(index))),
       keywords: [candidate.keyword].filter(Boolean),
       mapping_source: "created",
       has_code: true,
@@ -3322,7 +3370,7 @@ const finalizeRecorderBuild = async ({
     test_case_id: testCase.id,
     title: testCase.title,
     automated: appliedSteps.length ? "yes" : testCase.automated || "no",
-    automation_status: appliedSteps.length ? "ready" : testCase.automation_status || "not_automated",
+    automation_status: appliedSteps.length ? (await selectCaseWithScope.get(testCase.id))?.automation_status || "incomplete" : testCase.automation_status || "not_automated",
     generated_step_count: appliedSteps.length,
     created_step_count: appliedSteps.filter((step) => step.operation === "created").length,
     updated_step_count: appliedSteps.filter((step) => step.operation === "updated").length,
@@ -3435,8 +3483,12 @@ exports.buildAutomationForCase = async ({
       transaction_id: transaction.id
     });
 
+    if (!result.generated_step_count) throw new Error("Automation builder did not produce any executable step updates.");
+
     await workspaceTransactionService.updateTransaction(transaction.id, {
       status: result.generated_step_count ? "completed" : "failed",
+      related_kind: "test_case",
+      related_id: result.test_case_id,
       description: result.generated_step_count
         ? `Generated automation for ${result.generated_step_count} step${result.generated_step_count === 1 ? "" : "s"} and associated it with the manual case.`
         : "Automation builder did not produce any step updates.",
@@ -3445,6 +3497,8 @@ exports.buildAutomationForCase = async ({
         progress_percent: 100,
         total_items: 1,
         processed_items: 1,
+        test_case_id: result.test_case_id,
+        source_test_case_id: result.source_test_case_id,
         generated_steps: result.generated_step_count,
         learned_locator_count: result.learned_locator_count,
         fallback_used: result.fallback_used,
@@ -3511,6 +3565,7 @@ exports.buildAutomationBatch = async ({
   }
 
   const firstCase = await selectCaseWithScope.get(targetIds[0]);
+  if (!firstCase || firstCase.app_type_id !== appTypeId) throw new Error("Every selected automation case must belong to the batch application.");
   const transactionId = normalizeText(transaction_id);
 
   if (transactionId) {
@@ -3565,6 +3620,8 @@ exports.buildAutomationBatch = async ({
     });
 
     try {
+      const scopedCase = await selectCaseWithScope.get(testCaseId);
+      if (!scopedCase || scopedCase.app_type_id !== appTypeId) throw new Error("Every selected automation case must belong to the batch application.");
       const result = await buildCaseCore({
         test_case_id: testCaseId,
         integration_id,
@@ -3576,6 +3633,7 @@ exports.buildAutomationBatch = async ({
         additional_context,
         transaction_id: transactionId
       });
+      if (!result.generated_step_count) throw new Error("Automation builder did not produce any executable step updates.");
       created.push(result);
     } catch (error) {
       errors.push({
@@ -3623,6 +3681,7 @@ exports.buildAutomationBatch = async ({
       failure_threshold: failureThreshold,
       stopped_by_failure_threshold: stoppedByThreshold,
       progress_percent: 100,
+      output_test_case_ids: created.map((result) => result.test_case_id),
       sample_errors: errors.slice(0, 10)
     },
     completed_at: new Date().toISOString()
@@ -3825,9 +3884,14 @@ const migrateRepositoryMemberReference = async ({ appTypeId, from, to } = {}) =>
 
 exports.updateLearningCacheEntry = async (id, patch = {}) => {
   const existing = await exports.getLearningCacheEntry(id);
+  patch = await resolveRepositoryScreenBinding({
+    ...patch,
+    metadata: { ...normalizeObject(existing.metadata), ...normalizeObject(patch.metadata) }
+  }, existing);
   const next = normalizeRepositoryPatch(existing, patch);
   const duplicate = await exports.findDuplicateLearningCacheEntry({
     app_type_id: existing.app_type_id,
+    project_id: existing.project_id,
     screen_name: next.metadata?.screen_name || next.page_key || next.page_url,
     locator: next.locator,
     exclude_id: existing.id
@@ -3929,7 +3993,49 @@ exports.renameLearningCacheScreen = async ({ app_type_id, screen_name, new_name 
   };
 };
 
+// A selected field belongs to the screen confirmed by the save operation.
+// Browser navigation and stale client metadata must not silently move it to a
+// different screen or application. The reference lives in existing metadata.
+const resolveRepositoryScreenBinding = async (input, existing = null) => {
+  const metadata = normalizeObject(input.metadata);
+  const screenId = normalizeText(metadata.screen_entry_id);
+  if (!screenId) return input;
+  const screen = normalizeLearningCacheRow(await selectLearningCacheEntry.get(screenId));
+  if (!screen || !isRepositoryScreenRecord(screen)) {
+    throw new Error("The selected repository screen no longer exists. Reopen the screen before saving its fields.");
+  }
+  if (isRepositoryScreenRecord({ ...existing, ...input, metadata })) {
+    throw new Error("Only repository fields can be linked to a parent screen.");
+  }
+  const requestedApp = normalizeText(input.app_type_id) || normalizeText(existing?.app_type_id);
+  const requestedProject = normalizeText(input.project_id) || normalizeText(existing?.project_id);
+  if ((requestedApp && requestedApp !== screen.app_type_id)
+    || (requestedProject && screen.project_id && requestedProject !== screen.project_id)
+    || (existing && (existing.app_type_id || null) !== (screen.app_type_id || null))) {
+    throw new Error("The selected repository screen and field must belong to the same project and app type.");
+  }
+  const screenName = normalizeText(screen.metadata?.screen_name) || normalizeText(screen.page_key);
+  return {
+    ...input,
+    project_id: screen.project_id || requestedProject || null,
+    app_type_id: screen.app_type_id || null,
+    page_key: screenName,
+    screen_name: screenName,
+    metadata: { ...metadata, screen_entry_id: screen.id, screen_name: screenName, record_kind: "field" }
+  };
+};
+
 exports.createLearningCacheEntry = async (input = {}) => {
+  input = await resolveRepositoryScreenBinding(input);
+  const appTypeId = normalizeText(input.app_type_id);
+  let projectId = normalizeText(input.project_id);
+  if (appTypeId) {
+    const appType = await db.prepare(`SELECT id, project_id FROM app_types WHERE id = ?`).get(appTypeId);
+    if (!appType) throw new Error("App type not found");
+    if (projectId && projectId !== appType.project_id) throw new Error("Object repository project scope must match the selected app type");
+    projectId = appType.project_id;
+  }
+  const metadata = normalizeObject(input.metadata);
   const pageKey = normalizeText(input.page_key) || normalizeText(input.screen_name) || normalizeUrlKey(input.page_url) || "unknown-page";
   const locator = normalizeText(input.locator);
   const screenName = normalizeText(input.screen_name) || pageKey;
@@ -3939,19 +4045,25 @@ exports.createLearningCacheEntry = async (input = {}) => {
   }
 
   const duplicate = await exports.findDuplicateLearningCacheEntry({
-    app_type_id: normalizeText(input.app_type_id),
+    app_type_id: appTypeId,
+    project_id: projectId,
     screen_name: screenName,
     locator
   });
 
   if (duplicate) {
+    // Inspect can retry after a partial save or a stale repository reload.
+    // The confirmed parent and locator identify the same field durably.
+    if (metadata.screen_entry_id && !isRepositoryScreenRecord(duplicate)) {
+      return exports.updateLearningCacheEntry(duplicate.id, input);
+    }
     throw new Error("Another object repository field on this screen already uses the same locator.");
   }
 
   await upsertLearningCache.run(
     uuid(),
-    normalizeText(input.project_id),
-    normalizeText(input.app_type_id),
+    projectId,
+    appTypeId,
     normalizeText(input.test_case_id),
     normalizeText(input.page_url),
     pageKey,
@@ -3961,29 +4073,32 @@ exports.createLearningCacheEntry = async (input = {}) => {
     clampNumber(input.confidence, 0.8),
     normalizeText(input.source) || "object_repository",
     {
-      ...normalizeObject(input.metadata),
+      ...metadata,
       screen_name: screenName,
       object_name: normalizeText(input.object_name) || normalizeText(input.locator_intent) || "field",
       object_role: normalizeText(input.object_role) || "field",
-      target_criteria: Array.isArray(input.target_criteria) ? input.target_criteria : [],
-      dom_structure: normalizeText(input.dom_structure),
-      screenshot_url: normalizeText(input.screenshot_url),
-      fallback_strategy: normalizeText(input.fallback_strategy),
-      screen_dom_compressed: normalizeText(input.screen_dom_compressed),
-      screen_screenshot_url: normalizeText(input.screen_screenshot_url)
+      target_criteria: input.target_criteria !== undefined ? input.target_criteria : Array.isArray(metadata.target_criteria) ? metadata.target_criteria : [],
+      dom_structure: normalizeText(input.dom_structure !== undefined ? input.dom_structure : metadata.dom_structure),
+      screenshot_url: normalizeText(input.screenshot_url !== undefined ? input.screenshot_url : metadata.screenshot_url),
+      fallback_strategy: normalizeText(input.fallback_strategy !== undefined ? input.fallback_strategy : metadata.fallback_strategy),
+      screen_dom_compressed: normalizeText(input.screen_dom_compressed !== undefined ? input.screen_dom_compressed : metadata.screen_dom_compressed),
+      screen_screenshot_url: normalizeText(input.screen_screenshot_url !== undefined ? input.screen_screenshot_url : metadata.screen_screenshot_url)
     }
   );
 
   const rows = await listLearningCacheScreenRows({
-    appTypeId: normalizeText(input.app_type_id),
+    appTypeId,
+    projectId,
     screenName
   });
-  return rows.find((row) =>
+  const saved = rows.find((row) =>
     row.locator === locator && (row.metadata?.screen_name || row.page_key) === screenName
-  ) || null;
+  );
+  if (!saved) throw new Error("The repository entry could not be confirmed after saving. Retry the save.");
+  return saved;
 };
 
-exports.findDuplicateLearningCacheEntry = async ({ app_type_id, screen_name, locator, exclude_id } = {}) => {
+exports.findDuplicateLearningCacheEntry = async ({ app_type_id, project_id, screen_name, locator, exclude_id } = {}) => {
   const normalizedScreen = normalizeText(screen_name);
   const normalizedLocator = normalizeText(locator);
 
@@ -3991,7 +4106,7 @@ exports.findDuplicateLearningCacheEntry = async ({ app_type_id, screen_name, loc
     return null;
   }
 
-  const rows = await listLearningCacheScreenRows({ appTypeId: normalizeText(app_type_id), screenName: normalizedScreen });
+  const rows = await listLearningCacheScreenRows({ appTypeId: normalizeText(app_type_id), projectId: normalizeText(project_id), screenName: normalizedScreen });
   return rows.find((entry) =>
     entry.id !== exclude_id
     && normalizeText(entry.locator) === normalizedLocator
@@ -4756,7 +4871,7 @@ exports.finishRecorderSession = async ({
     throw new Error("test_case_id and recorder_session_id are required");
   }
 
-  const testCase = await selectCaseWithScope.get(testCaseId);
+  let testCase = await selectCaseWithScope.get(testCaseId);
 
   if (!testCase) {
     throw new Error("Test case not found");
@@ -4768,7 +4883,7 @@ exports.finishRecorderSession = async ({
     ? await workspaceTransactionService.getTransaction(transactionId).catch(() => null)
     : null;
   const metadata = parseTransactionMetadata(transaction);
-  const targetStepId = normalizeText(target_step_id) || normalizeText(metadata.target_step_id);
+  let targetStepId = normalizeText(target_step_id) || normalizeText(metadata.target_step_id);
   const targetSteps = targetStepId ? await selectStepsForCase.all(testCaseId) : [];
 
   if (targetStepId && !targetSteps.some((step) => step.id === targetStepId)) {
@@ -4791,6 +4906,14 @@ exports.finishRecorderSession = async ({
     ? included_action_indices.map((index) => allCapturedActions.find((action) => action.index === Number(index))).filter(Boolean)
     : allCapturedActions;
   const capturedNetwork = normalizeCapturedNetwork(session.network || []);
+  const preparedTarget = capturedActions.length
+    ? await automationCasePreparationService.prepareAutomationTarget({ testCaseId, createdBy: created_by, targetStepId })
+    : { test_case_id: testCaseId, source_test_case_id: null, target_step_id: targetStepId };
+  if (preparedTarget.test_case_id !== testCaseId) {
+    testCase = await selectCaseWithScope.get(preparedTarget.test_case_id);
+    targetStepId = preparedTarget.target_step_id;
+  }
+
 
   await readRecorderEngineJson(`${sessionBaseUrl}${sessionPath}/${sessionId}/stop`, {
     method: "POST"
@@ -4852,6 +4975,8 @@ exports.finishRecorderSession = async ({
       }
     });
     return {
+      test_case_id: testCase.id,
+      source_test_case_id: preparedTarget.source_test_case_id,
       generated_step_count: stepUpdates.length,
       created_step_count: stepUpdates.filter((step) => step.operation === "created").length,
       updated_step_count: stepUpdates.filter((step) => step.operation === "updated").length,
@@ -4882,6 +5007,8 @@ exports.finishRecorderSession = async ({
 
   return {
     ...result,
+    test_case_id: testCase.id,
+    source_test_case_id: preparedTarget.source_test_case_id,
     recorder_session: {
       id: session.id,
       action_count: capturedActions.length,

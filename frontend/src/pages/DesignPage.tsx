@@ -20,7 +20,6 @@ import { LoadingState } from "../components/LoadingState";
 import { MultiAssigneePicker } from "../components/MultiAssigneePicker";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
-import { RunTypeSelector } from "../components/RunTypeSelector";
 import { StepParameterDialog } from "../components/StepParameterDialog";
 import { SharedGroupLevelIcon } from "../components/StepAutomationEditor";
 import { StatusBadge } from "../components/StatusBadge";
@@ -3947,9 +3946,9 @@ function SuiteExecutionModal({
             <div className="execution-create-title">
               <p className="dialog-context-label">Test runs</p>
               <div className="modal-title-info-row">
-                <h2 className="dialog-title" id="create-suite-execution-title">Create manual run</h2>
+                <h2 className="dialog-title" id="create-suite-execution-title">Create run</h2>
                 <InfoTooltip
-                  content="Create a manual run from the selected suites in this project and app type."
+                  content="Choose suites and settings for this run."
                   label="Create run information"
                 />
               </div>
@@ -4003,23 +4002,20 @@ function SuiteExecutionModal({
               </FormField>
             </div>
 
-            {canRunLocalAutomation || canRunRemoteAutomation || canConfigureParallelAutomation ? (
+            {canRunLocalAutomation || canRunRemoteAutomation || (executionStartMode !== "manual" && canConfigureParallelAutomation) ? (
               <div className="execution-create-grid">
               {canRunLocalAutomation || canRunRemoteAutomation ? (
-                <FormField label="Run type">
-                  <RunTypeSelector
-                    allowedModes={[
-                      "manual",
-                      ...(canRunLocalAutomation ? ["local" as const] : []),
-                      ...(canRunRemoteAutomation ? ["remote" as const] : [])
-                    ]}
-                    value={executionStartMode}
-                    onChange={(value) => onExecutionStartModeChange(value as ExecutionStartMode)}
-                  />
-                </FormField>
+                <label className="execution-run-mode-control">
+                  <span>Run mode</span>
+                  <select aria-label="Run mode" disabled={isSubmitting} value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
+                    <option value="manual">Manual</option>
+                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
+                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
+                  </select>
+                </label>
               ) : null}
 
-              {canConfigureParallelAutomation ? (
+              {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
                 <FormField label="Parallel execution">
                 <div className="execution-parallel-control">
                   <label>
@@ -4047,8 +4043,7 @@ function SuiteExecutionModal({
 
             <div className="detail-summary">
               <strong>{selectedProject || "Select a project to continue"}</strong>
-              <span>{selectedAppType ? `${selectedAppType} app type selected for this snapshot.` : "Choose an app type to load suite scope."}</span>
-              <span>{scopeSuites.length ? `${scopeSuites.length} suites available in the current scope.` : "No suites available in the current scope yet."}</span>
+              <span>{selectedAppType || "Choose an app type"}</span>
             </div>
 
             <ExecutionContextSelector
@@ -4070,12 +4065,10 @@ function SuiteExecutionModal({
               value={executionHookDraft}
             />
 
-            <FormField label="Suite scope" required>
+            <FormField label="Suites" required>
               <div className="suite-modal-picker-shell suite-modal-picker-shell--scope">
                 <SuiteScopePicker
-                  description="Select the suites to snapshot for this run, then adjust their order if you need a different run sequence."
                   emptyMessage="No suites available for this app type yet."
-                  heading="Available suites"
                   onChange={onSuiteSelectionChange}
                   selectedSuiteIds={selectedSuiteIds}
                   suites={scopeSuites}

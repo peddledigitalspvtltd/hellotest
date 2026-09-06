@@ -12,16 +12,19 @@ import {
 import { buildCaseAutomationCode } from "../lib/stepAutomation";
 import {
   buildDataSetParameterDefinitions,
+  buildStepParameterDefinitionsFromValues,
   buildDataSetParameterValues,
+  collectSensitiveDataSetParameterNames,
   collectStepParameters,
   combineStepParameterValues,
+  excludeSensitiveStepParameterValues,
   filterStepParameterValues,
   mergeStepParameterDefinitions,
   normalizeStepParameterValues,
   resolveStepParameterText
 } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate } from "../lib/testDataGenerators";
-import type { Requirement, TestCase, TestSuite } from "../types";
+import type { Requirement, TestCase, TestStep, TestSuite } from "../types";
 import { Panel } from "./Panel";
 import { StatusBadge } from "./StatusBadge";
 import { StepParameterDialog } from "./StepParameterDialog";
@@ -32,6 +35,7 @@ import { DialogCloseButton } from "./DialogCloseButton";
 import { LoadingState } from "./LoadingState";
 import { CollapseExpandIcon, TestCaseIcon, TestDataIcon } from "./AppIcons";
 import { GherkinEditor } from "./GherkinEditor";
+import { setGherkinFeatureTitle } from "../lib/gherkin";
 
 const linkedCaseHistoryDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -123,6 +127,8 @@ export function LinkedTestCaseModal({
         .map((requirement) => requirement.title),
     [requirements, resolvedTestCase.requirement_id, resolvedTestCase.requirement_ids]
   );
+  const primaryRequirementId = resolvedTestCase.requirement_ids?.[0] || resolvedTestCase.requirement_id;
+  const linkedRequirementTitle = requirements.find((requirement) => requirement.id === primaryRequirementId)?.title || "";
   const linkedSuiteTitles = useMemo(
     () =>
       suites
@@ -131,6 +137,12 @@ export function LinkedTestCaseModal({
     [resolvedTestCase.suite_id, resolvedTestCase.suite_ids, suites]
   );
   const steps = asArray(stepsQuery.data);
+  const stepBlocks = steps.reduce<Array<{ key: string; name?: string; steps: TestStep[] }>>((blocks, step) => {
+    const previous = blocks[blocks.length - 1];
+    if (step.group_id && previous?.key === step.group_id) previous.steps.push(step);
+    else blocks.push({ key: step.group_id || step.id, name: step.group_id ? step.group_name || "Step group" : undefined, steps: [step] });
+    return blocks;
+  }, []);
   const history = asArray(historyQuery.data);
   const linkedDataSetId = resolvedTestCase.test_data_set_ids?.[0] || "";
   const linkedDataSet = resolvedTestCase.test_data_sets?.find((dataSet) => dataSet.id === linkedDataSetId)
@@ -144,9 +156,16 @@ export function LinkedTestCaseModal({
     () => buildDataSetParameterDefinitions(linkedDataSet, linkedDataSet?.name),
     [linkedDataSet]
   );
+  const linkedDataSetSensitiveParameterNames = useMemo(
+    () => new Set(collectSensitiveDataSetParameterNames(linkedDataSet)),
+    [linkedDataSet]
+  );
   const caseParameterOverrides = useMemo(
-    () => normalizeCaseParameterPreviewValues(resolvedTestCase.parameter_values),
-    [resolvedTestCase.parameter_values]
+    () => excludeSensitiveStepParameterValues(
+      normalizeCaseParameterPreviewValues(resolvedTestCase.parameter_values),
+      linkedDataSetSensitiveParameterNames
+    ),
+    [linkedDataSetSensitiveParameterNames, resolvedTestCase.parameter_values]
   );
   const hasGherkinDocument = resolvedTestCase.authoring_mode === "gherkin" && Boolean(resolvedTestCase.gherkin_document?.trim());
   const detectedParameters = useMemo(
@@ -169,9 +188,10 @@ export function LinkedTestCaseModal({
           }] : [])
         ]
       ).map((parameter) => ({ ...parameter, source: "authoring" as const })),
-      linkedDataSetParameterDefinitions
+      linkedDataSetParameterDefinitions,
+      buildStepParameterDefinitionsFromValues(parameterValues)
     ),
-    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
+    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, parameterValues, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
   );
   const resolvedParameterValues = useMemo(() => {
     const cache = parameterPreviewCacheRef.current;
@@ -260,7 +280,14 @@ export function LinkedTestCaseModal({
             || canonicalTestCase.test_data_sets?.[0]
             || null
         ),
-        normalizeCaseParameterPreviewValues(canonicalTestCase.parameter_values),
+        excludeSensitiveStepParameterValues(
+          normalizeCaseParameterPreviewValues(canonicalTestCase.parameter_values),
+          collectSensitiveDataSetParameterNames(
+            canonicalTestCase.test_data_sets?.find((dataSet) => dataSet.id === canonicalTestCase.test_data_set_ids?.[0])
+              || canonicalTestCase.test_data_sets?.[0]
+              || null
+          )
+        ),
         normalizeSuiteParameterPreviewValues(selectedSuite?.parameter_values)
       )
     );
@@ -420,31 +447,33 @@ export function LinkedTestCaseModal({
                         {hasGherkinDocument ? (
                           <GherkinEditor
                             compact
-                            featureTitle={resolvedTestCaseTitle}
+                            featureTitle={linkedRequirementTitle || resolvedTestCaseTitle}
+                            featureTitleLocked={Boolean(linkedRequirementTitle)}
+                            availableParameters={detectedParameters}
                             onChange={ignoreReadOnlyGherkinChange}
                             parameterValues={resolvedParameterValues}
                             readOnly
-                            value={resolvedTestCase.gherkin_document || ""}
+                            value={linkedRequirementTitle ? setGherkinFeatureTitle(resolvedTestCase.gherkin_document || "", linkedRequirementTitle) : resolvedTestCase.gherkin_document || ""}
                           />
                         ) : <div className="stack-list">
                           {stepsQuery.isLoading ? <LoadingState label="Loading steps" /> : null}
-                          {!stepsQuery.isLoading && steps.map((step) => (
-                            <div className="stack-item" key={step.id}>
-                              <div className="linked-test-case-step-copy">
-                                <strong>{`Step ${step.step_order}`}</strong>
-                                <StepParameterizedText
-                                  fallback="No action"
-                                  text={step.action}
-                                  values={resolvedParameterValues}
-                                />
-                                <StepParameterizedText
-                                  fallback="No expected result"
-                                  text={step.expected_result}
-                                  values={resolvedParameterValues}
-                                />
+                          {!stepsQuery.isLoading && stepBlocks.map((block) => {
+                            const content = block.steps.map((step) => (
+                              <div className="stack-item" key={step.id}>
+                                <div className="linked-test-case-step-copy">
+                                  <strong>{`Step ${step.step_order}`}</strong>
+                                  <StepParameterizedText fallback="No action" text={step.action} values={resolvedParameterValues} />
+                                  <StepParameterizedText fallback="No expected result" text={step.expected_result} values={resolvedParameterValues} />
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            ));
+                            return block.name ? (
+                              <details className="linked-test-case-step-group" key={block.key}>
+                                <summary><strong>{block.name}</strong><span>{block.steps.length} step{block.steps.length === 1 ? "" : "s"}</span></summary>
+                                <div className="stack-list">{content}</div>
+                              </details>
+                            ) : content;
+                          })}
                           {!stepsQuery.isLoading && !steps.length ? <div className="empty-state compact">No steps are attached to this test case yet.</div> : null}
                         </div>}
                       </LinkedTestCaseSection>
@@ -492,7 +521,10 @@ export function LinkedTestCaseModal({
       {isParameterDialogOpen && canonicalTestCase ? (
         <StepParameterDialog
           defaultValues={linkedDataSetDefaultParameterValues}
-          getInputState={() => ({ disabled: true })}
+          getInputState={(parameter) => ({
+            disabled: true,
+            hint: parameter.sensitive ? "Hidden by the linked Data Set. Only the parameter name is shown in steps." : undefined
+          })}
           headerContent={parameterDialogHeaderContent}
           onChange={ignoreReadOnlyGherkinChange}
           onClose={() => setIsParameterDialogOpen(false)}
