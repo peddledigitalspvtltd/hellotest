@@ -100,3 +100,108 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
     reader.releaseLock();
   }
 }
+
+
+export type KnowledgeTurnNotice = {
+  kind: "pending" | "cancelled" | "error";
+  title: string;
+  message: string;
+  retryable: boolean;
+};
+
+export function knowledgeTurnNotice(error: unknown, cancelled = false): KnowledgeTurnNotice {
+  const code = error instanceof KnowledgeStreamError ? error.code : error instanceof Error ? error.name : "";
+  if (cancelled) return { kind: "cancelled", title: "Answer stopped", message: "Your question is still here. Resume this turn whenever you are ready.", retryable: true };
+  if (code === "TURN_PENDING") return { kind: "pending", title: "Your answer is still being prepared", message: "This turn is running on the server. Check again shortly to receive its answer without sending a duplicate question.", retryable: true };
+  if (/TIMEOUT|DEADLINE/i.test(code)) return { kind: "error", title: "This answer took too long", message: "The service did not finish within its time limit. Retry this turn, or review the source evidence without using the answer model.", retryable: true };
+  if (/NETWORK|STREAM_INTERRUPTED|TypeError/i.test(code)) return { kind: "error", title: "The connection was interrupted", message: "A complete answer did not reach this conversation. Retry to check the same turn; your question is preserved.", retryable: true };
+  return { kind: "error", title: "We could not complete this answer", message: error instanceof Error ? error.message : "The assistant is unavailable right now. Your question is preserved.", retryable: !(error instanceof KnowledgeStreamError) || error.retryable };
+}
+
+export function knowledgeModelFailureMessage(code?: string) {
+  if (code === "MODEL_AUTHENTICATION_FAILED") return "The selected model connection was not accepted. Check its credentials in Integrations, or choose another answer model. Your retrieved sources are still available.";
+  if (code === "MODEL_NOT_FOUND") return "The configured model could not be found. Check the model name in Integrations, or choose another answer model. Your retrieved sources are still available.";
+  if (code === "MODEL_QUOTA_EXCEEDED") return "The selected model has reached its provider quota. Check the provider account or choose another answer model. Your retrieved sources are still available.";
+  if (code === "MODEL_RATE_LIMITED") return "The answer model is handling too many requests. Try again shortly or choose another model. Your retrieved sources are still available.";
+  if (code === "MODEL_TIMEOUT") return "The answer model did not finish in time. Your retrieved sources are available below; you can also try another model.";
+  if (["MODEL_EMPTY_RESPONSE", "MODEL_OUTPUT_TRUNCATED", "MODEL_INVALID_RESPONSE"].includes(code || "")) return "The model did not return a complete, usable answer. Review the available evidence below, then retry or choose another model.";
+  if (code === "MODEL_REQUEST_REJECTED") return "The selected model rejected this request. Check its configuration or choose another model. Your retrieved sources are still available.";
+  if (code === "MODEL_CONTEXT_LIMIT") return "The evidence exceeds this model connection's request limit. Narrow the selected sources or choose a model with a larger limit. Your retrieved sources are still available.";
+  return "The search returned evidence, but the model could not finish an answer. Review the available sources below.";
+}
+
+const stageLabels: Record<string, string> = {
+  QUERY_RECEIVED: "Starting your question",
+  QUERY_UNDERSTANDING: "Understanding your question",
+  RETRIEVAL_PLANNING: "Planning the evidence search",
+  HYBRID_SEARCH: "Searching project records and documents",
+  STRUCTURED_LOOKUP: "Checking current project records",
+  PARENT_EXPANSION: "Reading the surrounding source context",
+  RELATIONSHIP_SEARCH: "Following related project evidence",
+  COMPLETED: "Completing your answer",
+  REQUEST_ACCEPTED: "Starting your question",
+  SCOPE_RESOLUTION: "Checking your project scope",
+  AUTHORIZATION: "Checking source access",
+  ANSWER_AUTHORIZATION: "Checking access to the answer's sources",
+  HISTORY_LOOKUP: "Reading this conversation",
+  QUERY_PLANNING: "Planning the evidence search",
+  PLANNING: "Planning the evidence search",
+  QUERY_EMBEDDING: "Matching related project context",
+  EMBEDDING: "Matching related project context",
+  LEXICAL_SEARCH: "Searching project records and documents",
+  SEMANTIC_SEARCH: "Finding related evidence",
+  VECTOR_SEARCH: "Finding related evidence",
+  RETRIEVAL: "Finding project evidence",
+  LIVE_CONTEXT: "Reading current project records",
+  LIVE_PROJECT: "Reading current project records",
+  EVIDENCE_FUSION: "Combining the relevant sources",
+  RERANKING: "Selecting the strongest evidence",
+  CONTEXT_ASSEMBLY: "Preparing the evidence",
+  CONTEXT_PACKET: "Preparing the evidence",
+  MODEL_GENERATION: "Writing an answer from the evidence",
+  GENERATION: "Writing an answer from the evidence",
+  ANSWER_GENERATION: "Writing an answer from the evidence",
+  VALIDATION: "Checking the answer's citations",
+  ANSWER_VALIDATION: "Checking the answer's citations",
+  WAITING_FOR_TURN: "Waiting for this turn to finish",
+  COMPLETE: "Completing your answer"
+};
+
+export function knowledgeProgressLabel(event?: KnowledgeRetrievalEvent, opening = false) {
+  if (!event) return opening ? "Opening your conversation" : "Waiting for the evidence search";
+  if (["FAILED", "UNAVAILABLE"].includes(String(event.status).toUpperCase()) && (/GENERATION/i.test(event.stage) || event.error_code?.startsWith("MODEL_"))) return "The answer model is unavailable";
+  return stageLabels[event.stage.toUpperCase()] || event.stage.replace(/_/g, " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
+}
+
+export function knowledgeElapsedLabel(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+function waitForRetry(milliseconds: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("Answer stopped", "AbortError")); return; }
+    const abort = () => { clearTimeout(timer); reject(new DOMException("Answer stopped", "AbortError")); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, milliseconds);
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+/** A pending response belongs to the original turn; never create a second turn. */
+export async function resumePendingKnowledgeTurn(request: () => Promise<KnowledgeAssistantMessageResponse>, options: {
+  signal?: AbortSignal;
+  onPending?: (response: KnowledgeAssistantMessageResponse) => void;
+  maxPendingRetries?: number;
+  retryDelayMs?: number;
+} = {}): Promise<KnowledgeAssistantMessageResponse> {
+  const maximum = options.maxPendingRetries ?? 5;
+  for (let attempt = 0; ; attempt += 1) {
+    if (options.signal?.aborted) throw new DOMException("Answer stopped", "AbortError");
+    const response = await request();
+    if (!response.pending) return response;
+    options.onPending?.(response);
+    if (attempt >= maximum) throw new KnowledgeStreamError("This turn is still processing. Check for its answer shortly.", "TURN_PENDING");
+    const delay = options.retryDelayMs ?? Math.min(10, Math.max(1, Number(response.retry_after_seconds) || 3)) * 1000;
+    await waitForRetry(delay, options.signal);
+  }
+}

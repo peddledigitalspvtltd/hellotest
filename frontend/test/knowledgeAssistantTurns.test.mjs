@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
-import { KnowledgeStreamError } from "../src/lib/knowledgeAssistantStream.ts";
+import { KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
 
 const source = readFileSync(new URL("../src/components/GroundedAssistant.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("GroundedAssistant.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -22,12 +22,12 @@ function fixture({ failure, cancel = false, changeScope = false } = {}) {
     sourceKinds: ["text"], apiSourceKinds: ["text", "knowledge_item", "product_help"], DEFAULT_ASSISTANT_SOURCE_KINDS: ["requirement", "test_case", "execution", "bug", "file", "text", "chat"], RETRIEVAL_ONLY_INTEGRATION: "__retrieval_only__",
     smartContext: { query: "Scope", sourceIds: ["source-1"], sourceKinds: ["text"], contextText: "Reviewed evidence" },
     scopeGenerationRef, requestControllerRef, projectId: "project-1", appTypeId: "app-1", sessionId: "conversation-1", createClientTurnId: () => "turn-1",
-    setActiveRequestIntegrationId() {}, setProgressEvents() {}, setPrompt() {}, setSessionId() {},
+    setActiveRequestIntegrationId() {}, setProgressEvents() {}, setPrompt() {}, setSessionId() {}, setRequestStartedAt() {}, setTurnNotices() {},
     setMessages: (updater) => { messages = updater(messages); }, setRetryTurns: (updater) => { retries = updater(retries); },
     createSessionMutation: { mutateAsync: async () => ({ id: "conversation-1" }) }, safeSession: (item) => item,
     sendMessageMutation: { mutateAsync: async (input) => { calls.push(input); if (changeScope) scopeGenerationRef.current += 1; if (cancel) { requestControllerRef.current.abort(); throw new DOMException("Stopped", "AbortError"); } if (failure) throw failure; return { assistant_message: { id: "answer", content: "Evidence answer" } }; } },
     normalizeAnswer: (response) => ({ ...response.assistant_message, role: "assistant", citations: [] }),
-    queryClient: { invalidateQueries: async () => {} }, KnowledgeStreamError
+    queryClient: { invalidateQueries: async () => {} }, KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn
   };
   const submit = new Function(...Object.keys(context), `${script}\nreturn submitPrompt;`)(...Object.values(context));
   return { submit, calls, messages: () => messages, retries: () => retries };

@@ -347,6 +347,13 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const hasPastedInput = Boolean(pasteContent.trim()) && (pasteKind !== "url" || /^https?:\/\//i.test(pasteContent.trim()));
   const sourceCount = selectedRecordCount + acceptableFiles.length + (hasPastedInput ? 1 : 0);
   const processingJobs = overview?.recent_jobs || overview?.recent_ingestions || [];
+  const embeddingFallbackJobs = processingJobs.filter((job) => (job.warnings || []).some((notice) => (
+    typeof notice === "object" && notice !== null && "code" in notice && notice.code === "embedding_fallback"
+  ))).length;
+  const indexedSourceCount = Number(counts?.ready_sources || 0);
+  const embeddingConfigured = overview?.capabilities?.embedding?.configured === true;
+  const vectorStore = overview?.capabilities?.vector_store;
+  const vectorSearchUnavailable = typeof vectorStore === "object" && vectorStore?.circuit_open === true;
   const visibleSources = useMemo(() => {
     const query = sourceSearch.trim().toLowerCase();
     return asArray<KnowledgeSource>(sourcesQuery.data).filter((source) => {
@@ -560,36 +567,47 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
             <p>Ingest selected HelloTest records and uploaded material through extraction, redaction, structure-aware chunking, governed embeddings, and hybrid retrieval. Every answer stays traceable to its sources.</p>
           </div>
         </div>
-        <div className="knowledge-studio-health" aria-label="Knowledge system health">
-          <span className="is-ready" title={overview?.capabilities?.embedding?.configured ? "Using the governed LLM integration for embeddings" : "Using deterministic local vectors with lexical retrieval; no separate embedding configuration is required"}>
-            <i /> {overview?.capabilities?.embedding?.configured ? "Governed embeddings" : "Hybrid fallback ready"}
-          </span>
-          <span className={overview?.capabilities?.hybrid_search ? "is-ready" : "is-warning"}>
-            <i /> {overview?.capabilities?.hybrid_search ? "Hybrid search" : "Keyword fallback"}
-          </span>
-          <span className="is-ready">
-            <i /> Governed provider resolution
-          </span>
-          <span className={overview?.capabilities?.context_processing?.refresh_recommended ? "is-warning" : "is-ready"} title={overview?.capabilities?.context_processing?.hierarchy_strategy}>
-            <i /> {overview?.capabilities?.context_processing?.refresh_recommended
-              ? "Context refresh recommended"
-              : overview?.capabilities?.context_processing?.average_score !== null && overview?.capabilities?.context_processing?.average_score !== undefined
-                ? `Context quality ${overview.capabilities.context_processing.average_score}/100`
-                : "Structure-aware context"}
-          </span>
+        <div className="knowledge-studio-health" aria-label="Source indexing status">
+          {overviewQuery.isPending ? <span className="is-neutral"><i /> Checking indexing status</span> : overviewQuery.isError ? <span className="is-warning"><i /> Indexing status unavailable</span> : <>
+            <span className={indexedSourceCount ? "is-ready" : "is-neutral"} title="Successfully processed sources available for project retrieval.">
+              <i /> {indexedSourceCount.toLocaleString()} source{indexedSourceCount === 1 ? "" : "s"} indexed
+            </span>
+            <span className={embeddingFallbackJobs || !embeddingConfigured ? "is-warning" : "is-neutral"} title={embeddingFallbackJobs ? "Recent processing jobs recorded an embedding fallback. Review Processing activity for the affected jobs." : embeddingConfigured ? "An embedding provider is configured. This setting does not verify whether a model request will succeed." : "Keyword search and local vectors are available; semantic matches may be less precise."}>
+              <i /> {embeddingFallbackJobs ? "Recent embedding fallback" : embeddingConfigured ? "Embedding provider configured" : "Local search fallback"}
+            </span>
+            <span className={vectorSearchUnavailable ? "is-warning" : "is-neutral"}>
+              <i /> {vectorSearchUnavailable ? "Vector search temporarily unavailable" : overview?.capabilities?.hybrid_search ? "Hybrid retrieval enabled" : "Keyword retrieval enabled"}
+            </span>
+            <span className={overview?.capabilities?.context_processing?.refresh_recommended ? "is-warning" : "is-neutral"} title={overview?.capabilities?.context_processing?.hierarchy_strategy}>
+              <i /> {overview?.capabilities?.context_processing?.refresh_recommended
+                ? "Context refresh recommended"
+                : overview?.capabilities?.context_processing?.average_score !== null && overview?.capabilities?.context_processing?.average_score !== undefined
+                  ? `Context quality ${overview.capabilities.context_processing.average_score}/100`
+                  : "Structure-aware context"}
+            </span>
+          </>}
         </div>
+      </div>
+
+      <div className={`knowledge-indexing-notice${overviewQuery.isError || embeddingFallbackJobs || vectorSearchUnavailable ? " is-warning" : ""}`} role="status">
+        <IconInfoCircle size={18} aria-hidden="true" />
+        <div>
+          {overviewQuery.isError ? <strong>Could not refresh source indexing status.</strong> : embeddingFallbackJobs ? <strong>{embeddingFallbackJobs} recent processing job{embeddingFallbackJobs === 1 ? "" : "s"} used local search fallback.</strong> : null}
+          <span>{overviewQuery.isError ? "Refresh to check the current source counts and processing results." : embeddingFallbackJobs ? "Indexed sources remain searchable by keywords. Semantic matches may be less precise; review the affected jobs before rebuilding their indexes." : "Source indexing and answer generation have separate status. A searchable source can be retrieved while a chat model is unavailable."}</span>
+        </div>
+        {overviewQuery.isError ? <button className="ghost-button compact" disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} type="button">Refresh status</button> : embeddingFallbackJobs ? <button className="ghost-button compact" onClick={() => setActiveTab("activity")} type="button">Review processing</button> : null}
       </div>
 
       <div className="knowledge-studio-metrics" role="group" aria-label="Knowledge repository metrics">
         {[
           [counts?.sources || 0, "Sources", "Project evidence registered"],
           [counts?.documents || 0, "Documents", "Extracted and normalized"],
-          [counts?.chunks || 0, "Chunks", "Retrieval-ready passages"],
+          [counts?.chunks || 0, "Chunks", "Stored context passages"],
           [counts?.collections || collections.length, "Collections", "Reusable context scopes"],
           [counts?.processing_sources || 0, "Processing", "Queued or indexing"]
         ].map(([value, label, helper]) => (
           <div className="knowledge-studio-metric" key={String(label)}>
-            <strong>{overviewQuery.isPending ? "—" : value}</strong>
+            <strong>{overviewQuery.isPending || overviewQuery.isError ? "—" : value}</strong>
             <span>{label}</span>
             <small>{helper}</small>
           </div>
@@ -654,7 +672,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               <h3>Build a bounded context set</h3>
               <p>Select exact application records, add durable notes or conversations, and upload source files. Nothing is indexed until processing completes.</p>
             </div>
-            <span className="knowledge-selection-total">{sourceCount} source{sourceCount === 1 ? "" : "s"} ready</span>
+            <span className="knowledge-selection-total">{sourceCount} source{sourceCount === 1 ? "" : "s"} selected</span>
           </div>
 
           <div className="knowledge-builder-grid">

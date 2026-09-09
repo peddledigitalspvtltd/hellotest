@@ -519,6 +519,7 @@ CREATE TABLE feedback (
   release TEXT,
   assignee_id TEXT,
   root_cause TEXT,
+  qa_root_cause TEXT,
   bug_type TEXT,
   regression BOOLEAN NOT NULL DEFAULT FALSE,
   retest_result TEXT,
@@ -603,6 +604,18 @@ ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_dev_id TEXT
 ALTER TABLE requirement_iterations ADD COLUMN IF NOT EXISTS original_qa_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS assignee_id TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS root_cause TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS qa_root_cause TEXT;
+CREATE TABLE IF NOT EXISTS issue_history (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+  actor_id TEXT,
+  actor_name TEXT NOT NULL,
+  actor_email TEXT,
+  action TEXT NOT NULL CHECK (action IN ('created', 'updated')),
+  changes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_issue_history_issue_created ON issue_history (issue_id, created_at DESC, id DESC);
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS bug_type TEXT;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS regression BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS retest_result TEXT;
@@ -919,13 +932,17 @@ CREATE TABLE executions (
   suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
   module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
   case_assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
+  direct_test_case_ids JSONB,
   execution_hooks JSONB NOT NULL DEFAULT '[]'::jsonb,
   source_idempotency_key TEXT,
   revision INTEGER NOT NULL DEFAULT 1,
   created_by TEXT,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  start_date DATE,
+  end_date DATE,
   started_at TIMESTAMPTZ,
   ended_at TIMESTAMPTZ,
+  CONSTRAINT executions_planned_date_range_check CHECK (end_date >= start_date),
   FOREIGN KEY (project_id) REFERENCES projects(id),
   FOREIGN KEY (app_type_id) REFERENCES app_types(id),
   FOREIGN KEY (created_by) REFERENCES users(id)
@@ -1293,6 +1310,8 @@ ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_source TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_review_status TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generation_job_id TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS source_idempotency_key TEXT;
+ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS source_issue_id TEXT REFERENCES feedback(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_test_cases_source_issue ON test_cases(source_issue_id) WHERE source_issue_id IS NOT NULL;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS ai_generated_at TIMESTAMPTZ;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS author_id TEXT;

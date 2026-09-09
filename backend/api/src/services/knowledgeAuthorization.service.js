@@ -1,6 +1,7 @@
 const db = require("../db");
 const permissionService = require("./permission.service");
 const { randomUUID: uuid } = require("crypto");
+const { assertRetrievalActive, boundedRetrievalStage, retrievalTimeout } = require("../utils/knowledgeRetrievalTiming");
 
 const error = (message, statusCode = 403) => Object.assign(new Error(message), { statusCode });
 const precedence = (binding) => (binding.inherited ? 0 : 2) + (binding.effect === "DENY" ? 2 : 1);
@@ -100,8 +101,13 @@ const replaceBindings = async ({ sourceId, bindings, user }) => {
   })();
 };
 
-const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf } = {}) => {
-  if (asOf) await assertHistoricalAccess(user, projectId);
+const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf, signal, timeoutMs } = {}) => {
+  assertRetrievalActive(signal);
+  const deadlineAt = Date.now() + retrievalTimeout(timeoutMs, 2_000);
+  const remainingMs = () => Math.max(0, deadlineAt - Date.now());
+  if (asOf) await boundedRetrievalStage(() => assertHistoricalAccess(user, projectId), {
+    signal, timeoutMs: remainingMs(), code: "AUTHORIZATION_TIMEOUT"
+  });
   const items = Array.isArray(evidence) ? evidence.slice(0, 1_000) : [];
   const identity = (item) => item?.fragment_id || item?.chunk_id || item?.citation?.fragment_id || item?.citation?.chunk_id || item?.id;
   const productHelp = (item) => (item?.source_id || item?.citation?.source_id) === "hellotest-product-help";
@@ -109,7 +115,7 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf } = {}) 
   const allowedIds = new Set();
   if (ids.length) {
     const acl = predicate({ user, projectId, document: "documents", chunk: "chunks" });
-    const rows = await db.prepare(`SELECT chunks.id, sources.required_permission
+    const rows = await boundedRetrievalStage(() => db.prepare(`SELECT chunks.id, sources.required_permission
       FROM ai_knowledge_chunks chunks
       JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
       JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
@@ -118,15 +124,21 @@ const getEvidenceAccess = async ({ projectId, user, evidence = [], asOf } = {}) 
         AND sources.extraction_status = 'ready' AND indexes.required_indexes_ready = TRUE
         ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
         AND chunks.id IN (${ids.map(() => "?").join(",")}) AND ${acl.sql}`
-    ).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []), ...ids, ...acl.params);
-    const permissions = new Map();
+    ).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []), ...ids, ...acl.params), {
+      signal, timeoutMs: remainingMs(), code: "AUTHORIZATION_TIMEOUT"
+    });
+    assertRetrievalActive(signal);
+    const permissionCodes = [...new Set(rows.map((row) => row.required_permission).filter(Boolean))];
+    const checks = await Promise.allSettled(permissionCodes.map((permission) => boundedRetrievalStage(
+      () => permissionService.hasPermission(user, permission, projectId),
+      { signal, timeoutMs: remainingMs(), code: "AUTHORIZATION_TIMEOUT" }
+    )));
+    assertRetrievalActive(signal);
+    const permissions = new Map(permissionCodes.map((permission, index) => [permission,
+      checks[index].status === "fulfilled" && Boolean(checks[index].value)]));
     for (const row of rows) {
       if (!row.required_permission) allowedIds.add(row.id);
-      else {
-        if (!permissions.has(row.required_permission)) permissions.set(row.required_permission,
-          await permissionService.hasPermission(user, row.required_permission, projectId));
-        if (permissions.get(row.required_permission)) allowedIds.add(row.id);
-      }
+      else if (permissions.get(row.required_permission)) allowedIds.add(row.id);
     }
   }
   const allowed = items.filter((item) => productHelp(item) || allowedIds.has(identity(item)));

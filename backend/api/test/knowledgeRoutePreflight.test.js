@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const http = require("node:http");
 const Fastify = require("fastify");
 
 const accessControlPlugin = require("../src/plugins/accessControl");
@@ -10,6 +11,7 @@ const knowledgeAssistantService = require("../src/services/knowledgeAssistant.se
 const projectService = require("../src/services/project.service");
 const permissionService = require("../src/services/permission.service");
 const featureFlagService = require("../src/services/featureFlag.service");
+const execution = require("../src/services/knowledgeExecution.service");
 
 const SERVER_USER = Object.freeze({
   id: "server-user",
@@ -217,4 +219,112 @@ test("an invalid response mode is rejected before creating either JSON or stream
   }
   assert.equal(calls.respond.length, 0);
   assert.equal(calls.sessions.length, 0);
+});
+
+for (const [url, payload] of [
+  ["/v1/context/retrieve", CONTEXT_BODY],
+  ["/v1/context/retrieve-stream", CONTEXT_BODY],
+  ["/knowledge/assistant/sessions/session-fixture/messages", { message: "Show evidence" }],
+  ["/knowledge/assistant/sessions/session-fixture/messages/stream", { message: "Show evidence" }]
+]) {
+  test(`${url} ends slow preflight with safe JSON before execution or SSE ownership`, async (t) => {
+    const { app, calls } = await createFixture(t);
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let releaseRead;
+    let readSignal;
+    let notifyReadStarted;
+    const readStarted = new Promise((resolve) => { notifyReadStarted = resolve; });
+    t.mock.method(projectService, "getProject", () => {
+      readSignal = execution.current().signal;
+      notifyReadStarted();
+      return new Promise((resolve) => { releaseRead = resolve; });
+    });
+
+    let settled = false;
+    const pendingResponse = app.inject({ method: "POST", url, headers: AUTH_HEADERS, payload })
+      .then((response) => { settled = true; return response; });
+    await readStarted;
+    const completedPermissionChecks = calls.permissions.length;
+    t.mock.timers.tick(4_999);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "the route should allow reads until its deadline");
+    t.mock.timers.tick(1);
+    const response = await pendingResponse;
+    assertJsonRejection(response, 503);
+    assert.equal(response.json().code, "ASSISTANT_SETUP_TIMEOUT");
+    assert.equal(response.json().retryable, true);
+    assert.match(response.json().message, /could not be prepared in time/);
+    assert.equal(readSignal.aborted, true);
+
+    releaseRead({ id: CONTEXT_BODY.project_id });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls.permissions.length, completedPermissionChecks, "a late project read cannot start another permission check");
+    assert.equal(calls.retrieve.length, 0);
+    assert.equal(calls.respond.length, 0);
+  });
+}
+
+test("assistant preflight shares one deadline across session and project reads", async (t) => {
+  const { app, calls } = await createFixture(t);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let releaseSession;
+  let releaseProject;
+  let notifySessionStarted;
+  let notifyProjectStarted;
+  const sessionStarted = new Promise((resolve) => { notifySessionStarted = resolve; });
+  const projectStarted = new Promise((resolve) => { notifyProjectStarted = resolve; });
+  t.mock.method(knowledgeAssistantService, "getSession", () => {
+    notifySessionStarted();
+    return new Promise((resolve) => { releaseSession = resolve; });
+  });
+  t.mock.method(projectService, "getProject", () => {
+    notifyProjectStarted();
+    return new Promise((resolve) => { releaseProject = resolve; });
+  });
+  const pendingResponse = app.inject({
+    method: "POST", url: "/knowledge/assistant/sessions/session-fixture/messages/stream",
+    headers: AUTH_HEADERS, payload: { message: "Show evidence" }
+  }).then((response) => response);
+  await sessionStarted;
+  t.mock.timers.tick(3_000);
+  releaseSession({ id: "session-fixture", project_id: CONTEXT_BODY.project_id, status: "active" });
+  await projectStarted;
+  const completedPermissionChecks = calls.permissions.length;
+  t.mock.timers.tick(2_000);
+  const response = await pendingResponse;
+  assertJsonRejection(response, 503);
+  assert.equal(response.json().code, "ASSISTANT_SETUP_TIMEOUT");
+  releaseProject({ id: CONTEXT_BODY.project_id });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.permissions.length, completedPermissionChecks);
+  assert.equal(calls.respond.length, 0);
+});
+
+test("disconnecting before SSE aborts preflight and prevents work after a late read", async (t) => {
+  const { app, calls } = await createFixture(t);
+  let releaseRead;
+  let notifyReadStarted;
+  let notifyAborted;
+  const readStarted = new Promise((resolve) => { notifyReadStarted = resolve; });
+  const aborted = new Promise((resolve) => { notifyAborted = resolve; });
+  t.mock.method(projectService, "getProject", () => {
+    execution.current().signal.addEventListener("abort", notifyAborted, { once: true });
+    notifyReadStarted();
+    return new Promise((resolve) => { releaseRead = resolve; });
+  });
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  const request = http.request(`${address}/v1/context/retrieve-stream`, {
+    method: "POST", headers: { ...AUTH_HEADERS, "content-type": "application/json" }
+  });
+  request.on("error", () => {}); // The client intentionally closes this request.
+  request.end(JSON.stringify(CONTEXT_BODY));
+  await readStarted;
+  const completedPermissionChecks = calls.permissions.length;
+  request.destroy();
+  await aborted;
+  releaseRead({ id: CONTEXT_BODY.project_id });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls.permissions.length, completedPermissionChecks);
+  assert.equal(calls.retrieve.length, 0);
+  assert.equal(calls.respond.length, 0);
 });

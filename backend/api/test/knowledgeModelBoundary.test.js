@@ -44,3 +44,24 @@ test("malformed or model-owned authority fields are rejected before answer assem
   await assert.rejects(assistant._internals.requestGroundedAnswer({ integration, question: "What changed?", contextPacket: packet, projectScope: {} }), { code: "ERR_CONTRACT_VALIDATION" });
   await assert.rejects(assistant._internals.requestGroundedAnswer({ integration, question: "What changed?", projectScope: {} }), { code: "ERR_CONTRACT_VALIDATION" });
 });
+
+test("model context omits duplicated retrieval metadata while preserving exact evidence and access limits", () => {
+  const query = "What is the checkout release decision? ".repeat(50);
+  const request = contracts.buildRetrievalRequest({ projectId: "project", query, filters: { source_ids: ["source"] } });
+  const packet = contracts.buildContextPacket({ retrievalRequest: request,
+    authorization: { enforced: true, authorization_partial: true },
+    evidence: [{ source_id: "source", title: "Release decision", citation: { id: "e1" }, content: "Checkout approval is pending.", is_current: true }],
+    retrieval: { retrieval_request: request, query_chain: [query], degraded: true }
+  });
+  const original = JSON.stringify(packet);
+  const modelContext = JSON.parse(contracts.buildModelRequest({ contextPacket: packet, question: query }).messages[1].content).context_packet;
+  assert.ok(Buffer.byteLength(JSON.stringify(modelContext)) < Buffer.byteLength(original) / 2);
+  assert.equal(modelContext.evidence[0].content, packet.evidence[0].content);
+  assert.equal(modelContext.evidence[0].evidence_id, packet.evidence[0].evidence_id);
+  assert.deepEqual(modelContext.applied_filters, packet.applied_filters);
+  assert.deepEqual(modelContext.limitations, packet.limitations);
+  assert.deepEqual(modelContext.evidence[0].freshness, packet.evidence[0].freshness);
+  assert.deepEqual(modelContext.evidence[0].visibility, packet.evidence[0].visibility);
+  assert.equal(JSON.stringify(packet), original);
+  assert.doesNotThrow(() => contracts.assertCompatibleContract(modelContext, "ContextPacket"));
+});

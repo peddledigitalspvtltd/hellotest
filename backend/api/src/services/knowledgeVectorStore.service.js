@@ -77,8 +77,11 @@ const request = async (path, { method = "GET", body, signal, allow = [] } = {}) 
     consecutiveFailures = 0;
     return { status: response.status, payload: await readJsonBounded(response) };
   } catch (error) {
-    consecutiveFailures += 1;
-    if (consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) circuitOpenedAt = Date.now();
+    // A caller cancelling its request is not evidence that Qdrant is unhealthy.
+    if (!signal?.aborted) {
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= CIRCUIT_FAILURE_THRESHOLD) circuitOpenedAt = Date.now();
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -202,7 +205,13 @@ const search = async ({ projectId, queryVector, embeddingModel, allowedPermissio
   const allowedIds = unique(authorizedChunkIds, 10_000);
   if (!allowedIds.length) return { configured: true, hits: [], provider: "qdrant" };
   const vector = asArray(queryVector);
-  const name = await ensureCollection(vector.length);
+  if (signal?.aborted) throw signal.reason || new Error("Vector retrieval cancelled");
+  if (vector.length < 8 || vector.length > 8_192 || !vector.every(Number.isFinite)) {
+    throw new Error("Embedding dimensions are outside the supported Qdrant range");
+  }
+  // Collection creation and payload indexing belong to ingestion. A cold read
+  // must not wait for ten setup requests before performing its bounded query.
+  const name = collectionName(vector.length);
   const must = [
     { key: "project_id", match: { value: text(projectId, 255) } },
     ...(!historical ? [{ key: "is_current", match: { value: true } }] : []),

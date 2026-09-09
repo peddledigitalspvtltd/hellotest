@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
@@ -10,6 +10,7 @@ import { FormField } from "./FormField";
 import { TestDataIcon } from "./AppIcons";
 import type { StepParameterDefinition } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
+import "./StepParameterDialog.css";
 
 type StepParameterDialogInputState = {
   disabled?: boolean;
@@ -70,6 +71,7 @@ export function StepParameterDialog({
   const { getLlmIntegrationId, getPrompt } = useAiPromptRegistry(Boolean(session));
   const generateAiData = useMutation({ mutationFn: api.testDataSets.previewAiData });
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
+  const dialogId = useId();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     t: false,
     s: true,
@@ -226,7 +228,7 @@ export function StepParameterDialog({
       <div
         aria-labelledby="step-parameter-dialog-title"
         aria-modal="true"
-        className="modal-card suite-create-modal step-parameter-dialog"
+        className="modal-card suite-create-modal step-parameter-dialog is-wrapping-values"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -294,6 +296,7 @@ export function StepParameterDialog({
                         const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues, parameter.name);
                         const hasOverrideValue = Object.prototype.hasOwnProperty.call(overrideValues, parameter.name);
                         const currentValue = parameter.sensitive ? "" : values[parameter.name] ?? "";
+                        const inputId = `${dialogId}-${encodeURIComponent(parameter.name)}`;
                         const isDynamicValue = hasTestDataGeneratorTemplate(currentValue);
                         const previewValue = parameter.sensitive ? "" : previewValues[parameter.name] ?? currentValue;
                         const sourceLabel = hasOverrideValue
@@ -305,6 +308,7 @@ export function StepParameterDialog({
                         return (
                           <div className="step-parameter-row" key={parameter.name}>
                             <FormField
+                              inputId={inputId}
                               label={parameter.label || parameter.token}
                               hint={inputState.hint || (parameter.occurrenceCount
                                 ? `${parameter.occurrenceCount} reference${parameter.occurrenceCount === 1 ? "" : "s"} in this design`
@@ -318,9 +322,13 @@ export function StepParameterDialog({
                                 <span className="step-parameter-source-badge">{sourceLabel}</span>
                               </div>
                               <div className="step-parameter-input-row">
-                                <input
+                                <textarea
+                                  aria-describedby={`${inputId}-hint`}
+                                  className="step-parameter-value-input"
                                   disabled={inputState.disabled}
+                                  id={inputId}
                                   placeholder={inputState.placeholder || `Value for ${parameter.token}`}
+                                  rows={Math.min(6, Math.max(1, currentValue.split("\n").length, Math.ceil(currentValue.length / 100)))}
                                   value={currentValue}
                                   onChange={(event) => onChange(parameter.name, event.target.value)}
                                   onBlur={(event) => { void resolveAiDataTemplate(parameter.name, event.target.value); }}

@@ -238,6 +238,8 @@ function Preview() {
   const [releaseScope, setReleaseScope] = useState("Password recovery, token security, session invalidation, and account-enumeration boundaries.");
   const [additionalContext, setAdditionalContext] = useState("Production rollout reaches enterprise customers first; prioritize observable security evidence.");
   const [requirementSearch, setRequirementSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   return (
     <ExecutionCreateModal
@@ -259,6 +261,8 @@ function Preview() {
       executionRelease="2026.08"
       executionSprint="Identity Sprint 18"
       executionStartMode="manual"
+      executionStartDate={startDate}
+      executionEndDate={endDate}
       integrations={integrations}
       isPreviewingSmartExecution={false}
       isSubmitting={false}
@@ -280,6 +284,8 @@ function Preview() {
       onExecutionReleaseChange={() => undefined}
       onExecutionSprintChange={() => undefined}
       onExecutionStartModeChange={() => undefined}
+      onExecutionStartDateChange={setStartDate}
+      onExecutionEndDateChange={setEndDate}
       onPreviewSmartExecution={() => { document.body.dataset.qaPreviewed = "true"; }}
       onProjectChange={() => undefined}
       onSelectAllSmartExecutionCases={() => setSelectedCaseIds(preview.cases.map((testCase) => testCase.test_case_id))}

@@ -1,0 +1,72 @@
+/* Let each parameter's content determine its row height, including long pools. */
+.step-parameter-dialog.is-wrapping-values .step-parameter-dialog-body {
+  display: block !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-dialog-header-slot {
+  margin-bottom: 0.85rem;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-list,
+.step-parameter-dialog.is-wrapping-values .step-parameter-group,
+.step-parameter-dialog.is-wrapping-values .step-parameter-group-items {
+  height: auto !important;
+  grid-auto-rows: auto !important;
+  align-content: start !important;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-row {
+  box-sizing: border-box;
+  height: auto !important;
+  min-height: 0 !important;
+  max-width: 100%;
+}
+
+.step-parameter-dialog.is-wrapping-values .form-field {
+  height: auto !important;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-input-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem) !important;
+  align-items: start;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-value-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 3rem;
+  max-height: 16rem;
+  padding: 0.65rem 0.75rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: vertical;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-row-meta,
+.step-parameter-dialog.is-wrapping-values .step-parameter-resolved-preview,
+.step-parameter-dialog.is-wrapping-values .step-parameter-utility-feedback {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.step-parameter-dialog.is-wrapping-values .step-parameter-resolved-preview strong {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .step-parameter-dialog.is-wrapping-values .step-parameter-input-row,
+  .step-parameter-dialog.is-wrapping-values .step-parameter-resolved-preview {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

@@ -1,8 +1,9 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { excludeSensitiveStepParameterValues, insertStepParameterReference, mapStepParameterSegments, type StepParameterDefinition } from "../lib/stepParameters";
 import { gherkinDescriptionToPlainText } from "../lib/gherkin";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { useStepParameterAutocomplete } from "./StepParameterSuggestions";
+import "./GherkinStepTextField.css";
 
 type GherkinStepTextFieldProps = {
   ariaLabel: string;
@@ -46,10 +47,24 @@ export function GherkinStepTextField({
     [safeValues, plainValue]
   );
   const hasParameters = parameterSegments.length > 0;
+  useEffect(() => {
+    if (isEditing) inputRef.current?.focus();
+  }, [isEditing]);
 
   return (
     <div className={`gherkin-step-text-field${isEditing ? " is-editing" : " is-previewing"}${hasParameters ? " has-parameters" : ""}`}>
-      <input
+      {!isEditing && hasParameters ? (
+        <button
+          aria-label={`Edit ${ariaLabel}`}
+          className="gherkin-step-value-button"
+          onClick={() => setIsEditing(true)}
+          onFocus={() => setIsEditing(true)}
+          title="Edit the step and its parameter references"
+          type="button"
+        >
+          <StepParameterizedText fallback={plainValue} text={plainValue} values={safeValues} />
+        </button>
+      ) : <input
         {...autocomplete.inputProps}
         aria-describedby={isEditing && hasParameters ? mappingId : undefined}
         aria-label={ariaLabel}
@@ -71,13 +86,7 @@ export function GherkinStepTextField({
         role="combobox"
         spellCheck={false}
         value={plainValue}
-      />
-
-      {!isEditing && hasParameters ? (
-        <span aria-hidden="true" className="gherkin-step-resolved-preview">
-          <StepParameterizedText fallback={plainValue} text={plainValue} values={safeValues} />
-        </span>
-      ) : null}
+      />}
 
       {isEditing && hasParameters ? (
         <span aria-live="polite" className="gherkin-step-parameter-map" id={mappingId} role="status">

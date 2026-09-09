@@ -8,7 +8,7 @@ import {
   IconExternalLink,
   IconLock,
   IconHistory,
-  IconPlayerStop,
+  IconArrowRight,
   IconArchive,
   IconMessageCircle,
   IconPlus,
@@ -41,7 +41,8 @@ import { KnowledgeAnswer } from "./KnowledgeAnswer";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
-import { KnowledgeStreamError } from "../lib/knowledgeAssistantStream";
+import { KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
+import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
 import "./GroundedAssistant.css";
 
 const EMPTY_CITATIONS: KnowledgeCitation[] = [];
@@ -193,7 +194,9 @@ export function GroundedAssistant() {
   const [prompt, setPrompt] = useState("");
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
   const [retryTurns, setRetryTurns] = useState<Record<string, AssistantRetryTurn>>({});
+  const [turnNotices, setTurnNotices] = useState<Record<string, KnowledgeTurnNotice>>({});
   const [progressEvents, setProgressEvents] = useState<KnowledgeRetrievalEvent[]>([]);
+  const [requestStartedAt, setRequestStartedAt] = useState<number | null>(null);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [selectedCitation, setSelectedCitation] = useState<KnowledgeCitation | null>(null);
@@ -204,6 +207,7 @@ export function GroundedAssistant() {
   const [smartContext, setSmartContext] = useState<SmartContextSelection | null>(null);
   const [activeRequestIntegrationId, setActiveRequestIntegrationId] = useState("");
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const scopeGenerationRef = useRef(0);
   const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen, onClose: () => setIsOpen(false) });
@@ -283,7 +287,7 @@ export function GroundedAssistant() {
     onError: (error) => setCitationDownloadError(error instanceof Error ? error.message : "This source file could not be downloaded.")
   });
 
-  const isSending = createSessionMutation.isPending || sendMessageMutation.isPending;
+  const isSending = requestStartedAt !== null || createSessionMutation.isPending || sendMessageMutation.isPending;
 
   useEffect(() => {
     scopeGenerationRef.current += 1;
@@ -296,6 +300,8 @@ export function GroundedAssistant() {
     setPrompt("");
     setExpandedSources({});
     setRetryTurns({});
+    setTurnNotices({});
+    setRequestStartedAt(null);
     setCitationDownloadError("");
     setSelectedIntegrationId("");
     setSmartContext(null);
@@ -357,6 +363,7 @@ export function GroundedAssistant() {
     setPrompt("");
     setExpandedSources({});
     setRetryTurns({});
+    setTurnNotices({});
     setCitationDownloadError("");
     setSmartContext(null);
     setKnowledgeAsOf("");
@@ -377,6 +384,7 @@ export function GroundedAssistant() {
       setSessionId(restored.id);
       setMessages(restored.messages || []);
       setRetryTurns({});
+      setTurnNotices({});
       setExpandedSources({});
       setPrompt("");
       setSmartContext(null);
@@ -406,7 +414,7 @@ export function GroundedAssistant() {
     event?.preventDefault();
     const normalizedPrompt = (retry?.prompt || prompt).trim();
     const requestIntegrationId = retry?.integrationId || selectedIntegrationId;
-    if (!normalizedPrompt || !requestIntegrationId || isSending || isRestoringSession || (!retry && !sourceKinds.length)) return;
+    if (!normalizedPrompt || !requestIntegrationId || isSending || requestControllerRef.current || isRestoringSession || (!retry && !sourceKinds.length)) return;
     const effectiveIntegrationId = requestIntegrationId === RETRIEVAL_ONLY_INTEGRATION ? "" : requestIntegrationId;
     const requestSmartContext = retry ? retry.smartContext : smartContext;
     const requestGeneration = scopeGenerationRef.current;
@@ -420,9 +428,9 @@ export function GroundedAssistant() {
     const requestFilters = retry?.filters || { app_type_id: requestAppTypeId || null, source_kinds: requestApiSourceKinds, ...(canReviewHistory && knowledgeAsOf ? { as_of: new Date(knowledgeAsOf).toISOString() } : {}) };
     const responseMode = retry?.responseMode || (requestIntegrationId === RETRIEVAL_ONLY_INTEGRATION ? "evidence" : "answer");
     const controller = new AbortController();
-    requestControllerRef.current?.abort();
     requestControllerRef.current = controller;
     setActiveRequestIntegrationId(requestIntegrationId);
+    setRequestStartedAt(Date.now());
     setProgressEvents([]);
     const isStale = () => controller.signal.aborted || requestGeneration !== scopeGenerationRef.current;
 
@@ -442,6 +450,7 @@ export function GroundedAssistant() {
         delete next[retry.errorMessageId];
         return next;
       });
+      setTurnNotices((current) => { const next = { ...current }; delete next[retry.errorMessageId]; return next; });
     } else {
       setMessages((current) => [...current, userMessage]);
       setPrompt("");
@@ -467,7 +476,7 @@ export function GroundedAssistant() {
         }
       }
 
-      const response = await sendMessageMutation.mutateAsync({
+      const response = await resumePendingKnowledgeTurn(() => sendMessageMutation.mutateAsync({
         clientTurnId,
         id: activeSessionId,
         integrationId: effectiveIntegrationId,
@@ -485,18 +494,23 @@ export function GroundedAssistant() {
           if (isStale()) return;
           setProgressEvents((current) => [...current.filter((item) => !(item.stage === progress.stage && item.status === progress.status)), progress].slice(-50));
         }
+      }), {
+        signal: controller.signal,
+        onPending: () => {
+          if (isStale()) return;
+          setProgressEvents((current) => [...current.filter((item) => item.stage !== "WAITING_FOR_TURN"), { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "WAITING_FOR_TURN", status: "PENDING", message: "This turn is already being prepared. Checking for its answer without sending a duplicate question." }]);
+        }
       });
       if (requestGeneration !== scopeGenerationRef.current) return;
       if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
-      if (response.pending) {
-        throw new Error(`This grounded answer is still processing. Retry in ${response.retry_after_seconds || 3} seconds; the same turn will be resumed without duplicate model work.`);
-      }
       setMessages((current) => [...current, { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } }]);
       void queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-sessions", requestProjectId] });
     } catch (error) {
       if (requestGeneration !== scopeGenerationRef.current) return;
       const cancelled = controller.signal.aborted;
       const errorMessageId = `assistant-error-${Date.now()}`;
+      const notice = knowledgeTurnNotice(error, cancelled);
+      setTurnNotices((current) => ({ ...current, [errorMessageId]: notice }));
       if (!(error instanceof KnowledgeStreamError) || error.retryable || cancelled) setRetryTurns((current) => ({ ...current, [errorMessageId]: { clientTurnId, integrationId: requestIntegrationId, prompt: normalizedPrompt, smartContext: requestSmartContext, filters: requestFilters, responseMode } }));
       setMessages((current) => [...current, {
         id: errorMessageId,
@@ -504,15 +518,25 @@ export function GroundedAssistant() {
         content: cancelled ? "Answer stopped. Retry this turn when you are ready." : error instanceof Error ? error.message : "The grounded assistant is temporarily unavailable.",
         citations: [],
         grounding_status: "insufficient_context",
-        status: cancelled ? "cancelled" : "failed",
+        status: notice.kind === "pending" ? "pending" : cancelled ? "cancelled" : "failed",
         created_at: new Date().toISOString()
       }]);
     } finally {
       if (requestControllerRef.current === controller) {
         requestControllerRef.current = null;
         setActiveRequestIntegrationId("");
+        setRequestStartedAt(null);
       }
     }
+  };
+
+  const prepareQuestion = (question: string, evidenceOnly = false) => {
+    setPrompt(question);
+    if (evidenceOnly) {
+      setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION);
+      persistLlmSelection(integrationSelectionStorageKey, RETRIEVAL_ONLY_INTEGRATION);
+    }
+    requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   return (
@@ -565,7 +589,7 @@ export function GroundedAssistant() {
                       {integrationsQuery.isLoading ? "Loading models…" : integrationsQuery.isError ? "Models unavailable" : "No LLM configured"}
                     </option>
                   ) : null}
-                  <option value={RETRIEVAL_ONLY_INTEGRATION}>Retrieval only · no LLM</option>
+                  <option value={RETRIEVAL_ONLY_INTEGRATION}>Evidence only · no model</option>
                   {assistantIntegrations.map((integration) => (
                     <option key={integration.id} value={integration.id}>{integrationOptionLabel(integration)}</option>
                   ))}
@@ -596,26 +620,17 @@ export function GroundedAssistant() {
             </div>
           </div>
 
-          <div aria-live="polite" className="grounded-assistant-conversation">
+          <div className="grounded-assistant-conversation" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions">
             {isRestoringSession ? <p role="status">Loading conversation…</p> : null}
             {sessionError ? <p className="grounded-assistant-download-error" role="alert">{sessionError}</p> : null}
-            {isSending ? (
-              <div className="grounded-assistant-agent-status" role="status">
-                <span aria-hidden="true" className="grounded-assistant-agent-status-icon"><IconSparkles size={13} stroke={2} /></span>
-                <strong>{progressEvents.length ? contextRouteLabel(progressEvents[progressEvents.length - 1].stage) : createSessionMutation.isPending ? "Opening conversation" : "Waiting for retrieval"}</strong>
-                <small>{progressEvents[progressEvents.length - 1]?.message || "Using the scope selected for this turn"}</small>
-                <button className="grounded-assistant-stop" onClick={() => requestControllerRef.current?.abort()} type="button"><IconPlayerStop size={13} />Stop</button>
-                {progressEvents.length ? <details className="grounded-assistant-live-progress"><summary>{progressEvents.length} reported stage{progressEvents.length === 1 ? "" : "s"}</summary><ol>{progressEvents.map((item, index) => <li key={`${item.stage}-${index}`}><span>{contextRouteLabel(item.stage)}</span><small>{item.message || contextRouteLabel(item.status)}</small></li>)}</ol></details> : null}
-              </div>
-            ) : null}
             {!messages.length ? (
               <div className="grounded-assistant-welcome">
                 <span className="grounded-assistant-welcome-icon"><IconBook2 size={26} /></span>
-                <h3>Current answers, grounded in your project</h3>
-                <p>I distinguish project questions from product help, read permitted live project records, retrieve matching Knowledge Repository context, and ask the configured LLM to answer only from cited evidence.</p>
+                <h3>Your project, with the evidence in reach.</h3>
+                <p>Explore coverage, investigate failures, or find a decision in your documents. Each answer connects its findings to the sources you can review.</p>
                 <div className="grounded-assistant-starters">
                   {starterPrompts.map((item) => (
-                    <button key={item} onClick={() => setPrompt(item)} type="button">
+                    <button key={item} onClick={() => prepareQuestion(item)} type="button">
                       <IconMessageCircle size={16} />
                       <span>{item}</span>
                     </button>
@@ -630,28 +645,37 @@ export function GroundedAssistant() {
               const hasInterpretations = validatedAnswer?.claims.some((claim) => claim.classification === "INTERPRETATION");
               const citations = validatedAnswer ? Array.from(validatedAnswer.citations.values()) : message.citations || EMPTY_CITATIONS;
               const sourcesExpanded = Boolean(expandedSources[message.id]);
+              const notice = turnNotices[message.id];
+              const retryTurn = retryTurns[message.id];
+              const modelUnavailable = message.grounding_status === "provider_unavailable";
+              const effectiveGrounding = modelUnavailable ? "provider_unavailable" : validatedAnswer?.partial ? "partially_grounded" : message.grounding_status;
               return (
-                <article className={`grounded-assistant-message is-${message.role}${message.status === "failed" ? " is-error" : ""}`} key={message.id}>
+                <article className={`grounded-assistant-message is-${message.role}${notice ? ` is-${notice.kind}` : message.status === "failed" ? " is-error" : ""}`} key={message.id}>
                   <div className="grounded-assistant-message-label">
                     {isAssistant ? <IconSparkles size={14} /> : null}
                     <span>{isAssistant ? "HelloTest" : "You"}</span>
-                    {isAssistant && !["failed", "cancelled"].includes(message.status || "") ? (
-                      <span className={`grounding-chip is-${hasInterpretations ? "evidence-linked" : message.grounding_status || "insufficient_context"}`}>
-                        {hasInterpretations ? <IconBook2 size={13} /> : message.grounding_status === "grounded" ? <IconShieldCheck size={13} /> : <IconAlertTriangle size={13} />}
-                        {hasInterpretations ? "Evidence linked" : groundingLabel(message.grounding_status)}
+                    {isAssistant && !["failed", "cancelled", "pending"].includes(message.status || "") ? (
+                      <span className={`grounding-chip is-${effectiveGrounding === "grounded" && hasInterpretations ? "evidence-linked" : effectiveGrounding || "insufficient_context"}`}>
+                        {effectiveGrounding === "grounded" && !hasInterpretations ? <IconShieldCheck size={13} /> : <IconBook2 size={13} />}
+                        {effectiveGrounding === "grounded" && hasInterpretations ? "Evidence linked" : groundingLabel(effectiveGrounding)}
                       </span>
                     ) : null}
                   </div>
                   {message.scope ? <div className="grounded-assistant-message-scope">{message.scope.filters?.source_kinds?.filter((kind) => kind !== "product_help").map((kind) => kind.replace(/_/g, " ")).join(" · ") || "All permitted project sources"}{message.scope.filters?.as_of ? ` · As of ${new Date(message.scope.filters.as_of).toLocaleString()}` : " · Current knowledge"}</div> : null}
-                  <div className="grounded-assistant-message-content">{isAssistant ? validatedAnswer ? <KnowledgeAnswer message={message} onEvidenceOpen={(citation) => citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind)) ? setSelectedCitation(citation) : setExpandedSources((current) => ({ ...current, [message.id]: true }))} /> : message.answer_contract || message.retrieval?.answer_contract ? <p>This saved answer uses an unsupported evidence contract. Ask the question again to retrieve current evidence.</p> : <StructuredAssistantAnswer content={message.content} structure={message.retrieval?.answer_structure} /> : message.content}</div>
-                  {["failed", "cancelled"].includes(message.status || "") && retryTurns[message.id] ? (
-                    <button
+                  <div className="grounded-assistant-message-content">
+                    {notice ? <div className="grounded-assistant-turn-notice" role={notice.kind === "error" ? "alert" : "status"}><strong>{notice.title}</strong><p>{notice.message}</p>{message.content && ![notice.message, notice.title].includes(message.content) && notice.kind === "error" ? <details><summary>Service details</summary><p>{message.content}</p></details> : null}</div>
+                      : <>{modelUnavailable ? <div className="grounded-assistant-evidence-notice"><strong>{citations.length ? "Sources found; answer model unavailable" : "Answer model unavailable"}</strong><span>{citations.length ? knowledgeModelFailureMessage(message.retrieval?.provider_error_code) : "The model could not finish this answer. Try evidence only to look for relevant sources."}</span></div> : null}{isAssistant ? validatedAnswer ? <KnowledgeAnswer message={message} onEvidenceOpen={(citation) => citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind)) ? setSelectedCitation(citation) : setExpandedSources((current) => ({ ...current, [message.id]: true }))} /> : message.answer_contract || message.retrieval?.answer_contract ? <p>This saved answer uses an unsupported evidence contract. Ask the question again to retrieve current evidence.</p> : <StructuredAssistantAnswer content={message.content} structure={message.retrieval?.answer_structure} /> : message.content}</>}
+                  </div>
+                  {retryTurn ? <div className="grounded-assistant-turn-actions">
+                    {notice?.retryable !== false ? <button
                       className="grounded-assistant-retry"
                       disabled={isSending}
-                      onClick={() => void submitPrompt(undefined, { ...retryTurns[message.id], errorMessageId: message.id })}
+                      onClick={() => void submitPrompt(undefined, { ...retryTurn, errorMessageId: message.id })}
                       type="button"
-                    >Retry this turn</button>
-                  ) : null}
+                    >{notice?.kind === "pending" ? "Check for answer" : notice?.kind === "cancelled" ? "Resume this turn" : "Retry this turn"}</button> : null}
+                    <button disabled={isSending} onClick={() => prepareQuestion(retryTurn.prompt)} type="button">Edit question</button>
+                    {retryTurn.responseMode === "answer" ? <button disabled={isSending} onClick={() => prepareQuestion(retryTurn.prompt, true)} type="button">Try evidence only</button> : null}
+                  </div> : null}
                   {isAssistant && citations.length ? (
                     <div className="grounded-assistant-sources">
                       <button
@@ -733,15 +757,23 @@ export function GroundedAssistant() {
                       </div>
                     </details>
                   ) : null}
+                  {isAssistant && !notice && !["failed", "cancelled", "pending"].includes(message.status || "") ? <div className="grounded-assistant-follow-ups" aria-label="Continue this answer">
+                    <span>{modelUnavailable ? "Continue with the sources" : "Take the next step"}</span>
+                    {citations.length ? <button onClick={() => setExpandedSources((current) => ({ ...current, [message.id]: true }))} type="button"><IconBook2 size={13} />Review {citations.length} source{citations.length === 1 ? "" : "s"}</button> : null}
+                    <button disabled={isSending} onClick={() => prepareQuestion(modelUnavailable ? "Show the project evidence relevant to my previous question." : validatedAnswer?.partial || !citations.length ? "What specific evidence is missing to answer my previous question?" : "What should I verify next based on this evidence?", modelUnavailable)} type="button">{modelUnavailable ? "Ask with evidence only" : validatedAnswer?.partial || !citations.length ? "Explore missing evidence" : "What should I verify next?"}<IconArrowRight size={13} /></button>
+                  </div> : null}
                 </article>
               );
             })}
+
+            {isSending && requestStartedAt !== null ? <KnowledgeTurnProgress events={progressEvents} onStop={() => requestControllerRef.current?.abort()} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
 
             {citationDownloadError ? <div className="grounded-assistant-download-error" role="alert">{citationDownloadError}</div> : null}
             <div ref={conversationEndRef} />
           </div>
 
           <footer className="grounded-assistant-composer-shell">
+            {integrationsQuery.isError ? <div className="grounded-assistant-model-error" role="status"><span>Answer models could not be loaded.</span><button onClick={() => void integrationsQuery.refetch()} type="button">Retry models</button><button onClick={() => { setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION); persistLlmSelection(integrationSelectionStorageKey, RETRIEVAL_ONLY_INTEGRATION); }} type="button">Use evidence only</button></div> : null}
             <div className="grounded-assistant-context-row">
               <details className="grounded-assistant-context-control">
                 <summary>Context scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "live project + all Knowledge Repository sources" : `live matching records + ${sourceKinds.length} Knowledge Repository source types`}</summary>
@@ -786,17 +818,18 @@ export function GroundedAssistant() {
               <label className="sr-only" htmlFor="grounded-assistant-input">Ask about this HelloTest project</label>
               <textarea
                 data-autofocus="true"
-                disabled={isSending}
+                disabled={isRestoringSession}
                 id="grounded-assistant-input"
                 maxLength={4_000}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !isSending) {
                     event.preventDefault();
                     void submitPrompt();
                   }
                 }}
-                placeholder={messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, bugs, or HelloTest usage…"}
+                placeholder={isSending ? "Draft your next question while the answer is prepared…" : messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, bugs, or HelloTest usage…"}
+                ref={composerRef}
                 rows={2}
                 value={prompt}
               />
@@ -804,7 +837,8 @@ export function GroundedAssistant() {
                 <IconSend size={18} />
               </button>
             </form>
-            <p className="grounded-assistant-privacy"><IconShieldCheck size={13} /> Project sources are used only for grounded answers. Do not enter passwords, access tokens, or unrelated personal information.</p>
+            <div className="grounded-assistant-composer-hint"><span>{isSending ? "Your next draft stays here while this answer is prepared." : "Enter to send · Shift + Enter for a new line"}</span>{prompt.length > 3500 ? <span>{prompt.length}/4,000</span> : null}</div>
+            <p className="grounded-assistant-privacy"><IconShieldCheck size={13} /> Answers use sources you can access in this project.</p>
           </footer>
         </aside>
       ) : null}

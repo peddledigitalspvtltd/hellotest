@@ -102,7 +102,7 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /result\.source_kind !== "product_help"/);
   assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\)/);
   assert.match(studio, /IconLoader2[\s\S]*knowledge-processing-spinner/);
-  assert.match(studio, /Hybrid fallback ready/);
+  assert.match(studio, /Recent embedding fallback/);
   assert.match(studio, /Context refresh recommended/);
   assert.doesNotMatch(studio, /loading-state-spinner/);
   assert.match(styles, /\.knowledge-processing-spinner \{[\s\S]*width: 1rem;[\s\S]*height: 1rem;/);
@@ -120,7 +120,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
   assert.match(assistant, /Current project only/);
   assert.match(assistant, /live project \+ all Knowledge Repository sources/);
-  assert.match(assistant, /progressEvents\[progressEvents\.length - 1\]\?\.message/);
+  assert.match(assistant, /<KnowledgeTurnProgress events=\{progressEvents\}/);
   assert.match(assistant, /api\.knowledgeRepo\.assistant\.streamMessage/);
   assert.match(assistant, /message\.retrieval\.context_route\?\.input_type/);
   assert.match(assistant, /message\.retrieval\.context_route\?\.query_category/);
@@ -128,7 +128,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /Structured grounded answer/);
   assert.match(assistant, /Evidence plan/);
   assert.match(assistant, /message\.retrieval\.live_context_count/);
-  assert.match(assistant, /distinguish project questions from product help/);
+  assert.match(assistant, /Each answer connects its findings to the sources you can review/);
   assert.match(assistant, /const apiSourceKinds = useMemo\(\(\) => sourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
   assert.match(assistant, /const requestApiSourceKinds = requestSourceKinds\.length === DEFAULT_ASSISTANT_SOURCE_KINDS\.length/);
   assert.match(assistant, /"product_help"/);
@@ -136,7 +136,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /source_kinds: requestApiSourceKinds/);
   assert.match(assistant, /<SmartContextWorkbench/);
   assert.match(assistant, /reviewed_context: requestSmartContext\.contextText/);
-  assert.match(assistant, /Retrieval only · no LLM/);
+  assert.match(assistant, /Evidence only · no model/);
   assert.match(assistant, /api\.knowledgeRepo\.assistant\.listIntegrations\(projectId\)/);
   assert.match(assistant, /integration\.scope === "workspace"/);
   assert.match(assistant, /integration\.scope === "project" && integration\.project_id === projectId/);
@@ -163,7 +163,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /api\.knowledgeRepo\.downloadSource/);
   assert.match(assistant, /knowledgeCitationHref\(citation\)/);
   assert.match(assistant, /Retry this turn/);
-  assert.match(assistant, /grounded-assistant-agent-status/);
+  assert.match(assistant, /resumePendingKnowledgeTurn/);
   assert.match(shell, /<GroundedAssistant \/>/);
 });
 

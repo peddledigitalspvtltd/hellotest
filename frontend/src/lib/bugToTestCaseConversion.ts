@@ -2,6 +2,10 @@ import type { Issue } from "../types";
 
 export const BUG_TO_TEST_CASE_STORAGE_KEY = "hellotest.convertBugToCase.v2";
 
+export function countConvertedBugs(issues: ReadonlyArray<Pick<Issue, "id" | "has_converted_test_cases">>): number {
+  return new Set(issues.filter((issue) => issue.has_converted_test_cases === true).map((issue) => issue.id)).size;
+}
+
 export type BugToTestCaseDraft = {
   bugId: string;
   bugDisplayId: string;

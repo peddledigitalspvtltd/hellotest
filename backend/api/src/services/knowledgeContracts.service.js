@@ -465,7 +465,11 @@ const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimV
     trustDeterministic
   });
   const requestedStatus = ["answered", "insufficient_context", "refused", "provider_unavailable", "error"].includes(result.status) ? result.status : "insufficient_context";
-  const claims = requestedStatus === "answered" ? validated.claims : [];
+  // Provider outages still have useful retrieved passages. Only the server's
+  // extractive fallback may retain claims under this status, and those claims
+  // must pass the same evidence/citation validation as every other answer.
+  const claims = requestedStatus === "answered" || (requestedStatus === "provider_unavailable" && result.safety?.extractive_grounded_fallback === true)
+    ? validated.claims : [];
   const status = requestedStatus === "answered" && !claims.length ? "insufficient_context" : requestedStatus;
   const fallback = {
     insufficient_context: "The authorized evidence does not support a grounded answer yet. Add or refine the relevant sources and try again.",
@@ -492,6 +496,8 @@ const buildAnswerContract = ({ outcome, contextPacket, terminationReason, claimV
   if (limitation.budget_partial && limitation.retrieval_status === "COMPLETE")
     limitation.retrieval_status = "PARTIAL";
   const gaps = [];
+  if (packet.retrieval?.history_unavailable)
+    gaps.push("Previous conversation context was unavailable; this answer uses the current question and retrieved sources.");
   if (limitation.retrieval_status === "PARTIAL" && !limitation.authorization_partial && !limitation.budget_partial && !limitation.unavailable_sources)
     gaps.push("The available retrieval evidence may not resolve all parts of this question.");
   if (limitation.authorization_partial)
@@ -670,6 +676,25 @@ const buildModelRequest = ({ contextPacket, question, conversation = [], model, 
   validateContract(contextPacket, "ContextPacket");
   if (!contextPacket.authorization.project_scope_enforced || !contextPacket.authorization.source_acl_enforced)
     throw contractError("ERR_AUTH_FORBIDDEN", "Model context must have verified project and source authorization");
+  // Keep the canonical packet for audit/citations, but do not make the model
+  // process repeated query plans, budgets, rankings and duplicate locators.
+  // This remains a valid ContextPacket with the exact same evidence text/IDs,
+  // scope, freshness, access limitations and source relationships.
+  const modelContext = {
+    ...contractFields("ContextPacket"),
+    context_packet_id: contextPacket.context_packet_id,
+    project_id: contextPacket.project_id ?? null,
+    applied_filters: asObject(contextPacket.applied_filters),
+    evidence: contextPacket.evidence.map(item => Object.fromEntries([
+      "evidence_id", "source_id", "source_kind", "source_ref_id", "title", "content", "location",
+      "authoritative_live", "freshness", "visibility", "representation_type", "uri", "media_type"
+    ].filter(key => item[key] !== undefined).map(key => [key, item[key]]))),
+    relationships: asArray(contextPacket.relationships || contextPacket.relationship_evidence),
+    ...(contextPacket.coverage ? { coverage: contextPacket.coverage } : {}),
+    authorization: contextPacket.authorization,
+    limitations: contextPacket.limitations
+  };
+  validateContract(modelContext, "ContextPacket");
   return {
     messages: [{
         role: "system",
@@ -682,7 +707,7 @@ const buildModelRequest = ({ contextPacket, question, conversation = [], model, 
             role: "user",
             content: compactText(item.content, 1200)
           })),
-          context_packet: contextPacket
+          context_packet: modelContext
         })
       }],
     model: model || undefined,

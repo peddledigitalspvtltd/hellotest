@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import test from "node:test";
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const frontendRoot = new URL("../../", import.meta.url);
+const fixture = `
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthProvider } from "/src/auth/AuthContext";
+import { api, sessionStorage } from "/src/lib/api";
+import { KnowledgeStreamError } from "/src/lib/knowledgeAssistantStream";
+import { GroundedAssistant } from "/src/components/GroundedAssistant";
+import "/src/styles.css";
+import "/src/dark-theme.css";
+import "/src/catalog-list.css";
+import "/src/modal-system.css";
+import "/src/execution-run-builder.css";
+import "/src/workspace-layout.css";
+const session = { token: "fixture-only", user: { id: "qa", role: "admin", name: "QA", email: "fixture@example.test" } };
+sessionStorage.write(session);
+localStorage.setItem("hellotest.current_project_id", "qa-project");
+api.auth.session = async () => session;
+api.featureFlags.snapshot = async () => ({ flags: { "hellotest.ai.knowledge": true } });
+api.settings.getWorkspacePreferences = async () => ({ preferences: {} });
+api.knowledgeRepo.assistant.listIntegrations = async () => [{ id: "qa-model", name: "Project model", scope: "project", project_id: "qa-project", model: "QA Model", is_default: true }];
+api.knowledgeRepo.assistant.listSessions = async () => [];
+api.knowledgeRepo.assistant.createSession = async () => ({ id: "qa-session", project_id: "qa-project" });
+const citation = { id: "e1", evidence_id: "e1", title: "Checkout release review", source_kind: "requirement", uri: "/requirements?requirement_id=qa", freshness: { current: true }, visibility: { state: "FULL" } };
+const answer = (provider = false) => ({ assistant_message: { id: "answer-" + Date.now(), role: "assistant", content: "The checkout review identifies an untested refund scenario.", grounding_status: provider ? "provider_unavailable" : "partially_grounded", citations: [citation], context_packet: { contract_version: "1.0", packet_id: "qa", evidence: [citation], retrieval: { status: "PARTIAL" } }, answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: provider ? "provider_unavailable" : "answered", summary: "The checkout review identifies an untested refund scenario.", claims: [{ statement: "The checkout review identifies an untested refund scenario.", classification: "SUPPORTED", evidence_ids: ["e1"] }], citation_ids: ["e1"], evidence_gaps: ["The latest test execution was unavailable."], limitations: { retrieval_status: "PARTIAL", unavailable_sources: 1 }, presentation: { recommended_type: "TEXT", structured_payload: {} } }, retrieval: { provider_error_code: provider ? "MODEL_AUTHENTICATION_FAILED" : undefined, processing_trace: [{ stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review." }, { stage: "GENERATION", status: provider ? "FAILED" : "COMPLETE", message: provider ? "Model connection not accepted." : "Answer completed." }] } } });
+window.qa = { mode: "wait", calls: [], finish: null, progress: null };
+api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
+  window.qa.calls.push({ id, ...input });
+  window.qa.progress = options.onProgress;
+  options.onProgress({ contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review.", metrics: { elapsed_ms: 520 } });
+  if (window.qa.mode === "timeout") throw new KnowledgeStreamError("Service deadline exceeded", "DEADLINE_EXCEEDED");
+  if (window.qa.mode === "provider") return answer(true);
+  if (window.qa.mode === "success") return answer();
+  if (window.qa.mode === "pending") { window.qa.mode = "success"; return { pending: true, retry_after_seconds: 1, client_turn_id: input.client_turn_id }; }
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException("Stopped", "AbortError"));
+    options.signal.addEventListener("abort", abort, { once: true });
+    window.qa.finish = () => { options.signal.removeEventListener("abort", abort); resolve(answer()); };
+  });
+};
+createRoot(document.getElementById("root")).render(<QueryClientProvider client={new QueryClient()}><AuthProvider><GroundedAssistant /></AuthProvider></QueryClientProvider>);
+`;
+
+test("assistant preserves turns and drafts through progress, pending, Stop, retry and model failure", { timeout: 60000 }, async () => {
+  const name = `knowledge-qa-${randomUUID()}`;
+  const html = new URL(`${name}.html`, frontendRoot);
+  const source = new URL(`${name}.tsx`, frontendRoot);
+  let browser;
+  try {
+    await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(source, fixture);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
+    await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Ask about this HelloTest project" });
+    await input.fill("What should we verify before the checkout release?");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("region", { name: "Answer progress" }).waitFor();
+    await input.fill("Keep this next question");
+    assert.equal(await page.getByRole("button", { name: "Send message", exact: true }).isDisabled(), true);
+    await page.evaluate(() => window.qa.progress({ contract_type: "RetrievalEvent", contract_version: "1.0", stage: "GENERATION", status: "IN_PROGRESS", message: "Preparing an answer from the release review.", metrics: { elapsed_ms: 1200 } }));
+    await page.locator(".grounded-assistant-progress-heading").getByText("Writing an answer from the evidence", { exact: true }).waitFor();
+    if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-progress.png"), animations: "disabled" });
+    await page.evaluate(() => window.qa.finish());
+    await page.getByText("What the evidence shows", { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), "Keep this next question");
+    assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);
+    assert.equal(await page.getByRole("link", { name: /Source 1: Checkout release review/ }).count(), 1);
+    await page.getByText("Partial retrieval · limited evidence", { exact: true }).waitFor();
+
+    await page.getByRole("button", { name: "Start a new assistant chat" }).click();
+    await page.evaluate(() => { window.qa.mode = "timeout"; });
+    await input.fill("Find the release risk");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByText("This answer took too long", { exact: true }).waitFor();
+    const timeoutTurn = await page.evaluate(() => window.qa.calls.at(-1).client_turn_id);
+    await page.evaluate(() => { window.qa.mode = "pending"; });
+    await page.getByRole("button", { name: "Retry this turn", exact: true }).click();
+    await page.locator(".grounded-assistant-progress-heading").getByText("Waiting for this turn to finish", { exact: true }).waitFor();
+    await page.getByText("What the evidence shows", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.qa.calls.at(-1).client_turn_id), timeoutTurn);
+    assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);
+
+    await page.getByRole("button", { name: "Start a new assistant chat" }).click();
+    await page.evaluate(() => { window.qa.mode = "wait"; });
+    await input.fill("Search the release evidence");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("button", { name: "Stop answer", exact: true }).waitFor();
+    await input.fill("Do not lose this draft");
+    await page.getByRole("button", { name: "Stop answer", exact: true }).click();
+    await page.getByText("Answer stopped", { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), "Do not lose this draft");
+    const stoppedTurn = await page.evaluate(() => window.qa.calls.at(-1).client_turn_id);
+    await page.evaluate(() => { window.qa.mode = "provider"; });
+    await page.getByRole("button", { name: "Resume this turn", exact: true }).click();
+    await page.getByText("Sources found; answer model unavailable", { exact: true }).waitFor();
+    await page.getByText(/Check its credentials in Integrations/).waitFor();
+    assert.equal(await page.evaluate(() => window.qa.calls.at(-1).client_turn_id), stoppedTurn);
+    assert.equal(await input.inputValue(), "Do not lose this draft");
+    assert.equal(await page.getByRole("link", { name: /Source 1: Checkout release review/ }).count(), 1);
+    for (const width of [1440, 620, 390, 320]) {
+      await page.setViewportSize({ width, height: 950 });
+      const geometry = await page.locator(".grounded-assistant-panel").evaluate(el => {
+        const bounds = el.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.right, width: innerWidth, overflowing: [...el.querySelectorAll(".grounded-assistant-header, .grounded-assistant-message-content, .grounded-assistant-composer-shell")].filter(node => node.scrollWidth > node.clientWidth + 1).map(node => node.className) };
+      });
+      assert.ok(geometry.left >= -1 && geometry.right <= geometry.width + 1, `panel fits ${width}px`);
+      assert.deepEqual(geometry.overflowing, [], `content fits ${width}px`);
+      if (process.env.BROWSER_SCREENSHOT_DIR && [1440, 390].includes(width)) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `knowledge-assistant-answer-${width}.png`), animations: "disabled" });
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await Promise.all([unlink(html).catch(() => {}), unlink(source).catch(() => {})]);
+  }
+});

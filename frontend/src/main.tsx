@@ -14,6 +14,7 @@ import "./dark-theme.css";
 import "./catalog-list.css";
 import "./modal-system.css";
 import "./execution-run-builder.css";
+import "./workspace-layout.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

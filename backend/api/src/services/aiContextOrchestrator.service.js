@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const db = require("../db");
 const obsDb = require("../obsDb");
+const execution = require("./knowledgeExecution.service");
 const permissionService = require("./permission.service");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 
@@ -228,33 +229,57 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
 };
 
 const safeRows = async (sql, params = []) => {
+  execution.assertActive();
   try {
-    return await db.prepare(sql).all(...params);
-  } catch {
+    const result = await db.prepare(sql).all(...params);
+    execution.assertActive();
+    return result;
+  } catch (error) {
+    execution.assertActive();
+    // A failed live read is unavailable evidence, not an authoritative zero.
+    if (execution.current()) throw error;
     return [];
   }
 };
 
 const safeRow = async (sql, params = []) => {
+  execution.assertActive();
   try {
-    return await db.prepare(sql).get(...params);
-  } catch {
+    const result = await db.prepare(sql).get(...params);
+    execution.assertActive();
+    return result;
+  } catch (error) {
+    execution.assertActive();
+    // A failed live read is unavailable evidence, not an authoritative zero.
+    if (execution.current()) throw error;
     return null;
   }
 };
 
 const safeObsRows = async (sql, params = []) => {
+  execution.assertActive();
   try {
-    return await obsDb.prepare(sql).all(...params);
-  } catch {
+    const result = await obsDb.prepare(sql).all(...params);
+    execution.assertActive();
+    return result;
+  } catch (error) {
+    execution.assertActive();
+    // A failed live read is unavailable evidence, not an authoritative zero.
+    if (execution.current()) throw error;
     return [];
   }
 };
 
 const safeObsRow = async (sql, params = []) => {
+  execution.assertActive();
   try {
-    return await obsDb.prepare(sql).get(...params);
-  } catch {
+    const result = await obsDb.prepare(sql).get(...params);
+    execution.assertActive();
+    return result;
+  } catch (error) {
+    execution.assertActive();
+    // A failed live read is unavailable evidence, not an authoritative zero.
+    if (execution.current()) throw error;
     return null;
   }
 };
@@ -395,15 +420,20 @@ const makeLiveHit = ({ projectId, scope, title, content, score = 0.96 }) => {
 
 const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, route, requestedScopes, sourceKinds } = {}) => {
   const contextRoute = route || planContext({ prompt, requestedScopes });
+  execution.assertActive();
+  if (!contextRoute.live_scopes?.length) return { hits: [], route: contextRoute, counts: {} };
   const project = await safeRow("SELECT id, display_id, name, description, visibility, created_at FROM projects WHERE id = ?", [projectId]);
   if (!project) return { hits: [], route: contextRoute, counts: {} };
   const requestedKinds = new Set(asArray(sourceKinds).map((kind) => normalizeText(kind, 80).toLowerCase()));
   const kindAllowed = (kind) => !requestedKinds.size || requestedKinds.has(kind);
   const permissionCache = new Map();
   const canView = async (permissionCode) => {
+    execution.assertActive();
     if (!user) return false;
     if (!permissionCache.has(permissionCode)) permissionCache.set(permissionCode, permissionService.hasPermission(user, permissionCode, projectId));
-    return Boolean(await permissionCache.get(permissionCode));
+    const allowed = Boolean(await permissionCache.get(permissionCode));
+    execution.assertActive();
+    return allowed;
   };
   const scopeSet = new Set(contextRoute.live_scopes || []);
   const hits = [];

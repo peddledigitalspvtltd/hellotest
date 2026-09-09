@@ -11,9 +11,11 @@ type EvidenceFlipCardProps = {
   evidence: ReactNode[];
   frontAccessory?: ReactNode;
   frontIcon?: ReactNode;
+  frontVisual?: ReactNode;
   label: string;
   maxEvidenceItems?: number;
   onAction?: () => void;
+  resetOnChange?: boolean;
   tone?: "danger" | "warning" | "success" | "info";
   value: ReactNode;
 };
@@ -34,9 +36,11 @@ export function EvidenceFlipCard({
   evidence,
   frontAccessory,
   frontIcon,
+  frontVisual,
   label,
   maxEvidenceItems = 4,
   onAction,
+  resetOnChange = true,
   tone,
   value
 }: EvidenceFlipCardProps) {
@@ -64,9 +68,10 @@ export function EvidenceFlipCard({
   }, [autoResetMs, isFlipped]);
 
   useEffect(() => {
+    if (!resetOnChange) return;
     shouldRestoreFocusRef.current = false;
     setIsFlipped(false);
-  }, [caption, label, value]);
+  }, [caption, label, resetOnChange, value]);
 
   const showFace = (nextFlippedState: boolean) => {
     shouldRestoreFocusRef.current = true;
@@ -90,6 +95,7 @@ export function EvidenceFlipCard({
           {frontAccessory && !isFlipped ? <span className="evidence-flip-card-front-accessory">{frontAccessory}</span> : null}
           <button
             aria-controls={evidenceId}
+            aria-describedby={`${evidenceId}-value ${evidenceId}-caption`}
             aria-expanded={isFlipped}
             aria-label={`View evidence for ${label}`}
             className="project-stat-card-trigger metric-evidence-trigger"
@@ -100,8 +106,9 @@ export function EvidenceFlipCard({
           >
             {frontIcon ? <span className="evidence-flip-card-front-icon" aria-hidden="true">{frontIcon}</span> : null}
             <span>{label}</span>
-            <strong>{value}</strong>
-            <small>{caption}</small>
+            <strong id={`${evidenceId}-value`}>{value}</strong>
+            {frontVisual ? <span aria-hidden="true" className="evidence-flip-card-front-visual">{frontVisual}</span> : null}
+            <small id={`${evidenceId}-caption`}>{caption}</small>
             <span className="metric-evidence-hint">View evidence</span>
           </button>
         </div>

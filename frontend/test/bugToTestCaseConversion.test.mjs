@@ -5,10 +5,25 @@ import test from "node:test";
 import {
   buildBugToTestCaseDraft,
   buildConvertedBugSteps,
+  countConvertedBugs,
   mapBugPriorityToTestCase,
   parseBugStepLines,
   parseStoredBugToTestCaseDraft
 } from "../src/lib/bugToTestCaseConversion.ts";
+
+test("conversion metrics count distinct filtered bugs with recorded origins, not ordinary case links", () => {
+  const bugs = [
+    { id: "converted", has_converted_test_cases: true, linked_test_case_ids: ["case-1", "case-2"] },
+    { id: "converted", has_converted_test_cases: true },
+    { id: "converted-unlinked", has_converted_test_cases: true, linked_test_case_ids: [] },
+    { id: "manual-link", has_converted_test_cases: false, linked_test_case_ids: ["existing-case"] },
+    { id: "legacy-link", linked_test_case_ids: ["unknown-origin"] }
+  ];
+  assert.equal(countConvertedBugs(bugs), 2);
+  assert.equal(countConvertedBugs(bugs.filter((bug) => bug.id === "manual-link")), 0);
+  assert.equal(countConvertedBugs(bugs.filter((bug) => bug.id === "converted-unlinked")), 1);
+  assert.equal(countConvertedBugs([]), 0);
+});
 
 test("Bug conversion maps descriptive fields, delivery evidence, and every linked association", () => {
   const draft = buildBugToTestCaseDraft({
@@ -109,6 +124,9 @@ test("Bug conversion creation persists all links and links the created Test Case
     "Bug conversion must be available in the top detail header before the sticky footer"
   );
   assert.match(testCases, /test_case_type: "regression"/);
+  assert.match(testCases, /source_issue_id: activeBugConversion\?\.bugId/);
+  assert.match(issues, /countConvertedBugs\(filteredItems\)/);
+  assert.match(issues, /label: "Converted to Test Cases"/);
   assert.match(testCases, /requirement_ids: requirementIds/);
   assert.match(testCases, /suite_ids: suiteIds/);
   assert.match(testCases, /Promise\.allSettled\(moduleIds\.map/);

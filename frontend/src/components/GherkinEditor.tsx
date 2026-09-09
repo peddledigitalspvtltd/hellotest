@@ -2,6 +2,7 @@ import { type CSSProperties, type ChangeEvent, type ReactNode, type UIEvent, use
 import { IconAlertTriangle, IconBraces, IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
 import { StepParameterizedText } from "./StepParameterizedText";
 import { GherkinStepTextField } from "./GherkinStepTextField";
+import { useGherkinStepReorder } from "./GherkinStepReorder";
 import { BEHAVIOR_KEYWORDS, composeBehaviorBlock, parseBehaviorBlock, type BehaviorKeyword, type BehaviorStep } from "../lib/gherkinBehavior";
 import { useStepParameterAutocomplete } from "./StepParameterSuggestions";
 import { excludeSensitiveStepParameterValues, insertStepParameterReference, type StepParameterDefinition } from "../lib/stepParameters";
@@ -36,14 +37,7 @@ function MinimalBehaviorBlock({ availableParameters, heading, headingLabel, onCh
   const parsed = parseBehaviorBlock(value);
   const steps: BehaviorStep[] = parsed.steps.length ? parsed.steps : [{ keyword: "Given", text: "" }];
   const commit = (nextHeading: string, nextSteps: BehaviorStep[]) => onChange(composeBehaviorBlock(value, headingLabel, nextHeading, nextSteps));
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= steps.length || steps[index].group?.id !== steps[target].group?.id) return;
-    const next = [...steps];
-    const [step] = next.splice(index, 1);
-    next.splice(target, 0, step);
-    commit(heading, next);
-  };
+  const reorder = useGherkinStepReorder(steps, (next) => commit(heading, next));
   const insertAfter = (index: number) => {
     const next = [...steps];
     next.splice(index + 1, 0, { keyword: steps[index]?.keyword === "When" ? "Then" : "And", text: "", group: steps[index]?.group });
@@ -57,10 +51,10 @@ function MinimalBehaviorBlock({ availableParameters, heading, headingLabel, onCh
   }, []);
   const renderStep = (index: number) => {
     const step = steps[index];
-    return <div className="gherkin-minimal-step" key={index}>
+    return <div {...(!readOnly ? reorder.rowProps(index) : {})} className="gherkin-minimal-step" key={index}>
       <select aria-label={`Gherkin keyword for behavior step ${index + 1}`} className={`is-${step.keyword.toLowerCase()}`} disabled={readOnly} onChange={(event) => commit(heading, steps.map((item, itemIndex) => itemIndex === index ? { ...item, keyword: event.target.value as BehaviorKeyword } : item))} value={step.keyword}>{BEHAVIOR_KEYWORDS.map((keyword) => <option key={keyword}>{keyword}</option>)}</select>
       {readOnly ? <span className="gherkin-minimal-description"><StepParameterizedText fallback={resolveGherkinParameterText(step.text, parameterValues) || step.text} text={step.text} values={parameterValues} /></span> : <GherkinStepTextField availableParameters={availableParameters} ariaLabel={`Behavior step ${index + 1}`} onChange={(text) => commit(heading, steps.map((item, itemIndex) => itemIndex === index ? { ...item, text } : item))} parameterValues={parameterValues} placeholder="Describe behavior and use parameters where needed" value={step.text} />}
-      {!readOnly ? <span className="gherkin-minimal-step-actions"><button aria-label={`Insert behavior step after ${index + 1}`} onClick={() => insertAfter(index)} title="Insert behavior step" type="button">+</button><button aria-label={`Move behavior step ${index + 1} up`} disabled={index === 0 || steps[index - 1]?.group?.id !== step.group?.id} onClick={() => move(index, -1)} type="button">↑</button><button aria-label={`Move behavior step ${index + 1} down`} disabled={index === steps.length - 1 || steps[index + 1]?.group?.id !== step.group?.id} onClick={() => move(index, 1)} type="button">↓</button><button aria-label={`Remove behavior step ${index + 1}`} disabled={steps.length === 1} onClick={() => commit(heading, steps.filter((_, itemIndex) => itemIndex !== index))} type="button"><IconTrash size={13} /></button></span> : null}
+      {!readOnly ? <span className="gherkin-minimal-step-actions"><button aria-label={`Insert behavior step after ${index + 1}`} onClick={() => insertAfter(index)} title="Insert behavior step" type="button">+</button>{reorder.controls(index, `behavior step ${index + 1}`)}<button aria-label={`Remove behavior step ${index + 1}`} disabled={steps.length === 1} onClick={() => commit(heading, steps.filter((_, itemIndex) => itemIndex !== index))} type="button"><IconTrash size={13} /></button></span> : null}
     {step.followingLines?.some((line) => line.trim()) ? <pre className="gherkin-minimal-step-arguments" style={{ gridColumn: "1 / -1", whiteSpace: "pre-wrap", margin: 0 }}>{resolveGherkinParameterText(step.followingLines.join("\n"), parameterValues)}</pre> : null}</div>;
   };
   return <section className="gherkin-minimal-block">

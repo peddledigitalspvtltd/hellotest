@@ -30,7 +30,9 @@ test("Shared Step Groups preserve Structured and step-group Gherkin authoring wi
   assert.match(gherkinGroupEditor, /Insert shared Gherkin step after/);
   assert.match(stepField, /StepParameterizedText/);
   assert.match(stepField, /mapStepParameterSegments/);
-  assert.match(stepField, /gherkin-step-resolved-preview/);
+  assert.match(stepField, /!isEditing && hasParameters \? \(\s*<button[\s\S]*?gherkin-step-value-button[\s\S]*?<StepParameterizedText[\s\S]*?<\/button>\s*\) : <input/);
+  assert.doesNotMatch(stepField, /gherkin-step-resolved-preview/);
+  assert.match(gherkinGroupEditor, /useGherkinStepReorder/);
   assert.match(stepField, /gherkin-step-parameter-map/);
   assert.match(page, /authoring_mode: groupDraft\.authoring_mode/);
   assert.match(page, /composeSharedStepGherkin\(parseSharedStepGherkin\(groupDraft\.gherkin_document\)\)/);

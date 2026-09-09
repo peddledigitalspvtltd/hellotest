@@ -79,22 +79,41 @@
   gap: 12px;
 }
 
-.execution-run-mode-control {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  color: var(--text-subtle, #44546f);
-  font-size: 11px;
-  font-weight: 650;
+.execution-run-planning-fields {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
-.execution-run-mode-control > span {
-  flex: 0 0 auto;
+.execution-run-mode-control {
+  display: grid;
+  align-items: start;
 }
 
 .execution-run-mode-control > select {
-  flex: 1;
+  width: 100%;
   min-width: 0;
+}
+
+.execution-run-mode-control .form-field-hint {
+  margin: 0;
+  color: var(--text-subtle, #44546f);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.execution-run-planning-dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.execution-run-planning-dates input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .execution-run-config-pair {
@@ -515,12 +534,14 @@
   }
 
   .execution-run-builder-body {
+    display: block !important;
     grid-template-columns: minmax(0, 1fr);
     overflow: auto !important;
   }
 
   .execution-run-config-rail,
   .execution-run-selection-workspace {
+    height: auto;
     overflow: visible;
   }
 

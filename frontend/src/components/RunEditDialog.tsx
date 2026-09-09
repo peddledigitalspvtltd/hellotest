@@ -1,0 +1,157 @@
+import { useMemo, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconX } from "@tabler/icons-react";
+import { api, HelloTestApiError } from "../lib/api";
+import { changedRunFields, retainRunSelections, runEditDraft, runEditLocks, type RunEditDraft } from "../lib/runEdit";
+import { isRunFinished } from "../lib/runCatalog";
+import type { Execution, TestCase, TestSuite } from "../types";
+import type { AssigneeOption } from "../lib/userDisplay";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useAuth } from "../auth/AuthContext";
+import { hasPermission } from "../lib/permissions";
+import { FormField } from "./FormField";
+import { RunPlanningFields } from "./RunPlanningFields";
+import { ExecutionContextSelector } from "./ExecutionContextSelector";
+import { MultiAssigneePicker } from "./MultiAssigneePicker";
+import { SuiteCasePicker, SuiteScopePicker } from "./SuiteCasePicker";
+import "./suite-authoring-reference.css";
+import "./RunEditDialog.css";
+
+type Props = { executionId: string; assigneeOptions: AssigneeOption[]; canRunLocalAutomation: boolean; canRunRemoteAutomation: boolean; canConfigureParallelAutomation: boolean; onClose: () => void; onSaved: () => void };
+
+export function RunEditDialog(props: Props) {
+  const query = useQuery({ queryKey: ["execution-edit", props.executionId], queryFn: () => api.executions.get(props.executionId), gcTime: 0, refetchOnWindowFocus: false, refetchOnReconnect: false });
+  if (query.data) return <RunEditForm {...props} execution={query.data} key={`${query.data.id}:${query.data.revision}`} />;
+  return <RunEditLoading onClose={props.onClose} isError={query.isError} onRetry={() => void query.refetch()} />;
+}
+
+function RunEditLoading({ onClose, isError, onRetry }: { onClose: () => void; isError: boolean; onRetry: () => void }) {
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
+  return <div className="modal-backdrop" role="presentation"><div role="dialog" aria-modal="true" aria-label="Edit run" className="modal-card run-edit-dialog" ref={dialogRef} tabIndex={-1}>
+    <div className="run-edit-loading"><h2>Edit run</h2><p role={isError ? "alert" : "status"}>{isError ? "The run could not be loaded. Try again." : "Loading the current run…"}</p>
+    {isError ? <button type="button" className="ghost-button" onClick={onRetry}>Retry</button> : null}
+    <button className="ghost-button" onClick={onClose} type="button">Close</button></div>
+  </div></div>;
+}
+
+function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRunRemoteAutomation, canConfigureParallelAutomation, onClose, onSaved }: Props & { execution: Execution }) {
+  const initial = useMemo(() => runEditDraft(execution), [execution]);
+  const [draft, setDraft] = useState<RunEditDraft>(initial);
+  const [error, setError] = useState("");
+  const [finished, setFinished] = useState(isRunFinished(execution));
+  const [checkingLatest, setCheckingLatest] = useState(false);
+  const [latestRun, setLatestRun] = useState<Execution | null>(null);
+  const [needsReload, setNeedsReload] = useState(false);
+  const { session } = useAuth();
+  const queryClient = useQueryClient();
+  const update = useMutation({ mutationFn: (changes: Parameters<typeof api.executions.update>[1]) => api.executions.update(execution.id, changes) });
+  const busy = update.isPending || checkingLatest;
+  const fieldsDisabled = finished || busy || needsReload;
+  const dialogRef = useDialogFocus<HTMLDivElement>({ onClose, closeDisabled: busy });
+  const scope = { project_id: execution.project_id, app_type_id: execution.app_type_id || undefined };
+  const canViewSuites = hasPermission(session, "suite.view", execution.project_id);
+  const canViewCases = hasPermission(session, "testcase.view", execution.project_id);
+  const suites = useQuery({ queryKey: ["test-suites", "run-edit", scope], queryFn: () => api.testSuites.list(scope), enabled: canViewSuites && !finished });
+  const cases = useQuery({ queryKey: ["test-cases", "run-edit", scope], queryFn: () => api.testCases.list(scope), enabled: canViewCases && !finished });
+  const { runtimeLocked, scopeLocked } = runEditLocks(latestRun || execution);
+  const set = <K extends keyof RunEditDraft>(key: K, value: RunEditDraft[K]) => {
+    if (fieldsDisabled) return;
+    if (runtimeLocked && ["test_environment_id", "test_configuration_id", "test_data_set_id", "execution_mode", "parallel_enabled", "parallel_count"].includes(key)) return;
+    if (scopeLocked && ["suite_ids", "test_case_ids"].includes(key)) return;
+    if ((key === "suite_ids" && !canViewSuites) || (key === "test_case_ids" && !canViewCases)) return;
+    if (["parallel_enabled", "parallel_count"].includes(key) && !canConfigureParallelAutomation) return;
+    if (key === "execution_mode" && ((value === "local" && !canRunLocalAutomation) || (value === "remote" && !canRunRemoteAutomation))) return;
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+  const suiteOptions = retainRunSelections<TestSuite>(canViewSuites ? suites.data || [] : [], initial.suite_ids, (id) => ({
+    id, app_type_id: execution.app_type_id || "", parent_id: null,
+    name: `${execution.suite_snapshots?.find((item) => item.id === id)?.name || id} (saved selection)`,
+    test_case_ids: execution.case_snapshots?.filter((item) => item.suite_id === id).map((item) => item.test_case_id) || []
+  }));
+  const caseOptions = retainRunSelections<TestCase>(canViewCases ? cases.data || [] : [], initial.test_case_ids, (id) => {
+    const snapshot = execution.case_snapshots?.find((item) => item.test_case_id === id);
+    return { id, suite_id: snapshot?.suite_id || null, requirement_id: null, title: `${snapshot?.test_case_title || id} (saved selection)`, description: snapshot?.test_case_description || null, automated: null, status: snapshot?.status || null, priority: snapshot?.priority || null };
+  });
+  const retainedAssignees = retainRunSelections(assigneeOptions, initial.assigned_to_ids, (id) => {
+    const user = execution.assigned_users?.find((item) => item.id === id) || (execution.assigned_user?.id === id ? execution.assigned_user : null);
+    return { id, name: user?.name || null, email: user?.email || "", label: user?.name || user?.email || id, caption: "Current assignee" };
+  });
+  const changes = changedRunFields(initial, draft);
+  const dateError = draft.start_date && draft.end_date && draft.end_date < draft.start_date ? "End date must be on or after start date." : "";
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (fieldsDisabled || dateError || !draft.name.trim() || !Object.keys(changes).length || (!draft.suite_ids.length && !draft.test_case_ids.length)) return;
+    setError("");
+    try {
+      await update.mutateAsync({ ...changes, expected_revision: execution.revision });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["executions"] }),
+        queryClient.invalidateQueries({ queryKey: ["execution", execution.id] }),
+        queryClient.invalidateQueries({ queryKey: ["execution-results"] })
+      ]);
+      onSaved();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The run could not be updated.");
+      if (cause instanceof HelloTestApiError && cause.code === "RUN_FINISHED") setFinished(true);
+      setCheckingLatest(true);
+      const latest = await api.executions.get(execution.id).catch(() => null);
+      if (latest) {
+        setLatestRun(latest);
+        if (isRunFinished(latest)) setFinished(true);
+        else if (latest.revision !== execution.revision || latest.status !== execution.status || latest.started_at !== execution.started_at) setNeedsReload(true);
+      } else if (cause instanceof HelloTestApiError && cause.status === 409) setNeedsReload(true);
+      setCheckingLatest(false);
+    }
+  };
+  const reloadLatest = async () => {
+    setCheckingLatest(true);
+    try {
+      const latest = latestRun || await api.executions.get(execution.id);
+      queryClient.setQueryData(["execution-edit", execution.id], latest);
+      if (latest.revision === execution.revision) {
+        setDraft(runEditDraft(latest));
+        setFinished(isRunFinished(latest));
+        setNeedsReload(false);
+        setError("");
+      }
+    } catch { setError("The current run could not be loaded. Your edits are still here; retry when the connection is available."); }
+    finally { setCheckingLatest(false); }
+  };
+  return <div className="modal-backdrop modal-backdrop--scroll" role="presentation" onClick={() => !busy && onClose()}>
+    <div aria-labelledby="run-edit-title" aria-modal="true" role="dialog" className="modal-card run-edit-dialog" ref={dialogRef} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
+      <form onSubmit={submit}>
+        <header className="run-edit-heading"><div><h2 id="run-edit-title">Edit run</h2><p>Update the plan and scope for {execution.name || "this run"}.</p></div><button aria-label="Close edit run" className="ghost-button" disabled={busy} onClick={onClose} type="button"><IconX size={20} /></button></header>
+        {finished ? <p role="status" className="inline-message">This run has finished. Its plan and captured results are locked.</p> : null}
+        {error ? <p role="alert" className="inline-message error-message">{error}</p> : null}
+        {needsReload && !finished ? <p className="inline-message" role="status">This run changed while you were editing. Reload its current values before saving; reloading replaces your unsaved edits. <button type="button" className="ghost-button" disabled={busy} onClick={() => void reloadLatest()}>Reload current run</button></p> : null}
+        <fieldset className="run-edit-fields" disabled={fieldsDisabled}>
+          <div className="run-edit-grid">
+            <section className="run-edit-settings">
+              <FormField label="Run Name" required><input value={draft.name} onChange={(event) => set("name", event.target.value)} maxLength={255} required /></FormField>
+              <RunPlanningFields mode={draft.execution_mode} currentMode={initial.execution_mode} onModeChange={(value) => set("execution_mode", value)} startDate={draft.start_date} endDate={draft.end_date} onStartDateChange={(value) => set("start_date", value)} onEndDateChange={(value) => set("end_date", value)} canRunLocalAutomation={canRunLocalAutomation} canRunRemoteAutomation={canRunRemoteAutomation} modeDisabled={runtimeLocked} disabled={fieldsDisabled} modeHint={runtimeLocked ? "Run mode is fixed after execution starts." : "Changing the mode updates this run's plan. Saving does not start execution."} />
+              <FormField label="Assignees" composite><MultiAssigneePicker options={retainedAssignees} selectedIds={draft.assigned_to_ids} onChange={(value) => set("assigned_to_ids", value)} disabled={fieldsDisabled} /></FormField>
+              <div className="run-edit-delivery">{(["release", "sprint", "build"] as const).map((key) => <FormField key={key} label={key[0].toUpperCase() + key.slice(1)}><input value={draft[key]} onChange={(event) => set(key, event.target.value)} /></FormField>)}</div>
+              <fieldset className="run-edit-runtime" disabled={runtimeLocked}>
+                <legend>Run configuration</legend>
+                {runtimeLocked ? <p>Environment, test data and execution settings are fixed after this run starts.</p> : null}
+                <ExecutionContextSelector projectId={execution.project_id} appTypeId={execution.app_type_id || ""} selectedEnvironmentId={draft.test_environment_id} selectedConfigurationId={draft.test_configuration_id} selectedDataSetId={draft.test_data_set_id} onEnvironmentChange={(value) => set("test_environment_id", value)} onConfigurationChange={(value) => set("test_configuration_id", value)} onDataSetChange={(value) => set("test_data_set_id", value)} preserveMissingSelection />
+                <label className="checkbox-field"><input type="checkbox" checked={draft.parallel_enabled} disabled={!canConfigureParallelAutomation} onChange={(event) => set("parallel_enabled", event.target.checked)} />Run automation in parallel</label>
+                {draft.parallel_enabled ? <FormField label="Parallel workers"><input type="number" min={1} max={100} disabled={!canConfigureParallelAutomation} value={draft.parallel_count} onChange={(event) => set("parallel_count", Math.max(1, Number(event.target.value) || 1))} /></FormField> : null}
+              </fieldset>
+            </section>
+            <section className="run-edit-scope">
+              <h3>Run scope</h3><p>{scopeLocked ? "Automated run scope is fixed after execution starts." : "Choose suites and any additional individual cases. Cases with recorded results must stay in the run."}</p>
+              {suites.isError || cases.isError ? <p role="alert">Some scope options could not load. Existing selections are retained. <button className="ghost-button" type="button" onClick={() => { void suites.refetch(); void cases.refetch(); }}>Retry</button></p> : null}
+              {suites.isLoading || cases.isLoading ? <p role="status">Loading suites and test cases…</p> : <>
+                <fieldset className="run-edit-scope-options" disabled={scopeLocked || !canViewSuites}><SuiteScopePicker suites={suiteOptions} testCases={caseOptions} selectedSuiteIds={draft.suite_ids} onChange={(value) => set("suite_ids", value)} heading="Run suites" emptyMessage="No suites are available in this scope." /></fieldset>
+                <fieldset className="run-edit-scope-options" disabled={scopeLocked || !canViewCases}><SuiteCasePicker cases={caseOptions} selectedCaseIds={draft.test_case_ids} onChange={(value) => set("test_case_ids", value)} disabled={scopeLocked || !canViewCases || fieldsDisabled} heading="Additional test cases" description="Cases selected here are retained independently of suite membership." emptyMessage="No individual cases are available in this scope." /></fieldset>
+              </>}
+            </section>
+          </div>
+        </fieldset>
+        <footer className="run-edit-footer"><button className="ghost-button" disabled={busy} onClick={onClose} type="button">Cancel</button><button className="primary-button" disabled={fieldsDisabled || Boolean(dateError) || !draft.name.trim() || !Object.keys(changes).length || (!draft.suite_ids.length && !draft.test_case_ids.length)} type="submit">{update.isPending ? "Saving…" : checkingLatest ? "Checking current run…" : "Save changes"}</button></footer>
+      </form>
+    </div>
+  </div>;
+}

@@ -26,6 +26,7 @@ const request = async (input) => {
   if (!adapter) throw Object.assign(new Error(`Unsupported model protocol: ${protocol}`), { code: "MODEL_PROTOCOL_UNSUPPORTED" });
   const context = execution.current();
   const budget = context?.modelBudget;
+  const maxOutputTokens = Math.max(1, Math.min(4096, Number.parseInt(input.maxOutputTokens, 10) || 4096));
   if (budget && Number(context.modelStats.calls || 0) >= budget.max_tool_calls) throw Object.assign(new Error("Model call budget reached."), { code: "MODEL_BUDGET_EXCEEDED" });
   if (budget?.max_query_cost_usd != null) {
     const rates = input.integration.config?.pricing || {};
@@ -37,12 +38,12 @@ const request = async (input) => {
     const used = Number(context.modelStats.reservedCostUsd || 0);
     // Conservative admission estimate; actual provider usage is recorded below.
     const inputBound = Buffer.byteLength(JSON.stringify(input.messages), "utf8") + 256;
-    const estimated = (inputBound * Number(rates.input_per_million_usd) + 4096 * Number(rates.output_per_million_usd)) / 1_000_000;
+    const estimated = (inputBound * Number(rates.input_per_million_usd) + maxOutputTokens * Number(rates.output_per_million_usd)) / 1_000_000;
     if (used + estimated > budget.max_query_cost_usd) throw Object.assign(new Error("The model cost budget would be exceeded."), { code: "MODEL_COST_BUDGET_EXCEEDED" });
     context.modelStats.reservedCostUsd = used + estimated;
   }
   if (context) context.modelStats.calls += 1;
-  return execution.bounded((signal) => adapter({ ...input, signal }), { timeoutMs: input.timeoutMs || 45_000 });
+  return execution.bounded((signal) => adapter({ ...input, maxOutputTokens, signal }), { timeoutMs: input.timeoutMs ?? 45_000, signal: input.signal ?? context?.signal });
 };
 
 module.exports = { registerAdapter, request, recordUsage };

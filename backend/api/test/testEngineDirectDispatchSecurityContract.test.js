@@ -11,6 +11,6 @@ test("direct Test Engine dispatch sends the centrally resolved shared secret", a
 
   assert.match(
     source,
-    /const dispatchSecret = resolveTestEngineSecret\(\);[\s\S]*?fetch\(`\$\{engineHost\}\/api\/v1\/runs`[\s\S]*?"x-hellotest-testengine-secret": dispatchSecret/
+    /const dispatchSecret = resolveTestEngineSecret\(\);[\s\S]*?resilientHttpRequest\(`\$\{engineHost\}\/api\/v1\/runs`[\s\S]*?"x-hellotest-testengine-secret": dispatchSecret/
   );
 });

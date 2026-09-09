@@ -1,0 +1,97 @@
+.modal-card.resource-modal-card.run-configuration-dialog {
+  width: min(76rem, 100%) !important;
+  min-width: 0;
+}
+
+.run-configuration-dialog .run-configuration-dialog-context {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0 0 0.2rem;
+}
+
+.run-configuration-dialog-badge {
+  justify-self: start;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--dialog-divider, var(--line));
+  border-radius: 5px;
+  background: var(--dialog-surface-subtle, var(--panel-strong));
+  color: var(--dialog-ink, var(--text));
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.run-configuration-dialog-context p,
+.run-configuration-dialog-state p {
+  margin: 0;
+  color: var(--dialog-muted, var(--text-secondary));
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.run-configuration-dialog .resource-form-body {
+  align-content: start;
+}
+
+.run-configuration-dialog .resource-form-fields :is(input, select, textarea):disabled {
+  opacity: 1;
+  color: var(--dialog-text, var(--text));
+  -webkit-text-fill-color: var(--dialog-text, var(--text));
+  cursor: default;
+}
+
+.run-configuration-dialog .resource-form-fields .rich-text-editor {
+  opacity: 1;
+}
+
+.run-configuration-dialog-state {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 0.6rem;
+  min-height: 10rem;
+  padding: 1.25rem;
+  border: 1px solid var(--dialog-divider, var(--line));
+  border-radius: 8px;
+}
+
+.run-configuration-dialog-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--dialog-divider, var(--line));
+}
+
+.run-configuration-current-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--dialog-focus, #2563eb);
+}
+
+.run-configuration-current-link svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.run-configuration-current-link:focus-visible {
+  outline: 2px solid var(--dialog-focus, #2563eb);
+  outline-offset: 4px;
+}
+
+@media (max-width: 600px) {
+  .run-configuration-dialog .record-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-configuration-dialog .run-configuration-dialog-context p {
+    font-size: 0.75rem;
+  }
+}

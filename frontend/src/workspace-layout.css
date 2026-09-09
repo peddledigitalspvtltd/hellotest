@@ -1,0 +1,93 @@
+/* Focused authoring and case-run screens own the whole shell. Keep this rule
+   above the specificity of the persisted collapsed-sidebar layout: hiding the
+   sidebar without replacing its grid otherwise puts the page in the rail. */
+:root .app-shell.app-layout:has(> .workspace-main > .page-content--workspace-focus) {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+
+:root .app-shell.app-layout:has(> .workspace-main > .page-content--workspace-focus) > :is(.sidebar, .sidebar-backdrop),
+:root .app-shell.app-layout > .workspace-main:has(> .page-content--workspace-focus) > .mobile-sidebar-bar {
+  display: none !important;
+}
+
+:root .app-shell.app-layout > .workspace-main:has(> .page-content--workspace-focus) {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus > .page-header {
+  grid-row: 1;
+  width: auto !important;
+  margin: 8px 12px 0;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus > .inline-message.success-message {
+  grid-row: 2;
+  margin: 8px 12px;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus > .workspace-master-detail {
+  grid-row: 3;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus > .workspace-master-detail > .workspace-master-detail-panel {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 !important;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--executions-full {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--executions-full > .workspace-master-detail {
+  grid-row: 1;
+}
+
+/* Mobile navigation is fixed outside the grid, including while a desktop
+   sidebar preference is being restored or the viewport is being resized. */
+@media (max-width: 768px) {
+  :root .app-shell.app-layout,
+  :root[data-sidebar] .app-shell.app-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :root .app-shell.app-layout > .workspace-main {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+}

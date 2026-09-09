@@ -36,6 +36,23 @@
   font: inherit;
 }
 
+/* The run detail uses the workspace scrollbar. These are content panels, so
+   wheel/touch gestures over their controls should continue through the page.
+   Keep editable fields and open menus on their native scrolling behavior. */
+.execution-run-command-center .execution-command-tree,
+.execution-run-command-center .execution-command-case-list,
+.execution-run-command-center .execution-command-log-line,
+.execution-run-command-center .execution-command-disclosure > div {
+  max-height: none !important;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+.execution-run-command-center .execution-command-log-line,
+.execution-run-command-center .execution-command-analysis-copy {
+  overflow-wrap: anywhere;
+}
+
 .execution-command-header {
   display: grid;
   grid-template-columns: minmax(18rem, 1.05fr) minmax(26rem, 1.15fr) minmax(32rem, 1.8fr);
@@ -1750,4 +1767,113 @@ button.execution-command-tree-row:hover,
 .execution-smart-rovo-provider > button {
   grid-column: 2;
   justify-self: start;
+}
+.execution-run-command-center > .execution-command-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.execution-run-command-center > .execution-command-header .execution-command-identity h1 {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.execution-run-command-center > .execution-command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: .5rem;
+  padding: .8rem 1rem;
+  border-bottom: 1px solid var(--execution-command-line);
+  background: var(--execution-command-surface);
+}
+.execution-command-header > .execution-command-actions { grid-column: 1 / -1; justify-content: flex-start; }
+.execution-run-command-center .execution-run-insight-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 1rem;
+  border: 0;
+  padding: 1rem;
+  align-items: stretch;
+}
+.execution-run-insight-card.evidence-flip-card {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 15.5rem;
+  padding: 0;
+  overflow: hidden;
+  perspective: 70rem;
+  isolation: isolate;
+  border: 1px solid var(--execution-command-line, #e2e8f0);
+  border-radius: 14px;
+}
+.execution-run-insight-card .evidence-flip-card-inner { min-height: 15.5rem; height: 100%; }
+.execution-run-insight-card .evidence-flip-card-back { grid-template-rows: auto auto 1fr auto; }
+.execution-run-insight-card.is-flipped .evidence-flip-card-inner { height: auto; }
+.execution-run-insight-card.is-flipped .evidence-flip-card-back { position: relative; min-height: 15.5rem; }
+.execution-run-command-center .execution-run-insight-card .project-stat-evidence { overflow: visible; overscroll-behavior: auto; min-height: 0; overflow-wrap: anywhere; }
+.execution-run-insight-card .project-stat-card-trigger { display: grid; gap: .5rem; text-align: left; }
+.execution-run-insight-card .project-stat-card-trigger > strong { font-size: 1.8rem; line-height: 1.1; overflow-wrap: anywhere; }
+.execution-run-insight-card .project-stat-card-trigger small { font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+.execution-run-command-center .execution-run-config-card { border: 1px solid var(--execution-command-line, #e2e8f0); border-radius: 14px; padding: 1rem; gap: .65rem; }
+.execution-run-config-links { display: grid; gap: .45rem; min-width: 0; }
+.execution-run-config-links > button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; text-align: left; gap: .15rem .5rem; border: 1px solid var(--execution-command-line, #e2e8f0); border-radius: 8px; padding: .5rem .65rem; background: var(--execution-command-surface, #fff); color: inherit; }
+.execution-run-config-links > button > span { color: var(--execution-command-muted, #64748b); font-size: .68rem; }
+.execution-run-config-links > button > strong { grid-column: 1; font-size: .78rem; overflow-wrap: anywhere; }
+.execution-run-config-links > button > svg { grid-column: 2; grid-row: 1 / 3; }
+.execution-run-config-links > button:disabled { opacity: .6; cursor: default; }
+.execution-run-tile-card .execution-run-selection-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.execution-run-tile-card .tile-card-title-group { min-width: 0; }
+.execution-run-tile-card .tile-card-title-group > strong { overflow-wrap: anywhere; }
+.execution-run-card-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; border-top: 1px solid var(--execution-command-line, #e2e8f0); padding-top: .7rem; margin-top: auto; }
+.execution-run-card-actions button { display: inline-flex; align-items: center; gap: .4rem; }
+.execution-case-run-workspace .execution-case-run-header { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.execution-case-run-workspace .execution-case-run-header-actions { justify-content: flex-start; flex-wrap: wrap; }
+@media (max-width: 1000px) {
+  .execution-run-command-center .execution-run-insight-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .execution-run-command-center .execution-run-config-card { grid-column: 1 / -1; border: 1px solid var(--execution-command-line, #e2e8f0); }
+  .execution-run-config-links { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .execution-run-command-center .execution-run-insight-cards { grid-template-columns: minmax(0, 1fr); padding: .75rem; }
+  .execution-run-command-center > .execution-command-header { padding: .75rem; gap: .5rem; }
+  .execution-run-command-center > .execution-command-actions { padding: .75rem; }
+  .execution-run-config-links { grid-template-columns: minmax(0, 1fr); }
+  .execution-run-command-center .execution-run-insight-cards > * { border: 1px solid var(--execution-command-line, #e2e8f0); }
+}
+
+/* Run names have a real text label; suppress the shared decorative Title label. */
+.record-card.execution-run-tile-card .tile-card-title-group::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* A run's analysis column is narrower than the general seven-stage workflow rail. */
+.execution-run-command-center .execution-command-analysis .agent-process-rail__stages {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 0.35rem 0.6rem;
+  min-width: 0;
+}
+.execution-run-command-center .execution-command-analysis .agent-process-stage {
+  min-height: 2.5rem;
+  padding: 0.25rem 0;
+}
+.execution-run-command-center .execution-command-analysis .agent-process-stage::after {
+  display: none;
+}
+.execution-run-command-center .execution-command-analysis .agent-process-stage strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.execution-run-command-center .execution-command-analysis .agent-process-rail__trace {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.execution-run-command-center .execution-command-analysis .agent-process-rail__trace p {
+  overflow-wrap: anywhere;
+}
+.execution-run-command-center .execution-command-analysis .agent-process-rail__trace .ai-evidence-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
 }

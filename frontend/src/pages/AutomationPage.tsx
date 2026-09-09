@@ -3668,7 +3668,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
       ]);
       setSelectedAutomationCaseIds([]);
-      navigate(`/executions?view=${mode === "local" ? "local-runs" : "test-case-runs"}&execution=${id}`);
+      navigate(`/executions?view=${mode === "local" ? "local-runs" : "suite-runs"}&execution=${id}`);
       showSuccess(`${mode === "local" ? "Local" : "Remote"} automation run started with ${count} case${count === 1 ? "" : "s"}.`);
     },
     onError: (error) => showError(error, "Unable to run selected automation cases.")

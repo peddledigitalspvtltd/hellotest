@@ -425,6 +425,7 @@ export function AgenticCommandComposer({
 }
 
 export type AiFeatureComposerProps = {
+  headerActions?: ReactNode;
   agentName: string;
   mode: AgenticAssistantMode;
   onModeChange?: (mode: AgenticAssistantMode) => void;
@@ -517,6 +518,7 @@ export function AiRunBrief({ items, className = "", collapsible = false }: { ite
 
 export function AiFeatureComposer({
   agentName,
+  headerActions,
   mode,
   onModeChange,
   prompt,
@@ -561,6 +563,7 @@ export function AiFeatureComposer({
             <small>{mode === "chat" ? "Explore and refine together" : "Draft for human review"}</small>
           </div>
           <em><IconShieldCheck aria-hidden="true" size={14} stroke={1.9} />Governed</em>
+          {headerActions}
         </div>
       ) : null}
       <textarea

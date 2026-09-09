@@ -94,6 +94,34 @@
 }
 
 .knowledge-studio-health .is-ready i { background: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12); }
+.knowledge-studio-health .is-neutral i { background: #64748b; box-shadow: none; }
+
+.knowledge-indexing-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.8rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.knowledge-indexing-notice > svg { flex: 0 0 auto; margin-top: 0.1rem; }
+.knowledge-indexing-notice > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.knowledge-indexing-notice strong,
+.knowledge-indexing-notice span { display: block; }
+.knowledge-indexing-notice strong { margin-bottom: 0.2rem; color: var(--text-primary); }
+.knowledge-indexing-notice > button { flex: 0 0 auto; }
+.knowledge-indexing-notice.is-warning { background: color-mix(in srgb, #d97706 8%, var(--surface)); }
+.knowledge-indexing-notice.is-warning > svg { color: #b45309; }
+
+@media (max-width: 560px) {
+  .knowledge-indexing-notice { flex-wrap: wrap; }
+  .knowledge-indexing-notice > div { flex-basis: calc(100% - 2rem); }
+  .knowledge-indexing-notice > button { margin-left: 1.75rem; }
+}
 
 .knowledge-studio-metrics {
   display: grid;

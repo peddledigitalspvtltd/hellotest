@@ -70,14 +70,14 @@ const RESERVED_CONFIGURATION_VARIABLE_KEYS = new Set([
   "platform_version"
 ]);
 
-type EnvironmentDraft = {
+export type EnvironmentDraft = {
   name: string;
   description: string;
   base_url: string;
   variables: KeyValueEntry[];
 };
 
-type ConfigurationDraft = {
+export type ConfigurationDraft = {
   name: string;
   description: string;
   targets: TestConfigurationTarget[];
@@ -244,14 +244,14 @@ const normalizeTableRows = (rows: TestDataSetRow[], columns: string[]) =>
     )
     .filter((row) => Object.values(row).some((value) => value.trim()));
 
-const environmentToDraft = (environment: TestEnvironment): EnvironmentDraft => ({
+export const environmentToDraft = (environment: Pick<TestEnvironment, "name" | "description" | "base_url" | "variables">): EnvironmentDraft => ({
   name: environment.name,
   description: environment.description || "",
   base_url: environment.base_url || "",
   variables: environment.variables
 });
 
-const configurationToDraft = (configuration: TestConfiguration): ConfigurationDraft => {
+export const configurationToDraft = (configuration: Pick<TestConfiguration, "name" | "description" | "targets" | "browser" | "mobile_os" | "platform_version" | "variables">): ConfigurationDraft => {
   const persistedTargets = Array.isArray(configuration.targets) ? configuration.targets : [];
   const legacyTarget = createConfigurationTarget({
     browser: configuration.browser || "",
@@ -272,7 +272,7 @@ const configurationToDraft = (configuration: TestConfiguration): ConfigurationDr
   };
 };
 
-const dataSetToDraft = (dataSet: TestDataSet): DataSetDraft => ({
+export const dataSetToDraft = (dataSet: Pick<TestDataSet, "name" | "description" | "mode" | "columns" | "rows">): DataSetDraft => ({
   name: dataSet.name,
   description: dataSet.description || "",
   mode: dataSet.mode,
@@ -1763,13 +1763,19 @@ export function ResourceModalShell({
   );
 }
 
-function EnvironmentForm({
+/** Shares the authoring fields with frozen run inspection, without enabling mutations. */
+function ResourceFormFields({ readOnly, children }: { readOnly: boolean; children: ReactNode }) {
+  return readOnly ? <fieldset className="resource-form-fields" disabled>{children}</fieldset> : <>{children}</>;
+}
+
+export function EnvironmentForm({
   draft,
   onChange,
   onSubmit,
   onDelete,
   submitLabel,
-  isSubmitting
+  isSubmitting,
+  readOnly = false
 }: {
   draft: EnvironmentDraft;
   onChange: (draft: EnvironmentDraft) => void;
@@ -1777,13 +1783,15 @@ function EnvironmentForm({
   onDelete?: () => void;
   submitLabel: string;
   isSubmitting: boolean;
+  readOnly?: boolean;
 }) {
   return (
-    <form className="resource-form" onSubmit={onSubmit}>
+    <form className="resource-form" onSubmit={readOnly ? (event) => event.preventDefault() : onSubmit}>
+      <ResourceFormFields readOnly={readOnly}>
       <div className="resource-form-body">
         <div className="record-grid">
           <FormField label="Environment name" required>
-            <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
+            <input data-autofocus={readOnly ? undefined : "true"} required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
           </FormField>
           <FormField label="Base URL">
             <input placeholder="https://staging.example.com" value={draft.base_url} onChange={(event) => onChange({ ...draft, base_url: event.target.value })} />
@@ -1791,7 +1799,7 @@ function EnvironmentForm({
         </div>
 
         <FormField label="Description">
-          <RichTextEditor appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
+          <RichTextEditor disabled={readOnly} appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         <KeyValueEditor
@@ -1803,15 +1811,17 @@ function EnvironmentForm({
         />
       </div>
 
-      <div className="action-row resource-form-actions">
+      </ResourceFormFields>
+
+      {!readOnly ? <div className="action-row resource-form-actions">
         <button className="primary-button" disabled={isSubmitting} type="submit">{submitLabel}</button>
         {onDelete ? <button className="ghost-button danger" disabled={isSubmitting} onClick={onDelete} type="button">Delete</button> : null}
-      </div>
+      </div> : null}
     </form>
   );
 }
 
-function ConfigurationForm({
+export function ConfigurationForm({
   draft,
   browserOptions,
   mobileOsOptions,
@@ -1820,7 +1830,8 @@ function ConfigurationForm({
   onSubmit,
   onDelete,
   submitLabel,
-  isSubmitting
+  isSubmitting,
+  readOnly = false
 }: {
   draft: ConfigurationDraft;
   browserOptions: Array<{ value: string; label: string }>;
@@ -1831,6 +1842,7 @@ function ConfigurationForm({
   onDelete?: () => void;
   submitLabel: string;
   isSubmitting: boolean;
+  readOnly?: boolean;
 }) {
   const [announcement, setAnnouncement] = useState("");
   const firstControlRefs = useRef(new Map<string, HTMLSelectElement>());
@@ -1905,14 +1917,15 @@ function ConfigurationForm({
   };
 
   return (
-    <form className="resource-form resource-form--configuration" onSubmit={onSubmit}>
+    <form className="resource-form resource-form--configuration" onSubmit={readOnly ? (event) => event.preventDefault() : onSubmit}>
+      <ResourceFormFields readOnly={readOnly}>
       <div className="resource-form-body">
         <FormField label="Configuration name" required>
-          <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
+          <input data-autofocus={readOnly ? undefined : "true"} required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
         </FormField>
 
         <FormField label="Description">
-          <RichTextEditor appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
+          <RichTextEditor disabled={readOnly} appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         <section aria-labelledby="configuration-targets-heading" className="configuration-matrix">
@@ -1978,6 +1991,8 @@ function ConfigurationForm({
                             onChange={(event) => updateTarget(index, "os", event.target.value)}
                           >
                             <option value="">Any host OS</option>
+                            {readOnly && target.os && !CONFIGURATION_HOST_OS_OPTIONS.some(option => option.value === target.os)
+                              ? <option value={target.os}>{target.os}</option> : null}
                             {CONFIGURATION_HOST_OS_OPTIONS.map((option) => (
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
@@ -2067,10 +2082,12 @@ function ConfigurationForm({
         {validationError && !duplicateTargetIndexes.size ? <p className="form-field-error" role="alert">{validationError}</p> : null}
       </div>
 
-      <div className="action-row resource-form-actions">
+      </ResourceFormFields>
+
+      {!readOnly ? <div className="action-row resource-form-actions">
         <button className="primary-button" disabled={isSubmitting || Boolean(validationError)} type="submit">{submitLabel}</button>
         {onDelete ? <button className="ghost-button danger" disabled={isSubmitting} onClick={onDelete} type="button">Delete</button> : null}
-      </div>
+      </div> : null}
     </form>
   );
 }
@@ -2083,7 +2100,8 @@ export function DataSetForm({
   onDelete,
   savedDataSets = [],
   submitLabel,
-  isSubmitting
+  isSubmitting,
+  readOnly = false
 }: {
   draft: DataSetDraft;
   dataSetModeOptions: Array<{ value: string; label: string }>;
@@ -2093,12 +2111,13 @@ export function DataSetForm({
   savedDataSets?: TestDataSet[];
   submitLabel: string;
   isSubmitting: boolean;
+  readOnly?: boolean;
 }) {
   const [importFeedback, setImportFeedback] = useState("");
   const [importFeedbackTone, setImportFeedbackTone] = useState<"success" | "error">("success");
   const [previewRevision, setPreviewRevision] = useState(0);
   const generatedFieldCount = useMemo(() => countGeneratedTestDataFields(draft.rows), [draft.rows]);
-  const generatedPreviewRows = useMemo(() => materializeTestDataRows(draft.rows), [draft.rows, previewRevision]);
+  const generatedPreviewRows = useMemo(() => readOnly ? draft.rows : materializeTestDataRows(draft.rows), [draft.rows, previewRevision, readOnly]);
   const utilityOptions = useMemo(() => buildDataUtilityOptions(draft, savedDataSets), [draft, savedDataSets]);
 
   const handleDataFileImport = async (file?: File | null) => {
@@ -2146,11 +2165,12 @@ export function DataSetForm({
   };
 
   return (
-    <form className="resource-form test-data-form" onSubmit={onSubmit}>
+    <form className="resource-form test-data-form" onSubmit={readOnly ? (event) => event.preventDefault() : onSubmit}>
+      <ResourceFormFields readOnly={readOnly}>
       <div className="resource-form-body test-data-form-body">
         <div className="record-grid">
           <FormField label="Data set name" required>
-            <input data-autofocus="true" required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
+            <input data-autofocus={readOnly ? undefined : "true"} required value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} />
           </FormField>
           <FormField label="Data format">
             <select
@@ -2179,12 +2199,12 @@ export function DataSetForm({
         </div>
 
         <FormField label="Description">
-          <RichTextEditor appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
+          <RichTextEditor disabled={readOnly} appearance="canonical" rows={3} value={draft.description} onChange={(description) => onChange({ ...draft, description })} />
         </FormField>
 
         {importFeedback ? <p className={importFeedbackTone === "error" ? "form-error resource-import-feedback" : "form-success resource-import-feedback"}>{importFeedback}</p> : null}
 
-        {generatedFieldCount ? (
+        {!readOnly && generatedFieldCount ? (
           <section className="test-data-generator-panel">
             <div className="test-data-generator-header">
               <div>
@@ -2246,10 +2266,12 @@ export function DataSetForm({
         )}
       </div>
 
-      <div className="action-row resource-form-actions">
+      </ResourceFormFields>
+
+      {!readOnly ? <div className="action-row resource-form-actions">
         <button className="primary-button" disabled={isSubmitting} type="submit">{submitLabel}</button>
         {onDelete ? <button className="ghost-button danger" disabled={isSubmitting} onClick={onDelete} type="button">Delete</button> : null}
-      </div>
+      </div> : null}
     </form>
   );
 }

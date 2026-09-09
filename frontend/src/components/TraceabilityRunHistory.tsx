@@ -140,7 +140,7 @@ export function TraceabilityRunHistory({
   }, [rows]);
 
   const openRun = (item: TraceabilityRunHistoryItem) => {
-    const view = item.trigger === "local" ? "local-runs" : item.suite_ids.length ? "suite-runs" : "test-case-runs";
+    const view = item.trigger === "local" ? "local-runs" : item.suite_ids.length ? "suite-runs" : "suite-runs";
     const params = new URLSearchParams({ view, execution: item.execution_id, testCase: item.test_case_id });
     navigate(`/executions?${params.toString()}`);
   };

@@ -20,7 +20,7 @@ const assertProgressFirstMetricCard = (card, trailingMarker) => {
 
   assert.ok(progressIndex >= 0, "Card should render progress");
   assert.ok(metricsIndex > progressIndex, "Progress should precede metric cards");
-  assert.ok(trailingIndex > metricsIndex, `${trailingMarker} should remain after metric cards`);
+  if (trailingMarker) assert.ok(trailingIndex > metricsIndex, `${trailingMarker} should remain after metric cards`);
   assert.equal((card.match(/<TileCardProgress/g) || []).length, 2);
   assert.equal((card.match(/<TileCardMetric/g) || []).length, 4);
 };
@@ -102,20 +102,23 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
   assert.match(card, /story-tile-metrics/);
 });
 
-test("Test Run tiles use finalized results for progress and preserve operational context", async () => {
+test("Test Run tiles use finalized results with concise defect and story metrics", async () => {
   const page = await readSource("../src/pages/ExecutionsPage.tsx");
   const card = sliceBetween(page, "function ExecutionListCard", "function ExecutionScheduleCard");
 
-  assertProgressFirstMetricCard(card, "execution-card-risk-note");
+  assertProgressFirstMetricCard(card, "execution-run-card-actions");
   assert.match(card, /const finalizedTotal = summary\.passed \+ summary\.failed \+ summary\.blocked/);
-  assert.match(card, /totalScopedCases \* dataIterationCount/);
+  assert.match(card, /totalScopedCases \* executionDataIterationCount\(execution\)/);
   assert.match(card, /finalizedTotal \/ resolvedOutcomeCount/);
   assert.match(card, /summary\.passed \/ finalizedTotal/);
-  for (const detail of ["Cases", "Pass rate", "Duration", "Blocking", "Story impact", "execution outcomes touched", "external references", "Release", "Sprint:", "Build:", "Impacted stories"]) {
+  for (const detail of ["Run Name", "Cases", "Pass rate", "Duration", "Defects", "Story impact", "Impacted stories", "Edit run"]) {
     assert.match(card, new RegExp(detail));
   }
   assert.match(card, /buildFinalizedProgressSegments/);
-  assert.match(card, /executionStatus === "aborted" \? "warning"/);
+  assert.match(card, /execution\.metrics\?\.defect_count \?\? 0/);
+  assert.match(card, /disabled=\{!canEdit \|\| isRunFinished\(execution\)\}/);
+  assert.match(card, /execution-run-selection-row[\s\S]*<input[\s\S]*<ExecutionStatusIndicator/);
+  assert.doesNotMatch(card, /execution outcomes touched|external references|label="Blocking"|label="Suites"|label="Release"|label="Assignee"|execution\.created_at/);
   assert.match(card, /aria-current=\{isActive \? "page" : undefined\}/);
   assert.doesNotMatch(card, /role="button"/);
   assert.doesNotMatch(card, /<ProgressMeter/);
@@ -170,14 +173,14 @@ test("Test Run summaries deduplicate Data Set iterations and keep pass rate term
   assert.match(segments, /blockedCount \/ totalCount\) \* 100, tone: "warning"/);
 });
 
-test("Bug tiles show evidence and triage health above metrics without dropping existing details", async () => {
+test("Bug tiles show evidence and triage health above their four summary metrics", async () => {
   const page = await readSource("../src/pages/IssuesPage.tsx");
   const card = sliceBetween(page, "filteredItems.map((item: Issue)", "catalogViewMode === \"list\"");
 
-  assertProgressFirstMetricCard(card, "issue-card-footer");
+  assertProgressFirstMetricCard(card);
   assert.match(card, /item\.message,[\s\S]*item\.steps_to_reproduce,[\s\S]*item\.expected_result,[\s\S]*item\.actual_result/);
   assert.match(card, /const triageFields = \[item\.severity, item\.priority, isAssigned \? assigneeLabel : ""\]/);
-  for (const detail of ["Evidence completeness", "Triage completeness", "Severity", "Priority", "Linked scope", "Ownership", "item.build", "item.linked_test_run_id", "assigneeLabel"]) {
+  for (const detail of ["Evidence completeness", "Triage completeness", "Severity", "Priority", "Linked scope", "Ownership", "item.linked_test_run_id", "assigneeLabel"]) {
     assert.match(card, new RegExp(detail.replace(".", "\\.")));
   }
   assert.match(card, /aria-current=\{selectedIssueId === item\.id \? "page" : undefined\}/);

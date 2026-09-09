@@ -13,6 +13,7 @@ import { DialogCloseButton } from "../components/DialogCloseButton";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { EntityIdBadge } from "../components/EntityIdBadge";
 import { FormField } from "../components/FormField";
+import { RunPlanningFields } from "../components/RunPlanningFields";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
@@ -289,6 +290,8 @@ export function DesignPage() {
   const [isTestCaseEditorModalOpen, setIsTestCaseEditorModalOpen] = useState(false);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
   const [executionName, setExecutionName] = useState("");
+  const [executionStartDate, setExecutionStartDate] = useState("");
+  const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
@@ -523,6 +526,8 @@ export function DesignPage() {
   const closeCreateExecutionModal = () => {
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
+    setExecutionStartDate("");
+    setExecutionEndDate("");
     setSelectedExecutionAssigneeIds([]);
     setExecutionRelease("");
     setExecutionSprint("");
@@ -1488,6 +1493,10 @@ export function DesignPage() {
 
   const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (executionStartDate && executionEndDate && executionEndDate < executionStartDate) {
+      showError(new Error("End date must be on or after start date."), "Unable to create run");
+      return;
+    }
 
     if (!session?.user.id) {
       setMessageTone("error");
@@ -1521,6 +1530,8 @@ export function DesignPage() {
         sprint: executionSprint.trim() || undefined,
         build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
+        start_date: executionStartDate || undefined,
+        end_date: executionEndDate || undefined,
         created_by: session.user.id
       });
 
@@ -2084,6 +2095,10 @@ export function DesignPage() {
           canRunRemoteAutomation={canRunRemoteAutomation}
           executionHookDraft={executionHookDraft}
           executionName={executionName}
+          executionStartDate={executionStartDate}
+          executionEndDate={executionEndDate}
+          onExecutionStartDateChange={setExecutionStartDate}
+          onExecutionEndDateChange={setExecutionEndDate}
           executionRelease={executionRelease}
           releaseOptions={deliveryReleaseOptions}
           executionSprint={executionSprint}
@@ -3859,6 +3874,10 @@ function SuiteExecutionModal({
   selectedConfigurationId,
   selectedDataSetId,
   executionStartMode,
+  executionStartDate,
+  executionEndDate,
+  onExecutionStartDateChange,
+  onExecutionEndDateChange,
   executionParallelEnabled,
   executionParallelCount,
   canConfigureParallelAutomation,
@@ -3903,6 +3922,10 @@ function SuiteExecutionModal({
   selectedConfigurationId: string;
   selectedDataSetId: string;
   executionStartMode: ExecutionStartMode;
+  executionStartDate: string;
+  executionEndDate: string;
+  onExecutionStartDateChange: (value: string) => void;
+  onExecutionEndDateChange: (value: string) => void;
   executionParallelEnabled: boolean;
   executionParallelCount: number;
   canConfigureParallelAutomation: boolean;
@@ -4002,18 +4025,18 @@ function SuiteExecutionModal({
               </FormField>
             </div>
 
-            {canRunLocalAutomation || canRunRemoteAutomation || (executionStartMode !== "manual" && canConfigureParallelAutomation) ? (
-              <div className="execution-create-grid">
-              {canRunLocalAutomation || canRunRemoteAutomation ? (
-                <label className="execution-run-mode-control">
-                  <span>Run mode</span>
-                  <select aria-label="Run mode" disabled={isSubmitting} value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                    <option value="manual">Manual</option>
-                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
-                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
-                  </select>
-                </label>
-              ) : null}
+            <div className="execution-create-grid">
+              <RunPlanningFields
+                canRunLocalAutomation={canRunLocalAutomation}
+                canRunRemoteAutomation={canRunRemoteAutomation}
+                disabled={isSubmitting}
+                endDate={executionEndDate}
+                mode={executionStartMode}
+                onEndDateChange={onExecutionEndDateChange}
+                onModeChange={onExecutionStartModeChange}
+                onStartDateChange={onExecutionStartDateChange}
+                startDate={executionStartDate}
+              />
 
               {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
                 <FormField label="Parallel execution">
@@ -4038,8 +4061,7 @@ function SuiteExecutionModal({
                 </div>
               </FormField>
               ) : null}
-              </div>
-            ) : null}
+            </div>
 
             <div className="detail-summary">
               <strong>{selectedProject || "Select a project to continue"}</strong>

@@ -356,6 +356,7 @@ type IssuePayload = {
   linked_requirement_ids?: string[];
   assignee_id?: string;
   root_cause?: string;
+  qa_root_cause?: string;
   bug_type?: string;
   regression?: boolean;
   status?: string;
@@ -602,12 +603,19 @@ async function requestKnowledgeStream(path: string, input: unknown, options: { s
   const token = getStoredToken();
   const timeout = AbortSignal.timeout(210_000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  const response = await fetch(`${API_BASE_URL}${scopedPath}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(input),
-    signal
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${scopedPath}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(input),
+      signal
+    });
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    if (timeout.aborted) throw new KnowledgeStreamError("The answer did not finish within the connection time limit.", "REQUEST_TIMEOUT");
+    throw new KnowledgeStreamError("The assistant could not be reached. Check your connection and retry this turn.", "NETWORK_UNAVAILABLE");
+  }
   if (!response.ok) {
     const error = await parseApiError(response);
     if (response.status === 401 && token && isSessionAuthFailure(scopedPath, error.message)) {
@@ -616,7 +624,13 @@ async function requestKnowledgeStream(path: string, input: unknown, options: { s
     }
     throw new KnowledgeStreamError(error.message, `HTTP_${response.status}`, response.status === 429 || response.status >= 500);
   }
-  const result = await consumeKnowledgeAssistantStream(response, { ...options, signal });
+  let result: KnowledgeAssistantMessageResponse;
+  try {
+    result = await consumeKnowledgeAssistantStream(response, { ...options, signal });
+  } catch (error) {
+    if (!options.signal?.aborted && timeout.aborted) throw new KnowledgeStreamError("The answer did not finish within the connection time limit.", "REQUEST_TIMEOUT");
+    throw error;
+  }
   clientGetResponseCache.clear();
   return result;
 }
@@ -1395,6 +1409,7 @@ export const api = {
       request<PagedResult<Issue>>(`/feedback${toQueryString({ ...query, include_page: true })}`),
     get: (id: string, query?: { project_id?: string }) =>
       request<Issue>(`/feedback/${id}${toQueryString(query)}`),
+    history: (id: string) => request<import("../types").IssueHistoryEntry[]>(`/feedback/${id}/history`),
     createMetadata: (query?: { project_id?: string }) =>
       request<JiraBugCreateMetadata>(`/feedback/create-metadata${toQueryString(query)}`),
     editMetadata: (id: string, query?: { project_id?: string }) =>
@@ -1569,7 +1584,7 @@ export const api = {
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }) =>
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`),
-    create: (input: { app_type_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
@@ -2031,11 +2046,11 @@ export const api = {
       }),
     previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
       request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) }),
-    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; created_by: string; engine_base_url?: string }) =>
+    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; start_date?: string; end_date?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: { assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; expected_revision?: number }) =>
+    update: (id: string, input: { name?: string; start_date?: string | null; end_date?: string | null; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string | null; test_configuration_id?: string | null; test_data_set_id?: string | null; execution_mode?: "manual" | "remote" | "local"; parallel_enabled?: boolean; parallel_count?: number; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; expected_revision?: number }) =>
       request<{ updated: boolean; revision: number }>(`/executions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     runApiStep: (executionId: string, testCaseId: string, stepId: string, input?: { data_set_iteration_index?: number }) =>
       request<{

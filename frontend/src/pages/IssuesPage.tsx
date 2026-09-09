@@ -19,7 +19,7 @@ import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { FormField } from "../components/FormField";
 import { JiraAttachmentIcon, JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
-import { JiraCommentsPanel } from "../components/JiraCommentsPanel";
+import { IssueActivityPanel } from "../components/IssueActivityPanel";
 import { JiraRequiredFields } from "../components/JiraRequiredFields";
 import { LabelsField } from "../components/LabelsField";
 import { LoadingState } from "../components/LoadingState";
@@ -40,7 +40,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
-import { BUG_TO_TEST_CASE_STORAGE_KEY, buildBugToTestCaseDraft } from "../lib/bugToTestCaseConversion";
+import { BUG_TO_TEST_CASE_STORAGE_KEY, buildBugToTestCaseDraft, countConvertedBugs } from "../lib/bugToTestCaseConversion";
 import { isJiraCoreFieldRequired } from "../lib/jiraCreateMetadata";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
@@ -107,6 +107,7 @@ type IssueDraft = {
   linked_requirement_ids: string[];
   assignee_id: string;
   root_cause: string;
+  qa_root_cause: string;
   bug_type: string;
   regression: boolean;
   status: string;
@@ -145,6 +146,7 @@ const ISSUE_PRIORITY_OPTIONS = [
 ];
 
 const ISSUE_ROOT_CAUSE_OPTIONS = ["Code Defect", "Requirements Gap", "Design Defect", "Configuration", "Test Data", "Environment", "Integration", "Dependency", "Deployment", "Performance / Capacity", "Security", "Human Error", "Duplicate", "Not Reproducible", "Unknown"];
+const ISSUE_QA_ROOT_CAUSE_OPTIONS = ["Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"];
 const ISSUE_BUG_TYPE_OPTIONS = ["Functional", "UI / UX", "Performance", "Security", "Accessibility", "Compatibility", "Integration", "Data", "API", "Reliability", "Localization", "Installation / Deployment", "Documentation"];
 
 const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
@@ -165,6 +167,7 @@ const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
   linked_requirement_ids: [],
   assignee_id: "",
   root_cause: "",
+  qa_root_cause: "",
   bug_type: "",
   regression: false,
   status: defaultStatus,
@@ -192,6 +195,7 @@ const createIssueDraftFromItem = (item: Issue, defaultStatus: string): IssueDraf
   linked_requirement_ids: item.linked_requirement_ids || [],
   assignee_id: item.assignee_id || "",
   root_cause: item.root_cause || "",
+  qa_root_cause: item.qa_root_cause || "",
   bug_type: item.bug_type || "",
   regression: Boolean(item.regression),
   status: item.status || defaultStatus,
@@ -285,6 +289,7 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     linked_requirement_ids: linkedRequirementIds,
     assignee_id: "",
     root_cause: "",
+    qa_root_cause: "",
     bug_type: "",
     regression: false,
     status: defaultStatus,
@@ -328,6 +333,7 @@ const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string)
   linked_requirement_ids: draft.linked_requirement_ids,
   assignee_id: optionalDraftValue(draft.assignee_id),
   root_cause: optionalDraftValue(draft.root_cause),
+  qa_root_cause: optionalDraftValue(draft.qa_root_cause),
   bug_type: optionalDraftValue(draft.bug_type),
   regression: draft.regression,
   status: draft.status,
@@ -868,6 +874,7 @@ export function IssuesPage() {
         item.expected_result,
         item.actual_result,
         item.root_cause,
+        item.qa_root_cause,
         item.user_name,
         item.user_email,
         item.user_id
@@ -879,6 +886,7 @@ export function IssuesPage() {
     );
   }, [assigneeLabelById, deferredIssueSearch, items, runLabelById]);
   const visibleIssueIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
+  const convertedBugCount = useMemo(() => countConvertedBugs(filteredItems), [filteredItems]);
   const selectedActionIssueIdSet = useMemo(() => new Set(selectedActionIssueIds), [selectedActionIssueIds]);
   const selectedActionIssues = useMemo(
     () => items.filter((item) => selectedActionIssueIdSet.has(item.id)),
@@ -1223,7 +1231,8 @@ export function IssuesPage() {
           "Steps To Reproduce": richTextToPlainText(item.steps_to_reproduce),
           "Expected Result": richTextToPlainText(item.expected_result),
           "Actual Result": richTextToPlainText(item.actual_result),
-          "Root Cause": richTextToPlainText(item.root_cause)
+          "Primary Root Cause": richTextToPlainText(item.root_cause),
+          "QA Root Cause": item.qa_root_cause || ""
         }))
       );
       setMessageTone("success");
@@ -1397,7 +1406,8 @@ export function IssuesPage() {
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["issues"] }),
-      queryClient.invalidateQueries({ queryKey: ["bug-detail", projectId] })
+      queryClient.invalidateQueries({ queryKey: ["bug-detail", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["bug-history", projectId] })
     ]);
   };
 
@@ -1665,6 +1675,7 @@ export function IssuesPage() {
       bug_type: "Functional",
       regression: false,
       root_cause: "",
+      qa_root_cause: "",
       assignee_id: "",
       jira_bug_key: "",
       status: defaultIssueStatus,
@@ -2374,6 +2385,12 @@ export function IssuesPage() {
               value: issues.isLoading ? "—" : bugCatalogMetrics.unassigned,
               detail: issues.isLoading ? "Loading ownership" : "Open bugs without owner",
               tone: !issues.isLoading && bugCatalogMetrics.unassigned ? "danger" : "neutral"
+            },
+            {
+              label: "Converted to Test Cases",
+              value: issues.isLoading ? "—" : convertedBugCount,
+              detail: issues.isLoading ? "Loading recorded conversions" : deferredIssueSearch.trim() ? "Matching bugs with converted cases" : "Bugs with converted cases",
+              methodology: "Each bug is counted once when an existing test case was created from it using Convert to Test Case. Ordinary case links and older conversions without a recorded origin are excluded."
             }
           ]}
         />
@@ -2924,12 +2941,20 @@ export function IssuesPage() {
                 </section>
 
                 <section className="issue-form-section issue-form-section--root-cause">
-                  <FormField label="Root Cause">
-                    <select value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
-                      <option value="">Not determined</option>
-                      {ISSUE_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
-                    </select>
-                  </FormField>
+                  <div className="issue-root-cause-grid">
+                    <FormField label="Primary Root Cause">
+                      <select value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
+                        <option value="">Not determined</option>
+                        {ISSUE_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
+                      </select>
+                    </FormField>
+                    <FormField label="QA Root Cause">
+                      <select value={draft.qa_root_cause} onChange={(event) => setDraft((current) => ({ ...current, qa_root_cause: event.target.value }))}>
+                        <option value="">Not determined</option>
+                        {ISSUE_QA_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
+                      </select>
+                    </FormField>
+                  </div>
                 </section>
                 {isCreating && canCreateAttachments ? (
                   <section className="jira-attachment-panel" aria-label="Attachments for new Bug">
@@ -2970,7 +2995,7 @@ export function IssuesPage() {
                   />
                 ) : null}
                 {!isCreating && selectedItem ? (
-                  <JiraCommentsPanel canComment={canManageBugs} entityId={selectedItem.id} entityType="issue" issueKey={selectedItem.display_id || selectedItem.id} projectId={projectId} />
+                  <IssueActivityPanel canComment={canManageBugs} issueId={selectedItem.id} issueKey={selectedItem.display_id || selectedItem.id} key={selectedItem.id} projectId={projectId} />
                 ) : null}
                 {isCreating && duplicateCandidates.length ? (
                   <section className="issue-duplicate-review" role="alert">

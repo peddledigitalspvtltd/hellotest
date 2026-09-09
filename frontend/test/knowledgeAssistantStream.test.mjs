@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { consumeKnowledgeAssistantStream, KnowledgeStreamError } from "../src/lib/knowledgeAssistantStream.ts";
+import { consumeKnowledgeAssistantStream, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
 
 const progress = { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "IN_PROGRESS", message: "Searching café notes" };
 const result = { assistant_message: { id: "answer", role: "assistant", content: "Answer", citations: [] } };
@@ -49,4 +49,45 @@ test("unsupported contracts and malformed final payloads fail without rendering 
 test("an idempotent pending response remains pending for the same-turn retry flow", async () => {
   const pending = { pending: true, client_turn_id: "turn-1", retry_after_seconds: 3 };
   assert.deepEqual(await consumeKnowledgeAssistantStream(streamed(event("result", pending))), pending);
+});
+
+test("pending turns automatically resume through the same request and stop after a bounded number of checks", async () => {
+  let calls = 0;
+  let pendingEvents = 0;
+  const response = await resumePendingKnowledgeTurn(async () => ++calls < 3 ? { pending: true, client_turn_id: "original" } : result, { retryDelayMs: 1, onPending: () => pendingEvents++ });
+  assert.equal(response, result);
+  assert.equal(calls, 3);
+  assert.equal(pendingEvents, 2);
+  calls = 0;
+  await assert.rejects(resumePendingKnowledgeTurn(async () => { calls++; return { pending: true }; }, { retryDelayMs: 1, maxPendingRetries: 2 }), error => error.code === "TURN_PENDING" && knowledgeTurnNotice(error).kind === "pending");
+  assert.equal(calls, 3);
+});
+
+test("Stop interrupts pending retry delay without issuing another request", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const pending = resumePendingKnowledgeTurn(async () => { calls++; return { pending: true }; }, { signal: controller.signal, onPending: () => controller.abort() });
+  await assert.rejects(pending, error => error.name === "AbortError");
+  assert.equal(calls, 1);
+});
+
+test("failure messages distinguish connection, service timeout, pending and explicit Stop", () => {
+  assert.match(knowledgeTurnNotice(new KnowledgeStreamError("timeout", "REQUEST_TIMEOUT")).title, /took too long/);
+  assert.match(knowledgeTurnNotice(new KnowledgeStreamError("lost", "STREAM_INTERRUPTED")).title, /connection/i);
+  assert.equal(knowledgeTurnNotice(new KnowledgeStreamError("wait", "TURN_PENDING")).kind, "pending");
+  assert.equal(knowledgeTurnNotice(new Error("aborted"), true).kind, "cancelled");
+  assert.equal(knowledgeTurnNotice(new KnowledgeStreamError("Access revoked", "SCOPE_REVOKED", false)).retryable, false);
+});
+
+test("live progress uses reported stages and real elapsed time; model failures never imply retrieval failed", () => {
+  assert.equal(knowledgeProgressLabel({ stage: "GENERATION" }), "Writing an answer from the evidence");
+  assert.equal(knowledgeProgressLabel({ stage: "LEXICAL_SEARCH" }), "Searching project records and documents");
+  assert.equal(knowledgeElapsedLabel(65_400), "1m 05s");
+  for (const code of ["MODEL_AUTHENTICATION_FAILED", "MODEL_NOT_FOUND", "MODEL_QUOTA_EXCEEDED", "MODEL_RATE_LIMITED", "MODEL_TIMEOUT", "MODEL_INVALID_RESPONSE"]) {
+    const explanation = knowledgeModelFailureMessage(code);
+    assert.doesNotMatch(explanation, /retrieval failed|context timed out/i);
+    assert.match(explanation, /sources|evidence/);
+  }
+  assert.match(knowledgeModelFailureMessage("MODEL_AUTHENTICATION_FAILED"), /credentials/);
+  assert.match(knowledgeModelFailureMessage("MODEL_QUOTA_EXCEEDED"), /quota/);
 });

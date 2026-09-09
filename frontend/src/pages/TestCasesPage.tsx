@@ -21,6 +21,7 @@ import { ExternalReferencesField } from "../components/ExternalReferencesField";
 import { DialogCloseButton } from "../components/DialogCloseButton";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { FormField } from "../components/FormField";
+import { RunPlanningFields } from "../components/RunPlanningFields";
 import { buildGherkinFromSteps, GherkinEditor } from "../components/GherkinEditor";
 import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetadata, sanitizeGherkinDocumentText, setGherkinFeatureTitle, splitGherkinDocument, structuredCaseToGherkin } from "../lib/gherkin";
 import { annotateGherkinStepGroups, collectBehaviorRowGroups } from "../lib/gherkinBehavior";
@@ -2435,6 +2436,8 @@ export function TestCasesPage() {
   const [suiteTransferSuiteIds, setSuiteTransferSuiteIds] = useState<string[]>([]);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
   const [executionName, setExecutionName] = useState("");
+  const [executionStartDate, setExecutionStartDate] = useState("");
+  const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
@@ -3258,6 +3261,8 @@ export function TestCasesPage() {
   const closeCreateExecutionModal = () => {
     setIsCreateExecutionModalOpen(false);
     setExecutionName("");
+    setExecutionStartDate("");
+    setExecutionEndDate("");
     setSelectedExecutionAssigneeIds([]);
     setExecutionRelease("");
     setExecutionSprint("");
@@ -5398,6 +5403,7 @@ export function TestCasesPage() {
         ])];
         const response = await createTestCase.mutateAsync({
           app_type_id: appTypeId,
+          source_issue_id: activeBugConversion?.bugId,
           suite_ids: suiteIds,
           title: caseDraft.title,
           description: caseDraft.description || undefined,
@@ -5434,6 +5440,9 @@ export function TestCasesPage() {
         }
 
         if (activeBugConversion?.bugId) {
+          // Creation records conversion origin even if the editable back-link
+          // cannot be saved. Refresh the catalog metric in either outcome.
+          await queryClient.invalidateQueries({ queryKey: ["issues"] });
           try {
             const sourceBug = await api.issues.get(activeBugConversion.bugId, { project_id: projectId || undefined });
             await api.issues.update(activeBugConversion.bugId, {
@@ -6259,6 +6268,10 @@ export function TestCasesPage() {
 
 	  const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
 	    event.preventDefault();
+    if (executionStartDate && executionEndDate && executionEndDate < executionStartDate) {
+      showError(new Error("End date must be on or after start date."), "Unable to create run");
+      return;
+    }
 
 		    const canCreateSelectedRunMode = executionStartMode === "local"
 		      ? canRunLocalAutomation
@@ -6311,6 +6324,8 @@ export function TestCasesPage() {
         sprint: executionSprint.trim() || undefined,
         build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
+        start_date: executionStartDate || undefined,
+        end_date: executionEndDate || undefined,
         created_by: session.user.id
       });
 
@@ -6320,7 +6335,7 @@ export function TestCasesPage() {
         queryClient.invalidateQueries({ queryKey: ["executions"] }),
         queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
       ]);
-      navigate(`/executions?view=${executionStartMode === "local" ? "local-runs" : "test-case-runs"}&execution=${response.id}`);
+      navigate(`/executions?view=${executionStartMode === "local" ? "local-runs" : "suite-runs"}&execution=${response.id}`);
       showSuccess(
         executionStartMode === "manual"
           ? `Manual run created with ${selectedActionTestCaseIds.length} selected test case${selectedActionTestCaseIds.length === 1 ? "" : "s"}.`
@@ -8115,7 +8130,7 @@ export function TestCasesPage() {
           queryClient.invalidateQueries({ queryKey: ["executions", projectId] }),
           queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
         ]);
-        navigate(`/executions?view=test-case-runs&execution=${response.id}&testCase=${testCaseId}`);
+        navigate(`/executions?view=suite-runs&execution=${response.id}&testCase=${testCaseId}`);
         showSuccess(`Remote run started for ${testCase.title}.`);
         return;
       }
@@ -8125,7 +8140,7 @@ export function TestCasesPage() {
         queryClient.invalidateQueries({ queryKey: ["executions", projectId] })
       ]);
 
-      navigate(`/executions?view=test-case-runs&execution=${response.id}&testCase=${testCaseId}`);
+      navigate(`/executions?view=suite-runs&execution=${response.id}&testCase=${testCaseId}`);
       showSuccess(`Manual run created for ${testCase.title}.`);
     } catch (error) {
       showError(error, "Unable to run test case");
@@ -9167,7 +9182,7 @@ export function TestCasesPage() {
       ? "local-runs"
       : execution?.suite_ids?.length || latestFailure.suite_id
         ? "suite-runs"
-        : "test-case-runs";
+        : "suite-runs";
 
     navigate(`/executions?view=${runView}&execution=${latestFailure.execution_id}&testCase=${testCaseId}`);
   };
@@ -12921,6 +12936,10 @@ export function TestCasesPage() {
           canRunLocalAutomation={canRunLocalAutomation}
           canRunRemoteAutomation={canRunRemoteAutomation}
           executionName={executionName}
+          executionStartDate={executionStartDate}
+          executionEndDate={executionEndDate}
+          onExecutionStartDateChange={setExecutionStartDate}
+          onExecutionEndDateChange={setExecutionEndDate}
           isSubmitting={createExecution.isPending}
           executionParallelCount={executionParallelCount}
           executionParallelEnabled={executionParallelEnabled}
@@ -14179,6 +14198,10 @@ function TestCaseExecutionModal({
   selectedConfigurationId,
   selectedDataSetId,
   executionStartMode,
+  executionStartDate,
+  executionEndDate,
+  onExecutionStartDateChange,
+  onExecutionEndDateChange,
   executionParallelEnabled,
   executionParallelCount,
   executionRelease,
@@ -14218,6 +14241,10 @@ function TestCaseExecutionModal({
   selectedConfigurationId: string;
   selectedDataSetId: string;
   executionStartMode: ExecutionStartMode;
+  executionStartDate: string;
+  executionEndDate: string;
+  onExecutionStartDateChange: (value: string) => void;
+  onExecutionEndDateChange: (value: string) => void;
   executionParallelEnabled: boolean;
   executionParallelCount: number;
   executionRelease: string;
@@ -14329,18 +14356,18 @@ function TestCaseExecutionModal({
               selectedEnvironmentId={selectedEnvironmentId}
             />
 
-            {canRunLocalAutomation || canRunRemoteAutomation || (executionStartMode !== "manual" && canConfigureParallelAutomation) ? (
-              <div className="execution-create-grid">
-              {canRunLocalAutomation || canRunRemoteAutomation ? (
-                <label className="execution-run-mode-control">
-                  <span>Run mode</span>
-                  <select aria-label="Run mode" disabled={isSubmitting} value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                    <option value="manual">Manual</option>
-                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
-                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
-                  </select>
-                </label>
-              ) : null}
+            <div className="execution-create-grid">
+              <RunPlanningFields
+                canRunLocalAutomation={canRunLocalAutomation}
+                canRunRemoteAutomation={canRunRemoteAutomation}
+                disabled={isSubmitting}
+                endDate={executionEndDate}
+                mode={executionStartMode}
+                onEndDateChange={onExecutionEndDateChange}
+                onModeChange={onExecutionStartModeChange}
+                onStartDateChange={onExecutionStartDateChange}
+                startDate={executionStartDate}
+              />
 
               {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
                 <FormField label="Parallel execution">
@@ -14365,8 +14392,7 @@ function TestCaseExecutionModal({
                 </div>
               </FormField>
               ) : null}
-              </div>
-            ) : null}
+            </div>
 
             <FormField label="Run scope" required>
               <div className="selection-summary-card">

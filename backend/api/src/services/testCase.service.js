@@ -129,9 +129,10 @@ const insertTestCaseRecord = db.prepare(`
     author_id,
     created_by,
     updated_by,
+    source_issue_id,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const selectTestCaseBySourceIdempotency = db.prepare(`
@@ -1125,6 +1126,7 @@ const createPersistablePayload = async ({
   ai_generation_review_status,
   ai_generation_job_id,
   source_idempotency_key,
+  source_issue_id,
   ai_generated_at,
   reviewer_id,
   review_status,
@@ -1216,6 +1218,7 @@ const createPersistablePayload = async ({
     ai_generation_review_status: resolvedAiGenerationReviewStatus,
     ai_generation_job_id: normalizeText(ai_generation_job_id),
     source_idempotency_key: normalizeText(source_idempotency_key),
+    source_issue_id: normalizeText(source_issue_id),
     ai_generated_at: normalizeIsoDateTime(ai_generated_at) || (resolvedAiGenerationSource ? new Date().toISOString() : null),
     reviewer_id: resolvedReviewerId,
     review_status: resolvedReviewStatus,
@@ -1234,6 +1237,15 @@ const createOne = db.transaction(async (payload) => {
       payload.source_idempotency_key
     );
     if (existing) return { ...existing, idempotent_replay: true };
+  }
+
+  if (payload.source_issue_id) {
+    // Conversion origin belongs to creation, independently of editable defect
+    // links. Check and retain its project scope for the complete transaction.
+    const source = await db.prepare("SELECT id, project_id FROM feedback WHERE id = ? FOR SHARE").get(payload.source_issue_id);
+    if (!source || !payload.project_id || source.project_id !== payload.project_id) {
+      throw Object.assign(new Error("The source Bug must belong to the Test Case project"), { statusCode: 403 });
+    }
   }
 
   const id = uuid();
@@ -1268,7 +1280,8 @@ const createOne = db.transaction(async (payload) => {
     payload.ai_quality_score,
     payload.author_id,
     payload.created_by,
-    payload.updated_by
+    payload.updated_by,
+    payload.source_issue_id
   );
 
   await syncSuiteMappings(id, payload.suite_ids);

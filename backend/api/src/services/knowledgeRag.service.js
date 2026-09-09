@@ -14,6 +14,7 @@ const {
 } = require("./knowledgeProductCatalog.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const cacheService = require("../utils/cache");
+const { assertRetrievalActive, boundedRetrievalStage, retrievalTimeout } = require("../utils/knowledgeRetrievalTiming");
 const {
   MAX_EXTRACTED_TEXT_CHARS,
   NATIVE_TEXT_MIME_TYPES,
@@ -42,6 +43,8 @@ const MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAX_MANUAL_INGESTION_RETRIES = 5;
 const FAILED_INPUT_RETENTION_DAYS = 7;
 const LOCAL_EMBEDDING_MODEL = "hellotest-hash-v1";
+const RETRIEVAL_EMBEDDING_TIMEOUT_MS = 2_000;
+const embeddingProviderCooldowns = new Map();
 const KNOWLEDGE_PROCESSING_VERSION = "2026.09-structure-v2";
 const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
 const SOURCE_KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "text", "chat", "file", "url"]);
@@ -381,7 +384,7 @@ const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}
     integration = null;
   }
   assertLlmIntegrationProjectScope(integration, projectId);
-  const model = normalizeText(integration?.model, 255);
+  const model = normalizeText(asObject(integration?.config).embedding_model || integration?.model, 255);
   const baseUrl = normalizeText(integration?.base_url, 2_000);
   if (!integration || !model || !baseUrl || !integration.api_key) {
     return { configured: false, integration: null, model: LOCAL_EMBEDDING_MODEL, provider: "HelloTest local hash embedding" };
@@ -405,7 +408,9 @@ const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
       bufferResponse: true,
       maxResponseBytes: MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES
     });
-    if (!response.ok) throw new Error(`Embedding provider returned ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(`Embedding provider returned ${response.status}`), {
+      statusCode: response.status, code: "EMBEDDING_PROVIDER_REJECTED"
+    });
     const payload = await readJsonResponseWithLimit(response);
     const normalized = normalizeProviderEmbeddingBatch(payload, batch.length, expectedDimensions);
     expectedDimensions = normalized.dimensions;
@@ -418,7 +423,9 @@ const embeddingCacheKey = (runtime, value) => `knowledge:embedding:v1:${fingerpr
 
 const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
   const keys = texts.map((value) => embeddingCacheKey(runtime, value));
-  const cached = await Promise.all(keys.map((key) => cacheService.getCache(key)));
+  const cached = await Promise.all(keys.map((key) => boundedRetrievalStage(() => cacheService.getCache(key), {
+    timeoutMs: 250, signal, code: "EMBEDDING_CACHE_TIMEOUT"
+  }).catch((error) => { assertRetrievalActive(signal); return null; })));
   const vectors = new Array(texts.length);
   const missingIndexes = [];
   for (let index = 0; index < texts.length; index += 1) {
@@ -430,7 +437,9 @@ const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) 
     const generated = await requestProviderEmbeddings(runtime, missingIndexes.map((index) => texts[index]), { signal });
     await Promise.all(missingIndexes.map(async (index, generatedIndex) => {
       vectors[index] = generated[generatedIndex];
-      await cacheService.setCache(keys[index], { vector: vectors[index] }, 15 * 60);
+      await boundedRetrievalStage(() => cacheService.setCache(keys[index], { vector: vectors[index] }, 15 * 60), {
+        timeoutMs: 250, signal, code: "EMBEDDING_CACHE_TIMEOUT"
+      }).catch(() => { assertRetrievalActive(signal); });
     }));
   }
   const dimensions = vectors[0]?.length;
@@ -438,17 +447,32 @@ const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) 
   return vectors;
 };
 
-const embedTexts = async (runtime, texts, { signal, cacheResults = false } = {}) => {
+const embedTexts = async (runtime, texts, { signal, cacheResults = false, timeoutMs } = {}) => {
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
   const fallback = texts.map(localEmbedding);
   if (!runtime.configured) return { vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL, provider: runtime.provider, warning: null };
+  // A rejected model/embedding combination is stable across requests. Scope the
+  // short circuit to its configuration (including credential changes), never to
+  // project evidence or a user's query.
+  const runtimeKey = fingerprint(`${runtime.integration?.id}:${runtime.baseUrl}:${runtime.model}:${runtime.integration?.api_key}`);
+  const fallbackResult = (code, warning) => ({ vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL,
+    provider: "HelloTest local hash embedding", warning_code: "embedding_fallback", warning_reason_code: code, warning });
+  if (Number(embeddingProviderCooldowns.get(runtimeKey) || 0) > Date.now()) {
+    return fallbackResult("EMBEDDING_PROVIDER_COOLDOWN", "The embedding provider is temporarily unavailable; authorized local retrieval is being used.");
+  }
   try {
-    const vectors = cacheResults && texts.length <= 10
-      ? await requestCachedProviderEmbeddings(runtime, texts, { signal })
-      : await requestProviderEmbeddings(runtime, texts, { signal });
+    const requestVectors = (activeSignal) => cacheResults && texts.length <= 10
+      ? requestCachedProviderEmbeddings(runtime, texts, { signal: activeSignal })
+      : requestProviderEmbeddings(runtime, texts, { signal: activeSignal });
+    const vectors = timeoutMs === undefined ? await requestVectors(signal)
+      : await boundedRetrievalStage(requestVectors, { timeoutMs, signal, code: "EMBEDDING_TIMEOUT" });
+    embeddingProviderCooldowns.delete(runtimeKey);
     return { vectors, fallback, model: runtime.model, provider: runtime.provider, warning: null };
   } catch (error) {
     if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    const cooldownMs = [400, 401, 403, 404, 405, 422].includes(error?.statusCode) ? 5 * 60_000 : 30_000;
+    embeddingProviderCooldowns.set(runtimeKey, Date.now() + cooldownMs);
+    if (embeddingProviderCooldowns.size > 128) embeddingProviderCooldowns.delete(embeddingProviderCooldowns.keys().next().value);
     const errorReference = fingerprint(error instanceof Error ? error.message : "Embedding request failed").slice(0, 12);
     return {
       vectors: fallback,
@@ -456,6 +480,7 @@ const embedTexts = async (runtime, texts, { signal, cacheResults = false } = {})
       model: LOCAL_EMBEDDING_MODEL,
       provider: "HelloTest local hash embedding",
       warning_code: "embedding_fallback",
+      warning_reason_code: error?.code || "EMBEDDING_UNAVAILABLE",
       warning: `The configured LLM model did not return compatible embeddings. Deterministic local hybrid retrieval was indexed instead (ref ${errorReference}).`
     };
   }
@@ -2469,9 +2494,13 @@ const search = async ({
   allowedSourcePermissions,
   preparedEmbedding,
   signal,
-  maxCandidates
+  maxCandidates,
+  timeoutMs
 } = {}) => {
   if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
+  const deadlineAt = Date.now() + retrievalTimeout(timeoutMs);
+  const visibilityReserveMs = Math.min(750, Math.max(1, Math.floor(retrievalTimeout(timeoutMs) / 8)));
+  const remainingMs = (reserve = 0) => Math.max(0, deadlineAt - Date.now() - reserve);
   const normalizedProjectId = normalizeId(projectId);
   const sanitizedQuery = sanitizeKnowledgeText(normalizeText(query, 4_000));
   if (!normalizedProjectId || !sanitizedQuery.text) throw createError("project_id and query are required.");
@@ -2483,7 +2512,9 @@ const search = async ({
   if (normalizedFilters.as_of) {
     const timestamp = Date.parse(normalizedFilters.as_of);
     if (!Number.isFinite(timestamp)) throw createError("as_of must be a valid timestamp.");
-    await knowledgeAuthorization.assertHistoricalAccess(user, normalizedProjectId);
+    await boundedRetrievalStage(() => knowledgeAuthorization.assertHistoricalAccess(user, normalizedProjectId), {
+      signal, timeoutMs: remainingMs(visibilityReserveMs), code: "AUTHORIZATION_TIMEOUT"
+    });
     asOf = new Date(timestamp).toISOString();
   }
   const collectionIds = normalizeFilterIds(normalizedFilters.collection_ids || normalizedFilters.collections);
@@ -2504,7 +2535,9 @@ const search = async ({
   const appTypeId = normalizeId(normalizedFilters.app_type_id) || null;
   const effectiveAllowedSourcePermissions = Array.isArray(allowedSourcePermissions)
     ? [...new Set(allowedSourcePermissions.filter((permissionCode) => Object.values(SOURCE_PERMISSION_BY_KIND).includes(permissionCode)))]
-    : await resolveAllowedSourcePermissions(user, normalizedProjectId);
+    : await boundedRetrievalStage(() => resolveAllowedSourcePermissions(user, normalizedProjectId), {
+      signal, timeoutMs: Math.min(1_500, remainingMs(visibilityReserveMs)), code: "AUTHORIZATION_TIMEOUT"
+    });
   const filterParams = [normalizedProjectId, normalizedProjectId, normalizedProjectId];
   const clauses = [
     "chunks.project_id = ?",
@@ -2563,28 +2596,20 @@ const search = async ({
   `;
   const exactIdentifiers = [...new Set((sanitizedQuery.text.match(/\b(?:[A-Z][A-Z0-9]{1,11}-\d+|(?:BUG|TC|TS|STORY|RUN|REQ)-?[A-Z0-9_-]+|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\b/gi) || []).map((value) => value.toUpperCase()))].slice(0, 10);
 
-  let queryEmbeddingResult = null;
-  let queryVector = null;
-  let fallbackQueryVector = null;
-  let pgvectorAvailable = false;
-  if (usesEmbeddingsForMode(normalizedMode)) {
-    if (preparedEmbedding?.model && Array.isArray(preparedEmbedding.vector) && Array.isArray(preparedEmbedding.fallback)) {
-      queryEmbeddingResult = {
-        model: preparedEmbedding.model,
-        vectors: [preparedEmbedding.vector],
-        fallback: [preparedEmbedding.fallback],
-        warning: preparedEmbedding.warning || null,
-        warning_code: preparedEmbedding.warning_code || null
-      };
-    } else {
-      const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
-      queryEmbeddingResult = await embedTexts(runtime, [sanitizedQuery.text], { cacheResults: true, signal });
-    }
-    queryVector = queryEmbeddingResult.vectors[0];
-    fallbackQueryVector = queryEmbeddingResult.fallback[0];
-    pgvectorAvailable = await getVectorCapability();
-  }
-  const lexicalPromise = includePersistedSources ? db.prepare(`
+  const retrievalErrors = [];
+  const readStage = (task, code, cap = 3_500) => boundedRetrievalStage(task, {
+    signal, timeoutMs: Math.min(cap, remainingMs(visibilityReserveMs)), code
+  });
+  const localVector = usesEmbeddingsForMode(normalizedMode) ? localEmbedding(sanitizedQuery.text) : null;
+  let queryEmbeddingResult = localVector ? { model: LOCAL_EMBEDDING_MODEL, vectors: [localVector], fallback: [localVector] } : null;
+  let queryVector = localVector;
+  let fallbackQueryVector = localVector;
+  let denseCandidates = [];
+  let vectorMode = normalizedMode === "keyword" ? "postgresql-fts-only" : "degraded-local-jsonb-cosine+fts";
+  let qdrantResult = { configured: false, hits: [] };
+  // Start exact and lexical reads before resolving/awaiting embeddings. Every
+  // channel has its own bound, so an optional provider cannot discard fast SQL.
+  const lexicalPromise = includePersistedSources ? readStage(() => db.prepare(`
     ${candidateProjection.replace("SELECT ", "SELECT ts_rank_cd(chunks.search_vector, plainto_tsquery('simple', ?)) AS lexical_rank, ")}
     WHERE ${clauses.join(" AND ")}
     ORDER BY lexical_rank DESC, chunks.created_at DESC
@@ -2592,9 +2617,9 @@ const search = async ({
   `).all(
     sanitizedQuery.text,
     ...filterParams,
-    normalizedMode === "keyword" || pgvectorAvailable || knowledgeVectorStore.isConfigured() || maxCandidates ? candidateLimit : MAX_FALLBACK_CANDIDATES
-  ) : Promise.resolve([]);
-  const directLookupPromise = includePersistedSources && exactIdentifiers.length ? db.prepare(`
+    normalizedMode === "keyword" || knowledgeVectorStore.isConfigured() || maxCandidates ? candidateLimit : MAX_FALLBACK_CANDIDATES
+  ), "LEXICAL_SEARCH_TIMEOUT") : Promise.resolve([]);
+  const directLookupPromise = includePersistedSources && exactIdentifiers.length ? readStage(() => db.prepare(`
     ${candidateProjection.replace("SELECT ", "SELECT 1::real AS lexical_rank, TRUE AS exact_match, ")}
     WHERE ${clauses.join(" AND ")}
       AND (
@@ -2605,75 +2630,120 @@ const search = async ({
       )
     ORDER BY chunks.chunk_index ASC
     LIMIT ?
-  `).all(...filterParams, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, Math.min(candidateLimit, exactIdentifiers.length * 12)) : Promise.resolve([]);
-  const qdrantPromise = usesEmbeddingsForMode(normalizedMode) && includePersistedSources && knowledgeVectorStore.isConfigured()
-    ? db.prepare(`SELECT chunks.id
-        FROM ai_knowledge_chunks chunks
-        JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
-        JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
-        JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
-        WHERE ${clauses.join(" AND ")} ORDER BY chunks.id LIMIT 10001
-      `).all(...filterParams).then((authorized) => {
-        if (authorized.length > 10_000) return { configured: true, hits: [], degraded: true, authorization_scope_exceeded: true };
-        return knowledgeVectorStore.search({
-        projectId: normalizedProjectId,
-        queryVector,
-        embeddingModel: queryEmbeddingResult.model,
-        allowedPermissions: effectiveAllowedSourcePermissions,
-        authorizedChunkIds: authorized.map((row) => row.id),
-        historical: Boolean(asOf),
-        sourceKinds,
-        sourceIds,
-        appTypeId,
-        limit: candidateLimit,
-        signal
-      });
-      }).catch((error) => ({ configured: true, hits: [], degraded: true, error_fingerprint: fingerprint(error instanceof Error ? error.message : "Qdrant retrieval failed") }))
-    : Promise.resolve({ configured: false, hits: [] });
-  const [lexicalCandidates, qdrantResult, directLookupCandidates] = await Promise.all([lexicalPromise, qdrantPromise, directLookupPromise]);
-  if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
+  `).all(...filterParams, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, ...exactIdentifiers, Math.min(candidateLimit, exactIdentifiers.length * 12)), "DIRECT_LOOKUP_TIMEOUT") : Promise.resolve([]);
+  const densePromise = usesEmbeddingsForMode(normalizedMode) && includePersistedSources
+    ? readStage(async (denseSignal) => {
+      const prepared = await (typeof preparedEmbedding === "function" ? preparedEmbedding() : preparedEmbedding);
+      assertRetrievalActive(denseSignal);
+      let embedding;
+      if (prepared?.model && Array.isArray(prepared.vector) && Array.isArray(prepared.fallback)) {
+        embedding = { model: prepared.model, vectors: [prepared.vector], fallback: [prepared.fallback],
+          warning: prepared.warning || null, warning_code: prepared.warning_code || null,
+          warning_reason_code: prepared.warning_reason_code || null };
+      } else {
+        const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
+        assertRetrievalActive(denseSignal);
+        embedding = await embedTexts(runtime, [sanitizedQuery.text], {
+          cacheResults: true, signal: denseSignal,
+          timeoutMs: Math.min(RETRIEVAL_EMBEDDING_TIMEOUT_MS, remainingMs(visibilityReserveMs))
+        });
+      }
+      assertRetrievalActive(denseSignal);
+      const vector = embedding.vectors[0];
+      const pgvectorAvailable = await getVectorCapability();
+      assertRetrievalActive(denseSignal);
+      let projection = { configured: false, hits: [] };
+      let candidates = [];
+      let mode = pgvectorAvailable ? "pgvector-exact+fts" : "degraded-local-jsonb-cosine+fts";
+      if (knowledgeVectorStore.isConfigured()) {
+        try {
+          const authorized = await db.prepare(`SELECT chunks.id
+            FROM ai_knowledge_chunks chunks
+            JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
+            JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
+            JOIN ai_knowledge_index_states index_states ON index_states.document_id = documents.id
+            WHERE ${clauses.join(" AND ")} ORDER BY chunks.id LIMIT 10001
+          `).all(...filterParams);
+          assertRetrievalActive(denseSignal);
+          projection = authorized.length > 10_000
+            ? { configured: true, hits: [], degraded: true, authorization_scope_exceeded: true }
+            : await knowledgeVectorStore.search({
+              projectId: normalizedProjectId, queryVector: vector, embeddingModel: embedding.model,
+              allowedPermissions: effectiveAllowedSourcePermissions,
+              authorizedChunkIds: authorized.map((row) => row.id), historical: Boolean(asOf),
+              sourceKinds, sourceIds, appTypeId, limit: candidateLimit, signal: denseSignal
+            });
+          assertRetrievalActive(denseSignal);
+          if (projection.hits.length) {
+            const scores = new Map(projection.hits.map((hit) => [hit.chunk_id, Number(hit.score || 0)]));
+            const ids = [...scores.keys()];
+            const rows = await db.prepare(`
+              ${candidateProjection.replace("SELECT ", "SELECT 0::real AS lexical_rank, ")}
+              WHERE ${clauses.join(" AND ")}
+                AND chunks.id IN (${ids.map(() => "?").join(", ")})
+                AND chunks.embedding_model = ?
+            `).all(...filterParams, ...ids, embedding.model);
+            assertRetrievalActive(denseSignal);
+            candidates = rows.map((candidate) => ({ ...candidate, dense_similarity: scores.get(candidate.chunk_id) || 0 }))
+              .sort((left, right) => right.dense_similarity - left.dense_similarity);
+            mode = "qdrant-acl-prefilter+postgresql-fts";
+          }
+        } catch (error) {
+          assertRetrievalActive(denseSignal);
+          projection = { configured: true, hits: [], degraded: true,
+            error_fingerprint: fingerprint(error instanceof Error ? error.message : "Qdrant retrieval failed") };
+        }
+      }
+      // PostgreSQL is canonical. Search its vectors even when Qdrant has hits:
+      // older uploaded documents may not yet have an external projection.
+      if (pgvectorAvailable) {
+        try {
+          const rows = await db.prepare(`
+            ${candidateProjection.replace("SELECT ", "SELECT (1 - (chunks.embedding_vector <=> ?::vector)) AS dense_similarity, 0::real AS lexical_rank, ")}
+            WHERE ${clauses.join(" AND ")}
+              AND chunks.embedding_vector IS NOT NULL
+              AND chunks.embedding_model = ?
+              AND vector_dims(chunks.embedding_vector) = ?
+            ORDER BY dense_similarity DESC
+            LIMIT ?
+          `).all(vectorLiteral(vector), ...filterParams, embedding.model, vector.length, candidateLimit);
+          assertRetrievalActive(denseSignal);
+          const union = new Map([...candidates, ...rows].map((candidate) => [candidate.chunk_id, candidate]));
+          candidates = [...union.values()].sort((left, right) => Number(right.dense_similarity || 0) - Number(left.dense_similarity || 0)).slice(0, candidateLimit);
+        } catch (error) {
+          assertRetrievalActive(denseSignal);
+          if (!candidates.length) mode = "degraded-local-jsonb-cosine+fts";
+        }
+      }
+      return { candidates, embedding, projection, mode };
+    }, "SEMANTIC_SEARCH_TIMEOUT") : Promise.resolve(null);
+  const settled = await Promise.allSettled([lexicalPromise, directLookupPromise, densePromise]);
+  assertRetrievalActive(signal);
+  const channel = (index, fallback) => {
+    if (settled[index].status === "fulfilled") return settled[index].value;
+    retrievalErrors.push(settled[index].reason?.code || "RETRIEVAL_CHANNEL_UNAVAILABLE");
+    return fallback;
+  };
+  const lexicalCandidates = channel(0, []);
+  const directLookupCandidates = channel(1, []);
+  const dense = channel(2, null);
+  if (dense) {
+    denseCandidates = dense.candidates;
+    queryEmbeddingResult = dense.embedding;
+    queryVector = dense.embedding.vectors[0];
+    fallbackQueryVector = dense.embedding.fallback[0];
+    vectorMode = dense.mode;
+    qdrantResult = dense.projection;
+    if (dense.embedding.warning_code) retrievalErrors.push(dense.embedding.warning_reason_code || dense.embedding.warning_code);
+  }
   const lexicalIds = new Set(lexicalCandidates.map((candidate) => candidate.chunk_id));
-  for (const candidate of directLookupCandidates.reverse()) {
+  for (const candidate of directLookupCandidates.slice().reverse()) {
     if (!lexicalIds.has(candidate.chunk_id)) lexicalCandidates.unshift(candidate);
     else Object.assign(lexicalCandidates.find((item) => item.chunk_id === candidate.chunk_id), { exact_match: true, lexical_rank: Math.max(1, Number(candidate.lexical_rank || 0)) });
   }
   if (includeProductHelp && !collectionIds.length) {
     lexicalCandidates.push(...getProductHelpCandidates(sanitizedQuery.text, { includeEmbeddings: usesEmbeddingsForMode(normalizedMode) }));
     lexicalCandidates.sort((left, right) => Number(right.lexical_rank || 0) - Number(left.lexical_rank || 0));
-  }
-
-  let denseCandidates = [];
-  let vectorMode = normalizedMode === "keyword"
-    ? "postgresql-fts-only"
-    : pgvectorAvailable ? "pgvector-exact+fts" : "degraded-local-jsonb-cosine+fts";
-  if (usesEmbeddingsForMode(normalizedMode) && qdrantResult.hits.length && includePersistedSources) {
-    const qdrantScore = new Map(qdrantResult.hits.map((hit) => [hit.chunk_id, Number(hit.score || 0)]));
-    const qdrantIds = [...qdrantScore.keys()];
-    denseCandidates = await db.prepare(`
-      ${candidateProjection.replace("SELECT ", "SELECT 0::real AS lexical_rank, ")}
-      WHERE ${clauses.join(" AND ")}
-        AND chunks.id IN (${qdrantIds.map(() => "?").join(", ")})
-        AND chunks.embedding_model = ?
-    `).all(...filterParams, ...qdrantIds, queryEmbeddingResult.model);
-    denseCandidates = denseCandidates
-      .map((candidate) => ({ ...candidate, dense_similarity: qdrantScore.get(candidate.chunk_id) || 0 }))
-      .sort((left, right) => right.dense_similarity - left.dense_similarity);
-    vectorMode = "qdrant-acl-prefilter+postgresql-fts";
-  }
-  if (usesEmbeddingsForMode(normalizedMode) && !denseCandidates.length && pgvectorAvailable && includePersistedSources) {
-    try {
-      denseCandidates = await db.prepare(`
-        ${candidateProjection.replace("SELECT ", "SELECT (1 - (chunks.embedding_vector <=> ?::vector)) AS dense_similarity, 0::real AS lexical_rank, ")}
-        WHERE ${clauses.join(" AND ")}
-          AND chunks.embedding_vector IS NOT NULL
-          AND chunks.embedding_model = ?
-          AND vector_dims(chunks.embedding_vector) = ?
-        ORDER BY dense_similarity DESC
-        LIMIT ?
-      `).all(vectorLiteral(queryVector), ...filterParams, queryEmbeddingResult.model, queryVector.length, candidateLimit);
-    } catch {
-      vectorMode = "degraded-local-jsonb-cosine+fts";
-    }
   }
 
   const candidateById = new Map();
@@ -2795,7 +2865,7 @@ const search = async ({
   }
 
   const selectedSourceIds = normalizeFilterIds(scored.map((hit) => hit.source_id).filter((id) => id !== "hellotest-product-help"));
-  const partialSources = selectedSourceIds.length ? await db.prepare(`SELECT DISTINCT sources.id
+  const partialSources = selectedSourceIds.length ? await boundedRetrievalStage(() => db.prepare(`SELECT DISTINCT sources.id
     FROM ai_knowledge_sources sources
     JOIN ai_knowledge_documents documents ON documents.source_id = sources.id
     JOIN ai_knowledge_chunks chunks ON chunks.document_id = documents.id
@@ -2803,7 +2873,11 @@ const search = async ({
     WHERE sources.project_id = ? AND sources.extraction_status = 'ready' AND index_states.required_indexes_ready = TRUE
       ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
       AND sources.id IN (${selectedSourceIds.map(() => "?").join(",")}) AND NOT (${fragmentAcl.sql})`
-  ).all(normalizedProjectId, ...(asOf ? [asOf, asOf] : []), ...selectedSourceIds, ...fragmentAcl.params) : [];
+  ).all(normalizedProjectId, ...(asOf ? [asOf, asOf] : []), ...selectedSourceIds, ...fragmentAcl.params), { signal, timeoutMs: Math.min(750, remainingMs()), code: "VISIBILITY_CHECK_TIMEOUT" }).catch((error) => {
+    assertRetrievalActive(signal);
+    retrievalErrors.push(error.code || "VISIBILITY_CHECK_UNAVAILABLE");
+    return selectedSourceIds.map((id) => ({ id }));
+  }) : [];
   const partialSourceIds = new Set(partialSources.map((source) => source.id));
   for (const hit of scored) hit.visibility = { state: partialSourceIds.has(hit.source_id) ? "PARTIAL" : "FULL" };
   if (signal?.aborted) throw signal.reason || createError("Knowledge retrieval was cancelled.", 408);
@@ -2820,7 +2894,9 @@ const search = async ({
       query_class: knowledgeContracts.classifyQuery(sanitizedQuery.text),
       direct_lookup_count: directLookupCandidates.length,
       vector_mode: vectorMode,
-      degraded: normalizedMode === "keyword" ? false : vectorMode.startsWith("degraded") || Boolean(qdrantResult.degraded) || queryEmbeddingResult.model === LOCAL_EMBEDDING_MODEL,
+      degraded: retrievalErrors.length > 0 || (normalizedMode !== "keyword" && (vectorMode.startsWith("degraded") || Boolean(qdrantResult.degraded) || queryEmbeddingResult.model === LOCAL_EMBEDDING_MODEL)),
+      error_codes: [...new Set(retrievalErrors)],
+      retrieval_error_count: retrievalErrors.length,
       ranking: normalizedMode === "keyword"
         ? "PostgreSQL full-text lexical ranking (no embedding provider call)"
         : "reciprocal-rank fusion of PostgreSQL full-text and dense retrieval",
@@ -2844,16 +2920,19 @@ const search = async ({
   };
 };
 
-const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 12, asOf, signal } = {}) => {
+const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 12, asOf, signal, timeoutMs, maxCandidates } = {}) => {
   if (signal?.aborted) throw signal.reason || createError("Knowledge expansion cancelled.", 408);
-  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits, asOf });
+  const deadlineAt = Date.now() + retrievalTimeout(timeoutMs, 1_500);
+  const remainingMs = () => Math.max(0, deadlineAt - Date.now());
+  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits, asOf, signal, timeoutMs: remainingMs() });
   const seeds = access.allowed.filter((hit) => hit.source_id !== "hellotest-product-help").slice(0, 6);
   const radius = Math.max(0, Math.min(2, Number(window) || 1));
-  const maximum = Math.max(1, Math.min(24, Number(limit) || 12));
+  const maximum = Math.max(0, Math.min(24, Number(limit) || 12, maxCandidates ?? 24));
+  if (!maximum) return { results: [] };
   const acl = knowledgeAuthorization.predicate({ user, projectId, document: "documents", chunk: "chunks" });
-  const windows = await Promise.all(seeds.map(async (seed) => {
+  const settled = await Promise.allSettled(seeds.map(async (seed) => {
     const ordinal = Number(seed.citation?.location?.chunk_index || 0);
-    const rows = await db.prepare(`SELECT chunks.* FROM ai_knowledge_chunks chunks
+    const rows = await boundedRetrievalStage(() => db.prepare(`SELECT chunks.* FROM ai_knowledge_chunks chunks
       JOIN ai_knowledge_documents documents ON documents.id = chunks.document_id
       JOIN ai_knowledge_sources sources ON sources.id = chunks.source_id
       JOIN ai_knowledge_index_states indexes ON indexes.document_id = documents.id
@@ -2862,7 +2941,8 @@ const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 
         ${asOf ? "AND documents.effective_from <= ?::timestamptz AND (documents.effective_to IS NULL OR documents.effective_to > ?::timestamptz)" : "AND documents.is_active = TRUE"}
         AND chunks.document_id = ? AND chunks.chunk_index BETWEEN ? AND ? AND ${acl.sql}
       ORDER BY chunks.chunk_index LIMIT 5`).all(projectId, projectId, projectId, ...(asOf ? [asOf, asOf] : []),
-      seed.document_id || seed.knowledge_id, Math.max(0, ordinal - radius), ordinal + radius, ...acl.params);
+      seed.document_id || seed.knowledge_id, Math.max(0, ordinal - radius), ordinal + radius, ...acl.params), { signal, timeoutMs: Math.max(0, remainingMs() - 10), code: "PARENT_EXPANSION_TIMEOUT" });
+    assertRetrievalActive(signal);
     return rows.map((row) => ({
       ...seed, id: row.id, chunk_id: row.id, fragment_id: row.id,
       content: row.content, excerpt: row.content.slice(0, 700), score: Number((Number(seed.score || 0.5) * 0.85).toFixed(6)),
@@ -2875,22 +2955,27 @@ const expandEvidence = async ({ projectId, user, hits = [], window = 1, limit = 
       }
     }));
   }));
+  assertRetrievalActive(signal);
+  const windows = settled.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
+  const errors = settled.filter((entry) => entry.status === "rejected").map((entry) => entry.reason?.code || "PARENT_EXPANSION_UNAVAILABLE");
   const seen = new Set(hits.map((hit) => hit.chunk_id || hit.fragment_id));
   const results = windows.flat().filter((hit) => {
     if (seen.has(hit.chunk_id)) return false;
     seen.add(hit.chunk_id);
     return true;
   }).slice(0, maximum);
-  return { results, expansion: { kind: "adjacent_fragments", window: radius, bounded: true, seed_count: seeds.length, result_count: results.length } };
+  return { results, retrieval: { degraded: errors.length > 0, error_codes: errors }, expansion: { kind: "adjacent_fragments", window: radius, bounded: true, seed_count: seeds.length, result_count: results.length } };
 };
 
-const expandRelationships = async ({ projectId, user, hits = [], query, mode = "hybrid", limit = 6, signal, maxCandidates } = {}) => {
+const expandRelationships = async ({ projectId, user, hits = [], query, mode = "hybrid", limit = 6, signal, maxCandidates, timeoutMs } = {}) => {
   if (signal?.aborted) throw signal.reason || createError("Knowledge expansion cancelled.", 408);
-  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits });
+  const deadlineAt = Date.now() + retrievalTimeout(timeoutMs, 1_500);
+  const remainingMs = () => Math.max(0, deadlineAt - Date.now());
+  const access = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: hits, signal, timeoutMs: remainingMs() });
   const seeds = normalizeFilterIds(access.allowed.map((hit) => hit.source_id), 6).filter((id) => id !== "hellotest-product-help");
   if (!seeds.length) return { results: [], relationships: [] };
   const acl = knowledgeAuthorization.predicate({ user, projectId, source: "targets" });
-  const rows = await db.prepare(`SELECT relations.id, origin.id AS source_canonical_id,
+  const rows = await boundedRetrievalStage(() => db.prepare(`SELECT relations.id, origin.id AS source_canonical_id,
     targets.id AS target_canonical_id, relations.relation_type,
     COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') AS provenance_type
     FROM ai_knowledge_relations relations
@@ -2900,10 +2985,11 @@ const expandRelationships = async ({ projectId, user, hits = [], query, mode = "
       AND origin.id IN (${seeds.map(() => "?").join(",")}) AND targets.extraction_status = 'ready'
       AND COALESCE(relations.metadata->>'provenance_type', 'SOURCE_EXPLICIT') IN ('SOURCE_EXPLICIT', 'DETERMINISTIC', 'HUMAN_VERIFIED')
       AND COALESCE(relations.metadata->>'status', 'ACTIVE') IN ('ACTIVE', 'APPROVED') AND ${acl.sql}
-    ORDER BY relations.created_at DESC LIMIT 24`).all(projectId, projectId, projectId, ...seeds, ...acl.params);
+    ORDER BY relations.created_at DESC LIMIT 24`).all(projectId, projectId, projectId, ...seeds, ...acl.params), { signal, timeoutMs: remainingMs(), code: "RELATIONSHIP_SEARCH_TIMEOUT" });
+  assertRetrievalActive(signal);
   const targets = normalizeFilterIds(rows.map((row) => row.target_canonical_id), 12);
   if (!targets.length) return { results: [], relationships: [] };
-  const response = await search({ projectId, user, query, mode, signal, maxCandidates, limit: Math.min(12, Math.max(1, Number(limit) || 6)), filters: { source_ids: targets } });
+  const response = await search({ projectId, user, query, mode, signal, maxCandidates, timeoutMs: remainingMs(), limit: Math.min(12, Math.max(1, Number(limit) || 6)), filters: { source_ids: targets } });
   const visible = new Set(response.results.map((hit) => hit.source_id));
   return { results: response.results, relationships: rows.filter((row) => visible.has(row.target_canonical_id)).map((row) => ({
     ...row, relationship_type: row.relation_type,
@@ -2925,6 +3011,8 @@ const allocateCandidateBudgets = (queryCount, maxCandidates) => {
 };
 
 const searchMany = async ({ queries, projectId, mode = "hybrid", user, userId, integrationId, ...options } = {}) => {
+  const deadlineAt = Date.now() + retrievalTimeout(options.timeoutMs);
+  const remainingMs = () => Math.max(0, deadlineAt - Date.now());
   const normalizedProjectId = normalizeId(projectId);
   const normalizedMode = ["hybrid", "semantic", "keyword"].includes(mode) ? mode : "hybrid";
   const normalizedQueries = [...new Map(asArray(queries)
@@ -2938,16 +3026,31 @@ const searchMany = async ({ queries, projectId, mode = "hybrid", user, userId, i
     results: [], errors: [], query_count: 0, embedding_batch_count: 0,
     candidate_count: 0, skipped_query_count: normalizedQueries.length, candidate_budget_exhausted: true
   };
-  const allowedSourcePermissions = await resolveAllowedSourcePermissions(user, normalizedProjectId);
-  let embeddingBatch = null;
-  if (usesEmbeddingsForMode(normalizedMode)) {
-    const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
-    embeddingBatch = await embedTexts(runtime, activeQueries, { cacheResults: true, signal: options.signal });
-  }
+  const allowedSourcePermissions = await boundedRetrievalStage(() => resolveAllowedSourcePermissions(user, normalizedProjectId), {
+    signal: options.signal, timeoutMs: Math.min(1_500, remainingMs()), code: "AUTHORIZATION_TIMEOUT"
+  });
+  const embeddingTimeoutMs = Math.min(RETRIEVAL_EMBEDDING_TIMEOUT_MS, Math.max(1, Math.floor(remainingMs() / 2)));
+  // Share the provider batch without making lexical/exact searches wait for it.
+  let embeddingBatchPromise = null;
+  const getEmbeddingBatch = () => {
+    embeddingBatchPromise ||= boundedRetrievalStage(async (signal) => {
+      const runtime = await resolveEmbeddingRuntime({ userId: user?.id || userId, projectId: normalizedProjectId, integrationId });
+      assertRetrievalActive(signal);
+      return embedTexts(runtime, activeQueries, { cacheResults: true, signal, timeoutMs: embeddingTimeoutMs });
+    }, { signal: options.signal, timeoutMs: Math.min(remainingMs(), embeddingTimeoutMs + 300), code: "EMBEDDING_SETUP_TIMEOUT" })
+      .catch((error) => {
+        assertRetrievalActive(options.signal);
+        const fallback = activeQueries.map(localEmbedding);
+        return { model: LOCAL_EMBEDDING_MODEL, vectors: fallback, fallback,
+          warning_code: error.code || "EMBEDDING_UNAVAILABLE" };
+      });
+    return embeddingBatchPromise;
+  };
   const settled = await Promise.allSettled(activeQueries.map(async (query, index) => ({
     query,
     result: await search({
       ...options,
+      timeoutMs: remainingMs(),
       maxCandidates: candidateBudgets[index],
       projectId: normalizedProjectId,
       query,
@@ -2956,15 +3059,17 @@ const searchMany = async ({ queries, projectId, mode = "hybrid", user, userId, i
       user,
       userId,
       allowedSourcePermissions,
-      preparedEmbedding: embeddingBatch ? {
+      preparedEmbedding: () => getEmbeddingBatch().then((embeddingBatch) => embeddingBatch ? {
         model: embeddingBatch.model,
         vector: embeddingBatch.vectors[index],
         fallback: embeddingBatch.fallback[index],
         warning: embeddingBatch.warning,
-        warning_code: embeddingBatch.warning_code
-      } : null
+        warning_code: embeddingBatch.warning_code,
+        warning_reason_code: embeddingBatch.warning_reason_code
+      } : null)
     })
   })));
+  assertRetrievalActive(options.signal);
   const results = settled.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
   return {
     results,
@@ -2972,7 +3077,7 @@ const searchMany = async ({ queries, projectId, mode = "hybrid", user, userId, i
     query_count: activeQueries.length,
     skipped_query_count: normalizedQueries.length - activeQueries.length,
     candidate_count: results.reduce((count, entry) => count + Number(entry.result.retrieval?.candidate_count || 0), 0),
-    embedding_batch_count: embeddingBatch ? 1 : 0
+    embedding_batch_count: embeddingBatchPromise ? 1 : 0
   };
 };
 

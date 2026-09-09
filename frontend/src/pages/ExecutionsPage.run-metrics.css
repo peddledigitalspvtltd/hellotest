@@ -1,0 +1,313 @@
+/* The run summary uses the same two-sided evidence cards as project metrics. */
+.execution-run-command-center {
+  --run-result-passed: #14966c;
+  --run-result-failed: #ce4265;
+  --run-result-blocked: #5d62cf;
+  --run-result-running: #2687d8;
+  --run-result-pending: color-mix(in srgb, var(--execution-command-muted) 18%, var(--execution-command-surface));
+}
+
+.execution-run-command-center .execution-command-identity .execution-command-mark {
+  flex: 0 0 2.65rem;
+  border: 1px solid var(--execution-command-line);
+  border-radius: 10px;
+  background: var(--execution-command-blue);
+  color: var(--primary, #2563eb);
+}
+.execution-run-command-center .execution-command-mark > svg { width: 1.3rem; height: 1.3rem; }
+
+.execution-run-command-center .execution-command-metrics {
+  gap: .8rem;
+  padding: 1rem 1rem 0;
+  border: 0;
+}
+
+.execution-run-command-center .execution-run-metric-card,
+.execution-run-command-center .execution-run-insight-card {
+  --run-card-accent: var(--primary, #2563eb);
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 12rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--execution-command-line);
+  border-radius: 12px;
+  background: var(--execution-command-surface);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--execution-command-ink) 4%, transparent);
+  perspective: 70rem;
+  isolation: isolate;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.execution-run-command-center .evidence-flip-card.tone-danger { --run-card-accent: var(--run-result-failed); }
+.execution-run-command-center .evidence-flip-card.tone-warning { --run-card-accent: #b87916; }
+.execution-run-command-center .evidence-flip-card.tone-success { --run-card-accent: var(--run-result-passed); }
+.execution-run-command-center .evidence-flip-card.danger {
+  border-color: var(--execution-command-line) !important;
+  background: var(--execution-command-surface) !important;
+  color: inherit !important;
+}
+
+.execution-run-command-center .execution-run-metric-card::before,
+.execution-run-command-center .execution-run-insight-card::before {
+  position: absolute;
+  z-index: 2;
+  inset: .75rem auto .75rem 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--run-card-accent);
+  content: "";
+  pointer-events: none;
+}
+
+.execution-run-command-center .execution-run-metric-card:hover,
+.execution-run-command-center .execution-run-insight-card:hover,
+.execution-run-command-center .execution-run-metric-card:focus-within,
+.execution-run-command-center .execution-run-insight-card:focus-within {
+  border-color: color-mix(in srgb, var(--run-card-accent) 40%, var(--execution-command-line));
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--execution-command-ink) 8%, transparent);
+}
+
+.execution-run-command-center .execution-run-metric-card .evidence-flip-card-inner,
+.execution-run-command-center .execution-run-insight-card .evidence-flip-card-inner {
+  height: 12rem;
+  min-height: 12rem;
+}
+
+.execution-run-command-center .execution-run-metric-card .evidence-flip-card-face,
+.execution-run-command-center .execution-run-insight-card .evidence-flip-card-face {
+  padding: .9rem 1rem;
+  background: var(--execution-command-surface);
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-card-trigger {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .5rem;
+  text-align: left;
+  color: var(--execution-command-ink);
+  cursor: pointer;
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-card-trigger > span:first-of-type:not(.evidence-flip-card-front-icon),
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-front-icon + span {
+  padding-right: 1.9rem;
+  color: var(--execution-command-muted);
+  font-size: .72rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-card-trigger > strong {
+  color: var(--run-card-accent);
+  font-size: clamp(1.65rem, 2.6vw, 2rem);
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-card-trigger > small {
+  color: var(--execution-command-muted);
+  font-size: .74rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.execution-run-command-center .evidence-flip-card .metric-evidence-hint {
+  margin-top: auto;
+  padding-top: .2rem;
+  color: var(--run-card-accent);
+  font-size: .66rem;
+  font-weight: 650;
+}
+
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-front-icon {
+  position: absolute;
+  top: -.1rem;
+  right: 0;
+  width: 1.65rem;
+  height: 1.65rem;
+  margin: 0;
+  color: var(--run-card-accent);
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-card-trigger:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--run-card-accent);
+  outline-offset: 4px;
+}
+
+.execution-run-command-center .execution-run-metric-card .evidence-flip-card-back,
+.execution-run-command-center .execution-run-insight-card .evidence-flip-card-back {
+  position: absolute;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: .45rem .4rem;
+}
+
+.execution-run-command-center .execution-run-metric-card.is-flipped .evidence-flip-card-inner,
+.execution-run-command-center .execution-run-insight-card.is-flipped .evidence-flip-card-inner { height: auto; }
+.execution-run-command-center .execution-run-metric-card.is-flipped .evidence-flip-card-back,
+.execution-run-command-center .execution-run-insight-card.is-flipped .evidence-flip-card-back { position: relative; min-height: 12rem; }
+
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-back-button {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 1.85rem;
+  align-self: start;
+}
+
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-back-heading {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-back-heading > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: .65rem;
+}
+
+.execution-run-command-center .execution-run-metric-card .project-stat-evidence,
+.execution-run-command-center .execution-run-insight-card .project-stat-evidence {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  margin: 0;
+  padding: .45rem .15rem 0 1rem;
+  overflow: visible;
+  overscroll-behavior: auto;
+  color: var(--execution-command-muted);
+  font-size: .72rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.execution-run-command-center .evidence-flip-card .project-stat-evidence li + li { margin-top: .35rem; }
+.execution-run-command-center .evidence-flip-card .evidence-flip-card-action-button { grid-column: 1 / -1; grid-row: 3; }
+
+.execution-run-command-center .execution-run-metric-card--results .evidence-flip-card-front-visual {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+.execution-run-command-center .execution-run-metric-card--results .project-stat-card-trigger > strong,
+.execution-run-command-center .execution-run-metric-card--results .project-stat-card-trigger > span:first-child {
+  padding-right: 5rem;
+}
+
+.execution-run-command-center .execution-run-metric-card--results .project-stat-card-trigger > small { margin-top: .3rem; }
+.execution-run-result-chart { display: grid; width: 4.3rem; height: 4.3rem; padding: .4rem; place-items: center; border-radius: 50%; }
+.execution-run-result-chart > span { display: grid; width: 100%; height: 100%; align-content: center; justify-items: center; gap: .1rem; border-radius: 50%; background: var(--execution-command-surface); }
+.execution-run-command-center .execution-run-result-chart b { color: var(--execution-command-ink); font-size: 1rem; line-height: 1; }
+.execution-run-command-center .execution-run-result-chart > span > span { color: var(--execution-command-muted); font-size: .5rem; line-height: 1; }
+.execution-run-progress-track { display: block; height: .4rem; overflow: hidden; border-radius: 9px; background: var(--run-result-pending); }
+.execution-run-progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--run-card-accent); }
+
+.execution-run-command-center .execution-run-insight-cards {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+  gap: .8rem;
+  padding: .8rem 1rem 1rem;
+}
+
+.execution-run-command-center .execution-run-config-card {
+  grid-column: auto;
+  align-content: start;
+  gap: .8rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--execution-command-line);
+  border-radius: 12px;
+  background: var(--execution-command-surface);
+}
+
+.execution-run-command-center .execution-run-config-card > span { font-size: .72rem; line-height: 1.4; }
+.execution-run-command-center .execution-run-config-links { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; align-items: stretch; }
+.execution-run-command-center .execution-run-config-links > button { position: relative; display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: .4rem; padding: .75rem .65rem; border-radius: 8px; }
+.execution-run-command-center .execution-run-config-links > button > span { padding-right: 1rem; font-size: .65rem; line-height: 1.4; overflow-wrap: anywhere; }
+.execution-run-command-center .execution-run-config-links > button > strong { font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+.execution-run-command-center .execution-run-config-links > button > svg { position: absolute; top: .75rem; right: .5rem; color: var(--execution-command-muted); }
+.execution-run-command-center .execution-run-config-links > button:not(:disabled):hover { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 4%, var(--execution-command-surface)); }
+.execution-run-command-center .execution-run-config-links > button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+@media (max-width: 1200px) {
+  .execution-run-command-center .execution-command-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .execution-run-command-center .execution-run-insight-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .execution-run-command-center .execution-run-config-card { grid-column: 1 / -1; }
+}
+
+@media (max-width: 620px) {
+  .execution-run-command-center .execution-command-metrics { grid-template-columns: minmax(0, 1fr); gap: .65rem; padding: .75rem .75rem 0; }
+  .execution-run-command-center .execution-run-insight-cards { grid-template-columns: minmax(0, 1fr); gap: .65rem; padding: .65rem .75rem .75rem; }
+  .execution-run-command-center .execution-run-config-card { padding: .75rem; }
+  .execution-run-command-center .execution-run-config-links { gap: .35rem; }
+  .execution-run-command-center .execution-run-config-links > button { gap: .35rem; padding: .6rem .4rem; }
+  .execution-run-command-center .execution-run-config-links > button > span { padding-right: 0; font-size: .6rem; }
+  .execution-run-command-center .execution-run-config-links > button > strong { font-size: .7rem; }
+  .execution-run-command-center .execution-run-config-links > button > svg { position: static; width: .8rem; height: .8rem; margin-top: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-run-command-center .execution-run-metric-card,
+  .execution-run-command-center .execution-run-insight-card { transition: none; }
+}
+
+/* The analyst also appears in a narrow desktop column: its actions need their
+   own row at any viewport width, with a visible text label on small screens. */
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: .65rem;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__context {
+  flex: 1 1 10rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__context > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__submit {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: .5rem;
+  width: 100%;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__submit > .agent-command-divider { display: none; }
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__submit > .agent-command-provider {
+  flex: 1 1 8rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.execution-run-command-center .execution-command-analysis .agent-command-provider select { min-width: 0; max-width: 100%; }
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__send {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.2rem;
+  margin-left: auto;
+  padding: .4rem .65rem;
+  font-size: .75rem;
+}
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__send > svg { flex-shrink: 0; }
+.execution-run-command-center .execution-command-analysis .ai-feature-composer__send > span {
+  display: inline;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

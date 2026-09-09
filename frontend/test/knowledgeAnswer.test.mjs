@@ -53,6 +53,18 @@ test("interpretation is explicit and partial retrieval limits cannot disappear",
   for (const phrase of ["Interpretation", "Partial retrieval", "outside your access", "time or context limit", "2 sources were unavailable", "may be out of date"]) assert.match(markup, new RegExp(phrase));
 });
 
+test("model-unavailable fallback retains validated evidence and disclosed partial coverage", () => {
+  const input = message();
+  input.grounding_status = "provider_unavailable";
+  input.answer_contract.status = "provider_unavailable";
+  assert.match(html(input), /The source supports this statement/);
+  assert.match(html(input), /aria-label="Source 1/);
+  input.answer_contract.limitations = { unavailable_sources: 1 };
+  assert.equal(helpers.validateKnowledgeAnswer(input).partial, true);
+  input.answer_contract.limitations = { retrieval_status: "partial" };
+  assert.equal(helpers.validateKnowledgeAnswer(input).partial, true);
+});
+
 test("allowed tables render native semantic HTML and escape every model cell", () => {
   const markup = html(message({ presentation: { recommended_type: "TABLE", structured_payload: { columns: [{ key: "change", label: "Change" }], rows: [{ cells: { change: '<img src=x onerror="alert(1)">' }, evidence_ids: ["e1"] }] } } }));
   assert.match(markup, /<table>/);

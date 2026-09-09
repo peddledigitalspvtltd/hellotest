@@ -10,6 +10,7 @@ const execution = require("./knowledgeExecution.service");
 const modelGateway = require("./knowledgeModelGateway.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { modelHttpError, modelFailureCode, modelFailureMessage } = require("../utils/knowledgeAssistantErrors");
 const {
   fingerprint,
   normalizeText,
@@ -43,6 +44,15 @@ const createError = (message, statusCode = 400, code) => {
   error.statusCode = statusCode;
   if (code) error.code = code;
   return error;
+};
+
+const assistantRead = async (task, { timeoutMs = 5_000, code = "ASSISTANT_SETUP_TIMEOUT" } = {}) => {
+  try { return await execution.bounded(task, { timeoutMs }); }
+  catch (error) {
+    execution.assertActive();
+    if (/TIMEOUT|TIMED_OUT|DEADLINE_EXCEEDED/.test(error.code || "")) throw createError("The assistant read did not finish in time.", 503, code);
+    throw error;
+  }
 };
 
 const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -266,7 +276,7 @@ const isJsonModeCompatibilityRejection = (status, responseText) => (
   && JSON_MODE_REJECTION.test(String(responseText || ""))
 );
 
-const openAiJsonCompletion = async ({ integration, messages, operation, signal, timeoutMs = 45_000 }) => {
+const openAiJsonCompletion = async ({ integration, messages, operation, signal, timeoutMs = 45_000, maxOutputTokens = 4096 }) => {
   const headers = { "Content-Type": "application/json" };
   const apiKey = String(integration.api_key || "").trim();
   if (integrationService.isUsableApiCredential(apiKey)) headers.Authorization = `Bearer ${apiKey}`;
@@ -279,7 +289,7 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
     headers,
     body: JSON.stringify({
       model: integration.model,
-      [outputTokenField]: 4096,
+      [outputTokenField]: maxOutputTokens,
       ...(includeTemperature ? { temperature: 0 } : {}),
       ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
       messages
@@ -292,10 +302,13 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
   });
 
   let response;
+  let responseText = "";
   for (let compatibilityAttempt = 0; compatibilityAttempt < 4; compatibilityAttempt += 1) {
+    execution.assertActive();
     response = await request();
-    if (response.ok || ![400, 422].includes(response.status)) break;
-    const responseText = typeof response.text === "function" ? await response.text() : "";
+    if (response.ok) break;
+    responseText = typeof response.text === "function" ? await response.text() : "";
+    if (![400, 422].includes(response.status)) break;
     // Negotiate only explicit parameter rejections. Never retry generation
     // after a transport failure or remove the output bound to gain compatibility.
     if (useJsonMode && isJsonModeCompatibilityRejection(response.status, responseText)) useJsonMode = false;
@@ -303,17 +316,19 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
     else if (includeTemperature && /temperature/i.test(responseText) && /unsupported|not support|only.{0,30}default/i.test(responseText)) includeTemperature = false;
     else break;
   }
-  if (!response.ok) throw new Error(`Configured LLM returned HTTP ${Number(response.status) || "error"}.`);
+  if (!response.ok) throw modelHttpError(Number(response.status), responseText);
   let payload;
   try {
     payload = await response.json();
   } catch {
-    throw new Error("Configured LLM returned a non-JSON provider payload.");
+    throw Object.assign(new Error("The answer provider returned an invalid payload."), { code: "MODEL_INVALID_RESPONSE" });
   }
   modelGateway.recordUsage({ integration, operation, usage: payload.usage });
+  if (payload.choices?.[0]?.finish_reason === "length") throw Object.assign(new Error("The answer provider reached its output limit."), { code: "MODEL_OUTPUT_TRUNCATED" });
   const content = completionContent(payload);
-  if (!content) throw new Error("Configured LLM returned an empty completion payload.");
-  return extractJson(content);
+  if (!content) throw Object.assign(new Error("The answer provider returned no answer."), { code: "MODEL_EMPTY_RESPONSE" });
+  try { return extractJson(content); }
+  catch { throw Object.assign(new Error("The answer provider returned invalid answer JSON."), { code: "MODEL_INVALID_RESPONSE" }); }
 };
 
 modelGateway.registerAdapter("openai_compatible", openAiJsonCompletion);
@@ -539,7 +554,7 @@ const buildProcessingTrace = ({ retrieval = {}, outcome = {}, provider, model } 
   ];
 };
 
-const requestRetrievalPlan = async ({ integration, question, hits, history = [], projectScope, reviewedContext }) => {
+const requestRetrievalPlan = async ({ integration, question, hits, history = [], projectScope, reviewedContext, signal, timeoutMs = 3_000 }) => {
   const active = execution.current();
   const request = knowledgeContracts.buildRetrievalRequest({
     projectId: projectScope.project_id,
@@ -561,7 +576,9 @@ const requestRetrievalPlan = async ({ integration, question, hits, history = [],
   return requestJsonCompletion({
     integration,
     operation: "knowledge.assistant.plan-retrieval",
-    timeoutMs: 20_000,
+    timeoutMs,
+    signal,
+    maxOutputTokens: 768,
     messages: [
       {
         role: "system",
@@ -1040,7 +1057,9 @@ const getSession = async ({ id, user, includeMessages = true }) => {
   return { ...session, messages: await Promise.all(messages.map((message) => revalidateStoredMessage(message, user))) };
 };
 
-const authorizeFreshEvidence = async ({ projectId, user, hits, asOf }) => {
+const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = execution.current()?.signal }) => {
+  const checkActive = () => { execution.assertActive(); if (signal?.aborted) throw execution.abortError(); };
+  checkActive();
   const permissionService = require("./permission.service");
   const projectService = require("./project.service");
   const unavailable = () => ({ allowed: [], denied_ids: hits.map((hit) => hit.evidence_id || hit.citation?.id || hit.chunk_id || hit.id), partial: hits.length > 0 });
@@ -1049,6 +1068,7 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf }) => {
       permissionService.hasPermission(user, "knowledge.view", projectId),
       projectService.getProject(projectId, user?.id)
     ]);
+    checkActive();
     if (!canReadKnowledge) return unavailable();
   } catch (error) {
     if (error.statusCode === 403 || error.statusCode === 404) return unavailable();
@@ -1056,8 +1076,11 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf }) => {
   }
   const live = hits.filter((hit) => (hit.source_kind || hit.citation?.source_kind) === "live_project");
   const indexed = hits.filter((hit) => !live.includes(hit));
-  const result = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: indexed, asOf });
+  const result = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: indexed, asOf, signal });
+  checkActive();
+  if (!live.length) return result;
   const allowedPermissions = new Set(await knowledgeRagService.resolveAllowedSourcePermissions(user, projectId));
+  checkActive();
   const livePermissions = {
     "project-overview": [], stories: ["requirement.view", "testcase.view"],
     "test-cases": ["testcase.view", "shared_step.view"], runs: ["run.view"],
@@ -1071,6 +1094,7 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf }) => {
     const requirements = livePermissions[scope];
     const permitted = requirements && (await Promise.all(requirements.map((permission) => allowedPermissions.has(permission)
       || permissionService.hasPermission(user, permission, projectId)))).every(Boolean);
+    checkActive();
     if (permitted && !asOf) result.allowed.push(hit);
     else result.denied_ids.push(hit.evidence_id || hit.citation?.id || hit.chunk_id);
   }
@@ -1100,6 +1124,21 @@ const revalidateStoredMessage = async (message, user) => {
     retrieval: { evidence_access_changed: true }, safety: { evidence_access_changed: true } };
 };
 
+// History is helpful context, but stale or slow history must not prevent a new
+// question from retrieving fresh evidence. Every included answer is rechecked.
+const readConversationHistory = ({ sessionId, userMessageId, user, timeoutMs = 2_500 }) => assistantRead(async () => {
+  const rows = (await db.prepare(`
+    SELECT * FROM ai_knowledge_assistant_messages WHERE session_id = ? AND id <> ? AND status NOT IN ('pending', 'error')
+    ORDER BY created_at DESC, id DESC LIMIT ?
+  `).all(sessionId, userMessageId, MAX_HISTORY_MESSAGES)).reverse();
+  execution.assertActive();
+  return (await Promise.all(rows.map((row) => revalidateStoredMessage(row, user))))
+    .filter((row) => !row.safety?.evidence_access_changed
+      && (row.role === "user" || row.retrieval?.answer_contract?.contract_type === "AnswerContract")
+      && !asArray(row.retrieval?.context_packet?.evidence).some((item) => item.source_kind === "live_project"))
+    .map(({ role, content }) => ({ role, content }));
+}, { timeoutMs, code: "HISTORY_LOOKUP_TIMEOUT" });
+
 const updateSession = async ({ id, user, title, status }) => {
   const session = await assertSessionAccess(id, user);
   if (status !== undefined && !["active", "archived"].includes(status)) throw createError("Invalid conversation status.");
@@ -1115,12 +1154,12 @@ const retrieveContext = ({ request, user, history, smartContext, integration }) 
     search: runRagSearchBatch, liveEvidence: aiContextOrchestrator.buildLiveProjectEvidence,
     planContext: aiContextOrchestrator.planContext, merge: mergeRetrievalResults, assess: assessEvidenceSufficiency,
     planQueries: requestRetrievalPlan,
-    authorize: (hits) => authorizeFreshEvidence({ projectId: request.project_id, user, hits, asOf: request.filters?.as_of }),
+    authorize: (hits, { signal } = {}) => authorizeFreshEvidence({ projectId: request.project_id, user, hits, asOf: request.filters?.as_of, signal }),
     expandParents: knowledgeRagService.expandEvidence, expandRelationships: knowledgeRagService.expandRelationships
   }
 });
 
-const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, user, signal, maxCandidates, mode = "hybrid" }) => {
+const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, user, signal, timeoutMs, maxCandidates, mode = "hybrid" }) => {
   try {
     return await knowledgeRagService.searchMany({
       queries,
@@ -1129,9 +1168,11 @@ const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, u
       limit: 10,
       filters,
       integrationId,
-      user, signal, maxCandidates
+      user, signal, timeoutMs, maxCandidates
     });
   } catch (error) {
+    execution.assertActive();
+    if (signal?.aborted) throw execution.abortError();
     return { results: [], errors: [error], query_count: asArray(queries).length, embedding_batch_count: 0 };
   }
 };
@@ -1172,7 +1213,7 @@ const formatTurnResponse = async ({ sessionRow, userMessage, assistantMessage, r
 const respondInternal = async ({ sessionId, message, filters, smartContext: smartContextInput, integrationId, retrievalBudgets, responseMode = "answer", user, clientTurnId }) => {
   execution.assertActive();
   execution.emit("QUERY_RECEIVED", "completed");
-  const sessionRow = await assertSessionAccess(sessionId, user);
+  const sessionRow = await assistantRead(() => assertSessionAccess(sessionId, user));
   if (sessionRow.status !== "active") throw createError("This knowledge conversation is archived.", 409);
   const sanitizedQuestion = sanitizeKnowledgeText(normalizeText(message, 8_000));
   if (!sanitizedQuestion.text) throw createError("message is required.");
@@ -1267,10 +1308,10 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   let outcome;
   let provider = null;
   let model = null;
-  const mergedFilters = await normalizeAssistantFilters({
+  const mergedFilters = await assistantRead(() => normalizeAssistantFilters({
     projectId: sessionRow.project_id, appTypeId: sessionRow.app_type_id, base: sessionRow.filters,
     override: { ...asObject(filters), ...(smartContext.source_ids.length ? { source_ids: smartContext.source_ids } : {}), ...(smartContext.source_kinds.length ? { source_kinds: smartContext.source_kinds } : {}) }
-  });
+  }));
   const retrievalRequest = knowledgeContracts.buildRetrievalRequest({
     projectId: sessionRow.project_id, query: sanitizedQuestion.text, filters: mergedFilters, smartContext,
     conversation: { session_id: sessionId }, budgets: retrievalBudgets, traceId: execution.current().traceId
@@ -1294,25 +1335,22 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     retrieval.termination_reason = budget.termination_reason;
     contextPacket = knowledgeContracts.buildContextPacket({ retrievalRequest, evidence: [], budget });
   } else {
-    const historyRows = (await db.prepare(`
-      SELECT * FROM ai_knowledge_assistant_messages WHERE session_id = ? AND id <> ? AND status NOT IN ('pending', 'error')
-      ORDER BY created_at DESC, id DESC LIMIT ?
-    `).all(sessionId, userMessage.id, MAX_HISTORY_MESSAGES)).reverse();
-    const history = (await Promise.all(historyRows.map((row) => revalidateStoredMessage(row, user))))
-      .filter((row) => !row.safety?.evidence_access_changed
-        && (row.role === "user" || row.retrieval?.answer_contract?.contract_type === "AnswerContract")
-        && !asArray(row.retrieval?.context_packet?.evidence).some((item) => item.source_kind === "live_project"))
-      .map(({ role, content }) => ({ role, content }));
-    let integration = null;
-    let integrationError = null;
-    if (responseMode !== "evidence") {
-      try { integration = await resolveAssistantIntegration({ integrationId: requestedIntegrationId, userId: user.id, projectId: sessionRow.project_id, allowMissing: true }); }
-      catch (error) { integrationError = error; }
-    }
-    if (mergedFilters.as_of) await knowledgeAuthorization.assertHistoricalAccess(user, sessionRow.project_id);
+    const [historyResult, integrationResult] = await Promise.allSettled([
+      readConversationHistory({ sessionId, userMessageId: userMessage.id, user }),
+      responseMode === "evidence" ? Promise.resolve(null) : assistantRead(() => resolveAssistantIntegration({
+        integrationId: requestedIntegrationId, userId: user.id, projectId: sessionRow.project_id, allowMissing: true
+      }))
+    ]);
+    execution.assertActive();
+    const history = historyResult.status === "fulfilled" ? historyResult.value : [];
+    if (historyResult.status === "rejected") retrieval.history_unavailable = true;
+    const integration = integrationResult.status === "fulfilled" ? integrationResult.value : null;
+    const integrationError = integrationResult.status === "rejected" ? integrationResult.reason : null;
+    if (mergedFilters.as_of) await assistantRead(() => knowledgeAuthorization.assertHistoricalAccess(user, sessionRow.project_id));
     const context = await retrieveContext({ request: retrievalRequest, user, history, smartContext, integration });
     execution.current().modelBudget.max_tool_calls = execution.current().modelStats.calls + Math.max(0, retrievalRequest.budgets.max_tool_calls - context.budget.tool_calls_used);
     contextPacket = context.packet;
+    if (retrieval.history_unavailable) contextPacket.retrieval.history_unavailable = true;
     retrieval = { ...retrieval, ...context.retrieval, selected_integration_id: integration?.id || null };
     let hits = context.hits;
     execution.assertActive();
@@ -1341,19 +1379,25 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
         execution.emit("GENERATION", "completed");
       } catch (error) {
         execution.assertActive();
-        outcome = fallback("Evidence was retrieved, but model synthesis could not be completed.");
-        retrieval.provider_error_code = error.code || "MODEL_UNAVAILABLE";
-        execution.emit("GENERATION", "failed");
+        retrieval.provider_error_code = modelFailureCode(error);
+        retrieval.provider_error_message = modelFailureMessage(retrieval.provider_error_code);
+        outcome = fallback(retrieval.provider_error_message);
+        execution.emit("GENERATION", "failed", { error_code: retrieval.provider_error_code });
       }
     }
     // Access can change while a model is running. Recheck before saving or
     // sending claims, and drop every claim whose evidence is no longer visible.
-    const access = await authorizeFreshEvidence({ projectId: sessionRow.project_id, user, hits, asOf: mergedFilters.as_of });
+    execution.emit("VALIDATION", "started");
+    const access = await assistantRead((signal) => authorizeFreshEvidence({ projectId: sessionRow.project_id, user, hits, asOf: mergedFilters.as_of, signal }), { code: "ANSWER_AUTHORIZATION_TIMEOUT" });
     const allowed = new Set(access.allowed.map((hit) => hit.citation?.id));
     contextPacket.evidence = contextPacket.evidence.filter((item) => allowed.has(item.evidence_id));
     if (access.denied_ids.length) {
       retrieval.partial_authorization = true;
       retrieval.access_changed_during_answer = true;
+      retrieval.live_context_counts = {};
+      retrieval.live_context_count = contextPacket.evidence.filter((item) => item.source_kind === "live_project").length;
+      contextPacket.retrieval.live_context_counts = {};
+      contextPacket.retrieval.live_context_count = retrieval.live_context_count;
       contextPacket.limitations.authorization_partial = true;
       contextPacket.limitations.retrieval_status = "PARTIAL";
       contextPacket.coverage.evidence_count = contextPacket.evidence.length;
@@ -1377,7 +1421,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     }
   }
   execution.assertActive();
-  execution.emit("VALIDATION", "started");
+  if (retrieval.refusal_before_retrieval) execution.emit("VALIDATION", "started");
   retrieval.context_packet = contextPacket;
   retrieval.answer_contract = knowledgeContracts.buildAnswerContract({ outcome, contextPacket, terminationReason: retrieval.termination_reason, trustDeterministic: trustedDeterministic });
   outcome = knowledgeContracts.applyAnswerContract(outcome, retrieval.answer_contract, contextPacket);
@@ -1461,6 +1505,8 @@ module.exports = {
   retrieve,
   respond,
   _internals: {
+    assistantRead,
+    readConversationHistory,
     insertMessage,
     authorizeFreshEvidence,
     revalidateStoredMessage,

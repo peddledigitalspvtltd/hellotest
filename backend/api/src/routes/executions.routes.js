@@ -181,6 +181,8 @@ module.exports = async function (fastify) {
       build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       scope_source: { required: false, type: "string", enum: ["smart-run"] },
+      start_date: { required: false, type: "string", maxLength: 10 },
+      end_date: { required: false, type: "string", maxLength: 10 },
       smart_plan: { required: false, type: "object" },
       created_by: { required: true, type: "string" }
     }, req.body);
@@ -337,6 +339,8 @@ module.exports = async function (fastify) {
       build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" },
+      start_date: { required: false, type: "string", maxLength: 10 },
+      end_date: { required: false, type: "string", maxLength: 10 },
       engine_base_url: { required: false, type: "string" }
     }, req.body);
 
@@ -395,6 +399,17 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
+      name: { required: false, type: "string", maxLength: 255 },
+      start_date: { required: false, type: "string", maxLength: 10 },
+      end_date: { required: false, type: "string", maxLength: 10 },
+      suite_ids: { required: false, type: "array", items: "string" },
+      test_case_ids: { required: false, type: "array", items: "string" },
+      test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      parallel_enabled: { required: false, type: "boolean" },
+      parallel_count: { required: false, type: "number" },
+      execution_mode: { required: false, type: "string", enum: ["manual", "remote", "local"] },
       assigned_to: { required: false, type: "string" },
       assigned_to_ids: { required: false, type: "array", items: "string" },
       release: { required: false, type: "string" },
@@ -403,7 +418,12 @@ module.exports = async function (fastify) {
       expected_revision: { required: false, type: "number" }
     }, req.body);
 
-    await ensureExecutionPermission(fastify, req, "run.update");
+    const execution = await ensureExecutionPermission(fastify, req, "run.update");
+    await requireMobileExecutionPermission(fastify, req, execution);
+    if (req.body.execution_mode && req.body.execution_mode !== "manual") await requireFeaturePermission(
+      fastify, req, resolveExecutionModePermission(req.body.execution_mode, "run.update"), execution.project_id);
+    if (req.body.parallel_enabled || Number(req.body.parallel_count || 1) > 1) await requireFeaturePermission(fastify, req, "automation.run.parallel", execution.project_id);
+    await requireSelectedTestDataAccess(fastify, req, execution.project_id, req.body.test_data_set_id);
 
     return service.updateExecution(req.params.id, req.body);
   });
@@ -461,17 +481,18 @@ module.exports = async function (fastify) {
   fastify.post("/executions/:id/start", async (req) => {
     await fastify.authenticate(req);
     const execution = await service.getExecution(req.params.id);
+    const executionMode = service.resolveExecutionStartMode(execution, req.body?.execution_mode);
     await ensureExecutionPermission(fastify, req, "run.execute", execution);
     await requireMobileExecutionPermission(fastify, req, execution);
     await requireFeaturePermission(
       fastify,
       req,
-      resolveExecutionModePermission(req.body?.execution_mode || execution.trigger, "run.execute"),
+      resolveExecutionModePermission(executionMode, "run.execute"),
       execution.project_id
     );
     return service.startExecution(req.params.id, {
       initiated_by: req.user.id,
-      execution_mode: req.body?.execution_mode,
+      execution_mode: executionMode,
       engine_base_url: req.body?.engine_base_url,
       expected_revision: req.body?.expected_revision
     });

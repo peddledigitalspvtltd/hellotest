@@ -904,6 +904,7 @@ export type Issue = {
   jira_bug_key?: string | null;
   linked_test_run_id?: string | null;
   linked_test_case_ids?: string[];
+  has_converted_test_cases?: boolean;
   linked_test_suite_ids?: string[];
   linked_module_ids?: string[];
   linked_requirement_ids?: string[];
@@ -912,6 +913,7 @@ export type Issue = {
   assignee_name?: string | null;
   assignee_email?: string | null;
   root_cause?: string | null;
+  qa_root_cause?: string | null;
   bug_type?: string | null;
   regression?: boolean;
   status: string | null;
@@ -919,6 +921,25 @@ export type Issue = {
   revision?: number;
   created_at?: string;
   updated_at?: string;
+};
+
+export type IssueHistoryEntry = {
+  id: string;
+  issue_id: string;
+  actor_id: string | null;
+  actor_name: string;
+  actor_email: string | null;
+  action: "created" | "updated";
+  created_at: string;
+  legacy?: boolean;
+  changes: Array<{
+    field: string;
+    label: string;
+    old_value: string | string[] | boolean | null;
+    new_value: string | string[] | boolean | null;
+    old_display?: string | null;
+    new_display?: string | null;
+  }>;
 };
 
 export type AiProcessingStage = {
@@ -1958,6 +1979,7 @@ export type TestCase = {
   id: string;
   display_id?: string | null;
   app_type_id?: string | null;
+  source_issue_id?: string | null;
   suite_id: string | null;
   suite_ids?: string[];
   requirement_ids?: string[];
@@ -2446,7 +2468,7 @@ export type ExecutionDataSetSnapshot = {
   generated_field_count?: number;
 };
 
-export type ExecutionStatus = "queued" | "running" | "completed" | "failed" | "aborted";
+export type ExecutionStatus = "queued" | "running" | "retrying" | "completed" | "passed" | "failed" | "blocked" | "skipped" | "cancelled" | "aborted" | "partially_completed";
 
 export type ExecutionScopeUser = {
   id: string;
@@ -2471,6 +2493,19 @@ export type ExecutionScopeSnapshot = {
 
 export type Execution = {
   id: string;
+  revision?: number;
+  run_mode?: "manual" | "remote" | "local";
+  metrics?: {
+    total_cases: number;
+    passed_cases: number;
+    failed_cases: number;
+    blocked_cases: number;
+    running_cases: number;
+    pending_cases: number;
+    defect_count: number;
+    story_count: number;
+    failed_story_count: number;
+  };
   display_id?: string | null;
   project_id: string;
   app_type_id: string | null;
@@ -2531,6 +2566,8 @@ export type Execution = {
   created_by: string | null;
   created_at?: string;
   updated_at?: string;
+  start_date?: string | null;
+  end_date?: string | null;
   started_at: string | null;
   ended_at: string | null;
 };
@@ -3126,9 +3163,12 @@ export type KnowledgeRetrievalSummary = {
     detail?: string;
     stage?: string;
     message?: string;
+    error_code?: string;
     status: "pending" | "complete" | "failed" | string;
   }>;
   query_class?: KnowledgeRetrievalRequest["query_class"];
+  provider_error_code?: string;
+  provider_error_message?: string;
   retrieval_request?: KnowledgeRetrievalRequest;
   context_packet?: KnowledgeContextPacket;
   answer_contract?: KnowledgeAnswerContract;
@@ -3242,6 +3282,7 @@ export type KnowledgeRetrievalEvent = {
   stage: string;
   status?: string;
   message?: string;
+  error_code?: string;
   metrics?: Record<string, number>;
 };
 

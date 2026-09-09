@@ -19,6 +19,7 @@ type ExecutionContextSelectorProps = {
   onConfigurationChange: (value: string) => void;
   onDataSetChange: (value: string) => void;
   prefillFirstAvailable?: boolean;
+  preserveMissingSelection?: boolean;
 };
 
 function filterScopedResources<T extends { app_type_id: string | null }>(items: T[], appTypeId: string) {
@@ -38,7 +39,8 @@ export function ExecutionContextSelector({
   onEnvironmentChange,
   onConfigurationChange,
   onDataSetChange,
-  prefillFirstAvailable = false
+  prefillFirstAvailable = false,
+  preserveMissingSelection = false
 }: ExecutionContextSelectorProps) {
   const { session } = useAuth();
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
@@ -94,22 +96,22 @@ export function ExecutionContextSelector({
   const hasAnyContext = Boolean(environments.length || configurations.length || dataSets.length);
 
   useEffect(() => {
-    if (selectedEnvironmentId && !environments.some((item) => item.id === selectedEnvironmentId)) {
+    if (!preserveMissingSelection && environmentsQuery.isSuccess && selectedEnvironmentId && !environments.some((item) => item.id === selectedEnvironmentId)) {
       onEnvironmentChange("");
     }
-  }, [environments, onEnvironmentChange, selectedEnvironmentId]);
+  }, [environments, environmentsQuery.isSuccess, onEnvironmentChange, preserveMissingSelection, selectedEnvironmentId]);
 
   useEffect(() => {
-    if (selectedConfigurationId && !configurations.some((item) => item.id === selectedConfigurationId)) {
+    if (!preserveMissingSelection && configurationsQuery.isSuccess && selectedConfigurationId && !configurations.some((item) => item.id === selectedConfigurationId)) {
       onConfigurationChange("");
     }
-  }, [configurations, onConfigurationChange, selectedConfigurationId]);
+  }, [configurations, configurationsQuery.isSuccess, onConfigurationChange, preserveMissingSelection, selectedConfigurationId]);
 
   useEffect(() => {
-    if (selectedDataSetId && !dataSets.some((item) => item.id === selectedDataSetId)) {
+    if (!preserveMissingSelection && dataSetsQuery.isSuccess && selectedDataSetId && !dataSets.some((item) => item.id === selectedDataSetId)) {
       onDataSetChange("");
     }
-  }, [dataSets, onDataSetChange, selectedDataSetId]);
+  }, [dataSets, dataSetsQuery.isSuccess, onDataSetChange, preserveMissingSelection, selectedDataSetId]);
 
   useEffect(() => {
     if (!prefillFirstAvailable || selectedEnvironmentId || !environments.length) {
@@ -208,6 +210,7 @@ function ExecutionContextField<T extends TestEnvironment | TestConfiguration | T
     <FormField label={label} labelIcon={labelIcon}>
       <select disabled={disabled} value={selectedId} onChange={(event) => onChange(event.target.value)}>
         <option value="">{placeholder}</option>
+        {selectedId && !items.some((item) => item.id === selectedId) ? <option value={selectedId}>Current attachment · unavailable in this list</option> : null}
         {items.map((item) => (
           <option key={item.id} value={item.id}>
             {item.name} {item.app_type_id ? "· Scoped" : "· Shared"}

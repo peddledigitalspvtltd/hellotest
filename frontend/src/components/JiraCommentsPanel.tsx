@@ -20,7 +20,7 @@ const initials = (name: string) => name
   .map((part) => part[0]?.toUpperCase())
   .join("") || "JU";
 
-export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment, onEvidenceChange }: { issueKey: string; projectId: string; entityType: HelloTestEntityType; entityId: string; canComment: boolean; onEvidenceChange?: () => void }) {
+export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, canComment, onEvidenceChange, hideHeading = false }: { issueKey: string; projectId: string; entityType: HelloTestEntityType; entityId: string; canComment: boolean; onEvidenceChange?: () => void; hideHeading?: boolean }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState("");
@@ -55,12 +55,12 @@ export function JiraCommentsPanel({ issueKey, projectId, entityType, entityId, c
 
   return (
     <section className="jira-comments-panel" aria-label={`Comments for ${issueKey}`}>
-      <div className="jira-comments-head">
+      {!hideHeading ? <div className="jira-comments-head">
         <div>
-          <strong>HelloTest comments</strong>
+          <strong>Comments</strong>
           <span>{comments.data?.length || 0} visible to you on {issueKey}</span>
         </div>
-      </div>
+      </div> : null}
 
       {canComment ? (
         <div className="jira-comment-composer">

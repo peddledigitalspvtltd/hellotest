@@ -100,7 +100,7 @@ export function validateKnowledgeAnswer(message: KnowledgeAssistantMessage) {
   const limitations = record(contract.limitations);
   const gaps = strings(contract.evidence_gaps);
   if (rejectedClaims) gaps.push(`${rejectedClaims} claim${rejectedClaims === 1 ? " was" : "s were"} omitted because its evidence could not be verified.`);
-  const partial = limitations.retrieval_status === "PARTIAL" || limitations.authorization_partial === true || limitations.budget_partial === true || packet?.retrieval?.status === "PARTIAL" || packet?.coverage?.context_budget_exhausted === true;
+  const partial = String(limitations.retrieval_status).toUpperCase() === "PARTIAL" || limitations.authorization_partial === true || limitations.budget_partial === true || Number(limitations.unavailable_sources) > 0 || String(packet?.retrieval?.status).toUpperCase() === "PARTIAL" || packet?.coverage?.context_budget_exhausted === true || message.grounding_status === "partially_grounded" || rejectedClaims > 0;
   return {
     summary: rejectedClaims ? "Some statements could not be verified against the returned evidence. The supported statements are shown below." : text(contract.answer?.summary || contract.summary),
     claims, citations, gaps, partial,

@@ -7,7 +7,7 @@ const abortError = () => Object.assign(new Error("The request was cancelled."), 
 const assertActive = () => { if (execution.getStore()?.signal?.aborted) throw abortError(); };
 
 const run = (options, task) => {
-  const context = { traceId: randomUUID(), sequence: 0, events: [], usage: [], modelStats: { calls: 0 }, ...options };
+  const context = { traceId: randomUUID(), progress: { sequence: 0, startedAt: Date.now() }, events: [], usage: [], modelStats: { calls: 0 }, ...options };
   return execution.run(context, task);
 };
 
@@ -17,8 +17,10 @@ const emit = (stage, status = "completed", metrics = {}) => {
   assertActive();
   const event = contracts.buildRetrievalEvent({
     stage, status, traceId: context.traceId, queryId: context.queryId || context.traceId,
-    requestId: context.requestId || context.queryId || context.traceId, sequence: ++context.sequence,
+    requestId: context.requestId || context.queryId || context.traceId, sequence: ++context.progress.sequence,
+    errorCode: metrics.error_code,
     metrics: {
+      elapsed_ms: Math.max(0, Date.now() - context.progress.startedAt),
       ...(Number.isFinite(metrics.candidate_count) ? { candidates_found: metrics.candidate_count } : {}),
       ...(Number.isFinite(metrics.evidence_count) ? { candidates_selected: metrics.evidence_count } : {}),
       ...(Number.isFinite(metrics.round) ? { retrieval_rounds: metrics.round } : {})
@@ -34,6 +36,9 @@ const emit = (stage, status = "completed", metrics = {}) => {
 // an in-flight read. The signal is also forwarded to network transports.
 const bounded = async (task, { timeoutMs, signal = execution.getStore()?.signal } = {}) => {
   if (signal?.aborted) throw abortError();
+  const duration = timeoutMs == null || !Number.isFinite(Number(timeoutMs)) ? 15_000 : Number(timeoutMs);
+  const deadlineError = () => Object.assign(new Error("The operation deadline was reached."), { code: "DEADLINE_EXCEEDED" });
+  if (duration <= 0) throw deadlineError();
   const controller = new AbortController();
   let timer;
   let onAbort;
@@ -42,8 +47,8 @@ const bounded = async (task, { timeoutMs, signal = execution.getStore()?.signal 
     signal?.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
       controller.abort();
-      reject(Object.assign(new Error("The retrieval deadline was reached."), { code: "DEADLINE_EXCEEDED" }));
-    }, Math.max(1, Number(timeoutMs) || 15_000));
+      reject(deadlineError());
+    }, duration);
   });
   try {
     const active = execution.getStore();

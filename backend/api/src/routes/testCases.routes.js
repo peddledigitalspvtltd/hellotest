@@ -135,6 +135,7 @@ module.exports = async function (fastify) {
       automation_status: { required: false, type: "string", enum: AUTOMATION_STATUS_VALUES },
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
+      source_issue_id: { required: false, type: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
       test_case_type: { required: false, type: "string", enum: TEST_CASE_TYPE_VALUES },
       gherkin_document: { required: false, type: "string" },
@@ -184,6 +185,10 @@ module.exports = async function (fastify) {
       });
     }
     const requirementIds = req.body.requirement_ids || (req.body.requirement_id ? [req.body.requirement_id] : []);
+    if (req.body.source_issue_id) {
+      if (!scopedProjectId) throw Object.assign(new Error("A project is required to convert a Bug to a Test Case"), { statusCode: 400 });
+      await fastify.requirePermission("feedback.view", { projectId: scopedProjectId })(req);
+    }
     if (requirementIds.length && scopedProjectId) {
       await fastify.requirePermission("requirement.view", { projectId: scopedProjectId })(req);
       await resolveScopedRequirements(requirementIds, scopedProjectId);

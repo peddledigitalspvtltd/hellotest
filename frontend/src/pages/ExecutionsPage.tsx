@@ -23,6 +23,7 @@ import {
   IconLink,
   IconListDetails,
   IconMail,
+  IconPencil,
   IconPhoto,
   IconPlayerPlay,
   IconRefresh,
@@ -51,6 +52,12 @@ import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { EntityIdBadge } from "../components/EntityIdBadge";
 import { FormField } from "../components/FormField";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
+import { EvidenceFlipCard } from "../components/EvidenceFlipCard";
+import { RunEditDialog } from "../components/RunEditDialog";
+import { RunReviewDialog } from "../components/RunReviewDialog";
+import { RunConfigurationDialog, type RunConfigurationResource } from "../components/RunConfigurationDialog";
+import { isRunFinished, normalizeRunCatalogView, runCatalogBucket, runStoryCounts } from "../lib/runCatalog";
+import { summarizeRunScopeCompletion } from "../lib/runScopeCompletion";
 import { ExternalReferencesField } from "../components/ExternalReferencesField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyMetricStrip } from "../components/HierarchyMetricStrip";
@@ -74,6 +81,7 @@ import { ProgressMeter } from "../components/ProgressMeter";
 import { QualityMetricStrip, type QualityMetric } from "../components/QualityMetricStrip";
 import { ReportBugSplitActionButton } from "../components/ReportBugSplitActionButton";
 import { richTextToPlainText } from "../components/RichTextEditor";
+import { RunPlanningFields } from "../components/RunPlanningFields";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StatusBadge } from "../components/StatusBadge";
@@ -146,6 +154,8 @@ import type {
 } from "../types";
 import "./ExecutionsPage.case-run.css";
 import "./ExecutionsPage.command-center.css";
+import "./ExecutionsPage.run-metrics.css";
+import "./ExecutionsPage.hierarchy.css";
 
 type ExecutionTab = "overview" | "logs" | "failures" | "history" | "evidence";
 
@@ -259,7 +269,7 @@ const hookTypeToExecutionHookMeta = (hookType: RunHookType) => {
       return { scope: "test", phase: "pre", name: "Run Hook", fail_behavior: "fail-run" };
   }
 };
-type TestRunsView = "test-case-runs" | "suite-runs" | "local-runs" | "scheduled-runs" | "batch-process";
+type TestRunsView = "suite-runs" | "local-runs" | "scheduled-runs" | "batch-process";
 type CatalogViewMode = "tile" | "list";
 
 type ExecutionAssigneeOption = AssigneeOption;
@@ -534,7 +544,6 @@ function getExecutionRiskInsight(summary: ExecutionRunSummary, impactSummary: Ex
 }
 
 const DEFAULT_CATALOG_VIEW_MODE_BY_RUN_VIEW: Record<TestRunsView, CatalogViewMode> = {
-  "test-case-runs": "tile",
   "suite-runs": "tile",
   "local-runs": "tile",
   "scheduled-runs": "tile",
@@ -542,7 +551,6 @@ const DEFAULT_CATALOG_VIEW_MODE_BY_RUN_VIEW: Record<TestRunsView, CatalogViewMod
 };
 
 const DEFAULT_RUN_LIBRARY_SEARCH_BY_VIEW: Record<TestRunsView, string> = {
-  "test-case-runs": "",
   "suite-runs": "",
   "local-runs": "",
   "scheduled-runs": "",
@@ -627,12 +635,16 @@ const BOARD_STATUS_META: Record<BoardStatusTone, { label: string; description: s
   },
   blocked: {
     label: "Blocked",
-    description: "Case is blocked and needs attention."
-  }
+    description: "Execution is blocked and needs attention."
+  },
+  retrying: { label: "Retrying", description: "Run is retrying execution." },
+  skipped: { label: "Skipped", description: "Run was skipped." },
+  cancelled: { label: "Cancelled", description: "Run was cancelled." },
+  partially_completed: { label: "Partially completed", description: "Run finished with incomplete coverage." }
 };
 
 function normalizeExecutionStatus(status: Execution["status"] | null | undefined): ExecutionStatus {
-  if (status === "running" || status === "completed" || status === "failed" || status === "aborted") {
+  if (status && Object.prototype.hasOwnProperty.call(BOARD_STATUS_META, status)) {
     return status;
   }
 
@@ -1304,15 +1316,15 @@ function averageDuration(values: Array<number | null | undefined>) {
 }
 
 function isExecutionRunsView(view: TestRunsView) {
-  return view === "test-case-runs" || view === "suite-runs" || view === "local-runs";
+  return view === "suite-runs" || view === "local-runs";
 }
 
-function resolveExecutionRunBucket(execution: Execution): Extract<TestRunsView, "test-case-runs" | "suite-runs" | "local-runs"> {
+function resolveExecutionRunBucket(execution: Execution): Extract<TestRunsView, "suite-runs" | "local-runs"> {
   if (execution.trigger === "local") {
     return "local-runs";
   }
 
-  return execution.suite_ids.length ? "suite-runs" : "test-case-runs";
+  return runCatalogBucket(execution);
 }
 
 function buildExecutionRunScopedValues(entries: KeyValueEntry[] = []) {
@@ -1612,6 +1624,7 @@ export function ExecutionsPage() {
   const [selectedOperationId, setSelectedOperationId] = useState("");
   const [focusedSuiteId, setFocusedSuiteId] = useState("");
   const [focusedExecutionModuleId, setFocusedExecutionModuleId] = useState("");
+  const [isExecutionHierarchyCollapsed, setIsExecutionHierarchyCollapsed] = useState(false);
   const [inspectedExecutionCaseId, setInspectedExecutionCaseId] = useState("");
   const [expandedExecutionSuiteIds, setExpandedExecutionSuiteIds] = useState<string[]>([]);
   const [expandedExecutionModuleKeys, setExpandedExecutionModuleKeys] = useState<string[]>([]);
@@ -1621,7 +1634,13 @@ export function ExecutionsPage() {
   const [expandedExecutionStepSections, setExpandedExecutionStepSections] = useState({ preconditions: true, testSteps: true });
   const [expandedExecutionStepIds, setExpandedExecutionStepIds] = useState<string[]>([]);
   const [bulkSelectedStepIds, setBulkSelectedStepIds] = useState<string[]>([]);
+  const [editingRunId, setEditingRunId] = useState("");
+  const [runConfigurationResource, setRunConfigurationResource] = useState<RunConfigurationResource | null>(null);
+  const [isRunEvidenceAnalysisOpen, setIsRunEvidenceAnalysisOpen] = useState(false);
+  const [isRunWorkflowOpen, setIsRunWorkflowOpen] = useState(false);
   const [executionName, setExecutionName] = useState("");
+  const [executionStartDate, setExecutionStartDate] = useState("");
+  const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
@@ -1672,8 +1691,21 @@ export function ExecutionsPage() {
   const [isExecutionAiAnalysisExpanded, setIsExecutionAiAnalysisExpanded] = useState(false);
   const [runAnalysisInstruction, setRunAnalysisInstruction] = useState("Explain the run verdict, separate product risk from environment noise, cite failed or blocked evidence, and recommend the next review sequence.");
   const [runAnalysisInteractionMode, setRunAnalysisInteractionMode] = useState<"chat" | "agent">("agent");
+  const [runAnalysisOperations, setRunAnalysisOperations] = useState<Record<string, {
+    status: "running" | "completed" | "failed";
+    error: string | null;
+    completedCaseCount: number;
+    totalCaseCount: number;
+    recordedCount: number;
+    previewOnlyCount: number;
+  }>>({});
+  const activeRunAnalysisIdsRef = useRef(new Set<string>());
+  const selectedAnalysisExecutionIdRef = useRef(selectedExecutionId);
+  selectedAnalysisExecutionIdRef.current = selectedExecutionId;
   const [runAnalysisReviewDraft, setRunAnalysisReviewDraft] = useState("");
   const [isRunAnalysisReviewAccepted, setIsRunAnalysisReviewAccepted] = useState(false);
+  const [runAnalysisSourceChanged, setRunAnalysisSourceChanged] = useState(false);
+  const runAnalysisReviewSourceRef = useRef<{ executionId: string; response: string; generatedAt: string } | null>(null);
   const [isFailureClusterPreviewOpen, setIsFailureClusterPreviewOpen] = useState(false);
   const [executionStepViewMode, setExecutionStepViewMode] = useState<"manual" | "automation">("manual");
   const [executionStatusFilter, setExecutionStatusFilter] = useState<ExecutionStatus | "all">("all");
@@ -2263,6 +2295,8 @@ export function ExecutionsPage() {
     smartExecutionBuilderSessionRef.current += 1;
     closeCreateExecutionModal();
     setExecutionName("");
+    setExecutionStartDate("");
+    setExecutionEndDate("");
     setExecutionStartMode("manual");
     setExecutionParallelEnabled(false);
     setExecutionParallelCount(1);
@@ -2674,7 +2708,13 @@ export function ExecutionsPage() {
 
   useEffect(() => {
     const requestedExecutionId = searchParams.get("execution");
-    const requestedViewParam = searchParams.get("view");
+    const requestedViewParam = normalizeRunCatalogView(searchParams.get("view"));
+    if (searchParams.get("view") === "test-case-runs") {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("view", "suite-runs");
+      setSearchParams(nextParams, { replace: true });
+      return;
+    }
     if (requestedViewParam === "batch-process") {
       navigate("/testops", { replace: true });
       return;
@@ -2684,8 +2724,7 @@ export function ExecutionsPage() {
       return;
     }
     const requestedView: TestRunsView | null =
-      requestedViewParam === "test-case-runs"
-      || requestedViewParam === "suite-runs"
+      requestedViewParam === "suite-runs"
       || requestedViewParam === "local-runs"
       || requestedViewParam === "scheduled-runs"
         ? requestedViewParam
@@ -2696,7 +2735,7 @@ export function ExecutionsPage() {
       const requestedExecution =
         executions.find((execution) => execution.id === requestedExecutionId)
         || (selectedExecutionQuery.data?.id === requestedExecutionId ? selectedExecutionQuery.data : null);
-      const fallbackView = requestedView || (requestedTestCaseId ? "test-case-runs" : "suite-runs");
+      const fallbackView = requestedView || "suite-runs";
 
       if (!isExecutionRunsView(testRunsView)) {
         setTestRunsView(requestedExecution ? resolveExecutionRunBucket(requestedExecution) : fallbackView);
@@ -2776,10 +2815,13 @@ export function ExecutionsPage() {
   }, [searchParams, testRunsView]);
 
   const selectedExecution = selectedExecutionQuery.data || executions.find((execution) => execution.id === selectedExecutionId) || null;
+  const selectedRunAnalysisOperation = runAnalysisOperations[selectedExecution?.id || ""] || null;
+  const isSelectedRunAnalysisPending = selectedRunAnalysisOperation?.status === "running";
   const selectedSchedule = executionSchedules.find((schedule) => schedule.id === selectedScheduleId) || null;
   const selectedExecutionSuiteIds = asArray(selectedExecution?.suite_ids);
   const selectedExecutionSuites = asArray(selectedExecution?.suite_snapshots);
   const currentExecutionStatus = normalizeExecutionStatus(selectedExecution?.status);
+  const selectedExecutionStartMode = selectedExecution?.run_mode || (selectedExecution?.trigger === "local" ? "local" : selectedExecution?.trigger === "ci" ? "remote" : "manual");
   const selectedExecutionAppTypeKind = selectedExecution?.app_type_id
     ? appTypes.find((appType) => appType.id === selectedExecution.app_type_id)?.type || null
     : null;
@@ -2800,8 +2842,7 @@ export function ExecutionsPage() {
     && Boolean(testEngineLiveViewUrl)
     && (selectedExecutionAppTypeKind === "web" || selectedExecutionAppTypeKind === "unified");
   const isExecutionStarted = currentExecutionStatus === "running";
-  const isExecutionLocked =
-    currentExecutionStatus === "completed" || currentExecutionStatus === "failed" || currentExecutionStatus === "aborted";
+  const isExecutionLocked = selectedExecution ? isRunFinished(selectedExecution) : false;
   const snapshotCases = useMemo(
     () => ((selectedExecution?.case_snapshots || []).slice().sort((left, right) => left.sort_order - right.sort_order)),
     [selectedExecution?.case_snapshots]
@@ -3339,7 +3380,7 @@ export function ExecutionsPage() {
         requirementIds.forEach((requirementId) => {
           const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
           stats.totalCases.add(resultIdentity);
-          if (["failed", "blocked"].includes(status)) {
+          if (status === "failed") {
             stats.failedCases.add(resultIdentity);
           }
           requirementStats.set(requirementId, stats);
@@ -3415,7 +3456,7 @@ export function ExecutionsPage() {
           requirementIds.forEach((requirementId) => {
             const stats = requirementStats.get(requirementId) || { totalCases: new Set<string>(), failedCases: new Set<string>() };
             stats.totalCases.add(instance.instance_key);
-            if (["failed", "blocked"].includes(status)) {
+            if (status === "failed") {
               stats.failedCases.add(instance.instance_key);
             }
             requirementStats.set(requirementId, stats);
@@ -3818,6 +3859,11 @@ export function ExecutionsPage() {
     event.preventDefault();
     if (event.target !== event.currentTarget) return;
 
+    if (executionStartDate && executionEndDate && executionEndDate < executionStartDate) {
+      showError(new Error("End date must be on or after start date."), "Unable to create run");
+      return;
+    }
+
     if (!session?.user.id) {
       setMessageTone("error");
       setMessage("You need an active session before creating a run.");
@@ -3923,6 +3969,8 @@ export function ExecutionsPage() {
         parallel_count: canConfigureParallelAutomation && executionParallelEnabled ? executionParallelCount : 1,
         execution_mode: executionStartMode,
         engine_base_url: executionStartMode === "local" ? "http://host.docker.internal:4301" : undefined,
+        start_date: executionStartDate || undefined,
+        end_date: executionEndDate || undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
         release: executionRelease.trim() || undefined,
         sprint: executionSprint.trim() || undefined,
@@ -4085,7 +4133,7 @@ export function ExecutionsPage() {
     }
   };
 
-	  const handleStartSelectedExecution = async (mode: "manual" | "remote" | "local" = "manual") => {
+	  const handleStartSelectedExecution = async (mode: "manual" | "remote" | "local" = selectedExecutionStartMode) => {
 	    if (!selectedExecution) {
 	      return;
 	    }
@@ -4389,9 +4437,7 @@ export function ExecutionsPage() {
     try {
       const response = await runExecutionSchedule.mutateAsync(scheduleId);
       const launchedSchedule = executionSchedules.find((schedule) => schedule.id === scheduleId);
-      const launchedView: Extract<TestRunsView, "test-case-runs" | "suite-runs"> = launchedSchedule?.suite_ids.length
-        ? "suite-runs"
-        : "test-case-runs";
+      const launchedView: TestRunsView = "suite-runs";
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("view", launchedView);
       nextParams.set("execution", response.id);
@@ -4959,43 +5005,66 @@ export function ExecutionsPage() {
     }
   };
 
-	  const handleRunExecutionAiAnalysis = async () => {
-	    if (!selectedExecution || !executionCaseOrder.length) {
-	      return;
-	    }
+  const handleRunExecutionAiAnalysis = async () => {
+    if (!selectedExecution || !executionCaseOrder.length) return;
+    if (!canUseRunAi) {
+      showError(new Error("Permission required: run.ai"), "Unable to refresh run evidence analysis");
+      return;
+    }
+    if (!["completed", "failed"].includes(currentExecutionStatus)) {
+      showError(new Error("Complete the run before running evidence analysis."), "Unable to refresh run evidence analysis");
+      return;
+    }
 
-	    if (!canUseRunAi) {
-	      showError(new Error("Permission required: run.ai"), "Unable to refresh run evidence analysis");
-	      return;
-	    }
+    const executionId = selectedExecution.id;
+    if (activeRunAnalysisIdsRef.current.has(executionId)) return;
+    activeRunAnalysisIdsRef.current.add(executionId);
+    const cases = executionCaseOrder;
+    let recordedCount = 0;
+    let previewOnlyCount = 0;
+    const updateOperation = (status: "running" | "completed" | "failed", error: string | null = null) => {
+      const operation = {
+        status, error, recordedCount, previewOnlyCount,
+        completedCaseCount: recordedCount + previewOnlyCount,
+        totalCaseCount: cases.length
+      };
+      setRunAnalysisOperations((current) => ({ ...current, [executionId]: operation }));
+    };
+    updateOperation("running");
 
-	    if (!["completed", "failed"].includes(currentExecutionStatus)) {
-	      showError(new Error("Complete the run before running evidence analysis."), "Unable to refresh run evidence analysis");
-	      return;
-	    }
-
-	    try {
-      let recordedCount = 0;
-      let previewOnlyCount = 0;
-      for (const testCase of executionCaseOrder) {
+    try {
+      for (const testCase of cases) {
         const response = await runExecutionAiAnalysis.mutateAsync({
-          executionId: selectedExecution.id,
+          executionId,
           testCaseId: testCase.id,
           instruction: runAnalysisInstruction,
           interactionMode: runAnalysisInteractionMode
         });
         if (response.recorded) recordedCount += 1;
         else previewOnlyCount += 1;
+        updateOperation("running");
       }
 
-      await refreshExecutionScope(selectedExecution.id);
-      setIsExecutionAiAnalysisExpanded(true);
-      showSuccess([
-        `Evidence analysis recorded for ${recordedCount} case${recordedCount === 1 ? "" : "s"}.`,
-        previewOnlyCount ? `${previewOnlyCount} case${previewOnlyCount === 1 ? " has" : "s have"} no result to attach analysis to yet.` : ""
-      ].filter(Boolean).join(" "));
+      await refreshExecutionScope(executionId);
+      updateOperation("completed");
+      if (selectedAnalysisExecutionIdRef.current === executionId) {
+        setIsExecutionAiAnalysisExpanded(true);
+        showSuccess([
+          `Evidence analysis recorded for ${recordedCount} case${recordedCount === 1 ? "" : "s"}.`,
+          previewOnlyCount ? `${previewOnlyCount} case${previewOnlyCount === 1 ? " has" : "s have"} no result to attach analysis to yet.` : ""
+        ].filter(Boolean).join(" "));
+      }
     } catch (error) {
-      showError(error, "Unable to refresh run evidence analysis");
+      if (recordedCount > 0 && recordedCount + previewOnlyCount < cases.length) {
+        // Preserve analyses already saved before a later case failed.
+        await refreshExecutionScope(executionId).catch(() => undefined);
+      }
+      updateOperation("failed", error instanceof Error ? error.message : "The analysis could not be completed. You can retry.");
+      if (selectedAnalysisExecutionIdRef.current === executionId) {
+        showError(error, "Unable to refresh run evidence analysis");
+      }
+    } finally {
+      activeRunAnalysisIdsRef.current.delete(executionId);
     }
   };
 
@@ -5298,7 +5367,7 @@ export function ExecutionsPage() {
     [previewExecutionFailureClusters.data]
   );
 
-  const runAiAnalysis = useMemo<ExecutionAiAnalysis | null>(() => {
+  const runAiAnalysis = useMemo<(ExecutionAiAnalysis & { recordedCaseCount: number }) | null>(() => {
 	    if (!selectedExecution || !["completed", "failed"].includes(currentExecutionStatus)) {
 	      return null;
 	    }
@@ -5360,6 +5429,7 @@ export function ExecutionsPage() {
       : ["- No per-case evidence analysis has been recorded yet. Run analysis to refresh all case-level signals and rebuild this rollup."];
 
     return {
+      recordedCaseCount: caseAnalysisRows.length,
       generatedAt: latestAnalysis?.generatedAt || selectedExecution.updated_at || selectedExecution.created_at,
       integration: latestAnalysis?.integration,
       response: [
@@ -5380,10 +5450,40 @@ export function ExecutionsPage() {
     };
   }, [currentExecutionStatus, executionCaseOrder, executionProgress.completedCases, executionProgress.totalCases, executionStatusCounts.blocked, executionStatusCounts.failed, executionStatusCounts.passed, executionSuites, resultByCaseId, runReferenceRows, selectedExecution, suiteMetrics]);
 
+  const hasRecordedRunAnalysis = Boolean(runAiAnalysis?.recordedCaseCount);
+  const runAnalysisWorkflowStatus = selectedRunAnalysisOperation?.status || (hasRecordedRunAnalysis ? "completed" : "idle");
+  const runAnalysisWorkflowOutcome = selectedRunAnalysisOperation
+    ? selectedRunAnalysisOperation.status === "running"
+      ? `${selectedRunAnalysisOperation.completedCaseCount} of ${selectedRunAnalysisOperation.totalCaseCount} cases analyzed. The review remains active until all results are refreshed.`
+      : selectedRunAnalysisOperation.status === "failed"
+        ? `Analysis stopped after ${selectedRunAnalysisOperation.completedCaseCount} of ${selectedRunAnalysisOperation.totalCaseCount} cases. ${selectedRunAnalysisOperation.error} ${selectedRunAnalysisOperation.recordedCount ? `${selectedRunAnalysisOperation.recordedCount} case analyses were saved before this failure. ` : ""}You can retry this analysis.`
+        : `Analysis completed for ${selectedRunAnalysisOperation.totalCaseCount} cases. ${selectedRunAnalysisOperation.recordedCount} analyses recorded${selectedRunAnalysisOperation.previewOnlyCount ? `; ${selectedRunAnalysisOperation.previewOnlyCount} previews could not be attached to a result` : ""}.`
+    : hasRecordedRunAnalysis
+      ? `${runAiAnalysis?.recordedCaseCount} recorded case analyses are included in Evidence Analysis.`
+      : "No Failure Analyst analysis has been recorded for this run. Evidence Analysis contains a summary of the saved run results.";
+
   useEffect(() => {
-    setRunAnalysisReviewDraft(runAiAnalysis?.response || "");
-    setIsRunAnalysisReviewAccepted(false);
-  }, [runAiAnalysis?.generatedAt, selectedExecution?.id]);
+    const next = { executionId: selectedExecutionId, response: runAiAnalysis?.response || "", generatedAt: runAiAnalysis?.generatedAt || "" };
+    const previous = runAnalysisReviewSourceRef.current;
+    if (!previous || previous.executionId !== next.executionId) {
+      setRunAnalysisReviewDraft(next.response);
+      setRunAnalysisSourceChanged(false);
+      setIsRunAnalysisReviewAccepted(false);
+    } else if (previous.response !== next.response || previous.generatedAt !== next.generatedAt) {
+      const hasEdits = runAnalysisReviewDraft !== previous.response;
+      if (!hasEdits) setRunAnalysisReviewDraft(next.response);
+      setRunAnalysisSourceChanged(hasEdits);
+      setIsRunAnalysisReviewAccepted(false);
+    } else if (runAnalysisReviewDraft === next.response) {
+      setRunAnalysisSourceChanged(false);
+    }
+    runAnalysisReviewSourceRef.current = next;
+  }, [runAiAnalysis?.response, runAiAnalysis?.generatedAt, runAnalysisReviewDraft, selectedExecutionId]);
+
+  useEffect(() => {
+    setIsRunEvidenceAnalysisOpen(false);
+    setIsRunWorkflowOpen(false);
+  }, [selectedExecutionId]);
 
   const selectedCaseHistory = useMemo(
     () =>
@@ -5469,9 +5569,7 @@ export function ExecutionsPage() {
         ? !selectedWorkspaceTransaction
         : !selectedExecution;
   const runLibraryTitle =
-    testRunsView === "test-case-runs"
-      ? "Test case runs"
-      : testRunsView === "suite-runs"
+    testRunsView === "suite-runs"
         ? "Suite runs"
         : testRunsView === "local-runs"
           ? "Local runs"
@@ -5479,10 +5577,8 @@ export function ExecutionsPage() {
           ? "Scheduled runs"
           : "Batch process";
   const runLibrarySubtitle =
-    testRunsView === "test-case-runs"
-      ? "Open direct case runs, review case outcomes quickly, and jump straight into the snapped test case details."
-      : testRunsView === "suite-runs"
-        ? "Browse suite-scoped runs, expand grouped coverage, and move into the focused run console when a case needs attention."
+    testRunsView === "suite-runs"
+        ? "Browse suite and individual case runs, inspect their results, and update active run plans."
         : testRunsView === "local-runs"
           ? "Review runs launched directly against your local Playwright runner without using the Test Engine queue."
         : testRunsView === "scheduled-runs"
@@ -5493,7 +5589,7 @@ export function ExecutionsPage() {
       ? "Search scheduled runs"
       : testRunsView === "batch-process"
         ? "Search batch process records"
-        : `Search ${testRunsView === "test-case-runs" ? "test case runs" : testRunsView === "local-runs" ? "local runs" : "suite runs"}`;
+        : `Search ${testRunsView === "local-runs" ? "local runs" : "suite runs"}`;
   const runLibrarySearchTitle =
     testRunsView === "scheduled-runs"
       ? "Filter scheduled runs"
@@ -5595,7 +5691,7 @@ export function ExecutionsPage() {
       const assigneeLabel = resolveExecutionAssigneeSummary(execution);
       const summary = executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY;
       const executionStatus = normalizeExecutionStatus(execution.status);
-      const hasIssues = summary.failed + summary.blocked > 0;
+      const hasIssues = Number(execution.metrics?.defect_count || 0) > 0;
       const hasEvidence = executionIdsWithEvidence.has(execution.id);
       const matchesSearch = !search || [
         execution.id,
@@ -5638,10 +5734,6 @@ export function ExecutionsPage() {
       return true;
     });
   }, [deferredExecutionSearch, executionEvidenceFilter, executionIdsWithEvidence, executionIssueFilter, executionStatusFilter, executionSummaryById, executions, projectNameById]);
-  const filteredTestCaseExecutions = useMemo(
-    () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "test-case-runs"),
-    [filteredExecutions]
-  );
   const filteredSuiteExecutions = useMemo(
     () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs"),
     [filteredExecutions]
@@ -5652,20 +5744,16 @@ export function ExecutionsPage() {
   );
   const activeExecutionCatalogRows = useMemo(
     () =>
-      testRunsView === "test-case-runs"
-        ? filteredTestCaseExecutions
-        : testRunsView === "suite-runs"
+      testRunsView === "suite-runs"
           ? filteredSuiteExecutions
           : testRunsView === "local-runs"
             ? filteredLocalExecutions
           : [],
-    [filteredLocalExecutions, filteredSuiteExecutions, filteredTestCaseExecutions, testRunsView]
+    [filteredLocalExecutions, filteredSuiteExecutions, testRunsView]
   );
   const availableExecutionCatalogRows = useMemo(
     () =>
-      testRunsView === "test-case-runs"
-        ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "test-case-runs")
-        : testRunsView === "suite-runs"
+      testRunsView === "suite-runs"
           ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs")
           : testRunsView === "local-runs"
             ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "local-runs")
@@ -5833,6 +5921,14 @@ export function ExecutionsPage() {
       ? selectedActionScheduleIds
       : selectedActionOperationIds;
   const areAllFilteredRunLibraryItemsSelected = visibleRunLibraryIds.length > 0 && visibleRunLibraryIds.every((id) => selectedRunLibraryActionIds.includes(id));
+  const runSelectedForEditing = isExecutionRunsView(testRunsView) && selectedActionExecutionIds.length === 1
+    ? availableExecutionCatalogRows.find((execution) => execution.id === selectedActionExecutionIds[0]) || null
+    : null;
+  const canEditSelectedRun = Boolean(canUpdateRuns && runSelectedForEditing && !isRunFinished(runSelectedForEditing));
+
+  useEffect(() => {
+    setSelectedActionExecutionIds([]);
+  }, [projectId, appTypeId, testRunsView]);
 
   useEffect(() => {
     if (!isExecutionRunsView(testRunsView) || !selectedExecutionId) {
@@ -6110,105 +6206,16 @@ export function ExecutionsPage() {
   ], [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, resultByCaseInstanceKey, selectedExecution?.assigned_user, selectedExecutionId, stepsByCaseId]);
 
   const executionListColumns = useMemo<Array<DataTableColumn<Execution>>>(() => [
-    {
-      key: "id",
-      label: "Run ID",
-      sortValue: (execution) => execution.display_id || execution.id,
-      render: (execution) => <EntityIdBadge icon={<ExecutionRunIcon />} value={execution.display_id || execution.id} />
-    },
-    {
-      key: "execution",
-      label: "Run",
-      canToggle: false,
-      render: (execution) => <strong>{execution.name || "Unnamed run"}</strong>
-    },
-    {
-      key: "trigger",
-      label: "Trigger",
-      defaultVisible: false,
-      render: (execution) => execution.trigger || "manual"
-    },
-    {
-      key: "status",
-      label: "Status",
-      render: (execution) => executionStatusLabel(execution.status)
-    },
-    {
-      key: "created",
-      label: "Created",
-      defaultVisible: false,
-      render: (execution) => formatExecutionTimestamp(execution.created_at, "Not recorded")
-    },
-    {
-      key: "release",
-      label: "Release",
-      sortValue: (execution) => execution.release || "",
-      render: (execution) => execution.release || "—"
-    },
-    {
-      key: "sprint",
-      label: "Sprint",
-      defaultVisible: false,
-      sortValue: (execution) => execution.sprint || "",
-      render: (execution) => execution.sprint || "—"
-    },
-    {
-      key: "build",
-      label: "Build",
-      defaultVisible: false,
-      sortValue: (execution) => execution.build || "",
-      render: (execution) => execution.build || "—"
-    },
-    {
-      key: "assignee",
-      label: "Assigned To",
-      sortValue: (execution) => resolveExecutionAssigneeSummary(execution),
-      render: (execution) => resolveExecutionAssigneeSummary(execution)
-    },
-    {
-      key: "suites",
-      label: "Suites",
-      defaultVisible: false,
-      render: (execution) => execution.suite_ids.length
-    },
-    {
-      key: "touched",
-      label: "Touched",
-      render: (execution) => {
-        const summary = executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY;
-        const totalCases = executionScopeCaseCount(execution);
-        return totalCases ? `${summary.total}/${totalCases}` : summary.total;
-      }
-    },
-    {
-      key: "issues",
-      label: "Bugs",
-      render: (execution) => {
-        const summary = executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY;
-        return summary.failed + summary.blocked;
-      }
-    },
-    {
-      key: "started",
-      label: "Started",
-      defaultVisible: false,
-      render: (execution) => formatExecutionTimestamp(execution.started_at, "Not started yet")
-    },
-    {
-      key: "duration",
-      label: "Duration",
-      render: (execution) => formatDuration(computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow), DEFAULT_DURATION_LABEL)
-    },
-    {
-      key: "latestActivity",
-      label: "Latest activity",
-      defaultVisible: false,
-      render: (execution) => {
-        const summary = executionSummaryById[execution.id] || EMPTY_EXECUTION_RUN_SUMMARY;
-        return formatExecutionTimestamp(summary.latestActivityAt, "No evidence yet");
-      }
-    }
-  ], [executionSummaryById, handleRerunExecutionItem, liveNow, rerunExecution.isPending, session?.user.id]);
+    { key: "execution", label: "Run Name", canToggle: false, render: (execution) => <strong>{execution.name || "Unnamed run"}</strong> },
+    { key: "status", label: "Status", render: (execution) => <ExecutionStatusIndicator status={normalizeExecutionStatus(execution.status)} /> },
+    { key: "cases", label: "Cases", render: (execution) => execution.metrics?.total_cases ?? executionScopeCaseCount(execution) },
+    { key: "defects", label: "Defects", render: (execution) => execution.metrics?.defect_count ?? 0 },
+    { key: "stories", label: "Story impact", render: (execution) => { const count = runStoryCounts(execution, executionImpactSummaryById[execution.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY); return `${count.failed}/${count.total}`; } },
+    { key: "startDate", label: "Start date", render: (execution) => execution.start_date?.slice(0, 10) || "Not planned" },
+    { key: "endDate", label: "End date", render: (execution) => execution.end_date?.slice(0, 10) || "Not planned" },
+    { key: "duration", label: "Duration", render: (execution) => formatDuration(computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow), DEFAULT_DURATION_LABEL) },
+    { key: "edit", label: "Actions", render: (execution) => <button aria-label={`Edit ${execution.name || "run"}`} className="ghost-button" disabled={!canUpdateRuns || isRunFinished(execution)} onClick={(event) => { event.stopPropagation(); setEditingRunId(execution.id); }} type="button"><IconPencil size={16} />Edit run</button> }
+  ], [canUpdateRuns, executionImpactSummaryById, liveNow]);
   const executionScheduleListColumns = useMemo<Array<DataTableColumn<ExecutionSchedule>>>(() => [
     {
       key: "id",
@@ -6611,7 +6618,7 @@ export function ExecutionsPage() {
           <div className="execution-scope-assignee" title="Assign module responsibility">
             <ExecutionAssigneeIcon />
             <MultiAssigneePicker
-              disabled={!canUpdateRuns || module.id === "unassigned-module" || updateExecutionScopeAssignment.isPending}
+              disabled={!canUpdateRuns || isExecutionLocked || module.id === "unassigned-module" || updateExecutionScopeAssignment.isPending}
               emptyLabel={module.id === "unassigned-module" ? "No module owner" : "Inherit suite/run"}
               onChange={(ids) => void handleScopeAssignmentChange("modules", module.id, ids)}
               options={assigneeOptions}
@@ -6809,11 +6816,15 @@ export function ExecutionsPage() {
 
     const activeSuite = isSelectedExecutionTestCaseRun
       ? null
-      : executionSuites.find((suite) => suite.id === focusedSuiteId) || executionSuites[0] || null;
+      : executionSuites.find((suite) => suite.id === focusedSuiteId) || null;
     const activeSuiteId = activeSuite?.id || "";
-    const activeScopeCases = isSelectedExecutionTestCaseRun
-      ? executionCaseOrder
-      : displayCasesBySuiteId[activeSuiteId] || [];
+    const activeScopeCases = activeSuite
+      ? displayCasesBySuiteId[activeSuiteId] || []
+      : executionCaseOrder;
+    const scopeCompletion = (cases: ExecutionCaseView[]) => summarizeRunScopeCompletion(
+      cases.flatMap(testCase => testCase.data_set_instances.map(instanceDerivedStatus))
+    );
+    const runHierarchyCompletion = scopeCompletion(executionCaseOrder);
     const moduleGroups = Object.values(
       activeScopeCases.reduce<Record<string, CommandModuleGroup>>((groups, testCase) => {
         const moduleId = testCase.module_id || "unassigned-module";
@@ -6871,12 +6882,24 @@ export function ExecutionsPage() {
     const environmentSnapshot = selectedExecution.test_environment?.snapshot;
     const configurationSnapshot = selectedExecution.test_configuration?.snapshot;
     const dataSetSnapshot = selectedExecution.test_data_set?.snapshot;
-    const primaryActionDisabled =
+    const hasMissingFinishTime = isRunFinished(selectedExecution) && !selectedExecution.ended_at;
+    const runDefectCount = selectedExecution.metrics?.defect_count;
+    const runStories = runStoryCounts(selectedExecution, selectedExecutionImpactSummary);
+    const resultChartTotal = Math.max(executionProgress.totalCases, 1);
+    const passedChartStop = executionStatusCounts.passed / resultChartTotal * 100;
+    const failedChartStop = passedChartStop + executionStatusCounts.failed / resultChartTotal * 100;
+    const blockedChartStop = failedChartStop + executionStatusCounts.blocked / resultChartTotal * 100;
+    const runningChartStop = blockedChartStop + executionStatusCounts.running / resultChartTotal * 100;
+    const resultChartBackground = `conic-gradient(var(--run-result-passed) 0% ${passedChartStop}%, var(--run-result-failed) ${passedChartStop}% ${failedChartStop}%, var(--run-result-blocked) ${failedChartStop}% ${blockedChartStop}%, var(--run-result-running) ${blockedChartStop}% ${runningChartStop}%, var(--run-result-pending) ${runningChartStop}% 100%)`;
+    const timedResultCount = latestExecutionResults.filter((result) => typeof result.duration_ms === "number" && !Number.isNaN(result.duration_ms)).length;
+    const primaryActionDisabled = isExecutionLocked || (
       currentExecutionStatus === "queued"
         ? !canExecuteRuns || startExecution.isPending
+          || (selectedExecutionStartMode === "local" && !canRunLocalAutomation)
+          || (selectedExecutionStartMode === "remote" && !canRunRemoteAutomation)
         : currentExecutionStatus === "running"
           ? !nextFocusCase
-          : true;
+          : true);
     const primaryActionLabel =
       currentExecutionStatus === "queued"
         ? startExecution.isPending ? "Starting…" : "Start execution"
@@ -6884,7 +6907,6 @@ export function ExecutionsPage() {
           ? nextFocusCase ? "Open next case" : "No cases remaining"
           : "Execution locked";
     const hierarchySearch = isSelectedExecutionTestCaseRun ? executionCaseSearch : executionSuiteSearch;
-    const runDisplayId = selectedExecution.display_id || selectedExecution.id;
     const scopedAssignmentIds = activeModule && activeModule.id !== "unassigned-module"
       ? selectedExecution.module_assignments?.[activeModule.id] || []
       : activeSuite
@@ -6902,7 +6924,7 @@ export function ExecutionsPage() {
       ? `Module: ${activeModule.name}`
       : activeSuite
         ? `Suite: ${activeSuite.name}`
-        : "Direct test cases";
+        : isSelectedExecutionTestCaseRun ? "Direct test cases" : "All run cases";
     const scopeSubtitle = `${visibleCases.length} of ${scopedCases.length} case${scopedCases.length === 1 ? "" : "s"} shown`;
 
     const setActiveSuite = (suiteId: string) => {
@@ -6931,30 +6953,19 @@ export function ExecutionsPage() {
               <span>Back</span>
             </button>
             <span className="execution-command-mark" aria-hidden="true">
-              <IconFlag size={22} stroke={2} />
+              <ExecutionRunIcon />
             </span>
             <div>
               <h1 id="execution-command-title">{selectedExecution.name || "Unnamed execution"}</h1>
-              <span>Execution ID: {runDisplayId}</span>
+
             </div>
           </div>
 
-          <div className="execution-command-context" aria-label="Frozen run context">
-            <button className="execution-command-context-item" onClick={() => setIsExecutionContextModalOpen(true)} type="button">
-              <span>Environment</span>
-              <strong>{environmentSnapshot?.name || selectedExecution.test_environment?.name || "Not attached"}</strong>
-            </button>
-            <button className="execution-command-context-item" onClick={() => setIsExecutionContextModalOpen(true)} type="button">
-              <span>Configuration</span>
-              <strong>{configurationSnapshot?.name || selectedExecution.test_configuration?.name || "Not attached"}</strong>
-            </button>
-            <button className="execution-command-context-item" onClick={() => setIsExecutionContextModalOpen(true)} type="button">
-              <span>Data set</span>
-              <strong>{dataSetSnapshot?.name || selectedExecution.test_data_set?.name || "Not attached"}</strong>
-            </button>
-          </div>
+          <StatusBadge value={currentExecutionStatus} />
+        </header>
 
           <div className="execution-command-actions" aria-label="Execution actions">
+            <button className="execution-command-button" disabled={!canUpdateRuns || isRunFinished(selectedExecution)} onClick={() => setEditingRunId(selectedExecution.id)} type="button"><IconPencil size={18} /><span>Edit run</span></button>
             <button
               className="execution-command-button is-primary"
               disabled={primaryActionDisabled}
@@ -7043,125 +7054,140 @@ export function ExecutionsPage() {
               <span>{completeExecution.isPending && executionFinalizeAction === "abort" ? "Aborting…" : "Abort"}</span>
             </button>
           </div>
-        </header>
+
 
         <div className="execution-command-metrics" aria-label="Execution health">
-          <article className="execution-command-metric execution-command-metric--pass-rate">
-            <ExecutionOverviewOrb
-              blockedCount={executionStatusCounts.blocked}
-              failedCount={executionStatusCounts.failed}
-              passedCount={executionStatusCounts.passed}
-              passPercent={selectedRunPassRate || 0}
-              totalCount={executionProgress.totalCases}
-            />
-          </article>
-          <article className="execution-command-metric">
-            <div className="execution-command-metric-heading">
-              <span>Execution progress</span>
-              <strong>{selectedRunCompletionPercent}%</strong>
-              <small>{remainingCaseCount} remaining</small>
-            </div>
-            <ProgressMeter
-              detail={`${selectedRunFinalizedCount} finalized · ${executionStatusCounts.running} running`}
-              label="Execution progress"
-              segments={buildProgressSegments(
-                executionStatusCounts.passed,
-                executionStatusCounts.failed,
-                executionStatusCounts.blocked,
-                executionProgress.totalCases
-              )}
-              value={selectedRunCompletionPercent}
-            />
-          </article>
-          <article className="execution-command-metric">
-            <div className="execution-command-duration">
-              <IconClock aria-hidden="true" size={34} stroke={1.7} />
-              <div>
-                <span>Total duration</span>
-                <strong>{formatDuration(selectedExecutionDurationMs, DEFAULT_DURATION_LABEL)}</strong>
-                <small>
-                  {estimatedRemainingMs === null
-                    ? "Estimate available after timed results"
-                    : `Est. ${formatDuration(estimatedRemainingMs, DEFAULT_DURATION_LABEL)} remaining`}
-                </small>
-              </div>
-            </div>
-          </article>
-          <article className={blockingCount ? "execution-command-metric is-risk" : "execution-command-metric"}>
-            <div className="execution-command-blockers">
-              <div>
-                <span>Blocking cases</span>
-                <strong>{blockingCount}</strong>
-                <div className="execution-command-priority-row">
-                  <span>{criticalBlockingCount} critical</span>
-                  <span>{highBlockingCount} high</span>
-                </div>
-              </div>
-              <IconAlertTriangle aria-hidden="true" size={34} stroke={1.8} />
-            </div>
-          </article>
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-results`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-metric-card execution-run-metric-card--results"
+            label="Run results"
+            value={selectedRunPassRate === null ? "—" : `${selectedRunPassRate}%`}
+            caption={selectedRunFinalizedCount ? `${executionStatusCounts.passed} of ${selectedRunFinalizedCount} finalized instances passed` : "Pass rate available after the first finalized result"}
+            tone={executionStatusCounts.failed ? "danger" : executionStatusCounts.blocked ? "warning" : selectedRunFinalizedCount ? "success" : "info"}
+            frontVisual={<span className="execution-run-result-chart" style={{ background: resultChartBackground }}><span><b>{executionProgress.totalCases}</b><span>instances</span></span></span>}
+            evidence={[
+              `${executionStatusCounts.passed} passed · ${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked.`,
+              `${executionStatusCounts.running} running · ${executionStatusCounts.queued} queued · ${executionProgress.totalCases} total case instances.`,
+              selectedRunPassRate === null ? "No finalized results yet; a pass rate is not available." : `Pass rate: ${executionStatusCounts.passed} passed ÷ ${selectedRunFinalizedCount} finalized × 100 = ${selectedRunPassRate}% (rounded).`,
+              "Finalized results include passed, failed and blocked instances. Each data-set row counts separately."
+            ]}
+          />
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-progress`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-metric-card execution-run-metric-card--progress"
+            label="Execution progress"
+            value={`${selectedRunCompletionPercent}%`}
+            caption={`${selectedRunFinalizedCount} of ${executionProgress.totalCases} finalized · ${remainingCaseCount} remaining`}
+            tone={selectedRunCompletionPercent === 100 ? "success" : "info"}
+            frontIcon={<IconActivity size={18} stroke={1.8} />}
+            frontVisual={<span className="execution-run-progress-track"><span style={{ width: `${selectedRunCompletionPercent}%` }} /></span>}
+            evidence={[
+              `${selectedRunFinalizedCount} finalized of ${executionProgress.totalCases} case instances in this run.`,
+              `${executionStatusCounts.running} running · ${executionStatusCounts.queued} queued · ${remainingCaseCount} still awaiting a finalized result.`,
+              "Progress counts passed, failed and blocked results as finalized; it does not indicate that the run passed.",
+              executionProgress.totalCases ? `Completion: ${selectedRunFinalizedCount} ÷ ${executionProgress.totalCases} × 100 = ${selectedRunCompletionPercent}% (rounded).` : "No case instances are available for this run."
+            ]}
+          />
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-duration`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-metric-card"
+            label="Total duration"
+            value={formatDuration(hasMissingFinishTime ? null : selectedExecutionDurationMs, DEFAULT_DURATION_LABEL)}
+            caption={!selectedExecution.started_at ? "Timing begins when the run starts" : hasMissingFinishTime ? "Finish time unavailable for this finished run" : selectedExecution.ended_at ? "Elapsed time from start to finish" : "Elapsed time since this run started"}
+            tone="info"
+            frontIcon={<IconClock size={18} stroke={1.8} />}
+            evidence={[
+              selectedExecution.started_at ? `Started: ${formatExecutionTimestamp(selectedExecution.started_at)}.` : "This run has not recorded a start time.",
+              selectedExecution.ended_at ? `Ended: ${formatExecutionTimestamp(selectedExecution.ended_at)}.` : "No finish time has been recorded.",
+              averageCaseDurationMs === null ? "No timed case results are available for an estimate." : `Average recorded case duration: ${formatDuration(averageCaseDurationMs)} across ${timedResultCount} timed result${timedResultCount === 1 ? "" : "s"}.`,
+              isRunFinished(selectedExecution) ? "Elapsed duration is measured from the run timestamps, separately from summed case durations." : estimatedRemainingMs === null ? "An estimate becomes available after timed case results are saved." : `Estimated remaining case time: ${formatDuration(estimatedRemainingMs)} (${remainingCaseCount} remaining × average case duration). Parallel execution can reduce elapsed time.`
+            ]}
+          />
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-defects`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-metric-card"
+            label="Defects"
+            value={runDefectCount ?? "—"}
+            caption={runDefectCount === undefined ? "Defect count is not available" : "Unique defects linked to this run"}
+            tone={runDefectCount ? "danger" : "info"}
+            frontIcon={<IconBug size={18} stroke={1.8} />}
+            evidence={[
+              runDefectCount === undefined ? "The run response did not include a defect count." : `${runDefectCount} distinct defect reference${runDefectCount === 1 ? "" : "s"} recorded for this run.`,
+              "A defect linked to multiple results in this run is counted once.",
+              `${executionStatusCounts.failed} failed and ${executionStatusCounts.blocked} blocked case instances are recorded separately from linked defects.`,
+              runDefectCount === 0 ? "No defects have been linked to this run. Unreported failures may still need review." : "Includes saved result, case and step defect links across this run's attempts."
+            ]}
+          />
         </div>
 
-        <div className="execution-command-toolbar" aria-label="Execution context summary">
-          <div className="execution-command-toolbar-item execution-command-toolbar-item--impact">
-            <span>Run impact areas</span>
-            <div className="execution-command-chip-row">
-              {selectedExecutionImpactSummary.impactedRequirements.slice(0, 3).map((requirement) => (
-                <button
-                  className={requirement.failedCases ? "execution-command-chip is-risk" : "execution-command-chip"}
-                  key={requirement.id}
-                  onClick={() => {
-                    const impactedCase = selectedExecutionImpactSummary.failedCases.find((testCase) => testCase.requirementIds.includes(requirement.id));
-                    if (impactedCase) inspectCase(impactedCase.id);
-                  }}
-                  type="button"
-                >
-                  {requirement.title} ({requirement.failureRate}%)
-                </button>
-              ))}
-              {!selectedExecutionImpactSummary.impactedRequirements.length ? <small>No linked story impact</small> : null}
+        <div className="execution-command-toolbar execution-run-insight-cards" aria-label="Run evidence and configuration">
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-stories`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-insight-card"
+            label="Run impacted stories"
+            value={`${runStories.failed}/${runStories.total}`}
+            caption="Stories linked to failed cases / all stories in this run"
+            frontIcon={<IconLink size={18} stroke={1.8} />}
+            tone={runStories.failed ? "warning" : "success"}
+            evidence={selectedExecutionImpactSummary.impactedRequirements.filter((story) => story.failedCases > 0).map((story) => `${story.title} · ${story.failedCases} failed case${story.failedCases === 1 ? "" : "s"}`).concat(selectedExecutionImpactSummary.failedRequirementCount ? [] : ["No stories linked to failed cases in the current results."])}
+            actionLabel="Inspect failed cases"
+            actionDisabled={!selectedExecutionImpactSummary.failedCases.some((item) => item.status === "failed")}
+            onAction={() => { const first = selectedExecutionImpactSummary.failedCases.find((item) => item.status === "failed"); if (first) { if (first.suiteId) setFocusedSuiteId(first.suiteId); setFocusedExecutionModuleId(""); setInspectedExecutionCaseId(first.id); setExecutionCaseSearch("failed"); } }}
+          />
+          <EvidenceFlipCard
+            key={`${selectedExecution.id}-readiness`}
+            autoResetMs={0}
+            resetOnChange={false}
+            className="execution-run-insight-card"
+            label="Evidence readiness"
+            value={`${selectedRunEvidenceReadiness.score}%`}
+            caption={selectedRunEvidenceReadiness.summary}
+            frontIcon={<IconShieldCheck size={18} stroke={1.8} />}
+            tone={selectedRunEvidenceReadiness.score >= 80 ? "success" : "warning"}
+            evidence={[...selectedRunEvidenceReadiness.signals.map((signal) => `${signal.label}: ${signal.value}`), ...selectedRunEvidenceReadiness.gaps]}
+            actionLabel="Open evidence"
+            onAction={() => setIsRunEvidenceAnalysisOpen(true)}
+          />
+          <div className="execution-command-toolbar-item execution-run-config-card">
+            <span>Run configuration</span>
+            <div className="execution-run-config-links">
+              <button disabled={!environmentSnapshot && !selectedExecution.test_environment?.id} onClick={() => setRunConfigurationResource("environment")} type="button"><span>Environment</span><strong>{environmentSnapshot?.name || selectedExecution.test_environment?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
+              <button disabled={!dataSetSnapshot && !selectedExecution.test_data_set?.id} onClick={() => setRunConfigurationResource("data")} type="button"><span>Test data</span><strong>{dataSetSnapshot?.name || selectedExecution.test_data_set?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
+              <button disabled={!configurationSnapshot && !selectedExecution.test_configuration?.id} onClick={() => setRunConfigurationResource("configuration")} type="button"><span>Configuration</span><strong>{configurationSnapshot?.name || selectedExecution.test_configuration?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
             </div>
           </div>
-          <div className="execution-command-toolbar-item">
-            <span>Release context</span>
-            <strong>
-              {[selectedExecution.release, selectedExecution.sprint, selectedExecution.build].filter(Boolean).join(" · ") || "Not set"}
-            </strong>
-          </div>
-          <div className="execution-command-toolbar-item">
-            <span>Run configuration</span>
-            <strong>{selectedExecutionAppTypeLabel} · {(selectedExecution.trigger || "manual").toUpperCase()}</strong>
-          </div>
-          <div className="execution-command-toolbar-item execution-command-toolbar-item--assignees">
-            <span>Run assignees</span>
-            <div>
-              <MultiAssigneePicker
-                disabled={!canUpdateRuns || !assigneeOptions.length || updateExecutionAssignment.isPending}
-                options={assigneeOptions}
-                selectedIds={executionAssignmentDraftIds}
-                onChange={setExecutionAssignmentDraftIds}
-              />
+        </div>
+
+        <div className={isExecutionHierarchyCollapsed ? "execution-command-content is-hierarchy-collapsed" : "execution-command-content"}>
+          <aside className="execution-command-hierarchy" aria-label="Test hierarchy">
+            <div className="execution-command-pane-heading execution-hierarchy-heading">
+              <div className="execution-hierarchy-heading-copy">
+                <strong>Test hierarchy</strong>
+                <span>{executionProgress.totalCases} case instances</span>
+              </div>
               <button
-                className="execution-command-save-assignees"
-                disabled={!canUpdateRuns || !hasExecutionAssignmentChange || updateExecutionAssignment.isPending}
-                onClick={() => void handleSaveExecutionAssignment()}
+                aria-controls="execution-hierarchy-content"
+                aria-expanded={!isExecutionHierarchyCollapsed}
+                aria-label={isExecutionHierarchyCollapsed ? "Expand test hierarchy" : "Collapse test hierarchy"}
+                className="execution-hierarchy-toggle"
+                onClick={() => setIsExecutionHierarchyCollapsed(current => !current)}
+                title={isExecutionHierarchyCollapsed ? "Expand test hierarchy" : "Collapse test hierarchy"}
                 type="button"
               >
-                {updateExecutionAssignment.isPending ? "Saving…" : "Save"}
+                <IconChevronRight aria-hidden="true" size={20} stroke={1.9} />
               </button>
             </div>
-          </div>
-        </div>
-
-        <div className="execution-command-content">
-          <aside className="execution-command-hierarchy" aria-label="Test hierarchy">
-            <div className="execution-command-pane-heading">
-              <div>
-                <IconListDetails aria-hidden="true" size={18} stroke={1.9} />
-                <strong>Test hierarchy</strong>
-              </div>
-              <span>{executionProgress.totalCases} case instances</span>
-            </div>
+            <div className="execution-hierarchy-body" hidden={isExecutionHierarchyCollapsed} id="execution-hierarchy-content">
             <label className="execution-command-search">
               <IconSearch aria-hidden="true" size={17} stroke={1.8} />
               <input
@@ -7191,43 +7217,62 @@ export function ExecutionsPage() {
             </label>
 
             <div className="execution-command-tree">
+              <button
+                aria-current={!activeSuite && !activeModule ? "true" : undefined}
+                aria-label={`Run: ${selectedExecution.name || "Unnamed run"}`}
+                className={`execution-command-tree-row execution-hierarchy-run-root${!activeSuite && !activeModule ? " is-active" : ""}`}
+                onClick={() => { setFocusedSuiteId(""); setFocusedExecutionModuleId(""); setInspectedExecutionCaseId(""); }}
+                title={runHierarchyCompletion.description}
+                type="button"
+              >
+                <ExecutionRunIcon />
+                <span><small className="execution-hierarchy-kind">Run Name</small><strong>{selectedExecution.name || "Unnamed run"}</strong><small>{executionCaseOrder.length} cases</small></span>
+                <b className="execution-hierarchy-completion" title={runHierarchyCompletion.description}>{runHierarchyCompletion.percent}%</b>
+              </button>
+              <div className="execution-hierarchy-run-children">
               {isSelectedExecutionTestCaseRun ? (
                 <section className="execution-command-tree-group">
                   <button
-                    aria-current={!focusedExecutionModuleId ? "true" : undefined}
-                    className={!focusedExecutionModuleId ? "execution-command-tree-row is-active" : "execution-command-tree-row"}
+                    aria-label="Direct test cases"
+                    className="execution-command-tree-row"
                     onClick={() => {
                       setFocusedExecutionModuleId("");
                       setInspectedExecutionCaseId("");
                     }}
+                    title={runHierarchyCompletion.description}
                     type="button"
                   >
                     <IconFolder aria-hidden="true" size={18} stroke={1.8} />
                     <span><strong>Direct test cases</strong><small>{executionCaseOrder.length} cases</small></span>
-                    <b>{selectedRunCompletionPercent}%</b>
+                    <b className="execution-hierarchy-completion" title={runHierarchyCompletion.description}>{runHierarchyCompletion.percent}%</b>
                   </button>
                   <div className="execution-command-tree-children">
-                    {moduleGroups.map((module) => (
+                    {moduleGroups.map((module) => {
+                      const completion = scopeCompletion(module.cases);
+                      return (
                       <button
                         aria-current={activeModule?.id === module.id ? "true" : undefined}
+                        aria-label={`Module: ${module.name}`}
                         className={activeModule?.id === module.id ? "execution-command-tree-row is-active" : "execution-command-tree-row"}
                         key={module.id}
                         onClick={() => {
                           setFocusedExecutionModuleId(module.id);
                           setInspectedExecutionCaseId("");
                         }}
+                        title={completion.description}
                         type="button"
                       >
                         <IconChevronRight aria-hidden="true" size={16} stroke={1.8} />
-                        <span><strong>{module.name}</strong><small>{module.cases.length} cases</small></span>
+                        <span><small className="execution-hierarchy-kind">Module</small><strong>{module.name}</strong><small>{module.cases.length} cases</small></span>
+                        <b className="execution-hierarchy-completion" title={completion.description}>{completion.percent}%</b>
                       </button>
-                    ))}
+                    );})}
                   </div>
                 </section>
               ) : filteredExecutionSuites.length ? (
                 filteredExecutionSuites.map((suite) => {
                   const suiteCases = displayCasesBySuiteId[suite.id] || [];
-                  const suiteMetric = suiteMetrics.find((metric) => metric.suiteId === suite.id);
+                  const suiteCompletion = scopeCompletion(suiteCases);
                   const suiteModules = Object.values(
                     suiteCases.reduce<Record<string, CommandModuleGroup>>((groups, testCase) => {
                       const moduleId = testCase.module_id || "unassigned-module";
@@ -7256,20 +7301,25 @@ export function ExecutionsPage() {
                           <IconChevronDown aria-hidden="true" className={isExpanded ? "" : "is-collapsed"} size={17} stroke={1.9} />
                         </button>
                         <button
+                          aria-label={`Suite: ${suite.name}`}
                           className="execution-command-tree-main"
                           onClick={() => setActiveSuite(suite.id)}
+                          title={suiteCompletion.description}
                           type="button"
                         >
                           <IconFolder aria-hidden="true" size={18} stroke={1.8} />
-                          <span><strong>{suite.name}</strong><small>{suiteCases.length} cases</small></span>
-                          <b>{suiteMetric?.percent || 0}%</b>
+                          <span><small className="execution-hierarchy-kind">Suite</small><strong>{suite.name}</strong><small>{suiteCases.length} cases</small></span>
+                          <b className="execution-hierarchy-completion" title={suiteCompletion.description}>{suiteCompletion.percent}%</b>
                         </button>
                       </div>
                       {isExpanded ? (
                         <div className="execution-command-tree-children">
-                          {suiteModules.map((module) => (
+                          {suiteModules.map((module) => {
+                            const completion = scopeCompletion(module.cases);
+                            return (
                             <button
                               aria-current={activeSuiteId === suite.id && activeModule?.id === module.id ? "true" : undefined}
+                              aria-label={`Module: ${module.name}`}
                               className={activeSuiteId === suite.id && activeModule?.id === module.id ? "execution-command-tree-row is-active" : "execution-command-tree-row"}
                               key={module.id}
                               onClick={() => {
@@ -7277,12 +7327,14 @@ export function ExecutionsPage() {
                                 setFocusedExecutionModuleId(module.id);
                                 setInspectedExecutionCaseId("");
                               }}
+                              title={completion.description}
                               type="button"
                             >
                               <IconChevronRight aria-hidden="true" size={16} stroke={1.8} />
-                              <span><strong>{module.name}</strong><small>{module.cases.length} cases</small></span>
+                              <span><small className="execution-hierarchy-kind">Module</small><strong>{module.name}</strong><small>{module.cases.length} cases</small></span>
+                              <b className="execution-hierarchy-completion" title={completion.description}>{completion.percent}%</b>
                             </button>
-                          ))}
+                          );})}
                         </div>
                       ) : null}
                     </section>
@@ -7291,6 +7343,7 @@ export function ExecutionsPage() {
               ) : (
                 <div className="empty-state compact">No suites match the hierarchy filter.</div>
               )}
+              </div>
             </div>
 
             <div className="execution-command-ai-card">
@@ -7311,6 +7364,7 @@ export function ExecutionsPage() {
                 View cluster insights
               </button>
             </div>
+            </div>
           </aside>
 
           <main className="execution-command-cases">
@@ -7322,13 +7376,16 @@ export function ExecutionsPage() {
               </div>
               <div className="execution-command-scope-actions">
                 {scopeAssignmentLevel ? (
-                  <MultiAssigneePicker
-                    disabled={!canUpdateRuns || updateExecutionScopeAssignment.isPending || scopeAssignmentId === "unassigned-module"}
-                    emptyLabel="Inherit run owner"
+                  <div aria-busy={updateExecutionScopeAssignment.isPending} aria-label={scopeAssignmentLevel === "modules" ? "Module assignees" : "Suite assignees"} className="execution-scope-assignees" role="group">
+                    <div className="execution-scope-assignees-label"><IconUser aria-hidden="true" size={15} /><strong>{scopeAssignmentLevel === "modules" ? "Module assignees" : "Suite assignees"}</strong>{updateExecutionScopeAssignment.isPending ? <span role="status">Saving…</span> : null}</div>
+                    <MultiAssigneePicker
+                    disabled={!canUpdateRuns || isExecutionLocked || updateExecutionScopeAssignment.isPending || scopeAssignmentId === "unassigned-module"}
+                    emptyLabel="Select assignees"
                     onChange={(ids) => void handleScopeAssignmentChange(scopeAssignmentLevel, scopeAssignmentId, ids)}
                     options={assigneeOptions}
                     selectedIds={scopedAssignmentIds}
                   />
+                  </div>
                 ) : null}
                 <ReportBugSplitActionButton
                   canUseAi={canUseAiBugTriage}
@@ -7462,47 +7519,27 @@ export function ExecutionsPage() {
               <StatusBadge value={currentExecutionStatus} />
             </div>
 
-            <AgenticProcessRail
-              agentName="Failure Analyst"
-              compact
-              stageEvidence={{
-                context: `${executionProgress.totalCases} run case instances, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, and ${runReferenceStats.defectCount + runReferenceStats.referenceCount} references are bounded to this run.`,
-                outcome: runAiAnalysis ? "An editable run-level review summary is ready below." : "The generated summary will remain reviewable before it is accepted in this workspace.",
-                review: isRunAnalysisReviewAccepted ? "The edited summary is accepted for this review session." : "Edit the summary and explicitly accept it before treating it as the review outcome."
-              }}
-              status={runExecutionAiAnalysis.isPending ? "running" : runAiAnalysis ? "completed" : "idle"}
-            />
-
             <AiFeatureComposer
               agentName="Failure Analyst"
+              headerActions={<button aria-haspopup="dialog" className="ghost-button run-analyst-workflow-button" onClick={() => setIsRunWorkflowOpen(true)} type="button"><IconListDetails aria-hidden="true" size={15} />Workflow</button>}
+              briefCollapsible
               briefItems={[
                 { id: "context", kind: "context", label: "Run evidence", state: "ready", value: `${executionProgress.totalCases} instances · ${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked` },
                 { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable verdict, clusters, risks, and next review sequence" },
                 { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept the reviewed summary for this session" }
               ]}
               contextLabel={`${executionProgress.totalCases} instances · ${executionStatusCounts.failed + executionStatusCounts.blocked} risks`}
+              onContextClick={() => setIsRunEvidenceAnalysisOpen(true)}
               disabled={!canUseRunAi || !["completed", "failed"].includes(currentExecutionStatus)}
               mode={runAnalysisInteractionMode}
               onModeChange={setRunAnalysisInteractionMode}
               onPromptChange={setRunAnalysisInstruction}
-              onSubmit={() => void handleRunExecutionAiAnalysis()}
+              onSubmit={() => { setIsRunEvidenceAnalysisOpen(true); void handleRunExecutionAiAnalysis(); }}
               placeholder="Ask for a verdict, failure clustering, environment-noise separation, evidence gaps, or an executive summary."
               prompt={runAnalysisInstruction}
-              running={runExecutionAiAnalysis.isPending}
-              submitLabel={runAiAnalysis ? "Refresh analysis" : "Analyze run"}
+              running={isSelectedRunAnalysisPending}
+              submitLabel={hasRecordedRunAnalysis ? "Refresh analysis" : "Analyze run"}
             />
-
-            <article className="execution-command-readiness">
-              <div>
-                <span>Evidence readiness</span>
-                <b>{selectedRunEvidenceReadiness.scoreLabel}</b>
-              </div>
-              <strong>{selectedRunEvidenceReadiness.score}%</strong>
-              <p>{selectedRunEvidenceReadiness.summary}</p>
-              <div className="execution-command-readiness-bar" aria-label={`${selectedRunEvidenceReadiness.score}% evidence readiness`}>
-                <span style={{ width: `${selectedRunEvidenceReadiness.score}%` }} />
-              </div>
-            </article>
 
             <section className="execution-command-inspector">
               <div className="execution-command-section-title">
@@ -7603,24 +7640,6 @@ export function ExecutionsPage() {
               </div>
             </details>
 
-            <details className="execution-command-disclosure">
-              <summary>
-                <span><IconSparkles aria-hidden="true" size={17} stroke={1.9} /> Evidence analysis</span>
-                <b>{runAiAnalysis ? "Ready" : "Pending"}</b>
-              </summary>
-              <div className="execution-command-analysis-copy">
-                {runAiAnalysis ? (
-                  <>
-                    <textarea aria-label="Edit run analysis summary" onChange={(event) => { setRunAnalysisReviewDraft(event.target.value); setIsRunAnalysisReviewAccepted(false); }} rows={9} value={runAnalysisReviewDraft} />
-                    <div className="execution-command-analysis-review-actions">
-                      <span>{isRunAnalysisReviewAccepted ? "Accepted for this review" : "Editable output · saved run evidence is unchanged"}</span>
-                      <button className="ghost-button" disabled={runAnalysisReviewDraft === runAiAnalysis.response} onClick={() => setRunAnalysisReviewDraft(runAiAnalysis.response)} type="button">Reset</button>
-                      <button className="primary-button" disabled={!runAnalysisReviewDraft.trim() || isRunAnalysisReviewAccepted} onClick={() => setIsRunAnalysisReviewAccepted(true)} type="button">Accept reviewed summary</button>
-                    </div>
-                  </>
-                ) : <p>No run-level evidence analysis has been recorded yet.</p>}
-              </div>
-            </details>
           </aside>
         </div>
 
@@ -7995,9 +8014,7 @@ export function ExecutionsPage() {
           <PageHeader
             eyebrow="Test Runs"
             title={
-              testRunsView === "test-case-runs"
-                ? "Test Case Runs"
-                : testRunsView === "suite-runs"
+              testRunsView === "suite-runs"
                   ? "Suite Runs"
                   : testRunsView === "local-runs"
                     ? "Local Runs"
@@ -8006,10 +8023,8 @@ export function ExecutionsPage() {
                     : "Batch Process"
             }
             description={
-              testRunsView === "test-case-runs"
-                ? "Review direct case runs without forcing them through a default suite wrapper, then open any run or case tile for its full detail view."
-                : testRunsView === "suite-runs"
-                  ? "Launch suite-scoped runs, monitor live progress, and capture failure evidence without losing the surrounding suite and case context."
+              testRunsView === "suite-runs"
+                  ? "Manage suite and individual case runs together, monitor progress, and review their evidence."
                   : testRunsView === "local-runs"
                     ? "Watch runs started directly on your local Playwright runner and review the callback evidence they produce."
                   : testRunsView === "scheduled-runs"
@@ -8074,14 +8089,14 @@ export function ExecutionsPage() {
 
                   {isExecutionRunsView(testRunsView) ? (
                   <label className="catalog-filter-field">
-                    <span>Bug count</span>
+                    <span>Defects</span>
                     <select
                       value={executionIssueFilter}
                       onChange={(event) => setExecutionIssueFilter(event.target.value as ExecutionIssueFilter)}
                     >
                       <option value="all">All runs</option>
-                      <option value="with-issues">With failed or blocked cases</option>
-                      <option value="clean">No failed or blocked cases</option>
+                      <option value="with-issues">With linked defects</option>
+                      <option value="clean">No linked defects</option>
                     </select>
                   </label>
                   ) : null}
@@ -8139,6 +8154,16 @@ export function ExecutionsPage() {
                   }}
                   selectedCount={selectedRunLibraryActionIds.length}
                 />
+                {isExecutionRunsView(testRunsView) ? (
+                  <button
+                    aria-label="Edit selected run"
+                    className="ghost-button"
+                    disabled={!canEditSelectedRun}
+                    onClick={() => { if (canEditSelectedRun && runSelectedForEditing) setEditingRunId(runSelectedForEditing.id); }}
+                    title={!runSelectedForEditing ? "Select one run to edit" : isRunFinished(runSelectedForEditing) ? "Finished runs cannot be edited" : !canUpdateRuns ? "Permission required to edit runs" : `Edit ${runSelectedForEditing.name || "selected run"}`}
+                    type="button"
+                  ><IconPencil aria-hidden="true" size={16} />Edit Run</button>
+                ) : null}
               </div>
               {testRunsView !== "batch-process" ? (
                 <div className="catalog-toolbar-actions executions-run-actions" aria-label="Run actions">
@@ -8176,6 +8201,8 @@ export function ExecutionsPage() {
                   ? activeExecutionCatalogRows.map((execution) => (
                       <ExecutionListCard
                         key={execution.id}
+                        canEdit={canUpdateRuns && !isRunFinished(execution)}
+                        onEdit={() => setEditingRunId(execution.id)}
                         execution={execution}
                         isActive={selectedExecution?.id === execution.id}
                         isSelected={selectedActionExecutionIds.includes(execution.id)}
@@ -8253,6 +8280,9 @@ export function ExecutionsPage() {
                     onRowClick={(execution) => focusExecution(execution.id)}
                     renderRowActions={renderExecutionRowActions}
                     rows={activeExecutionCatalogRows}
+                    enableRowSelection
+                    selectedRowKeys={selectedActionExecutionIds}
+                    onSelectedRowKeysChange={setSelectedActionExecutionIds}
                     storageKey="hellotest:executions:list-columns"
                   />
                 ) : null}
@@ -8282,11 +8312,9 @@ export function ExecutionsPage() {
                 ) : null}
                 {catalogViewMode === "tile" && isExecutionRunsView(testRunsView) && !activeExecutionCatalogRows.length ? (
                   <div className="empty-state compact">
-                    {testRunsView === "test-case-runs"
-                      ? "No direct test case runs created yet."
-                      : testRunsView === "local-runs"
+                    {testRunsView === "local-runs"
                         ? "No local runs created yet."
-                        : "No suite runs created yet."}
+                        : "No suite or individual case runs created yet."}
                   </div>
                 ) : null}
                 {catalogViewMode === "tile" && testRunsView === "scheduled-runs" && canViewSchedules && !filteredSchedules.length ? <div className="empty-state compact">No schedules created yet.</div> : null}
@@ -9108,7 +9136,7 @@ export function ExecutionsPage() {
                         <div className="execution-case-run-inspector-content">
                           <p className="execution-case-run-panel-help">{selectedExecutionCaseAssignmentHint}</p>
                           <select
-                            disabled={!canUpdateRuns || !assigneeOptions.length || updateExecutionCaseAssignment.isPending}
+                            disabled={!canUpdateRuns || isExecutionLocked || !assigneeOptions.length || updateExecutionCaseAssignment.isPending}
                             value={caseAssignmentDraft}
                             onChange={(event) => setCaseAssignmentDraft(event.target.value)}
                           >
@@ -9127,7 +9155,7 @@ export function ExecutionsPage() {
                           </select>
                           <button
                             className="execution-case-run-button"
-                            disabled={!canUpdateRuns || !assigneeOptions.length || !hasCaseAssignmentChange || updateExecutionCaseAssignment.isPending}
+                            disabled={!canUpdateRuns || isExecutionLocked || !assigneeOptions.length || !hasCaseAssignmentChange || updateExecutionCaseAssignment.isPending}
                             onClick={() => void handleSaveCaseAssignment()}
                             type="button"
                           >
@@ -9423,10 +9451,10 @@ export function ExecutionsPage() {
                           tone: selectedRunPassRate === null ? "neutral" : "success"
                         },
                         {
-                          label: "Blocking cases",
-                          value: executionStatusCounts.failed + executionStatusCounts.blocked,
-                          detail: `${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked`,
-                          tone: executionStatusCounts.failed + executionStatusCounts.blocked ? "danger" : "neutral"
+                          label: "Defects",
+                          value: selectedExecution.metrics?.defect_count ?? 0,
+                          detail: "Distinct defects linked to this run",
+                          tone: selectedExecution.metrics?.defect_count ? "danger" : "neutral"
                         }
                       ]}
                     />
@@ -9508,14 +9536,14 @@ export function ExecutionsPage() {
                       </div>
                       <div className="execution-assignment-actions">
                         <MultiAssigneePicker
-                          disabled={!canUpdateRuns || !assigneeOptions.length || updateExecutionAssignment.isPending}
+                          disabled={!canUpdateRuns || isExecutionLocked || !assigneeOptions.length || updateExecutionAssignment.isPending}
                           options={assigneeOptions}
                           selectedIds={executionAssignmentDraftIds}
                           onChange={setExecutionAssignmentDraftIds}
                         />
                         <button
                           className="ghost-button"
-                          disabled={!canUpdateRuns || !assigneeOptions.length || !hasExecutionAssignmentChange || updateExecutionAssignment.isPending}
+                          disabled={!canUpdateRuns || isExecutionLocked || !assigneeOptions.length || !hasExecutionAssignmentChange || updateExecutionAssignment.isPending}
                           onClick={() => void handleSaveExecutionAssignment()}
                           type="button"
                         >
@@ -9658,7 +9686,7 @@ export function ExecutionsPage() {
 	                        analysis={runAiAnalysis}
 	                        canRun={canUseRunAi && ["completed", "failed"].includes(currentExecutionStatus)}
 	                        canPreviewClusters={canUseRunAi && Boolean(projectId) && ["completed", "failed"].includes(currentExecutionStatus)}
-	                        isRunning={runExecutionAiAnalysis.isPending}
+	                        isRunning={isSelectedRunAnalysisPending}
 	                        isPreviewingClusters={previewExecutionFailureClusters.isPending}
 	                        onRun={() => void handleRunExecutionAiAnalysis()}
 	                        onPreviewClusters={handlePreviewFailureClusters}
@@ -9857,7 +9885,7 @@ export function ExecutionsPage() {
                                         <span><strong>Suite owner</strong><small>Cases inherit this unless their module or case has an override.</small></span>
                                       </div>
                                       <MultiAssigneePicker
-                                        disabled={!canUpdateRuns || updateExecutionScopeAssignment.isPending}
+                                        disabled={!canUpdateRuns || isExecutionLocked || updateExecutionScopeAssignment.isPending}
                                         emptyLabel="Inherit run owner"
                                         onChange={(ids) => void handleScopeAssignmentChange("suites", suite.id, ids)}
                                         options={assigneeOptions}
@@ -9921,7 +9949,7 @@ export function ExecutionsPage() {
                                         <span><strong>Suite owner</strong><small>Module and case overrides take precedence.</small></span>
                                       </div>
                                       <MultiAssigneePicker
-                                        disabled={!canUpdateRuns || updateExecutionScopeAssignment.isPending}
+                                        disabled={!canUpdateRuns || isExecutionLocked || updateExecutionScopeAssignment.isPending}
                                         emptyLabel="Inherit run owner"
                                         onChange={(ids) => void handleScopeAssignmentChange("suites", suite.id, ids)}
                                         options={assigneeOptions}
@@ -9957,6 +9985,51 @@ export function ExecutionsPage() {
               : Boolean(selectedExecution)
         }
       />
+
+      {isRunEvidenceAnalysisOpen && selectedExecution ? (
+        <RunReviewDialog title="Evidence Analysis" runName={selectedExecution.name || "Unnamed run"} onClose={() => setIsRunEvidenceAnalysisOpen(false)}>
+          <section aria-label="Run evidence details">
+            <h3>Evidence details</h3>
+            <dl className="run-review-facts">
+              {selectedRunEvidenceReadiness.signals.map((signal) => <div key={signal.label}><dt>{signal.label}</dt><dd>{signal.value}</dd></div>)}
+            </dl>
+            {selectedRunEvidenceReadiness.gaps.length ? <ul className="run-review-gaps">{selectedRunEvidenceReadiness.gaps.map((gap) => <li key={gap}>{gap}</li>)}</ul> : null}
+          </section>
+          <section aria-label="Run analysis review">
+            <h3>Analysis summary</h3>
+            {isSelectedRunAnalysisPending ? <p role="status">Failure Analyst is reviewing this run’s evidence… {selectedRunAnalysisOperation?.completedCaseCount} of {selectedRunAnalysisOperation?.totalCaseCount} cases analyzed.</p> : null}
+            {selectedRunAnalysisOperation?.status === "failed" ? <p role="alert">{runAnalysisWorkflowOutcome}</p> : null}
+            {runAiAnalysis ? <>
+              {runAnalysisSourceChanged ? <details className="run-review-source-change"><summary>Run evidence changed. Your edits are preserved; compare with the latest summary.</summary><pre>{runAiAnalysis.response}</pre></details> : null}
+              <textarea aria-label="Edit run analysis summary" disabled={isSelectedRunAnalysisPending} onChange={(event) => { setRunAnalysisReviewDraft(event.target.value); setIsRunAnalysisReviewAccepted(false); }} rows={10} value={runAnalysisReviewDraft} />
+              <div className="run-review-actions">
+                <span role="status">{isRunAnalysisReviewAccepted ? "Accepted for this review" : "Edit and accept this summary for your review session."}</span>
+                <button className="ghost-button" disabled={isSelectedRunAnalysisPending || runAnalysisReviewDraft === runAiAnalysis.response} onClick={() => { setRunAnalysisReviewDraft(runAiAnalysis.response); setRunAnalysisSourceChanged(false); setIsRunAnalysisReviewAccepted(false); }} type="button">{runAnalysisSourceChanged ? "Use latest summary" : "Reset"}</button>
+                <button className="primary-button" disabled={isSelectedRunAnalysisPending || !runAnalysisReviewDraft.trim() || isRunAnalysisReviewAccepted} onClick={() => { setIsRunAnalysisReviewAccepted(true); setRunAnalysisSourceChanged(false); }} type="button">Accept reviewed summary</button>
+              </div>
+            </> : !isSelectedRunAnalysisPending ? <p>No run-level analysis is available yet. Generate a summary with Failure Analyst after the run finishes.</p> : null}
+            <div className="run-review-actions">
+              <button className="ghost-button" disabled={!canUseRunAi || !["completed", "failed"].includes(currentExecutionStatus) || isSelectedRunAnalysisPending} onClick={() => void handleRunExecutionAiAnalysis()} type="button"><IconSparkles aria-hidden="true" size={16} />{hasRecordedRunAnalysis ? "Refresh analysis" : "Analyze run"}</button>
+            </div>
+          </section>
+        </RunReviewDialog>
+      ) : null}
+
+      {isRunWorkflowOpen && selectedExecution ? (
+        <RunReviewDialog title="Failure Analyst workflow" runName={selectedExecution.name || "Unnamed run"} onClose={() => setIsRunWorkflowOpen(false)}>
+          <p role={runAnalysisWorkflowStatus === "failed" ? "alert" : "status"}>{runAnalysisWorkflowOutcome}</p>
+          <AgenticProcessRail
+            agentName="Failure Analyst"
+            orientation="vertical"
+            stageEvidence={{
+              context: `${executionProgress.totalCases} run case instances, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, and ${runReferenceStats.defectCount + runReferenceStats.referenceCount} references are bounded to this run.`,
+              outcome: runAnalysisWorkflowOutcome,
+              review: isRunAnalysisReviewAccepted ? "The summary is accepted for this review session." : "Edit and accept the summary in Evidence Analysis."
+            }}
+            status={runAnalysisWorkflowStatus}
+          />
+        </RunReviewDialog>
+      ) : null}
 
       {executionEvidencePreview ? (
         <div className="modal-backdrop" onClick={closeExecutionEvidence} role="presentation">
@@ -10052,6 +10125,9 @@ export function ExecutionsPage() {
         />
       ) : null}
 
+      {editingRunId ? <RunEditDialog executionId={editingRunId} assigneeOptions={assigneeOptions} canRunLocalAutomation={canRunLocalAutomation} canRunRemoteAutomation={canRunRemoteAutomation} canConfigureParallelAutomation={canConfigureParallelAutomation} onClose={() => setEditingRunId("")} onSaved={() => { setMessage("Run updated."); setMessageTone("success"); }} /> : null}
+      {selectedExecution && runConfigurationResource ? <RunConfigurationDialog resource={runConfigurationResource} projectId={selectedExecution.project_id} appTypeId={selectedExecution.app_type_id} resourceId={runConfigurationResource === "environment" ? selectedExecution.test_environment?.id : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.id : selectedExecution.test_data_set?.id} snapshot={runConfigurationResource === "environment" ? selectedExecution.test_environment?.snapshot : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.snapshot : selectedExecution.test_data_set?.snapshot} onClose={() => setRunConfigurationResource(null)} /> : null}
+
       {selectedExecution && isExecutionContextModalOpen ? (
         <ExecutionContextSnapshotModal execution={selectedExecution} onClose={() => setIsExecutionContextModalOpen(false)} />
       ) : null}
@@ -10087,6 +10163,8 @@ export function ExecutionsPage() {
           executionParallelEnabled={executionParallelEnabled}
           executionParallelCount={executionParallelCount}
           executionName={executionName}
+          executionStartDate={executionStartDate}
+          executionEndDate={executionEndDate}
           integrations={integrations}
           executionHookDraft={executionHookDraft}
           isPreviewingSmartExecution={previewSmartExecution.isPending}
@@ -10104,6 +10182,8 @@ export function ExecutionsPage() {
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionNameChange={setExecutionName}
+          onExecutionStartDateChange={setExecutionStartDate}
+          onExecutionEndDateChange={setExecutionEndDate}
           onExecutionReleaseChange={handleExecutionReleaseChange}
           onExecutionSprintChange={handleExecutionSprintChange}
           onExecutionBuildChange={handleExecutionBuildChange}
@@ -10702,239 +10782,45 @@ function resolveExecutionAssigneeSummary(execution?: Pick<Execution, "assigned_u
   return `${users.slice(0, 2).map((user) => resolveUserPrimaryLabel(user)).join(", ")} +${users.length - 2}`;
 }
 
-function ExecutionListCard({
-  execution,
-  summary,
-  impactSummary,
-  liveNow,
-  isActive,
-  isSelected,
-  onSelect,
-  onToggleSelected
-}: {
-  execution: Execution;
-  summary: ExecutionRunSummary;
-  impactSummary: ExecutionRunImpactSummary;
-  liveNow: number;
-  isActive: boolean;
-  isSelected: boolean;
-  onSelect: () => void;
-  onToggleSelected: () => void;
+export function ExecutionListCard({ execution, summary, impactSummary, liveNow, isActive, isSelected, canEdit, onSelect, onToggleSelected, onEdit }: {
+  execution: Execution; summary: ExecutionRunSummary; impactSummary: ExecutionRunImpactSummary; liveNow: number;
+  isActive: boolean; isSelected: boolean; canEdit: boolean; onSelect: () => void; onToggleSelected: () => void; onEdit: () => void;
 }) {
-  const totalScopedCases = executionScopeCaseCount(execution) || summary.caseCount || 0;
-  const dataIterationCount = executionDataIterationCount(execution);
-  const expectedOutcomeCount = execution.case_snapshots?.length
-    ? executionExpectedOutcomeCount(execution)
-    : totalScopedCases ? totalScopedCases * dataIterationCount : summary.total;
+  const totalScopedCases = execution.metrics?.total_cases ?? (executionScopeCaseCount(execution) || summary.caseCount || 0);
+  const expectedOutcomeCount = execution.case_snapshots?.length ? executionExpectedOutcomeCount(execution) : totalScopedCases * executionDataIterationCount(execution);
   const resolvedOutcomeCount = Math.max(expectedOutcomeCount, summary.total, 0);
   const finalizedTotal = summary.passed + summary.failed + summary.blocked;
   const executionStatus = normalizeExecutionStatus(execution.status);
-  const isTestCaseRun = execution.suite_ids.length === 0;
-  const issueCount = summary.failed + summary.blocked;
-  const topImpactedRequirement = impactSummary.impactedRequirements[0] || null;
-  const visibleImpactedRequirements = impactSummary.impactedRequirements.slice(0, 3);
-  const referenceCount = new Set(
-    (execution.case_snapshots || [])
-      .flatMap((snapshot) => snapshot.external_references || [])
-      .map((reference) => String(reference).trim())
-      .filter(Boolean)
-  ).size;
-  const riskTone = getExecutionRiskTone(summary, impactSummary);
-  const riskLabel = getExecutionRiskLabel(summary, impactSummary);
-  const riskInsight = getExecutionRiskInsight(summary, impactSummary, totalScopedCases);
-  const createdLabel = formatExecutionTimestamp(execution.created_at, "Not recorded");
-  const durationLabel = formatDuration(
-    computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow),
-    DEFAULT_DURATION_LABEL
-  );
-  const startedLabel = formatExecutionTimestamp(
-    execution.started_at,
-    executionStatus === "queued" ? "Not started yet" : "Waiting to start"
-  );
-  const latestEvidenceLabel = summary.latestActivityAt
-    ? formatExecutionTimestamp(summary.latestActivityAt)
-    : "No evidence yet";
-  const progressDetail = resolvedOutcomeCount
-    ? `${finalizedTotal}/${resolvedOutcomeCount} outcomes finalized · ${summary.failed} failed · ${summary.blocked} blocked`
-    : "No evidence recorded yet";
-  const completionPercent = resolvedOutcomeCount ? Math.round((finalizedTotal / resolvedOutcomeCount) * 100) : 0;
-  const passRate = finalizedTotal ? Math.round((summary.passed / finalizedTotal) * 100) : 0;
-
-  return (
-    <article
-      aria-label={`Open Test Run ${execution.display_id || execution.id}: ${execution.name || "Unnamed run"}`}
-      className={isActive ? "record-card tile-card execution-card execution-run-tile-card virtual-card is-active" : "record-card tile-card execution-card execution-run-tile-card virtual-card"}
-      onClick={(event) => {
-        if ((event.target as HTMLElement).closest("a, button, input, label, select, textarea")) {
-          return;
-        }
-        onSelect();
-      }}
-    >
-      <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
-        <label className="checkbox-field">
-          <input
-            aria-label={`Select ${execution.name || "Unnamed run"}`}
-            checked={isSelected}
-            onChange={onToggleSelected}
-            type="checkbox"
-          />
-          <span className="sr-only">Select run</span>
-        </label>
-        <EntityIdBadge icon={<ExecutionRunIcon />} value={execution.display_id || execution.id} />
+  const defects = execution.metrics?.defect_count ?? 0;
+  const stories = runStoryCounts(execution, impactSummary);
+  const visibleImpactedRequirements = impactSummary.impactedRequirements.filter((story) => story.failedCases > 0).slice(0, 3);
+  const durationLabel = formatDuration(computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow), DEFAULT_DURATION_LABEL);
+  const completionPercent = resolvedOutcomeCount ? Math.round(finalizedTotal / resolvedOutcomeCount * 100) : 0;
+  const passRate = finalizedTotal ? Math.round(summary.passed / finalizedTotal * 100) : 0;
+  return <article aria-label={`Open run ${execution.name || "Unnamed run"}`} className={`record-card tile-card execution-card execution-run-tile-card virtual-card${isActive ? " is-active" : ""}`} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button, input, label, select, textarea")) onSelect(); }}>
+    <div className="tile-card-select-row execution-run-selection-row" onClick={(event) => event.stopPropagation()}>
+      <label className="checkbox-field"><input aria-label={`Select ${execution.name || "Unnamed run"}`} checked={isSelected} onChange={onToggleSelected} type="checkbox" /><span className="sr-only">Select run</span></label>
+      <ExecutionStatusIndicator status={executionStatus} />
+    </div>
+    <div className="tile-card-main">
+      <div className="tile-card-header">
+        <div aria-hidden="true" className={`record-card-icon execution status-${executionStatus}`}><ExecutionRunIcon /></div>
+        <button aria-current={isActive ? "page" : undefined} className="tile-card-title-group tile-card-open-button" onClick={onSelect} type="button"><span className="tile-card-kicker">Run Name</span><strong>{execution.name || "Unnamed run"}</strong></button>
       </div>
-      <div className="tile-card-main">
-        <div className="tile-card-header">
-          <div
-            aria-hidden="true"
-            className={`record-card-icon execution status-${executionStatus}`}
-            title={executionStatusTooltip(executionStatus)}
-          >
-            <ExecutionRunIcon />
-          </div>
-          <button
-            aria-current={isActive ? "page" : undefined}
-            className="tile-card-title-group tile-card-open-button"
-            onClick={onSelect}
-            type="button"
-          >
-            <strong>{execution.name || "Unnamed run"}</strong>
-            <ExecutionAssigneeChip
-              labelOverride={resolveExecutionAssigneeSummary(execution)}
-              user={execution.assigned_users?.[0] || execution.assigned_user}
-            />
-            <span className="tile-card-kicker">Created {createdLabel}</span>
-          </button>
-          <ExecutionStatusIndicator status={executionStatus} />
-        </div>
-
-        <div className="tile-card-progress-stack execution-run-progress-stack">
-          <TileCardProgress
-            displayValue={resolvedOutcomeCount ? `${completionPercent}%` : "No cases"}
-            label="Run completion"
-            segments={resolvedOutcomeCount ? buildFinalizedProgressSegments(
-              summary.passed,
-              summary.failed,
-              summary.blocked,
-              resolvedOutcomeCount
-            ) : undefined}
-            title={progressDetail}
-            tone={!resolvedOutcomeCount ? "neutral" : completionPercent === 100 ? "success" : completionPercent >= 50 ? "info" : "warning"}
-            value={resolvedOutcomeCount ? completionPercent : null}
-          />
-          <TileCardProgress
-            displayValue={finalizedTotal ? `${passRate}%` : "No results"}
-            label="Pass rate"
-            title={finalizedTotal ? `${summary.passed} of ${finalizedTotal} finalized results passed` : "No finalized results yet"}
-            tone={!finalizedTotal ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger"}
-            value={finalizedTotal ? passRate : null}
-          />
-        </div>
-
-        <div className="tile-card-metric-grid execution-tile-metrics" aria-label="Run metrics">
-          <TileCardMetric
-            label="Cases"
-            title={`${totalScopedCases} distinct test case${totalScopedCases === 1 ? "" : "s"} in scope${dataIterationCount > 1 ? ` across ${dataIterationCount} Data Set rows` : ""}`}
-            tone={totalScopedCases ? "info" : "neutral"}
-            value={totalScopedCases}
-          />
-          <TileCardMetric
-            label="Duration"
-            title={`Started: ${startedLabel}${summary.latestActivityAt ? ` • Latest evidence: ${latestEvidenceLabel}` : executionStatus === "aborted" ? " • Run stopped before completion" : ""}`}
-            tone={executionStatus === "aborted" ? "warning" : "neutral"}
-            value={durationLabel}
-          />
-          <TileCardMetric
-            label="Blocking"
-            title={issueCount ? `${issueCount} failed or blocked execution outcomes` : executionStatus === "aborted" ? "Run aborted before blocking evidence was finalized" : "No failed or blocked execution outcomes"}
-            tone={issueCount ? "danger" : executionStatus === "aborted" ? "warning" : finalizedTotal ? "success" : "neutral"}
-            value={issueCount}
-          />
-          <TileCardMetric
-            label="Story impact"
-            title={topImpactedRequirement ? `${topImpactedRequirement.title} · ${topImpactedRequirement.failureRate}% failure rate` : "No story impact detected"}
-            tone={impactSummary.failedRequirementCount ? "warning" : impactSummary.totalRequirements ? "success" : "neutral"}
-            value={impactSummary.totalRequirements ? `${impactSummary.failedRequirementCount}/${impactSummary.totalRequirements}` : "0"}
-          />
-        </div>
-
-        <div className="execution-card-facts" aria-label="Run facts">
-          <ExecutionCardFact
-            ariaLabel={
-              isTestCaseRun
-                ? `${totalScopedCases} direct test case${totalScopedCases === 1 ? "" : "s"} in scope`
-                : `${execution.suite_ids.length} suites in scope`
-            }
-            label={isTestCaseRun ? "Test cases" : `${execution.suite_ids.length} suites`}
-            title={
-              isTestCaseRun
-                ? `${totalScopedCases} direct test case${totalScopedCases === 1 ? "" : "s"} in scope`
-                : `${execution.suite_ids.length} suites in scope`
-            }
-          >
-            {isTestCaseRun ? <ExecutionScopeIcon /> : <ExecutionSuiteIcon />}
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={resolvedOutcomeCount ? `${summary.total} of ${resolvedOutcomeCount} execution outcomes touched` : `${summary.total} execution outcomes touched`}
-            label={resolvedOutcomeCount ? `${summary.total}/${resolvedOutcomeCount}` : `${summary.total}`}
-            title={resolvedOutcomeCount ? `${summary.total}/${resolvedOutcomeCount} execution outcomes touched` : `${summary.total} execution outcomes touched`}
-          >
-            <ExecutionScopeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={`${referenceCount} external references in scoped cases`}
-            label={referenceCount ? String(referenceCount) : "0"}
-            title={referenceCount ? `${referenceCount} linked external reference${referenceCount === 1 ? "" : "s"}` : "No external references linked to scoped cases"}
-            tone={referenceCount ? "info" : "neutral"}
-          >
-            <ExecutionReferenceIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={`Release ${execution.release || "not set"}`}
-            label={execution.release || "Release —"}
-            title={`Release: ${execution.release || "Not set"}`}
-            tone={execution.release ? "info" : "neutral"}
-          >
-            <ExecutionReferenceIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact
-            ariaLabel={`Build ${execution.build || "not set"}`}
-            label={execution.build || "Build —"}
-            title={`Sprint: ${execution.sprint || "Not set"} • Build: ${execution.build || "Not set"}`}
-            tone={execution.build || execution.sprint ? "info" : "neutral"}
-          >
-            <ExecutionReferenceIcon />
-          </ExecutionCardFact>
-        </div>
-
-        <div className={`execution-card-risk-note ${riskTone}`}>
-          <span>{riskLabel}</span>
-          <p>{riskInsight}</p>
-        </div>
-
-        {visibleImpactedRequirements.length ? (
-          <div className="execution-card-impact-strip" aria-label="Run impacted stories">
-            <div className="execution-card-impact-strip-head">
-              <strong>Impacted stories</strong>
-              <span>{impactSummary.failedRequirementCount}/{impactSummary.totalRequirements} with failures</span>
-            </div>
-            <div className="execution-impact-chip-row">
-              {visibleImpactedRequirements.map((requirement) => (
-                <span className={requirement.failedCases ? "execution-impact-chip is-impacted" : "execution-impact-chip"} key={requirement.id}>
-                  <b>{requirement.title}</b>
-                  <small>P{requirement.priority ?? 3} · {requirement.failedCases}/{requirement.totalCases} failed</small>
-                </span>
-              ))}
-              {impactSummary.impactedRequirements.length > visibleImpactedRequirements.length ? (
-                <span className="execution-impact-chip is-more">+{impactSummary.impactedRequirements.length - visibleImpactedRequirements.length} more</span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
+      <div className="tile-card-progress-stack execution-run-progress-stack">
+        <TileCardProgress displayValue={resolvedOutcomeCount ? `${completionPercent}%` : "No cases"} label="Run completion" segments={resolvedOutcomeCount ? buildFinalizedProgressSegments(summary.passed, summary.failed, summary.blocked, resolvedOutcomeCount) : undefined} title={`${finalizedTotal}/${resolvedOutcomeCount} case outcomes finalized`} tone={!resolvedOutcomeCount ? "neutral" : completionPercent === 100 ? "success" : "info"} value={resolvedOutcomeCount ? completionPercent : null} />
+        <TileCardProgress displayValue={finalizedTotal ? `${passRate}%` : "No results"} label="Pass rate" title={finalizedTotal ? `${summary.passed} of ${finalizedTotal} finalized results passed` : "No finalized results yet"} tone={!finalizedTotal ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger"} value={finalizedTotal ? passRate : null} />
       </div>
-    </article>
-  );
+      <div className="tile-card-metric-grid execution-tile-metrics" aria-label="Run metrics">
+        <TileCardMetric label="Cases" title="Distinct test cases in this run" value={totalScopedCases} tone={totalScopedCases ? "info" : "neutral"} />
+        <TileCardMetric label="Duration" title="Elapsed run duration" value={durationLabel} />
+        <TileCardMetric label="Defects" title="Distinct defects linked to this run's recorded results" value={defects} tone={defects ? "danger" : "neutral"} />
+        <TileCardMetric label="Story impact" title="Distinct stories linked to failed cases / all stories associated with cases in this run" value={`${stories.failed}/${stories.total}`} tone={stories.failed ? "warning" : "neutral"} />
+      </div>
+      {visibleImpactedRequirements.length ? <div className="execution-card-impact-strip" aria-label="Run impacted stories"><strong>Impacted stories</strong><div className="execution-card-impact-chips">{visibleImpactedRequirements.map((story) => <span className="execution-impact-chip is-impacted" key={story.id}><b>{story.title}</b><small>{story.failedCases} failed</small></span>)}</div></div> : null}
+    </div>
+    <div className="execution-run-card-actions"><button aria-label={`Edit ${execution.name || "run"}`} className="ghost-button" disabled={!canEdit || isRunFinished(execution)} onClick={onEdit} title={isRunFinished(execution) ? "Finished runs cannot be edited" : "Edit run planning and scope"} type="button"><IconPencil size={16} />Edit run</button><button className="ghost-button" onClick={onSelect} type="button">Open run<IconArrowRight size={15} /></button></div>
+  </article>;
 }
 
 function ExecutionScheduleCard({
@@ -12797,6 +12683,10 @@ export function ExecutionCreateModal({
   onExecutionCreateModeChange,
   executionStartMode,
   onExecutionStartModeChange,
+  executionStartDate,
+  executionEndDate,
+  onExecutionStartDateChange,
+  onExecutionEndDateChange,
   executionParallelEnabled,
   executionParallelCount,
   onExecutionParallelEnabledChange,
@@ -12872,6 +12762,10 @@ export function ExecutionCreateModal({
   onExecutionCreateModeChange: (value: ExecutionCreateMode) => void;
   executionStartMode: ExecutionStartMode;
   onExecutionStartModeChange: (value: ExecutionStartMode) => void;
+  executionStartDate: string;
+  executionEndDate: string;
+  onExecutionStartDateChange: (value: string) => void;
+  onExecutionEndDateChange: (value: string) => void;
   executionParallelEnabled: boolean;
   executionParallelCount: number;
   onExecutionParallelEnabledChange: (value: boolean) => void;
@@ -13081,7 +12975,7 @@ export function ExecutionCreateModal({
               </div>
 
               <div className="execution-run-config-stack">
-              <FormField label="Run name">
+              <FormField label="Run Name">
                 <input
                   data-autofocus="true"
                   placeholder="e.g. Q4_Regression_v2"
@@ -13090,16 +12984,17 @@ export function ExecutionCreateModal({
                 />
               </FormField>
 
-              {canRunLocalAutomation || canRunRemoteAutomation ? (
-                <label className="execution-run-mode-control">
-                  <span>Run mode</span>
-                  <select aria-label="Run mode" value={executionStartMode} onChange={(event) => onExecutionStartModeChange(event.target.value as ExecutionStartMode)}>
-                    <option value="manual">Manual</option>
-                    {canRunLocalAutomation ? <option value="local">Local automation</option> : null}
-                    {canRunRemoteAutomation ? <option value="remote">Remote automation</option> : null}
-                  </select>
-                </label>
-              ) : null}
+              <RunPlanningFields
+                canRunLocalAutomation={canRunLocalAutomation}
+                canRunRemoteAutomation={canRunRemoteAutomation}
+                disabled={isSubmitting}
+                endDate={executionEndDate}
+                mode={executionStartMode}
+                onEndDateChange={onExecutionEndDateChange}
+                onModeChange={onExecutionStartModeChange}
+                onStartDateChange={onExecutionStartDateChange}
+                startDate={executionStartDate}
+              />
 
               <FormField label="Project" required>
                 <ProjectDropdown

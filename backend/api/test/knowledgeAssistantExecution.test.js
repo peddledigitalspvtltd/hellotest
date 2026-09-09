@@ -8,6 +8,7 @@ const orchestrator = require("../src/services/aiContextOrchestrator.service");
 const integrations = require("../src/services/integration.service");
 const permissions = require("../src/services/permission.service");
 const projects = require("../src/services/project.service");
+const llmSelection = require("../src/services/aiLlmSelection.service");
 
 const fixture = async (task) => {
   const saved = { prepare: db.prepare, search: rag.searchMany, permissions: rag.resolveAllowedSourcePermissions, parents: rag.expandEvidence, relations: rag.expandRelationships, access: auth.getEvidenceAccess, live: orchestrator.buildLiveProjectEvidence, integrations: integrations.getIntegrations, hasPermission: permissions.hasPermission, project: projects.getProject };
@@ -113,4 +114,59 @@ test("revoking knowledge permission invalidates project-readable text evidence",
   assert.equal(replay.citations.length, 0);
   assert.equal(replay.context_packet, null);
   assert.equal(replay.assistant_message.safety.evidence_access_changed, true);
+}));
+
+test("model connection failure returns authorized evidence with an actionable error and failed generation event", async (context) => fixture(async ({ input }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://answer.invalid/v1", model: "test", config: {} }));
+  context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ error: "PRIVATE_ACCOUNT_DETAIL" }), { status: 401 }));
+  const events = [];
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => events.push(event) });
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.match(result.assistant_message.content, /passing checkout test/);
+  assert.equal(result.citations.length, 1);
+  assert.equal(result.retrieval.provider_error_code, "MODEL_AUTHENTICATION_FAILED");
+  assert.match(result.retrieval.provider_error_message, /connection credentials/);
+  assert.ok(events.some((event) => event.stage === "GENERATION" && event.status === "FAILED" && event.error_code === "MODEL_AUTHENTICATION_FAILED"));
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/);
+}));
+
+test("access revoked during generation removes claims and source contents before saving an answer", async (context) => fixture(async ({ input, state }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://revocation.invalid/v1", model: "test", config: {} }));
+  context.mock.method(global, "fetch", async (_, init) => {
+    if (JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }), { status: 200 });
+    state.revoked = true;
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ status: "answered", executive_summary: "Approval requires a passing checkout test. [K-chunk-1]", supported_claims: [{ statement: "Approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] }) } }] }), { status: 200 });
+  });
+  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(result.citations.length, 0);
+  assert.equal(result.context_packet.evidence.length, 0);
+  assert.doesNotMatch(result.assistant_message.content, /passing checkout test/);
+  assert.equal(result.retrieval.access_changed_during_answer, true);
+}));
+
+test("a slow optional history read still completes the current question with fresh evidence", async () => fixture(async ({ input }) => {
+  const prepare = db.prepare;
+  db.prepare = (sql) => sql.includes("id <> ?") ? { all: () => new Promise(() => {}) } : prepare(sql);
+  const result = await assistant.respond(input);
+  assert.equal(result.assistant_message.status, "answered");
+  assert.equal(result.retrieval.history_unavailable, true);
+  assert.match(result.assistant_message.content, /passing checkout test/);
+  assert.match(result.assistant_message.content, /Previous conversation context was unavailable/);
+}));
+
+test("a stalled final access check saves no answer and the same turn can be retried", async () => fixture(async ({ input, messages }) => {
+  let stall = false;
+  let firstAttempt = true;
+  const getEvidenceAccess = auth.getEvidenceAccess;
+  auth.getEvidenceAccess = (args) => stall ? new Promise(() => {}) : getEvidenceAccess(args);
+  await assert.rejects(assistant.respond({ ...input, onProgress: (event) => {
+    if (firstAttempt && event.stage === "VALIDATION") stall = true;
+  } }), { code: "ANSWER_AUTHORIZATION_TIMEOUT" });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].status, "error");
+  firstAttempt = false;
+  stall = false;
+  const result = await assistant.respond(input);
+  assert.equal(result.assistant_message.status, "answered");
+  assert.equal(messages.length, 2);
 }));

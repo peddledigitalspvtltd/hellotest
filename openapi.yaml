@@ -1349,7 +1349,8 @@ paths:
                 $ref: "#/components/schemas/Execution"
     put:
       tags: [Executions]
-      summary: Update execution assignment or delivery context
+      summary: Edit an unfinished run's setup, scope, assignment, or delivery context
+      description: Finished runs are immutable. Runtime settings can change only before the first start and before results exist. Active automated membership is locked. Removing a case with execution history is rejected. Retained case content, parameters, steps, and results are preserved; suite grouping follows the edited scope.
       requestBody:
         required: true
         content:
@@ -1358,11 +1359,17 @@ paths:
               $ref: "#/components/schemas/UpdateExecutionRequest"
       responses:
         "200":
-          description: Update result
+          description: Updated run revision
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdatedResponse"
+                type: object
+                required: [updated, revision]
+                properties:
+                  updated: { type: boolean }
+                  revision: { type: integer, minimum: 1 }
+        "409":
+          description: RUN_FINISHED, RUN_CONTEXT_LOCKED, RUN_SCOPE_LOCKED, RUN_CASE_HAS_HISTORY, or REVISION_CONFLICT. Refresh the run before retrying a revision conflict.
     delete:
       tags: [Executions]
       summary: Delete execution
@@ -1380,6 +1387,7 @@ paths:
     put:
       tags: [Executions]
       summary: Update execution case assignment
+      description: Assignments cannot change after the run has finished.
       requestBody:
         required: true
         content:
@@ -1401,6 +1409,7 @@ paths:
     put:
       tags: [Executions]
       summary: Set or clear an inherited suite, module, or case assignment
+      description: Assignments cannot change after the run has finished.
       requestBody:
         required: true
         content:
@@ -1409,6 +1418,7 @@ paths:
               $ref: "#/components/schemas/UpdateExecutionAssignmentRequest"
       responses:
         "200": { description: Scope assignment updated and effective case assignments recalculated }
+        "409": { description: Run has finished or expected_revision is stale. }
   /executions/{id}/rerun:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2125,6 +2135,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeletedResponse" }
+  /feedback/{id}/history:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Issues]
+      summary: Read Bug field changes with editor identity, previous/new values, and timestamps
+      description: Requires feedback.view in the Bug project. Returns newest events first, including the known creation event for older Bugs whose earlier edits were not recorded.
+      responses:
+        "200":
+          description: Bug history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IssueHistoryEntry" }
+  /issues/{id}/history:
+    $ref: "#/paths/~1feedback~1{id}~1history"
   /issues:
     $ref: "#/paths/~1feedback"
   /issues/{id}:
@@ -4184,6 +4211,15 @@ paths:
     post:
       tags: [Executions]
       summary: Execute executions local run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/CreateExecutionRequest"
+                - type: object
+                  required: [app_type_id, test_case_ids]
       responses:
         "200": { description: Successful response }
   /executions/manual-run-suggestion:
@@ -5905,6 +5941,7 @@ components:
         environment: { type: string, nullable: true }
         build: { type: string, nullable: true }
         jira_bug_key: { type: string, nullable: true }
+        has_converted_test_cases: { type: boolean, readOnly: true, description: Whether an existing same-project Test Case has this Bug as its recorded conversion origin. Ordinary case links are excluded. }
         linked_test_run_id: { type: string, nullable: true }
         linked_test_case_ids:
           type: array
@@ -5928,6 +5965,7 @@ components:
         assignee_name: { type: string, nullable: true }
         assignee_email: { type: string, format: email, nullable: true }
         root_cause: { type: string, nullable: true }
+        qa_root_cause: { type: string, nullable: true }
         status: { type: string, enum: [open, reviewed, planned, closed] }
         created_at: { type: string, format: date-time, nullable: true }
         updated_at: { type: string, format: date-time, nullable: true }
@@ -5967,6 +6005,10 @@ components:
         release: { type: string }
         assignee_id: { type: string }
         root_cause: { type: string }
+        qa_root_cause:
+          type: string
+          description: QA cause independent of the primary root cause. An empty string clears the value.
+          enum: ["", "Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"]
         status: { type: string, enum: [open, reviewed, planned, closed] }
     CreateIssueRequest:
       allOf:
@@ -5975,6 +6017,30 @@ components:
           required: [project_id, user_id, title, message]
     UpdateIssueRequest:
       $ref: "#/components/schemas/IssueWriteFields"
+    IssueHistoryEntry:
+      type: object
+      required: [id, issue_id, actor_name, action, changes, created_at]
+      properties:
+        id: { type: string }
+        issue_id: { type: string }
+        actor_id: { type: string, nullable: true }
+        actor_name: { type: string }
+        actor_email: { type: string, nullable: true }
+        action: { type: string, enum: [created, updated] }
+        created_at: { type: string, format: date-time }
+        legacy: { type: boolean }
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field, label, old_value, new_value]
+            properties:
+              field: { type: string }
+              label: { type: string }
+              old_value: { description: Previously saved field value; null means unset. }
+              new_value: { description: Newly saved field value; null means cleared. }
+              old_display: { type: string, nullable: true, description: Reference names captured when the edit was saved. }
+              new_display: { type: string, nullable: true, description: Reference names captured when the edit was saved. }
     IssueCreatedResponse:
       type: object
       required: [id, display_id]
@@ -6131,6 +6197,7 @@ components:
       properties:
         id: { type: string }
         app_type_id: { type: string, nullable: true }
+        source_issue_id: { type: string, nullable: true, readOnly: true, description: Immutable Bug conversion origin recorded when this Test Case was created. }
         suite_id: { type: string, nullable: true }
         suite_ids: { type: array, items: { type: string } }
         title: { type: string }
@@ -6170,6 +6237,7 @@ components:
       required: [title]
       properties:
         app_type_id: { type: string }
+        source_issue_id: { type: string, description: Source Bug for an explicit conversion. Must be visible and belong to the Test Case project. }
         suite_id: { type: string }
         suite_ids: { type: array, items: { type: string } }
         title: { type: string }
@@ -6728,6 +6796,17 @@ components:
           type: array
           items:
             type: string
+        test_case_ids:
+          type: array
+          description: Complete frozen case scope, provided on execution detail.
+          items: { type: string }
+        direct_test_case_ids:
+          type: array
+          description: Cases selected independently of suite membership, including cases also present in selected suites. Legacy records derive this from their existing scope.
+          items: { type: string }
+        revision: { type: integer, minimum: 1 }
+        metrics:
+          $ref: "#/components/schemas/ExecutionMetrics"
         suite_snapshots:
           type: array
           items:
@@ -6746,10 +6825,13 @@ components:
           nullable: true
           enum: [manual, ci, local]
         execution_mode: { type: string, nullable: true, enum: [local, remote, scheduled] }
+        run_mode: { type: string, enum: [manual, local, remote], description: Effective user-facing run mode resolved from trigger and stored execution mode. }
+        parallel_enabled: { type: boolean }
+        parallel_count: { type: integer, minimum: 1 }
         status:
           type: string
           nullable: true
-          enum: [queued, running, completed, failed, aborted]
+          enum: [queued, running, retrying, passed, failed, skipped, blocked, cancelled, aborted, partially_completed, completed]
         test_environment:
           type: object
           nullable: true
@@ -6795,8 +6877,23 @@ components:
         created_by: { type: string, nullable: true }
         created_at: { type: string, format: date-time, nullable: true }
         updated_at: { type: string, format: date-time, nullable: true }
+        start_date: { type: string, format: date, nullable: true, description: Planned start date for the run. }
+        end_date: { type: string, format: date, nullable: true, description: Planned end date for the run. }
         started_at: { type: string, format: date-time, nullable: true }
         ended_at: { type: string, format: date-time, nullable: true }
+    ExecutionMetrics:
+      type: object
+      description: Unique cases reduced from the newest result per data-set iteration. A case fails when any current iteration fails; incomplete data-set execution remains pending. Story counts include every linked story and legacy primary links. Defects count unique actual references across retained run result history.
+      properties:
+        total_cases: { type: integer, minimum: 0 }
+        passed_cases: { type: integer, minimum: 0 }
+        failed_cases: { type: integer, minimum: 0 }
+        blocked_cases: { type: integer, minimum: 0 }
+        running_cases: { type: integer, minimum: 0 }
+        pending_cases: { type: integer, minimum: 0 }
+        defect_count: { type: integer, minimum: 0 }
+        story_count: { type: integer, minimum: 0 }
+        failed_story_count: { type: integer, minimum: 0 }
     CreateExecutionRequest:
       type: object
       required: [project_id, created_by]
@@ -6826,6 +6923,8 @@ components:
           type: array
           items: { type: string }
         name: { type: string }
+        start_date: { type: string, format: date, maxLength: 10, description: Optional planned calendar start date. Does not schedule or delay automation execution. }
+        end_date: { type: string, format: date, maxLength: 10, description: Optional planned calendar end date. Must be on or after start_date when both are supplied. }
         release: { type: string }
         sprint: { type: string }
         build: { type: string }
@@ -6833,6 +6932,23 @@ components:
     UpdateExecutionRequest:
       type: object
       properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        start_date: { type: string, nullable: true, maxLength: 10, description: Planned YYYY-MM-DD date; empty or null clears it. Validated against the retained end date on partial updates. }
+        end_date: { type: string, nullable: true, maxLength: 10, description: Planned YYYY-MM-DD date; empty or null clears it. Must be on or after the resulting start date. }
+        suite_ids:
+          type: array
+          description: Replacement suite selection. Existing independent case pins remain when test_case_ids is omitted.
+          items: { type: string }
+        test_case_ids:
+          type: array
+          description: Replacement independent case pins, retained even when also included in a selected suite.
+          items: { type: string }
+        test_environment_id: { type: string, nullable: true, description: Queued runs only; empty or null clears the selection. }
+        test_configuration_id: { type: string, nullable: true, description: Queued runs only; empty or null clears the selection. }
+        test_data_set_id: { type: string, nullable: true, description: Queued runs only; replaces frozen run data and applicable case data snapshots. }
+        execution_mode: { type: string, enum: [manual, local, remote], description: Queued runs only. Changes the next start behavior without starting the run. }
+        parallel_enabled: { type: boolean, description: Queued runs only. }
+        parallel_count: { type: integer, minimum: 1, description: Queued runs only. }
         assigned_to: { type: string, nullable: true }
         assigned_to_ids:
           type: array

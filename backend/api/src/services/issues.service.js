@@ -3,6 +3,7 @@ const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 const { normalizeReferenceList } = require("../utils/externalReferences");
+const issueHistory = require("./issueHistory.service");
 
 const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
@@ -21,6 +22,7 @@ const ISSUE_DETAIL_FIELDS = [
   "release",
   "assignee_id",
   "root_cause",
+  "qa_root_cause",
   "bug_type"
 ];
 
@@ -50,9 +52,16 @@ const ISSUE_SELECT_COLUMNS = `
   feedback.release,
   feedback.assignee_id,
   feedback.root_cause,
+  feedback.qa_root_cause,
   feedback.bug_type,
   feedback.regression,
   feedback.status,
+  EXISTS (
+    SELECT 1 FROM test_cases converted_case
+    JOIN app_types converted_app ON converted_app.id = converted_case.app_type_id
+    WHERE converted_case.source_issue_id = feedback.id
+      AND converted_app.project_id = feedback.project_id
+  ) AS has_converted_test_cases,
   feedback.created_at,
   feedback.updated_at
 `;
@@ -64,6 +73,14 @@ const normalizeText = (value) => {
 
   const normalized = value.trim();
   return normalized || null;
+};
+
+const QA_ROOT_CAUSE_OPTIONS = ["Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"];
+const validateQaRootCause = (value) => {
+  const normalized = normalizeText(value);
+  if (normalized && !QA_ROOT_CAUSE_OPTIONS.includes(normalized)) {
+    throw Object.assign(new Error("Invalid QA Root Cause"), { statusCode: 400 });
+  }
 };
 
 const normalizeStatus = (value) => {
@@ -182,6 +199,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
 
   await validateUser(user_id, "User not found");
   await validateUser(details.assignee_id, "Assignee not found");
+  validateQaRootCause(details.qa_root_cause);
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("issue");
@@ -192,57 +210,62 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
   const resolvedModuleIds = normalizeList([...normalizeList(linked_module_ids), ...derivedImpact.moduleIds]);
   const resolvedRequirementIds = normalizeList([...normalizeList(linked_requirement_ids), ...derivedImpact.requirementIds]);
 
-  await db.prepare(`
-    INSERT INTO feedback (
+  const transaction = db.transaction(async () => {
+    await db.prepare(`
+      INSERT INTO feedback (
+        id,
+        display_id,
+        project_id,
+        user_id,
+        title,
+        message,
+        steps_to_reproduce,
+        expected_result,
+        actual_result,
+        severity,
+        priority,
+        environment,
+        build,
+        jira_bug_key,
+        linked_test_run_id,
+        linked_test_case_ids,
+        linked_test_suite_ids,
+        linked_module_ids,
+        linked_requirement_ids,
+        labels,
+        sprint,
+        fix_version,
+        release,
+        assignee_id,
+        root_cause,
+        qa_root_cause,
+        bug_type,
+        status,
+        regression
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
       id,
       display_id,
       project_id,
       user_id,
       title,
       message,
-      steps_to_reproduce,
-      expected_result,
-      actual_result,
-      severity,
-      priority,
-      environment,
-      build,
-      jira_bug_key,
-	      linked_test_run_id,
-	      linked_test_case_ids,
-	      linked_test_suite_ids,
-	      linked_module_ids,
-	      linked_requirement_ids,
-	      labels,
-	      sprint,
-	      fix_version,
-	      release,
-	      assignee_id,
-	      root_cause,
-	      bug_type,
-	      status,
-	      regression
-	    )
-	    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    display_id,
-    project_id,
-    user_id,
-    title,
-    message,
-    ...buildDetailValues(details).slice(0, 9),
-    normalizeList(linked_test_case_ids),
-    normalizeList(linked_test_suite_ids),
-    resolvedModuleIds,
-    resolvedRequirementIds,
-    normalizeList(labels),
-    ...buildDetailValues(details).slice(9),
-    normalizeStatus(status),
-    Boolean(regression)
-  );
+      ...buildDetailValues(details).slice(0, 9),
+      normalizeList(linked_test_case_ids),
+      normalizeList(linked_test_suite_ids),
+      resolvedModuleIds,
+      resolvedRequirementIds,
+      normalizeList(labels),
+      ...buildDetailValues(details).slice(9),
+      normalizeStatus(status),
+      Boolean(regression)
+    );
 
-  await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids: resolvedRequirementIds });
+    await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids: resolvedRequirementIds });
+    await issueHistory.record({ issueId: id, actorId: user_id, after: await exports.getIssueItem(id) });
+  });
+  await transaction();
 
   return { id, display_id };
 };
@@ -306,8 +329,11 @@ exports.getIssueItem = async (id) => {
   return item;
 };
 
-exports.updateIssue = async (id, data) => {
+exports.updateIssue = async (id, data, { actorId } = {}) => db.transaction(async () => {
+  // Serialize updates before reading the previous values used by the audit log.
+  await db.prepare("SELECT id FROM feedback WHERE id = ? FOR UPDATE").get(id);
   const existing = await exports.getIssueItem(id);
+  if (Object.prototype.hasOwnProperty.call(data, "qa_root_cause")) validateQaRootCause(data.qa_root_cause);
 
   if (data.user_id && data.user_id !== existing.user_id) {
     await validateUser(data.user_id, "User not found");
@@ -353,6 +379,7 @@ exports.updateIssue = async (id, data) => {
 	        release = ?,
 	        assignee_id = ?,
 	        root_cause = ?,
+	        qa_root_cause = ?,
 	        bug_type = ?,
 	        status = ?,
 	        regression = ?,
@@ -382,8 +409,11 @@ exports.updateIssue = async (id, data) => {
     });
   }
 
+  await issueHistory.record({ issueId: id, actorId, before: existing, after: await exports.getIssueItem(id) });
   return { updated: true };
-};
+})();
+
+exports.getIssueHistory = async (id) => issueHistory.list(await exports.getIssueItem(id));
 
 exports.deleteIssue = async (id) => {
   await exports.getIssueItem(id);

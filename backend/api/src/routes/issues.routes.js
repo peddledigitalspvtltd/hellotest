@@ -121,6 +121,7 @@ function registerFeedbackRoutes(fastify, basePath) {
 	      release: { required: false, type: "string" },
 	      assignee_id: { required: false, type: "string" },
 	      root_cause: { required: false, type: "string" },
+	      qa_root_cause: { required: false, type: "string" },
 	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
@@ -160,6 +161,13 @@ function registerFeedbackRoutes(fastify, basePath) {
     return item;
   });
 
+  fastify.get(`${basePath}/:id/history`, async (req) => {
+    await fastify.authenticate(req);
+    const item = await service.getIssueItem(req.params.id);
+    await fastify.requirePermission("feedback.view", { projectId: item.project_id })(req);
+    return service.getIssueHistory(item.id);
+  });
+
   fastify.put(`${basePath}/:id`, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({
@@ -186,6 +194,7 @@ function registerFeedbackRoutes(fastify, basePath) {
 	      release: { required: false, type: "string" },
 	      assignee_id: { required: false, type: "string" },
 	      root_cause: { required: false, type: "string" },
+	      qa_root_cause: { required: false, type: "string" },
 	      status: { required: false, type: "string", enum: ISSUE_STATUS_VALUES }
     }, req.body);
 
@@ -195,7 +204,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       await projectService.getProject(req.body.project_id, req.user.id);
       await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
     }
-    return service.updateIssue(req.params.id, req.body);
+    return service.updateIssue(req.params.id, req.body, { actorId: req.user.id });
   });
 
   fastify.delete(`${basePath}/:id`, async (req) => {

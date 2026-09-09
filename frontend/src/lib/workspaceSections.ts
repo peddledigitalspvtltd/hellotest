@@ -72,7 +72,6 @@ export const AGENTIC_WORKFLOW_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: `${WORKSPACE_ROUTES.executions}?view=test-case-runs`, label: "Test Case Runs", shortLabel: "Cases", icon: "cases", featureKeys: ["hellotest.manual.runs"] },
   { to: `${WORKSPACE_ROUTES.executions}?view=suite-runs`, label: "Suite Runs", shortLabel: "Suites", icon: "suites", featureKeys: ["hellotest.manual.runs"] },
   { to: `${WORKSPACE_ROUTES.executions}?view=local-runs`, label: "Local Runs", shortLabel: "Local", icon: "playwright", featureKeys: ["hellotest.manual.runs", "hellotest.automation.workspace", "hellotest.automation.local_execution"] },
   { to: `${WORKSPACE_ROUTES.executions}?view=scheduled-runs`, label: "Scheduled Runs", shortLabel: "Scheduled", icon: "executions", featureKeys: ["hellotest.manual.runs"] }

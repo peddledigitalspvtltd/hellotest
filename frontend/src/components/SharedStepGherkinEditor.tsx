@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { AddIcon, TrashIcon } from "./AppIcons";
 import { GherkinStepTextField } from "./GherkinStepTextField";
+import { useGherkinStepReorder } from "./GherkinStepReorder";
 import { composeSharedStepGherkin, parseSharedStepGherkin, SHARED_GHERKIN_KEYWORDS, type SharedGherkinKeyword, type SharedGherkinStep } from "../lib/gherkin";
 import type { StepParameterDefinition } from "../lib/stepParameters";
 
@@ -32,6 +33,7 @@ export function SharedStepGherkinEditor({
   const steps = parsedSteps.length ? parsedSteps : starterSteps();
 
   const commit = (nextSteps: SharedGherkinStep[]) => onChange(composeSharedStepGherkin(nextSteps));
+  const reorder = useGherkinStepReorder(steps, commit);
   const updateStep = (index: number, input: Partial<SharedGherkinStep>) => {
     commit(steps.map((step, currentIndex) => currentIndex === index ? { ...step, ...input } : step));
   };
@@ -44,14 +46,6 @@ export function SharedStepGherkinEditor({
     const nextSteps = [...steps];
     const keyword: SharedGherkinKeyword = steps[index]?.keyword === "When" ? "Then" : "And";
     nextSteps.splice(index + 1, 0, { keyword, text: "" });
-    commit(nextSteps);
-  };
-  const moveStep = (index: number, direction: -1 | 1) => {
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= steps.length) return;
-    const nextSteps = [...steps];
-    const [step] = nextSteps.splice(index, 1);
-    nextSteps.splice(nextIndex, 0, step);
     commit(nextSteps);
   };
 
@@ -71,7 +65,7 @@ export function SharedStepGherkinEditor({
           const keywordTone = step.keyword.toLowerCase();
 
           return (
-            <article className="shared-gherkin-step-row gherkin-minimal-step" key={`${index}-${step.keyword}`}>
+            <article {...reorder.rowProps(index)} className="shared-gherkin-step-row gherkin-minimal-step" key={`${index}-${step.keyword}`}>
               <label className={`shared-gherkin-keyword is-${keywordTone}`}>
                 <span className="sr-only">Keyword for step {index + 1}</span>
                 <select
@@ -95,8 +89,7 @@ export function SharedStepGherkinEditor({
               </div>
               <div className="shared-gherkin-step-actions">
                 <button aria-label={`Insert shared Gherkin step after ${index + 1}`} className="ghost-button compact" onClick={() => insertStepAfter(index)} title="Insert behavior step" type="button"><AddIcon size={13} /></button>
-                <button aria-label={`Move shared Gherkin step ${index + 1} up`} className="ghost-button compact" disabled={index === 0} onClick={() => moveStep(index, -1)} title="Move up" type="button">↑</button>
-                <button aria-label={`Move shared Gherkin step ${index + 1} down`} className="ghost-button compact" disabled={index === steps.length - 1} onClick={() => moveStep(index, 1)} title="Move down" type="button">↓</button>
+                {reorder.controls(index, `shared Gherkin step ${index + 1}`)}
                 <button aria-label={`Remove shared Gherkin step ${index + 1}`} className="ghost-button compact danger" disabled={steps.length === 1} onClick={() => commit(steps.filter((_, currentIndex) => currentIndex !== index))} title="Remove step" type="button"><TrashIcon size={14} /></button>
               </div>
             </article>
