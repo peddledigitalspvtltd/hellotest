@@ -23,7 +23,8 @@ const emit = (stage, status = "completed", metrics = {}) => {
       elapsed_ms: Math.max(0, Date.now() - context.progress.startedAt),
       ...(Number.isFinite(metrics.candidate_count) ? { candidates_found: metrics.candidate_count } : {}),
       ...(Number.isFinite(metrics.evidence_count) ? { candidates_selected: metrics.evidence_count } : {}),
-      ...(Number.isFinite(metrics.round) ? { retrieval_rounds: metrics.round } : {})
+      ...(Number.isFinite(metrics.round) ? { retrieval_rounds: metrics.round } : {}),
+      ...Object.fromEntries(["model_attempt", "model_max_attempts", "retry_delay_ms"].filter((key) => Number.isFinite(metrics[key])).map((key) => [key, metrics[key]]))
     },
     status: ({ started: "IN_PROGRESS", completed: "COMPLETE", failed: "FAILED" })[status] || status
   });

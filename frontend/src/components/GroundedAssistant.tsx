@@ -41,7 +41,7 @@ import { KnowledgeAnswer } from "./KnowledgeAnswer";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
-import { KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
+import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
 import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
 import "./GroundedAssistant.css";
 
@@ -492,7 +492,7 @@ export function GroundedAssistant() {
         signal: controller.signal,
         onProgress: (progress) => {
           if (isStale()) return;
-          setProgressEvents((current) => [...current.filter((item) => !(item.stage === progress.stage && item.status === progress.status)), progress].slice(-50));
+          setProgressEvents((current) => appendKnowledgeProgressEvent(current, progress));
         }
       }), {
         signal: controller.signal,

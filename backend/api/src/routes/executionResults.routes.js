@@ -1,4 +1,6 @@
 const service = require("../services/executionResult.service");
+const lifecycleService = require("../services/executionCaseLifecycle.service");
+const executionAttachments = require("../services/executionAttachment.service");
 const { EXECUTION_RESULT_STATUS_VALUES } = require("../domain/catalog");
 const projectService = require("../services/project.service");
 const executionService = require("../services/execution.service");
@@ -18,6 +20,58 @@ const ensureResultPermission = async (fastify, req, permissionCode, id = req.par
 };
 
 module.exports = async function (fastify) {
+
+  fastify.get("/execution-results/:id/attachments", async (req) => {
+    await fastify.authenticate(req);
+    const { execution } = await ensureResultPermission(fastify, req, "result.view");
+    await fastify.requirePermission("attachment.view", { projectId: execution.project_id })(req);
+    return executionAttachments.list({ user: req.user, resultId: req.params.id });
+  });
+
+  fastify.post("/execution-results/:id/attachments", async (req) => {
+    await fastify.authenticate(req);
+    const { execution } = await ensureResultPermission(fastify, req, "result.manage");
+    await fastify.requirePermission("attachment.create", { projectId: execution.project_id })(req);
+    const part = await req.file({ limits: { fileSize: executionAttachments.MAX_EVIDENCE_BYTES, files: 1 } });
+    if (!part) throw Object.assign(new Error("Choose a file to upload."), { statusCode: 400 });
+    const field = (name) => part.fields?.[name]?.value;
+    const expectedRevision = field("expected_revision") === undefined ? undefined : Number(field("expected_revision"));
+    if (expectedRevision !== undefined && (!Number.isInteger(expectedRevision) || expectedRevision < 1)) {
+      part.file.resume();
+      throw Object.assign(new Error("expected_revision must be a positive integer."), { statusCode: 400 });
+    }
+    try {
+      return await executionAttachments.upload({ user: req.user, resultId: req.params.id, stepId: field("step_id"), expectedRevision,
+        fileName: part.filename, mimeType: part.mimetype, stream: part.file });
+    } catch (error) {
+      part.file.resume();
+      throw error;
+    }
+  });
+
+  fastify.delete("/execution-results/:id/attachments/:attachmentId", async (req) => {
+    await fastify.authenticate(req);
+    const { execution } = await ensureResultPermission(fastify, req, "result.manage");
+    await fastify.requirePermission("attachment.delete", { projectId: execution.project_id })(req);
+    return executionAttachments.remove({ user: req.user, resultId: req.params.id, attachmentId: req.params.attachmentId });
+  });
+
+  for (const operation of ["ensure", "lifecycle"]) {
+    fastify.post(`/execution-results/${operation}`, async (req) => {
+      await fastify.authenticate(req);
+      fastify.validate({
+        execution_id: { required: true, type: "string" }, test_case_id: { required: true, type: "string" },
+        data_set_iteration_index: { required: false, type: "number" }, data_set_iteration_key: { required: false, type: "string" },
+        expected_revision: { required: false, type: "number" }, expected_result_id: { required: false, type: "string" },
+        ...(operation === "lifecycle" ? { action: { required: true, enum: ["start", "resume", "pause", "abort", "block", "skip", "reset", "pass", "fail"] } } : {})
+      }, req.body || {});
+      const execution = await executionService.getExecution(req.body.execution_id);
+      await projectService.getProject(execution.project_id, req.user.id);
+      await fastify.requirePermission("result.manage", { projectId: execution.project_id })(req);
+      if (operation === "lifecycle") await fastify.requirePermission("run.execute", { projectId: execution.project_id })(req);
+      return operation === "ensure" ? lifecycleService.ensureExecutionCaseResult(req.body, req.user.id) : lifecycleService.transitionExecutionCase(req.body, req.user.id);
+    });
+  }
 
   fastify.get("/execution-results/release-readiness", async (req) => {
     await fastify.authenticate(req);
@@ -68,7 +122,15 @@ module.exports = async function (fastify) {
     const execution = await executionService.getExecution(req.body.execution_id);
     await projectService.getProject(execution.project_id, req.user.id);
     await fastify.requirePermission("result.manage", { projectId: execution.project_id })(req);
-    return service.createExecutionResult({ ...req.body, executed_by: req.body.executed_by || req.user.id });
+    if (req.body.status === "pending") {
+      const result = await lifecycleService.ensureExecutionCaseResult(req.body, req.user.id);
+      const saved = await service.updateExecutionResult(result.id, {
+        error: req.body.error, logs: req.body.logs, external_references: req.body.external_references, defects: req.body.defects,
+        require_explicit_start: true, actor_id: req.user.id
+      });
+      return { id: result.id, revision: saved.revision };
+    }
+    return service.createExecutionResult({ ...req.body, executed_by: req.body.executed_by || req.user.id, require_explicit_start: true });
   });
 
 
@@ -158,7 +220,7 @@ module.exports = async function (fastify) {
     }, req.body);
 
     await ensureResultPermission(fastify, req, "result.manage");
-    return service.updateExecutionResult(req.params.id, req.body);
+    return service.updateExecutionResult(req.params.id, { ...req.body, require_explicit_start: true, actor_id: req.user.id });
   });
 
   fastify.put("/execution-results/:id/defect-links", async (req) => {

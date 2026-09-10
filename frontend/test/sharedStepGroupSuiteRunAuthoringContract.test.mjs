@@ -101,7 +101,7 @@ test("approved Suite, Module, and AI Agent artwork is centralized and reused", a
     readSource("../src/components/TileCardPrimitives.tsx"),
     readSource("../src/components/AppShell.tsx"),
     readSource("../src/pages/TestCasesPage.tsx"),
-    readSource("../src/pages/AgenticWorkflowsPage.tsx")
+    readSource("../src/agents/AgentDirectory.tsx")
   ]);
 
   for (const asset of ["test-suite-icon.png", "module-icon.png", "ai-agents-icon.png"]) assert.match(icons, new RegExp(asset.replace(".", "\\.")));
@@ -109,5 +109,5 @@ test("approved Suite, Module, and AI Agent artwork is centralized and reused", a
   assert.match(shell, /icon: AiAgentsIcon/);
   assert.match(shell, /case "suites":[\s\S]*return TestSuiteIcon/);
   assert.match(cases, /test-case-create-module-title-icon"><ModuleIcon/);
-  assert.match(agents, /ai-agent-specialist-card__icon"><AiAgentsIcon/);
+  assert.match(agents, /HELLOTEST_AGENT_CATALOG\.map\(agent => \(\{[^}]*icon: agent\.icon/);
 });

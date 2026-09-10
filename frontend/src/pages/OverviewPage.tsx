@@ -396,7 +396,7 @@ function QualityAnalyticsDashboard() {
         counts.total += 1;
         return counts;
       },
-      { running: 0, passed: 0, failed: 0, blocked: 0, total: 0 }
+      { pending: 0, running: 0, paused: 0, passed: 0, failed: 0, blocked: 0, aborted: 0, skipped: 0, total: 0 }
     );
   }, [latestExecutionResultsList]);
 

@@ -54,11 +54,11 @@ test("hard evidence caps keep open critical defects and blocked results visible"
   assert.ok(metrics.releaseConfidence <= 39);
 });
 
-test("dashboard designer is bounded to seven review-only gadgets", () => {
+test("QA dashboard designer provides eight review-only widgets", () => {
   const preview = dashboards.designPreview({ projectId: "project-1", stakeholder: "quality", release: "2026.07" });
   assert.equal(preview.preview_only, true);
   assert.equal(preview.requires_human_review, true);
-  assert.equal(preview.dashboard.gadgets.length, 7);
+  assert.equal(preview.dashboard.gadgets.length, 8);
   assert.equal(preview.dashboard.gadgets.every((item) => item.release === "2026.07"), true);
   assert.equal(preview.provenance.capability, "quality-dashboard-design-preview");
 });
@@ -68,8 +68,9 @@ test("dashboard gadget count and visualization inputs are normalized", () => {
   const [gadget] = dashboards.normalizeGadgets([{ title: "Pass rate", type: "unknown", metric: "passRate" }]);
   assert.equal(gadget.type, "metric");
   assert.equal(gadget.metric, "passRate");
-  const [bounded] = dashboards.normalizeGadgets([{ data_source: "hellotest", metric: "averageAgeDays", group_by: "unsafe", accent: "pink" }]);
-  assert.equal(bounded.metric, "count");
+  assert.throws(() => dashboards.normalizeGadgets([{ data_source: "hellotest", metric: "averageAgeDays" }]), { code: "DASHBOARD_METRIC_UNSUPPORTED", statusCode: 400 });
+  const [bounded] = dashboards.normalizeGadgets([{ data_source: "hellotest", metric: "testCases", group_by: "unsafe", accent: "pink" }]);
+  assert.equal(bounded.metric, "testCases");
   assert.equal(bounded.group_by, "status");
   assert.equal(bounded.accent, "blue");
 });

@@ -10,11 +10,14 @@ const executionStepRuntimeService = require("./executionStepRuntime.service");
 const opsTelemetryService = require("./opsTelemetry.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
-const { materializeDataSetSnapshot, materializeParameterValues, materializeTemplateValue } = require("../utils/testDataGenerators");
+const { materializeDataSetSnapshot, materializeParameterValues, materializeVariableSnapshot, freezeReferencedParameterGenerators } = require("../utils/testDataGenerators");
+const { resolveParameterLayers, collectPriorParameterCaptures } = require("../utils/stepParameterResolution");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const { assertExpectedRevision } = require("../utils/revision");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
 const { normalizeExecutionDates, formatStoredRunDate } = require("../utils/executionDates");
+const { redactTestDataSetRows } = require("./testDataSet.service");
+const { getExecutionResultDurationMs } = require("../utils/executionCaseLifecycle");
 
 const runError = (message, code = "INVALID_RUN_EDIT", statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 const assertRunEditable = (execution) => {
@@ -44,7 +47,7 @@ const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = [
   }
   const statuses = new Map();
   const iterationCounts = new Map();
-  const priority = { passed: 1, running: 2, blocked: 3, failed: 4 };
+  const priority = { passed: 1, skipped: 2, pending: 3, paused: 4, running: 5, aborted: 6, blocked: 7, failed: 8 };
   for (const result of iterations.values()) {
     iterationCounts.set(result.test_case_id, (iterationCounts.get(result.test_case_id) || 0) + 1);
     if ((priority[result.status] || 0) > (priority[statuses.get(result.test_case_id)] || 0)) statuses.set(result.test_case_id, result.status);
@@ -53,9 +56,10 @@ const summarizeExecutionMetrics = (caseRows = [], resultRows = [], storyRows = [
     const dataSet = parseJsonValue(row.test_data_set_snapshot, {});
     const expected = row.expected_iterations || (dataSet?.mode === "key_value" ? 1 : dataSet?.rows?.length || 1);
     const completed = iterationCounts.get(row.test_case_id) || 0;
-    if (statuses.get(row.test_case_id) === "passed" && completed < expected) statuses.delete(row.test_case_id);
+    if (["passed", "skipped"].includes(statuses.get(row.test_case_id)) && completed < expected) statuses.delete(row.test_case_id);
   }
-  const summary = { total_cases: cases.size, passed_cases: 0, failed_cases: 0, blocked_cases: 0, running_cases: 0, pending_cases: 0,
+  const summary = { total_cases: cases.size, passed_cases: 0, failed_cases: 0, blocked_cases: 0, running_cases: 0, pending_cases: 0, paused_cases: 0, aborted_cases: 0, skipped_cases: 0,
+    duration_ms: resultRows.reduce((total, result) => total + getExecutionResultDurationMs(result), 0),
     defect_count: defects.size, story_count: 0, failed_story_count: 0 };
   for (const caseId of cases) summary[`${statuses.get(caseId) || "pending"}_cases`]++;
   const stories = new Set();
@@ -78,7 +82,7 @@ async function loadExecutionMetrics(executionIds) {
         THEN 1 ELSE GREATEST(1, jsonb_array_length(test_data_set_snapshot->'rows')) END AS expected_iterations
       FROM execution_case_snapshots WHERE execution_id IN (${placeholders})`).all(...executionIds),
     db.prepare(`SELECT id, execution_id, test_case_id, status, defects, case_defects, step_defects,
-      data_set_iteration_index, data_set_iteration_key, created_at FROM execution_results
+      data_set_iteration_index, data_set_iteration_key, created_at, duration_ms, timer_started_at FROM execution_results
       WHERE execution_id IN (${placeholders})`).all(...executionIds),
     db.prepare(`WITH run_cases AS (
         SELECT execution_id, test_case_id FROM execution_case_snapshots WHERE execution_id IN (${placeholders})
@@ -591,134 +595,29 @@ function resolveExecutionCaseDataSetIteration(execution, caseSnapshot, requested
 }
 
 function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}, dataSetIterationIndex = null) {
-  const values = {};
-  const caseParameterValues = normalizeParameterValues(caseSnapshot?.parameter_values);
-  const caseDataSet = resolveExecutionCaseDataSet(execution, caseSnapshot);
-  const caseParametersOverrideDataSet = caseDataSet?.source === "test_case";
-
-  Object.entries(normalizeParameterValues(caseSnapshot?.suite_parameter_values)).forEach(([key, value]) => {
-    values[`s.${key.replace(/^s\./, "")}`] = materializeTemplateValue(value);
+  return resolveParameterLayers({
+    caseValues: normalizeParameterValues(caseSnapshot?.parameter_values),
+    suiteValues: normalizeParameterValues(caseSnapshot?.suite_parameter_values),
+    environmentVariables: execution?.test_environment?.snapshot?.variables,
+    configurationVariables: execution?.test_configuration?.snapshot?.variables,
+    runValues: normalizeParameterValues(execution?.parameter_values),
+    dataSet: resolveExecutionCaseDataSet(execution, caseSnapshot)?.snapshot,
+    rowIndex: Number.isInteger(dataSetIterationIndex) ? dataSetIterationIndex : 0,
+    capturedValues
   });
-
-  if (!caseParametersOverrideDataSet) {
-    Object.entries(caseParameterValues).forEach(([key, value]) => {
-      values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-    });
-  }
-
-  (execution?.test_environment?.snapshot?.variables || []).forEach((entry) => {
-    const normalizedKey = String(entry?.key || "").trim().replace(/^@+/, "").toLowerCase();
-
-    if (!normalizedKey) {
-      return;
-    }
-
-    values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry?.value);
-  });
-
-  (execution?.test_configuration?.snapshot?.variables || []).forEach((entry) => {
-    const normalizedKey = String(entry?.key || "").trim().replace(/^@+/, "").toLowerCase();
-
-    if (!normalizedKey) {
-      return;
-    }
-
-    values[`r.${normalizedKey.replace(/^r\./, "")}`] = materializeTemplateValue(entry?.value);
-  });
-
-  const dataSetSnapshot = caseDataSet?.snapshot || null;
-  const dataSetRows = Array.isArray(dataSetSnapshot?.rows)
-    ? dataSetSnapshot.rows
-    : dataSetSnapshot?.template_rows || [];
-
-  if (dataSetSnapshot?.mode === "key_value") {
-    dataSetRows.forEach((row) => {
-      const normalizedKey = String(row?.key || "").trim().replace(/^@+/, "").toLowerCase();
-      if (!normalizedKey) {
-        return;
-      }
-      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row?.value);
-    });
-  } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
-    const rowIndex = Number.isInteger(dataSetIterationIndex) ? dataSetIterationIndex : 0;
-    Object.entries(dataSetRows[rowIndex] || {}).forEach(([key, value]) => {
-      const normalizedKey = String(key || "").trim().toLowerCase();
-
-      if (!normalizedKey) {
-        return;
-      }
-
-      values[`t.${normalizedKey}`] = materializeTemplateValue(value);
-    });
-  }
-
-  if (caseParametersOverrideDataSet) {
-    Object.entries(caseParameterValues).forEach(([key, value]) => {
-      values[`t.${key.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-    });
-  }
-
-  Object.entries(capturedValues || {}).forEach(([key, value]) => {
-    const normalizedKey = String(key || "").trim().replace(/^@+/, "").toLowerCase();
-
-    if (!normalizedKey) {
-      return;
-    }
-
-    values[normalizedKey] = value === undefined || value === null ? "" : String(value);
-  });
-
-  return values;
 }
 
-function collectSuiteScopedCapturedValues(execution, caseSnapshot, currentTestCaseId) {
-  if (!execution?.id || !caseSnapshot?.suite_id) {
-    return {};
+async function collectSuiteScopedCapturedValues(execution, caseSnapshot, currentTestCaseId) {
+  if (!execution?.id) return {};
+  const capturesByCaseId = {};
+  for (const row of await getResultLogsForExecution.all(execution.id)) {
+    capturesByCaseId[row.test_case_id] = executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs);
   }
-
-  const latestLogsByCaseId = new Map();
-
-  getResultLogsForExecution.all(execution.id).forEach((row) => {
-    latestLogsByCaseId.set(row.test_case_id, row.logs);
-  });
-
-  return (execution.case_snapshots || [])
-    .filter((snapshot) =>
-      snapshot.suite_id === caseSnapshot.suite_id
-      && snapshot.test_case_id !== currentTestCaseId
-      && Number(snapshot.sort_order || 0) <= Number(caseSnapshot.sort_order || 0)
-    )
-    .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
-    .reduce((accumulator, snapshot) => {
-      const logs = latestLogsByCaseId.get(snapshot.test_case_id);
-
-      if (!logs) {
-        return accumulator;
-      }
-
-      const captures = executionStepRuntimeService.extractCapturedValuesFromLogs(logs);
-
-      Object.entries(captures || {}).forEach(([key, value]) => {
-        const normalizedKey = String(key || "").trim().replace(/^@+/, "").toLowerCase();
-
-        if (normalizedKey.startsWith("s.")) {
-          accumulator[normalizedKey] = value === undefined || value === null ? "" : String(value);
-        }
-      });
-
-      return accumulator;
-    }, {});
+  return collectPriorParameterCaptures(execution.case_snapshots || [], currentTestCaseId, capturesByCaseId);
 }
 
 function resolveExecutionCaseDurationMs(execution, existingResult) {
-  const executionStartedAt = execution?.started_at ? new Date(execution.started_at).getTime() : 0;
-  const existingCreatedAt = existingResult?.created_at ? new Date(existingResult.created_at).getTime() : 0;
-  const startedAt = executionStartedAt || existingCreatedAt || Date.now();
-  const computed = Math.max(Date.now() - startedAt, 0);
-
-  return typeof existingResult?.duration_ms === "number"
-    ? Math.max(existingResult.duration_ms, computed)
-    : computed;
+  return getExecutionResultDurationMs(existingResult);
 }
 
 function shapeAssignedUser(user) {
@@ -734,6 +633,12 @@ function shapeAssignedUser(user) {
   };
 }
 
+function redactExecutionDataSetSnapshot(value) {
+  const snapshot = parseJsonValue(value, null);
+  return snapshot ? { ...snapshot, rows: redactTestDataSetRows(snapshot.mode, snapshot.rows),
+    ...(snapshot.template_rows ? { template_rows: redactTestDataSetRows(snapshot.mode, snapshot.template_rows) } : {}) } : null;
+}
+
 function attachExecutionContext(execution) {
   if (!execution) {
     return execution;
@@ -741,10 +646,13 @@ function attachExecutionContext(execution) {
 
   const environmentSnapshot = parseJsonValue(execution.test_environment_snapshot, null);
   const configurationSnapshot = parseJsonValue(execution.test_configuration_snapshot, null);
-  const dataSetSnapshot = parseJsonValue(execution.test_data_set_snapshot, null);
+  const dataSetSnapshot = redactExecutionDataSetSnapshot(execution.test_data_set_snapshot);
 
   return {
     ...execution,
+    test_environment_snapshot: environmentSnapshot ? { ...environmentSnapshot, variables: sanitizeVariablesForRead(environmentSnapshot.variables), template_variables: sanitizeVariablesForRead(environmentSnapshot.template_variables) } : null,
+    test_configuration_snapshot: configurationSnapshot ? { ...configurationSnapshot, variables: sanitizeVariablesForRead(configurationSnapshot.variables), template_variables: sanitizeVariablesForRead(configurationSnapshot.template_variables) } : null,
+    test_data_set_snapshot: dataSetSnapshot,
     start_date: formatStoredRunDate(execution.start_date),
     end_date: formatStoredRunDate(execution.end_date),
     test_environment: execution.test_environment_name || environmentSnapshot
@@ -754,7 +662,8 @@ function attachExecutionContext(execution) {
           snapshot: environmentSnapshot
             ? {
                 ...environmentSnapshot,
-                variables: sanitizeVariablesForRead(environmentSnapshot.variables)
+                variables: sanitizeVariablesForRead(environmentSnapshot.variables),
+                template_variables: sanitizeVariablesForRead(environmentSnapshot.template_variables)
               }
             : null
         }
@@ -766,7 +675,8 @@ function attachExecutionContext(execution) {
           snapshot: configurationSnapshot
             ? {
                 ...configurationSnapshot,
-                variables: sanitizeVariablesForRead(configurationSnapshot.variables)
+                variables: sanitizeVariablesForRead(configurationSnapshot.variables),
+                template_variables: sanitizeVariablesForRead(configurationSnapshot.template_variables)
               }
             : null
         }
@@ -781,6 +691,25 @@ function attachExecutionContext(execution) {
   };
 }
 
+// Internal execution paths need the stored secrets, while all public hydration
+// remains redacted. Values come from this run's snapshot, never live resources.
+async function loadExecutionRuntimeContext(execution) {
+  const stored = await selectExecutionRecord.get(execution.id);
+  if (!stored) return execution;
+  const storedCases = (execution.case_snapshots || []).some((snapshot) => snapshot.test_data_set_id || snapshot.test_data_set_snapshot)
+    ? await getCaseSnapshotsForExecution.all(execution.id) : [];
+  return {
+    ...execution,
+    test_environment: execution.test_environment ? { ...execution.test_environment, snapshot: parseJsonValue(stored.test_environment_snapshot, null) } : null,
+    test_configuration: execution.test_configuration ? { ...execution.test_configuration, snapshot: parseJsonValue(stored.test_configuration_snapshot, null) } : null,
+    test_data_set: execution.test_data_set ? { ...execution.test_data_set, snapshot: parseJsonValue(stored.test_data_set_snapshot, null) } : null,
+    case_snapshots: (execution.case_snapshots || []).map((snapshot) => {
+      const raw = storedCases.find((item) => item.test_case_id === snapshot.test_case_id);
+      return raw ? { ...snapshot, test_data_set_snapshot: parseJsonValue(raw.test_data_set_snapshot, null) } : snapshot;
+    })
+  };
+}
+
 async function hydrateExecutionScopes(executions) {
   const executionIds = uniqueIds(executions);
   if (!executionIds.length) {
@@ -791,7 +720,10 @@ async function hydrateExecutionScopes(executions) {
   const userIds = [...new Set(contextualExecutions.flatMap((execution) => {
     const assignedToIds = normalizeTextList(parseJsonValue(execution.assigned_to_ids, []));
     const legacyAssignedTo = normalizeText(execution.assigned_to);
-    return assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : [];
+    return [...(assignedToIds.length ? assignedToIds : legacyAssignedTo ? [legacyAssignedTo] : []),
+      ...Object.values(normalizeAssignmentMap(execution.suite_assignments)).flat(),
+      ...Object.values(normalizeAssignmentMap(execution.module_assignments)).flat(),
+      ...Object.values(normalizeAssignmentMap(execution.case_assignments)).flat()];
   }))];
   const [suiteRows, userRows, metrics] = await Promise.all([
     db.prepare(`
@@ -832,11 +764,12 @@ async function hydrateExecutionScopes(executions) {
       assigned_user: assignedUsers[0] || null,
       assigned_users: assignedUsers,
       suite_ids: executionSuites.map((row) => row.suite_id),
-      suite_snapshots: executionSuites.map((row) => ({
-        id: row.suite_id,
-        name: row.suite_name || "Deleted Suite",
-        parameter_values: {}
-      }))
+      suite_snapshots: executionSuites.map((row) => {
+        const { assignedToIds: ids, source } = resolveScopeAssignment({ suite_id: row.suite_id }, execution);
+        const users = ids.map(id => usersById.get(id)).filter(Boolean);
+        return { id: row.suite_id, name: row.suite_name || "Deleted Suite", parameter_values: {}, assigned_to: ids[0] || null,
+          assigned_to_ids: ids, assigned_user: users[0] || null, assigned_users: users, assignment_source: source };
+      })
     };
   });
 }
@@ -874,7 +807,7 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
       suite_parameter_template_values: normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values),
       test_data_set_id: normalizeText(snapshot.test_data_set_id),
       test_data_set_name: normalizeText(snapshot.test_data_set_name),
-      test_data_set_snapshot: parseJsonValue(snapshot.test_data_set_snapshot, null),
+      test_data_set_snapshot: redactExecutionDataSetSnapshot(snapshot.test_data_set_snapshot),
       data_set_source: snapshot.data_set_source === "run" || snapshot.data_set_source === "test_case"
         ? snapshot.data_set_source
         : null,
@@ -919,6 +852,7 @@ async function validateExecutionAssignees(projectId, assignedToIds = []) {
 
 function resolveScopeAssignment(snapshot, execution) {
   const runAssignees = normalizeTextList(parseJsonValue(execution?.assigned_to_ids, []));
+  if (!runAssignees.length && execution?.assigned_to) runAssignees.push(execution.assigned_to);
   const suiteAssignments = normalizeAssignmentMap(execution?.suite_assignments);
   const moduleAssignments = normalizeAssignmentMap(execution?.module_assignments);
   const caseAssignments = normalizeAssignmentMap(execution?.case_assignments);
@@ -1064,7 +998,7 @@ async function resolveExecutionContextResource({ id, label, projectId, appTypeId
   return {
     id: resource.id,
     name: resource.name,
-    snapshot: snapshotBuilder(resource)
+    snapshot: label === "Test data set" ? snapshotBuilder(resource) : materializeVariableSnapshot(snapshotBuilder(resource))
   };
 }
 
@@ -1204,6 +1138,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       });
 
       const steps = await selectStepsForCase.all(suiteCase.test_case_id);
+      Object.assign(caseSnapshots[caseSnapshots.length - 1], freezeReferencedParameterGenerators(caseSnapshots[caseSnapshots.length - 1], steps));
 
       for (const step of steps) {
         stepSnapshots.push({
@@ -1263,6 +1198,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       });
 
       const steps = await selectStepsForCase.all(directCase.test_case_id);
+      Object.assign(caseSnapshots[caseSnapshots.length - 1], freezeReferencedParameterGenerators(caseSnapshots[caseSnapshots.length - 1], steps));
 
       for (const step of steps) {
         stepSnapshots.push({
@@ -1345,6 +1281,18 @@ async function attachDetailedScope(execution) {
   const storedStepSnapshots = await getStepSnapshotsForExecution.all(execution.id);
   const hydratedCaseSnapshots = await attachExecutionCaseAssignees(storedCaseSnapshots);
   const hydratedSuiteSnapshots = mergeSuiteSnapshotsWithParameters(hydrated.suite_snapshots || [], hydratedCaseSnapshots);
+  const moduleScopes = [...new Map(storedCaseSnapshots.filter(snapshot => snapshot.module_id).map(snapshot => {
+    const assignment = resolveScopeAssignment({ suite_id: snapshot.suite_id, module_id: snapshot.module_id }, hydrated);
+    return [`${snapshot.suite_id || "direct"}:${snapshot.module_id}`, { id: snapshot.module_id, name: snapshot.module_name || "Module", suite_id: snapshot.suite_id || null,
+      assigned_to: assignment.assignedToIds[0] || null, assigned_to_ids: assignment.assignedToIds, assignment_source: assignment.source }];
+  })).values()];
+  const moduleUserIds = [...new Set(moduleScopes.flatMap(scope => scope.assigned_to_ids))];
+  const moduleUsers = moduleUserIds.length ? await db.prepare(`SELECT id, email, name, avatar_data_url FROM users WHERE id IN (${placeholdersFor(moduleUserIds)})`).all(...moduleUserIds) : [];
+  const moduleUsersById = new Map(moduleUsers.map(user => [user.id, shapeAssignedUser(user)]));
+  const hydratedModules = moduleScopes.map(scope => {
+    const users = scope.assigned_to_ids.map(id => moduleUsersById.get(id)).filter(Boolean);
+    return { ...scope, assigned_users: users, assigned_user: users[0] || null };
+  });
 
   if (storedCaseSnapshots.length || storedStepSnapshots.length || !suiteRows.length) {
     return {
@@ -1352,6 +1300,7 @@ async function attachDetailedScope(execution) {
       test_case_ids: hydratedCaseSnapshots.map((snapshot) => snapshot.test_case_id),
       direct_test_case_ids: hydrated.direct_test_case_ids ?? hydratedCaseSnapshots.filter((snapshot) => !suiteRows.some((suite) => suite.suite_id === snapshot.suite_id)).map((snapshot) => snapshot.test_case_id),
       suite_snapshots: hydratedSuiteSnapshots,
+      module_snapshots: hydratedModules,
       case_snapshots: hydratedCaseSnapshots,
       step_snapshots: storedStepSnapshots
     };
@@ -1802,7 +1751,8 @@ exports.getExecutions = async ({ project_id, app_type_id, status }) => {
   }
 };
 
-const executionCache = new Map();
+const { executionCache } = require("../utils/executionCache");
+exports.invalidateExecutionCache = (id) => executionCache.delete(id);
 const CACHE_TTL_MS = Number(process.env.EXECUTION_CACHE_TTL_MS) || 2000;
 
 exports.getExecution = async (id, forceRefresh = false) => {
@@ -1839,7 +1789,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     throw new Error("created_by is required");
   }
 
-  const sourceExecution = await exports.getExecution(id);
+  const sourceExecution = await loadExecutionRuntimeContext(await exports.getExecution(id));
   await mobileFeatureService.assertExecutionMobileFeatureEnabled(sourceExecution);
   const sourceCaseSnapshots = sourceExecution.case_snapshots || [];
   const sourceStepSnapshots = sourceExecution.step_snapshots || [];
@@ -1920,10 +1870,10 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       rerunName,
       sourceExecution.test_environment?.id || null,
       sourceExecution.test_environment?.name || null,
-      sourceExecution.test_environment?.snapshot || null,
+      materializeVariableSnapshot(sourceExecution.test_environment?.snapshot || null),
       sourceExecution.test_configuration?.id || null,
       sourceExecution.test_configuration?.name || null,
-      sourceExecution.test_configuration?.snapshot || null,
+      materializeVariableSnapshot(sourceExecution.test_configuration?.snapshot || null),
       sourceExecution.test_data_set?.id || null,
       sourceExecution.test_data_set?.name || null,
       rerunDataSetSnapshot,
@@ -2017,7 +1967,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 };
 
 exports.startExecution = async (id, options = {}) => {
-  const execution = await exports.getExecution(id);
+  const execution = await loadExecutionRuntimeContext(await exports.getExecution(id));
   options = { ...options, execution_mode: resolveExecutionStartMode(execution, options.execution_mode) };
   await mobileFeatureService.assertExecutionMobileFeatureEnabled(execution);
   const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
@@ -2171,7 +2121,7 @@ exports.startExecution = async (id, options = {}) => {
 };
 
 exports.startLocalExecution = async (id, options = {}) => {
-  const execution = await exports.getExecution(id, true);
+  const execution = await loadExecutionRuntimeContext(await exports.getExecution(id, true));
 
   if (execution.status !== "running") {
     throw new Error("Local runs must be created in running state");
@@ -2236,25 +2186,37 @@ exports.startLocalExecution = async (id, options = {}) => {
 };
 
 exports.completeExecution = async (id, status, options = {}) => {
-  if (!["completed", "failed", "blocked", "aborted"].includes(status)) {
+  if (!["completed", "failed", "blocked", "partially_completed", "aborted"].includes(status)) {
     throw new Error("Invalid completion status");
   }
 
-  const execution = await exports.getExecution(id);
-  const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
-
-  if (execution.status !== "running") {
-    throw new Error("Only running executions can be completed");
-  }
-
-  const completionResult = await db.prepare(`
+  const completion = await db.transaction(async () => {
+    const execution = await db.prepare(`SELECT * FROM executions WHERE id = ? FOR UPDATE`).get(id);
+    if (!execution) throw new Error("Execution not found");
+    const currentRevision = assertExpectedRevision(execution.revision, options.expected_revision, "Run");
+    if (execution.status !== "running") throw runError("Only running executions can be completed", "RUN_FINISHED", 409);
+    const scope = await db.prepare(`SELECT test_case_id, test_data_set_snapshot FROM execution_case_snapshots WHERE execution_id = ?`).all(id);
+    const resultRows = await db.prepare(`SELECT * FROM execution_results WHERE execution_id = ?`).all(id);
+    const metrics = summarizeExecutionMetrics(scope, resultRows);
+    let resolvedStatus = status;
+    if (["completed", "partially_completed"].includes(status)) {
+      resolvedStatus = metrics.failed_cases ? "failed" : metrics.blocked_cases ? "blocked"
+        : !metrics.total_cases || metrics.pending_cases + metrics.paused_cases + metrics.running_cases + metrics.aborted_cases > 0
+          ? "partially_completed" : "completed";
+    }
+    await executionResultService.stopExecutionCaseTimers(id, options.executed_by || options.completed_by || null);
+    const completionResult = await db.prepare(`
     UPDATE executions
     SET status = ?, ended_at = CURRENT_TIMESTAMP, revision = ?
     WHERE id = ? AND status = 'running' AND revision = ?
-  `).run(status, currentRevision + 1, id, currentRevision);
-  if (completionResult.changes !== 1) {
-    assertExpectedRevision(currentRevision + 1, currentRevision, "Run");
-  }
+  `).run(resolvedStatus, currentRevision + 1, id, currentRevision);
+    if (completionResult.changes !== 1) assertExpectedRevision(currentRevision + 1, currentRevision, "Run");
+    return { revision: currentRevision + 1, status: resolvedStatus, counts: { total: metrics.total_cases, passed: metrics.passed_cases, failed: metrics.failed_cases,
+      blocked: metrics.blocked_cases, running: metrics.running_cases, paused: metrics.paused_cases, skipped: metrics.skipped_cases, aborted: metrics.aborted_cases, not_run: metrics.pending_cases } };
+  })();
+  const { revision } = completion;
+  status = completion.status;
+  executionCache.delete(id);
 
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
@@ -2266,7 +2228,7 @@ exports.completeExecution = async (id, status, options = {}) => {
     // OPS telemetry is best-effort and must not block execution completion.
   }
 
-  return { completed: true, status, revision: currentRevision + 1 };
+  return { completed: true, status, revision, counts: completion.counts };
 };
 
 exports.runExecutionApiStep = async (
@@ -2275,7 +2237,7 @@ exports.runExecutionApiStep = async (
   stepId,
   { executed_by, data_set_iteration_index = null } = {}
 ) => {
-  const execution = await exports.getExecution(executionId);
+  const execution = await loadExecutionRuntimeContext(await exports.getExecution(executionId));
 
   if (execution.status !== "running") {
     throw new Error("Only running executions support API step execution");
@@ -2309,10 +2271,13 @@ exports.runExecutionApiStep = async (
     test_case_id: testCaseId,
     data_set_iteration_index: dataSetIteration.result_metadata.data_set_iteration_index
   });
+  if (execution.trigger === "manual" && (!existingResult?.started_at || existingResult.status !== "running")) {
+    throw runError("Start or resume this case before executing a step.", "CASE_NOT_STARTED", 409);
+  }
   const existingLogs = executionStepRuntimeService.parseStructuredLogs(existingResult?.logs || null);
   const currentCaseCapturedValues = executionStepRuntimeService.extractCapturedValuesFromLogs(existingLogs);
   const capturedValues = {
-    ...collectSuiteScopedCapturedValues(execution, caseSnapshot, testCaseId),
+    ...await collectSuiteScopedCapturedValues(execution, caseSnapshot, testCaseId),
     ...currentCaseCapturedValues
   };
 
@@ -2688,6 +2653,8 @@ exports.updateExecutionScopeAssignment = updateExecutionScopeAssignment;
 exports.resolveScopeAssignment = resolveScopeAssignment;
 exports.summarizeExecutionMetrics = summarizeExecutionMetrics;
 exports.resolveExecutionStartMode = resolveExecutionStartMode;
+
+exports.resolveExecutionCaseDataSetIteration = resolveExecutionCaseDataSetIteration;
 
 exports.deleteExecution = async (id) => {
   await exports.getExecution(id);

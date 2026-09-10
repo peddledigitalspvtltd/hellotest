@@ -1,8 +1,12 @@
+import type { IntegrationConnectionInput, IntegrationConnectionResult } from "./integrationConnection";
+import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "../agents/types";
+import type { ExecutionCaseIdentity, ExecutionCaseLifecycleAction } from "./executionCaseLifecycle";
 import type {
   AdminHealthSnapshot,
   ApiRequestPreview,
   AgenticAssistantMode,
   AgenticAssistantSessionResponse,
+  AgenticAssistantSavedSessionResponse,
   AgenticWorkflow,
   AgenticWorkflowRun,
   ApiKeyScope,
@@ -35,6 +39,7 @@ import type {
   Issue,
   Integration,
   JiraAttachment,
+  ExecutionResultAttachment,
   JiraComment,
   KnowledgeAssistantIntegration,
   KnowledgeAssistantMessageResponse,
@@ -519,7 +524,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   const token = getStoredToken();
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const canReuseRequest = method === "GET";
+  const canReuseRequest = method === "GET" && init?.cache !== "no-store";
   const requestKey = canReuseRequest
     ? stableStringify({ method, path: scopedPath })
     : "";
@@ -584,7 +589,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
 
     if (canReuseRequest) {
       rememberClientGetResponse(requestKey, response);
-    } else {
+    } else if (method !== "GET") {
       clientGetResponseCache.clear();
     }
 
@@ -721,6 +726,7 @@ type TestCaseImportBatchInput = {
 };
 
 type AgenticApiAgentTestInput = {
+  project_id: string;
   method?: string;
   url: string;
   auth?: string;
@@ -866,6 +872,17 @@ export const api = {
     download: (attachmentId: string) => requestBlob(`/attachments/${attachmentId}/download`),
     delete: (attachmentId: string) => request<{ deleted: boolean; id: string }>(`/attachments/${attachmentId}`, { method: "DELETE" })
   },
+  executionResultAttachments: {
+    list: (resultId: string) => request<ExecutionResultAttachment[]>(`/execution-results/${encodeURIComponent(resultId)}/attachments`),
+    upload: (resultId: string, file: File, options: { stepId?: string; expectedRevision?: number } = {}) => {
+      const form = new FormData();
+      if (options.stepId) form.append("step_id", options.stepId);
+      if (options.expectedRevision !== undefined) form.append("expected_revision", String(options.expectedRevision));
+      form.append("file", file, file.name);
+      return requestForm<{ attachment: ExecutionResultAttachment; revision: number; evidence?: import("./executionLogs").ExecutionStepEvidence }>(`/execution-results/${encodeURIComponent(resultId)}/attachments`, form);
+    },
+    delete: (resultId: string, attachmentId: string) => request<{ deleted: boolean; id: string; revision: number }>(`/execution-results/${encodeURIComponent(resultId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" })
+  },
   comments: {
     list: (scopeInput: HelloTestEntityScope | string) => {
       const scope = normalizeEntityScope(scopeInput);
@@ -915,7 +932,7 @@ export const api = {
       })
   },
   featureFlags: {
-    snapshot: () => request<FeatureFlagSnapshot>("/feature-flags")
+    snapshot: (options?: { signal?: AbortSignal; fresh?: boolean }) => request<FeatureFlagSnapshot>("/feature-flags", { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined })
   },
   metadata: {
     domain: () => request<DomainMetadata>("/metadata/domain")
@@ -1468,36 +1485,8 @@ export const api = {
       request<Integration[]>(`/integrations${toQueryString(query)}`),
     create: (input: { type: Integration["type"]; name: string; base_url?: string; api_key?: string; model?: string; project_key?: string; username?: string; config?: Record<string, unknown>; is_active?: boolean }) =>
       request<{ id: string }>("/integrations", { method: "POST", body: JSON.stringify(input) }),
-    testConnection: (input: { type: Integration["type"]; base_url?: string; api_key?: string; config?: Record<string, unknown> }) =>
-      request<
-        | {
-            ok: boolean;
-            type: "testengine";
-            base_url: string;
-            health_url: string;
-            capabilities_url: string;
-            latency_ms: number;
-            service: string;
-            runner: string;
-            ui: string;
-            control_plane: string;
-            execution_scope: string;
-            supported_step_types: string[];
-            supported_web_engines: string[];
-            hellotest_result_log_compatibility?: string | null;
-          }
-        | {
-            ok: boolean;
-            type: "ops";
-            base_url: string;
-            health_url: string;
-            events_url: string;
-            board_url: string;
-            latency_ms: number;
-            service: string;
-            events_path: string;
-          }
-      >("/integrations/test-connection", { method: "POST", body: JSON.stringify(input) }),
+    testConnection: (input: IntegrationConnectionInput, options?: { signal?: AbortSignal }) =>
+      request<IntegrationConnectionResult>("/integrations/test-connection", { method: "POST", body: JSON.stringify(input), signal: options?.signal }, 40_000),
 	    update: (id: string, input: Partial<{ type: Integration["type"]; name: string; base_url: string; api_key: string; model: string; project_key: string; username: string; config: Record<string, unknown>; is_active: boolean }>) =>
 	      request<{ updated: boolean }>(`/integrations/${id}`, { method: "PUT", body: JSON.stringify(input) }),
 	    export: () =>
@@ -2100,8 +2089,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    complete: (id: string, input: { status: "completed" | "failed" | "blocked" | "aborted"; expected_revision?: number }) =>
-      request<{ completed: boolean; revision: number; status: Execution["status"]; counts?: { passed: number; failed: number; blocked: number; running: number; not_run: number; total: number } }>(`/executions/${id}/complete`, { method: "POST", body: JSON.stringify(input) }),
+    complete: (id: string, input: { status: "completed" | "failed" | "blocked" | "partially_completed" | "aborted"; expected_revision?: number }) =>
+      request<{ completed: boolean; revision: number; status: Execution["status"]; counts?: { passed: number; failed: number; blocked: number; running: number; paused?: number; skipped?: number; aborted?: number; not_run: number; total: number } }>(`/executions/${id}/complete`, { method: "POST", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/executions/${id}`, { method: "DELETE" })
   },
   qualityGates: {
@@ -2124,7 +2113,37 @@ export const api = {
       request<{ id: string }>(`/execution-schedules/${id}/run`, { method: "POST" }),
     delete: (id: string) => request<{ deleted: boolean }>(`/execution-schedules/${id}`, { method: "DELETE" })
   },
+  repositoryAgents: {
+    catalog: (options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentCatalog>("/repository-agents", { signal: options?.signal }),
+    list: (query: { project_id: string; app_type_id?: string; page?: number; agent_type?: RepositoryAgentRunInput["agent_type"]; status?: RepositoryAgentRun["status"] }, options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentRunPage>(`/repository-agents/runs${toQueryString(query)}`, { signal: options?.signal, cache: "no-store" }),
+    get: (id: string, options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" }),
+    create: (input: RepositoryAgentRunInput, options?: { signal?: AbortSignal; idempotencyKey?: string }) =>
+      request<RepositoryAgentRun>("/repository-agents/runs", { method: "POST", body: JSON.stringify(input), signal: options?.signal, headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined }, 120_000),
+    upload: (input: { project_id: string; app_type_id?: string; agent_type: RepositoryAgentRunInput["agent_type"]; file: File }, options?: { signal?: AbortSignal; idempotencyKey?: string }) => {
+      const formData = new FormData();
+      formData.set("project_id", input.project_id);
+      if (input.app_type_id) formData.set("app_type_id", input.app_type_id);
+      formData.set("agent_type", input.agent_type);
+      formData.set("file", input.file);
+      return requestForm<RepositoryAgentRun>("/repository-agents/runs", formData, options);
+    },
+    cancel: (id: string, options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", signal: options?.signal }),
+    retry: (id: string, options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentRun>(`/repository-agents/runs/${encodeURIComponent(id)}/retry`, { method: "POST", signal: options?.signal }),
+    publish: (id: string, input: { item_ids: string[]; module_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<RepositoryAgentPublishResult>(`/repository-agents/runs/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify(input), signal: options?.signal }, 120_000),
+    artifact: (id: string, name: string) =>
+      requestBlob(`/repository-agents/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(name)}`)
+  },
   agenticWorkflows: {
+    listSessions: (query: { project_id: string; app_type_id?: string; limit?: number }, options?: { signal?: AbortSignal }) =>
+      request<WorkspaceTransaction[]>(`/agentic-assistant/sessions${toQueryString(query)}`, { signal: options?.signal }),
+    getSession: (id: string, options?: { signal?: AbortSignal }) =>
+      request<AgenticAssistantSavedSessionResponse>(`/agentic-assistant/sessions/${encodeURIComponent(id)}`, { signal: options?.signal }),
     ask: (input: {
       project_id: string;
       app_type_id?: string;
@@ -2140,12 +2159,13 @@ export const api = {
       };
       integration_id?: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
-    }) => request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {
+    }, options?: { signal?: AbortSignal }) => request<AgenticAssistantSessionResponse>("/agentic-assistant/sessions", {
       method: "POST",
-      body: JSON.stringify(input)
-    }),
-    list: (query?: { project_id?: string; app_type_id?: string; status?: string }) =>
-      request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`),
+      body: JSON.stringify(input),
+      signal: options?.signal
+    }, 80_000),
+    list: (query?: { project_id?: string; app_type_id?: string; status?: string }, options?: { signal?: AbortSignal; fresh?: boolean }) =>
+      request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`, { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined }),
     get: (id: string) =>
       request<AgenticWorkflow>(`/agentic-workflows/${id}`),
     create: (input: {
@@ -2192,12 +2212,15 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string }) =>
-      request<AgenticWorkflowRun[]>(`/agentic-workflow-runs${toQueryString(query)}`),
+    listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string; limit?: number }, options?: { signal?: AbortSignal }) =>
+      request<AgenticWorkflowRun[]>(`/agentic-workflow-runs${toQueryString(query)}`, { signal: options?.signal }),
     getRun: (id: string) =>
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${id}`)
   },
   executionResults: {
+    ensure: (input: ExecutionCaseIdentity) => request<ExecutionResult>("/execution-results/ensure", { method: "POST", body: JSON.stringify(input) }),
+    transition: (input: ExecutionCaseIdentity & { action: ExecutionCaseLifecycleAction; expected_revision?: number; expected_result_id?: string }) =>
+      request<ExecutionResult>("/execution-results/lifecycle", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number }) =>
       request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`),
     releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; run_limit?: number; result_limit?: number }) =>
@@ -2211,10 +2234,10 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/execution-results/${id}`, { method: "DELETE" })
   },
   workspaceTransactions: {
-    list: (query?: { project_id?: string; app_type_id?: string; category?: string; include_global?: boolean; limit?: number }) =>
-      request<WorkspaceTransaction[]>(`/workspace-transactions${toQueryString(query)}`),
-    events: (id: string) =>
-      request<WorkspaceTransactionEvent[]>(`/workspace-transactions/${id}/events`),
+    list: (query?: { project_id?: string; app_type_id?: string; category?: string; include_global?: boolean; limit?: number }, options?: { signal?: AbortSignal }) =>
+      request<WorkspaceTransaction[]>(`/workspace-transactions${toQueryString(query)}`, { signal: options?.signal }),
+    events: (id: string, options?: { signal?: AbortSignal }) =>
+      request<WorkspaceTransactionEvent[]>(`/workspace-transactions/${id}/events`, { signal: options?.signal }),
     artifacts: (id: string) =>
       request<WorkspaceTransactionArtifact[]>(`/workspace-transactions/${id}/artifacts`),
     downloadArtifact: (transactionId: string, artifactId: string) =>

@@ -6,6 +6,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getExecutionResultDurationMs } = require("../utils/executionCaseLifecycle");
 
 const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || 12_000);
 const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
@@ -118,6 +119,7 @@ const deriveCaseStatus = (steps, result, logs) => {
   if (status) {
     return status;
   }
+  if (!Object.keys(logs.stepStatuses || {}).length) return "pending";
 
   return executionStepRuntimeService.deriveCaseStatusFromStepStatuses(
     steps.map((step) => step.id),
@@ -129,6 +131,8 @@ const buildReportModel = async (executionId) => {
   const execution = await executionService.getExecution(executionId);
   const results = await executionResultService.getExecutionResults({ execution_id: executionId });
   const latestResultByCaseId = pickLatestResultsByCase(results);
+  const durationsByCase = new Map();
+  for (const result of results) durationsByCase.set(result.test_case_id, (durationsByCase.get(result.test_case_id) || 0) + getExecutionResultDurationMs(result));
   const stepsByCaseId = new Map();
 
   (execution.step_snapshots || []).forEach((snapshot) => {
@@ -158,7 +162,7 @@ const buildReportModel = async (executionId) => {
       suite_name: snapshot.suite_name || null,
       priority: snapshot.priority || null,
       status,
-      duration_ms: result?.duration_ms || 0,
+      duration_ms: durationsByCase.get(snapshot.test_case_id) || 0,
       error: result?.error || "",
       result_id: result?.id || null,
       steps
@@ -174,12 +178,15 @@ const buildReportModel = async (executionId) => {
         accumulator.failed += 1;
       } else if (item.status === "blocked") {
         accumulator.blocked += 1;
-      } else {
+      } else if (item.status === "running") {
         accumulator.running += 1;
+      } else {
+        const key = ["pending", "paused", "skipped", "aborted"].includes(item.status) ? item.status : "pending";
+        accumulator[key] += 1;
       }
       return accumulator;
     },
-    { total: 0, passed: 0, failed: 0, blocked: 0, running: 0 }
+    { total: 0, passed: 0, failed: 0, blocked: 0, running: 0, pending: 0, paused: 0, skipped: 0, aborted: 0 }
   );
 
   const durationMs = cases.reduce((total, item) => total + Number(item.duration_ms || 0), 0);
@@ -196,6 +203,10 @@ const buildReportModel = async (executionId) => {
       failed: 0,
       blocked: 0,
       running: 0,
+      pending: 0,
+      paused: 0,
+      skipped: 0,
+      aborted: 0,
       duration_ms: 0,
       step_count: 0,
       cases: []
@@ -212,8 +223,11 @@ const buildReportModel = async (executionId) => {
       current.failed += 1;
     } else if (testCase.status === "blocked") {
       current.blocked += 1;
-    } else {
+    } else if (testCase.status === "running") {
       current.running += 1;
+    } else {
+      const key = ["pending", "paused", "skipped", "aborted"].includes(testCase.status) ? testCase.status : "pending";
+      current[key] += 1;
     }
 
     suitesByKey.set(suiteKey, current);
@@ -463,6 +477,10 @@ const STATUS_META = {
   failed: { label: "Failed", bg: "#ffe7ed", fg: "#a32647", border: "#d94b6a" },
   blocked: { label: "Blocked", bg: "#fff3d7", fg: "#85530a", border: "#d9901f" },
   running: { label: "Running", bg: "#e9efff", fg: "#284da8", border: "#5271d8" },
+  paused: { label: "Paused", bg: "#fff3d7", fg: "#85530a", border: "#d9901f" },
+  pending: { label: "Unexecuted", bg: "#eef2f7", fg: "#475569", border: "#94a3b8" },
+  skipped: { label: "N/A", bg: "#eef2f7", fg: "#475569", border: "#94a3b8" },
+  aborted: { label: "Aborted", bg: "#eef2f7", fg: "#475569", border: "#94a3b8" },
   queued: { label: "Queued", bg: "#eef2f7", fg: "#475569", border: "#94a3b8" }
 };
 
@@ -1274,7 +1292,11 @@ const scopeReportToCase = (report, testCaseId) => {
     passed: testCase.status === "passed" ? 1 : 0,
     failed: testCase.status === "failed" ? 1 : 0,
     blocked: testCase.status === "blocked" ? 1 : 0,
-    running: ["passed", "failed", "blocked"].includes(testCase.status) ? 0 : 1,
+    running: testCase.status === "running" ? 1 : 0,
+    pending: testCase.status === "pending" ? 1 : 0,
+    paused: testCase.status === "paused" ? 1 : 0,
+    skipped: testCase.status === "skipped" ? 1 : 0,
+    aborted: testCase.status === "aborted" ? 1 : 0,
     pass_rate: testCase.status === "passed" ? 100 : 0,
     duration_ms: Number(testCase.duration_ms || 0)
   };

@@ -23,7 +23,7 @@ import { ExecutionContextSelector } from "../components/ExecutionContextSelector
 import { FormField } from "../components/FormField";
 import { RunPlanningFields } from "../components/RunPlanningFields";
 import { buildGherkinFromSteps, GherkinEditor } from "../components/GherkinEditor";
-import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetadata, sanitizeGherkinDocumentText, setGherkinFeatureTitle, splitGherkinDocument, structuredCaseToGherkin } from "../lib/gherkin";
+import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetadata, normalizeGherkinParameterReferences, sanitizeGherkinDocumentText, setGherkinFeatureTitle, splitGherkinDocument, structuredCaseToGherkin } from "../lib/gherkin";
 import { annotateGherkinStepGroups, collectBehaviorRowGroups } from "../lib/gherkinBehavior";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
@@ -8724,6 +8724,7 @@ export function TestCasesPage() {
   const detectedStepParameters = useMemo<StepParameterDefinition[]>(
     () => mergeStepParameterDefinitions(
       collectStepParameters([
+        { id: `${selectedTestCaseId || "draft"}:title`, action: caseDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(caseDraft.title) : caseDraft.title, expected_result: "", automation_code: "", api_request: null },
         ...displaySteps.map((step) => ({
           id: step.id,
           action: stepDrafts[step.id]?.action ?? step.action,
@@ -8734,7 +8735,7 @@ export function TestCasesPage() {
         ...(caseDraft.authoring_mode === "gherkin" && caseDraft.gherkin_document.trim()
           ? [{
               id: `${selectedTestCaseId || "draft"}:gherkin`,
-              action: caseDraft.gherkin_document,
+              action: normalizeGherkinParameterReferences(caseDraft.gherkin_document),
               expected_result: "",
               automation_code: "",
               api_request: null
@@ -8744,7 +8745,7 @@ export function TestCasesPage() {
       linkedDataSetParameterDefinitions,
       buildStepParameterDefinitionsFromValues(mergedScopedParameterValues)
     ),
-    [canViewAutomationCode, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSetParameterDefinitions, mergedScopedParameterValues, selectedTestCaseId, stepDrafts]
+    [canViewAutomationCode, caseDraft.title, caseDraft.authoring_mode, caseDraft.gherkin_document, displaySteps, linkedDataSetParameterDefinitions, mergedScopedParameterValues, selectedTestCaseId, stepDrafts]
   );
   const isCaseWorkspaceOpen = Boolean(selectedTestCaseId) || isCreating;
   const stepCountLabel = `${mainSteps.length} step${mainSteps.length === 1 ? "" : "s"}`;

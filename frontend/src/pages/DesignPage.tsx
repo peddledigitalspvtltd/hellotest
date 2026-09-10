@@ -51,8 +51,11 @@ import { canViewAutomationCode as resolveCanViewAutomationCode } from "../lib/au
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
+import { normalizeGherkinParameterReferences } from "../lib/gherkin";
 import {
   collectStepParameters,
+  buildStepParameterDefinitionsFromValues,
+  mergeStepParameterDefinitions,
   filterStepParameterValues,
   filterStepParameterValuesByScope,
   normalizeStepParameterValues,
@@ -368,6 +371,17 @@ export function DesignPage() {
     queryKey: ["design-suites", appTypeId],
     queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
     enabled: Boolean(appTypeId)
+  });
+  const requestedSuiteRouteId = searchParams.get("suite") || "";
+  const deepLinkSuitesQuery = useQuery({
+    queryKey: ["design-suites", "deep-link", projectId, requestedSuiteRouteId],
+    // Dashboard evidence spans the project, while the catalog uses one app.
+    // Resolve within the authorized project before switching application scope.
+    queryFn: () => api.testSuites.list({ project_id: projectId }),
+    enabled: Boolean(session && projectId && requestedSuiteRouteId && !suitesQuery.isLoading && !suitesQuery.isFetching
+      && !findByRoutableId(asArray(suitesQuery.data), requestedSuiteRouteId)),
+    staleTime: 60_000,
+    retry: false
   });
   const testCasesQuery = useQuery({
     queryKey: ["design-test-cases", appTypeId],
@@ -787,6 +801,19 @@ export function DesignPage() {
 
     return [...parameterMap.values()].sort((left, right) => left.label.localeCompare(right.label));
   }, [allTestSteps, canViewAutomationCode, selectedSuite?.parameter_values, selectedSuiteCaseIdSet]);
+  const selectedSuiteTemplateParameters = useMemo(() => mergeStepParameterDefinitions(
+    selectedSuiteParameterDefinitions,
+    ...orderedSuiteCases.map((testCase) => buildStepParameterDefinitionsFromValues(testCase.parameter_values)),
+    collectStepParameters([
+      ...orderedSuiteCases.map((testCase) => ({ id: `${testCase.id}:title`, action: testCase.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(testCase.title) : testCase.title, expected_result: null, automation_code: null, api_request: null })),
+      ...allTestSteps.filter((step) => selectedSuiteCaseIdSet.has(step.test_case_id)).map((step) => {
+        const isGherkin = orderedSuiteCases.find((testCase) => testCase.id === step.test_case_id)?.authoring_mode === "gherkin";
+        return { ...step, action: isGherkin ? normalizeGherkinParameterReferences(step.action || "") : step.action,
+          expected_result: isGherkin ? normalizeGherkinParameterReferences(step.expected_result || "") : step.expected_result,
+          automation_code: canViewAutomationCode ? step.automation_code : null, api_request: canViewAutomationCode ? step.api_request : null };
+      })
+    ])
+  ), [selectedSuiteParameterDefinitions, orderedSuiteCases, allTestSteps, selectedSuiteCaseIdSet, canViewAutomationCode]);
   const sortedSteps = useMemo(
     () => [...steps].sort((left, right) => left.step_order - right.step_order),
     [steps]
@@ -1018,7 +1045,21 @@ export function DesignPage() {
     }
 
     if (requestedSuiteId) {
-      if (selectedSuiteId === requestedSuiteId) {
+      if (appTypesQuery.isPending || deepLinkSuitesQuery.isPending || deepLinkSuitesQuery.isFetching) {
+        return;
+      }
+
+      const linkedSuite = findByRoutableId(asArray(deepLinkSuitesQuery.data), requestedSuiteId);
+      const linkedAppType = linkedSuite && appTypes.find((item) => item.id === linkedSuite.app_type_id
+        && String(item.project_id) === String(projectId));
+      if (linkedSuite && linkedAppType) {
+        if (appTypeId !== linkedAppType.id) {
+          setAppTypeId(linkedAppType.id);
+          return;
+        }
+        if (selectedSuiteId !== linkedSuite.id) {
+          setSelectedSuiteId(linkedSuite.id);
+        }
         return;
       }
 
@@ -1035,7 +1076,7 @@ export function DesignPage() {
       setIsCreatingCase(false);
       setIsTestCaseEditorModalOpen(false);
     }
-  }, [searchParams, selectedSuiteId, setSearchParams, suites, suitesQuery.isFetching, suitesQuery.isLoading]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, deepLinkSuitesQuery.data, deepLinkSuitesQuery.isFetching, deepLinkSuitesQuery.isPending, projectId, searchParams, selectedSuiteId, setAppTypeId, setSearchParams, suites, suitesQuery.isFetching, suitesQuery.isLoading]);
 
   useEffect(() => {
     setSelectedSuiteActionIds((current) => current.filter((suiteId) => suites.some((suite) => suite.id === suiteId)));
@@ -2072,6 +2113,7 @@ export function DesignPage() {
           }
           onClose={() => setIsSuiteParameterDialogOpen(false)}
           parameters={selectedSuiteParameterDefinitions}
+          templateParameters={selectedSuiteTemplateParameters}
           subtitle="Suite-shared values detected across the cases linked into this suite."
           title={`${selectedSuite.name} test data`}
           values={suiteParameterValues}

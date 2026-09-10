@@ -30,7 +30,7 @@ test("run cases derive stable row instances and render every frozen row with val
   assert.match(page, /dataSetInstances\.map\(\(instance\) =>/);
   assert.match(page, /Object\.entries\(instance\.data_set_row_snapshot \|\| \{\}\)/);
   assert.match(page, /instanceDerivedStatus\(instance\)/);
-  assert.match(page, /Data Set instances/);
+  assert.match(page, /Active data row/);
   assert.match(styles, /\.execution-case-instance-scroll/);
   assert.match(styles, /\.execution-case-detail-instance-list/);
 });

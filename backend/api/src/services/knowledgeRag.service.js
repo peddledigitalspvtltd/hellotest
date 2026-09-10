@@ -13,6 +13,8 @@ const {
   rankProductHelpSections
 } = require("./knowledgeProductCatalog.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { retryKnowledgeModel, readRetryAfterMs, validateModelEndpoint } = require("../utils/knowledgeModelRetry");
+const { modelHttpError } = require("../utils/knowledgeAssistantErrors");
 const cacheService = require("../utils/cache");
 const { assertRetrievalActive, boundedRetrievalStage, retrievalTimeout } = require("../utils/knowledgeRetrievalTiming");
 const {
@@ -394,24 +396,27 @@ const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}
 
 const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
   const endpoint = `${runtime.baseUrl.replace(/\/+$/, "")}/embeddings`;
+  validateModelEndpoint(endpoint);
   const vectors = [];
   let expectedDimensions = null;
   for (let start = 0; start < texts.length; start += EMBEDDING_BATCH_SIZE) {
     const batch = texts.slice(start, start + EMBEDDING_BATCH_SIZE);
-    const response = await fetchLlmWithRetry(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${runtime.integration.api_key}` },
-      body: JSON.stringify({ model: runtime.model, input: batch }),
-      signal
-    }, {
-      operation: "knowledge.embedding",
-      bufferResponse: true,
-      maxResponseBytes: MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES
-    });
-    if (!response.ok) throw Object.assign(new Error(`Embedding provider returned ${response.status}`), {
-      statusCode: response.status, code: "EMBEDDING_PROVIDER_REJECTED"
-    });
-    const payload = await readJsonResponseWithLimit(response);
+    const payload = await retryKnowledgeModel(async ({ signal: attemptSignal, timeoutMs }) => {
+      const response = await fetchLlmWithRetry(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${runtime.integration.api_key}` },
+        body: JSON.stringify({ model: runtime.model, input: batch }),
+        signal: attemptSignal
+      }, {
+        operation: "knowledge.embedding",
+        timeoutMs,
+        maxAttempts: 1,
+        bufferResponse: true,
+        maxResponseBytes: MAX_PROVIDER_EMBEDDING_RESPONSE_BYTES
+      });
+      if (!response.ok) throw Object.assign(modelHttpError(response.status, await response.text(), readRetryAfterMs(response)), { statusCode: response.status });
+      return readJsonResponseWithLimit(response);
+    }, { signal, stage: "HYBRID_SEARCH" });
     const normalized = normalizeProviderEmbeddingBatch(payload, batch.length, expectedDimensions);
     expectedDimensions = normalized.dimensions;
     vectors.push(...normalized.vectors);

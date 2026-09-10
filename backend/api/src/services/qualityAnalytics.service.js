@@ -5,6 +5,16 @@ const normalizeText = (value) => String(value || "").trim();
 const lowerText = (value) => normalizeText(value).toLowerCase();
 const percent = (numerator, denominator) => denominator ? Math.round((numerator / denominator) * 100) : 0;
 const isOpen = (status) => !["closed", "resolved", "done", "accepted"].includes(lowerText(status));
+const FINAL_CASE_STATUSES = new Set(["passed", "failed", "blocked", "skipped", "aborted", "cancelled"]);
+const FINAL_RUN_STATUSES = new Set(["passed", "completed", "failed", "blocked", "skipped", "aborted", "cancelled", "partially_completed"]);
+const NATIVE_DASHBOARD_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"]);
+const normalizeNativeMetric = (metric) => {
+  const requested = metric == null || metric === "" ? "count" : String(metric);
+  if (!NATIVE_DASHBOARD_METRICS.has(requested)) throw Object.assign(new Error("This metric is not available for native project dashboards. Choose a supported native metric."), { code: "DASHBOARD_METRIC_UNSUPPORTED", statusCode: 400 });
+  return requested;
+};
+const completedRecently = (item, now = Date.now()) => FINAL_RUN_STATUSES.has(item.status)
+  && new Date(item.ended_at || 0).getTime() >= now - 30 * 86_400_000;
 
 const loadContext = async (projectId, release = "", sprint = "") => {
   const project = await db.prepare("SELECT id, display_id, name FROM projects WHERE id = ?").get(projectId);
@@ -18,22 +28,38 @@ const loadContext = async (projectId, release = "", sprint = "") => {
   const normalizedSprint = lowerText(sprint);
   const [requirements, testCases, suites, executions, results, plannedCases, issues, modules] = await Promise.all([
     db.prepare(`
-      SELECT requirements.*,
+      SELECT requirements.id, requirements.display_id, requirements.title,
+        requirements.status, requirements.priority, requirements.labels,
+        requirements.release, requirements.fix_version, requirements.sprint,
+        requirements.created_at, requirements.updated_at,
         COALESCE((SELECT jsonb_agg(requirement_test_cases.test_case_id) FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id), '[]'::jsonb) AS test_case_ids
       FROM requirements WHERE project_id = ?
     `).all(projectId),
     db.prepare(`
-      SELECT test_cases.*,
+      SELECT test_cases.id, test_cases.display_id, test_cases.title,
+        test_cases.status, test_cases.priority, test_cases.labels, test_cases.suite_id,
+        test_cases.automated, test_cases.automation_status, test_cases.test_case_type,
+        test_cases.created_at, test_cases.updated_at,
         COALESCE((SELECT jsonb_agg(requirement_test_cases.requirement_id) FROM requirement_test_cases WHERE requirement_test_cases.test_case_id = test_cases.id), '[]'::jsonb) AS requirement_ids,
         COALESCE((SELECT jsonb_agg(test_case_module_cases.module_id) FROM test_case_module_cases WHERE test_case_module_cases.test_case_id = test_cases.id), '[]'::jsonb) AS module_ids
       FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id
       WHERE app_types.project_id = ?
     `).all(projectId),
-    db.prepare(`SELECT test_suites.* FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id = ?`).all(projectId),
-    db.prepare("SELECT * FROM executions WHERE project_id = ?").all(projectId),
+    db.prepare(`SELECT test_suites.id, test_suites.display_id, test_suites.name,
+      test_suites.labels, test_suites.created_at, test_suites.updated_at,
+      COALESCE((SELECT jsonb_agg(suite_test_cases.test_case_id) FROM suite_test_cases WHERE suite_test_cases.suite_id = test_suites.id), '[]'::jsonb) AS test_case_ids
+      FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id = ?`).all(projectId),
+    db.prepare(`SELECT executions.id, executions.name, executions.status, executions.release,
+      executions.sprint, executions.build, executions.started_at, executions.ended_at,
+      executions.created_at, assignee.name AS assignee_name
+      FROM executions LEFT JOIN users assignee ON assignee.id = executions.assigned_to
+      WHERE executions.project_id = ?`).all(projectId),
     db.prepare(`
       SELECT ranked.* FROM (
-        SELECT execution_results.*, ROW_NUMBER() OVER (
+        SELECT execution_results.id, execution_results.execution_id, execution_results.test_case_id,
+          execution_results.status, execution_results.created_at,
+          COALESCE(execution_results.ended_at, execution_results.timer_started_at, execution_results.started_at, execution_results.created_at) AS updated_at,
+          ROW_NUMBER() OVER (
           PARTITION BY execution_results.test_case_id
           ORDER BY execution_results.created_at DESC, execution_results.id DESC
         ) AS result_rank
@@ -45,7 +71,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
       ) ranked WHERE ranked.result_rank = 1
     `).all(projectId, normalizedRelease, normalizedRelease, normalizedSprint, normalizedSprint),
     db.prepare(`
-      SELECT DISTINCT execution_case_snapshots.test_case_id
+      SELECT DISTINCT execution_case_snapshots.test_case_id, execution_case_snapshots.suite_id
       FROM execution_case_snapshots
       JOIN executions ON executions.id = execution_case_snapshots.execution_id
       WHERE executions.project_id = ?
@@ -53,7 +79,11 @@ const loadContext = async (projectId, release = "", sprint = "") => {
         AND (? = '' OR LOWER(COALESCE(executions.sprint, '')) = ?)
     `).all(projectId, normalizedRelease, normalizedRelease, normalizedSprint, normalizedSprint),
     db.prepare(`
-      SELECT DISTINCT feedback.*,
+      SELECT DISTINCT feedback.id, feedback.display_id, feedback.title,
+        feedback.status, feedback.priority, feedback.severity, feedback.labels,
+        feedback.release, feedback.fix_version, feedback.sprint, feedback.bug_type,
+        feedback.created_at, feedback.updated_at, feedback.linked_test_run_id,
+        feedback.linked_test_case_ids, feedback.linked_requirement_ids,
         reporter.name AS reporter_name,
         assignee.name AS assignee_name
       FROM feedback
@@ -70,7 +100,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
          OR defect_requirements.project_id = ?
          OR defect_app_types.project_id = ?
     `).all(projectId, projectId, projectId, projectId),
-    db.prepare(`SELECT test_case_modules.* FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id = ?`).all(projectId)
+    db.prepare(`SELECT test_case_modules.id, test_case_modules.name FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id = ?`).all(projectId)
   ]);
 
   const scopedRequirements = normalizedRelease
@@ -91,6 +121,10 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     ? testCases.filter((item) => plannedCaseIds.has(item.id) || (item.requirement_ids || []).some((id) => requirementIds.has(id)))
     : testCases;
   const testCaseIds = new Set(scopedTestCases.map((item) => item.id));
+  const plannedSuiteIds = new Set(plannedCases.map((item) => item.suite_id).filter(Boolean));
+  const scopedSuites = hasPlanningScope
+    ? suites.filter((item) => plannedSuiteIds.has(item.id) || (item.test_case_ids || []).some((id) => testCaseIds.has(id)) || scopedTestCases.some((testCase) => testCase.suite_id === item.id))
+    : suites;
   const scopedResults = results.filter((item) => executionIds.has(item.execution_id) || (!hasPlanningScope && testCaseIds.has(item.test_case_id)));
   const scopedIssues = issues.filter((item) =>
     (!normalizedRelease || [item.release, item.fix_version].some((value) => lowerText(value) === normalizedRelease) || executionIds.has(item.linked_test_run_id))
@@ -103,7 +137,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     sprint: normalizeText(sprint) || null,
     requirements: sprintScopedRequirements,
     testCases: scopedTestCases,
-    suites,
+    suites: scopedSuites,
     executions: scopedExecutions,
     results: scopedResults,
     plannedCaseIds,
@@ -112,7 +146,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
   };
 };
 
-const calculateMetrics = (context) => {
+const calculateMetrics = (context, now = Date.now()) => {
   const coveredRequirements = context.requirements.filter((item) => (item.test_case_ids || []).length > 0).length;
   const automatedCases = context.testCases.filter((item) => item.automated === "yes" || item.automation_status === "ready").length;
   const completedResults = context.results.filter((item) => ["passed", "failed", "blocked"].includes(item.status));
@@ -123,8 +157,8 @@ const calculateMetrics = (context) => {
   const criticalDefects = context.issues.filter((item) => isOpen(item.status) && ["critical", "highest"].includes(lowerText(item.severity || item.priority))).length;
   const uncoveredHighPriorityRequirements = context.requirements.filter((item) => Number(item.priority || 3) <= 2 && !(item.test_case_ids || []).length).length;
   const resultCaseIds = new Set(context.results.map((item) => item.test_case_id).filter(Boolean));
-  const plannedCaseIds = context.plannedCaseIds?.size ? context.plannedCaseIds : resultCaseIds;
-  const completedCaseIds = new Set(completedResults.map((item) => item.test_case_id).filter(Boolean));
+  const plannedCaseIds = new Set([...(context.plannedCaseIds || []), ...resultCaseIds]);
+  const completedCaseIds = new Set(context.results.filter((item) => FINAL_CASE_STATUSES.has(item.status)).map((item) => item.test_case_id).filter(Boolean));
   const completion = percent(completedCaseIds.size, plannedCaseIds.size);
   const coverage = percent(coveredRequirements, context.requirements.length);
   const passRate = percent(passedResults, completedResults.length);
@@ -141,12 +175,11 @@ const calculateMetrics = (context) => {
     .filter((item) => item.started_at && item.ended_at)
     .map((item) => Math.max(0, new Date(item.ended_at).getTime() - new Date(item.started_at).getTime()))
     .filter(Number.isFinite);
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const latestEvidenceAt = context.results.reduce((latest, item) => {
     const timestamp = new Date(item.updated_at || item.created_at || 0).getTime();
     return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
   }, 0);
-  const evidenceAgeDays = latestEvidenceAt ? Math.max(0, Math.floor((Date.now() - latestEvidenceAt) / 86_400_000)) : -1;
+  const evidenceAgeDays = latestEvidenceAt ? Math.max(0, Math.floor((now - latestEvidenceAt) / 86_400_000)) : -1;
   const traceableDefects = context.issues.filter((item) => [
     item.linked_test_run_id,
     ...(Array.isArray(item.linked_test_case_ids) ? item.linked_test_case_ids : []),
@@ -162,7 +195,7 @@ const calculateMetrics = (context) => {
     openDefects,
     failedRuns,
     executionCycleHours: completedDurations.length ? Math.round((completedDurations.reduce((sum, value) => sum + value, 0) / completedDurations.length / 3_600_000) * 10) / 10 : 0,
-    completedRuns30d: context.executions.filter((item) => ["completed", "failed"].includes(item.status) && new Date(item.ended_at || item.started_at || 0).getTime() >= thirtyDaysAgo).length,
+    completedRuns30d: context.executions.filter((item) => completedRecently(item, now)).length,
     testCases: context.testCases.length,
     testSuites: context.suites.length,
     testRuns: context.executions.length,
@@ -174,76 +207,129 @@ const calculateMetrics = (context) => {
     uncoveredHighPriorityRequirements,
     evidenceAgeDays,
     defectTraceability,
+    defectContainment,
     evidenceConfidence: Math.round((coverage * 0.4) + (completion * 0.4) + (defectTraceability * 0.2))
   };
 };
 
-const groupRecords = (records, groupBy) => {
-  const counts = new Map();
-  const add = (label) => counts.set(label || "Unspecified", (counts.get(label || "Unspecified") || 0) + 1);
-  records.forEach((item) => {
-    if (groupBy === "priority") add(normalizeText(item.priority) || "Unspecified");
-    else if (groupBy === "labels") (Array.isArray(item.labels) && item.labels.length ? item.labels : ["Unlabeled"]).forEach(add);
-    else if (groupBy === "sprint") add(normalizeText(item.sprint) || "No sprint");
-    else if (groupBy === "fixVersion") add(normalizeText(item.fix_version || item.release) || "No release");
-    else add(normalizeText(item.status) || "Unspecified");
-  });
-  return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((left, right) => right.value - left.value || left.label.localeCompare(right.label));
+const calendarBucket = (value, week) => {
+  if (!value) return "Unknown date";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Unknown date";
+  if (week) date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  return date.toISOString().slice(0, week ? 10 : 7);
 };
 
-const evaluateGadget = async ({ projectId, gadget }) => {
-  const context = await loadContext(projectId, gadget?.release);
-  const metrics = calculateMetrics(context);
-  const metric = gadget?.metric || "count";
-  const isIssueMetric = ["count", "resolved", "unresolved", "highPriority", "unassigned", "stale30d", "created30d", "resolved30d", "resolutionRate", "averageAgeDays", "averageResolutionDays"].includes(metric);
-  let records = isIssueMetric ? context.issues : context.testCases;
-  let value = metrics[metric];
-  if (metric === "count") value = records.length;
-  if (metric === "resolved") value = records.filter((item) => !isOpen(item.status)).length;
-  if (metric === "unresolved") value = records.filter((item) => isOpen(item.status)).length;
-  if (metric === "highPriority") value = records.filter((item) => ["critical", "highest", "high", "1", "2"].includes(lowerText(item.priority || item.severity))).length;
-  if (value === undefined) value = 0;
-  const series = metric === "moduleCaseCount"
-    ? context.modules.map((module) => ({
-        label: module.name,
-        value: context.testCases.filter((item) => (item.module_ids || []).includes(module.id)).length
-      })).sort((left, right) => right.value - left.value)
-    : groupRecords(records, gadget?.group_by || "status");
-  const total = records.length;
-  return {
-    project: context.project,
-    jql: normalizeText(gadget?.jql),
-    evaluated_at: nowIso(),
-    gadget: {
-      id: gadget?.id || "preview",
-      title: normalizeText(gadget?.title) || "Quality signal",
-      data_source: gadget?.data_source || "hellotest",
-      type: gadget?.type || "metric",
-      group_by: gadget?.group_by || "status",
-      metric,
-      jql: normalizeText(gadget?.jql),
-      release: normalizeText(gadget?.release) || undefined,
-      accent: gadget?.accent || "blue"
-    },
-    total,
-    value: Number(value || 0),
-    value_label: ["releaseConfidence", "requirementCoverage", "automationCoverage", "resolutionRate", "executionCompletion", "passRate", "evidenceConfidence"].includes(metric) ? `${Number(value || 0)}%` : String(Number(value || 0)),
-    returned: Math.min(records.length, 100),
-    truncated: records.length > 100,
-    series,
-    rows: records.slice(0, 100).map((item) => ({
-      id: item.id,
-      key: item.display_id || item.id,
-      title: item.title || item.name || "Untitled",
-      status: item.status || null,
-      priority: item.priority === undefined ? null : String(item.priority),
-      type: isIssueMetric ? "issue" : "test-case",
-      assignee: item.assignee_name || null,
-      updated: item.updated_at || item.created_at || null
-    })),
-    drilldown_target: isIssueMetric ? "/issues" : "/test-cases",
-    methodology: "Derived from the selected HelloTest project using bounded relational queries and latest-result-per-case semantics."
+const groupRecords = (records, groupBy, modules = []) => {
+  const counts = new Map();
+  const moduleNames = new Map(modules.map((item) => [item.id, item.name]));
+  const add = (value) => {
+    const label = normalizeText(value) || "Unspecified";
+    counts.set(label, (counts.get(label) || 0) + 1);
   };
+  records.forEach((item) => {
+    if (groupBy === "priority") add(item.priority ?? item.severity);
+    else if (groupBy === "labels") [...new Set(Array.isArray(item.labels) && item.labels.length ? item.labels : ["Unlabeled"])].forEach(add);
+    else if (groupBy === "sprint") add(item.sprint || "No sprint");
+    else if (groupBy === "fixVersion") add(item.fix_version || item.release || "No release");
+    else if (groupBy === "assignee") add(item.assignee_name || "Unassigned");
+    else if (groupBy === "reporter") add(item.reporter_name || "Unknown reporter");
+    else if (groupBy === "issuetype") add(item.bug_type || item.test_case_type || item.record_type);
+    else if (groupBy === "resolution") add(isOpen(item.status) ? "Unresolved" : "Resolved");
+    else if (groupBy === "statusCategory") add(["passed", "completed", "closed", "resolved", "done", "accepted"].includes(lowerText(item.status)) ? "Done" : ["running", "paused", "in_progress", "in progress"].includes(lowerText(item.status)) ? "In progress" : "To do");
+    else if (groupBy === "module" || groupBy === "components") {
+      const labels = [...new Set((item.module_ids || []).map((id) => moduleNames.get(id) || id))];
+      (labels.length ? labels : ["No module"]).forEach(add);
+    } else if (/^(created|updated)(Week|Month)$/.test(groupBy)) {
+      add(calendarBucket(groupBy.startsWith("updated") ? item.updated_at || item.created_at : item.created_at, groupBy.endsWith("Week")));
+    } else add(item.status);
+  });
+  const temporal = /^(created|updated)(Week|Month)$/.test(groupBy);
+  return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((left, right) => temporal ? left.label.localeCompare(right.label) : right.value - left.value || left.label.localeCompare(right.label));
+};
+
+const metricEvidence = (context, metric, now) => {
+  const withType = (records, type, target) => ({ records, type, target });
+  if (["count", "openDefects"].includes(metric)) return withType(metric === "openDefects" ? context.issues.filter((item) => isOpen(item.status)) : context.issues, "issue", "/issues");
+  if (["requirementCoverage", "coverageGaps"].includes(metric)) return withType(metric === "coverageGaps" ? context.requirements.filter((item) => !(item.test_case_ids || []).length) : context.requirements, "story", "/requirements");
+  if (["testRuns", "failedRuns", "completedRuns30d", "executionCycleHours"].includes(metric)) {
+    const records = context.executions.filter((item) => metric === "failedRuns" ? item.status === "failed" : metric === "completedRuns30d" ? completedRecently(item, now) : metric === "executionCycleHours" ? Boolean(item.started_at && item.ended_at) : true);
+    return withType(records, "test-run", "/executions");
+  }
+  if (metric === "testSuites") return withType(context.suites, "test-suite", "/test-suites");
+  if (["passRate", "executionCompletion"].includes(metric)) {
+    const cases = new Map(context.testCases.map((item) => [item.id, item]));
+    const latest = new Map(context.results.map((item) => [item.test_case_id, item]));
+    const ids = metric === "passRate" ? [...latest.keys()] : [...new Set([...(context.plannedCaseIds || []), ...latest.keys()])];
+    const records = ids.map((id) => ({ ...cases.get(id), ...latest.get(id), id, title: cases.get(id)?.title || "Archived test case", status: latest.get(id)?.status || "pending" }));
+    return withType(metric === "passRate" ? records.filter((item) => ["passed", "failed", "blocked"].includes(item.status)) : records, "test-case", "/executions");
+  }
+  return withType(metric === "moduleCaseCount" ? context.testCases.filter((item) => (item.module_ids || []).length) : context.testCases, "test-case", "/test-cases");
+};
+
+const evaluateContextGadget = ({ context, metrics, gadget, evaluatedAt = nowIso() }) => {
+  const metric = normalizeNativeMetric(gadget?.metric);
+  const type = gadget?.type || "metric";
+  const groupBy = gadget?.group_by || "status";
+  const { records, type: recordType, target } = metricEvidence(context, metric, new Date(evaluatedAt).getTime());
+  const value = metric === "count" ? records.length : metrics[metric];
+  if (value === undefined) throw Object.assign(new Error("This metric is not available for native project dashboards."), { code: "DASHBOARD_METRIC_UNSUPPORTED", statusCode: 400 });
+  let series = [];
+  if (!["metric", "table"].includes(type)) {
+    if (groupBy === "status" && metric === "requirementCoverage") {
+      const covered = records.filter((item) => (item.test_case_ids || []).length).length;
+      series = [{ label: "Covered", value: covered }, { label: "Uncovered", value: records.length - covered }];
+    } else if (groupBy === "status" && metric === "automationCoverage") {
+      const automated = records.filter((item) => item.automated === "yes" || item.automation_status === "ready").length;
+      series = [{ label: "Automated", value: automated }, { label: "Manual", value: records.length - automated }];
+    } else if (groupBy === "status" && ["releaseConfidence", "evidenceConfidence"].includes(metric)) {
+      // These are component percentages, not counts of records.
+      series = [{ label: "Requirement coverage", value: metrics.requirementCoverage }, { label: "Execution completion", value: metrics.executionCompletion }];
+      series.push(...(metric === "releaseConfidence"
+        ? [{ label: "Pass rate", value: metrics.passRate }, { label: "Defect containment", value: metrics.defectContainment }]
+        : [{ label: "Defect traceability", value: metrics.defectTraceability }]));
+    } else series = groupRecords(records, metric === "moduleCaseCount" && groupBy === "status" ? "module" : groupBy, context.modules);
+  }
+  const rows = type === "table" ? records.slice(0, 100).map((item) => ({
+    id: item.id, key: item.display_id || item.id,
+    title: item.title || item.name || "Untitled", status: item.status || null,
+    priority: item.priority == null ? item.severity || null : String(item.priority),
+    type: recordType, assignee: item.assignee_name || null,
+    updated: item.updated_at || item.created_at || null
+  })) : [];
+  return {
+    project: context.project, jql: "", evaluated_at: evaluatedAt,
+    gadget: {
+      id: gadget?.id || "preview", title: normalizeText(gadget?.title) || "Quality signal",
+      data_source: "hellotest", type, group_by: groupBy, metric, jql: "",
+      release: normalizeText(gadget?.release) || undefined, accent: gadget?.accent || "blue"
+    },
+    total: records.length, value: Number(value || 0),
+    value_label: ["releaseConfidence", "requirementCoverage", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence"].includes(metric) ? `${Number(value || 0)}%` : metric === "executionCycleHours" ? `${Number(value || 0)} hours` : String(Number(value || 0)),
+    returned: type === "table" ? rows.length : records.length,
+    truncated: type === "table" && records.length > rows.length,
+    series, rows, drilldown_target: target,
+    methodology: `Derived from the selected HelloTest project${context.release ? " and release" : ""}. Latest-result-per-case outcomes; N/A and aborted cases count toward completion but not pass rate. Full scoped records contribute to metrics and charts; tables show at most 100 rows.${groupBy === "module" || metric === "moduleCaseCount" ? " A case linked to multiple modules contributes to each module." : ""}`
+  };
+};
+
+const evaluateGadget = async ({ projectId, gadget, evaluationCache }) => {
+  if (gadget?.data_source === "jira" || normalizeText(gadget?.jql)) {
+    throw Object.assign(new Error(gadget?.data_source === "jira"
+      ? "Connected work-tracker dashboard queries are not available. Use a native project widget or import linked stories into this project."
+      : "Native project widgets do not support JQL. Clear the query and use the release and grouping controls."), { code: "DASHBOARD_QUERY_UNSUPPORTED", statusCode: 400 });
+  }
+  normalizeNativeMetric(gadget?.metric);
+  const scopeKey = JSON.stringify([projectId, lowerText(gadget?.release)]);
+  let pending = evaluationCache?.get(scopeKey);
+  if (!pending) {
+    pending = loadContext(projectId, gadget?.release).then((context) => {
+      const now = Date.now();
+      return { context, metrics: calculateMetrics(context, now), evaluatedAt: new Date(now).toISOString() };
+    });
+    evaluationCache?.set(scopeKey, pending);
+  }
+  return evaluateContextGadget({ ...await pending, gadget });
 };
 
 const qualityInsights = async ({ projectId, release, sprint }) => {
@@ -348,7 +434,11 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
 };
 
 module.exports = {
+  NATIVE_DASHBOARD_METRICS,
+  normalizeNativeMetric,
   calculateMetrics,
+  evaluateContextGadget,
+  groupRecords,
   evaluateGadget,
   loadContext,
   qualityInsights

@@ -2,10 +2,13 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache python3 py3-yaml
+
 COPY api/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 COPY --chown=node:node api/src ./src
+COPY --chown=node:node api/agents ./agents
 
 USER node
 

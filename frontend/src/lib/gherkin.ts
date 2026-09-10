@@ -511,10 +511,7 @@ export function tokenizeGherkinInlineText(text: string): GherkinInlineSegment[] 
 }
 
 function resolveAngleParameter(name: string, values: Record<string, string>) {
-  const hasExplicitScope = /^[tsr]\./i.test(name);
-  const candidates = hasExplicitScope
-    ? [normalizeGherkinParameterName(name)]
-    : ["t", "s", "r"].map((scope) => normalizeGherkinParameterName(`${scope}.${name}`));
+  const candidates = [normalizeGherkinParameterName(name)];
 
   for (const candidate of candidates) {
     if (candidate && Object.prototype.hasOwnProperty.call(values, candidate)) {
@@ -523,6 +520,14 @@ function resolveAngleParameter(name: string, values: Record<string, string>) {
   }
 
   return null;
+}
+
+/** Call only for Gherkin text: XML/HTML angle brackets are not parameters. */
+export function normalizeGherkinParameterReferences(text: string) {
+  return text.replace(GHERKIN_ANGLE_PARAMETER_PATTERN, (token, name: string) => {
+    const key = normalizeGherkinParameterName(name);
+    return key ? `@${key}` : token;
+  });
 }
 
 /**

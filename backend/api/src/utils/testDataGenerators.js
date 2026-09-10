@@ -1,4 +1,5 @@
 const { randomBytes } = require("crypto");
+const { normalizeParameterLayer } = require("./stepParameterResolution");
 
 const GENERATOR_TOKEN_PATTERN = /\{\{\s*(randomNumber|randomString|aiData|oneOf|yopmail|date)(?::([^}]+))?\s*\}\}/gi;
 const GENERATOR_ALIAS_PATTERN = /(?<![A-Za-z0-9_])@(?:t\.)?(random|string|randomString|randomNumber|yopmail|today|timestamp)\b/gi;
@@ -136,6 +137,34 @@ const materializeParameterValues = (values = {}, now = new Date()) =>
     return next;
   }, {});
 
+const materializeVariableSnapshot = (snapshot, now = new Date()) => {
+  if (!snapshot) return null;
+  const templates = Array.isArray(snapshot.template_variables) ? snapshot.template_variables : snapshot.variables || [];
+  return {
+    ...snapshot,
+    template_variables: templates.map((entry) => ({ ...entry })),
+    variables: templates.map((entry) => ({ ...entry, value: materializeTemplateValue(entry.value, now) })),
+    generated_at: now.toISOString()
+  };
+};
+
+const freezeReferencedParameterGenerators = (snapshot, steps = [], now = new Date()) => {
+  const existing = normalizeParameterLayer(snapshot.parameter_values);
+  const templates = {};
+  const sources = [snapshot.test_case_title, ...steps.flatMap((step) => [step.action, step.expected_result, step.automation_code, JSON.stringify(step.api_request || {})])];
+  for (const source of sources) {
+    for (const match of String(source || "").matchAll(new RegExp(GENERATOR_ALIAS_PATTERN.source, "gi"))) {
+      const alias = match[1].toLowerCase();
+      const key = `t.${alias}`;
+      if (!Object.hasOwn(existing, key)) templates[key] = GENERATOR_ALIAS_TEMPLATES[alias];
+    }
+  }
+  return {
+    parameter_template_values: { ...snapshot.parameter_template_values, ...templates },
+    parameter_values: { ...snapshot.parameter_values, ...materializeParameterValues(templates, now) }
+  };
+};
+
 const materializeDataSetSnapshot = (snapshot, now = new Date()) => {
   if (!snapshot) {
     return null;
@@ -182,5 +211,7 @@ module.exports = {
   hasGeneratorTemplate,
   materializeDataSetSnapshot,
   materializeParameterValues,
+  materializeVariableSnapshot,
+  freezeReferencedParameterGenerators,
   materializeTemplateValue
 };

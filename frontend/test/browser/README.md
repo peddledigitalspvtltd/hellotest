@@ -38,7 +38,41 @@ mode choices, conflict reload, retryable failures, and responsive editing down
 to 320px.
 
 The assistant test uses isolated API fixtures to verify reported progress,
-same-turn pending recovery, Stop/resume, draft preservation, model failure with
+automatic model retries through the real SSE consumer with one final answer,
+same-turn pending recovery, Stop during retry/resume, draft preservation, model failure with
 reviewable evidence, and responsive layouts down to 320px. It removes its
 temporary Vite fixtures after the test. Set `BROWSER_SCREENSHOT_DIR` to an
 existing directory to capture the assistant, Gherkin, and run states.
+
+The dashboard test checks preloaded views, creation, direct widget reordering,
+save payloads, cached previews, evidence links, late AI responses after project
+switches, page scrolling and editor bounds at 320–1440px. It also checks that
+footer controls stay compact and visible, and captures light and dark layouts.
+It defaults to Vite on port 5178; set `VITE_TEST_URL` to use another port. The
+suite-drilldown test verifies project-scoped links across application selections,
+including delayed responses from a previously selected project.
+
+The integration connection test checks all saved provider editors and available
+creation forms, catalog profile testing, masked credentials, draft changes,
+limited/failed/retry outcomes and cancellation after profile or project changes.
+It also captures light/dark layouts and checks panel bounds at 320–1440px without
+writing integration settings. It defaults to Vite on port 5178; set
+`VITE_TEST_URL` to use another port.
+
+The repository agents test exercises all four agents, ZIP/GitHub request
+transport, review and publication, permission boundaries, pagination and the
+50-item selection limit. It verifies cancellation, retry, visibility-aware
+polling, stale responses after scope changes, and published Knowledge document
+links. Its isolated fixtures cover light/dark layouts at 320–1440px without
+changing application data. It defaults to Vite on port 5178.
+
+The agent workspace test checks the unified 14-agent library, search, categories,
+pins and all 10 specialist workspaces. Real API request helpers are exercised
+against intercepted HTTP responses for success, failure, cancellation, saved
+review deep links and scope changes. It checks editable brief downloads,
+evidence and limitations, read-only access, late response protection, recent
+work, and preview-only workflow drafts with retained review provenance.
+Screenshots cover desktop and 390px dark layouts, including the mobile context
+menu; the selected review mode has a measured text contrast check. Workflow
+preview persistence uses isolated API fixtures and does not execute tools.
+It defaults to Vite on port 5178.

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { consumeKnowledgeAssistantStream, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
+import { appendKnowledgeProgressEvent, consumeKnowledgeAssistantStream, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeProgressDescription, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
 
 const progress = { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "IN_PROGRESS", message: "Searching café notes" };
 const result = { assistant_message: { id: "answer", role: "assistant", content: "Answer", citations: [] } };
@@ -90,4 +90,27 @@ test("live progress uses reported stages and real elapsed time; model failures n
   }
   assert.match(knowledgeModelFailureMessage("MODEL_AUTHENTICATION_FAILED"), /credentials/);
   assert.match(knowledgeModelFailureMessage("MODEL_QUOTA_EXCEEDED"), /quota/);
+});
+
+test("retry progress reports real attempts without implying a final model or retrieval failure", () => {
+  const retry = { ...progress, stage: "GENERATION", sequence: 3, error_code: "MODEL_RATE_LIMITED", metrics: { model_attempt: 2, model_max_attempts: 3, retry_delay_ms: 1000, elapsed_ms: 3200 } };
+  assert.equal(knowledgeProgressLabel(retry), "Retrying answer model · attempt 2 of 3");
+  assert.match(knowledgeProgressDescription(retry), /provider is limiting requests.*Retrying automatically/);
+  assert.match(knowledgeProgressLabel({ ...retry, stage: "HYBRID_SEARCH" }), /Retrying related-evidence search/);
+  assert.match(knowledgeProgressLabel({ ...retry, stage: "RETRIEVAL_PLANNING" }), /Retrying search planning/);
+  assert.match(knowledgeProgressDescription({ ...retry, error_code: "MODEL_TIMEOUT" }), /previous model attempt took too long/);
+  assert.equal(knowledgeProgressLabel({ ...retry, status: "FAILED" }), "The answer model is unavailable");
+  assert.equal(knowledgeProgressLabel({ ...retry, metrics: { model_attempt: NaN, model_max_attempts: 3 } }), "Writing an answer from the evidence");
+  let events = appendKnowledgeProgressEvent([], retry);
+  events = appendKnowledgeProgressEvent(events, retry);
+  events = appendKnowledgeProgressEvent(events, { ...retry, sequence: 4, metrics: { ...retry.metrics, model_attempt: 3 } });
+  assert.deepEqual(events.map((item) => item.metrics.model_attempt), [2, 3]);
+});
+
+test("provider retry progress stays in the same SSE request and resolves only the final answer", async () => {
+  const retry = { ...progress, stage: "GENERATION", metrics: { model_attempt: 2, model_max_attempts: 3 } };
+  const events = [];
+  const answer = await consumeKnowledgeAssistantStream(streamed(`${event("progress", retry)}${event("result", result)}`), { onProgress: (item) => events.push(item) });
+  assert.deepEqual(answer, result);
+  assert.deepEqual(events, [retry]);
 });

@@ -1230,7 +1230,7 @@ paths:
   /integrations/test-connection:
     post:
       tags: [Integrations]
-      summary: Test a Test Engine integration connection
+      summary: Test saved or draft integration settings with provider-specific checks
       requestBody:
         required: true
         content:
@@ -1243,7 +1243,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TestEngineConnectionResponse"
+                $ref: "#/components/schemas/IntegrationConnectionResponse"
+        "400":
+          description: Invalid connection settings or unsafe reuse of a stored credential
+        "403":
+          description: Integration management permission is required
   /integrations/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1480,6 +1484,7 @@ paths:
     post:
       tags: [Executions]
       summary: Complete execution
+      description: Finalizes the run and stops active case timers. Requests to complete are checked against the latest frozen case results; failures, blockers and unfinished scope produce failed, blocked or partially_completed respectively.
       requestBody:
         required: true
         content:
@@ -1628,6 +1633,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RevisionCreatedResponse"
+  /execution-results/ensure:
+    post:
+      tags: [Execution Results]
+      summary: Ensure an evidence holder without starting a case or changing an existing result
+      description: Requires result.manage. Frozen case and data-row identity are validated. May create an unexecuted evidence holder on a finished run, but never changes an existing status, attempt or timer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecutionCaseIdentity" }
+      responses:
+        "200":
+          description: Existing or newly created pending result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutionResult" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /execution-results/lifecycle:
+    post:
+      tags: [Execution Results]
+      summary: Explicitly transition a manual case and its persisted active timer
+      description: Requires result.manage and run.execute. Start and resume require a running parent run; finished runs reject every lifecycle action. Repeated actions are idempotent. Reset retains the old attempt and creates a pending attempt; starting a finalized case creates a new attempt. Dataset metadata is resolved from the frozen run scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ExecutionCaseIdentity"
+                - type: object
+                  required: [action]
+                  properties:
+                    action: { type: string, enum: [start, resume, pause, abort, block, skip, reset, pass, fail] }
+                    expected_revision: { type: integer, minimum: 1 }
+                    expected_result_id: { type: string, description: Current attempt ID; stale attempt mutations return 409. }
+      responses:
+        "200":
+          description: Current persisted result including timer and lifecycle history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecutionResult" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
   /execution-results/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -1880,6 +1932,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TestEngineJobCompletionResponse"
+  /execution-results/{id}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Evidence]
+      summary: List files belonging to one case result and data iteration
+      description: Requires result.view and attachment.view for the result's project. Earlier run-level files keep their original execution scope.
+      responses:
+        "200":
+          description: Durable attachment metadata without embedded file content
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExecutionResultAttachment" }
+    post:
+      tags: [Evidence]
+      summary: Upload case or step evidence to object storage
+      description: Requires result.manage and attachment.create. Replacing step evidence also requires attachment.delete. Uploading does not start a case or change its status or timer, including finished runs. Text-like files use transparent gzip storage; media and archives retain their bytes. Step metadata and its attachment record commit together. Earlier replaced files remain available as case attachments.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: Non-empty supported evidence file; at most 25 MB and within the configured storage limit. }
+                step_id: { type: string, description: Optional frozen step belonging to this case run. Omit for a case attachment. }
+                expected_revision: { type: integer, minimum: 1, description: Optimistic result revision for a step evidence change. }
+      responses:
+        "200":
+          description: File metadata and the resulting result revision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment: { $ref: "#/components/schemas/ExecutionResultAttachment" }
+                  revision: { type: integer }
+                  evidence: { type: object, description: For a step upload, the saved attachmentId/name/MIME/size/checksum metadata. No file bytes are embedded. }
+        "400": { description: Missing or unsupported file, or a step outside this case run }
+        "403": { description: Required project permission is missing }
+        "409": { description: Result revision changed during the upload; the uploaded object is discarded }
+        "413": { description: File exceeds the upload limit }
+  /execution-results/{id}/attachments/{attachmentId}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - { name: attachmentId, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [Evidence]
+      summary: Delete a case-result attachment and its current step reference
+      description: Requires result.manage and attachment.delete. The file must belong to this exact result; another case's attachment cannot be deleted through this path. Status and timer values are unchanged.
+      responses:
+        "200": { description: Deleted attachment ID and resulting result revision }
+        "403": { description: Required project permission is missing }
+        "404": { description: Attachment does not belong to this result }
   /attachments/meta:
     get:
       tags: [Evidence]
@@ -2357,12 +2466,25 @@ paths:
     post:
       tags: [Quality Analytics]
       summary: Evaluate one bounded project-scoped dashboard gadget
+      description: >-
+        Evaluates native HelloTest project evidence, optionally scoped by release.
+        Metrics and chart series use the full scoped record set. Only table gadgets
+        include rows (at most 100); returned is the table row count or the number of
+        inspected records for other visualizations. Percent metrics use a 0–100 scale.
+        Jira sources and nonempty JQL return DASHBOARD_QUERY_UNSUPPORTED because no
+        authorized dashboard-to-Jira project mapping is configured by this API.
       responses:
         "200": { description: Gadget result }
+        "400": { description: Unsupported source, query, or metric }
   /analytics/query-batch:
     post:
       tags: [Quality Analytics]
       summary: Evaluate up to 12 project-scoped dashboard gadgets
+      description: >-
+        Uses request-local evidence snapshots shared by project and normalized release,
+        with at most two concurrent widget evaluations. Results retain input order;
+        a failed scope or unsupported source returns an individual widget error while
+        other widget results remain available. No evidence is cached across requests.
       responses:
         "200": { description: Per-gadget results and structured errors }
   /analytics/dashboard-design-preview:
@@ -2378,7 +2500,7 @@ paths:
               required: [project_id, stakeholder]
               properties:
                 project_id: { type: string }
-                stakeholder: { type: string, enum: [executive, product, quality, automation] }
+                stakeholder: { type: string, enum: [executive, product, quality, qa, automation] }
                 release: { type: string, maxLength: 120 }
                 prompt: { type: string, maxLength: 2000 }
                 additional_context: { type: string, maxLength: 12000, description: Human-reviewed untrusted Smart Context used to shape the dashboard proposal. }
@@ -3522,6 +3644,122 @@ paths:
         - bearerAuth: []
       responses:
         "200": { description: Successful response }
+  /repository-agents:
+    get:
+      tags: [Agents]
+      summary: List repository agents and compiler availability
+      responses:
+        "200":
+          description: Agent catalog, source limits and runtime readiness
+  /repository-agents/runs:
+    get:
+      tags: [Agents]
+      summary: List project-scoped repository analyses with bounded pagination
+      parameters:
+        - { in: query, name: project_id, required: true, schema: { type: string } }
+        - { in: query, name: app_type_id, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Twenty summaries per page with total and has_more
+    post:
+      tags: [Agents]
+      summary: Queue a persistent analysis from a ZIP or pinned GitHub source
+      description: Requires agentic_workflow.run. Saved GitHub connections also require integration.view. Source commands are never executed. Idempotency-Key prevents duplicate submissions.
+      parameters:
+        - { in: header, name: Idempotency-Key, schema: { type: string, maxLength: 160 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, agent_type, source]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                agent_type: { type: string, enum: [object_repository, api_tests, repository_knowledge, component_tests] }
+                source:
+                  type: object
+                  required: [type, repository_url]
+                  properties:
+                    type: { type: string, enum: [github] }
+                    repository_url: { type: string, format: uri }
+                    ref: { type: string }
+                    integration_id: { type: string }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [project_id, agent_type, file]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                agent_type: { type: string, enum: [object_repository, api_tests, repository_knowledge, component_tests] }
+                file: { type: string, format: binary, description: Source ZIP up to 20 MB }
+      responses:
+        "202":
+          description: Durable run receipt and Location header
+        "409":
+          description: Idempotency key reused with different input
+        "429":
+          description: Three analyses for this user and project are already active
+  /repository-agents/runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Agents]
+      summary: Read progress, evidence, review findings and publication receipt
+      responses:
+        "200":
+          description: Run with queued, running, completed, partial, failed or cancelled status
+  /repository-agents/runs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Agents]
+      summary: Cancel queued or active analysis without publishing findings
+      responses:
+        "200":
+          description: Current run receipt
+  /repository-agents/runs/{id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Agents]
+      summary: Create a new analysis receipt for a failed or cancelled run
+      responses:
+        "202":
+          description: New queued run using the saved archive or resolved repository revision
+  /repository-agents/runs/{id}/publish:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    post:
+      tags: [Agents]
+      summary: Publish up to fifty reviewed findings into existing application stores
+      description: Requires agent run permission plus the destination permission. Existing object names and locators are preserved. Test cases are drafts. Knowledge documents enter the durable indexing queue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [item_ids]
+              properties:
+                item_ids: { type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: { type: string } }
+                module_id: { type: string, description: Optional test module in the run application; requires testcase.update }
+      responses:
+        "200":
+          description: Published destination links, skipped count and reasons
+  /repository-agents/runs/{id}/artifacts/{name}:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+      - { in: path, name: name, required: true, schema: { type: string } }
+    get:
+      tags: [Agents]
+      summary: Download a generated review artifact
+      responses:
+        "200":
+          description: Attachment served as a download and never executed in the app origin
   /agentic-workflows/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -4101,9 +4339,26 @@ paths:
       responses:
         "200": { description: Successful response }
   /agentic-assistant/sessions:
+    get:
+      tags: [Automation]
+      summary: List saved specialist reviews in a project
+      description: Requires project membership and agentic_workflow.view in the selected project; transaction.view is not required. Only specialist review transactions are returned, with optional application filtering. The limit defaults to 20 and is capped at 100.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 255 } }
+        - { name: app_type_id, in: query, schema: { type: string, maxLength: 255 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200": { description: Array of scoped specialist review transactions }
+        "400": { description: A project is required and the optional application must belong to it }
+        "403": { description: Project membership or agentic workflow view permission is missing }
     post:
       tags: [Automation]
-      summary: Execute agentic assistant sessions
+      summary: Create an evidence-backed specialist review
+      description: Read-only review with a 70-second session deadline, parallel bounded context retrieval, model retry, source citations, and explicit evidence readiness. Requires agentic_workflow.run in the selected project. This endpoint does not apply suggested changes.
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -4128,30 +4383,67 @@ paths:
                     reviewed_context: { type: string, maxLength: 12000 }
       responses:
         "200": { description: Successful response }
+        "403": { description: Project membership or agentic workflow run permission is missing }
+        "504": { description: The review exceeded its bounded session deadline }
+  /agentic-assistant/sessions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Automation]
+      summary: Restore a saved specialist review
+      description: Returns the persisted transaction, events, result, citations, guardrails, and provenance independently of recent-history pagination. Requires project membership and agentic_workflow.view in the actual owning project. The result is null for running, failed, or unavailable outcomes; session_state and message explain the current state.
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Saved review envelope, including honest in-progress or unavailable state }
+        "403": { description: Project membership or agentic workflow view permission is missing }
+        "404": { description: No specialist review exists for this ID }
   /agentic-workflows/{id}/runs:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [Automation]
-      summary: Execute agentic workflows runs
+      summary: Save a workflow graph preview
+      description: Validates a directed acyclic graph and stores a topological preview with execution_mode set to preview. Nodes are previewed with zero execution attempts. No model, tool, expression, API, or project mutation is executed.
       responses:
         "200": { description: Successful response }
+        "400": { description: The graph is empty, cyclic, exceeds limits, or has invalid connections }
   /agentic-workflows/api-agent-test:
     post:
       tags: [Automation]
-      summary: Execute agentic workflows api agent test
+      summary: Test an API endpoint in an authorized project
+      description: Requires explicit project membership and agentic_workflow.run permission in that project before sending an HTTP request. Response previews are bounded and credentials are redacted; redirects are not followed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, url]
+              properties:
+                project_id: { type: string, minLength: 1, maxLength: 255 }
+                url: { type: string }
+                method: { type: string, enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS] }
+                body: { type: string }
+                auth: { type: string }
+                credential: { type: object }
+                responseStyle: { type: string, enum: [json, items, text, binary] }
       responses:
         "200": { description: Successful response }
+        "400": { description: A valid project and API request are required }
+        "403": { description: Project membership or run permission is missing }
   /analytics/jql:
     post:
       tags: [Quality Analytics]
-      summary: Execute analytics jql
+      summary: Legacy alias for native dashboard widget evaluation
+      description: Same contract as /analytics/query. This alias does not execute arbitrary JQL; unsupported sources or queries return a structured error.
       responses:
         "200": { description: Successful response }
   /analytics/jql-batch:
     post:
       tags: [Quality Analytics]
-      summary: Execute analytics jql batch
+      summary: Legacy alias for native dashboard batch evaluation
+      description: Same contract as /analytics/query-batch, including ordered partial errors for unsupported Jira or JQL widgets.
       responses:
         "200": { description: Successful response }
   /api/engine/runs/{runId}/heartbeat:
@@ -4721,6 +5013,24 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    ExecutionResultAttachment:
+      type: object
+      required: [id, entity_type, entity_id, project_id, filename, mimeType, size]
+      properties:
+        id: { type: string }
+        entity_type: { type: string, enum: [execution_result] }
+        entity_id: { type: string, description: Internal case-result ID }
+        project_id: { type: string }
+        step_id: { type: string, nullable: true }
+        filename: { type: string }
+        mimeType: { type: string }
+        size: { type: integer, description: Original uploaded byte count }
+        storedSize: { type: integer, description: Byte count in object storage }
+        compression: { type: string, enum: [gzip, none] }
+        savedBytes: { type: integer }
+        checksum: { type: string, nullable: true, description: SHA-256 of the uploaded bytes }
+        created: { type: string, format: date-time, nullable: true }
+        author: { type: object, nullable: true, properties: { displayName: { type: string } } }
     OpsTelemetrySnapshot:
       type: object
       required: [checked_at, project_id, events, services]
@@ -6455,14 +6765,40 @@ components:
     TestIntegrationConnectionRequest:
       type: object
       required: [type]
+      description: Requires integration.manage. Blank or masked credentials reuse stored secrets only for the same endpoint and account. No settings are saved. LLM checks use a small generation request; other checks do not write provider data.
       properties:
+        integration_id: { type: string, description: Optional existing integration whose stored credentials are used. }
         type:
           $ref: "#/components/schemas/IntegrationType"
         base_url: { type: string }
+        api_key: { type: string, writeOnly: true }
+        model: { type: string }
+        username: { type: string }
+        project_key: { type: string }
         config:
-          oneOf:
-            - $ref: "#/components/schemas/TestEngineIntegrationConfig"
-            - $ref: "#/components/schemas/AnyObject"
+          $ref: "#/components/schemas/AnyObject"
+    IntegrationConnectionResponse:
+      type: object
+      required: [ok, type, status, summary, checks, latency_ms, checked_at]
+      properties:
+        ok: { type: boolean, description: False when any check failed. Warning results may be only partially verified. }
+        type:
+          $ref: "#/components/schemas/IntegrationType"
+        status: { type: string, enum: [passed, warning, failed] }
+        summary: { type: string }
+        latency_ms: { type: integer, minimum: 1 }
+        checked_at: { type: string, format: date-time }
+        next_step: { type: string }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, label, status, detail]
+            properties:
+              id: { type: string }
+              label: { type: string }
+              status: { type: string, enum: [passed, warning, failed] }
+              detail: { type: string }
     TestEngineConnectionResponse:
       type: object
       properties:
@@ -6891,6 +7227,10 @@ components:
         blocked_cases: { type: integer, minimum: 0 }
         running_cases: { type: integer, minimum: 0 }
         pending_cases: { type: integer, minimum: 0 }
+        paused_cases: { type: integer, minimum: 0 }
+        aborted_cases: { type: integer, minimum: 0 }
+        skipped_cases: { type: integer, minimum: 0 }
+        duration_ms: { type: number, minimum: 0, description: Cumulative active case time across all retained attempts, including currently running timer segments. Excludes pause gaps. }
         defect_count: { type: integer, minimum: 0 }
         story_count: { type: integer, minimum: 0 }
         failed_story_count: { type: integer, minimum: 0 }
@@ -7057,7 +7397,7 @@ components:
       properties:
         status:
           type: string
-          enum: [completed, failed, aborted]
+          enum: [completed, failed, blocked, partially_completed, aborted]
     ExecutionSchedule:
       type: object
       properties:
@@ -7212,6 +7552,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SmartExecutionImpactCase"
+    ExecutionCaseIdentity:
+      type: object
+      required: [execution_id, test_case_id]
+      properties:
+        execution_id: { type: string }
+        test_case_id: { type: string }
+        data_set_iteration_index: { type: integer, minimum: 0, nullable: true }
+        data_set_iteration_key: { type: string, nullable: true, description: Frozen dataset ID followed by a colon and the one-based row number. Must match the index when both are supplied. }
     ExecutionResult:
       type: object
       properties:
@@ -7224,8 +7572,26 @@ components:
         app_type_id: { type: string }
         status:
           type: string
-          enum: [running, passed, failed, blocked]
+          enum: [pending, running, paused, passed, failed, blocked, aborted, skipped]
         duration_ms: { type: number, nullable: true }
+        elapsed_duration_ms: { type: number, description: Accumulated stopped segments plus the current active segment at read time. }
+        started_at: { type: string, format: date-time, nullable: true }
+        timer_started_at: { type: string, format: date-time, nullable: true, description: Start of the current active segment; null whenever timing is stopped. }
+        ended_at: { type: string, format: date-time, nullable: true }
+        lifecycle_history:
+          type: array
+          items:
+            type: object
+            properties:
+              action: { type: string }
+              from_status: { type: string }
+              to_status: { type: string }
+              actor_id: { type: string, nullable: true }
+              actor_name: { type: string, nullable: true }
+              actor_email: { type: string, nullable: true }
+              at: { type: string, format: date-time }
+              duration_ms: { type: number }
+              previous_result_id: { type: string, nullable: true }
         error: { type: string, nullable: true }
         logs: { type: string, nullable: true }
         test_data_set_id: { type: string, nullable: true }
@@ -7263,7 +7629,7 @@ components:
         app_type_id: { type: string }
         status:
           type: string
-          enum: [running, passed, failed, blocked]
+          enum: [pending, running, paused, passed, failed, blocked, aborted, skipped]
         duration_ms: { type: number }
         error: { type: string }
         logs: { type: string }
@@ -7285,7 +7651,7 @@ components:
       properties:
         status:
           type: string
-          enum: [running, passed, failed, blocked]
+          enum: [pending, running, paused, passed, failed, blocked, aborted, skipped]
         duration_ms: { type: number }
         error: { type: string }
         logs: { type: string }

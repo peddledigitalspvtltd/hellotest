@@ -4,3 +4,7 @@ export const decodeParameterColumnName = (name) => name.replace(/\\([\\\]])/g, "
 export const normalizeParameterReferenceKey = (key) => key.trim().replace(/^@+/, "")
     .replace(/^([tsr])\.\[((?:\\.|[^\]\\])+)\]$/i, (_match, scope, name) => `${scope}.${decodeParameterColumnName(name)}`)
     .toLowerCase();
+export const normalizeScopedParameterKey = (key, scope = "t") => {
+    const normalized = normalizeParameterReferenceKey(key);
+    return normalized ? normalizeParameterReferenceKey(/^[tsr]\./.test(normalized) ? normalized : `${scope}.${normalized}`) : "";
+};

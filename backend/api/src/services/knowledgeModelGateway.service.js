@@ -1,4 +1,5 @@
 const execution = require("./knowledgeExecution.service");
+const { retryKnowledgeModel } = require("../utils/knowledgeModelRetry");
 
 const adapters = new Map();
 const registerAdapter = (protocol, adapter) => {
@@ -19,14 +20,8 @@ const recordUsage = ({ integration, operation, usage = {} }) => {
   context.usage.push({ operation, model: integration.model, input_tokens: Number.isFinite(inputTokens) ? inputTokens : null, output_tokens: Number.isFinite(outputTokens) ? outputTokens : null, cost_usd: cost });
 };
 
-const request = async (input) => {
-  execution.assertActive();
-  const protocol = input.integration.config?.protocol || "openai_compatible";
-  const adapter = adapters.get(protocol);
-  if (!adapter) throw Object.assign(new Error(`Unsupported model protocol: ${protocol}`), { code: "MODEL_PROTOCOL_UNSUPPORTED" });
-  const context = execution.current();
+const reserveAttempt = (input, maxOutputTokens, context) => {
   const budget = context?.modelBudget;
-  const maxOutputTokens = Math.max(1, Math.min(4096, Number.parseInt(input.maxOutputTokens, 10) || 4096));
   if (budget && Number(context.modelStats.calls || 0) >= budget.max_tool_calls) throw Object.assign(new Error("Model call budget reached."), { code: "MODEL_BUDGET_EXCEEDED" });
   if (budget?.max_query_cost_usd != null) {
     const rates = input.integration.config?.pricing || {};
@@ -43,7 +38,27 @@ const request = async (input) => {
     context.modelStats.reservedCostUsd = used + estimated;
   }
   if (context) context.modelStats.calls += 1;
-  return execution.bounded((signal) => adapter({ ...input, maxOutputTokens, signal }), { timeoutMs: input.timeoutMs ?? 45_000, signal: input.signal ?? context?.signal });
+};
+
+const request = async (input) => {
+  execution.assertActive();
+  const protocol = input.integration.config?.protocol || "openai_compatible";
+  const adapter = adapters.get(protocol);
+  if (!adapter) throw Object.assign(new Error(`Unsupported model protocol: ${protocol}`), { code: "MODEL_PROTOCOL_UNSUPPORTED" });
+  const context = execution.current();
+  const maxOutputTokens = Math.max(1, Math.min(4096, Number.parseInt(input.maxOutputTokens, 10) || 4096));
+  return retryKnowledgeModel(({ signal, timeoutMs, attempt }) => {
+    const active = execution.current();
+    reserveAttempt(input, maxOutputTokens, active);
+    if (attempt > 1) active.modelStats.retries = Number(active.modelStats.retries || 0) + 1;
+    return adapter({ ...input, maxOutputTokens, timeoutMs, signal });
+  }, {
+    timeoutMs: input.timeoutMs ?? 45_000,
+    attemptTimeoutMs: input.attemptTimeoutMs,
+    signal: input.signal ?? context?.signal,
+    stage: input.operation?.includes("plan-retrieval") ? "RETRIEVAL_PLANNING" : "GENERATION",
+    canRetry: () => !Number.isFinite(context?.modelBudget?.max_tool_calls) || Number(context.modelStats.calls || 0) < context.modelBudget.max_tool_calls
+  });
 };
 
 module.exports = { registerAdapter, request, recordUsage };

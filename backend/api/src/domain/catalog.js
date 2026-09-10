@@ -230,14 +230,20 @@ const EXECUTION_STATUS_OPTIONS = freezeOptions([
 const EXECUTION_FINAL_STATUS_OPTIONS = freezeOptions([
   { value: "completed", label: "Completed" },
   { value: "failed", label: "Failed" },
+  { value: "blocked", label: "Blocked" },
+  { value: "partially_completed", label: "Partially completed" },
   { value: "aborted", label: "Aborted" }
 ]);
 
 const EXECUTION_RESULT_STATUS_OPTIONS = freezeOptions([
+  { value: "pending", label: "Unexecuted" },
   { value: "running", label: "Running" },
+  { value: "paused", label: "Paused" },
   { value: "passed", label: "Passed" },
   { value: "failed", label: "Failed" },
-  { value: "blocked", label: "Blocked" }
+  { value: "blocked", label: "Blocked" },
+  { value: "aborted", label: "Aborted" },
+  { value: "skipped", label: "N/A" }
 ]);
 
 const EXECUTION_IMPACT_LEVEL_OPTIONS = freezeOptions([

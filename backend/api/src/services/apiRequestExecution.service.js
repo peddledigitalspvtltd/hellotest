@@ -1,5 +1,6 @@
 const { normalizeApiRequest } = require("../utils/testStepAutomation");
 const { materializeTemplateValue } = require("../utils/testDataGenerators");
+const { normalizeParameterLayer } = require("../utils/stepParameterResolution");
 
 const STEP_PARAMETER_PATTERN = /(?<![A-Za-z0-9_])@(?:(t|s|r)\.)?(\[(?:\\.|[^\]\\\r\n])+\]|[A-Za-z][A-Za-z0-9_-]*)/gi;
 const API_PREVIEW_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -242,7 +243,6 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
 
   if (
     Object.prototype.hasOwnProperty.call(values, normalizedKey)
-    && !(GENERATED_CONTEXT_ALIASES[normalizedKey] && stringifyValue(values[normalizedKey]) === "")
   ) {
     return stringifyValue(values[normalizedKey]);
   }
@@ -252,7 +252,6 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
 
     if (
       Object.prototype.hasOwnProperty.call(values, scoped)
-      && !(GENERATED_CONTEXT_ALIASES[scoped] && stringifyValue(values[scoped]) === "")
     ) {
       return stringifyValue(values[scoped]);
     }
@@ -276,7 +275,7 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
 const interpolateText = (value, parameterValues = {}) =>
   String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, rawName, offset, source) => {
     if (!scope && /^[tsr]$/i.test(rawName) && source[offset + token.length] === ".") return token;
-    const normalizedKey = scope ? `${scope}.${rawName}` : rawName;
+    const normalizedKey = `${scope || "t"}.${rawName}`;
     return resolveContextValue(parameterValues, normalizedKey, scope ? String(scope).toLowerCase() : "t");
   });
 
@@ -285,7 +284,7 @@ const resolveApiRequestParameters = (request, parameterValues = {}) => {
     return null;
   }
 
-  const contextValues = Object.fromEntries(Object.entries(parameterValues).map(([key, value]) => [normalizeContextKey(key), value]));
+  const contextValues = normalizeParameterLayer(parameterValues);
 
   return {
     ...request,

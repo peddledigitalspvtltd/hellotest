@@ -6,7 +6,13 @@ test("scope completion counts finalized instances, including failures and blocke
   const result = summarizeRunScopeCompletion(["passed", "failed", "blocked", "running", "queued", "passed"]);
   assert.deepEqual({ total: result.total, finalized: result.finalized, percent: result.percent }, { total: 6, finalized: 4, percent: 67 });
   assert.match(result.description, /4 of 6 case instances finalized \(67%\)/);
-  assert.match(result.description, /running and not started are incomplete/);
+  assert.match(result.description, /running, paused and unexecuted are incomplete/);
+});
+
+test("N/A, aborted and cancelled are final while paused and unexecuted remain incomplete", () => {
+  const result = summarizeRunScopeCompletion(["skipped", "aborted", "cancelled", "paused", "pending"]);
+  assert.equal(result.finalized, 3);
+  assert.equal(result.percent, 60);
 });
 
 test("all failed instances are fully executed and an empty module has no completion", () => {

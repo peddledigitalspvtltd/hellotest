@@ -121,6 +121,7 @@ export function knowledgeTurnNotice(error: unknown, cancelled = false): Knowledg
 export function knowledgeModelFailureMessage(code?: string) {
   if (code === "MODEL_AUTHENTICATION_FAILED") return "The selected model connection was not accepted. Check its credentials in Integrations, or choose another answer model. Your retrieved sources are still available.";
   if (code === "MODEL_NOT_FOUND") return "The configured model could not be found. Check the model name in Integrations, or choose another answer model. Your retrieved sources are still available.";
+  if (code === "MODEL_CONFIGURATION_ERROR") return "The selected model's provider URL is invalid. Check its connection in Integrations, or choose another answer model. Your retrieved sources are still available.";
   if (code === "MODEL_QUOTA_EXCEEDED") return "The selected model has reached its provider quota. Check the provider account or choose another answer model. Your retrieved sources are still available.";
   if (code === "MODEL_RATE_LIMITED") return "The answer model is handling too many requests. Try again shortly or choose another model. Your retrieved sources are still available.";
   if (code === "MODEL_TIMEOUT") return "The answer model did not finish in time. Your retrieved sources are available below; you can also try another model.";
@@ -167,10 +168,38 @@ const stageLabels: Record<string, string> = {
   COMPLETE: "Completing your answer"
 };
 
+function knowledgeRetryAttempt(event?: KnowledgeRetrievalEvent) {
+  const attempt = event?.metrics?.model_attempt;
+  const maximum = event?.metrics?.model_max_attempts;
+  if (event?.status?.toUpperCase() !== "IN_PROGRESS" || typeof attempt !== "number" || typeof maximum !== "number" || !Number.isSafeInteger(attempt) || !Number.isSafeInteger(maximum) || attempt < 2 || maximum < attempt || maximum > 10) return null;
+  return { attempt, maximum };
+}
+
 export function knowledgeProgressLabel(event?: KnowledgeRetrievalEvent, opening = false) {
   if (!event) return opening ? "Opening your conversation" : "Waiting for the evidence search";
   if (["FAILED", "UNAVAILABLE"].includes(String(event.status).toUpperCase()) && (/GENERATION/i.test(event.stage) || event.error_code?.startsWith("MODEL_"))) return "The answer model is unavailable";
+  const retry = knowledgeRetryAttempt(event);
+  if (retry) {
+    const operation = /GENERATION/i.test(event.stage) ? "answer model" : /PLANNING/i.test(event.stage) ? "search planning" : "related-evidence search";
+    return `Retrying ${operation} · attempt ${retry.attempt} of ${retry.maximum}`;
+  }
   return stageLabels[event.stage.toUpperCase()] || event.stage.replace(/_/g, " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
+}
+
+export function knowledgeProgressDescription(event?: KnowledgeRetrievalEvent) {
+  if (!knowledgeRetryAttempt(event)) return event?.message || "";
+  const reason = event?.error_code === "MODEL_RATE_LIMITED" ? "The provider is limiting requests."
+    : event?.error_code === "MODEL_TIMEOUT" ? "The previous model attempt took too long."
+      : "The provider had a temporary problem.";
+  return `${reason} Retrying automatically within this request's time limit. Your question is preserved.`;
+}
+
+export function appendKnowledgeProgressEvent(events: KnowledgeRetrievalEvent[], next: KnowledgeRetrievalEvent) {
+  return [...events.filter((item) => {
+    const sameSequence = next.sequence !== undefined && item.sequence === next.sequence && item.request_id === next.request_id;
+    const sameAttempt = item.stage === next.stage && item.status === next.status && item.metrics?.model_attempt === next.metrics?.model_attempt;
+    return !sameSequence && !sameAttempt;
+  }), next].slice(-50);
 }
 
 export function knowledgeElapsedLabel(milliseconds: number) {

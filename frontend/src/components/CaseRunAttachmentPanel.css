@@ -1,0 +1,18 @@
+.case-run-attachment-panel { display: grid; min-width: 0; gap: 1rem; }
+.case-run-attachment-panel > header { display: grid; gap: .35rem; }
+.case-run-attachment-panel > header > span, .case-run-attachment-panel small { color: var(--text-secondary, #64748b); font-size: .78rem; }
+.case-run-attachment-dropzone { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: center; gap: .65rem; padding: 1.25rem; border: 1px dashed var(--line, #cbd5e1); border-radius: .75rem; background: var(--panel, #f8fafc); }
+.case-run-attachment-dropzone.is-dragging { border-color: var(--primary, #2563eb); }
+.case-run-attachment-dropzone > small { flex-basis: 100%; text-align: center; }
+.case-run-attachment-list { display: grid; gap: .75rem; min-width: 0; }
+.case-run-attachment-list > article { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: .9rem; border: 1px solid var(--line, #dce3ed); border-radius: .65rem; }
+.case-run-attachment-list > article > div:first-child { display: grid; min-width: 0; flex: 1 1 14rem; gap: .3rem; }
+.case-run-attachment-list strong, .case-run-attachment-legacy button, .case-run-attachment-confirm > span, .case-run-attachment-panel p { overflow-wrap: anywhere; }
+.case-run-attachment-list > article span { color: var(--text-secondary, #64748b); font-size: .78rem; }
+.case-run-attachment-actions, .case-run-attachment-confirm > div { display: flex; flex-wrap: wrap; gap: .5rem; }
+.case-run-attachment-panel button { min-width: 0; max-width: 100%; padding: .4rem .65rem; border: 1px solid var(--line, #cbd5e1); border-radius: .45rem; background: var(--panel-strong, #fff); color: var(--text, #18283d); cursor: pointer; }
+.case-run-attachment-panel button:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
+.case-run-attachment-panel button:disabled { opacity: .6; cursor: default; }
+.case-run-attachment-legacy { display: grid; min-width: 0; justify-items: start; gap: .5rem; border-top: 1px solid var(--line, #dce3ed); padding-top: .85rem; }
+.case-run-attachment-legacy p { margin: 0; font-size: .78rem; color: var(--text-secondary, #64748b); }
+.case-run-attachment-confirm { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; padding: .85rem; border: 1px solid var(--line, #dce3ed); border-radius: .6rem; }

@@ -4,10 +4,18 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const integrationService = require("./integration.service");
 const knowledgeRagService = require("./knowledgeRag.service");
 const permissionService = require("./permission.service");
+const projectService = require("./project.service");
+const appTypeService = require("./appType.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const aiContextOrchestrator = require("./aiContextOrchestrator.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
+const execution = require("./knowledgeExecution.service");
+
+const SESSION_TIMEOUT_MS = 70_000;
+const CONTEXT_TIMEOUT_MS = 12_000;
+const MODEL_TIMEOUT_MS = 45_000;
+const agentError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
 const AGENT_CATALOG = {
   "quality-orchestrator": {
@@ -106,14 +114,14 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
       normalizeText(prompt, 2_000),
       contextRoute?.retrieval_query
     ].filter(Boolean).map((query) => [String(query).trim().toLowerCase(), String(query).trim()])).values()].slice(0, 3);
-    const packageResult = await aiKnowledgeService.buildKnowledgeContextPackage(projectId, {
+    const packageResult = await execution.bounded(() => aiKnowledgeService.buildKnowledgeContextPackage(projectId, {
       app_type_id: appTypeId || undefined,
       query: retrievalQueries[0] || normalizeText(prompt, 2_000),
       limit: 10,
       source_ids: smartContext.source_ids,
       source_kinds: smartContext.source_kinds,
       user
-    });
+    }), { timeoutMs: 8_000 });
     const primaryKnowledge = (packageResult.knowledge || []).map((item) => ({
       id: item.metadata?.chunk_id || item.id,
       title: item.title,
@@ -126,7 +134,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
     }));
     const supplementalSettled = packageResult.access_restricted ? [] : await Promise.allSettled(retrievalQueries.slice(1).map(async (query) => ({
       query,
-      result: await knowledgeRagService.search({
+      result: await execution.bounded(() => knowledgeRagService.search({
         projectId,
         query,
         mode: "hybrid",
@@ -137,7 +145,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
           source_kinds: smartContext.source_kinds
         },
         user
-      })
+      }), { timeoutMs: 3_000 })
     })));
     const supplemental = supplementalSettled.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
     const supplementalKnowledge = supplemental.flatMap((entry) => (entry.result.results || []).map((hit) => ({
@@ -168,7 +176,7 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
       candidate_count: retrievalSummaries.reduce((total, summary) => total + Number(summary.candidate_count || 0), 0),
       result_count: context.knowledge.length,
       returned_count: context.knowledge.length,
-      degraded: retrievalSummaries.some((summary) => summary.degraded),
+      degraded: retrievalSummaries.some((summary) => summary.degraded) || supplementalSettled.some((entry) => entry.status === "rejected"),
       supplemental_error_count: supplementalSettled.filter((entry) => entry.status === "rejected").length
     };
     const distinctKnowledgeSources = new Set(context.knowledge.map((item) => item.citation?.source_id || item.id)).size;
@@ -248,9 +256,14 @@ const normalizeResult = (candidate, fallback, citations = []) => {
   const handoffs = Array.isArray(candidate?.suggested_handoffs) ? candidate.suggested_handoffs : fallback.suggested_handoffs;
   const allowedCitationIds = new Set(citations.map((citation) => normalizeText(citation?.id, 255)).filter(Boolean));
   const requestedCitationIds = collectCandidateCitationIds(candidate);
-  const mentionedCitationIds = [...new Set((normalizeText(candidate?.response, 12_000).match(/K-[A-Za-z0-9-]+/g) || []))];
+  const mentionedCitationIds = [...new Set((JSON.stringify(candidate || {}).match(/K-[A-Za-z0-9-]+/g) || []))];
   const allRequestedCitationIds = [...new Set([...requestedCitationIds, ...mentionedCitationIds])];
-  if (!allowedCitationIds.size || !requestedCitationIds.length || allRequestedCitationIds.some((id) => !allowedCitationIds.has(id))) {
+  const findings = normalizeCitedItems(candidate?.findings);
+  const deliverables = normalizeCitedItems(candidate?.deliverables, { maxItems: 6, maxContent: 4_000 });
+  const uncitedClaim = [...findings, ...deliverables].some((item) => !item.citation_ids.length);
+  if (!candidate || typeof candidate !== "object" || !allowedCitationIds.size || !requestedCitationIds.length
+    || allRequestedCitationIds.some((id) => !allowedCitationIds.has(id)) || uncitedClaim
+    || (!normalizeText(candidate.response, 12_000) && !findings.length && !deliverables.length)) {
     return fallback;
   }
 
@@ -271,6 +284,8 @@ const normalizeResult = (candidate, fallback, citations = []) => {
     citation_ids: requestedCitationIds,
     grounding_status: requestedCitationIds.length ? "grounded" : "insufficient_context",
     evaluation: {
+      label: "Evidence review diagnostics",
+      method: "model_assessment",
       grounding: clampScore(evaluation.grounding, fallback.evaluation.grounding),
       completeness: clampScore(evaluation.completeness, fallback.evaluation.completeness),
       traceability: clampScore(evaluation.traceability, fallback.evaluation.traceability),
@@ -288,6 +303,34 @@ const parseLiveAgentEvidence = (context) => (Array.isArray(context?.live_project
     return null;
   }
 }).filter(Boolean);
+
+const buildEvidenceReadiness = ({ context, contextRoute, limitations = [] }) => {
+  const evidenceScopes = new Map([
+    ["authoritative_live_story_snapshot", "stories"],
+    ["authoritative_live_test_case_snapshot", "test-cases"],
+    ["authoritative_live_execution_snapshot", "runs"],
+    ["authoritative_live_execution_context", "runs"],
+    ["authoritative_live_bug_snapshot", "bugs"],
+    ["authoritative_live_object_repository_snapshot", "automation"]
+  ]);
+  const live = parseLiveAgentEvidence(context).filter(({ snapshot }) => evidenceScopes.has(snapshot.evidence_type));
+  const available = new Set(live.map(({ snapshot }) => evidenceScopes.get(snapshot.evidence_type)));
+  const knowledgeCount = (context.knowledge || []).length;
+  if (knowledgeCount) available.add("knowledge");
+  const missingScopes = (contextRoute?.priority_scopes || []).filter((scope) => scope !== "knowledge" && !available.has(scope));
+  const taskEvidenceCount = live.length + knowledgeCount;
+  return {
+    status: !taskEvidenceCount ? "insufficient_evidence" : missingScopes.length || limitations.length ? "limited_evidence" : "ready_for_review",
+    evidence_count: buildCitations(context).length,
+    task_evidence_count: taskEvidenceCount,
+    missing_scopes: missingScopes,
+    limitations: [...new Set([
+      ...limitations,
+      ...(!taskEvidenceCount ? ["No task-specific evidence was available; project metadata alone does not support this review."] : []),
+      ...(missingScopes.length ? [`Current evidence was unavailable for: ${missingScopes.join(", ")}.`] : [])
+    ])]
+  };
+};
 
 const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCounts, liveCounts = {}, citations, contextRoute }) => {
   const evidenceCount = citations.length;
@@ -355,7 +398,8 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
   }).sort((left, right) => (priority.get(left.scope) ?? 99) - (priority.get(right.scope) ?? 99));
   const findings = liveSignals.slice(0, 6);
   const usedCitationIds = [...new Set(findings.flatMap((finding) => finding.citation_ids))];
-  const grounded = evidenceCount > 0;
+  const readiness = buildEvidenceReadiness({ context, contextRoute });
+  const grounded = readiness.task_evidence_count > 0;
   const signalSummary = findings.length
     ? findings.slice(0, 3).map((finding) => finding.detail).join(" ")
     : currentMetricSummary || "No current risk signal was established by the retrieved live snapshot.";
@@ -367,6 +411,7 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
         : "Preliminary review gate: UNDETERMINED because no explicit live risk signal was retrieved."
     : "";
   return {
+    readiness,
     headline: findings.length ? `${agent.name} · ${findings.length} evidence signal${findings.length === 1 ? "" : "s"} to review` : `${agent.name} evidence review`,
     executive_summary: availableScopes.length
       ? `${preliminaryDecision ? `${preliminaryDecision} ` : ""}${contextRoute?.decision_question || "The requested quality decision requires review"} ${signalSummary} This is a deterministic evidence brief; a person must make the final decision.`
@@ -395,19 +440,21 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
       mode === "agent" ? "Approve only the next bounded action; keep publishing and destructive actions human-owned." : "Switch to Agent mode only when a multi-step execution plan is needed."
     ])].filter(Boolean).slice(0, 8),
     assumptions: grounded ? [] : ["No matching workspace evidence was retrieved for the selected scopes."],
-    evidence_gaps: grounded ? [] : ["The selected project scope did not return citation-ready records for this specialist task."],
-    suggested_handoffs: ["quality-evaluator"],
+    evidence_gaps: readiness.limitations,
+    suggested_handoffs: agentId === "quality-evaluator" ? [] : ["quality-evaluator"],
     citation_ids: (usedCitationIds.length ? usedCitationIds : citations.slice(0, 12).map((citation) => citation.id).filter(Boolean)),
     grounding_status: grounded ? "grounded" : "insufficient_context",
     evaluation: {
-      grounding: grounded ? Math.min(92, 62 + evidenceCount) : 45,
-      completeness: availableScopes.length >= 3 ? 86 : availableScopes.length ? 70 : 48,
-      traceability: evidenceCount ? 90 : 42,
-      risk_control: 96,
-      maturity_score: evidenceCount ? 82 : 58,
+      label: "Evidence review diagnostics",
+      method: "deterministic",
+      grounding: grounded ? Math.min(80, readiness.task_evidence_count * 15) : 0,
+      completeness: grounded ? Math.round(100 * Math.max(0, (contextRoute?.priority_scopes?.length || 1) - readiness.missing_scopes.length) / (contextRoute?.priority_scopes?.length || 1)) : 0,
+      traceability: grounded ? Math.min(100, usedCitationIds.length * 20) : 0,
+      risk_control: grounded ? 100 : 0,
+      maturity_score: grounded ? Math.min(70, readiness.task_evidence_count * 10) : 0,
       rationale: evidenceCount
-        ? "The outcome is traceable to bounded HelloTest records and remains behind a human approval boundary."
-        : "The safety boundary is strong, but maturity is limited by missing workspace evidence."
+        ? "These rule-based diagnostics describe evidence availability and cited signals, not a calibrated quality score or a verified deliverable."
+        : "No task evidence was available. Quality and completeness have not been assessed."
     }
   };
 };
@@ -481,7 +528,7 @@ const buildBoundedAgentPromptPayload = ({ mode, prompt, context, citations, cont
   return JSON.stringify(payload);
 };
 
-const requestLlmResult = async ({ integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval }) => {
+const requestLlmResult = async ({ integration, agent, mode, prompt, context, citations, history, contextRoute, knowledgeRetrieval, promptPayload, deadline = Date.now() + MODEL_TIMEOUT_MS, repair = false }) => {
   const messages = [
     {
       role: "system",
@@ -501,31 +548,47 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
         "Make the output decision-ready and easy to scan. Separate observed facts from recommendations and from assumptions.",
         "Return strict JSON with headline, executive_summary, response, activity_summary, findings, deliverables, recommendations, assumptions, evidence_gaps, suggested_handoffs, citation_ids, and evaluation.",
         "findings items require title, detail, priority (critical|high|medium|low|info), and citation_ids. deliverables items require type, title, detail, and citation_ids.",
+        "A citation proves source traceability only. Do not equate the number of sources with correctness or completeness. If evidence is missing, identify the gap instead of inventing a deliverable.",
+        ...(repair ? ["The preceding attempt did not meet the output contract. Return a complete valid JSON object and cite only the exact evidence IDs supplied in this request. Every finding and deliverable must cite its supporting evidence."] : []),
         "evaluation must contain integer scores 0-100 for grounding, completeness, traceability, risk_control, maturity_score, plus rationale."
       ].join(" ")
     },
-    ...history.slice(-6).map((entry) => ({
+    ...(Array.isArray(history) ? history : []).filter((entry) => entry && ["user", "assistant"].includes(entry.role) && typeof entry.content === "string").slice(-6).map((entry) => ({
       role: entry.role === "assistant" ? "assistant" : "user",
       content: normalizeText(entry.content, 2_500)
     })),
     {
       role: "user",
-      content: buildBoundedAgentPromptPayload({ mode, prompt, context, citations, contextRoute, knowledgeRetrieval })
+      content: promptPayload || buildBoundedAgentPromptPayload({ mode, prompt, context, citations, contextRoute, knowledgeRetrieval })
     }
   ];
 
   const headers = { "Content-Type": "application/json" };
   if (integrationService.isUsableApiCredential(integration.api_key)) headers.Authorization = `Bearer ${integration.api_key}`;
-  const request = (jsonMode) => fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
+  const request = (jsonMode) => {
+    execution.assertActive();
+    const remaining = deadline - Date.now();
+    if (remaining < 1_000) throw agentError("The model review deadline was reached.", 504);
+    return fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
     method: "POST",
     headers,
+    signal: execution.current()?.signal,
     body: JSON.stringify({
       model: integration.model,
       temperature: 0.12,
       ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
       messages
     })
-  }, { operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility" });
+    }, {
+      operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility",
+      timeoutMs: remaining,
+      attemptTimeoutMs: Math.min(22_000, remaining),
+      maxAttempts: 2,
+      // This endpoint produces a read-only review; replay cannot apply project changes.
+      idempotent: true,
+      maxResponseBytes: 512 * 1024
+    });
+  };
 
   let response = await request(true);
   if (!response.ok) {
@@ -540,16 +603,107 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
   return extractJson(content);
 };
 
-const appendEvent = (transactionId, input) => workspaceTransactionService.appendTransactionEvent(transactionId, input);
+const appendEvent = (transactionId, input) => {
+  execution.assertActive();
+  return workspaceTransactionService.appendTransactionEvent(transactionId, input);
+};
 
 exports.AGENT_CATALOG = AGENT_CATALOG;
 
-exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, context_scopes, smart_context, integration_id, history } = {}) => {
+exports.listSessions = async ({ project_id, app_type_id, limit = 20 } = {}, user) => {
+  const projectId = normalizeText(project_id, 255);
+  const appTypeId = normalizeText(app_type_id, 255) || null;
+  if (!projectId) throw agentError("Select a project to list specialist reviews.");
+  await projectService.getProject(projectId, user?.id);
+  if (!await permissionService.hasPermission(user, "agentic_workflow.view", projectId)) throw agentError("Permission required: agentic_workflow.view", 403);
+  if (appTypeId) {
+    const app = await appTypeService.getAppType(appTypeId);
+    if (app.project_id !== projectId) throw agentError("Selected application must belong to this project.");
+  }
+  const requestedLimit = Number(limit);
+  return workspaceTransactionService.listTransactions({
+    project_id: projectId, app_type_id: appTypeId || undefined,
+    category: "ai_agent", related_kind: "agentic_assistant_session",
+    include_global: false,
+    limit: Math.max(1, Math.min(100, Number.isInteger(requestedLimit) ? requestedLimit : 20))
+  });
+};
+
+const normalizeSavedReviewResult = (value) => {
+  const saved = toPlainRecord(value);
+  if (typeof saved.response !== "string" || !saved.response.trim()) return null;
+  const strings = (items, max = 20) => (Array.isArray(items) ? items : []).filter((item) => typeof item === "string").slice(0, max);
+  const evaluation = toPlainRecord(saved.evaluation);
+  const items = (entries) => (Array.isArray(entries) ? entries : []).filter((item) => item && typeof item === "object" && !Array.isArray(item)).map((item) => ({
+    ...item, title: typeof item.title === "string" ? item.title : "Saved finding", detail: typeof item.detail === "string" ? item.detail : "", citation_ids: strings(item.citation_ids, 36)
+  })).slice(0, 20);
+  return {
+    ...saved,
+    activity_summary: typeof saved.activity_summary === "string" ? saved.activity_summary : "Saved specialist review.",
+    findings: items(saved.findings),
+    deliverables: items(saved.deliverables),
+    recommendations: strings(saved.recommendations),
+    assumptions: strings(saved.assumptions),
+    evidence_gaps: strings(saved.evidence_gaps),
+    suggested_handoffs: strings(saved.suggested_handoffs),
+    citation_ids: strings(saved.citation_ids, 36),
+    evaluation: {
+      ...evaluation,
+      ...Object.fromEntries(["grounding", "completeness", "traceability", "risk_control", "maturity_score"].map((key) => [key, clampScore(evaluation[key], 0)])),
+      rationale: typeof evaluation.rationale === "string" ? evaluation.rationale : "This historical review did not record complete evidence diagnostics."
+    }
+  };
+};
+
+exports.getSession = async (id, user) => {
+  let transaction;
+  try { transaction = await workspaceTransactionService.getTransaction(normalizeText(id, 255)); }
+  catch (error) {
+    if (error.message === "Workspace transaction not found") throw agentError("Agent review not found.", 404);
+    throw error;
+  }
+  if (!transaction || transaction.category !== "ai_agent" || transaction.related_kind !== "agentic_assistant_session" || !transaction.project_id) {
+    throw agentError("Agent review not found.", 404);
+  }
+  await projectService.getProject(transaction.project_id, user?.id);
+  if (!await permissionService.hasPermission(user, "agentic_workflow.view", transaction.project_id)) throw agentError("Permission required: agentic_workflow.view", 403);
+  const metadata = toPlainRecord(transaction.metadata);
+  const savedResult = normalizeSavedReviewResult(metadata.result);
+  const complete = transaction.status === "completed" && savedResult;
+  const state = complete ? "completed" : ["running", "queued"].includes(transaction.status) ? "running" : transaction.status === "failed" ? "failed" : "unavailable";
+  return {
+    transaction: { ...transaction, metadata: { ...metadata, result: complete ? savedResult : null } },
+    events: await workspaceTransactionService.listTransactionEvents(transaction.id),
+    result: complete ? savedResult : null,
+    citations: Array.isArray(metadata.citations) ? metadata.citations : [],
+    guardrails: Array.isArray(metadata.guardrails) ? metadata.guardrails : [],
+    session_state: state,
+    message: state === "completed" ? "Saved specialist review loaded."
+      : state === "running" ? "This review is still in progress. Its outcome will appear when it completes."
+        : state === "failed" ? metadata.cancelled ? "This review was cancelled before completion." : "This review failed before producing a saved outcome. Start a new review to retry."
+          : "The saved outcome for this review is unavailable. Start a new review to regenerate it.",
+    provenance: {
+      provider: metadata.provider || "HelloTest evidence engine",
+      model: metadata.model || null,
+      generation_mode: metadata.generation_mode || "unknown",
+      fallback_reason: metadata.fallback_reason || null,
+      context_route: metadata.context_route || null,
+      input_fingerprint: metadata.input_fingerprint || null,
+      requires_human_review: true,
+      degraded: Boolean(metadata.degraded),
+      readiness: savedResult?.readiness || metadata.readiness || null,
+      cancelled: Boolean(metadata.cancelled)
+    }
+  };
+};
+
+const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, context_scopes, smart_context, integration_id, history } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const appTypeId = normalizeText(app_type_id, 255) || null;
   const normalizedPrompt = normalizeText(prompt, 8_000);
   const normalizedMode = normalizeMode(mode);
-  const normalizedAgentId = AGENT_CATALOG[agent_id] ? agent_id : "quality-orchestrator";
+  if (agent_id && !AGENT_CATALOG[agent_id]) throw agentError("Choose a supported workspace specialist.");
+  const normalizedAgentId = agent_id || "quality-orchestrator";
   const agent = AGENT_CATALOG[normalizedAgentId];
   const scopes = normalizeScopes(context_scopes);
   const contextRoute = aiContextOrchestrator.planContext({
@@ -562,7 +716,10 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
   const requestedScopes = contextRoute.effective_scopes;
   const smartContext = normalizeSmartContext(smart_context);
 
-  if (!projectId || !normalizedPrompt) throw new Error("project_id and prompt are required");
+  if (!projectId || !normalizedPrompt) throw agentError("project_id and prompt are required");
+  execution.assertActive();
+  if (!await permissionService.hasPermission(user, "agentic_workflow.run", projectId)) throw agentError("Permission required: agentic_workflow.run", 403);
+  execution.assertActive();
 
   const transaction = await workspaceTransactionService.createTransaction({
     project_id: projectId,
@@ -578,6 +735,7 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       agent_name: agent.name,
       context_scopes: requestedScopes,
       context_route: contextRoute,
+      input_fingerprint: fingerprint({ normalizedPrompt, normalizedAgentId, requestedScopes, smart_context: smartContext }),
       progress: 5,
       requires_human_review: true
     },
@@ -594,7 +752,7 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       details: { agent_id: normalizedAgentId, mode: normalizedMode, prompt_fingerprint: fingerprint(normalizedPrompt), progress: 12 }
     });
 
-    const { context, knowledgeRetrieval: indexedKnowledgeRetrieval } = await loadWorkspaceContext({
+    const contextInputs = {
       projectId,
       appTypeId,
       scopes: requestedScopes,
@@ -602,14 +760,25 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       smartContext,
       user,
       contextRoute
-    });
-    const liveProjectEvidence = await aiContextOrchestrator.buildLiveProjectEvidence({
+    };
+    const liveInputs = {
       projectId,
       appTypeId,
       prompt: normalizedPrompt,
       user,
       route: contextRoute
-    });
+    };
+    const settled = await Promise.allSettled([
+      execution.bounded(() => loadWorkspaceContext(contextInputs), { timeoutMs: CONTEXT_TIMEOUT_MS }),
+      execution.bounded(() => aiContextOrchestrator.buildLiveProjectEvidence(liveInputs), { timeoutMs: CONTEXT_TIMEOUT_MS })
+    ]);
+    execution.assertActive();
+    const contextLimitations = [];
+    const { context, knowledgeRetrieval: indexedKnowledgeRetrieval } = settled[0].status === "fulfilled"
+      ? settled[0].value : { context: {}, knowledgeRetrieval: { degraded: true, error_code: "KNOWLEDGE_CONTEXT_UNAVAILABLE" } };
+    const liveProjectEvidence = settled[1].status === "fulfilled" ? settled[1].value : { hits: [], counts: {} };
+    if (settled[0].status === "rejected") contextLimitations.push("Knowledge retrieval was unavailable within the time limit; the review uses available current project evidence.");
+    if (settled[1].status === "rejected") contextLimitations.push("Current project evidence was unavailable within the time limit; current counts and states could not be confirmed.");
     if (liveProjectEvidence.hits.length) {
       context.live_project = liveProjectEvidence.hits.map((hit) => ({
         id: hit.chunk_id,
@@ -623,6 +792,8 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
     }
     const knowledgeRetrieval = {
       ...(indexedKnowledgeRetrieval || {}),
+      degraded: Boolean(indexedKnowledgeRetrieval?.degraded) || contextLimitations.length > 0,
+      limitations: contextLimitations,
       live_context_count: liveProjectEvidence.hits.length,
       live_context_counts: liveProjectEvidence.counts,
       context_route: contextRoute
@@ -680,13 +851,13 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
         allowMissing: true
       });
       knowledgeRagService.assertLlmIntegrationProjectScope(integration, projectId);
-      if (integration && !normalizeText(integration.model, 255)) throw new Error("Selected LLM integration is missing a model");
-      if (integration && !integrationService.isUsableApiCredential(integration.api_key)) throw new Error("Selected LLM integration is missing a usable API credential");
+      if (integration && !normalizeText(integration.model, 255)) throw agentError("Selected LLM integration is missing a model. Update it in Integrations.");
+      if (integration && !integrationService.isUsableApiCredential(integration.api_key)) throw agentError("Selected LLM integration is missing a usable API credential. Update it in Integrations.");
 
       await appendEvent(transactionId, {
         phase: "specialist",
         message: integration
-          ? `${agent.name} analyzed the bounded request with the configured model.`
+          ? `${agent.name} is requesting a review from the configured model.`
           : `${agent.name} used the deterministic evidence path because no direct model is configured.`,
         details: {
           provider: integration?.name || "HelloTest evidence engine",
@@ -696,18 +867,31 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
         }
       });
 
-      if (integration) {
-        const normalizedModelResult = normalizeResult(await requestLlmResult({
-          integration,
-          agent,
-          mode: normalizedMode,
-          prompt: normalizedPrompt,
-          context,
-          citations,
-          history: Array.isArray(history) ? history : [],
-          contextRoute,
-          knowledgeRetrieval
-        }), fallback, citations);
+      if (integration && fallback.readiness.task_evidence_count) {
+        const deadline = Date.now() + MODEL_TIMEOUT_MS;
+        const boundedPayload = JSON.parse(buildBoundedAgentPromptPayload({ mode: normalizedMode, prompt: normalizedPrompt, context, citations, contextRoute, knowledgeRetrieval }));
+        const suppliedIds = new Set(Object.values(boundedPayload.bounded_workspace_context).flat().map((item) => item.citation?.id || item.id));
+        const suppliedCitations = citations.filter((citation) => suppliedIds.has(citation.id));
+        boundedPayload.citation_contract = boundedPayload.citation_contract.filter((citation) => suppliedIds.has(citation.id));
+        let normalizedModelResult = fallback;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            normalizedModelResult = normalizeResult(await requestLlmResult({
+              integration, agent, mode: normalizedMode, prompt: normalizedPrompt, context, citations: suppliedCitations,
+              history: Array.isArray(history) ? history : [], contextRoute, knowledgeRetrieval,
+              promptPayload: JSON.stringify(boundedPayload), deadline, repair: attempt > 0
+            }), fallback, suppliedCitations);
+          } catch (error) {
+            execution.assertActive();
+            if (!(error instanceof SyntaxError) || attempt > 0 || deadline - Date.now() < 1_000) throw error;
+          }
+          execution.assertActive();
+          if (normalizedModelResult !== fallback || deadline - Date.now() < 1_000) break;
+          if (attempt === 0) await appendEvent(transactionId, {
+            level: "warning", phase: "specialist", message: "The model response needs correction; retrying the evidence contract once.",
+            details: { model_attempt: 2, model_max_attempts: 2, progress: 68 }
+          });
+        }
         if (normalizedModelResult === fallback) {
           providerError = "Configured model output did not satisfy the evidence and citation contract.";
           await appendEvent(transactionId, {
@@ -719,9 +903,12 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
         } else {
           result = normalizedModelResult;
         }
+      } else if (integration) {
+        providerError = "No task-specific evidence was available for a model review.";
       }
     } catch (error) {
-      providerError = error instanceof Error ? error.message : "Configured model unavailable";
+      execution.assertActive();
+      providerError = error?.publicMessage || (error instanceof SyntaxError ? "The configured model did not return valid review JSON." : "The configured model could not complete this review. Retry the review or check the selected connection.");
       result = fallback;
       await appendEvent(transactionId, {
         level: "warning",
@@ -731,9 +918,16 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       });
     }
 
+    execution.assertActive();
+    const generationMode = integration && !providerError ? "llm" : "deterministic";
+    const limitations = [...contextLimitations, ...(generationMode === "deterministic" ? [providerError || "No model is configured; this result summarizes explicit evidence and does not create the specialist deliverable."] : [])];
+    result.readiness = buildEvidenceReadiness({ context, contextRoute, limitations });
+    result.evidence_gaps = [...new Set([...(result.evidence_gaps || []), ...result.readiness.limitations])].slice(0, 8);
+    if (!result.readiness.task_evidence_count) result.grounding_status = "insufficient_context";
+
     await appendEvent(transactionId, {
       phase: "outcome",
-      message: normalizedMode === "chat" ? "Produced a grounded response for review." : "Produced a bounded execution plan for review.",
+      message: result.readiness.status === "insufficient_evidence" ? "The review needs task-specific evidence before an outcome can be supported." : "Produced a specialist review; no project artifacts were changed.",
       details: {
         recommendation_count: result.recommendations.length,
         assumption_count: result.assumptions.length,
@@ -743,9 +937,9 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
     });
 
     await appendEvent(transactionId, {
-      level: "success",
+      level: result.readiness.status === "ready_for_review" ? "success" : "warning",
       phase: "evaluation",
-      message: `Evaluated grounding, completeness, traceability, and risk control; maturity ${result.evaluation.maturity_score}/100.`,
+      message: `Review readiness: ${result.readiness.status.replace(/_/g, " ")}. Evidence diagnostics are available for inspection.`,
       details: { evaluation: result.evaluation, progress: 100 }
     });
 
@@ -756,7 +950,9 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
         progress: 100,
         provider: integration?.name || "HelloTest evidence engine",
         model: integration?.model || null,
-        generation_mode: integration && !providerError ? "llm" : "deterministic",
+        generation_mode: generationMode,
+        readiness: result.readiness,
+        degraded: generationMode === "deterministic" || knowledgeRetrieval.degraded,
         fallback_reason: providerError,
         citations,
         knowledge_retrieval: knowledgeRetrieval,
@@ -778,7 +974,9 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       provenance: {
         provider: integration?.name || "HelloTest evidence engine",
         model: integration?.model || null,
-        generation_mode: integration && !providerError ? "llm" : "deterministic",
+        generation_mode: generationMode,
+        degraded: generationMode === "deterministic" || knowledgeRetrieval.degraded,
+        readiness: result.readiness,
         fallback_reason: providerError,
         context_route: contextRoute,
         input_fingerprint: fingerprint({ normalizedPrompt, normalizedAgentId, requestedScopes, smart_context: smartContext }),
@@ -786,22 +984,34 @@ exports.respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt
       }
     };
   } catch (error) {
-    await appendEvent(transactionId, {
+    await workspaceTransactionService.appendTransactionEvent(transactionId, {
       level: "error",
       phase: "failed",
-      message: error instanceof Error ? error.message : "Agent session failed.",
+      message: execution.current()?.signal?.aborted ? "The review was cancelled or exceeded its deadline." : "The agent review could not be completed. Retry the review.",
       status: "failed",
-      metadata: { progress: 100, failure: true },
+      metadata: { progress: 100, failure: true, cancelled: Boolean(execution.current()?.signal?.aborted) },
       details: { progress: 100 }
+    }).catch(() => null);
+    await workspaceTransactionService.updateTransaction(transactionId, {
+      status: "failed", completed_at: new Date().toISOString(),
+      metadata: { progress: 100, failure: true, cancelled: Boolean(execution.current()?.signal?.aborted) }
     }).catch(() => null);
     throw error;
   }
 };
 
+exports.respond = (input = {}) => execution.bounded(() => respond(input), { timeoutMs: SESSION_TIMEOUT_MS, signal: input.signal }).catch((error) => {
+  if (error?.code === "DEADLINE_EXCEEDED") throw agentError("The review reached its 70-second limit. Retry with a narrower scope or check the model connection.", 504);
+  throw error;
+});
+
 exports._internals = {
   buildBoundedAgentPromptPayload,
   buildFallbackResult,
   buildCitations,
+  buildEvidenceReadiness,
+  loadWorkspaceContext,
+  requestLlmResult,
   collectCandidateCitationIds,
   normalizeCitedItems,
   completionContent,

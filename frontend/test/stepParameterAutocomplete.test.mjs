@@ -50,7 +50,7 @@ test("all linked columns and saved unused scope defaults are available before th
   const parameters = mergeStepParameterDefinitions(buildDataSetParameterDefinitions(dataSet, "Customers"), buildStepParameterDefinitionsFromValues({ "s.tenant": "Acme", "r.build": "1" }));
   assert.deepEqual(parameters.map((item) => item.name), ["r.build", "t.email", "t.region", "s.tenant", "t.undeclared"]);
   assert.equal(parameters.find((item) => item.name === "t.email").sourceLabel, "Customers");
-  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.email": "first", "t.region": "", "t.undeclared": "" });
+  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.email": "first" });
 });
 
 test("incomplete scope prefixes never create phantom t, s, or r parameters", () => {

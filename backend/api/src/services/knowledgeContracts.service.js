@@ -641,7 +641,7 @@ const buildRetrievalEvent = ({ stage, status = "IN_PROGRESS", traceId, queryId, 
     status = "COMPLETE";
   if (stage === "FAILED")
     status = "FAILED";
-  const allowedMetrics = ["candidates_found", "candidates_selected", "elapsed_ms", "context_tokens", "input_tokens", "output_tokens", "cost_usd", "retrieval_rounds"];
+  const allowedMetrics = ["candidates_found", "candidates_selected", "elapsed_ms", "context_tokens", "input_tokens", "output_tokens", "cost_usd", "retrieval_rounds", "model_attempt", "model_max_attempts", "retry_delay_ms"];
   const metricAliases = {
     candidate_count: "candidates_found",
     result_count: "candidates_selected",

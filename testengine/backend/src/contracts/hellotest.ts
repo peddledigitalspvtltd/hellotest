@@ -348,6 +348,8 @@ export type EngineRunEnvelope = {
   steps: EngineRunStep[];
   suite_parameters: Record<string, string>;
   case_parameters: Record<string, string>;
+  run_parameters?: Record<string, string>;
+  parameters_frozen?: boolean;
   environment?: {
     name: string;
     base_url?: string | null;

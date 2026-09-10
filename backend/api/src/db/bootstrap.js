@@ -42,6 +42,7 @@ const rolePermissionSeedStatements = Object.entries(DEFAULT_ROLE_PERMISSIONS).ma
   `);
 
 const statements = [
+  ...require('../agents/schema'),
   `
     CREATE TABLE IF NOT EXISTS integrations (
       id TEXT PRIMARY KEY,
@@ -1471,7 +1472,12 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_shared_step_groups_app_type ON shared_step_groups (app_type_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_test_steps_case_group ON test_steps (test_case_id, group_id, step_order)`,
   `ALTER TABLE execution_results DROP CONSTRAINT IF EXISTS execution_results_status_check`,
-  `ALTER TABLE execution_results ADD CONSTRAINT execution_results_status_check CHECK (status IN ('running', 'passed', 'failed', 'blocked'))`,
+  `ALTER TABLE execution_results ADD CONSTRAINT execution_results_status_check CHECK (status IN ('pending', 'running', 'paused', 'passed', 'failed', 'blocked', 'aborted', 'skipped'))`,
+  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ`,
+  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS timer_started_at TIMESTAMPTZ`,
+  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ`,
+  `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS lifecycle_history JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE execution_results ALTER COLUMN duration_ms TYPE BIGINT`,
   `CREATE INDEX IF NOT EXISTS idx_execution_results_execution_created_at ON execution_results (execution_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_results_case_created_at ON execution_results (test_case_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_results_app_type_created_at ON execution_results (app_type_id, created_at DESC)`,

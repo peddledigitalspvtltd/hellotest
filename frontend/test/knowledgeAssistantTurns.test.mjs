@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
-import { KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
+import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn } from "../src/lib/knowledgeAssistantStream.ts";
 
 const source = readFileSync(new URL("../src/components/GroundedAssistant.tsx", import.meta.url), "utf8");
 const ast = ts.createSourceFile("GroundedAssistant.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -27,7 +27,7 @@ function fixture({ failure, cancel = false, changeScope = false } = {}) {
     createSessionMutation: { mutateAsync: async () => ({ id: "conversation-1" }) }, safeSession: (item) => item,
     sendMessageMutation: { mutateAsync: async (input) => { calls.push(input); if (changeScope) scopeGenerationRef.current += 1; if (cancel) { requestControllerRef.current.abort(); throw new DOMException("Stopped", "AbortError"); } if (failure) throw failure; return { assistant_message: { id: "answer", content: "Evidence answer" } }; } },
     normalizeAnswer: (response) => ({ ...response.assistant_message, role: "assistant", citations: [] }),
-    queryClient: { invalidateQueries: async () => {} }, KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn
+    queryClient: { invalidateQueries: async () => {} }, appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeTurnNotice, resumePendingKnowledgeTurn
   };
   const submit = new Function(...Object.keys(context), `${script}\nreturn submitPrompt;`)(...Object.values(context));
   return { submit, calls, messages: () => messages, retries: () => retries };

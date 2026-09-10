@@ -121,7 +121,7 @@ const isMaskedSecretValue = (value) => {
   }
 
   const normalized = value.trim();
-  return normalized === MASKED_SECRET_VALUE || /^\*{6,}$/.test(normalized) || /^[•●]{6,}$/.test(normalized);
+  return normalized === MASKED_SECRET_VALUE || /^[*•●]{6,}$/.test(normalized);
 };
 
 const isUsableApiCredential = (value) => Boolean(normalizeText(value)) && !isMaskedSecretValue(value);
@@ -1030,26 +1030,53 @@ exports.mergeIntegrationConfig = async (id, configUpdates = {}) => {
   return exports.getIntegration(id);
 };
 
-exports.testConnection = async (input = {}) => {
+const connectionProbe = require("./integrationConnectionProbe.service");
+
+// Resolve display placeholders server-side; never forward a saved secret to a
+// changed endpoint/account merely because the browser did not reveal its value.
+exports.resolveConnectionInput = async (input = {}) => {
   const type = normalizeText(input.type);
-
-  validateType(type);
-
-  if (type === "testengine" || type === "local-desktop") {
-    return testTestEngineConnection({
-      base_url: input.base_url
-    });
+  if (!INTEGRATION_TYPE_VALUES.includes(type)) throw connectionProbe.invalid("Select a valid integration type.");
+  let existing = null;
+  if (input.integration_id !== undefined) {
+    if (!normalizeText(input.integration_id)) throw connectionProbe.invalid("Saved integration ID is required.");
+    existing = await exports.getIntegration(input.integration_id);
+    if (existing.type !== type) throw connectionProbe.invalid("The saved integration type does not match the connection check.");
   }
-
+  const config = { ...normalizeObject(existing?.config), ...normalizeObject(input.config) };
+  const resolved = { ...existing, ...Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)), type, config };
+  const effectiveBase = value => {
+    if (type === "google_drive") return "https://www.googleapis.com";
+    if (type === "google_auth") return "https://accounts.google.com";
+    if (type === "email") return `${normalizeText(value.config?.host)?.toLowerCase() || ""}:${value.config?.port || 587}:${Boolean(value.config?.secure)}`;
+    const fallback = type === "llm" ? "https://api.openai.com/v1" : type === "github" ? "https://api.github.com" : "";
+    const base = type === "cloudrun" ? value.config?.remote_url || value.base_url : value.base_url;
+    return base || fallback ? connectionProbe.baseUrl(base || fallback) : "";
+  };
   if (type === "ops") {
-    return testOpsConnection({
-      base_url: input.base_url,
-      config: input.config,
-      api_key: input.api_key
-    });
+    resolved.base_url = await resolveOpsBaseUrl({ base_url: resolved.base_url, project_id: config.project_id });
+    if (existing) existing = { ...existing, base_url: await resolveOpsBaseUrl({ base_url: existing.base_url, project_id: existing.config?.project_id }) };
   }
+  const sameTarget = !existing || (effectiveBase(existing) === effectiveBase(resolved)
+    && normalizeText(existing.username) === normalizeText(resolved.username)
+    && (type !== "cloudrun" || (existing.config?.provider || "browserstack") === (config.provider || "browserstack")));
+  const resolveSecret = (submitted, stored, label) => {
+    if (isUsableApiCredential(submitted)) return normalizeText(submitted);
+    if (existing && isUsableApiCredential(stored)) {
+      if (!sameTarget) throw connectionProbe.invalid(`Enter a new ${label} when changing the connection endpoint or account. Stored credentials cannot be sent to a different destination.`);
+      return stored;
+    }
+    if (isMaskedSecretValue(submitted)) throw connectionProbe.invalid(`The ${label} is a masked placeholder. Enter a real credential or test the saved profile.`);
+    return null;
+  };
+  resolved.api_key = resolveSecret(input.api_key, existing?.api_key, "API key or access token");
+  if (type === "email") resolved.config.password = resolveSecret(input.config?.password, existing?.config?.password, "SMTP password");
+  return resolved;
+};
 
-  throw new Error("Connection testing is currently available only for Test Engine and OPS integrations");
+exports.testConnection = async (input = {}, options = {}) => {
+  const resolved = await exports.resolveConnectionInput(input);
+  return connectionProbe.testConnection(resolved, options);
 };
 
 exports.isUsableApiCredential = isUsableApiCredential;

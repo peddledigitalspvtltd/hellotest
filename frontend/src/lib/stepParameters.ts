@@ -29,7 +29,7 @@ export type StepParameterSegment =
       resolvedValue: string | null;
     };
 
-type StepParameterSource = Pick<TestStep, "id" | "action" | "expected_result" | "automation_code" | "api_request">;
+export type StepParameterSource = Pick<TestStep, "id" | "action" | "expected_result" | "automation_code" | "api_request">;
 type StepApiLike = NonNullable<TestStep["api_request"]>;
 type StepParameterDataSet = Pick<ExecutionDataSetSnapshot | TestDataSet, "columns" | "mode" | "rows">;
 
@@ -294,12 +294,7 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   }
 
   const firstRow = (dataSet.rows || []).find((row) => row && typeof row === "object") || {};
-  const columns = Array.from(new Set([
-    ...(dataSet.columns || []),
-    ...(dataSet.rows || []).flatMap((row) => Object.keys(row || {}))
-  ]));
-
-  columns.forEach((column) => {
+  Object.keys(firstRow).forEach((column) => {
     const key = normalizeStepParameterName(column, "t");
 
     if (!key) {

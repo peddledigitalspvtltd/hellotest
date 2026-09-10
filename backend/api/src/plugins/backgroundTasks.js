@@ -5,6 +5,7 @@ const projectSyncService = require("../services/projectSync.service");
 const batchProcessService = require("../services/batchProcess.service");
 const knowledgeRagService = require("../services/knowledgeRag.service");
 const requirementWorkspaceService = require("../services/requirementWorkspace.service");
+const repositoryAgentsService = require("../agents/repositoryAgents.service");
 
 module.exports = async function backgroundTasksPlugin(fastify) {
   const timers = new Set();
@@ -38,6 +39,13 @@ module.exports = async function backgroundTasksPlugin(fastify) {
       timers.add(timer);
     });
   };
+
+  registerRecurringTask({
+    intervalMs: 2 * 1000,
+    label: "Unable to process queued repository agent analyses",
+    run: () => repositoryAgentsService.processQueuedRuns(),
+    runImmediately: false
+  });
 
   registerRecurringTask({
     intervalMs: 60 * 1000,
@@ -92,6 +100,7 @@ module.exports = async function backgroundTasksPlugin(fastify) {
 
   fastify.addHook("onClose", async () => {
     acceptingWork = false;
+    await repositoryAgentsService.shutdown();
     for (const timer of timers) {
       clearInterval(timer);
     }

@@ -10,6 +10,7 @@ import {
   IconCheckbox,
   IconChevronDown,
   IconChevronRight,
+  IconDots,
   IconCircleCheck,
   IconCircleX,
   IconClock,
@@ -26,6 +27,7 @@ import {
   IconPencil,
   IconPhoto,
   IconPlayerPlay,
+  IconPlayerPause,
   IconRefresh,
   IconRocket,
   IconSearch,
@@ -55,6 +57,12 @@ import { ExecutionContextSelector } from "../components/ExecutionContextSelector
 import { EvidenceFlipCard } from "../components/EvidenceFlipCard";
 import { RunEditDialog } from "../components/RunEditDialog";
 import { RunReviewDialog } from "../components/RunReviewDialog";
+import { CaseRunAttachmentPanel } from "../components/CaseRunAttachmentPanel";
+import { uploadExecutionAttachment } from "../lib/executionAttachments";
+import { CaseRunParameterContext } from "../components/CaseRunParameterContext";
+import { resolveExecutionParameterContext } from "../lib/executionParameterContext";
+import { RunParameterTemplateButton } from "../components/RunParameterTemplateButton";
+import { RunContextLinks } from "../components/RunContextLinks";
 import { RunConfigurationDialog, type RunConfigurationResource } from "../components/RunConfigurationDialog";
 import { isRunFinished, normalizeRunCatalogView, runCatalogBucket, runStoryCounts } from "../lib/runCatalog";
 import { summarizeRunScopeCompletion } from "../lib/runScopeCompletion";
@@ -84,6 +92,9 @@ import { richTextToPlainText } from "../components/RichTextEditor";
 import { RunPlanningFields } from "../components/RunPlanningFields";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
+import { StepParameterizedText } from "../components/StepParameterizedText";
+import { gherkinDescriptionToPlainText, matchGherkinKeyword, normalizeGherkinParameterReferences } from "../lib/gherkin";
+import { getExecutionResultDurationMs, type ExecutionCaseLifecycleAction } from "../lib/executionCaseLifecycle";
 import { StatusBadge } from "../components/StatusBadge";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { SuiteScopePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
@@ -128,7 +139,7 @@ import {
   type ExecutionStepAutomationDetail,
   type ExecutionStepWebDetail
 } from "../lib/executionLogs";
-import { buildDataSetParameterValues, combineStepParameterValues, normalizeStepParameterValues, parseStepParameterName, resolveStepParameterText } from "../lib/stepParameters";
+import { combineStepParameterValues, normalizeStepParameterValues, parseStepParameterName, resolveStepParameterText } from "../lib/stepParameters";
 import { type AssigneeOption, buildAssigneeOptions, resolveUserInitials, resolveUserPrimaryLabel, resolveUserSecondaryLabel } from "../lib/userDisplay";
 import type {
   AppType,
@@ -282,14 +293,6 @@ type ExecutionEvidencePreviewState = {
   sourceUrl: string;
 };
 
-type PreparedExecutionEvidence = {
-  blob: Blob;
-  checksum?: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
-};
-
 type ExecutionApiDetailState = {
   step: TestStep;
   detail: ExecutionStepApiDetail | null;
@@ -319,13 +322,6 @@ type SmartExecutionRequirementOption = {
 
 type ExecutionScheduleCadence = "once" | "daily" | "weekly" | "monthly" | "interval_minutes";
 
-type ExecutionParameterDisplayEntry = {
-  key: string;
-  token: string;
-  value: string;
-  flowLabel: string;
-  sourceLabel?: string;
-};
 
 const BATCH_PROCESS_CATEGORIES = new Set([
   "bulk_import",
@@ -601,14 +597,12 @@ const DEFAULT_DURATION_LABEL = "0s";
 const MAX_AI_BUG_CONTEXT_ITEMS = 25;
 const MAX_AI_BUG_EVIDENCE_LINES = 5;
 const EXECUTION_CASE_LIST_COLUMN_PREFERENCE_KEY = "hellotest:execution-cases:list-columns:v2";
-const MAX_EXECUTION_EVIDENCE_SOURCE_BYTES = 25 * 1024 * 1024;
-const MAX_EXECUTION_EVIDENCE_IMAGE_BYTES = 3 * 1024 * 1024;
-const MAX_EXECUTION_EVIDENCE_IMAGE_DIMENSION = 1400;
-const EXECUTION_EVIDENCE_JPEG_QUALITY = 0.68;
 
 type BoardStatusTone = ExecutionStatus | ExecutionResult["status"];
 
 const BOARD_STATUS_META: Record<BoardStatusTone, { label: string; description: string }> = {
+  pending: { label: "Unexecuted", description: "This case has not been started." },
+  paused: { label: "Paused", description: "Case timing is paused." },
   queued: {
     label: "Queued",
     description: "Run is ready to start."
@@ -638,7 +632,7 @@ const BOARD_STATUS_META: Record<BoardStatusTone, { label: string; description: s
     description: "Execution is blocked and needs attention."
   },
   retrying: { label: "Retrying", description: "Run is retrying execution." },
-  skipped: { label: "Skipped", description: "Run was skipped." },
+  skipped: { label: "N/A", description: "This case is not applicable to this run." },
   cancelled: { label: "Cancelled", description: "Run was cancelled." },
   partially_completed: { label: "Partially completed", description: "Run finished with incomplete coverage." }
 };
@@ -670,6 +664,7 @@ function suiteBoardStatus(metric: {
   passedCount: number;
   failedCount: number;
   blockedCount: number;
+  runningCount?: number; pausedCount?: number; skippedCount?: number; abortedCount?: number;
 }): BoardStatusTone {
   if (metric.failedCount) {
     return "failed";
@@ -683,7 +678,10 @@ function suiteBoardStatus(metric: {
     return "queued";
   }
 
-  if (metric.passedCount >= metric.count) {
+  if (metric.runningCount) return "running";
+  if (metric.pausedCount) return "paused";
+  if (metric.abortedCount) return "aborted";
+  if (metric.passedCount + (metric.skippedCount || 0) >= metric.count) {
     return "completed";
   }
 
@@ -790,99 +788,6 @@ const evidenceMimeType = (evidence?: ExecutionStepEvidence | null) => {
   return evidence?.dataUrl?.match(/^data:([^;,]+)/i)?.[1] || "application/octet-stream";
 };
 
-const digestExecutionEvidence = async (blob: Blob) => {
-  if (!window.crypto?.subtle) {
-    return undefined;
-  }
-
-  const digest = await window.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-};
-
-const readExecutionEvidenceFile = (file: File) =>
-  new Promise<PreparedExecutionEvidence>((resolve, reject) => {
-    const allowedMimeType = file.type.startsWith("image/")
-      || file.type.startsWith("video/")
-      || ["application/pdf", "application/json", "application/xml", "text/plain", "text/csv", "text/xml", "application/zip"].includes(file.type);
-    if (!allowedMimeType) {
-      reject(new Error("Use an image, video, PDF, text, JSON, XML, CSV, or ZIP evidence file."));
-      return;
-    }
-
-    if (file.size > MAX_EXECUTION_EVIDENCE_SOURCE_BYTES) {
-      reject(new Error("Evidence files must be 25 MB or smaller and within the attachment limit."));
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      void digestExecutionEvidence(file).then((checksum) => resolve({
-        blob: file,
-        checksum,
-        fileName: file.name || "run-evidence",
-        mimeType: file.type || "application/octet-stream",
-        size: file.size
-      })).catch(reject);
-      return;
-    }
-
-    const image = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    image.onload = () => {
-      try {
-        const scale = Math.min(
-          1,
-          MAX_EXECUTION_EVIDENCE_IMAGE_DIMENSION / Math.max(image.naturalWidth || 1, image.naturalHeight || 1)
-        );
-        const width = Math.max(1, Math.round((image.naturalWidth || 1) * scale));
-        const height = Math.max(1, Math.round((image.naturalHeight || 1) * scale));
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-
-        if (!context) {
-          reject(new Error("Unable to compress the selected image in this browser."));
-          return;
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, width, height);
-        context.drawImage(image, 0, 0, width, height);
-
-        canvas.toBlob(async (blob) => {
-          if (!blob) {
-            reject(new Error("Unable to compress the selected image in this browser."));
-            return;
-          }
-
-          if (blob.size > MAX_EXECUTION_EVIDENCE_IMAGE_BYTES) {
-            reject(new Error("Evidence images must compress to 3 MB or smaller before upload to the connected workspace."));
-            return;
-          }
-
-          try {
-            resolve({
-              blob,
-              checksum: await digestExecutionEvidence(blob),
-              fileName: file.name ? file.name.replace(/\.[^.]+$/, ".jpg") : "evidence.jpg",
-              mimeType: "image/jpeg",
-              size: blob.size
-            });
-          } catch (error) {
-            reject(error);
-          }
-        }, "image/jpeg", EXECUTION_EVIDENCE_JPEG_QUALITY);
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error(`Unable to read ${file.name}`));
-    };
-    image.src = objectUrl;
-  });
 
 function buildProgressSegments(
   passedCount: number,
@@ -1327,77 +1232,19 @@ function resolveExecutionRunBucket(execution: Execution): Extract<TestRunsView, 
   return runCatalogBucket(execution);
 }
 
-function buildExecutionRunScopedValues(entries: KeyValueEntry[] = []) {
-  return entries.reduce<Record<string, string>>((accumulator, entry) => {
-    const key = String(entry?.key || "").trim();
-
-    if (!key) {
-      return accumulator;
-    }
-
-    const normalized = normalizeStepParameterValues(
-      {
-        [key]: entry?.value === undefined || entry?.value === null ? "" : String(entry.value)
-      },
-      "r"
-    );
-
-    return combineStepParameterValues(accumulator, normalized);
-  }, {});
-}
-
 function buildExecutionInputParameterValues(
   execution: Execution | null,
   caseSnapshot: ExecutionCaseSnapshot | null,
   caseInstance?: ExecutionCaseInstanceView | null
 ) {
-  const caseDataSet = caseSnapshot ? resolveExecutionCaseDataSet(caseSnapshot, execution) : null;
-  const dataSetSnapshot = caseDataSet?.snapshot
-    ? caseDataSet.snapshot.mode === "table" && caseInstance?.data_set_row_snapshot
-      ? { ...caseDataSet.snapshot, rows: [caseInstance.data_set_row_snapshot] }
-      : caseDataSet.snapshot
-    : null;
-  const dataSetValues = buildDataSetParameterValues(dataSetSnapshot);
-  const caseValues = normalizeStepParameterValues(caseSnapshot?.parameter_values || {}, "t");
-  const suiteValues = normalizeStepParameterValues(caseSnapshot?.suite_parameter_values || {}, "s");
-  const runValues = combineStepParameterValues(
-    buildExecutionRunScopedValues(execution?.test_environment?.snapshot?.variables || []),
-    buildExecutionRunScopedValues(execution?.test_configuration?.snapshot?.variables || [])
-  );
-
-  if (caseDataSet?.source === "test_case") {
-    return combineStepParameterValues(dataSetValues, caseValues, suiteValues, runValues);
-  }
-
-  return combineStepParameterValues(
-    caseValues,
-    suiteValues,
-    runValues,
-    dataSetValues
-  );
+  return resolveExecutionParameterContext({ execution, caseSnapshot,
+    dataSetRow: caseInstance?.data_set_row_snapshot,
+    rowIndex: caseInstance?.data_set_iteration_index
+  }).values;
 }
 
 function formatExecutionParameterToken(key: string, fallbackScope: "t" | "s" | "r" = "t") {
   return parseStepParameterName(key, fallbackScope)?.token || `@${String(key || "").trim()}`;
-}
-
-function buildExecutionParameterDisplayEntries(
-  values: Record<string, string>,
-  flow: "input" | "output"
-): ExecutionParameterDisplayEntry[] {
-  return Object.entries(values)
-    .map(([key, value]) => {
-      const parsed = parseStepParameterName(key, "t");
-      const scopeLabel = parsed?.scopeLabel || "Test case";
-
-      return {
-        key,
-        token: parsed?.token || formatExecutionParameterToken(key),
-        value,
-        flowLabel: `${scopeLabel} ${flow}`
-      };
-    })
-    .sort((left, right) => left.token.localeCompare(right.token));
 }
 
 function collectExecutionOutputParameterValues(
@@ -1420,14 +1267,14 @@ function collectSuiteScopedExecutionOutputParameterValues(
 ) {
   const selectedSnapshot = caseSnapshots.find((snapshot) => snapshot.test_case_id === selectedTestCaseId);
 
-  if (!selectedSnapshot?.suite_id) {
+  if (!selectedSnapshot) {
     return {};
   }
 
   return caseSnapshots
     .filter((snapshot) =>
-      snapshot.suite_id === selectedSnapshot.suite_id
-      && snapshot.sort_order <= selectedSnapshot.sort_order
+      snapshot.test_case_id !== selectedTestCaseId
+      && snapshot.sort_order < selectedSnapshot.sort_order
     )
     .sort((left, right) => left.sort_order - right.sort_order)
     .reduce<Record<string, string>>((accumulator, snapshot) => {
@@ -1444,7 +1291,7 @@ function collectSuiteScopedExecutionOutputParameterValues(
         Object.entries(captureMap || {}).forEach(([key, value]) => {
           const parsedName = parseStepParameterName(key, "t");
 
-          if (parsedName?.scope === "s") {
+          if (parsedName?.scope === "r" || (parsedName?.scope === "s" && selectedSnapshot.suite_id && snapshot.suite_id === selectedSnapshot.suite_id)) {
             accumulator[parsedName.name] = value;
           }
         });
@@ -1452,33 +1299,6 @@ function collectSuiteScopedExecutionOutputParameterValues(
 
       return accumulator;
     }, {});
-}
-
-function buildExecutionOutputParameterEntries(
-  stepCaptures: Record<string, ExecutionStepCaptureMap>,
-  steps: TestStep[]
-): ExecutionParameterDisplayEntry[] {
-  const latestByKey = new Map<string, ExecutionParameterDisplayEntry>();
-
-  steps
-    .slice()
-    .sort((left, right) => left.step_order - right.step_order)
-    .forEach((step) => {
-      Object.entries(stepCaptures[step.id] || {}).forEach(([key, value]) => {
-        const parsed = parseStepParameterName(key, "t");
-        const stepTypeLabel = String(step.step_type || "web").toUpperCase();
-
-        latestByKey.set(key, {
-          key,
-          token: parsed?.token || formatExecutionParameterToken(key),
-          value,
-          flowLabel: `${parsed?.scopeLabel || "Test case"} output`,
-          sourceLabel: `Step ${step.step_order} · ${stepTypeLabel}`
-        });
-      });
-    });
-
-  return [...latestByKey.values()].sort((left, right) => left.token.localeCompare(right.token));
 }
 
 function mergeExecutionStepCaptures(
@@ -1685,8 +1505,6 @@ export function ExecutionsPage() {
   const [isSuiteTreeMinimized, setIsSuiteTreeMinimized] = useState(false);
   const [isExecutionHealthExpanded, setIsExecutionHealthExpanded] = useState(true);
   const [isExecutionSupportExpanded, setIsExecutionSupportExpanded] = useState(true);
-  const [isExecutionInputParamsExpanded, setIsExecutionInputParamsExpanded] = useState(false);
-  const [isExecutionOutputParamsExpanded, setIsExecutionOutputParamsExpanded] = useState(false);
   const [isExecutionReferencesExpanded, setIsExecutionReferencesExpanded] = useState(false);
   const [isExecutionAiAnalysisExpanded, setIsExecutionAiAnalysisExpanded] = useState(false);
   const [runAnalysisInstruction, setRunAnalysisInstruction] = useState("Explain the run verdict, separate product risk from environment noise, cite failed or blocked evidence, and recommend the next review sequence.");
@@ -1713,7 +1531,8 @@ export function ExecutionsPage() {
   const [executionEvidenceFilter, setExecutionEvidenceFilter] = useState<ExecutionEvidenceFilter>("all");
   const [liveNow, setLiveNow] = useState(() => Date.now());
   const [executionListItemHeight, setExecutionListItemHeight] = useState(236);
-  const [caseTimerStartedAtById, setCaseTimerStartedAtById] = useState<Record<string, number>>({});
+  const [historyResult, setHistoryResult] = useState<ExecutionResult | null>(null);
+  const [caseLifecycleAction, setCaseLifecycleAction] = useState<string | null>(null);
   const [executionFinalizeAction, setExecutionFinalizeAction] = useState<"complete" | "abort" | null>(null);
   const [uploadingEvidenceStepId, setUploadingEvidenceStepId] = useState("");
   const [openingEvidenceStepId, setOpeningEvidenceStepId] = useState("");
@@ -2870,10 +2689,7 @@ export function ExecutionsPage() {
     () => buildExecutionInputParameterValues(selectedExecution, selectedExecutionCaseSnapshot, selectedExecutionCaseInstance),
     [selectedExecution, selectedExecutionCaseInstance, selectedExecutionCaseSnapshot]
   );
-  const selectedExecutionInputParameterEntries = useMemo(
-    () => buildExecutionParameterDisplayEntries(executionInputParameterValues, "input"),
-    [executionInputParameterValues]
-  );
+
 
   useEffect(() => {
     setExecutionAssignmentDraftIds(selectedExecution?.assigned_to_ids?.length ? selectedExecution.assigned_to_ids : selectedExecution?.assigned_to ? [selectedExecution.assigned_to] : []);
@@ -2902,9 +2718,6 @@ export function ExecutionsPage() {
     return () => query.removeEventListener("change", sync);
   }, []);
 
-  useEffect(() => {
-    setCaseTimerStartedAtById({});
-  }, [selectedExecutionId]);
 
   useEffect(() => {
     setExpandedExecutionSuiteIds([]);
@@ -2944,8 +2757,6 @@ export function ExecutionsPage() {
   }, [selectedExecutionId, selectedTestCaseId]);
 
   useEffect(() => {
-    setIsExecutionInputParamsExpanded(false);
-    setIsExecutionOutputParamsExpanded(false);
     setIsExecutionReferencesExpanded(false);
     setIsExecutionAiAnalysisExpanded(false);
   }, [selectedExecutionId, selectedTestCaseId]);
@@ -3213,10 +3024,7 @@ export function ExecutionsPage() {
     () => collectSuiteScopedExecutionOutputParameterValues(resultByCaseId, snapshotCases, selectedTestCaseId),
     [resultByCaseId, selectedTestCaseId, snapshotCases]
   );
-  const selectedExecutionOutputParameterEntries = useMemo(
-    () => buildExecutionOutputParameterEntries(stepCaptures, selectedSteps),
-    [selectedSteps, stepCaptures]
-  );
+
   const executionStepParameterValues = useMemo(
     () => combineStepParameterValues(executionInputParameterValues, suiteExecutionOutputParameterValues, executionOutputParameterValues),
     [executionInputParameterValues, executionOutputParameterValues, suiteExecutionOutputParameterValues]
@@ -3227,7 +3035,10 @@ export function ExecutionsPage() {
     if (statuses.includes("failed")) return "failed";
     if (statuses.includes("blocked")) return "blocked";
     if (statuses.includes("running")) return "running";
-    if (statuses.length && statuses.every((status) => status === "passed")) return "passed";
+    if (statuses.includes("paused")) return "paused";
+    if (statuses.includes("aborted")) return "aborted";
+    if (statuses.length && statuses.every((status) => status === "skipped")) return "skipped";
+    if (statuses.length && statuses.every((status) => status === "passed" || status === "skipped")) return "passed";
     if (statuses.includes("passed")) return "running";
     return "queued";
   };
@@ -3240,8 +3051,12 @@ export function ExecutionsPage() {
       const failedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "failed").length;
       const blockedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "blocked").length;
       const runningCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "running").length;
+      const pausedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "paused").length;
+      const skippedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "skipped").length;
+      const abortedCount = scopedInstances.filter((instance) => instanceDerivedStatus(instance) === "aborted").length;
+      const finalizedCount = scopedInstances.filter((instance) => ["passed", "failed", "blocked", "skipped", "aborted"].includes(instanceDerivedStatus(instance))).length;
       const percent = scopedInstances.length
-        ? Math.round(((passedCount + failedCount + blockedCount) / scopedInstances.length) * 100)
+        ? Math.round((finalizedCount / scopedInstances.length) * 100)
         : 0;
 
       return {
@@ -3250,7 +3065,7 @@ export function ExecutionsPage() {
         passedCount,
         failedCount,
         blockedCount,
-        runningCount,
+        runningCount, pausedCount, skippedCount, abortedCount, completedCount: finalizedCount,
         percent,
         status: failedCount ? "failed" : runningCount ? "running" : percent === 100 ? "completed" : "queued"
       };
@@ -3264,7 +3079,8 @@ export function ExecutionsPage() {
     const failedCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "failed").length;
     const blockedCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "blocked").length;
     const runningCount = executionCaseInstances.filter((instance) => instanceDerivedStatus(instance) === "running").length;
-    const percent = totalCases ? Math.round(((passedCount + failedCount + blockedCount) / totalCases) * 100) : 0;
+    const finalizedCount = executionCaseInstances.filter((instance) => ["passed", "failed", "blocked", "skipped", "aborted"].includes(instanceDerivedStatus(instance))).length;
+    const percent = totalCases ? Math.round((finalizedCount / totalCases) * 100) : 0;
 
     return {
       totalCases,
@@ -3272,7 +3088,7 @@ export function ExecutionsPage() {
       failedCount,
       blockedCount,
       runningCount,
-      completedCases: passedCount + failedCount + blockedCount,
+      completedCases: finalizedCount,
       percent,
       derivedStatus: failedCount ? "failed" : runningCount ? "running" : percent === 100 ? "completed" : "queued"
     };
@@ -3285,10 +3101,10 @@ export function ExecutionsPage() {
         summary[status] = (summary[status] || 0) + 1;
         return summary;
       },
-      { queued: 0, running: 0, passed: 0, failed: 0, blocked: 0 } as Record<string, number>
+      { queued: 0, pending: 0, running: 0, paused: 0, passed: 0, failed: 0, blocked: 0, skipped: 0, aborted: 0 } as Record<string, number>
     );
   }, [executionCaseOrder, resultByCaseInstanceKey]);
-  const selectedRunFinalizedCount = executionStatusCounts.passed + executionStatusCounts.failed + executionStatusCounts.blocked;
+  const selectedRunFinalizedCount = executionStatusCounts.passed + executionStatusCounts.failed + executionStatusCounts.blocked + executionStatusCounts.skipped + executionStatusCounts.aborted;
   const selectedRunCompletionPercent = executionProgress.totalCases
     ? Math.round((selectedRunFinalizedCount / executionProgress.totalCases) * 100)
     : 0;
@@ -3322,14 +3138,17 @@ export function ExecutionsPage() {
         summary[result.execution_id].blocked += 1;
       }
 
-      if (typeof result.duration_ms === "number") {
-        summary[result.execution_id].timedCount += 1;
-        summary[result.execution_id].totalDurationMs += result.duration_ms;
-      }
 
       if (result.created_at && (!summary[result.execution_id].latestActivityAt || result.created_at > summary[result.execution_id].latestActivityAt!)) {
         summary[result.execution_id].latestActivityAt = result.created_at;
       }
+    });
+
+    allExecutionResults.forEach((result) => {
+      const item = summary[result.execution_id];
+      if (!item) return;
+      item.timedCount += Number(Boolean(result.started_at || result.duration_ms));
+      item.totalDurationMs += getExecutionResultDurationMs(result, liveNow);
     });
 
     Object.entries(summary).forEach(([executionId, item]) => {
@@ -3340,7 +3159,7 @@ export function ExecutionsPage() {
     });
 
     return summary;
-  }, [allExecutionResults]);
+  }, [allExecutionResults, liveNow]);
 
   const executionImpactSummaryById = useMemo(() => {
     const resultByExecutionCaseInstance = new Map<string, ExecutionResult>();
@@ -3520,19 +3339,8 @@ export function ExecutionsPage() {
     [executions]
   );
 
-  const resolvePersistedCaseDurationMs = (caseInstanceKey: string, existing?: ExecutionResult) => {
-    const startedAt =
-      caseTimerStartedAtById[caseInstanceKey] ||
-      toTimestamp(existing?.created_at) ||
-      toTimestamp(selectedExecution?.started_at);
-
-    if (!startedAt) {
-      return existing?.duration_ms ?? null;
-    }
-
-    const computed = Math.max(Date.now() - startedAt, 0);
-    return typeof existing?.duration_ms === "number" ? Math.max(existing.duration_ms, computed) : computed;
-  };
+  const resolvePersistedCaseDurationMs = (_caseInstanceKey: string, existing?: ExecutionResult) =>
+    getExecutionResultDurationMs(existing);
 
   const refreshExecutionScope = async (executionId = selectedExecutionId) => {
     await Promise.all([
@@ -3671,11 +3479,7 @@ export function ExecutionsPage() {
 
     const externalReferences = parseReferenceList(caseReferenceDraft);
     const defects = parseReferenceList(caseDefectDraft);
-    const currentStatus = selectedExecutionResult?.status || (Object.keys(stepStatuses).length ? selectedCaseStatusLabel : "running");
-    const safeStatus: ExecutionResult["status"] =
-      currentStatus === "passed" || currentStatus === "failed" || currentStatus === "blocked" || currentStatus === "running"
-        ? currentStatus
-        : "running";
+    const safeStatus: ExecutionResult["status"] = selectedExecutionResult?.status || "pending";
 
     try {
       if (selectedExecutionResult) {
@@ -4514,7 +4318,11 @@ export function ExecutionsPage() {
       .slice()
       .sort((left, right) => left.step_order - right.step_order)
       .map((step) => step.id);
-    const aggregateStatus = deriveCaseStatusFromSteps(caseStepIds, mergedStatuses);
+    const hasStatusChanges = Object.keys(patches.stepStatusesPatch || {}).length > 0;
+    const allStepsResolved = caseStepIds.length > 0 && caseStepIds.every((id) => ["passed", "failed", "blocked"].includes(mergedStatuses[id]));
+    const aggregateStatus = hasStatusChanges
+      ? allStepsResolved ? deriveCaseStatusFromSteps(caseStepIds, mergedStatuses) : "running"
+      : existing?.status || "pending";
     const logs = stringifyExecutionLogs({
       stepStatuses: mergedStatuses,
       stepNotes: mergedNotes,
@@ -4531,7 +4339,6 @@ export function ExecutionsPage() {
         id: existing.id,
         input: {
           status: aggregateStatus,
-          duration_ms: durationMs ?? undefined,
           logs,
           error: aggregateStatus === "failed" ? "Step failed during run" : "",
           expected_revision: existing.revision
@@ -4543,7 +4350,7 @@ export function ExecutionsPage() {
             ? {
                 ...item,
                 status: aggregateStatus,
-                duration_ms: durationMs,
+                duration_ms: existing.duration_ms,
                 logs,
                 error: aggregateStatus === "failed" ? "Step failed during run" : null,
                 case_defects: updateResponse.case_defects,
@@ -4668,8 +4475,8 @@ export function ExecutionsPage() {
     if (!selectedExecution || !selectedTestCaseId) {
       return;
     }
-    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked) {
-      showError(new Error("Permission required: run.execute and result.manage"), "Unable to record step result");
+    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || caseLifecycleAction) {
+      showError(new Error("Start or resume the case before recording step results."), "Unable to record step result");
       return;
     }
 
@@ -4762,119 +4569,61 @@ export function ExecutionsPage() {
   };
 
   const handleUploadStepEvidence = async (step: TestStep, file: File) => {
-    if (!selectedExecution || !selectedTestCaseId) {
-      return;
-    }
+    if (!selectedExecution || !selectedTestCaseId) return;
     const previousEvidence = stepEvidence[step.id];
     if (!canCreateRunEvidence || (hasExecutionEvidence(previousEvidence) && !canDeleteRunEvidence)) {
-      showError(
-        new Error(hasExecutionEvidence(previousEvidence)
-          ? "Replacing evidence requires result.manage, attachment.create, and attachment.delete."
-          : "Uploading evidence requires result.manage and attachment.create."),
-        "Unable to save evidence"
-      );
+      showError(new Error("Attachment permissions are required to add or replace evidence."), "Unable to save evidence");
       return;
     }
-
+    const executionId = selectedExecution.id;
     setUploadingEvidenceStepId(step.id);
-    let uploadedAttachmentId = "";
-
     try {
-      if (!selectedExecution.display_id) {
-        throw new Error("This run does not have a work item key, so evidence cannot be attached yet.");
-      }
-
-      const attachmentMeta = await api.attachments.meta();
-      if (!attachmentMeta.enabled) throw new Error("attachments are disabled for this site.");
-      if (attachmentMeta.uploadLimit && file.size > attachmentMeta.uploadLimit) {
-        throw new Error(`This file exceeds the attachment limit of ${Math.max(1, Math.floor(attachmentMeta.uploadLimit / 1024 / 1024))} MB.`);
-      }
-      const prepared = await readExecutionEvidenceFile(file);
-      const jiraFile = new File([prepared.blob], prepared.fileName, {
-        lastModified: Date.now(),
-        type: prepared.mimeType
-      });
-      const attachment = await api.attachments.upload(selectedExecution.display_id, jiraFile);
-      uploadedAttachmentId = attachment.id;
-      const evidence: ExecutionStepEvidence = {
-        attachmentId: attachment.id,
-        fileName: attachment.filename || prepared.fileName,
-        mimeType: attachment.mimeType || prepared.mimeType,
-        size: attachment.size || prepared.size,
-        checksum: prepared.checksum,
-        createdAt: attachment.created || new Date().toISOString()
-      };
-      await persistCaseResult(selectedTestCaseId, { stepEvidencePatch: { [step.id]: evidence } });
-
-      let previousAttachmentCleanupFailed = false;
-      if (previousEvidence?.attachmentId && previousEvidence.attachmentId !== attachment.id) {
-        try {
-          await api.attachments.delete(previousEvidence.attachmentId);
-        } catch {
-          previousAttachmentCleanupFailed = true;
-        }
-      }
-
-      showSuccess(previousAttachmentCleanupFailed
-        ? "Evidence replaced. The previous attachment could not be removed and may require administrator cleanup."
-        : hasExecutionEvidence(previousEvidence) ? "Evidence replaced." : "Evidence saved.");
+      const result = await ensureSelectedCaseResult();
+      await uploadExecutionAttachment(result.id, file, { stepId: step.id, expectedRevision: result.revision });
+      await queryClient.invalidateQueries({ queryKey: ["execution-result-attachments", result.id] });
+      await refreshExecutionScope(executionId);
+      showSuccess("Step evidence saved.");
     } catch (error) {
-      if (uploadedAttachmentId) {
-        try {
-          await api.attachments.delete(uploadedAttachmentId);
-        } catch {
-          // Best-effort compensation: preserve the original save error for the user.
-        }
-      }
       showError(error, "Unable to save evidence");
     } finally {
-      setUploadingEvidenceStepId((current) => (current === step.id ? "" : current));
+      setUploadingEvidenceStepId((current) => current === step.id ? "" : current);
     }
   };
 
   const handleDeleteStepEvidence = async (step: TestStep) => {
-    if (!selectedExecution || !selectedTestCaseId) {
-      return;
-    }
-    if (!canDeleteRunEvidence) {
-      showError(new Error("Permission required: result.manage and attachment.delete"), "Unable to delete evidence");
-      return;
-    }
-
+    if (!selectedExecution || !selectedTestCaseId || !canDeleteRunEvidence) return;
     const evidence = stepEvidence[step.id];
-    if (!evidence || !(await confirmDelete({ message: `Delete "${evidence.fileName || `Step ${step.step_order} evidence`}" from this run?` }))) {
-      return;
-    }
-
+    if (!evidence || !(await confirmDelete({ message: `Delete "${evidence.fileName || `Step ${step.step_order} evidence`}" from this run?` }))) return;
+    const executionId = selectedExecution.id;
     try {
-      await persistCaseResult(selectedTestCaseId, { stepEvidencePatch: { [step.id]: null } });
-      if (evidence.attachmentId) {
-        try {
-          await api.attachments.delete(evidence.attachmentId);
-        } catch (deleteError) {
-          try {
+      const result = await ensureSelectedCaseResult();
+      const nativeFiles = evidence.attachmentId ? await api.executionResultAttachments.list(result.id) : [];
+      if (evidence.attachmentId && nativeFiles.some(file => file.id === evidence.attachmentId)) {
+        await api.executionResultAttachments.delete(result.id, evidence.attachmentId);
+        await queryClient.invalidateQueries({ queryKey: ["execution-result-attachments", result.id] });
+        await refreshExecutionScope(executionId);
+      } else {
+        // Historical run-level evidence retains its original ownership.
+        await persistCaseResult(selectedTestCaseId, { stepEvidencePatch: { [step.id]: null } });
+        if (evidence.attachmentId) {
+          try { await api.attachments.delete(evidence.attachmentId); }
+          catch (error) {
             await persistCaseResult(selectedTestCaseId, { stepEvidencePatch: { [step.id]: evidence } });
-          } catch {
-            throw new Error(`${deleteError instanceof Error ? deleteError.message : "attachment deletion failed"} The metadata reference could not be restored.`);
+            throw error;
           }
-          throw new Error(`${deleteError instanceof Error ? deleteError.message : "attachment deletion failed"} The evidence reference was restored.`);
         }
       }
-      if (executionEvidencePreview?.attachmentId === evidence.attachmentId || executionEvidencePreview?.sourceUrl === evidence.dataUrl) {
-        closeExecutionEvidence();
-      }
-      showSuccess("Evidence removed from the connected workspace.");
-    } catch (error) {
-      showError(error, "Unable to delete evidence");
-    }
+      if (executionEvidencePreview?.attachmentId === evidence.attachmentId || executionEvidencePreview?.sourceUrl === evidence.dataUrl) closeExecutionEvidence();
+      showSuccess("Evidence removed.");
+    } catch (error) { showError(error, "Unable to delete evidence"); }
   };
 
   const handleBulkStepStatus = async (status: "passed" | "failed", scope: "selected" | "all") => {
     if (!selectedExecution || !selectedTestCaseId || !selectedSteps.length) {
       return;
     }
-    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked) {
-      showError(new Error("Permission required: run.execute and result.manage"), "Unable to update steps");
+    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || caseLifecycleAction) {
+      showError(new Error("Start or resume the case before recording step results."), "Unable to update steps");
       return;
     }
 
@@ -4906,14 +4655,52 @@ export function ExecutionsPage() {
   const selectedExecutionResult = selectedExecutionCase
     ? resultForCaseInstance(selectedExecutionCaseInstance)
     : null;
+  const isSelectedCaseTimerActive = selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.timer_started_at);
+  const canRecordSelectedCase = selectedExecutionResult?.status === "running" && Boolean(selectedExecutionResult.started_at || selectedExecutionStartMode !== "manual");
   const selectedExecutionCaseEffectiveUser = selectedExecutionCase?.assigned_user || selectedExecution?.assigned_user || null;
-  const selectedExecutionCaseExplicitAssigneeId = selectedExecutionCase?.assigned_to || "";
+  const selectedExecutionCaseExplicitAssigneeId = selectedExecutionCase?.assignment_source === "case" ? selectedExecutionCase.assigned_to || "" : "";
   const selectedExecutionCaseReadableTitle = selectedExecutionCase
     ? resolveStepParameterText(selectedExecutionCase.title, executionStepParameterValues) || selectedExecutionCase.title
     : "";
   const selectedExecutionCaseReadableDescription = selectedExecutionCase
     ? executionStepText(selectedExecutionCase.description, executionStepParameterValues)
     : "";
+
+  const ensureSelectedCaseResult = async () => {
+    if (!selectedExecution || !selectedExecutionCaseInstance) throw new Error("Select a case row first.");
+    const result = await api.executionResults.ensure({
+      execution_id: selectedExecution.id,
+      test_case_id: selectedExecutionCaseInstance.test_case_id,
+      data_set_iteration_index: selectedExecutionCaseInstance.data_set_iteration_index ?? undefined,
+      data_set_iteration_key: selectedExecutionCaseInstance.data_set_iteration_key || undefined
+    });
+    await refreshExecutionScope(selectedExecution.id);
+    return result;
+  };
+
+  const handleCaseLifecycle = async (action: ExecutionCaseLifecycleAction) => {
+    if (!selectedExecution || !selectedExecutionCaseInstance || caseLifecycleAction) return;
+    const executionId = selectedExecution.id;
+    setCaseLifecycleAction(action);
+    try {
+      await api.executionResults.transition({
+        execution_id: executionId,
+        test_case_id: selectedExecutionCaseInstance.test_case_id,
+        data_set_iteration_index: selectedExecutionCaseInstance.data_set_iteration_index ?? undefined,
+        data_set_iteration_key: selectedExecutionCaseInstance.data_set_iteration_key || undefined,
+        expected_revision: selectedExecutionResult?.revision,
+        expected_result_id: selectedExecutionResult?.id,
+        action
+      });
+      await refreshExecutionScope(executionId);
+      setLiveNow(Date.now());
+    } catch (error) {
+      showError(error, "Unable to update case run");
+      await refreshExecutionScope(executionId);
+    } finally {
+      setCaseLifecycleAction(null);
+    }
+  };
 
   const handleAttachStepNetworkAutomation = async (network: NonNullable<ExecutionStepWebDetail["network"]>) => {
     if (!canBuildRunAutomation) {
@@ -4968,8 +4755,8 @@ export function ExecutionsPage() {
     if (!selectedExecution || !selectedTestCaseId) {
       return;
     }
-    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked) {
-      showError(new Error("Permission required: run.execute and result.manage"), "Unable to run API step");
+    if (!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase) {
+      showError(new Error("Start or resume the case before running a step."), "Unable to run API step");
       return;
     }
 
@@ -5131,30 +4918,8 @@ export function ExecutionsPage() {
     }
   };
 
-  useEffect(() => {
-    if (!isExecutionStarted || isExecutionLocked || !selectedExecutionCaseInstance) {
-      return;
-    }
-
-    setCaseTimerStartedAtById((current) =>
-      current[selectedExecutionCaseInstance.instance_key]
-        ? current
-        : { ...current, [selectedExecutionCaseInstance.instance_key]: Date.now() }
-    );
-  }, [isExecutionLocked, isExecutionStarted, selectedExecutionCaseInstance]);
-
-  const resolveCaseDurationMs = (caseInstanceKey: string, result?: ExecutionResult | null) => {
-    if (typeof result?.duration_ms === "number") {
-      return result.duration_ms;
-    }
-
-    const startedAt = caseTimerStartedAtById[caseInstanceKey];
-    if (startedAt && isExecutionStarted && !isExecutionLocked) {
-      return Math.max(liveNow - startedAt, 0);
-    }
-
-    return null;
-  };
+  const resolveCaseDurationMs = (_caseInstanceKey: string, result?: ExecutionResult | null) =>
+    getExecutionResultDurationMs(result, liveNow);
 
   const selectedStepProgress = useMemo(() => {
     const passedCount = selectedSteps.filter((step) => stepStatuses[step.id] === "passed").length;
@@ -5171,15 +4936,15 @@ export function ExecutionsPage() {
   }, [selectedSteps, stepStatuses]);
 
   const selectedExecutionDurationMs = useMemo(
-    () => computeExecutionDurationMs(selectedExecution?.started_at, selectedExecution?.ended_at, liveNow),
-    [liveNow, selectedExecution?.ended_at, selectedExecution?.started_at]
+    () => executionResults.reduce((sum, result) => sum + getExecutionResultDurationMs(result, liveNow), 0),
+    [executionResults, liveNow]
   );
 
   const selectedCaseDurationMs = useMemo(
     () => (selectedExecutionCaseInstance
       ? resolveCaseDurationMs(selectedExecutionCaseInstance.instance_key, selectedExecutionResult)
       : null),
-    [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, selectedExecutionCaseInstance, selectedExecutionResult]
+    [isExecutionLocked, isExecutionStarted, liveNow, selectedExecutionCaseInstance, selectedExecutionResult]
   );
 
   const averageCaseDurationMs = useMemo(
@@ -5187,12 +4952,9 @@ export function ExecutionsPage() {
     [latestExecutionResults]
   );
 
-  const resolveExecutionCaseDurationMs = (testCase: ExecutionCaseView) => {
-    const durations = testCase.data_set_instances
-      .map((instance) => resolveCaseDurationMs(instance.instance_key, resultForCaseInstance(instance)))
-      .filter((duration): duration is number => typeof duration === "number");
-    return durations.length ? durations.reduce((total, duration) => total + duration, 0) : null;
-  };
+  const resolveExecutionCaseDurationMs = (testCase: ExecutionCaseView) => executionResults
+    .filter((result) => result.test_case_id === testCase.id)
+    .reduce((sum, result) => sum + getExecutionResultDurationMs(result, liveNow), 0);
 
   const suiteDurationById = useMemo(() => {
     return executionSuites.reduce<Record<string, number | null>>((accumulator, suite) => {
@@ -5204,7 +4966,7 @@ export function ExecutionsPage() {
       accumulator[suite.id] = total > 0 ? total : null;
       return accumulator;
     }, {});
-  }, [displayCasesBySuiteId, executionSuites, resultByCaseInstanceKey, caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow]);
+  }, [displayCasesBySuiteId, executionSuites, executionResults, isExecutionLocked, isExecutionStarted, liveNow]);
 
   const filteredExecutionSuites = useMemo(() => {
     const query = executionSuiteSearch.trim().toLowerCase();
@@ -5536,14 +5298,12 @@ export function ExecutionsPage() {
   const hasCaseReferenceChange =
     caseReferenceDraft.trim() !== selectedExecutionCaseReferenceText
     || caseDefectDraft.trim() !== selectedExecutionCaseDefectText;
-  const selectedExecutionCaseAssignmentHint = selectedExecutionCase?.assigned_to
-    ? "This case has its own run-level assignee override."
-    : selectedExecution?.assigned_user
-      ? `This case is currently following ${resolveUserPrimaryLabel(selectedExecution.assigned_user)} from the run.`
-      : "No assignee is set yet for this run or this case.";
+  const selectedExecutionCaseAssignmentHint = selectedExecutionCaseEffectiveUser
+    ? `${resolveUserPrimaryLabel(selectedExecutionCaseEffectiveUser)} · ${selectedExecutionCase?.assignment_source || "run"} assignment`
+    : "Uses the run assignee unless a suite, module, or case assignee is set.";
   const remainingCaseCount = Math.max(executionProgress.totalCases - executionProgress.completedCases, 0);
   const isSelectedExecutionTestCaseRun = Boolean(selectedExecution && !selectedExecutionSuiteIds.length);
-  const selectedCaseStatusLabel = selectedExecutionCase ? caseDerivedStatus(selectedExecutionCase) : executionProgress.derivedStatus;
+  const selectedCaseStatusLabel = selectedExecutionCaseInstance ? instanceDerivedStatus(selectedExecutionCaseInstance) : executionProgress.derivedStatus;
   const executionCaseInstanceOrder = executionCaseOrder.flatMap((testCase) =>
     testCase.data_set_instances.map((instance) => ({ testCase, instance }))
   );
@@ -5612,7 +5372,7 @@ export function ExecutionsPage() {
           : "Run locked";
   const executionControlDescription =
     currentExecutionStatus === "running"
-      ? `${formatDuration(selectedExecutionDurationMs, DEFAULT_DURATION_LABEL)} elapsed across the run.`
+      ? `${formatDuration(selectedExecutionDurationMs, DEFAULT_DURATION_LABEL)} active case time across the run.`
       : currentExecutionStatus === "queued"
         ? "Start the run before step-level result capture."
         : currentExecutionStatus === "aborted"
@@ -6116,7 +5876,7 @@ export function ExecutionsPage() {
       label: "Resolved",
       render: (suite) => {
         const suiteMetric = suiteMetrics.find((item) => item.suiteId === suite.id);
-        const resolvedCount = (suiteMetric?.passedCount || 0) + (suiteMetric?.failedCount || 0) + (suiteMetric?.blockedCount || 0);
+        const resolvedCount = suiteMetric?.completedCount || 0;
         return `${resolvedCount}/${suiteMetric?.count || 0}`;
       }
     },
@@ -6203,7 +5963,7 @@ export function ExecutionsPage() {
       defaultVisible: false,
       render: (testCase) => testCase.external_references.length
     }
-  ], [caseTimerStartedAtById, isExecutionLocked, isExecutionStarted, liveNow, resultByCaseInstanceKey, selectedExecution?.assigned_user, selectedExecutionId, stepsByCaseId]);
+  ], [isExecutionLocked, isExecutionStarted, liveNow, resultByCaseInstanceKey, selectedExecution?.assigned_user, selectedExecutionId, stepsByCaseId]);
 
   const executionListColumns = useMemo<Array<DataTableColumn<Execution>>>(() => [
     { key: "execution", label: "Run Name", canToggle: false, render: (execution) => <strong>{execution.name || "Unnamed run"}</strong> },
@@ -6213,7 +5973,7 @@ export function ExecutionsPage() {
     { key: "stories", label: "Story impact", render: (execution) => { const count = runStoryCounts(execution, executionImpactSummaryById[execution.id] || EMPTY_EXECUTION_RUN_IMPACT_SUMMARY); return `${count.failed}/${count.total}`; } },
     { key: "startDate", label: "Start date", render: (execution) => execution.start_date?.slice(0, 10) || "Not planned" },
     { key: "endDate", label: "End date", render: (execution) => execution.end_date?.slice(0, 10) || "Not planned" },
-    { key: "duration", label: "Duration", render: (execution) => formatDuration(computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow), DEFAULT_DURATION_LABEL) },
+    { key: "duration", label: "Duration", render: (execution) => formatDuration(execution.metrics?.duration_ms ?? executionSummaryById[execution.id]?.totalDurationMs ?? 0, "0s") },
     { key: "edit", label: "Actions", render: (execution) => <button aria-label={`Edit ${execution.name || "run"}`} className="ghost-button" disabled={!canUpdateRuns || isRunFinished(execution)} onClick={(event) => { event.stopPropagation(); setEditingRunId(execution.id); }} type="button"><IconPencil size={16} />Edit run</button> }
   ], [canUpdateRuns, executionImpactSummaryById, liveNow]);
   const executionScheduleListColumns = useMemo<Array<DataTableColumn<ExecutionSchedule>>>(() => [
@@ -6410,98 +6170,28 @@ export function ExecutionsPage() {
       : Boolean(projectId && appTypeId && selectedSuiteIds.length)
   );
 
-  const persistCaseOutcomeOnly = async (
-    testCaseId: string,
-    status: "passed" | "failed",
-    targetInstance: ExecutionCaseInstanceView
-  ) => {
-    const scopedAppTypeId = selectedExecution?.app_type_id;
-    const currentCaseSnapshot = snapshotCases.find((snapshot) => snapshot.test_case_id === testCaseId);
-    if (!selectedExecution || !scopedAppTypeId || !currentCaseSnapshot) {
-      return;
-    }
-
-    const fresh =
-      queryClient.getQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id]) || executionResults;
-    const existing = selectLatestExecutionResultInstances(fresh)
-      .find((item) => executionResultMatchesCaseInstance(item, targetInstance));
-    const prev = parseExecutionLogs(existing?.logs || null);
-    const logs = stringifyExecutionLogs({
-      stepStatuses: prev.stepStatuses || {},
-      stepNotes: prev.stepNotes || {},
-      stepEvidence: prev.stepEvidence || {},
-      stepDefects: prev.stepDefects || {},
-      stepApiDetails: prev.stepApiDetails || {},
-      stepWebDetails: prev.stepWebDetails || {},
-      stepCaptures: prev.stepCaptures || {}
+  const prepareCaseForBulkResult = async (instance: ExecutionCaseInstanceView) => {
+    if (!selectedExecution) throw new Error("Select a run first.");
+    const fresh = queryClient.getQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id]) || executionResults;
+    const existing = selectLatestExecutionResultInstances(fresh).find((result) => executionResultMatchesCaseInstance(result, instance));
+    if (existing?.status === "running" && existing.started_at) return existing;
+    const result = await api.executionResults.transition({
+      execution_id: selectedExecution.id, test_case_id: instance.test_case_id,
+      data_set_iteration_index: instance.data_set_iteration_index,
+      data_set_iteration_key: instance.data_set_iteration_key,
+      expected_revision: existing?.revision, expected_result_id: existing?.id,
+      action: existing?.status === "paused" ? "resume" : "start"
     });
-    const durationMs = resolvePersistedCaseDurationMs(targetInstance.instance_key, existing);
+    queryClient.setQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id], (current = []) => [result, ...current.filter(item => item.id !== result.id)]);
+    return result;
+  };
 
-    if (existing) {
-      const updateResponse = await updateResult.mutateAsync({
-        id: existing.id,
-        input: {
-          status,
-          duration_ms: durationMs ?? undefined,
-          logs,
-          error: status === "failed" ? "Marked at suite level" : "",
-          expected_revision: existing.revision
-        }
-      });
-      queryClient.setQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id], (current = []) =>
-        current.map((item) =>
-          item.id === existing.id
-            ? { ...item, status, duration_ms: durationMs, logs, error: status === "failed" ? "Marked at suite level" : null, case_defects: updateResponse.case_defects, defects: updateResponse.defects, revision: updateResponse.revision }
-            : item
-        )
-      );
-      return;
-    }
-
-    const response = await createResult.mutateAsync({
-      execution_id: selectedExecution.id,
-      test_case_id: testCaseId,
-      app_type_id: scopedAppTypeId,
-      status,
-      duration_ms: durationMs ?? undefined,
-      logs,
-      error: status === "failed" ? "Marked at suite level" : undefined,
-      test_data_set_id: targetInstance.test_data_set_id || undefined,
-      test_data_set_name: targetInstance.test_data_set_name || undefined,
-      data_set_iteration_index: targetInstance.data_set_iteration_index ?? undefined,
-      data_set_iteration_key: targetInstance.data_set_iteration_key || undefined,
-      data_set_row_snapshot: targetInstance.data_set_row_snapshot || undefined,
-      external_references: currentCaseSnapshot.external_references || [],
-      defects: [],
-      executed_by: session!.user.id
-    });
-
-    queryClient.setQueryData<ExecutionResult[]>(["execution-results", selectedExecution.id], (current = []) => [
-      {
-        id: response.id,
-        execution_id: selectedExecution.id,
-        test_case_id: testCaseId,
-        test_case_title: currentCaseSnapshot.test_case_title,
-        suite_id: currentCaseSnapshot.suite_id,
-        suite_name: currentCaseSnapshot.suite_name,
-        app_type_id: scopedAppTypeId,
-        status,
-        duration_ms: durationMs,
-        error: status === "failed" ? "Marked at suite level" : null,
-        logs,
-        test_data_set_id: targetInstance.test_data_set_id,
-        test_data_set_name: targetInstance.test_data_set_name,
-        data_set_iteration_index: targetInstance.data_set_iteration_index,
-        data_set_iteration_key: targetInstance.data_set_iteration_key,
-        data_set_row_snapshot: targetInstance.data_set_row_snapshot,
-        external_references: currentCaseSnapshot.external_references || [],
-        case_defects: [],
-        defects: [],
-        revision: response.revision,
-        executed_by: session!.user.id
-      },
-      ...current
-    ]);
+  const persistCaseOutcomeOnly = async (testCaseId: string, status: "passed" | "failed", targetInstance: ExecutionCaseInstanceView) => {
+    if (!selectedExecution) return;
+    const existing = await prepareCaseForBulkResult(targetInstance);
+    await api.executionResults.transition({ execution_id: selectedExecution.id, test_case_id: testCaseId,
+      data_set_iteration_index: targetInstance.data_set_iteration_index, data_set_iteration_key: targetInstance.data_set_iteration_key,
+      expected_revision: existing.revision, expected_result_id: existing.id, action: status === "passed" ? "pass" : "fail" });
   };
 
   const handleSuiteBulkStatus = async (suiteId: string, status: "passed" | "failed") => {
@@ -6519,6 +6209,7 @@ export function ExecutionsPage() {
         const steps = stepsByCaseId[testCase.id] || [];
         for (const instance of testCase.data_set_instances) {
           if (steps.length) {
+            await prepareCaseForBulkResult(instance);
             const patch = steps.reduce<Record<string, ExecutionStepStatus>>((acc, step) => {
               acc[step.id] = status;
               return acc;
@@ -6533,6 +6224,7 @@ export function ExecutionsPage() {
       await refreshExecutionScope();
       showSuccess(`Suite marked ${status} for all cases.`);
     } catch (error) {
+      await refreshExecutionScope();
       showError(error, "Unable to update suite");
     }
   };
@@ -6756,11 +6448,11 @@ export function ExecutionsPage() {
       automationDetail={stepAutomationDetails[step.id] || null}
       availableBugs={bugs}
       canCreateEvidence={canCreateRunEvidence}
-      canDeleteEvidence={canDeleteRunEvidence}
+      canDeleteEvidence={canDeleteRunEvidence && canViewRunEvidence}
       canAttachNetworkAutomation={canBuildRunAutomation}
       canInspectApi={canViewRunAutomationCode && (step.step_type === "api" || (!step.step_type && selectedExecutionAppTypeKind === "api"))}
       canPreviewAutomation={canPreviewRunAutomation}
-      canRecordResult={canExecuteRuns && canManageRunResults}
+      canRecordResult={canExecuteRuns && canManageRunResults && canRecordSelectedCase && !caseLifecycleAction}
       canViewAutomationCode={canViewRunAutomationCode}
       canViewEvidence={canViewRunEvidence}
       captures={stepCaptures[step.id] || stepApiDetails[step.id]?.captures || {}}
@@ -6882,7 +6574,6 @@ export function ExecutionsPage() {
     const environmentSnapshot = selectedExecution.test_environment?.snapshot;
     const configurationSnapshot = selectedExecution.test_configuration?.snapshot;
     const dataSetSnapshot = selectedExecution.test_data_set?.snapshot;
-    const hasMissingFinishTime = isRunFinished(selectedExecution) && !selectedExecution.ended_at;
     const runDefectCount = selectedExecution.metrics?.defect_count;
     const runStories = runStoryCounts(selectedExecution, selectedExecutionImpactSummary);
     const resultChartTotal = Math.max(executionProgress.totalCases, 1);
@@ -6890,7 +6581,10 @@ export function ExecutionsPage() {
     const failedChartStop = passedChartStop + executionStatusCounts.failed / resultChartTotal * 100;
     const blockedChartStop = failedChartStop + executionStatusCounts.blocked / resultChartTotal * 100;
     const runningChartStop = blockedChartStop + executionStatusCounts.running / resultChartTotal * 100;
-    const resultChartBackground = `conic-gradient(var(--run-result-passed) 0% ${passedChartStop}%, var(--run-result-failed) ${passedChartStop}% ${failedChartStop}%, var(--run-result-blocked) ${failedChartStop}% ${blockedChartStop}%, var(--run-result-running) ${blockedChartStop}% ${runningChartStop}%, var(--run-result-pending) ${runningChartStop}% 100%)`;
+    const pausedChartStop = runningChartStop + executionStatusCounts.paused / resultChartTotal * 100;
+    const skippedChartStop = pausedChartStop + executionStatusCounts.skipped / resultChartTotal * 100;
+    const abortedChartStop = skippedChartStop + executionStatusCounts.aborted / resultChartTotal * 100;
+    const resultChartBackground = `conic-gradient(var(--run-result-passed) 0% ${passedChartStop}%, var(--run-result-failed) ${passedChartStop}% ${failedChartStop}%, var(--run-result-blocked) ${failedChartStop}% ${blockedChartStop}%, var(--run-result-running) ${blockedChartStop}% ${runningChartStop}%, #a78bfa ${runningChartStop}% ${pausedChartStop}%, #94a3b8 ${pausedChartStop}% ${skippedChartStop}%, #f97316 ${skippedChartStop}% ${abortedChartStop}%, var(--run-result-pending) ${abortedChartStop}% 100%)`;
     const timedResultCount = latestExecutionResults.filter((result) => typeof result.duration_ms === "number" && !Number.isNaN(result.duration_ms)).length;
     const primaryActionDisabled = isExecutionLocked || (
       currentExecutionStatus === "queued"
@@ -7051,7 +6745,7 @@ export function ExecutionsPage() {
               type="button"
             >
               <IconCircleX aria-hidden="true" size={18} stroke={1.9} />
-              <span>{completeExecution.isPending && executionFinalizeAction === "abort" ? "Aborting…" : "Abort"}</span>
+              <span>{completeExecution.isPending && executionFinalizeAction === "abort" ? "Aborting…" : "Abort run"}</span>
             </button>
           </div>
 
@@ -7069,9 +6763,10 @@ export function ExecutionsPage() {
             frontVisual={<span className="execution-run-result-chart" style={{ background: resultChartBackground }}><span><b>{executionProgress.totalCases}</b><span>instances</span></span></span>}
             evidence={[
               `${executionStatusCounts.passed} passed · ${executionStatusCounts.failed} failed · ${executionStatusCounts.blocked} blocked.`,
-              `${executionStatusCounts.running} running · ${executionStatusCounts.queued} queued · ${executionProgress.totalCases} total case instances.`,
+              `${executionStatusCounts.running} running · ${executionStatusCounts.paused} paused · ${executionStatusCounts.queued + executionStatusCounts.pending} unexecuted.`,
+              `${executionStatusCounts.skipped} N/A · ${executionStatusCounts.aborted} aborted · ${executionProgress.totalCases} total case instances.`,
               selectedRunPassRate === null ? "No finalized results yet; a pass rate is not available." : `Pass rate: ${executionStatusCounts.passed} passed ÷ ${selectedRunFinalizedCount} finalized × 100 = ${selectedRunPassRate}% (rounded).`,
-              "Finalized results include passed, failed and blocked instances. Each data-set row counts separately."
+              "Finalized results include passed, failed, blocked, N/A and aborted instances. Each data row counts separately."
             ]}
           />
           <EvidenceFlipCard
@@ -7087,8 +6782,8 @@ export function ExecutionsPage() {
             frontVisual={<span className="execution-run-progress-track"><span style={{ width: `${selectedRunCompletionPercent}%` }} /></span>}
             evidence={[
               `${selectedRunFinalizedCount} finalized of ${executionProgress.totalCases} case instances in this run.`,
-              `${executionStatusCounts.running} running · ${executionStatusCounts.queued} queued · ${remainingCaseCount} still awaiting a finalized result.`,
-              "Progress counts passed, failed and blocked results as finalized; it does not indicate that the run passed.",
+              `${executionStatusCounts.running} running · ${executionStatusCounts.paused} paused · ${executionStatusCounts.queued + executionStatusCounts.pending} unexecuted · ${remainingCaseCount} awaiting an outcome.`,
+              "Progress counts passed, failed, blocked, N/A and aborted results as finalized; it does not indicate that the run passed.",
               executionProgress.totalCases ? `Completion: ${selectedRunFinalizedCount} ÷ ${executionProgress.totalCases} × 100 = ${selectedRunCompletionPercent}% (rounded).` : "No case instances are available for this run."
             ]}
           />
@@ -7098,15 +6793,15 @@ export function ExecutionsPage() {
             resetOnChange={false}
             className="execution-run-metric-card"
             label="Total duration"
-            value={formatDuration(hasMissingFinishTime ? null : selectedExecutionDurationMs, DEFAULT_DURATION_LABEL)}
-            caption={!selectedExecution.started_at ? "Timing begins when the run starts" : hasMissingFinishTime ? "Finish time unavailable for this finished run" : selectedExecution.ended_at ? "Elapsed time from start to finish" : "Elapsed time since this run started"}
+            value={formatDuration(selectedExecutionDurationMs, "0s")}
+            caption="Cumulative active time from case attempts"
             tone="info"
             frontIcon={<IconClock size={18} stroke={1.8} />}
             evidence={[
               selectedExecution.started_at ? `Started: ${formatExecutionTimestamp(selectedExecution.started_at)}.` : "This run has not recorded a start time.",
               selectedExecution.ended_at ? `Ended: ${formatExecutionTimestamp(selectedExecution.ended_at)}.` : "No finish time has been recorded.",
               averageCaseDurationMs === null ? "No timed case results are available for an estimate." : `Average recorded case duration: ${formatDuration(averageCaseDurationMs)} across ${timedResultCount} timed result${timedResultCount === 1 ? "" : "s"}.`,
-              isRunFinished(selectedExecution) ? "Elapsed duration is measured from the run timestamps, separately from summed case durations." : estimatedRemainingMs === null ? "An estimate becomes available after timed case results are saved." : `Estimated remaining case time: ${formatDuration(estimatedRemainingMs)} (${remainingCaseCount} remaining × average case duration). Parallel execution can reduce elapsed time.`
+              "Adds active case time across all attempts. Pauses and time spent browsing are excluded; previous attempts remain included."
             ]}
           />
           <EvidenceFlipCard
@@ -7160,11 +6855,7 @@ export function ExecutionsPage() {
           />
           <div className="execution-command-toolbar-item execution-run-config-card">
             <span>Run configuration</span>
-            <div className="execution-run-config-links">
-              <button disabled={!environmentSnapshot && !selectedExecution.test_environment?.id} onClick={() => setRunConfigurationResource("environment")} type="button"><span>Environment</span><strong>{environmentSnapshot?.name || selectedExecution.test_environment?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
-              <button disabled={!dataSetSnapshot && !selectedExecution.test_data_set?.id} onClick={() => setRunConfigurationResource("data")} type="button"><span>Test data</span><strong>{dataSetSnapshot?.name || selectedExecution.test_data_set?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
-              <button disabled={!configurationSnapshot && !selectedExecution.test_configuration?.id} onClick={() => setRunConfigurationResource("configuration")} type="button"><span>Configuration</span><strong>{configurationSnapshot?.name || selectedExecution.test_configuration?.name || "Not attached"}</strong><IconExternalLink size={15} /></button>
-            </div>
+            <RunContextLinks execution={selectedExecution} onOpen={setRunConfigurationResource} />
           </div>
         </div>
 
@@ -8578,11 +8269,12 @@ export function ExecutionsPage() {
                         <IconArrowLeft aria-hidden="true" size={20} stroke={1.9} />
                         <span>Back</span>
                       </button>
-                      <DisplayIdBadge value={selectedExecutionCase.id} />
+
+                      <span className="execution-case-run-identity-icon"><ExecutionRunIcon /></span>
                       <div className="execution-case-run-title-copy">
+                        <span className="execution-case-run-eyebrow">Test case execution</span>
                         <div className="execution-case-run-title-row">
                           <h1 id="execution-case-run-title">{selectedExecutionCaseReadableTitle || selectedExecutionCase.title}</h1>
-                          <StatusBadge value={selectedCaseStatusLabel} />
                         </div>
                         <p>{selectedExecutionCaseReadableDescription || "Execute this case step by step and capture evidence as you go."}</p>
                         <span>
@@ -8597,14 +8289,29 @@ export function ExecutionsPage() {
                     </div>
 
                     <div className="execution-case-run-header-actions" aria-label="Case run actions">
-                      <button
-                        className="execution-case-run-button"
-                        onClick={() => setIsExecutionContextModalOpen(true)}
-                        type="button"
-                      >
-                        <IconInfoCircle aria-hidden="true" size={18} stroke={1.9} />
-                        <span>Run context</span>
-                      </button>
+                      <ReportBugSplitActionButton
+                        canUseAi={canUseAiBugTriage}
+                        className="execution-case-run-report-bug"
+                        disabled={!selectedExecution || !canReportBugs}
+                        onReportBug={() => handleReportSelectedExecutionIssue(selectedExecutionCase ? "case" : "run")}
+                        onReportBugWithAi={() => handleReportSelectedExecutionIssue(selectedExecutionCase ? "case" : "run", {}, "ai")}
+                      />
+                      <details className="execution-case-more-actions" onBlur={(event) => {
+                        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+                      }} onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.currentTarget.open = false;
+                          event.currentTarget.querySelector("summary")?.focus();
+                          event.stopPropagation();
+                        }
+                      }}>
+                        <summary><IconDots aria-hidden="true" size={18} /><span>More actions</span><IconChevronDown aria-hidden="true" size={14} /></summary>
+                        <div className="execution-case-more-menu" onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("button:not(:disabled), a")) {
+                            const disclosure = event.currentTarget.closest("details");
+                            if (disclosure) disclosure.open = false;
+                          }
+                        }}>
                       <button
                         className="execution-case-run-button"
                         disabled={!canExportRunReports || downloadExecutionCaseReport.isPending}
@@ -8649,13 +8356,6 @@ export function ExecutionsPage() {
                           <span>Live run</span>
                         </a>
                       ) : null}
-                      <ReportBugSplitActionButton
-                        canUseAi={canUseAiBugTriage}
-                        className="execution-case-run-report-bug"
-                        disabled={!selectedExecution || !canReportBugs}
-                        onReportBug={() => handleReportSelectedExecutionIssue(selectedExecutionCase ? "case" : "run")}
-                        onReportBugWithAi={() => handleReportSelectedExecutionIssue(selectedExecutionCase ? "case" : "run", {}, "ai")}
-                      />
                       {currentExecutionStatus === "running" ? (
                         <button
                           className="execution-case-run-button is-danger"
@@ -8664,7 +8364,7 @@ export function ExecutionsPage() {
                           type="button"
                         >
                           <IconCircleX aria-hidden="true" size={18} stroke={1.9} />
-                          <span>{completeExecution.isPending && executionFinalizeAction === "abort" ? "Aborting…" : "Abort"}</span>
+                          <span>{completeExecution.isPending && executionFinalizeAction === "abort" ? "Aborting…" : "Abort run"}</span>
                         </button>
                       ) : null}
                       {currentExecutionStatus === "queued" ? (
@@ -8698,15 +8398,50 @@ export function ExecutionsPage() {
                           <span>{rerunExecution.isPending ? "Preparing…" : "Rerun"}</span>
                         </button>
                       )}
+                        </div>
+                      </details>
                     </div>
                   </header>
 
+                  <div className="execution-case-lifecycle" data-status={selectedCaseStatusLabel} aria-label="Case execution controls">
+                    <div className="execution-case-clock" aria-label="Current attempt active time" title="Active time for this attempt. Earlier attempts remain included in the run total."><IconClock size={19} aria-hidden="true" /><span className="execution-case-clock-label">Active time</span><strong>{formatDuration(selectedCaseDurationMs, "0s")}</strong><StatusBadge value={selectedCaseStatusLabel === "running" ? "in_progress" : selectedCaseStatusLabel === "queued" ? "pending" : selectedCaseStatusLabel} /></div>
+                    <div className="execution-case-lifecycle-actions">
+                      <button className="execution-case-run-button is-primary" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onClick={() => void handleCaseLifecycle(isSelectedCaseTimerActive ? "pause" : selectedCaseStatusLabel === "paused" ? "resume" : "start")} type="button">
+                        {isSelectedCaseTimerActive ? <IconPlayerPause size={17} /> : <IconPlayerPlay size={17} />}
+                        <span>{caseLifecycleAction ? "Saving…" : isSelectedCaseTimerActive ? "Pause case" : selectedCaseStatusLabel === "paused" ? "Resume case" : ["queued", "pending", "running"].includes(selectedCaseStatusLabel) ? "Start case" : "Start new attempt"}</span>
+                      </button>
+                      <label className="execution-case-outcome-control"><span className="sr-only">Set case outcome</span>
+                        <select aria-label="Set case outcome" value="" disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || Boolean(caseLifecycleAction)} onChange={(event) => { if (event.target.value) void handleCaseLifecycle(event.target.value as ExecutionCaseLifecycleAction); }}>
+                          <option value="" disabled>Set outcome…</option>
+                          <option value="block">Blocked</option><option value="skip">N/A</option><option value="abort">Aborted</option><option value="reset">Unexecuted</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  <section className="execution-case-context" aria-label="Case run context">
+                    <div className="execution-case-context-heading"><strong>Run context</strong><span>Values frozen for this run</span></div>
+                    <RunContextLinks execution={selectedExecution} dataSet={selectedExecutionCaseSnapshot?.test_data_set_snapshot} dataSetName={selectedExecutionCaseInstance?.test_data_set_name} appTypeKind={selectedExecutionAppTypeKind} showTarget onOpen={setRunConfigurationResource} />
+                    {hasSelectedCaseTestData ? <label className="execution-case-row-selector">
+                      <span>Active data row</span>
+                      <select aria-label="Active data row" value={selectedExecutionCaseInstance?.instance_key || ""} onChange={(event) => focusExecutionCase(selectedExecutionCase.id, selectedExecution.id, event.target.value)}>
+                        {selectedExecutionCase.data_set_instances.map((instance) => <option key={instance.instance_key} value={instance.instance_key}>
+                          Row {(instance.data_set_iteration_index ?? 0) + 1} of {selectedExecutionCase.data_set_instances.length} · {BOARD_STATUS_META[instanceDerivedStatus(instance)]?.label || "Unexecuted"}
+                        </option>)}
+                      </select>
+                      <small>{selectedExecutionCaseInstance?.data_set_source === "run" ? "Run data overrides case data" : "Test case data"} · Each row has its own outcome and clock</small>
+                    </label> : null}
+                    <CaseRunParameterContext collapsible execution={selectedExecution} caseSnapshot={selectedExecutionCaseSnapshot} steps={selectedSteps} caseTitle={selectedExecutionCase.title} dataSetRow={selectedExecutionCaseInstance?.data_set_row_snapshot} rowIndex={selectedExecutionCaseInstance?.data_set_iteration_index} capturedValues={combineStepParameterValues(suiteExecutionOutputParameterValues, executionOutputParameterValues)} />
+
+                  </section>
+
                   <div className="execution-case-run-tabs">
                     <SubnavTabs
+                      ariaLabel="Case run sections"
                       items={[
-                        { value: "overview", label: "Overview", meta: `${selectedSteps.length} steps` },
-                        { value: "logs", label: "Logs", meta: selectedExecutionResult?.status || "none" },
-                        { value: "history", label: "History", meta: `${selectedCaseHistory.length}` },
+                        { value: "overview", label: "Overview" },
+                        { value: "history", label: "History" },
+                        { value: "logs", label: "Logs" },
                         { value: "evidence", label: "Attachments" }
                       ]}
                       onChange={setActiveTab}
@@ -8714,43 +8449,9 @@ export function ExecutionsPage() {
                     />
                   </div>
 
-                  <div className="execution-case-run-body">
+                  <div className={activeTab === "overview" ? "execution-case-run-body" : "execution-case-run-body is-tab-focused"}>
                     <main className="execution-case-run-primary">
-                      <QualityMetricStrip
-                        ariaLabel="Selected run case metrics"
-                        className="execution-detail-glance execution-case-run-metrics"
-                        metrics={[
-                          {
-                            label: "Outcome",
-                            value: BOARD_STATUS_META[selectedCaseStatusLabel as BoardStatusTone]?.label || "Queued",
-                            detail: selectedExecutionResult?.created_at
-                              ? `Last evidence ${formatExecutionTimestamp(selectedExecutionResult.created_at)}`
-                              : "Awaiting case result",
-                            tone: selectedCaseStatusLabel === "failed" || selectedCaseStatusLabel === "blocked" ? "danger" : selectedCaseStatusLabel === "passed" ? "success" : "neutral"
-                          },
-                          {
-                            label: "Case duration",
-                            value: formatDuration(selectedCaseDurationMs, DEFAULT_DURATION_LABEL),
-                            detail: selectedCaseDurationMs === null ? "Starts with execution" : "Measured run time"
-                          },
-                          {
-                            label: "Step completion",
-                            value: selectedSteps.length ? `${selectedStepProgress.percent}%` : "—",
-                            detail: selectedSteps.length
-                              ? `${selectedStepProgress.passedCount + selectedStepProgress.failedCount} of ${selectedSteps.length} resolved`
-                              : "No steps loaded",
-                            progress: selectedSteps.length ? selectedStepProgress.percent : null,
-                            tone: "info"
-                          },
-                          {
-                            label: "Evidence captured",
-                            value: resolvedEvidenceArtifactCount,
-                            detail: resolvedEvidenceArtifactCount
-                              ? `${resolvedStepNoteCount} notes · ${resolvedStepImageCount} files`
-                              : "No evidence captured"
-                          }
-                        ]}
-                      />
+
 
                       {activeTab === "overview" ? (
                         <div className="execution-overview-tab execution-case-run-overview">
@@ -8768,6 +8469,35 @@ export function ExecutionsPage() {
                           />
                         </div>
 
+                        {executionPreconditionSteps.length ? (
+                      <section className="execution-case-run-inspector-panel execution-case-run-preconditions">
+                        <button
+                          aria-expanded={expandedExecutionStepSections.preconditions}
+                          className="execution-case-run-inspector-header execution-case-run-inspector-toggle"
+                          onClick={() => setExpandedExecutionStepSections((current) => ({ ...current, preconditions: !current.preconditions }))}
+                          type="button"
+                        >
+                          <div>
+                            <IconCheckbox aria-hidden="true" size={20} stroke={1.9} />
+                            <h2>Preconditions</h2>
+                            <span className="count-pill">{executionPreconditionSteps.length}</span>
+                          </div>
+                          <IconChevronRight
+                            aria-hidden="true"
+                            className={expandedExecutionStepSections.preconditions ? "is-expanded" : ""}
+                            size={18}
+                            stroke={2}
+                          />
+                        </button>
+                        {expandedExecutionStepSections.preconditions ? (
+                          <div className="execution-step-card-list execution-case-run-precondition-list" role="list" aria-label="Preconditions for this case">
+                            {executionPreconditionSteps.map(renderExecutionStepCard)}
+                            {!executionPreconditionSteps.length ? <div className="empty-state compact">No preconditions were captured in this run snapshot.</div> : null}
+                          </div>
+                        ) : null}
+                      </section>
+                        ) : null}
+
                         {!selectedSteps.length ? <div className="empty-state compact">No snapshot steps are available for this case.</div> : null}
 
                         {selectedSteps.length ? (
@@ -8776,7 +8506,7 @@ export function ExecutionsPage() {
                               <div>
                                 <strong>Test steps</strong>
                                 <span>
-                                  Resolve the snapped flow in order, capture evidence, and switch to runtime code when automation is available.
+                                  Follow the saved behavior and record each step’s outcome.
                                 </span>
                               </div>
                               <div className="execution-step-view-header-actions">
@@ -8789,7 +8519,7 @@ export function ExecutionsPage() {
                                     type="button"
                                   >
                                     <IconActivity aria-hidden="true" size={16} stroke={1.9} />
-                                    <span>Manual steps</span>
+                                    <span>Gherkin steps</span>
                                   </button>
                                   {canViewRunAutomationCode ? (
                                     <button
@@ -8830,7 +8560,7 @@ export function ExecutionsPage() {
                                     <span aria-hidden="true" className="execution-case-run-action-divider" />
                                     <button
                                       className="ghost-button execution-steps-bulk-action"
-                                      disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !bulkSelectedStepIds.length}
+                                      disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || Boolean(caseLifecycleAction) || !bulkSelectedStepIds.length}
                                       onClick={() => void handleBulkStepStatus("passed", "selected")}
                                       type="button"
                                     >
@@ -8839,7 +8569,7 @@ export function ExecutionsPage() {
                                     </button>
                                     <button
                                       className="ghost-button danger execution-steps-bulk-action"
-                                      disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !bulkSelectedStepIds.length}
+                                      disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || Boolean(caseLifecycleAction) || !bulkSelectedStepIds.length}
                                       onClick={() => void handleBulkStepStatus("failed", "selected")}
                                       type="button"
                                     >
@@ -8955,7 +8685,7 @@ export function ExecutionsPage() {
                           </div>
                         ) : null}
 
-                        {!isExecutionStarted && !isExecutionLocked ? <div className="empty-state compact">Start the execution to enable step actions.</div> : null}
+                        {(!isExecutionStarted || selectedExecutionResult?.status !== "running") && !isExecutionLocked ? <div className="empty-state compact">Start the run, then start this case to enable step outcomes and timing.</div> : null}
                         {isExecutionLocked ? <div className="empty-state compact">This execution is locked because it is {executionStatusLabel(currentExecutionStatus).toLowerCase()}.</div> : null}
                       </div>
                       ) : null}
@@ -8979,7 +8709,7 @@ export function ExecutionsPage() {
                         )}
 
                         {executionResults
-                          .filter((result) => result.id !== selectedExecutionResult?.id)
+                          .filter((result) => result.id !== selectedExecutionResult?.id && selectedExecutionCaseInstance && executionResultMatchesCaseInstance(result, selectedExecutionCaseInstance))
                           .map((result) => (
                             <div className="stack-item execution-log-row" key={result.id}>
                               <div>
@@ -8997,6 +8727,13 @@ export function ExecutionsPage() {
 
                       {activeTab === "history" ? (
                         <div className="stack-list execution-history-stack execution-case-run-tab-panel">
+                        {selectedExecutionResult?.lifecycle_history?.length ? <ol className="execution-case-history-events" aria-label="Case activity">
+                          {selectedExecutionResult.lifecycle_history.slice().reverse().map((event, index) => <li key={`${event.at}-${index}`}>
+                            <strong>{event.actor_name || event.actor_email || "Tester"}</strong>
+                            <span>{event.from_status ? `${BOARD_STATUS_META[event.from_status as BoardStatusTone]?.label || event.from_status} → ` : ""}{BOARD_STATUS_META[event.to_status as BoardStatusTone]?.label || event.to_status}</span>
+                            <small>{formatDuration(event.duration_ms, "0s")} active time</small><time dateTime={event.at}>{formatExecutionTimestamp(event.at)}</time>
+                          </li>)}
+                        </ol> : null}
                         {selectedCaseHistory.map((result) => {
                           const linkedExecution = executionById[result.execution_id];
                           const isCurrentExecution = result.execution_id === selectedExecution.id;
@@ -9005,13 +8742,13 @@ export function ExecutionsPage() {
                             <button
                               className={isCurrentExecution ? "stack-item stack-item-button execution-history-row is-current" : "stack-item stack-item-button execution-history-row"}
                               key={result.id}
-                              onClick={() => focusExecutionCase(result.test_case_id, result.execution_id)}
+                              onClick={() => setHistoryResult(result)}
                               type="button"
                             >
                               <div>
                                 <strong>{linkedExecution?.name || result.test_case_title || "Run record"}</strong>
                                 <span>{result.suite_name || "Recorded case evidence"} · {formatExecutionTimestamp(result.created_at, "Timestamp unavailable")}</span>
-                                <small>{formatDuration(result.duration_ms, DEFAULT_DURATION_LABEL)} · {isCurrentExecution ? "Current run" : "Switch to this run"}</small>
+                                <small>{formatDuration(result.duration_ms, DEFAULT_DURATION_LABEL)} · {result.data_set_iteration_index != null ? `Row ${result.data_set_iteration_index + 1} · ` : ""}View saved attempt</small>
                               </div>
                               <StatusBadge value={result.status} />
                             </button>
@@ -9022,21 +8759,27 @@ export function ExecutionsPage() {
                       ) : null}
                       {activeTab === "evidence" ? (
                         <div className="execution-case-run-tab-panel">
-                          <JiraAttachmentPanel
-                            canDelete={canDeleteRunEvidence}
-                            canUpload={canCreateRunEvidence}
+                          <CaseRunAttachmentPanel
+                            key={`${selectedExecution.id}:${selectedExecutionCaseInstance?.instance_key}`}
+                            resultId={selectedExecutionResult?.id}
+                            executionId={selectedExecution.id}
+                            testCaseId={selectedExecutionCase.id}
+                            iterationKey={selectedExecutionCaseInstance?.instance_key}
                             canView={canViewRunEvidence}
-                            entityId={selectedExecution.id}
-                            entityType="execution"
-                            issueKey={selectedExecution.display_id || selectedExecution.id}
-                            projectId={projectId}
-                            title="Run attachments"
+                            canUpload={canCreateRunEvidence}
+                            canDelete={canDeleteRunEvidence}
+                            ensureResult={ensureSelectedCaseResult}
+                            onEvidenceChange={() => refreshExecutionScope(selectedExecution.id)}
+                            legacyEvidence={stepEvidence}
                           />
+                          <details className="execution-legacy-attachments"><summary>Earlier run attachments</summary>
+                            <JiraAttachmentPanel canDelete={canDeleteRunEvidence} canUpload={false} canView={canViewRunEvidence} entityId={selectedExecution.id} entityType="execution" issueKey={selectedExecution.id} projectId={projectId} title="Earlier run attachments" />
+                          </details>
                         </div>
                       ) : null}
                     </main>
 
-                    <aside className="execution-case-run-inspector" aria-label="Case run details and context">
+                    {activeTab === "overview" ? <aside className="execution-case-run-inspector" aria-label="Case run details and context">
                       <section className="execution-case-run-inspector-panel">
                         <header className="execution-case-run-inspector-header">
                           <div>
@@ -9078,52 +8821,7 @@ export function ExecutionsPage() {
                         </div>
                       </section>
 
-                      {hasSelectedCaseTestData ? (
-                        <section className="execution-case-run-inspector-panel execution-case-data-instances">
-                          <header className="execution-case-run-inspector-header">
-                            <div>
-                              <IconDatabase aria-hidden="true" size={20} stroke={1.9} />
-                              <h2>Data Set instances</h2>
-                            </div>
-                            <span className="count-pill">{selectedExecutionCase.data_set_instances.length}</span>
-                          </header>
-                          <div className="execution-case-run-inspector-content">
-                            <p className="execution-case-run-panel-help">
-                              Each frozen row is an independent case outcome. Selecting a row changes the resolved step values without editing the source Data Set.
-                            </p>
-                            <div className="execution-case-detail-instance-list" role="list" aria-label="Data Set execution instances">
-                              {selectedExecutionCase.data_set_instances.map((instance) => {
-                                const instanceStatus = instanceDerivedStatus(instance);
-                                const rowNumber = (instance.data_set_iteration_index ?? 0) + 1;
-                                return (
-                                  <button
-                                    aria-current={selectedExecutionCaseInstance?.instance_key === instance.instance_key ? "true" : undefined}
-                                    className={selectedExecutionCaseInstance?.instance_key === instance.instance_key ? "execution-case-detail-instance is-active" : "execution-case-detail-instance"}
-                                    key={instance.instance_key}
-                                    onClick={() => focusExecutionCase(selectedExecutionCase.id, selectedExecution.id, instance.instance_key)}
-                                    role="listitem"
-                                    type="button"
-                                  >
-                                    <span className="execution-case-detail-instance-heading">
-                                      <strong>Row {rowNumber}</strong>
-                                      <StatusBadge value={instanceStatus} />
-                                    </span>
-                                    <span className="execution-case-detail-instance-values">
-                                      {Object.entries(instance.data_set_row_snapshot || {}).map(([key, value]) => (
-                                        <span key={`${instance.instance_key}-${key}`}>
-                                          <small>{key}</small>
-                                          <b>{value || "—"}</b>
-                                        </span>
-                                      ))}
-                                      {!Object.keys(instance.data_set_row_snapshot || {}).length ? <small>No row values were captured.</small> : null}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </section>
-                      ) : null}
+
 
                       <section className="execution-case-run-inspector-panel execution-case-run-assignee-panel">
                         <header className="execution-case-run-inspector-header">
@@ -9165,7 +8863,7 @@ export function ExecutionsPage() {
                         </div>
                       </section>
 
-                      <section className="execution-case-run-inspector-panel execution-engine-cockpit" aria-label="Test engine cockpit">
+                      {selectedRuntimeTelemetry.webStepCount > 0 ? <section className="execution-case-run-inspector-panel execution-engine-cockpit" aria-label="Test engine cockpit">
                         <header className="execution-case-run-inspector-header">
                           <div>
                             <IconTerminal2 aria-hidden="true" size={20} stroke={1.9} />
@@ -9201,39 +8899,9 @@ export function ExecutionsPage() {
                             </span>
                           </div>
                         </div>
-                      </section>
+                      </section> : null}
 
-                      <section className="execution-case-run-inspector-panel execution-case-run-parameters">
-                        <header className="execution-case-run-inspector-header">
-                          <div>
-                            <IconActivity aria-hidden="true" size={20} stroke={1.9} />
-                            <h2>Runtime parameters</h2>
-                          </div>
-                          <span className="count-pill">{selectedExecutionInputParameterEntries.length + selectedExecutionOutputParameterEntries.length}</span>
-                        </header>
-                        <div className="execution-case-run-inspector-content execution-parameter-stack">
-                          <ExecutionParameterPanel
-                            description={
-                              hasExecutionLevelTestData || hasSelectedCaseTestData
-                                ? "Resolved from saved values, this immutable Data Set row, and run context."
-                                : "Snapped from saved values and the selected run context."
-                            }
-                            emptyMessage="No snapped input params are available for this case yet."
-                            entries={selectedExecutionInputParameterEntries}
-                            isExpanded={isExecutionInputParamsExpanded}
-                            onToggle={() => setIsExecutionInputParamsExpanded((current) => !current)}
-                            title="Input params"
-                          />
-                          <ExecutionParameterPanel
-                            description="Extracted during execution for later steps."
-                            emptyMessage="No output params have been extracted from this case yet."
-                            entries={selectedExecutionOutputParameterEntries}
-                            isExpanded={isExecutionOutputParamsExpanded}
-                            onToggle={() => setIsExecutionOutputParamsExpanded((current) => !current)}
-                            title="Output params"
-                          />
-                        </div>
-                      </section>
+
 
                       <section className="execution-case-run-inspector-panel execution-case-run-references">
                         <header className="execution-case-run-inspector-header">
@@ -9275,39 +8943,14 @@ export function ExecutionsPage() {
                         </div>
                       </section>
 
-                      <section className="execution-case-run-inspector-panel execution-case-run-preconditions">
-                        <button
-                          aria-expanded={expandedExecutionStepSections.preconditions}
-                          className="execution-case-run-inspector-header execution-case-run-inspector-toggle"
-                          onClick={() => setExpandedExecutionStepSections((current) => ({ ...current, preconditions: !current.preconditions }))}
-                          type="button"
-                        >
-                          <div>
-                            <IconCheckbox aria-hidden="true" size={20} stroke={1.9} />
-                            <h2>Preconditions</h2>
-                            <span className="count-pill">{executionPreconditionSteps.length}</span>
-                          </div>
-                          <IconChevronRight
-                            aria-hidden="true"
-                            className={expandedExecutionStepSections.preconditions ? "is-expanded" : ""}
-                            size={18}
-                            stroke={2}
-                          />
-                        </button>
-                        {expandedExecutionStepSections.preconditions ? (
-                          <div className="execution-step-card-list execution-case-run-precondition-list" role="list" aria-label="Preconditions for this case">
-                            {executionPreconditionSteps.map(renderExecutionStepCard)}
-                            {!executionPreconditionSteps.length ? <div className="empty-state compact">No preconditions were captured in this run snapshot.</div> : null}
-                          </div>
-                        ) : null}
-                      </section>
-                    </aside>
+
+                    </aside> : null}
                   </div>
 
                   <footer className="execution-case-run-footer">
                     <div className="execution-case-run-footer-status">
-                      <StatusBadge value={currentExecutionStatus} />
-                      <span>{formatDuration(selectedCaseDurationMs, DEFAULT_DURATION_LABEL)} case time</span>
+                      <StatusBadge value={selectedCaseStatusLabel === "running" ? "in_progress" : selectedCaseStatusLabel === "queued" ? "pending" : selectedCaseStatusLabel} />
+                      <span>{formatDuration(selectedCaseDurationMs, DEFAULT_DURATION_LABEL)} current attempt</span>
                       <span>{resolvedEvidenceArtifactCount} evidence item{resolvedEvidenceArtifactCount === 1 ? "" : "s"}</span>
                     </div>
                     <div className="execution-case-run-navigation" aria-label="Case navigation">
@@ -9338,8 +8981,8 @@ export function ExecutionsPage() {
                     <div className="execution-case-run-footer-actions">
                       <button
                         className="execution-case-run-button is-fail"
-                        disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !selectedSteps.length}
-                        onClick={() => void handleBulkStepStatus("failed", "all")}
+                        disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || Boolean(caseLifecycleAction)}
+                        onClick={() => void (selectedSteps.length ? handleBulkStepStatus("failed", "all") : handleCaseLifecycle("fail"))}
                         type="button"
                       >
                         <IconCircleX aria-hidden="true" size={18} stroke={2} />
@@ -9347,8 +8990,8 @@ export function ExecutionsPage() {
                       </button>
                       <button
                         className="execution-case-run-button is-pass"
-                        disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !selectedSteps.length}
-                        onClick={() => void handleBulkStepStatus("passed", "all")}
+                        disabled={!canExecuteRuns || !canManageRunResults || !isExecutionStarted || isExecutionLocked || !canRecordSelectedCase || Boolean(caseLifecycleAction)}
+                        onClick={() => void (selectedSteps.length ? handleBulkStepStatus("passed", "all") : handleCaseLifecycle("pass"))}
                         type="button"
                       >
                         <IconCircleCheck aria-hidden="true" size={18} stroke={2} />
@@ -10104,7 +9747,7 @@ export function ExecutionsPage() {
 
       {canViewRunAutomationCode && executionApiDetailState ? (
         <ExecutionApiStepDialog
-          canRun={canExecuteRuns && canManageRunResults && isExecutionStarted && !isExecutionLocked && Boolean(selectedExecution && selectedTestCaseId) && Boolean(executionApiDetailState.step.api_request)}
+          canRun={canExecuteRuns && canManageRunResults && canRecordSelectedCase && isExecutionStarted && !isExecutionLocked && Boolean(selectedExecution && selectedTestCaseId) && Boolean(executionApiDetailState.step.api_request)}
           captures={executionApiDetailState.captures}
           detail={executionApiDetailState.detail}
           isRunning={runningExecutionApiStepId === executionApiDetailState.step.id}
@@ -10125,8 +9768,10 @@ export function ExecutionsPage() {
         />
       ) : null}
 
+      {historyResult ? <ExecutionAttemptDialog result={historyResult} runName={executionById[historyResult.execution_id]?.name || "Case run history"} canViewEvidence={canViewRunEvidence} onClose={() => setHistoryResult(null)} /> : null}
+
       {editingRunId ? <RunEditDialog executionId={editingRunId} assigneeOptions={assigneeOptions} canRunLocalAutomation={canRunLocalAutomation} canRunRemoteAutomation={canRunRemoteAutomation} canConfigureParallelAutomation={canConfigureParallelAutomation} onClose={() => setEditingRunId("")} onSaved={() => { setMessage("Run updated."); setMessageTone("success"); }} /> : null}
-      {selectedExecution && runConfigurationResource ? <RunConfigurationDialog resource={runConfigurationResource} projectId={selectedExecution.project_id} appTypeId={selectedExecution.app_type_id} resourceId={runConfigurationResource === "environment" ? selectedExecution.test_environment?.id : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.id : selectedExecution.test_data_set?.id} snapshot={runConfigurationResource === "environment" ? selectedExecution.test_environment?.snapshot : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.snapshot : selectedExecution.test_data_set?.snapshot} onClose={() => setRunConfigurationResource(null)} /> : null}
+      {selectedExecution && runConfigurationResource ? <RunConfigurationDialog resource={runConfigurationResource} projectId={selectedExecution.project_id} appTypeId={selectedExecution.app_type_id} resourceId={runConfigurationResource === "environment" ? selectedExecution.test_environment?.id : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.id : selectedExecutionCaseSnapshot?.test_data_set_id || selectedExecution.test_data_set?.id} snapshot={runConfigurationResource === "environment" ? selectedExecution.test_environment?.snapshot : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.snapshot : selectedExecutionCaseSnapshot?.test_data_set_snapshot || selectedExecution.test_data_set?.snapshot} onClose={() => setRunConfigurationResource(null)} /> : null}
 
       {selectedExecution && isExecutionContextModalOpen ? (
         <ExecutionContextSnapshotModal execution={selectedExecution} onClose={() => setIsExecutionContextModalOpen(false)} />
@@ -10794,7 +10439,7 @@ export function ExecutionListCard({ execution, summary, impactSummary, liveNow, 
   const defects = execution.metrics?.defect_count ?? 0;
   const stories = runStoryCounts(execution, impactSummary);
   const visibleImpactedRequirements = impactSummary.impactedRequirements.filter((story) => story.failedCases > 0).slice(0, 3);
-  const durationLabel = formatDuration(computeExecutionDurationMs(execution.started_at, execution.ended_at, liveNow), DEFAULT_DURATION_LABEL);
+  const durationLabel = formatDuration(execution.metrics?.duration_ms ?? summary.totalDurationMs, "0s");
   const completionPercent = resolvedOutcomeCount ? Math.round(finalizedTotal / resolvedOutcomeCount * 100) : 0;
   const passRate = finalizedTotal ? Math.round(summary.passed / finalizedTotal * 100) : 0;
   return <article aria-label={`Open run ${execution.name || "Unnamed run"}`} className={`record-card tile-card execution-card execution-run-tile-card virtual-card${isActive ? " is-active" : ""}`} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button, input, label, select, textarea")) onSelect(); }}>
@@ -11723,6 +11368,40 @@ function ExecutionStepGroupRow({
   );
 }
 
+function ExecutionAttemptDialog({ result, runName, canViewEvidence, onClose }: {
+  result: ExecutionResult; runName: string; canViewEvidence: boolean; onClose: () => void;
+}) {
+  const run = useQuery({ queryKey: ["execution", result.execution_id], queryFn: () => api.executions.get(result.execution_id) });
+  const steps = (run.data?.step_snapshots || []).filter(step => step.test_case_id === result.test_case_id).map(toStepView);
+  return <RunReviewDialog title="Case attempt" runName={runName} onClose={onClose}>
+    <div className="execution-attempt-summary"><StatusBadge value={result.status} /><span>{formatDuration(result.duration_ms, "0s")} active time</span><span>{result.data_set_iteration_index != null ? `Data row ${result.data_set_iteration_index + 1}` : "Default case instance"}</span></div>
+    {result.lifecycle_history?.length ? <ol className="execution-case-history-events" aria-label="Attempt activity">
+      {result.lifecycle_history.slice().reverse().map((event, index) => <li key={`${event.at}-${index}`}><strong>{event.actor_name || event.actor_email || "Tester"}</strong><span>{event.action.replace(/_/g, " ")} · {BOARD_STATUS_META[event.to_status as BoardStatusTone]?.label || event.to_status}</span><time dateTime={event.at}>{formatExecutionTimestamp(event.at)}</time></li>)}
+    </ol> : null}
+    {run.isLoading ? <LoadingState label="Loading saved case steps" /> : run.isError ? <p role="alert">Saved steps could not be loaded. The recorded logs remain available.</p> : null}
+    <ExecutionStructuredLogView logsJson={result.logs} steps={steps} />
+    <CaseRunAttachmentPanel resultId={result.id} executionId={result.execution_id} testCaseId={result.test_case_id} iterationKey={result.data_set_iteration_key || undefined} canView={canViewEvidence} canUpload={false} canDelete={false} ensureResult={async () => result} legacyEvidence={parseExecutionLogs(result.logs).stepEvidence || {}} />
+  </RunReviewDialog>;
+}
+
+function ExecutionBehaviorText({ text, values, fallbackKeyword }: {
+  text: string | null | undefined;
+  values: Record<string, string>;
+  fallbackKeyword: "Given" | "When" | "Then";
+}) {
+  const source = normalizeGherkinParameterReferences(gherkinDescriptionToPlainText(text));
+  if (!source.trim()) return null;
+  return <span className="execution-behavior-lines">{source.split(/\r?\n/).map((line, index) => {
+    const match = matchGherkinKeyword(line);
+    const keyword = match?.kind === "step" ? match.keyword : index === 0 ? fallbackKeyword : "";
+    const body = match?.kind === "step" ? match.rest.trimStart() : line;
+    return <span className="execution-behavior-line" key={index}>
+      {keyword ? <strong className="gherkin-keyword">{keyword}</strong> : null}
+      <StepParameterizedText text={body} values={values} fallback=" " />
+    </span>;
+  })}</span>;
+}
+
 function ExecutionStepCard({
   step,
   status,
@@ -11805,10 +11484,31 @@ function ExecutionStepCard({
   onDefectsChange: (defectIds: string[]) => void;
 }) {
   const evidenceInputRef = useRef<HTMLInputElement | null>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const resizeNoteInput = useCallback(() => {
+    const input = noteInputRef.current;
+    if (!input || CSS.supports("field-sizing", "content")) return;
+    input.style.height = "auto";
+    const style = getComputedStyle(input);
+    input.style.height = `${input.scrollHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)}px`;
+  }, []);
+  useEffect(() => {
+    const input = noteInputRef.current;
+    if (!input || CSS.supports("field-sizing", "content")) return;
+    resizeNoteInput();
+    let width = input.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = input.getBoundingClientRect().width;
+      if (nextWidth !== width) {
+        width = nextWidth;
+        resizeNoteInput();
+      }
+    });
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [isExpanded, note, resizeNoteInput]);
   const resolvedKind = step.group_name ? step.group_kind || "local" : step.group_kind;
   const stepKind = getExecutionStepKindMeta(resolvedKind);
-  const resolvedAction = executionStepText(step.action, parameterValues);
-  const resolvedExpectedResult = executionStepText(step.expected_result, parameterValues);
   const trimmedNote = note.trim();
   const hasEvidence = hasExecutionEvidence(evidence);
   const captureEntries = useMemo(
@@ -11822,7 +11522,7 @@ function ExecutionStepCard({
   const availableDefectOptions = availableBugs.filter((bug) => !linkedDefectIdSet.has(String(bug.id)));
   const stepTypeLabel = String(step.step_type || (canInspectApi ? "api" : "web")).toUpperCase();
   const toneClass = [
-    "step-card execution-step-card",
+    "step-card execution-step-card execution-behavior-step",
     isExpanded ? "is-expanded" : "",
     status === "passed" ? "step-status-passed" : "",
     status === "failed" ? "step-status-failed" : "",
@@ -11864,18 +11564,10 @@ function ExecutionStepCard({
                 <StatusBadge value={status} />
               </div>
             </div>
-            <p className="execution-step-card-primary" title={resolvedAction}>
-              {resolvedAction || "No action recorded yet"}
-            </p>
-            <div className="execution-step-card-summary-meta">
-              <span title={resolvedExpectedResult}>
-                {resolvedExpectedResult ? `Expected: ${resolvedExpectedResult}` : "No expected result recorded yet"}
-              </span>
-              <span>
-                {trimmedNote ? "Note captured" : "No note yet"} · {hasEvidence ? evidence?.fileName || "Evidence attached" : "No evidence attached"}
-                {webDetail ? ` · ${consoleCount} console · ${networkCount} network` : ""}
-              </span>
-            </div>
+            <span className="execution-step-card-primary">
+              <ExecutionBehaviorText text={step.action} values={parameterValues} fallbackKeyword={(step.group_name || "").trim().toLowerCase() === "preconditions" ? "Given" : "When"} />
+              {step.expected_result ? <ExecutionBehaviorText text={step.expected_result} values={parameterValues} fallbackKeyword="Then" /> : null}
+            </span>
           </div>
         </button>
         <div className="execution-step-card-summary-tools">
@@ -11898,6 +11590,19 @@ function ExecutionStepCard({
             type="button"
           >
             <IconX aria-hidden="true" size={17} stroke={2.25} />
+          </button>
+          <button
+            aria-label={`Evidence and comments for step ${step.step_order}`}
+            aria-expanded={isExpanded}
+            className="execution-step-evidence-summary"
+            onClick={onToggle}
+            title={`${hasEvidence ? "Evidence attached" : "Attach evidence"} · ${trimmedNote ? "Comment saved" : "Add comment"}`}
+            type="button"
+          >
+            <IconPhoto aria-hidden="true" size={16} />
+            <span>Evidence</span>
+            {hasEvidence || trimmedNote ? <b>{Number(hasEvidence) + Number(Boolean(trimmedNote))}</b> : null}
+            <IconChevronDown aria-hidden="true" size={14} />
           </button>
           {canInspectApi ? (
             <button
@@ -11925,17 +11630,6 @@ function ExecutionStepCard({
 
       {isExpanded ? (
         <div className="step-card-body execution-step-card-body">
-          <div className="execution-step-card-grid">
-            <div className="execution-step-card-block">
-              <span className="execution-step-card-label">Action</span>
-              <p className="execution-step-card-copy">{resolvedAction || "No action recorded yet"}</p>
-            </div>
-            <div className="execution-step-card-block">
-              <span className="execution-step-card-label">Expected result</span>
-              <p className="execution-step-card-copy">{resolvedExpectedResult || "No expected result recorded yet"}</p>
-            </div>
-          </div>
-
           {captureEntries.length ? (
             <div className="execution-step-card-block">
               <div className="execution-step-card-block-head">
@@ -12033,22 +11727,24 @@ function ExecutionStepCard({
 
           <div className="execution-step-card-block execution-step-card-block--notes">
             <div className="execution-step-card-block-head">
-              <span className="execution-step-card-label">Evidence log</span>
+              <span className="execution-step-card-label">Comments</span>
               <span>{trimmedNote ? "Saved on blur" : "Write observations, bug IDs, or runtime notes"}</span>
             </div>
             <textarea
               className="execution-step-note-input"
+              ref={noteInputRef}
               defaultValue={note}
               disabled={isLocked}
               key={`${step.id}:${note}`}
+              onInput={resizeNoteInput}
               onBlur={(event) => {
                 const raw = event.target.value;
                 if (raw.trim() !== (note || "").trim()) {
                   onNoteBlur(raw);
                 }
               }}
-              placeholder="Evidence, bug ID, observations…"
-              rows={4}
+              placeholder="Add an observation…"
+              rows={2}
             />
           </div>
 
@@ -12276,67 +11972,6 @@ function ExecutionAutomationStepCard({
         </div>
       ) : null}
     </article>
-  );
-}
-
-function ExecutionParameterPanel({
-  title,
-  description,
-  entries,
-  emptyMessage,
-  isExpanded,
-  onToggle
-}: {
-  title: string;
-  description: string;
-  entries: ExecutionParameterDisplayEntry[];
-  emptyMessage: string;
-  isExpanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="resource-table-shell execution-context-table-shell">
-      <button
-        aria-expanded={isExpanded}
-        className="execution-saved-data-toggle"
-        onClick={onToggle}
-        type="button"
-      >
-        <div className="execution-saved-data-toggle-copy">
-          <strong>{title}</strong>
-          <span>{description}</span>
-        </div>
-        <div className="execution-saved-data-toggle-meta">
-          <span className="count-pill">
-            {entries.length} item{entries.length === 1 ? "" : "s"}
-          </span>
-          <span
-            aria-hidden="true"
-            className={isExpanded ? "execution-saved-data-toggle-arrow is-expanded" : "execution-saved-data-toggle-arrow"}
-          >
-            <ExecutionAccordionChevronIcon />
-          </span>
-        </div>
-      </button>
-      {isExpanded ? (
-        !entries.length ? (
-          <div className="empty-state compact resource-table-empty">{emptyMessage}</div>
-        ) : (
-          <div className="execution-saved-data-scroll" role="list" aria-label={`${title} values`}>
-            <div className="execution-saved-data-grid">
-              {entries.map((entry) => (
-                <article className="execution-saved-data-card execution-parameter-card" key={`${title}-${entry.key}`} role="listitem">
-                  <span>{entry.flowLabel}</span>
-                  <code className="execution-saved-data-token">{entry.token}</code>
-                  <strong title={entry.value || "—"}>{entry.value || "—"}</strong>
-                  {entry.sourceLabel ? <small className="execution-saved-data-source">{entry.sourceLabel}</small> : null}
-                </article>
-              ))}
-            </div>
-          </div>
-        )
-      ) : null}
-    </div>
   );
 }
 
@@ -13081,6 +12716,15 @@ export function ExecutionCreateModal({
                   selectedConfigurationId={selectedConfigurationId}
                   selectedDataSetId={selectedDataSetId}
                   selectedEnvironmentId={selectedEnvironmentId}
+                />
+                <RunParameterTemplateButton
+                  cases={libraryCases.filter(testCase => isSmartMode ? selectedSmartExecutionCaseIds.includes(testCase.id) : selectedSuiteCaseIds.has(testCase.id) || (testCase.suite_ids || []).some(id => selectedSuiteIdSet.has(id)) || Boolean(testCase.suite_id && selectedSuiteIdSet.has(testCase.suite_id)))}
+                  suites={scopeSuites.filter(suite => selectedSuiteIdSet.has(suite.id))}
+                  projectId={projectId}
+                  environmentId={selectedEnvironmentId}
+                  configurationId={selectedConfigurationId}
+                  dataSetId={selectedDataSetId}
+                  disabled={isSubmitting}
                 />
               </div>
 

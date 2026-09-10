@@ -10,7 +10,8 @@ export function buildMobileParameterValues(values = {}) {
   const result = Object.create(null);
   if (!values || typeof values !== "object" || Array.isArray(values)) return result;
   for (const [key, value] of Object.entries(values)) {
-    const normalized = normalizeMobileParameterKey(key);
+    const rawName = normalizeMobileParameterKey(key);
+    const normalized = rawName ? normalizeMobileParameterKey(/^[tsr]\./.test(rawName) ? rawName : `t.${rawName}`) : "";
     if (normalized) result[normalized] = String(value ?? "");
   }
   return result;
@@ -20,7 +21,7 @@ export function interpolateMobileText(value, params) {
   return String(value ?? "").replace(PARAMETER_PATTERN, (token, scope, name, offset, source) => {
     if (!scope && /^[tsr]$/i.test(name) && source[offset + token.length] === ".") return token;
     const rawName = name.startsWith("[") ? decodeColumnName(name.slice(1, -1)) : name;
-    const key = `${scope ? `${scope}.` : ""}${rawName}`.toLowerCase();
+    const key = `${scope || "t"}.${rawName}`.toLowerCase();
     if (Object.hasOwn(params, key)) return params[key];
     if (!key.includes(".")) {
       for (const fallbackScope of ["t", "s", "r"]) {

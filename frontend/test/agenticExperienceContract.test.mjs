@@ -9,6 +9,7 @@ const countMatches = (source, pattern) => source.match(pattern)?.length || 0;
 test("agent workbench exposes every governed QA specialist as a first-class action", async () => {
   const component = await readSource("../src/components/AgenticExperience.tsx");
   const page = await readSource("../src/pages/AgenticWorkflowsPage.tsx");
+  const directory = await readSource("../src/agents/AgentDirectory.tsx");
 
   for (const specialist of [
     "Quality Orchestrator",
@@ -25,15 +26,15 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     assert.match(component, new RegExp(specialist));
   }
 
-  assert.match(component, /aria-label="AI interaction mode"/);
-  assert.match(component, /\/>\s*Chat\s*</);
-  assert.match(component, /\/>\s*Agent\s*</);
-  assert.match(page, /HELLOTEST_AGENT_CATALOG\.map/);
-  assert.match(page, />Get Started</);
-  assert.match(page, /openAgentWorkbench\(agent\)/);
+  assert.match(component, /aria-label="Review format"/);
+  assert.match(component, /\/>\s*Question\s*</);
+  assert.match(component, /\/>\s*Review brief\s*</);
+  assert.match(directory, /HELLOTEST_AGENT_CATALOG\.map/);
+  assert.match(page, /<AgentDirectory/);
+  assert.match(page, /onOpenSpecialist=\{openAgentWorkbench\}/);
   assert.match(page, /<AgentActivityTimeline/);
   assert.match(page, /<AgenticOutcomePanel/);
-  assert.match(page, /Turn into workflow/);
+  assert.match(page, /Create workflow draft/);
   assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
   assert.match(component, /contextScopes: \["stories", "test-cases", "knowledge"\]/);
 });
@@ -47,8 +48,9 @@ test("AI Agents has a dedicated sidebar catalog and opens a focused specialist W
 
   assert.match(sections, /view=agents`, label: "AI Agents"/);
   assert.match(shell, /isDefaultAgentView/);
-  assert.match(page, /Your agent works\. You don&apos;t have to\./);
-  assert.match(page, /on the beach, on a hike, or while you sleep/);
+  assert.match(page, /Turn repository source and project evidence into useful quality work/);
+  assert.match(page, /Your task/);
+  assert.doesNotMatch(page, /on the beach, on a hike, or while you sleep/);
   assert.match(page, /activeSurface === "agents"/);
   assert.match(page, /activeSurface === "workbench"/);
   assert.match(page, /next\.set\("agent", agent\.id\)/);
@@ -62,7 +64,7 @@ test("agent traces expose evidence and evaluation without hidden reasoning", asy
     assert.match(component, new RegExp(stage));
   }
 
-  for (const metric of ["Grounding", "Complete", "Traceable", "Guarded", "maturity"]) {
+  for (const metric of ["Grounding", "Complete", "Traceable", "Guarded", "Evidence review diagnostics"]) {
     assert.match(component, new RegExp(metric));
   }
 

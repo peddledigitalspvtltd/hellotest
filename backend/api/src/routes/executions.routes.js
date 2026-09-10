@@ -657,7 +657,8 @@ module.exports = async function (fastify) {
     await ensureExecutionPermission(fastify, req, "run.execute");
 
     return service.completeExecution(req.params.id, req.body.status, {
-      expected_revision: req.body.expected_revision
+      expected_revision: req.body.expected_revision,
+      completed_by: req.user.id
     });
   });
 

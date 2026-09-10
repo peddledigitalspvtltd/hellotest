@@ -221,5 +221,23 @@ test("run metrics deduplicate actual defects and all story links while reducing 
     { test_case_id: "outside-run", requirement_id: "story-5" }
   ]);
   assert.deepEqual(metrics, { total_cases: 5, passed_cases: 2, failed_cases: 1, blocked_cases: 0, running_cases: 0,
-    pending_cases: 2, defect_count: 3, story_count: 4, failed_story_count: 2 });
+    pending_cases: 2, paused_cases: 0, aborted_cases: 0, skipped_cases: 0, duration_ms: 0, defect_count: 3, story_count: 4, failed_story_count: 2 });
+});
+
+test("changing the run assignee cascades through inherited scopes and preserves explicit overrides", async context => {
+  const stored = { ...run, assigned_to: "old-owner", assigned_to_ids: ["old-owner"], suite_assignments: { suite: ["suite-owner"] }, module_assignments: { module: ["module-owner"] }, case_assignments: { explicit: ["case-owner"] } };
+  const snapshots = [{ test_case_id: "direct" }, { test_case_id: "suite-case", suite_id: "suite" }, { test_case_id: "module-case", suite_id: "suite", module_id: "module" }, { test_case_id: "explicit", suite_id: "suite", module_id: "module" }];
+  const writes = stubDatabase(context, (sql, values) => {
+    if (/SELECT \* FROM executions/.test(sql)) return [stored];
+    if (/FROM execution_case_snapshots/.test(sql)) return snapshots;
+    if (/FROM users/.test(sql)) return [{ id: values[0], name: "New owner" }];
+    if (/FROM project_members/.test(sql)) return [{ id: "membership" }];
+    return [];
+  });
+  await execution.updateExecution(run.id, { assigned_to_ids: ["new-owner"] });
+  const assignments = writes.filter(entry => /UPDATE execution_case_snapshots/.test(entry.sql)).map(entry => ({ caseId: entry.values[4], ids: JSON.parse(entry.values[1]), source: entry.values[2] }));
+  assert.deepEqual(assignments, [
+    { caseId: "direct", ids: ["new-owner"], source: "run" }, { caseId: "suite-case", ids: ["suite-owner"], source: "suite" },
+    { caseId: "module-case", ids: ["module-owner"], source: "module" }, { caseId: "explicit", ids: ["case-owner"], source: "case" }
+  ]);
 });

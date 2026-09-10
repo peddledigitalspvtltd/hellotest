@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { IconPlayerStop, IconSparkles } from "@tabler/icons-react";
 import type { KnowledgeRetrievalEvent } from "../types";
-import { knowledgeElapsedLabel, knowledgeProgressLabel } from "../lib/knowledgeAssistantStream";
+import { knowledgeElapsedLabel, knowledgeProgressLabel, knowledgeProgressDescription } from "../lib/knowledgeAssistantStream";
 
 export function KnowledgeTurnProgress({ events, startedAt, opening, onStop }: {
   events: KnowledgeRetrievalEvent[];
@@ -25,11 +25,11 @@ export function KnowledgeTurnProgress({ events, startedAt, opening, onStop }: {
       <div role="status" aria-live="polite"><span>Working with your project evidence</span><strong>{knowledgeProgressLabel(latest, opening)}</strong></div>
       <time aria-label={`${knowledgeElapsedLabel(now - startedAt)} elapsed`}>{knowledgeElapsedLabel(now - startedAt)}</time>
     </div>
-    <p>{latest?.message || (opening ? "Preparing a conversation for your question." : "The search has been requested. Activity will appear as the service reports it.")}</p>
+    <p>{knowledgeProgressDescription(latest) || (opening ? "Preparing a conversation for your question." : "The search has been requested. Activity will appear as the service reports it.")}</p>
     {quiet ? <p className="grounded-assistant-progress-wait">No new stage has been reported for {knowledgeElapsedLabel(now - lastUpdateAt)}. You can keep this open or stop and resume this turn later.</p> : null}
     {partial ? <p className="grounded-assistant-progress-partial">Some retrieval work could not complete. Any returned answer will identify the evidence limits.</p> : null}
     <div className="grounded-assistant-progress-actions">
-      {events.length ? <details className="grounded-assistant-live-progress"><summary>Search activity · {events.length}</summary><ol>{events.map((item, index) => <li key={`${item.stage}-${index}`}><span>{knowledgeProgressLabel(item)}</span><small>{item.message || item.status?.replace(/_/g, " ").toLowerCase()}{Number.isFinite(item.metrics?.elapsed_ms) ? ` · ${knowledgeElapsedLabel(item.metrics!.elapsed_ms)} reported` : ""}</small></li>)}</ol></details> : <span>Your question is preserved</span>}
+      {events.length ? <details className="grounded-assistant-live-progress"><summary>Search activity · {events.length}</summary><ol>{events.map((item, index) => <li key={`${item.stage}-${index}`}><span>{knowledgeProgressLabel(item)}</span><small>{knowledgeProgressDescription(item) || item.status?.replace(/_/g, " ").toLowerCase()}{Number.isFinite(item.metrics?.elapsed_ms) ? ` · ${knowledgeElapsedLabel(item.metrics!.elapsed_ms)} reported` : ""}</small></li>)}</ol></details> : <span>Your question is preserved</span>}
       <button className="grounded-assistant-stop" onClick={onStop} type="button"><IconPlayerStop size={13} />Stop answer</button>
     </div>
   </section>;

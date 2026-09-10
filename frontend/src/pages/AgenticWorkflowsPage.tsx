@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { IconArrowLeft, IconArrowRight, IconClock, IconHistory, IconLayoutGrid, IconLoader2, IconRoute, IconShieldCheck } from "@tabler/icons-react";
 import {
   Background,
   Controls,
@@ -16,16 +17,20 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useAuth } from "../auth/AuthContext";
+import { RepositoryAgents, REPOSITORY_AGENTS, isRepositoryAgentType } from "../agents/RepositoryAgents";
+import { AgentDirectory } from "../agents/AgentDirectory";
+import { AgentActivityCenter } from "../agents/AgentActivityCenter";
+import { AGENT_EXPERIENCES } from "../agents/agentExperience";
+import type { RepositoryAgentType } from "../agents/types";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
-import { AddIcon, AiAgentsIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
+import { AddIcon, PlayIcon, SaveIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import {
   AgentActivityTimeline,
   AgenticCommandComposer,
   AgenticOutcomePanel,
-  AgenticProcessRail,
   HELLOTEST_AGENT_CATALOG,
   type HelloTestAgent
 } from "../components/AgenticExperience";
@@ -47,7 +52,6 @@ import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type {
   AgenticWorkflow,
   AgenticAssistantMode,
-  AgenticAssistantResult,
   AgenticAssistantSessionResponse,
   AgenticWorkflowEdge,
   AgenticWorkflowNode,
@@ -56,14 +60,13 @@ import type {
   AgenticWorkflowStatus,
   AgenticWorkflowTriggerKind,
   Integration,
-  WorkspaceTransaction,
-  WorkspaceTransactionEvent
+  WorkspaceTransaction
 } from "../types";
 import "./AgenticWorkflowsPage.css";
 
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
-type AgenticPageSurface = "agents" | "workbench" | WorkflowTab;
+type AgenticPageSurface = "agents" | "activity" | "workbench" | "repository" | WorkflowTab;
 type WorkflowNodeKind =
   | "trigger"
   | "agent"
@@ -235,9 +238,10 @@ const compactCount = (count: number, singular: string, plural = `${singular}s`) 
 const safeJsonParse = (value: string): Record<string, unknown> => {
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid object");
+    return parsed;
   } catch {
-    return {};
+    throw new Error("Preview input must be a valid JSON object. Correct it before previewing the workflow.");
   }
 };
 
@@ -655,16 +659,32 @@ export function AgenticWorkflowsPage() {
     && hasPermission(session, "agentic_workflow.run", projectId);
   const requestedSurface = searchParams.get("view");
   const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
+    || requestedSurface === "activity"
+    || requestedSurface === "repository"
     || requestedSurface === "workflows"
     || requestedSurface === "runs"
     ? requestedSurface
     : "agents";
   const activeTab: WorkflowTab = activeSurface === "runs" ? "runs" : "workflows";
+  const repositoryAgentType = isRepositoryAgentType(searchParams.get("agent")) ? searchParams.get("agent") as RepositoryAgentType : "object_repository";
+  const selectedRepositoryAgent = REPOSITORY_AGENTS.find((agent) => agent.id === repositoryAgentType)!;
+  const openRepositoryAgent = useCallback((agent: RepositoryAgentType, runId?: string) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "repository");
+      next.set("agent", agent);
+      if (runId) next.set("run", runId); else next.delete("run");
+      next.delete("session");
+      return next;
+    });
+  }, [setSearchParams]);
   const setActiveTab = useCallback((nextTab: WorkflowTab) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("view", nextTab);
       next.delete("agent");
+      next.delete("run");
+      next.delete("session");
       return next;
     }, { replace: true });
   }, [setSearchParams]);
@@ -677,7 +697,7 @@ export function AgenticWorkflowsPage() {
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedRunNodeId, setSelectedRunNodeId] = useState("");
   const [testingApiNodeId, setTestingApiNodeId] = useState("");
-  const [isWorkflowMetaExpanded, setIsWorkflowMetaExpanded] = useState(true);
+  const [isWorkflowMetaExpanded, setIsWorkflowMetaExpanded] = useState(false);
   const [isCredentialsExpanded, setIsCredentialsExpanded] = useState(false);
   const [runInput, setRunInput] = useState(DEFAULT_RUN_INPUT);
   const [assistantMode, setAssistantMode] = useState<AgenticAssistantMode>("agent");
@@ -687,6 +707,20 @@ export function AgenticWorkflowsPage() {
   const [assistantSmartContext, setAssistantSmartContext] = useState<SmartContextSelection | null>(null);
   const [assistantIntegrationId, setAssistantIntegrationId] = useState("");
   const [selectedAssistantSessionId, setSelectedAssistantSessionId] = useState("");
+  const [assistantReply, setAssistantReply] = useState<AgenticAssistantSessionResponse | null>(null);
+  const [assistantResultTab, setAssistantResultTab] = useState<"brief" | "activity" | "history">("brief");
+  const [assistantNotice, setAssistantNotice] = useState("");
+  const [assistantTaskExpanded, setAssistantTaskExpanded] = useState(false);
+  const [assistantStartedAt, setAssistantStartedAt] = useState<number | null>(null);
+  const [assistantElapsed, setAssistantElapsed] = useState(0);
+  const assistantController = useRef<AbortController | null>(null);
+  const assistantRequestId = useRef(0);
+  const workspaceScopeKey = `${projectId}:${appTypeId}`;
+  const currentWorkspaceScope = useRef(workspaceScopeKey);
+  currentWorkspaceScope.current = workspaceScopeKey;
+  const assistantScopeKey = `${projectId}:${appTypeId}:${activeSurface}:${assistantAgentId}`;
+  const activeAssistantScope = useRef(assistantScopeKey);
+  activeAssistantScope.current = assistantScopeKey;
   const [toastMessage, setToastMessage] = useState("");
   const [toastTone, setToastTone] = useState<"success" | "error" | "info">("success");
   const [nodes, setNodes, onNodesChange] = useNodesState<AgenticWorkflowNode>([]);
@@ -699,12 +733,39 @@ export function AgenticWorkflowsPage() {
     if (!requestedAgent || requestedAgent.id === assistantAgentId) return;
     setAssistantAgentId(requestedAgent.id);
     setAssistantPrompt(requestedAgent.prompt);
+    setAssistantContextScopes(requestedAgent.contextScopes);
     setAssistantSmartContext(null);
   }, [activeSurface, assistantAgentId, searchParams]);
 
   useEffect(() => {
     setAssistantSmartContext(null);
+    setAssistantIntegrationId("");
   }, [appTypeId, projectId]);
+
+  useEffect(() => {
+    setDraft(null); setSelectedRunId(""); setSelectedNodeId(""); setSelectedRunNodeId("");
+    setNodes([]); setEdges([]); setTestingApiNodeId(""); setSelectedActionWorkflowIds([]); setSelectedActionRunIds([]);
+  }, [workspaceScopeKey, setNodes, setEdges]);
+
+  useEffect(() => {
+    setAssistantReply(null);
+    setAssistantTaskExpanded(false);
+    setAssistantNotice("");
+    setAssistantStartedAt(null);
+    setAssistantResultTab("brief");
+    setSelectedAssistantSessionId("");
+    return () => { assistantController.current?.abort(); assistantRequestId.current += 1; };
+  }, [assistantScopeKey]);
+
+  useEffect(() => {
+    if (!assistantStartedAt) { setAssistantElapsed(0); return; }
+    const update = () => setAssistantElapsed(Math.max(0, Math.floor((Date.now() - assistantStartedAt) / 1000)));
+    update(); const timer = window.setInterval(update, 1000); return () => window.clearInterval(timer);
+  }, [assistantStartedAt]);
+
+  useEffect(() => {
+    if (activeSurface === "workbench") setSelectedAssistantSessionId(searchParams.get("session") || "");
+  }, [activeSurface, assistantScopeKey, searchParams]);
 
   useEffect(() => {
     const handoff = window.sessionStorage.getItem("hellotest.agentic.handoff");
@@ -723,7 +784,7 @@ export function AgenticWorkflowsPage() {
         }
       }, null, 2));
       setToastTone("info");
-      setToastMessage("Review context was carried into the workflow run input. Choose or create a workflow before running it.");
+      setToastMessage("Review context is available in the workflow preview input. Choose or create a workflow to inspect the plan.");
     } catch {
       setToastTone("error");
       setToastMessage("The agent review context could not be restored. Open the source review again to retry.");
@@ -737,14 +798,17 @@ export function AgenticWorkflowsPage() {
     enabled: Boolean(projectId)
   });
   const llmIntegrationsQuery = useQuery({
-    queryKey: ["integrations", "agentic-workflows", "llm"],
+    queryKey: ["integrations", "agentic-workflows", "llm", projectId, appTypeId],
     queryFn: () => api.integrations.list({ type: "llm" }),
-    enabled: Boolean(session)
+    enabled: hasPermission(session, "integration.view", projectId) && (activeSurface === "workbench" || activeSurface === "workflows")
   });
 
   const projects = asArray(projectsQuery.data);
   const allAppTypes = asArray(appTypesQuery.data);
   const llmIntegrations = (llmIntegrationsQuery.data || []).filter((integration) => !isRovoIntegrationId(integration.id));
+  useEffect(() => {
+    if (assistantIntegrationId && llmIntegrationsQuery.isSuccess && !llmIntegrations.some(integration => integration.id === assistantIntegrationId && integration.is_active)) setAssistantIntegrationId("");
+  }, [assistantIntegrationId, llmIntegrations, llmIntegrationsQuery.isSuccess]);
   const scopedAppTypes = allAppTypes.filter((appType) => appType.project_id === projectId);
   const selectedProject = projects.find((project) => project.id === projectId) || null;
   const selectedAppType = scopedAppTypes.find((appType) => appType.id === appTypeId) || null;
@@ -767,40 +831,47 @@ export function AgenticWorkflowsPage() {
 
   const workflowsQuery = useQuery({
     queryKey: ["agentic-workflows", projectId, appTypeId],
-    queryFn: () => api.agenticWorkflows.list({ project_id: projectId, app_type_id: appTypeId }),
-    enabled: Boolean(projectId)
+    queryFn: ({ signal }) => api.agenticWorkflows.list({ project_id: projectId, app_type_id: appTypeId }, { signal }),
+    enabled: Boolean(projectId) && (activeSurface === "workflows" || activeSurface === "runs")
   });
 
   const runsQuery = useQuery({
     queryKey: ["agentic-workflow-runs", projectId, appTypeId],
-    queryFn: () => api.agenticWorkflows.listRuns({ project_id: projectId, app_type_id: appTypeId }),
-    enabled: Boolean(projectId),
-    refetchInterval: (query) => ((query.state.data || []) as AgenticWorkflowRun[]).some((run) => ["queued", "running"].includes(run.status)) ? 2000 : false
+    queryFn: ({ signal }) => api.agenticWorkflows.listRuns({ project_id: projectId, app_type_id: appTypeId, limit: 50 }, { signal }),
+    enabled: Boolean(projectId) && (activeSurface === "workflows" || activeSurface === "runs"),
+    refetchInterval: (query) => (activeSurface === "workflows" || activeSurface === "runs") && ((query.state.data || []) as AgenticWorkflowRun[]).some((run) => ["queued", "running"].includes(run.status)) ? 2000 : false
   });
 
   const assistantSessionsQuery = useQuery({
     queryKey: ["workspace-transactions", "ai-agent", projectId, appTypeId],
-    queryFn: () => api.workspaceTransactions.list({
+    queryFn: ({ signal }) => api.agenticWorkflows.listSessions({
       project_id: projectId,
       app_type_id: appTypeId || undefined,
-      category: "ai_agent",
-      limit: 12
-    }),
-    enabled: Boolean(projectId)
+      limit: 20
+    }, { signal }),
+    enabled: Boolean(projectId) && activeSurface === "workbench"
   });
 
-  const assistantSessionEventsQuery = useQuery({
-    queryKey: ["workspace-transaction-events", selectedAssistantSessionId],
-    queryFn: () => api.workspaceTransactions.events(selectedAssistantSessionId),
-    enabled: Boolean(selectedAssistantSessionId)
+  const assistantSavedSessionQuery = useQuery({
+    queryKey: ["agent-specialist-session", projectId, appTypeId, assistantAgentId, selectedAssistantSessionId],
+    queryFn: async ({ signal }) => {
+      const saved = await api.agenticWorkflows.getSession(selectedAssistantSessionId, { signal });
+      if (saved.transaction.project_id !== projectId || (saved.transaction.app_type_id || "") !== appTypeId || saved.transaction.metadata.agent_id !== assistantAgentId) {
+        throw new Error("This review belongs to a different project, application or specialist.");
+      }
+      return saved;
+    },
+    enabled: Boolean(projectId && selectedAssistantSessionId) && activeSurface === "workbench" && assistantReply?.transaction.id !== selectedAssistantSessionId,
+    retry: false,
+    refetchInterval: query => query.state.data?.session_state === "running" ? 3000 : false
   });
 
   const workflows = asArray(workflowsQuery.data);
   const runs = asArray(runsQuery.data);
   const assistantSessions = asArray(assistantSessionsQuery.data) as WorkspaceTransaction[];
   const selectedRun = runs.find((run) => run.id === selectedRunId) || null;
-  const selectedAssistantSession = assistantSessions.find((session) => session.id === selectedAssistantSessionId) || null;
   const selectedAssistantAgent = HELLOTEST_AGENT_CATALOG.find((agent) => agent.id === assistantAgentId) || HELLOTEST_AGENT_CATALOG[0];
+  const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id];
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || nodes[0] || null;
   const workflowCredentials = useMemo(() => {
     const credentials = draft?.settings?.agenticCredentials;
@@ -858,7 +929,7 @@ export function AgenticWorkflowsPage() {
           ...node.data,
           llmIntegrationId: snapshotUsesRovoConversation ? "" : node.data.llmIntegrationId,
           model: snapshotUsesRovoConversation ? "" : node.data.model,
-          runStatus: result ? getRunResultText(result, "status", "completed") : "not run",
+          runStatus: result ? getRunResultText(result, "status", "previewed") : "not run",
           sampleOutput: result?.output ? prettyJson(result.output) : node.data.sampleOutput
         }
       };
@@ -921,40 +992,41 @@ export function AgenticWorkflowsPage() {
     void queryClient.invalidateQueries({ queryKey: ["agentic-workflow-runs"] });
   };
 
+  type AssistantSubmission = { input: Parameters<typeof api.agenticWorkflows.ask>[0]; scope: string; requestId: number; signal: AbortSignal };
   const assistantMutation = useMutation({
-    mutationFn: () => {
-      if (!projectId) throw new Error("Select a project before starting an agent session.");
-      return api.agenticWorkflows.ask({
-        project_id: projectId,
-        app_type_id: appTypeId || undefined,
-        mode: assistantMode,
-        agent_id: assistantAgentId,
-        prompt: assistantPrompt,
-        context_scopes: assistantContextScopes,
-        smart_context: assistantSmartContext ? {
-          query: assistantSmartContext.query,
-          source_ids: assistantSmartContext.sourceIds,
-          source_kinds: assistantSmartContext.sourceKinds,
-          reviewed_context: assistantSmartContext.contextText
-        } : undefined,
-        integration_id: assistantIntegrationId || undefined
-      });
-    },
-    onMutate: () => {
-      setSelectedAssistantSessionId("");
-    },
-    onSuccess: (response) => {
+    mutationFn: (submission: AssistantSubmission) => api.agenticWorkflows.ask(submission.input, { signal: submission.signal }),
+    onSuccess: (response, submission) => {
+      if (submission.signal.aborted || submission.scope !== activeAssistantScope.current || submission.requestId !== assistantRequestId.current) return;
+      if (response.transaction.project_id !== submission.input.project_id || (response.transaction.app_type_id || "") !== (submission.input.app_type_id || "")) { setAssistantStartedAt(null); setAssistantNotice("The review response did not match this workspace. Start a fresh review."); return; }
+      setAssistantTaskExpanded(false);
+      setAssistantReply(response);
       setSelectedAssistantSessionId(response.transaction.id);
-      void queryClient.invalidateQueries({ queryKey: ["workspace-transactions", "ai-agent"] });
-      queryClient.setQueryData(["workspace-transaction-events", response.transaction.id], response.events);
-      setToastTone("success");
-      setToastMessage(`${selectedAssistantAgent.name} completed the ${assistantMode === "chat" ? "review" : "agent task"}. Inspect the trace and maturity evaluation before acting.`);
+      setAssistantStartedAt(null);
+      setAssistantResultTab("brief");
+      void queryClient.invalidateQueries({ queryKey: ["workspace-transactions", "ai-agent", projectId, appTypeId] });
+      queryClient.setQueryData(["workspace-transaction-events", projectId, appTypeId, response.transaction.id], response.events);
+      setSearchParams(current => { const next = new URLSearchParams(current); next.set("session", response.transaction.id); return next; }, { replace: true });
     },
-    onError: (error) => {
-      setToastTone("error");
-      setToastMessage(error instanceof Error ? error.message : "Unable to start the agent session.");
+    onError: (error, submission) => {
+      if (submission.scope !== activeAssistantScope.current || submission.requestId !== assistantRequestId.current) return;
+      setAssistantStartedAt(null);
+      setAssistantNotice(submission.signal.aborted ? "Review stopped. Your task is retained and can be started again." : error instanceof Error ? error.message : "The review could not finish. Your task is retained; try again.");
     }
   });
+  const startAssistantReview = () => {
+    if (!projectId || !canRunAgenticWorkflows || assistantMutation.isPending || !assistantPrompt.trim()) return;
+    assistantController.current?.abort();
+    const controller = new AbortController(); assistantController.current = controller;
+    const requestId = ++assistantRequestId.current;
+    setAssistantNotice(""); setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantResultTab("brief"); setAssistantStartedAt(Date.now());
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
+    assistantMutation.mutate({ scope: assistantScopeKey, requestId, signal: controller.signal, input: {
+      project_id: projectId, app_type_id: appTypeId || undefined, mode: assistantMode,
+      agent_id: assistantAgentId, prompt: assistantPrompt, context_scopes: assistantContextScopes,
+      smart_context: assistantSmartContext ? { query: assistantSmartContext.query, source_ids: assistantSmartContext.sourceIds, source_kinds: assistantSmartContext.sourceKinds, reviewed_context: assistantSmartContext.contextText } : undefined,
+      integration_id: assistantIntegrationId || undefined
+    } });
+  };
 
   const saveMutation = useMutation({
     mutationFn: async (nextDraft: WorkflowDraft) => {
@@ -982,6 +1054,7 @@ export function AgenticWorkflowsPage() {
     },
     onSuccess: (workflow) => {
       invalidateWorkflowData();
+      if (`${workflow.project_id}:${workflow.app_type_id || ""}` !== currentWorkspaceScope.current) return;
       setDraft(createWorkflowDraft(workflow));
       setNodes(workflow.nodes.map(normalizeWorkflowNodeDirectLlm));
       setEdges(workflow.edges.map(decorateFlowEdge));
@@ -1002,6 +1075,7 @@ export function AgenticWorkflowsPage() {
       }),
     onSuccess: (run) => {
       invalidateWorkflowData();
+      if (`${run.project_id}:${run.app_type_id || ""}` !== currentWorkspaceScope.current) return;
       setSelectedRunId(run.id);
       setSelectedRunNodeId(getRunResultText(run.node_results[0], "node_id"));
       setDraft(null);
@@ -1009,11 +1083,11 @@ export function AgenticWorkflowsPage() {
       setEdges([]);
       setActiveTab("runs");
       setToastTone("success");
-      setToastMessage("Workflow queued with a frozen snapshot. Progress will update here.");
+      setToastMessage("Workflow preview captured. Tools and model calls were not executed.");
     },
     onError: (error) => {
       setToastTone("error");
-      setToastMessage(error instanceof Error ? error.message : "Unable to run workflow.");
+      setToastMessage(error instanceof Error ? error.message : "Unable to preview workflow.");
     }
   });
 
@@ -1144,7 +1218,7 @@ export function AgenticWorkflowsPage() {
       label: "Status",
       width: 125,
       sortValue: (run) => run.status,
-      render: (run) => <StatusBadge value={run.status || "queued"} />
+      render: (run) => <span className="agent-workflow-status">Preview · <StatusBadge value={run.status || "queued"} /></span>
     },
     {
       key: "trigger",
@@ -1193,6 +1267,8 @@ export function AgenticWorkflowsPage() {
       const next = new URLSearchParams(current);
       next.set("view", "workbench");
       next.set("agent", agent.id);
+      next.delete("run");
+      next.delete("session");
       return next;
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1203,12 +1279,20 @@ export function AgenticWorkflowsPage() {
       const next = new URLSearchParams(current);
       next.set("view", "agents");
       next.delete("agent");
+      next.delete("run");
+      next.delete("session");
       return next;
     });
   };
 
   const openAssistantWorkflowDraft = () => {
     const specialist = selectedAssistantAgent;
+    const reviewTransaction = mutationSessionIsSelected ? assistantReply?.transaction : savedAssistant?.transaction;
+    const reviewMetadata = reviewTransaction?.metadata || {};
+    const reviewRoute = reviewMetadata.context_route as { resolved_query?: string } | undefined;
+    const reviewPrompt = reviewRoute?.resolved_query || reviewTransaction?.description || assistantPrompt;
+    const reviewScopes = Array.isArray(reviewMetadata.context_scopes) ? reviewMetadata.context_scopes.filter((value): value is string => typeof value === "string") : assistantContextScopes;
+    const reviewSmartContext = mutationSessionIsSelected ? assistantSmartContext : null;
     const nextNodes: AgenticWorkflowNode[] = [
       {
         id: "agent-request-intake",
@@ -1230,13 +1314,13 @@ export function AgenticWorkflowsPage() {
           label: specialist.name,
           kind: "agent",
           summary: specialist.description,
-          intent: assistantPrompt,
-          prompt: assistantPrompt,
+          intent: reviewPrompt,
+          prompt: reviewPrompt,
           model: "Default workspace LLM",
-          knowledgeScope: assistantContextScopes.join(","),
-          knowledgeQuery: assistantSmartContext?.query || assistantPrompt,
-          knowledgeSourceIds: assistantSmartContext?.sourceIds || [],
-          reviewedContextFingerprint: assistantSmartContext?.contextText ? `reviewed:${assistantSmartContext.chunkIds.join(",")}` : "",
+          knowledgeScope: reviewScopes.join(","),
+          knowledgeQuery: reviewSmartContext?.query || reviewPrompt,
+          knowledgeSourceIds: reviewSmartContext?.sourceIds || [],
+          reviewedContextFingerprint: reviewSmartContext?.contextText ? `reviewed:${reviewSmartContext.chunkIds.join(",")}` : "",
           toolPolicy: "approved-tools-only",
           timeoutMs: "45000",
           retryCount: "1",
@@ -1265,7 +1349,7 @@ export function AgenticWorkflowsPage() {
         data: {
           label: "Quality Evaluator",
           kind: "agent",
-          summary: "Score grounding, completeness, traceability, risk control, and maturity.",
+          summary: "Review evidence coverage, traceability and unresolved risks.",
           prompt: "Evaluate the guarded outcome. Return scores, limitations, citations, and the human decision required.",
           model: "Default workspace LLM",
           outputKey: "evaluated_outcome",
@@ -1293,26 +1377,28 @@ export function AgenticWorkflowsPage() {
     ];
     const nextDraft: WorkflowDraft = {
       name: `${specialist.name} · governed workflow`,
-      description: `A review-first ${specialist.name} workflow created from the Agent Workbench. It retrieves bounded context, applies guardrails, evaluates maturity, and keeps artifact changes human-owned.`,
+      description: `A proposed ${specialist.name} workflow definition with context, review and handoff stages. Preview its sample data flow before implementing execution tools.`,
       status: "draft",
       trigger_kind: "manual",
       nodes: nextNodes,
       edges: nextEdges,
       settings: {
-        execution_mode: "sequential",
+        execution_mode: "preview",
+        source_review_id: reviewTransaction?.id || null,
         snapshot_runs: true,
         human_approval_required: true,
-        context_scopes: assistantContextScopes,
-        smart_context: assistantSmartContext ? {
-          query: assistantSmartContext.query,
-          source_ids: assistantSmartContext.sourceIds,
-          source_kinds: assistantSmartContext.sourceKinds,
-          chunk_ids: assistantSmartContext.chunkIds
+        context_scopes: reviewScopes,
+        smart_context: reviewSmartContext ? {
+          query: reviewSmartContext.query,
+          source_ids: reviewSmartContext.sourceIds,
+          source_kinds: reviewSmartContext.sourceKinds,
+          chunk_ids: reviewSmartContext.chunkIds
         } : null
       }
     };
     setSelectedAssistantSessionId("");
     setSelectedRunId("");
+    setRunInput(JSON.stringify({ request: reviewPrompt, source_review_id: reviewTransaction?.id || null, reviewed_outcome: activeAssistantResult?.response || "" }, null, 2));
     setDraft(nextDraft);
     setNodes(nextNodes);
     setEdges(nextEdges);
@@ -1507,7 +1593,8 @@ export function AgenticWorkflowsPage() {
   };
 
   const testSelectedApiAgent = async () => {
-    if (!selectedNode) {
+    const requestScope = workspaceScopeKey;
+    if (!selectedNode || !projectId || !canRunAgenticWorkflows) {
       return;
     }
 
@@ -1529,6 +1616,7 @@ export function AgenticWorkflowsPage() {
 
     try {
       const result = await api.agenticWorkflows.testApiAgent({
+        project_id: projectId,
         method,
         url,
         auth: String(selectedNode.data.apiAuth || ""),
@@ -1537,16 +1625,18 @@ export function AgenticWorkflowsPage() {
         credential: credential ? { ...credential } : null
       });
 
+      if (requestScope !== currentWorkspaceScope.current) return;
       updateSelectedNode("apiTestOutput", prettyJson(result));
       setToastTone("success");
       setToastMessage("API agent test completed.");
     } catch (error) {
+      if (requestScope !== currentWorkspaceScope.current) return;
       const message = error instanceof Error ? error.message : "Unable to test API agent.";
       updateSelectedNode("apiTestOutput", prettyJson({ ok: false, method, url, responseStyle, message }));
       setToastTone("error");
       setToastMessage(message);
     } finally {
-      setTestingApiNodeId("");
+      if (requestScope === currentWorkspaceScope.current) setTestingApiNodeId("");
     }
   };
 
@@ -1555,19 +1645,21 @@ export function AgenticWorkflowsPage() {
       return null;
     }
 
-    const workflow = await saveMutation.mutateAsync(draft);
-    return workflow;
+    try { return await saveMutation.mutateAsync(draft); }
+    catch { return null; }
   };
 
   const runCurrentDraft = async () => {
+    const requestScope = workspaceScopeKey;
     if (!draft || !canRunAgenticWorkflows) {
       return;
     }
 
+    try { safeJsonParse(runInput); } catch (error) { setToastTone("error"); setToastMessage(error instanceof Error ? error.message : "Invalid preview input."); return; }
     const workflow = canManageAgenticWorkflows
       ? await saveCurrentDraft()
       : workflows.find((candidate) => candidate.id === draft.id) || null;
-    if (workflow) {
+    if (workflow && requestScope === currentWorkspaceScope.current) {
       runMutation.mutate(workflow);
     }
   };
@@ -1604,231 +1696,132 @@ export function AgenticWorkflowsPage() {
   const isAgentNodeSelected = ["agent", "llmAgent", "webAgent", "apiAgent"].includes(selectedNodeKind);
   const isToolNodeSelected = ["agent", "llmAgent", "webAgent", "apiAgent", "apiTool", "knowledgeTool", "repositoryTool", "testOpsTool"].includes(selectedNodeKind);
   const isApiToolSelected = ["apiTool", "apiAgent"].includes(selectedNodeKind) || Boolean(selectedNode?.data.apiUrl);
-  const mutationSessionIsSelected = Boolean(
-    assistantMutation.data
-    && (!selectedAssistantSessionId || assistantMutation.data.transaction.id === selectedAssistantSessionId)
-  );
-  const selectedSessionMetadata = selectedAssistantSession?.metadata || {};
-  const activeAssistantResult = (mutationSessionIsSelected
-    ? assistantMutation.data?.result
-    : selectedSessionMetadata.result) as AgenticAssistantResult | undefined;
-  const activeAssistantEvents = (mutationSessionIsSelected
-    ? assistantMutation.data?.events
-    : assistantSessionEventsQuery.data) as WorkspaceTransactionEvent[] | undefined;
-  const activeAssistantCitations = mutationSessionIsSelected
-    ? assistantMutation.data?.citations || []
-    : Array.isArray(selectedSessionMetadata.citations) ? selectedSessionMetadata.citations : [];
-  const activeAssistantGuardrails = mutationSessionIsSelected
-    ? assistantMutation.data?.guardrails || []
-    : Array.isArray(selectedSessionMetadata.guardrails) ? selectedSessionMetadata.guardrails : [];
-  const activeAssistantProvenance = mutationSessionIsSelected
-    ? assistantMutation.data?.provenance
-    : {
-        provider: String(selectedSessionMetadata.provider || "HelloTest evidence engine"),
-        model: selectedSessionMetadata.model ? String(selectedSessionMetadata.model) : null,
-        generation_mode: String(selectedSessionMetadata.generation_mode || "deterministic"),
-        context_route: (selectedSessionMetadata.context_route || null) as AgenticAssistantSessionResponse["provenance"]["context_route"],
-        requires_human_review: true
-      };
-  const activeAssistantName = mutationSessionIsSelected
-    ? selectedAssistantAgent.name
-    : String(selectedSessionMetadata.agent_name || selectedAssistantAgent.name);
+  const mutationSessionIsSelected = Boolean(assistantReply && (!selectedAssistantSessionId || assistantReply.transaction.id === selectedAssistantSessionId));
+  const savedAssistant = assistantSavedSessionQuery.data;
+  const activeAssistantResult = mutationSessionIsSelected ? assistantReply?.result : savedAssistant?.result;
+  const activeAssistantEvents = mutationSessionIsSelected ? assistantReply?.events : savedAssistant?.events;
+  const activeAssistantCitations = mutationSessionIsSelected ? assistantReply?.citations || [] : savedAssistant?.citations || [];
+  const activeAssistantGuardrails = mutationSessionIsSelected ? assistantReply?.guardrails || [] : savedAssistant?.guardrails || [];
+  const activeAssistantProvenance = mutationSessionIsSelected ? assistantReply?.provenance : savedAssistant?.provenance;
+  const activeAssistantName = selectedAssistantAgent.name;
+  const savedAssistantMessage = assistantSavedSessionQuery.error instanceof Error ? assistantSavedSessionQuery.error.message : savedAssistant?.message || "Only reviews belonging to this project, application and specialist can be opened here.";
+  const specialistSessions = assistantSessions.filter(item => item.project_id === projectId && (!appTypeId || item.app_type_id === appTypeId) && item.metadata.agent_id === assistantAgentId);
+  const openAssistantSession = (agentId: string, id: string) => {
+    const agent = HELLOTEST_AGENT_CATALOG.find(item => item.id === agentId);
+    if (!agent) return;
+    assistantController.current?.abort(); assistantRequestId.current += 1;
+    setAssistantStartedAt(null); setAssistantNotice(""); setAssistantTaskExpanded(false);
+    selectAssistantAgent(agent);
+    setAssistantReply(null); setSelectedAssistantSessionId(id); setAssistantResultTab("brief");
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "workbench"); next.set("agent", agent.id); next.set("session", id); next.delete("run"); return next; });
+  };
+  const openHubSurface = (view: "agents" | "activity" | "workflows" | "runs") => {
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", view); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
+  };
+  const newSpecialistReview = () => {
+    setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantNotice(""); setAssistantResultTab("brief");
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
+  };
 
   return (
     <div className="page page-agentic-workflows">
       <PageHeader
-        eyebrow={activeSurface === "agents" ? "AI specialists" : activeSurface === "workbench" ? "Agent Workbench" : "Agentic automation"}
-        title={activeSurface === "agents" ? "AI Agents" : activeSurface === "workbench" ? selectedAssistantAgent.name : activeTab === "runs" ? "Workflow Runs" : "Agentic Workflows"}
-        description={activeSurface === "agents"
-          ? "Choose a focused HelloTest specialist, then start a governed task in its dedicated Workbench."
+        eyebrow={activeSurface === "repository" ? "Repository agents" : activeSurface === "agents" ? "AI specialists" : activeSurface === "workbench" ? "Agent Workbench" : "Agentic automation"}
+        title={activeSurface === "activity" ? "Recent agent work" : activeSurface === "repository" ? selectedRepositoryAgent.name : activeSurface === "agents" ? "AI Agents" : activeSurface === "workbench" ? selectedAssistantAgent.name : activeTab === "runs" ? "Workflow preview history" : "Workflow studio"}
+        description={activeSurface === "activity" ? "Resume source analyses and revisit your evidence-based reviews." : activeSurface === "agents"
+          ? "Turn repository source and project evidence into useful quality work."
+          : activeSurface === "repository"
+            ? selectedRepositoryAgent.outcome
           : activeSurface === "workbench"
-            ? "Delegate a focused, traceable task with bounded context, visible guardrails, evidence, and a human review gate."
+            ? specialistExperience.outcome
             : activeTab === "runs"
-              ? "Review workflow execution history and the governed snapshots captured at launch time."
-              : "Compose, manage, and run governed multi-agent workflows without mixing them into specialist task sessions."}
+              ? "Review saved graph previews and the definitions captured for each preview."
+              : "Design reusable agent plans and validate their graph before connecting execution tools."}
         meta={activeSurface === "agents"
           ? [
-              { label: "Specialists", value: HELLOTEST_AGENT_CATALOG.length },
+              { label: "Agents", value: HELLOTEST_AGENT_CATALOG.length + REPOSITORY_AGENTS.length },
               { label: "Review gate", value: "Required" },
               { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
             ]
+          : activeSurface === "repository"
+            ? [{ label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }]
           : activeSurface === "workbench"
             ? [
                 { label: "Specialist", value: selectedAssistantAgent.shortName },
-                { label: "Sessions", value: assistantSessions.length },
+                { label: "Recent reviews", value: specialistSessions.length },
                 { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
               ]
             : [
                 { label: "Workflows", value: workflows.length },
-                { label: "Runs", value: runs.length },
+                { label: "Recent previews", value: runs.length },
                 { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
               ]}
       />
 
       <div className="agentic-page-stage">
-      {!draft && !selectedRun && activeSurface === "agents" ? (
-        <div className="ai-agent-catalog-page">
-          <section className="ai-agent-marketing-banner" aria-labelledby="ai-agent-banner-title">
-            <div className="ai-agent-marketing-banner__copy">
-              <span>HelloTest AI Agents</span>
-              <h2 id="ai-agent-banner-title">Your agent works. You don&apos;t have to.</h2>
-              <p>Set a task once. Your agent keeps going—on the beach, on a hike, or while you sleep.</p>
-              <div className="ai-agent-marketing-banner__assurance" aria-label="Agent operating principles">
-                <span>Persistent tasks</span>
-                <span>Evidence grounded</span>
-                <span>Human review gated</span>
-              </div>
-            </div>
-            <div className="ai-agent-marketing-banner__visual" aria-hidden="true">
-              <span className="ai-agent-orbit ai-agent-orbit--outer" />
-              <span className="ai-agent-orbit ai-agent-orbit--inner" />
-              <span className="ai-agent-core"><AiAgentsIcon size={46} /></span>
-              <span className="ai-agent-pulse ai-agent-pulse--one" />
-              <span className="ai-agent-pulse ai-agent-pulse--two" />
-              <span className="ai-agent-pulse ai-agent-pulse--three" />
-            </div>
-          </section>
-
-          <section className="ai-agent-specialist-catalog" aria-labelledby="ai-agent-specialists-title">
-            <div className="agent-workbench-section-heading">
-              <div><span>Specialists</span><h2 id="ai-agent-specialists-title">Meet your quality engineering team</h2></div>
-              <p>Each specialist starts with a purpose-built task brief. Pick the closest match; you can refine its scope and evidence before running anything.</p>
-            </div>
-            <div className="ai-agent-specialist-grid">
-              {HELLOTEST_AGENT_CATALOG.map((agent) => (
-                <article className="ai-agent-specialist-card" data-agent={agent.id} key={agent.id}>
-                  <header>
-                    <span className="ai-agent-specialist-card__icon"><AiAgentsIcon size={30} /></span>
-                    <span className="ai-agent-specialist-card__type">AI Specialist</span>
-                  </header>
-                  <div className="ai-agent-specialist-card__copy">
-                    <h3>{agent.name}</h3>
-                    <p>{agent.description}</p>
-                  </div>
-                  <div className="ai-agent-specialist-card__capabilities" aria-label={`${agent.name} capabilities`}>
-                    {agent.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
-                  </div>
-                  <footer>
-                    <small>Governed · review required</small>
-                    <button className="primary-button compact" onClick={() => openAgentWorkbench(agent)} type="button">
-                      <span>Get Started</span>
-                      <span aria-hidden="true">→</span>
-                    </button>
-                  </footer>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
+      {!draft && !selectedRun && <nav className="agent-hub-nav" aria-label="Agent workspace navigation">
+        <button type="button" aria-current={activeSurface === "agents" ? "page" : undefined} onClick={() => openHubSurface("agents")}><IconLayoutGrid size={17} aria-hidden="true" />Agent library</button>
+        <button type="button" aria-current={activeSurface === "activity" ? "page" : undefined} onClick={() => openHubSurface("activity")}><IconClock size={17} aria-hidden="true" />Recent work</button>
+        <button type="button" aria-current={activeSurface === "workflows" ? "page" : undefined} onClick={() => openHubSurface("workflows")}><IconRoute size={17} aria-hidden="true" />Workflows</button>
+        <button type="button" aria-current={activeSurface === "runs" ? "page" : undefined} onClick={() => openHubSurface("runs")}><IconHistory size={17} aria-hidden="true" />Preview history</button>
+      </nav>}
+      {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={session?.user.id} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench} /> : null}
+      {!draft && !selectedRun && activeSurface === "activity" ? <AgentActivityCenter key={`${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} enabled={isAgenticWorkflowsEnabled && hasPermission(session, "agentic_workflow.view", projectId)} onOpenRepository={openRepositoryAgent} onOpenSession={openAssistantSession} /> : null}
+      {!draft && !selectedRun && activeSurface === "repository" ? (
+        <RepositoryAgents
+          key={`${projectId}:${appTypeId}:${repositoryAgentType}:${searchParams.get("run") || "new"}`}
+          projectId={projectId}
+          appTypeId={appTypeId}
+          scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")}
+          agentType={repositoryAgentType}
+          runId={searchParams.get("run") || ""}
+          enabled={isAgenticWorkflowsEnabled}
+          onOpen={openRepositoryAgent}
+          onBack={openAgentCatalog}
+        />
       ) : null}
       {!draft && !selectedRun && activeSurface === "workbench" ? (
-        <>
-          <section className="agent-workbench-hero" aria-labelledby="agent-workbench-title">
-            <div className="agent-workbench-hero__head">
-              <div>
-                <button aria-label="Back to all AI Agents" className="agent-workbench-back-link" onClick={openAgentCatalog} title="Back to all AI Agents" type="button"><span aria-hidden="true">←</span><span>Back</span></button>
-                <span>Agent Workbench</span>
-                <h2 id="agent-workbench-title">Delegate to {selectedAssistantAgent.name}</h2>
-                <p>Define the task once, choose the evidence it may use, and review the grounded outcome when the specialist finishes.</p>
-              </div>
-              <div className="agent-workbench-hero__facts">
-                <span><strong>{HELLOTEST_AGENT_CATALOG.length}</strong> specialists</span>
-                <span><strong>{assistantSessions.length}</strong> sessions</span>
-                <span><strong>100%</strong> review-gated</span>
-              </div>
-            </div>
-            <AgenticCommandComposer
-              agentId={assistantAgentId}
-              appTypeId={appTypeId}
-              contextScopes={assistantContextScopes}
-              disabled={!projectId || !canRunAgenticWorkflows}
-              integrationId={assistantIntegrationId}
-              integrations={llmIntegrations}
-              mode={assistantMode}
-              onAgentChange={(agentId) => {
-                const agent = HELLOTEST_AGENT_CATALOG.find((candidate) => candidate.id === agentId);
-                if (agent) {
-                  selectAssistantAgent(agent);
-                  setSearchParams((current) => {
-                    const next = new URLSearchParams(current);
-                    next.set("view", "workbench");
-                    next.set("agent", agent.id);
-                    return next;
-                  }, { replace: true });
-                }
-              }}
-              onContextScopesChange={setAssistantContextScopes}
-              onIntegrationChange={setAssistantIntegrationId}
-              onModeChange={setAssistantMode}
-              onPromptChange={setAssistantPrompt}
-              onSmartContextChange={(selection) => {
-                setAssistantSmartContext(selection);
-                setAssistantContextScopes((current) => current.includes("knowledge") ? current : [...current, "knowledge"]);
-              }}
-              onSubmit={() => assistantMutation.mutate()}
-              prompt={assistantPrompt}
-              projectId={projectId}
-              running={assistantMutation.isPending}
-              scopeLabel={selectedAppType?.name || selectedProject?.name || "Select a project"}
-              smartContext={assistantSmartContext}
-            />
-            <AgenticProcessRail
-              agentName={activeAssistantName}
-              status={assistantMutation.isPending ? "running" : assistantMutation.isError ? "failed" : activeAssistantResult ? "completed" : "idle"}
-            />
-          </section>
-
-          <section className="agent-workbench-evidence-grid" aria-label="Agent activity, outcome, and session history">
-            <AgentActivityTimeline
-              activeAgentName={activeAssistantName}
-              events={activeAssistantEvents || []}
-              running={assistantMutation.isPending || assistantSessionEventsQuery.isLoading}
-            />
-            <div className="agent-workbench-outcome-column">
-              {activeAssistantResult ? (
-                <>
-                  <AgenticOutcomePanel
-                    citations={activeAssistantCitations as Array<{ scope: string; id: string; label: string }>}
-                    guardrails={activeAssistantGuardrails as string[]}
-                    provenance={activeAssistantProvenance}
-                    result={activeAssistantResult}
-                  />
-                  <div className="agent-workbench-outcome-actions">
-                    <span>Use the evaluated result as a starting point; saving and running remain separate decisions.</span>
-                    <button className="primary-button" disabled={!canManageAgenticWorkflows} onClick={openAssistantWorkflowDraft} type="button">
-                      <AddIcon size={16} />Turn into workflow
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="agent-workbench-awaiting">
-                  <span><SparkIcon size={22} /></span>
-                  <strong>{assistantMutation.isPending ? `${selectedAssistantAgent.name} is working` : "Outcome and maturity will appear here"}</strong>
-                  <p>{assistantMutation.isPending ? "Watch the activity trace as HelloTest builds context, applies guardrails, and evaluates the result." : "Start a Chat or Agent session to get a cited response, recommendations, assumptions, guardrail evidence, and five maturity scores."}</p>
+        <section className="agent-specialist-workspace" aria-label={`${selectedAssistantAgent.name} workspace`}>
+          <div className="agent-specialist-heading"><div><button aria-label="Back to all AI Agents" className="ghost-button" type="button" onClick={openAgentCatalog}><IconArrowLeft size={16} /><span>Back</span></button><span className="agent-specialist-mode"><IconShieldCheck size={16} aria-hidden="true" />Workspace evidence review</span></div>{activeAssistantResult && <button type="button" className="ghost-button" disabled={assistantMutation.isPending} onClick={newSpecialistReview}>New review</button>}</div>
+          <div className="agent-specialist-grid">
+            <div className="agent-specialist-main">
+              <section className="agent-specialist-brief" aria-labelledby="specialist-task-title"><header><h2 id="specialist-task-title">{activeAssistantResult ? "Task summary" : "Your task"}</h2><span>{selectedAppType?.name || selectedProject?.name || "Select a project"}</span>{activeAssistantResult && <button type="button" className="ghost-button compact" aria-expanded={assistantTaskExpanded} onClick={() => setAssistantTaskExpanded(value => !value)}>{assistantTaskExpanded ? "Hide task setup" : "Review another task"}</button>}</header>
+                {activeAssistantResult && !assistantTaskExpanded && <p className="agent-task-receipt">{(mutationSessionIsSelected ? assistantReply?.transaction.description : savedAssistant?.transaction.description) || assistantPrompt}</p>}
+                <div hidden={Boolean(activeAssistantResult) && !assistantTaskExpanded}>
+                <AgenticCommandComposer
+                  agentId={assistantAgentId} appTypeId={appTypeId} contextScopes={assistantContextScopes}
+                  disabled={!projectId || !canRunAgenticWorkflows} integrationId={assistantIntegrationId} integrations={llmIntegrations.filter(item => item.is_active)} mode={assistantMode}
+                  onAgentChange={agentId => { const agent = HELLOTEST_AGENT_CATALOG.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
+                  onContextScopesChange={setAssistantContextScopes} onIntegrationChange={hasPermission(session, "integration.view", projectId) ? setAssistantIntegrationId : undefined} onModeChange={setAssistantMode} onPromptChange={setAssistantPrompt}
+                  onSmartContextChange={selection => { setAssistantSmartContext(selection); setAssistantContextScopes(current => current.includes("knowledge") ? current : [...current, "knowledge"]); }}
+                  onSubmit={startAssistantReview} prompt={assistantPrompt} projectId={projectId} running={assistantMutation.isPending}
+                  scopeLabel={selectedAppType?.name || selectedProject?.name || "Select a project"} smartContext={assistantSmartContext}
+                />
                 </div>
-              )}
+              </section>
+              {!canRunAgenticWorkflows && <p className="agent-specialist-error">{!projectId ? "Select a project to start a review." : "Starting reviews requires agent run permission and the Agents feature to be enabled. Saved reviews remain available within your access."}</p>}
+              {assistantMutation.isPending && <div className="agent-specialist-progress" role="status"><IconLoader2 size={23} className="repository-agent-spinner" aria-hidden="true" /><div><strong>Review in progress · {assistantElapsed}s</strong><p>{assistantElapsed >= 20 ? "The specialist is still working. If a source or model is unavailable, the result will explain any evidence gaps." : "Gathering the evidence available for this task and preparing its review."}</p></div><button type="button" className="ghost-button" onClick={() => assistantController.current?.abort()}>Stop review</button></div>}
+              {assistantNotice && <div role="alert" className="agent-specialist-error">{assistantNotice}</div>}
+              <div className="agent-specialist-result-tabs" role="group" aria-label="Specialist review views">{[{ id: "brief", label: "Review brief" }, { id: "activity", label: "Activity" }, { id: "history", label: "Saved reviews" }].map(tab => <button type="button" key={tab.id} aria-pressed={assistantResultTab === tab.id} onClick={() => setAssistantResultTab(tab.id as typeof assistantResultTab)}>{tab.label}{tab.id === "history" ? ` (${specialistSessions.length})` : ""}</button>)}</div>
+              {assistantResultTab === "brief" ? activeAssistantResult ? <>
+                <AgenticOutcomePanel key={selectedAssistantSessionId || assistantReply?.transaction.id || "current"} citations={activeAssistantCitations as Array<{ scope: string; id: string; label: string }>} guardrails={activeAssistantGuardrails as string[]} provenance={activeAssistantProvenance} result={activeAssistantResult} />
+                <div className="agent-specialist-destination"><p>Use this brief to guide your next change. Review and save it in the appropriate workspace.</p>{hasPermission(session, specialistExperience.destinationPermission, projectId) && <Link className="ghost-button" to={specialistExperience.destination}>{specialistExperience.destinationLabel}<IconArrowRight size={16} /></Link>}</div>
+                {canManageAgenticWorkflows && <details className="agent-brief-diagnostics"><summary>Plan a reusable workflow</summary><p>Create an editable workflow definition from this task. Workflow previews validate the plan without executing its tools.</p><button className="ghost-button" type="button" onClick={openAssistantWorkflowDraft}>Create workflow draft</button></details>}
+              </> : <div className="agent-specialist-ready"><span className="agent-eyebrow">{selectedAssistantSessionId ? "Saved review" : "What you will get"}</span><h3>{selectedAssistantSessionId ? assistantSavedSessionQuery.isLoading ? "Loading saved review…" : savedAssistant?.session_state === "running" ? "This review is still in progress" : savedAssistant?.session_state === "failed" ? "This review could not finish" : "This saved review is unavailable" : specialistExperience.output}</h3><p>{selectedAssistantSessionId ? savedAssistantMessage : "A decision summary, cited findings, proposed next actions and explicit evidence gaps. The generated brief is saved in your review history."}</p></div>
+              : assistantResultTab === "activity" ? activeAssistantEvents?.length ? <AgentActivityTimeline activeAgentName={activeAssistantName} events={activeAssistantEvents} running={false} /> : <div className="agent-specialist-ready"><h3>{assistantMutation.isPending ? "Activity will be available with the result" : "No recorded activity yet"}</h3><p>Completed reviews include the actual context, validation and model events recorded by the service.</p></div>
+              : <div className="agent-specialist-history">{assistantSessionsQuery.isError && <div className="agent-specialist-error" role="alert">Saved reviews could not be loaded. <button className="ghost-button compact" type="button" disabled={assistantSessionsQuery.isFetching} onClick={() => void assistantSessionsQuery.refetch()}>Retry saved reviews</button></div>}{assistantSessionsQuery.isLoading && <p role="status">Loading saved reviews…</p>}{specialistSessions.map(item => <button type="button" key={item.id} aria-pressed={selectedAssistantSessionId === item.id} onClick={() => openAssistantSession(String(item.metadata.agent_id), item.id)}><IconHistory size={17} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.status === "completed" ? "Saved review" : item.status} · {item.event_count || 0} recorded events</small></span><time>{formatTimestamp(item.created_at)}</time><IconArrowRight size={16} /></button>)}{!assistantSessionsQuery.isLoading && !assistantSessionsQuery.isError && !specialistSessions.length && <div className="agent-specialist-ready"><h3>No saved reviews for this specialist</h3><p>Start a task above. Its result and source evidence will remain available here.</p></div>}</div>}
             </div>
-            <aside className="agent-session-history" aria-label="Recent agent sessions">
-              <header><span>Recent activity</span><strong>Agent session history</strong></header>
-              <div className="agent-session-history__list">
-                {assistantSessions.map((session) => (
-                  <button aria-pressed={selectedAssistantSessionId === session.id} key={session.id} onClick={() => setSelectedAssistantSessionId(session.id)} type="button">
-                    <span className="agent-session-history__dot" data-status={session.status} />
-                    <span><time>{formatTimestamp(session.created_at)}</time><strong>{session.title}</strong><small>{session.description || `${session.event_count || 0} trace events`}</small></span>
-                  </button>
-                ))}
-                {!assistantSessions.length ? <div className="empty-state compact">No agent sessions yet. Ask a question or delegate a task above.</div> : null}
-              </div>
-            </aside>
-          </section>
-        </>
+            <aside className="agent-specialist-guide" aria-label="Specialist task guidance"><section><span className="agent-eyebrow">The outcome</span><h3>{specialistExperience.output}</h3><p>{specialistExperience.outcome}</p><span className="agent-eyebrow">Useful evidence</span><p>{specialistExperience.inputs}</p><p>Live records are limited to your permissions. Relevant indexed knowledge is included when available.</p></section><section><span className="agent-eyebrow">Try a task</span>{specialistExperience.starters.map((prompt, index) => <button type="button" key={prompt} disabled={assistantMutation.isPending} onClick={() => setAssistantPrompt(prompt)}><strong>{index === 0 ? "Start with a focused review" : "Explore a related question"}</strong><br />{prompt}</button>)}<p>These specialists prepare briefs. Source builders publish test drafts, objects and knowledge after your review.</p></section></aside>
+          </div>
+        </section>
       ) : null}
+      {(draft || selectedRun || activeSurface === "workflows" || activeSurface === "runs") && <div className="agent-workflow-preview-note"><IconShieldCheck size={20} aria-hidden="true" /><div><strong>Workflow previews</strong><p>Validate the graph and inspect sample data flow. Previews do not execute tools, call models or activate scheduled triggers.</p></div></div>}
       {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? (
         <Panel
           className="agentic-workflows-panel"
-          title={activeTab === "workflows" ? "Agentic workflow catalog" : "Workflow run history"}
+          title={activeTab === "workflows" ? "Saved workflows" : "Workflow preview history"}
           titleVariant="eyebrow"
-          subtitle={activeTab === "workflows" ? "Browse saved workflow definitions in the current project and app type." : "Review run records with the workflow snapshot captured at launch time."}
+          subtitle={activeTab === "workflows" ? "Browse saved workflow definitions in the current project and app type." : "Inspect saved workflow previews and their sample data flow."}
         >
           <div className="design-list-toolbar catalog-command-toolbar agentic-workflows-toolbar">
             <div className="catalog-toolbar-discovery" aria-label="Workflow views, search, and selection">
@@ -1944,7 +1937,7 @@ export function AgenticWorkflowsPage() {
               <DataTable
                 columns={runColumns}
                 rows={filteredRuns}
-                emptyMessage="No workflow runs captured yet."
+                emptyMessage="No workflow previews yet. Save a definition, then preview its data flow."
                 enableColumnResize
                 enableHeaderColumnReorder
                 getRowKey={(run) => run.id}
@@ -1979,7 +1972,7 @@ export function AgenticWorkflowsPage() {
                           <span className="tile-card-kicker">{formatTimestamp(run.created_at)}</span>
                           <strong>{run.workflow_name}</strong>
                         </div>
-                        <StatusBadge value={run.status || "queued"} />
+                        <span className="agent-workflow-status">Preview · <StatusBadge value={run.status || "queued"} /></span>
                       </div>
                       <p className="tile-card-description" title={run.id}>{run.id}</p>
                       <div className="tile-card-facts">
@@ -1990,7 +1983,7 @@ export function AgenticWorkflowsPage() {
                     </div>
                   </button>
                 ))}
-                {!filteredRuns.length ? <div className="empty-state compact">No workflow runs captured yet.</div> : null}
+                {!filteredRuns.length ? <div className="empty-state compact">No workflow previews yet. Save a definition, then preview its data flow.</div> : null}
               </div>
             )}
           </div>
@@ -2029,7 +2022,7 @@ export function AgenticWorkflowsPage() {
                 type="button"
               >
                 <PlayIcon />
-                Run workflow
+                Preview workflow
               </button>
             </div>
           )}
@@ -2038,7 +2031,7 @@ export function AgenticWorkflowsPage() {
             <div>
               <span>Workflow builder</span>
               <strong>{draft.name}</strong>
-              <p>Design the agent graph, assign credentials and LLMs, then run a saved snapshot.</p>
+              <p>Design the agent graph and inspect a preview of its dependencies. Tools are not executed by the preview.</p>
             </div>
             <div className="agentic-page-heading-metrics metric-strip page-metric-strip metric-strip-inline" aria-label="Workflow facts" role="group">
               <span><strong>{nodes.length}</strong> nodes</span>
@@ -2558,7 +2551,7 @@ export function AgenticWorkflowsPage() {
                       <div className="agentic-section-heading">
                         <div>
                           <strong>API tool</strong>
-                          <span>Configure REST-style tools and test a sample response before the workflow run.</span>
+                          <span>Configure an API tool. Test API output sends a real HTTP request; workflow previews do not.</span>
                         </div>
                       </div>
                       <div className="agentic-api-agent-grid">
@@ -2593,7 +2586,7 @@ export function AgenticWorkflowsPage() {
                       </div>
                       <button
                         className="ghost-button agentic-api-test-button"
-                        disabled={testingApiNodeId === selectedNode.id}
+                        disabled={!canRunAgenticWorkflows || Boolean(testingApiNodeId)}
                         onClick={testSelectedApiAgent}
                         type="button"
                       >
@@ -2612,7 +2605,7 @@ export function AgenticWorkflowsPage() {
               </section>
 
               <section className="agentic-inspector-card">
-                <h3>Run input</h3>
+                <h3>Preview input</h3>
                 <textarea className="agentic-run-input" onChange={(event) => setRunInput(event.target.value)} value={runInput} />
               </section>
             </aside>
@@ -2623,18 +2616,18 @@ export function AgenticWorkflowsPage() {
       {selectedRun ? (
         <Panel
           className="agentic-run-detail-panel"
-          title="Workflow run snapshot"
+          title="Workflow preview snapshot"
           titleVariant="eyebrow"
-          subtitle="The workflow snapshot below is the copy captured when this run was launched."
+          subtitle="The saved graph shows the definition used for this preview."
           actions={<button className="ghost-button" onClick={closeRun} type="button">Back</button>}
         >
           <div className="agentic-page-heading">
             <div>
-              <span>Workflow run snapshot</span>
+              <span>Workflow preview snapshot</span>
               <strong>{selectedRun.workflow_name}</strong>
-              <p>Review the frozen workflow graph captured at execution time and inspect each step result.</p>
+              <p>Inspect the saved graph and sample data passed between its steps.</p>
             </div>
-            <div className="agentic-page-heading-metrics metric-strip page-metric-strip metric-strip-inline" aria-label="Workflow run facts" role="group">
+            <div className="agentic-page-heading-metrics metric-strip page-metric-strip metric-strip-inline" aria-label="Workflow preview facts" role="group">
               <span><strong>{selectedRun.node_results.length}</strong> steps</span>
               <span><strong>{selectedRun.trigger_kind}</strong> trigger</span>
               <span><strong>{formatTimestamp(selectedRun.created_at)}</strong></span>
@@ -2644,16 +2637,16 @@ export function AgenticWorkflowsPage() {
             <section className="agentic-run-summary">
               <div className="agentic-run-summary-status">
                 <span className="count-pill">{selectedRun.trigger_kind}</span>
-                <StatusBadge value={selectedRun.status || "queued"} />
+                <span className="agent-workflow-status">Preview · <StatusBadge value={selectedRun.status || "queued"} /></span>
               </div>
               <strong>{selectedRun.workflow_name}</strong>
               <p>{formatTimestamp(selectedRun.started_at || selectedRun.created_at)} - {formatTimestamp(selectedRun.completed_at, "Still running")}</p>
               <div>
-                <span>Run ID</span>
+                <span>Preview reference</span>
                 <strong>{selectedRun.id}</strong>
               </div>
               <div>
-                <span>Final output</span>
+                <span>Sample output</span>
                 <strong>{selectedRun.output_payload ? "Captured" : "Pending"}</strong>
               </div>
             </section>
@@ -2661,8 +2654,8 @@ export function AgenticWorkflowsPage() {
             <section className="agentic-run-visual-panel">
               <div className="agentic-section-heading">
                 <div>
-                  <strong>Execution workflow</strong>
-                  <span>Click any node to inspect the input and output recorded for that exact run.</span>
+                  <strong>Preview graph</strong>
+                  <span>Select a node to inspect its sample input and preview output.</span>
                 </div>
               </div>
               <div className="agentic-flow-shell agentic-flow-shell--run">
@@ -2682,7 +2675,7 @@ export function AgenticWorkflowsPage() {
                     <Background gap={18} size={1} />
                   </ReactFlow>
                 ) : (
-                  <div className="empty-state compact">No workflow snapshot nodes were captured for this run.</div>
+                  <div className="empty-state compact">No graph was captured for this preview.</div>
                 )}
               </div>
             </section>
@@ -2693,7 +2686,7 @@ export function AgenticWorkflowsPage() {
                   <strong>Step input/output</strong>
                   <span>{selectedRunNodeResult ? getRunResultText(selectedRunNodeResult, "node_id", "Selected step") : "Select a workflow node"}</span>
                 </div>
-                {selectedRunNodeResult ? <span className="count-pill">{getRunResultText(selectedRunNodeResult, "status", "completed")}</span> : null}
+                {selectedRunNodeResult ? <span className="count-pill">{getRunResultText(selectedRunNodeResult, "status", "previewed")}</span> : null}
               </div>
               {selectedRunNodeResult ? (
                 <div className="agentic-run-io-grid">
@@ -2706,9 +2699,9 @@ export function AgenticWorkflowsPage() {
                     <pre>{prettyJson(selectedRunNodeResult.output)}</pre>
                   </article>
                   <article className="agentic-json-panel agentic-run-log-panel">
-                    <h3>Logs & retries</h3>
+                    <h3>Preview trace & configured policies</h3>
                     <pre>{prettyJson({
-                      attempts: selectedRunNodeResult.attempts || 1,
+                      attempts: selectedRunNodeResult.attempts ?? 0,
                       retry_policy: selectedRunNodeResult.retry_policy || {},
                       error_policy: selectedRunNodeResult.error_policy || "stop",
                       data_policy: selectedRunNodeResult.data_policy || {},
@@ -2718,7 +2711,7 @@ export function AgenticWorkflowsPage() {
                   </article>
                 </div>
               ) : (
-                <div className="empty-state compact">Select a node in the execution workflow to view its recorded input and output.</div>
+                <div className="empty-state compact">Select a node in the preview graph to inspect its sample input and output.</div>
               )}
             </section>
           </div>

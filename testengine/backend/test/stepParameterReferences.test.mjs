@@ -31,10 +31,10 @@ test("resolved column contents remain literal and ordinary references remain com
   assert.equal(interpolateText("@t. @s. @r.", context), "@t. @s. @r.");
 });
 
-test("case-linked data keeps explicit case overrides for quoted columns", () => {
+test("selected data rows override case defaults for quoted columns", () => {
   const context = buildInitialContext({
     case_parameters: { "first name": "override" },
     data_set: { source: "test_case", mode: "table", rows: [{ "First Name": "inherited" }] }
   });
-  assert.equal(interpolateText("@t.[First Name]", context), "override");
+  assert.equal(interpolateText("@t.[First Name]", context), "inherited");
 });

@@ -223,19 +223,27 @@ module.exports = async function (fastify) {
     return scopedIntegrations.map(sanitizeIntegration);
   });
 
-  fastify.post("/integrations/test-connection", async (req) => {
+  fastify.post("/integrations/test-connection", async (req, reply) => {
     await fastify.authenticate(req);
-
+    await fastify.requirePermission("integration.manage")(req);
     fastify.validate({
+      integration_id: { required: false, type: "string" },
       type: { required: true, type: "string", enum: INTEGRATION_TYPE_VALUES },
       base_url: { required: false, type: "string" },
       api_key: { required: false, type: "string" },
+      model: { required: false, type: "string" },
+      username: { required: false, type: "string" },
+      project_key: { required: false, type: "string" },
       config: { required: false, type: "object" }
     }, req.body);
-
-    await requireMobileIntegrationWrite(fastify, req, req.body);
-
-    return service.testConnection(req.body);
+    const existing = req.body.integration_id ? await service.getIntegration(req.body.integration_id) : null;
+    await requireMobileIntegrationWrite(fastify, req, req.body, existing);
+    const controller = new AbortController();
+    const cancel = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    req.raw.on("aborted", cancel);
+    reply.raw.on("close", cancel);
+    try { return await service.testConnection(req.body, { signal: controller.signal }); }
+    finally { req.raw.removeListener("aborted", cancel); reply.raw.removeListener("close", cancel); }
   });
 
   fastify.get("/integrations/export", async (req) => {

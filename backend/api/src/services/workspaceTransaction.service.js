@@ -434,6 +434,7 @@ exports.listTransactions = async ({
   project_id,
   app_type_id,
   category,
+  related_kind,
   include_global = false,
   limit = 20
 } = {}) => {
@@ -472,6 +473,11 @@ exports.listTransactions = async ({
   if (category) {
     query += ` AND workspace_transactions.category = ?`;
     params.push(category);
+  }
+
+  if (related_kind) {
+    query += ` AND workspace_transactions.related_kind = ?`;
+    params.push(related_kind);
   }
 
   query += ` ORDER BY COALESCE(workspace_transactions.updated_at, workspace_transactions.created_at) DESC, workspace_transactions.id DESC LIMIT ?`;

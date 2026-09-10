@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import test from 'node:test';
+const source = readFileSync(new URL('../src/lib/qualityDashboardPresets.ts', import.meta.url), 'utf8');
+const module = { exports: {} };
+vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { module, exports: module.exports });
+const { QUALITY_DASHBOARD_PRESETS, QUALITY_WIDGET_LIBRARY, createDashboardPreset, dashboardQueryGadgets, moveDashboardWidget } = module.exports;
+const plain = value => JSON.parse(JSON.stringify(value));
+
+test('all audience presets immediately produce bounded native widgets isolated to their project', () => {
+  assert.equal(QUALITY_DASHBOARD_PRESETS.length, 3);
+  assert.ok(QUALITY_WIDGET_LIBRARY.length >= 20);
+  for (const preset of QUALITY_DASHBOARD_PRESETS) {
+    const first = createDashboardPreset('project-a', preset.id);
+    const second = createDashboardPreset('project-b', preset.id);
+    assert.equal(first.project_id, 'project-a');
+    assert.equal(second.project_id, 'project-b');
+    assert.ok(first.gadgets.length > 4 && first.gadgets.length <= 12);
+    assert.equal(new Set(first.gadgets.map(item => item.id)).size, first.gadgets.length);
+    assert.ok(first.gadgets.every(item => item.data_source === 'hellotest' && item.jql === ''));
+    assert.ok(first.gadgets.some(item => item.type !== 'metric'));
+    first.gadgets[0].title = 'Changed';
+    assert.notEqual(second.gadgets[0].title, 'Changed');
+  }
+});
+
+test('widget movement supports distant positions without mutation or lost widgets', () => {
+  const original = createDashboardPreset('project', 'quality').gadgets;
+  const moved = moveDashboardWidget(original, original[0].id, 6);
+  assert.equal(moved[6].id, original[0].id);
+  assert.deepEqual(plain(moved.map(item => item.id).sort()), plain(original.map(item => item.id).sort()));
+  assert.equal(original[0].id, 'quality:execution-completion');
+  assert.equal(moveDashboardWidget(original, original[0].id, -1), original);
+});
+
+test('presentation and order reuse evaluated data while metric and release changes invalidate it', () => {
+  const original = createDashboardPreset('project', 'quality').gadgets;
+  const restyled = original.map(item => ({ ...item, title: 'New title', accent: 'red' })).reverse();
+  assert.deepEqual(plain(dashboardQueryGadgets(original)), plain(dashboardQueryGadgets(restyled)));
+  for (const patch of [{ release: 'next-release' }, { group_by: 'priority' }, { metric: 'openDefects' }, { type: 'table' }]) {
+    const changed = original.map((item, index) => index === 0 ? { ...item, ...patch } : item);
+    assert.notDeepEqual(plain(dashboardQueryGadgets(original)), plain(dashboardQueryGadgets(changed)));
+  }
+});

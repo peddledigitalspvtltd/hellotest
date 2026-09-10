@@ -21,6 +21,8 @@ import { FormField } from "../components/FormField";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
+import { IntegrationConnectionTest } from "../components/IntegrationConnectionTest";
+import { buildIntegrationConnectionInput } from "../lib/integrationConnection";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -773,11 +775,11 @@ function buildIntegrationConfig(draft: IntegrationDraft, definitions: Integratio
     };
   }
 
-  if (draft.type === "testengine") {
+  if (draft.type === "testengine" || draft.type === "local-desktop") {
     return {
       project_id: draft.engine_project_id || undefined,
       hellotest_api_base_url: draft.engine_hellotest_api_base_url.trim() || null,
-      runner: "hybrid",
+      runner: draft.type === "local-desktop" ? "local" : "hybrid",
       dispatch_mode: "hellotest-pull",
       execution_scope: "api+web",
       active_web_engine: draft.engine_active_web_engine,
@@ -967,7 +969,7 @@ function IntegrationReadOnlyDetails({
     <div className="detail-stack">
       <div className="empty-state compact integration-helper">
         {isRovo
-          ? "This is HelloTest's built-in connected workspace Rovo entry point. Availability is user/site specific, and it is not editable, deletable, credential-tested, or invoked as a direct Forge LLM model."
+          ? "This is HelloTest's built-in connected workspace Rovo entry point. Test connection verifies access to the current project’s workflow studio. Model generation is checked on your selected AI provider. This built-in entry is managed by the workspace."
           : "Members can use this active integration from HelloTest workflows. Secrets are masked and connection changes stay with admins."}
       </div>
       {isRovo ? (
@@ -1032,7 +1034,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [draft, setDraft] = useState<IntegrationDraft>(emptyDraft);
-  const [testConnectionSummary, setTestConnectionSummary] = useState("");
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const integrationsQuery = useQuery({
@@ -1047,7 +1048,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   });
 
   const createIntegration = useMutation({ mutationFn: api.integrations.create });
-  const testIntegrationConnection = useMutation({ mutationFn: api.integrations.testConnection });
   const importIntegrations = useMutation({ mutationFn: api.integrations.import });
   const updateIntegration = useMutation({
     mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.integrations.update>[1] }) =>
@@ -1207,18 +1207,19 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const activeIntegrationCount = integrations.filter((item) => item.is_active && !isRovoIntegrationId(item.id)).length;
   const isSelectedIntegrationRovo = isRovoIntegrationId(selectedIntegration?.id);
   const isAdmin = session?.user.role === "admin";
+  const canTestConnection = hasPermission(session, "integration.manage");
   const isLlm = draft.type === "llm";
   const isEmail = draft.type === "email";
   const isGoogle = draft.type === "google_auth";
   const isGoogleDrive = draft.type === "google_drive";
   const isGithub = draft.type === "github";
-  const isTestEngine = draft.type === "testengine";
+  const isTestEngine = draft.type === "testengine" || draft.type === "local-desktop";
   const isCloudRun = draft.type === "cloudrun";
   const isOps = draft.type === "ops";
   const draftCategoryKey = getIntegrationCategoryKey(draft.type);
   const draftProviderOptions = useMemo(
-    () => getIntegrationProvidersForCategory(draftCategoryKey, integrationTypeDefinitions),
-    [draftCategoryKey, integrationTypeDefinitions]
+    () => draft.type === "jira" ? [{ value: "jira" as const, label: "Work tracker" }] : getIntegrationProvidersForCategory(draftCategoryKey, integrationTypeDefinitions),
+    [draft.type, draftCategoryKey, integrationTypeDefinitions]
   );
   const emailDefaults = getIntegrationTypeDefinition("email", integrationTypeDefinitions)?.defaults || {};
   const llmDefaults = getIntegrationTypeDefinition("llm", integrationTypeDefinitions)?.defaults || {};
@@ -1333,10 +1334,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     setSelectedIntegrationId("");
     setDraft(emptyDraft);
   }, [defaultIntegrationType, emptyDraft, integrationTypeDefinitions, isCreating, selectedIntegration, selectedIntegrationId]);
-
-  useEffect(() => {
-    setTestConnectionSummary("");
-  }, [draft.type, draft.base_url, draft.engine_project_id, draft.ops_project_id, draft.ops_events_path, draft.ops_health_path]);
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["integrations"] });
@@ -1491,42 +1488,17 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     }
   };
 
-  const handleTestConnection = async () => {
-    if (isSelectedIntegrationRovo) {
-      showError(new Error("Rovo availability is checked through the connected workspace bridge, not through the Forge LLM connection test."), "Unable to test integration");
-      return;
-    }
-    try {
-      const result = await testIntegrationConnection.mutateAsync({
-        type: draft.type,
-        base_url: draft.base_url.trim() || undefined,
-        api_key: draft.api_key.trim() && !isMaskedSecretValue(draft.api_key) ? draft.api_key.trim() : undefined,
-        config: buildIntegrationConfig(draft, integrationTypeDefinitions, canUseMobileAppium)
-      });
-      if (result.type === "ops") {
-        const summary = `${result.service} responded in ${result.latency_ms} ms from ${result.base_url}. Health ${result.health_url}. Events ${result.events_url}. Board ${result.board_url}.`;
-        setTestConnectionSummary(summary);
-        showSuccess(`OPS connection verified. ${result.service} · ${result.events_path} · board ready.`);
-      } else {
-        const supportedStepTypes = result.supported_step_types.length
-          ? result.supported_step_types.join(", ")
-          : "not reported";
-        const supportedWebEngines = result.supported_web_engines.length
-          ? result.supported_web_engines.join(", ")
-          : "not reported";
-        const compatibility = result.hellotest_result_log_compatibility
-          ? ` Logs ${result.hellotest_result_log_compatibility}.`
-          : "";
-        const summary = `${result.service} responded in ${result.latency_ms} ms from ${result.base_url}. Runner ${result.runner}, scope ${result.execution_scope}, supported steps ${supportedStepTypes}, web engines ${supportedWebEngines}.${compatibility}`;
-
-        setTestConnectionSummary(summary);
-        showSuccess(`Test Engine connection verified. ${result.runner} · ${supportedStepTypes} · ${supportedWebEngines}.`);
-      }
-    } catch (error) {
-      setTestConnectionSummary("");
-      showError(error, `Unable to verify ${isOps ? "OPS" : "Test Engine"} connection`);
-    }
-  };
+  const testDraftInput = buildIntegrationConnectionInput({
+    type: draft.type,
+    base_url: (isCloudRun ? draft.cloud_run_remote_url || draft.base_url : draft.base_url).trim(),
+    api_key: (isCloudRun ? draft.cloud_run_access_key : draft.api_key).trim(),
+    model: draft.model.trim(),
+    username: (isCloudRun ? draft.cloud_run_username : draft.username).trim(),
+    project_key: draft.project_key.trim(),
+    config: buildIntegrationConfig(draft, integrationTypeDefinitions, canUseMobileAppium)
+  }, !isCreating && selectedIntegration ? selectedIntegration : undefined);
+  const selectedConnectionProfile = selectedActionIntegrationIds.length === 1
+    ? integrations.find(integration => integration.id === selectedActionIntegrationIds[0]) : null;
 
   const integrationActions = isAdmin ? (
     <div className="integration-header-actions">
@@ -1707,6 +1679,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 </div>
                 {integrationActions ? <div className="catalog-toolbar-actions" aria-label="Integration actions">{integrationActions}</div> : null}
               </div>
+              {canTestConnection && selectedConnectionProfile && !isRovoIntegrationId(selectedConnectionProfile.id) ? <IntegrationConnectionTest input={{ integration_id: selectedConnectionProfile.id, type: selectedConnectionProfile.type }} scopeKey={`${projectId}:catalog:${selectedConnectionProfile.id}`} name={selectedConnectionProfile.name} saved /> : null}
               {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isIntegrationCatalogLoading && visibleIntegrationSections.length && integrationCatalogViewMode === "tile" ? (
                 <div className="integration-type-section-stack">
@@ -1758,7 +1731,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
               subtitle="Store the credentials and provider settings HelloTest needs to call external systems and power secure authentication flows."
             >
               {selectedIntegration && (!isAdmin || isSelectedIntegrationRovo) ? (
-                <IntegrationReadOnlyDetails definitions={integrationTypeDefinitions} includeMobileAppium={canUseMobileAppium} integration={selectedIntegration} />
+                <>
+                  <IntegrationReadOnlyDetails definitions={integrationTypeDefinitions} includeMobileAppium={canUseMobileAppium} integration={selectedIntegration} />
+                  {canTestConnection && !isSelectedIntegrationRovo ? <IntegrationConnectionTest input={{ integration_id: selectedIntegration.id, type: selectedIntegration.type }} name={selectedIntegration.name} scopeKey={`${projectId}:${selectedIntegration.id}`} saved /> : null}
+                </>
               ) : isCreating || selectedIntegration ? (
                 <form className="form-grid" onSubmit={(event) => void handleSave(event)}>
                 <div className="record-grid">
@@ -1803,6 +1779,13 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                     <input required value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
                   </FormField>
                 </div>
+
+                {draft.type === "jira" ? <div className="record-grid">
+                  <FormField label="Work-tracker API base URL"><input value={draft.base_url} onChange={event => setDraft(current => ({ ...current, base_url: event.target.value }))} /></FormField>
+                  <FormField label="Username or account email"><input value={draft.username} onChange={event => setDraft(current => ({ ...current, username: event.target.value }))} /></FormField>
+                  <FormField label="API token"><input type="password" autoComplete="new-password" value={draft.api_key} onChange={event => setDraft(current => ({ ...current, api_key: event.target.value }))} /></FormField>
+                  <FormField label="Project key"><input value={draft.project_key} onChange={event => setDraft(current => ({ ...current, project_key: event.target.value }))} /></FormField>
+                </div> : null}
 
                 {isLlm ? (
                   <>
@@ -2516,9 +2499,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       </article>
                     </div>
 
-                    {testConnectionSummary ? (
-                      <div className="inline-message success-message">{testConnectionSummary}</div>
-                    ) : null}
                   </>
                 ) : null}
 
@@ -2663,11 +2643,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                       </article>
                     </div>
 
-                    {testConnectionSummary ? (
-                      <div className="inline-message success-message">{testConnectionSummary}</div>
-                    ) : null}
                   </>
                 ) : null}
+
+                {canTestConnection ? <IntegrationConnectionTest input={testDraftInput} scopeKey={`${projectId}:${isCreating ? "new" : selectedIntegrationId}`} /> : null}
 
                 <label className="checkbox-field">
                   <input
@@ -2679,19 +2658,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 </label>
 
                 <div className="action-row">
-                  {(isTestEngine || isOps) ? (
-                    <button
-                      className="ghost-button"
-                      disabled={
-                        testIntegrationConnection.isPending
-                        || (isTestEngine ? !draft.base_url.trim() : !resolvedOpsEngineHost)
-                      }
-                      onClick={() => void handleTestConnection()}
-                      type="button"
-                    >
-                      {testIntegrationConnection.isPending ? "Testing connection..." : "Test connection"}
-                    </button>
-                  ) : null}
                   <button className="primary-button" type="submit">{isCreating ? "Create integration" : "Save integration"}</button>
                   {!isCreating && selectedIntegration ? (
                     <button className="ghost-button danger" onClick={() => void handleDelete()} type="button">

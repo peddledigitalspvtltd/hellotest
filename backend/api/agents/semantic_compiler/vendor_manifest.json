@@ -1,0 +1,402 @@
+{
+  "archive_name": "qaira_semantic_compiler.zip",
+  "archive_sha256": "5e0736d6614cbdde2be0b2a9403c3015497cfd8a809078ee8830d15b9dc60ac0",
+  "files": [
+    {
+      "path": "vendor/qaira_semantic_compiler/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/orchestrator.py",
+      "sha256": "23072092579b390b2ac8da0068ac053821d9df8a1939a6987f35e5cfca936111"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/qsg/kernel.py",
+      "sha256": "f1d7c9349ae8688a1714915b7aa7810d65cce54d14cf4efb17103375f182d87e"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/qsg/__init__.py",
+      "sha256": "272e8686a45db5908b5b5695159b5da2b765dd17539a20124da649d3db180859"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/qsg/parsers.py",
+      "sha256": "8676a7054950ab3b9141e01bfd85afac2af9648ff58dc815078af38baea56085"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/qsg/normalization.py",
+      "sha256": "d05bce4dd2769566b6936f26a4fdee03da89d199f1a2c6867f8c8149841c6b0d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/fs_index.py",
+      "sha256": "5d4a363d21c7a67835ae5dd2612129d74dbbe80309f433618e02e4d01b2172d6"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/runner.py",
+      "sha256": "01478792bf9fa35ddfbd0a5e40300625fc13c66e0c87b5637a9cf65a3b43988e"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/jsparse.py",
+      "sha256": "b0110064422e87c409a7580c9fe926e271fdbdab45e31f1dd53d48c5d82262b9"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/agent_contracts.py",
+      "sha256": "8ab14008febb577431bd32c4aa954f98c90cae4067641622cffcad8ffa0612d9"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/patch_library.py",
+      "sha256": "f926059fec86c299e9a205a1e316773e59a5cbd0e7b797a11ffb2ceaf979a212"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/framework_patterns.py",
+      "sha256": "a784fcd2e5592a918017d191122b043d719bb080b5b8949e7f9cb907f76ac231"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/logger.py",
+      "sha256": "a60dedf689dbe22415466c8b9151bc427eae938243b7a3011b809134fe6024c0"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/parser.py",
+      "sha256": "6f4501a67e4e58f279d118fa7ee1187ce5ca936380b916702b8f280c7ac76365"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/ignore.py",
+      "sha256": "58ead66dbd980302797742fafc19e206a179878270aefb99a8816aa877e7695b"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/context.py",
+      "sha256": "f2f5658f3ac30523b165e37796bc947a030a4a8cab33aeafd9b2ab7d0f3498e8"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/llm_client.py",
+      "sha256": "365b120f3985103b3a82a3d2f5b1877da0c9212be2721544a487fb6c913678fa"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/core/iteration_context.py",
+      "sha256": "571264fa042dbe366a7634da09d0d3372d68e3909f86d3c5a7b5324128cd1474"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/service_graph_agent.py",
+      "sha256": "e39de00b85f64447fb7274c869b4853f918f5453bcb186d1d568296efb64fbe0"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/llm_gateway_agent.py",
+      "sha256": "59f019ed85ef3134a15a505fd3a067926f2d17be02b429db2650efdd1e91e85a"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/source_detection_agent.py",
+      "sha256": "9b28793d7a753b7cad5daea133c672eeaf804eeeb95440573469bf30a41d5bfd"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/import_graph_agent.py",
+      "sha256": "bdab9c8b63329b1b20a94329d976f1e5be508101a5ac5572bc0efe94b0acb248"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/body_discovery_agent.py",
+      "sha256": "bb9e29b774d646ecc20313335619c9274d4b8bb7bff7043b5bbd2bc71a0281ef"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/self_healing_llm_advisor_agent.py",
+      "sha256": "4ded0f22e88b7042b945c861362593fb86139fb8a2ff8e5a8700903a7726e043"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/contract_builder_agent.py",
+      "sha256": "bf33b0c7459e1e95d17662048810ecf76d84fa809d251d9b2e368f30c105e07a"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/remediation_agent.py",
+      "sha256": "aa60e364652ffe23a20257009a0ac1ebd0264fecff6f5dd9e346b263d88cad46"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/patch_library_agent.py",
+      "sha256": "120c27d00f08d159ae549070a9435283ec05e4527b2496dd09a8e8f5d3b27b4d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/relationship_agent.py",
+      "sha256": "db3c66c6e93f9a4ae7c6be5a8eb061e114cef6c4ce30c5bf74ba76800a674ad6"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/results_analyzer_agent.py",
+      "sha256": "4d82b25ef53dc4ef79168407ddd1a6b75f6551b29080d3e6de7c15b95f444c87"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/required_field_confidence_agent.py",
+      "sha256": "dea9f2ca6c8ad19ac6750df919008436d9948228b5f96d0a8b1241e45a4594fb"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/iteration_llm_reviewer_agent.py",
+      "sha256": "6c5cb702933bafddbc647d21a299c80bb0ced17b7bff99deb72db03bbb442913"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/inferred_schema_registry_agent.py",
+      "sha256": "d9d759461b79b542c488780214a03dc9c644777821845ee7eb843f55cfd08fdc"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/param_type_discovery_agent.py",
+      "sha256": "57fd7e70175a01d967cd86310073daf150d63283833f6293ce367c514236b3f5"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/__init__.py",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/final_run_report_agent.py",
+      "sha256": "648762a5b71e7d3e4c6044a9e72d572e67afcca866e6a1bc587636085bf5b7d7"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/repository_index_agent.py",
+      "sha256": "ff20b53c9f06525dfc4d7e2ec55d3a8d8830e2828cd41bedbaf43219c5d19a45"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/patch_effectiveness_agent.py",
+      "sha256": "56d9a227ef1960b973faf151c785b608b54528988e538e7ab0b62b84f054180e"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/response_discovery_agent.py",
+      "sha256": "2113f11d7f8ec279c8de4aec90185e304d8c4ebac817bed7dc2916467c4902ad"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/test_generation_agent.py",
+      "sha256": "bde90cfc1245b4c955306b5d63aa3ad2cf9503dcd5653e33a28bed63736a7816"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/validation_schema_agent.py",
+      "sha256": "1177bd1f88a016a54a9d0234acc10f285142d1bc7c801118b0beb22f1c29bcb7"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/quality_gate_agent.py",
+      "sha256": "7d5e18325dc069fafd57b8a0ba45422844af09073555ee69468d273baf690930"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/route_discovery_agent.py",
+      "sha256": "1739313d672ec360dec9615eb5ed92a93fa65b797892eb6d6b9804b158921697"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/params_discovery_agent.py",
+      "sha256": "3ffb748e37a411bf6bb0e0abd9b4456d210e60cfdde004280a8e1fe03b875d9d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/db_write_field_agent.py",
+      "sha256": "a7d0573821199613c38bc86b1be7f2e3af8d7becba5d3836d41b8a28929ebe00"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/self_healing_code_delta_agent.py",
+      "sha256": "8d10f6cc50e427e9248203ccaf1bfbc3f89d8027e17ff7665acef6aa5830e06c"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/artifact_manifest_agent.py",
+      "sha256": "3df2f7c611b75edddc53282917ce653cbc2ad3db92ec60ae3f82f1089e5296b2"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/service_body_field_agent.py",
+      "sha256": "245054d69de22b64ce1f039236a6475944af5b83501b13eb541b3f3ca92484e7"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/api_documentation_agent.py",
+      "sha256": "089e6f998fab0fe78c4a590354c8128dc602d297bb8c132ec4f5b7fd62e60170"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/source_repo_clone_agent.py",
+      "sha256": "e4358142383afd24663d345c347c2380e632501a07e97c77926fbad564a77708"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/agent_performance_evaluator_agent.py",
+      "sha256": "0181ad027c428be70ab43f6e8be2d100ff978b94ea9f227cf2d52d07d27a8c01"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/service_body_propagation_agent.py",
+      "sha256": "d3a4f87cdba6d23ec22fe4ad9f800cf3251acddae294448385a221d85e8cb4a2"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/code_delta_generation_agent.py",
+      "sha256": "37b5350d7999f7c56321db2a4229c3c7b729dc351cf59d9b1f49f2b809187426"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/schema_attachment_agent.py",
+      "sha256": "cc9f0b3d8cf7d4c7cd84d6a27ec59104ba5f3b29487ca8cb3b12f2281d8ba9c5"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/git_finalization_agent.py",
+      "sha256": "1bde8b7e5a3b0ee486a828268b4055165610e3c913f879d4bcca3532ee946154"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/critical_path_review_agent.py",
+      "sha256": "dae0a1eaf5fa6b71c212e14d3dea39394550ecd63951de34e8d1f20cc361ef19"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/semantic_prerequisite_agent.py",
+      "sha256": "5eec913fa988fac35c93e433f4ecf7e206be26543326d1843e5bd04f26db8f57"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/prompt_chain_synthesis_agent.py",
+      "sha256": "24f9bea6396f2806c46c149981918e61b655230a2623553066c9b6ae0ac3d700"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/__init__.py",
+      "sha256": "e4ffef647a8a1c457e80859a8937580817cfd44fe40ee0de97cf4337242fc3ed"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/self_learning_memory_agent.py",
+      "sha256": "009d971e69df39f7ddf963ae8ca32674006b7a081ae2a94e2592a0e43168f79d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/framework_pattern_intelligence_agent.py",
+      "sha256": "9315d74386b530ba4d6673142539f1e7429bf4c20c3062b676fe23235a2c1e6d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/pipeline_robustness_gate_agent.py",
+      "sha256": "b2484f10bf31ee40a524da9d49f69155b9417ab8286703f34a5e7d778ea34bf0"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/meta/agent_outcome_review_agent.py",
+      "sha256": "f2191d098364f4dd4f53b65ff0f55c1f2b9ee18d6e1164b6ab8f62d3d5d83b84"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/fixture_mock_data_agent.py",
+      "sha256": "49c0ac2a0fc4c217e1764509a3cff28c0c92df20839a10549be3f209b10d2b15"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_api_mapping_agent.py",
+      "sha256": "9d1789538f9c79ace19e5a43a2713dbbf8ea776b9ec2be7e6b42cc7b0d071fda"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_auto_repair_agent.py",
+      "sha256": "492c389ea1ddd3f5da23e88e0b5bad27a0b5f44115ffbc699a795b3e366f1981"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/event_discovery_agent.py",
+      "sha256": "2320456b35ba2bca157f1c05c50370989a87b1690b5c4fbf170226a9720bb626"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/__init__.py",
+      "sha256": "8176fa68ed8a18d8af15921f48a2b4a1ef08ca127cadcb01d0d90dcaeb6c1371"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_discovery_agent.py",
+      "sha256": "19991aab3323c98fede11d5a55372e985f6462e024a51b669298a40241154ff9"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_execution_plan_agent.py",
+      "sha256": "9fad6a1c91966f9537e4d2aee5cda0bd9e7e366eb326a2204c14de2c7d77074c"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_artifact_packaging_agent.py",
+      "sha256": "378840e145599e1611eb9650240a770145c3b29ebf4ed4453255554066ab9950"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_test_contract_agent.py",
+      "sha256": "7ac098e8eaa92a37e42c4d7d284b22e8a263d27b2f2290fe9761cfff9a6236a5"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/utils.py",
+      "sha256": "3b2aacae17d38fa49f365062da65f767cfddf6952e8611e067a371cde26f50d8"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_element_discovery_agent.py",
+      "sha256": "632a5fedc9d21f3db7876d43d09cd007880f315fc2be7625403283e83c4bb012"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/page_component_mapping_agent.py",
+      "sha256": "407ff48754e53051f4db31049d79c3dd0360e18f3b4a31152561b8ccfc4a4033"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_playwright_generation_agent.py",
+      "sha256": "f372fa9067ff00182a78d82a97914e95a2825f4bcb64fe62b3b3037c1ff4859d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/state_discovery_agent.py",
+      "sha256": "368402d32ae78700ca1a03144659240340f0ef8a10e95b5e7dabdf7f7d8d7e54"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/locator_ranking_agent.py",
+      "sha256": "bc3eb22275f174a47c635f44d92f6fe5b470104177a07d69e303527a5ce926ce"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/validation_discovery_agent.py",
+      "sha256": "b9b2113ef0f368670a61cfd9d134cba14fa3565846956c18a910ada58990dceb"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/assertion_mining_agent.py",
+      "sha256": "fddb0f256cb4a642216017b49982e1be3818eb8a3c3d51bc64f76d2d167f5933"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/component/component_semantic_quality_gate_agent.py",
+      "sha256": "ca95ffeefac33acf601560097c8624c28df7143af1ba3dd348370ed7e648618f"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/qsg_diff_agent.py",
+      "sha256": "769c3b2ce1185624c102e8f3b24d0561224bb86770951fc0a79c43ca1d98faa6"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/playwright_spec_agent.py",
+      "sha256": "7954d0065f1dcdff38a63ab8de48aaf28041e49d2c17c5300dad74c29c0fd1e2"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/testability_agent.py",
+      "sha256": "73786ed6e0ded1b1fa2338819d9610955ef133d5891885d73a3b34689f66e864"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/fact_normalization_agent.py",
+      "sha256": "e28ffe827485a99d2ffc59e79e1f3229c8a53ad97917dc170ad48fde172b2719"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/backend_bridge_agent.py",
+      "sha256": "589e004bdca80f32412adfa3574aa37462480b7584246a5ababc3458b6d3589c"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/qsg_build_agent.py",
+      "sha256": "434cc660f942455b2fcba99d7254e3f2910add06650fafd7df57441a5ebb094a"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/__init__.py",
+      "sha256": "c91d8b0e05aa117b06ada97ca3f7205b5d7bb06571f85b7a2cfe285cb1deaf0a"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/query_export_agent.py",
+      "sha256": "17056b24644680b7bb1496d519843a9363feb22e422cf5d21e95054a94626c75"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/qsg_validation_agent.py",
+      "sha256": "2471223cb255de026e1fe848c58f759bb707569056d9d508836e3cf7ceadd83d"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/webui_artifact_packaging_agent.py",
+      "sha256": "205f5ebf513d9bb5514ade45b548adcd469ccb2fb0e07b913c2515f68bfa1e6b"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/accessibility_agent.py",
+      "sha256": "87979707e7d39793202759c348ff14c5ba71f0659c7c5a4e15174ebecd71d42a"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/mock_state_agent.py",
+      "sha256": "48ad229bdf2dc584d62d3f4bf0cbab4d26e50f13f05513a71cdfaf5217140659"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/locator_agent.py",
+      "sha256": "ae4277b8ad8725c75d61f2a224be64c989be9c7023d81f146ccb53e0729af887"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/form_intelligence_agent.py",
+      "sha256": "1b80713904dd082860d1aecb6400c428843e4f80b5fc2999307242c77aa5b6a3"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/impact_analysis_agent.py",
+      "sha256": "8e136ae91a8362de974952bd377280afb0377677e77859cff5fd850721cee688"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/risk_agent.py",
+      "sha256": "dc2cdc7c399218a5cbbc20728027277861cdbef32f38d50945b34f5e42cb2150"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/runtime_overlay_agent.py",
+      "sha256": "abeb3b14b7566587c1b6dfc29f45bcc110fb1c59c7d4d80cf8000b7b8e05eae4"
+    },
+    {
+      "path": "vendor/qaira_semantic_compiler/agents/webui/patch_recommendation_agent.py",
+      "sha256": "32db3dc59ab2a079d19cf4703f1c7ee046aeccee0160ac770e3b922fb8c9fac1"
+    }
+  ]
+}

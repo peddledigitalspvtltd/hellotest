@@ -4,7 +4,29 @@ const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 
 module.exports = async function (fastify) {
-  fastify.post("/agentic-assistant/sessions", async (req) => {
+  const requireProjectPermission = async (req, projectId, permission) => {
+    await projectService.getProject(projectId, req.user.id);
+    await fastify.requirePermission(permission, { projectId })(req);
+  };
+  const validateApp = async (projectId, appTypeId) => {
+    if (!appTypeId) return;
+    const app = await appTypeService.getAppType(appTypeId);
+    if (projectId && app.project_id !== projectId) throw Object.assign(new Error("Selected app must belong to the current project."), { statusCode: 400 });
+    return app;
+  };
+  const withConnection = async (req, reply, task) => {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    req.raw.once("aborted", cancel);
+    reply.raw.once("close", cancel);
+    if (req.raw.aborted || reply.raw.destroyed) controller.abort();
+    try { return await task(controller.signal); }
+    finally {
+      req.raw.removeListener("aborted", cancel);
+      reply.raw.removeListener("close", cancel);
+    }
+  };
+  fastify.post("/agentic-assistant/sessions", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({
       project_id: { required: true, type: "string" },
@@ -18,29 +40,44 @@ module.exports = async function (fastify) {
       history: { required: false, type: "array" }
     }, req.body || {});
 
-    await projectService.getProject(req.body.project_id, req.user.id);
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
+    await validateApp(req.body.project_id, req.body.app_type_id);
+    return withConnection(req, reply, (signal) => agenticAssistantService.respond({ ...req.body, user: req.user, signal }));
+  });
 
-    if (req.body.app_type_id) {
-      const appType = await appTypeService.getAppType(req.body.app_type_id);
-      if (appType.project_id !== req.body.project_id) {
-        throw new Error("Selected app type must belong to the current project");
-      }
-    }
+  fastify.get("/agentic-assistant/sessions", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: true, type: "string", minLength: 1, maxLength: 255 },
+      app_type_id: { required: false, type: "string", maxLength: 255 }
+    }, req.query || {});
+    if (!req.query.project_id.trim()) throw Object.assign(new Error("Select a project to list specialist reviews."), { statusCode: 400 });
+    await fastify.requirePermission("agentic_workflow.view", { projectId: req.query.project_id })(req);
+    return agenticAssistantService.listSessions(req.query, req.user);
+  });
 
-    return agenticAssistantService.respond({ ...req.body, user: req.user });
+  fastify.get("/agentic-assistant/sessions/:id", async (req) => {
+    await fastify.authenticate(req);
+    const review = await agenticAssistantService.getSession(req.params.id, req.user);
+    await fastify.requirePermission("agentic_workflow.view", { projectId: review.transaction.project_id })(req);
+    return review;
   });
 
   fastify.get("/agentic-workflows", async (req) => {
     await fastify.authenticate(req);
 
     if (req.query.project_id) {
-      await projectService.getProject(req.query.project_id, req.user.id);
+      await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");
     }
+    const app = await validateApp(req.query.project_id, req.query.app_type_id);
+    if (app && !req.query.project_id) await requireProjectPermission(req, app.project_id, "agentic_workflow.view");
 
     return agenticWorkflowService.listWorkflows({
       project_id: req.query.project_id,
       app_type_id: req.query.app_type_id,
-      status: req.query.status
+      status: req.query.status,
+      user: req.user,
+      limit: req.query.limit
     });
   });
 
@@ -59,13 +96,14 @@ module.exports = async function (fastify) {
       n8n_payload: { required: false, type: "object" }
     }, req.body);
 
-    await projectService.getProject(req.body.project_id, req.user.id);
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.manage");
     return agenticWorkflowService.createWorkflow(req.body, req.user.id);
   });
 
-  fastify.post("/agentic-workflows/api-agent-test", async (req) => {
+  fastify.post("/agentic-workflows/api-agent-test", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({
+      project_id: { required: true, type: "string", minLength: 1, maxLength: 255 },
       method: { required: false, type: "string" },
       url: { required: true, type: "string" },
       auth: { required: false, type: "string" },
@@ -74,23 +112,25 @@ module.exports = async function (fastify) {
       credential: { required: false, type: "object" }
     }, req.body || {});
 
-    return agenticWorkflowService.testApiAgent(req.body || {});
+    if (!req.body.project_id.trim()) throw Object.assign(new Error("Choose a project before testing an API endpoint."), { statusCode: 400 });
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
+    return withConnection(req, reply, (signal) => agenticWorkflowService.testApiAgent({ ...(req.body || {}), signal }));
   });
 
   fastify.get("/agentic-workflows/:id", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
-    await projectService.getProject(workflow.project_id, req.user.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
     return workflow;
   });
 
   fastify.put("/agentic-workflows/:id", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
-    await projectService.getProject(workflow.project_id, req.user.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.manage");
 
     if (req.body?.project_id && req.body.project_id !== workflow.project_id) {
-      await projectService.getProject(req.body.project_id, req.user.id);
+      await requireProjectPermission(req, req.body.project_id, "agentic_workflow.manage");
     }
 
     fastify.validate({
@@ -112,14 +152,14 @@ module.exports = async function (fastify) {
   fastify.delete("/agentic-workflows/:id", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
-    await projectService.getProject(workflow.project_id, req.user.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.manage");
     return agenticWorkflowService.deleteWorkflow(req.params.id);
   });
 
   fastify.post("/agentic-workflows/:id/runs", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
-    await projectService.getProject(workflow.project_id, req.user.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.run");
     fastify.validate({
       trigger_kind: { required: false, type: "string" },
       input_payload: { required: false, type: "object" },
@@ -133,21 +173,30 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     if (req.query.project_id) {
-      await projectService.getProject(req.query.project_id, req.user.id);
+      await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");
+    }
+    const app = await validateApp(req.query.project_id, req.query.app_type_id);
+    if (app && !req.query.project_id) await requireProjectPermission(req, app.project_id, "agentic_workflow.view");
+    if (req.query.workflow_id) {
+      const workflow = await agenticWorkflowService.getWorkflow(req.query.workflow_id);
+      await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
+      if (req.query.project_id && req.query.project_id !== workflow.project_id) throw Object.assign(new Error("Workflow must belong to the selected project."), { statusCode: 400 });
     }
 
     return agenticWorkflowService.listWorkflowRuns({
       project_id: req.query.project_id,
       app_type_id: req.query.app_type_id,
       workflow_id: req.query.workflow_id,
-      status: req.query.status
+      status: req.query.status,
+      user: req.user,
+      limit: req.query.limit
     });
   });
 
   fastify.get("/agentic-workflow-runs/:id", async (req) => {
     await fastify.authenticate(req);
     const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
-    await projectService.getProject(run.project_id, req.user.id);
+    await requireProjectPermission(req, run.project_id, "agentic_workflow.view");
     return run;
   });
 };

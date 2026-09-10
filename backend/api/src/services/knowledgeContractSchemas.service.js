@@ -301,7 +301,10 @@ const JSON_SCHEMAS = Object.freeze({
       input_tokens: integer(),
       output_tokens: integer(),
       cost_usd: number(),
-      retrieval_rounds: integer()
+      retrieval_rounds: integer(),
+      model_attempt: integer(),
+      model_max_attempts: integer(),
+      retry_delay_ms: number()
     }),
     context_packet_id: nullable(id),
     answer_id: nullable(id),

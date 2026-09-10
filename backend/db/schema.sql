@@ -1019,8 +1019,12 @@ CREATE TABLE execution_results (
   suite_id TEXT,
   suite_name TEXT,
   app_type_id TEXT NOT NULL,
-  status TEXT CHECK(status IN ('running','passed','failed','blocked')),
-  duration_ms INTEGER,
+  status TEXT CHECK(status IN ('pending','running','paused','passed','failed','blocked','aborted','skipped')),
+  duration_ms BIGINT,
+  started_at TIMESTAMPTZ,
+  timer_started_at TIMESTAMPTZ,
+  ended_at TIMESTAMPTZ,
+  lifecycle_history JSONB NOT NULL DEFAULT '[]'::jsonb,
   error TEXT,
   logs TEXT,
   test_data_set_id TEXT,
@@ -1546,6 +1550,11 @@ ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS defects JSONB NOT NULL DE
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS step_defects JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS case_defects JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS timer_started_at TIMESTAMPTZ;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ;
+ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS lifecycle_history JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE execution_results ALTER COLUMN duration_ms TYPE BIGINT;
 ALTER TABLE test_case_module_cases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_suite_test_cases_test_case_sort
@@ -1992,3 +2001,40 @@ CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_project
 
 CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_queue
   ON ai_requirement_generation_jobs (status, lease_expires_at, created_at ASC);
+
+-- Repository agent analysis and publication receipts
+CREATE TABLE IF NOT EXISTS repository_agent_runs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    app_type_id TEXT REFERENCES app_types(id) ON DELETE SET NULL,
+    agent_type TEXT NOT NULL CHECK (agent_type IN ('object_repository','api_tests','repository_knowledge','component_tests')),
+    status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','completed','partial','failed','cancelled')),
+    source JSONB NOT NULL DEFAULT '{}'::jsonb,
+    input JSONB NOT NULL DEFAULT '{}'::jsonb,
+    input_hash TEXT,
+    compiler_version TEXT NOT NULL,
+    request_key TEXT,
+    progress INTEGER NOT NULL DEFAULT 0,
+    stages JSONB NOT NULL DEFAULT '[]'::jsonb,
+    summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    result JSONB,
+    error TEXT,
+    published JSONB NOT NULL DEFAULT '{"items":[]}'::jsonb,
+    cached_from TEXT,
+    lease_token TEXT,
+    heartbeat_at TIMESTAMPTZ,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+CREATE INDEX IF NOT EXISTS idx_repository_agent_runs_scope ON repository_agent_runs(project_id, app_type_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_repository_agent_runs_queue ON repository_agent_runs(status, created_at) WHERE status IN ('queued','running');
+
+CREATE INDEX IF NOT EXISTS idx_repository_agent_runs_cache ON repository_agent_runs(project_id, agent_type, input_hash, compiler_version) WHERE status IN ('completed','partial');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_agent_runs_request ON repository_agent_runs(project_id, created_by, request_key) WHERE request_key IS NOT NULL;

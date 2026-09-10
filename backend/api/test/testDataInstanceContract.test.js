@@ -70,7 +70,7 @@ test("reviewed one-of Data Set utilities resolve at runtime instead of leaking t
   assert.ok(candidates.includes(materializeTemplateValue(template)));
 });
 
-test("saved case-instance Test Params override linked source values during interpolation", async (t) => {
+test("selected data rows consistently override case defaults regardless of attachment source", async (t) => {
   // Exercise current TypeScript sources with the same .js import layout as the
   // built engine, without depending on or modifying generated dist artifacts.
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "hellotest-case-parameters-"));
@@ -99,9 +99,9 @@ test("saved case-instance Test Params override linked source values during inter
     data_set: dataSet
   });
 
-  assert.equal(context.values["t.username"], "Jay");
+  assert.equal(context.values["t.username"], "source-user");
   assert.equal(context.values["t.password"], "source-password");
-  assert.equal(runtime.interpolateText("Login and enter @t.username", context), "Login and enter Jay");
+  assert.equal(runtime.interpolateText("Login and enter @t.username", context), "Login and enter source-user");
   assert.deepEqual(dataSet, original);
 
   const explicitRunContext = runtime.buildInitialContext({
@@ -142,7 +142,7 @@ test("dispatch expands each Test Case by its own associated Data Set rows and sn
   assert.match(caseLoop, /resolveExecutionDataSetIterations/);
   assert.match(caseLoop, /for \(const dataSetIteration of dataSetIterations\)/);
   assert.match(dispatch, /source: caseDataSet\.source/);
-  assert.match(dispatch, /envelope\.data_set\?\.source === "test_case"/);
+  assert.match(dispatch, /resolveParameterLayers\(/);
   assert.match(dispatch, /data_set_iteration: dataSetIteration/);
   assert.match(dispatch, /data_set_row_snapshot: rowSnapshot/);
   assert.match(callback, /resolveCaseDataSetContext\(execution, caseSnapshot\)/);
@@ -165,7 +165,7 @@ test("manual API-step execution selects and persists the requested frozen Data S
   assert.match(execution, /resolveExecutionCaseDataSetIteration/);
   assert.match(execution, /Data Set iteration index must be a non-negative integer/);
   assert.match(execution, /Data Set iteration \$\{index \+ 1\} is outside the frozen \$\{total\}-row snapshot/);
-  assert.match(execution, /Object\.entries\(dataSetRows\[rowIndex\] \|\| \{\}\)/);
+  assert.match(execution, /rowIndex: Number\.isInteger\(dataSetIterationIndex\) \? dataSetIterationIndex : 0/);
   assert.match(execution, /findLatestExecutionResult\(\{[\s\S]*data_set_iteration_index: dataSetIteration\.result_metadata\.data_set_iteration_index/);
   assert.match(execution, /dataSetIteration: dataSetIteration\.engine_iteration/);
   assert.ok((execution.match(/\.\.\.dataSetIteration\.result_metadata/g) || []).length >= 4);

@@ -11,6 +11,7 @@ const modelGateway = require("./knowledgeModelGateway.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { modelHttpError, modelFailureCode, modelFailureMessage } = require("../utils/knowledgeAssistantErrors");
+const { readRetryAfterMs, validateModelEndpoint } = require("../utils/knowledgeModelRetry");
 const {
   fingerprint,
   normalizeText,
@@ -277,13 +278,15 @@ const isJsonModeCompatibilityRejection = (status, responseText) => (
 );
 
 const openAiJsonCompletion = async ({ integration, messages, operation, signal, timeoutMs = 45_000, maxOutputTokens = 4096 }) => {
+  const endpoint = resolveChatCompletionsUrl(integration.base_url);
+  validateModelEndpoint(endpoint);
   const headers = { "Content-Type": "application/json" };
   const apiKey = String(integration.api_key || "").trim();
   if (integrationService.isUsableApiCredential(apiKey)) headers.Authorization = `Bearer ${apiKey}`;
   let useJsonMode = true;
   let outputTokenField = "max_tokens";
   let includeTemperature = true;
-  const request = () => fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
+  const request = () => fetchLlmWithRetry(endpoint, {
     method: "POST",
     signal,
     headers,
@@ -297,6 +300,7 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
   }, {
     operation: useJsonMode ? operation : `${operation}.json-mode-compatibility`,
     timeoutMs,
+    maxAttempts: 1,
     bufferResponse: true,
     maxResponseBytes: 1024 * 1024
   });
@@ -309,20 +313,21 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
     if (response.ok) break;
     responseText = typeof response.text === "function" ? await response.text() : "";
     if (![400, 422].includes(response.status)) break;
-    // Negotiate only explicit parameter rejections. Never retry generation
-    // after a transport failure or remove the output bound to gain compatibility.
+    // Negotiate only explicit parameter rejections. Transient failures belong
+    // to the gateway's shared retry budget; compatibility keeps the output bound.
     if (useJsonMode && isJsonModeCompatibilityRejection(response.status, responseText)) useJsonMode = false;
     else if (outputTokenField === "max_tokens" && /max_tokens/i.test(responseText) && /max_completion_tokens/i.test(responseText)) outputTokenField = "max_completion_tokens";
     else if (includeTemperature && /temperature/i.test(responseText) && /unsupported|not support|only.{0,30}default/i.test(responseText)) includeTemperature = false;
     else break;
   }
-  if (!response.ok) throw modelHttpError(Number(response.status), responseText);
+  if (!response.ok) throw modelHttpError(Number(response.status), responseText, readRetryAfterMs(response));
   let payload;
   try {
     payload = await response.json();
   } catch {
     throw Object.assign(new Error("The answer provider returned an invalid payload."), { code: "MODEL_INVALID_RESPONSE" });
   }
+  execution.assertActive();
   modelGateway.recordUsage({ integration, operation, usage: payload.usage });
   if (payload.choices?.[0]?.finish_reason === "length") throw Object.assign(new Error("The answer provider reached its output limit."), { code: "MODEL_OUTPUT_TRUNCATED" });
   const content = completionContent(payload);
@@ -1427,7 +1432,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   outcome = knowledgeContracts.applyAnswerContract(outcome, retrieval.answer_contract, contextPacket);
   retrieval.answer_structure = outcome.answer_structure;
   retrieval.model_usage = execution.current().usage;
-  retrieval.model_budget = { calls_used: execution.current().modelStats.calls, cost_limit_enforced: execution.current().modelBudget?.max_query_cost_usd != null,
+  retrieval.model_budget = { calls_used: execution.current().modelStats.calls, retries_used: Number(execution.current().modelStats.retries || 0), cost_limit_enforced: execution.current().modelBudget?.max_query_cost_usd != null,
     cost_usd: execution.current().usage.length && execution.current().usage.every((item) => item.cost_usd != null)
       ? execution.current().usage.reduce((total, item) => total + item.cost_usd, 0) : null };
   execution.emit("VALIDATION", "completed", { claim_count: retrieval.answer_contract.claims.length });

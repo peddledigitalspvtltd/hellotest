@@ -39,8 +39,7 @@ test("linked table Data Sets expose every declared first-row column as immutable
     "t.username": "Jay",
     "t.password": "secret",
     "t.role": "admin",
-    "t.tenant": "QAIra",
-    "t.region": ""
+    "t.tenant": "QAIra"
   });
   assert.deepEqual(
     buildDataSetParameterDefinitions(dataSet, dataSet.name).map((parameter) => parameter.name),

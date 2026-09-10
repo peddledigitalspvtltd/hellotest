@@ -130,6 +130,51 @@ test("model connection failure returns authorized evidence with an actionable er
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/);
 }));
 
+test("a transient synthesis failure recovers into one saved answer and same-turn replay performs no new model calls", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://turn-retry.invalid/v1", model: "test", config: {} }));
+  let synthesisCalls = 0, allCalls = 0;
+  context.mock.method(global, "fetch", async (_, init) => {
+    allCalls++;
+    if (JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
+    if (++synthesisCalls === 1) return new Response("Temporary failure", { status: 503, headers: { "retry-after": "0" } });
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ status: "answered", executive_summary: "Approval requires a passing checkout test. [K-chunk-1]", supported_claims: [{ statement: "Approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] }) } }] }));
+  });
+  const events = [];
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => events.push(event) });
+  assert.equal(synthesisCalls, 2);
+  assert.equal(messages.length, 2);
+  assert.equal(result.assistant_message.status, "answered");
+  assert.equal(result.retrieval.model_budget.retries_used, 1);
+  assert.equal(result.citations.length, 1);
+  assert.equal(events.filter((event) => event.stage === "COMPLETED").length, 1);
+  assert.ok(events.some((event) => event.stage === "GENERATION" && event.metrics.model_attempt === 2));
+  assert.ok(!events.some((event) => event.stage === "GENERATION" && event.status === "FAILED"));
+  const callsBeforeReplay = allCalls;
+  const replay = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(allCalls, callsBeforeReplay);
+  assert.equal(messages.length, 2);
+}));
+
+test("exhausted synthesis retries save one grounded fallback with usable citations", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://turn-exhausted.invalid/v1", model: "test", config: {} }));
+  let synthesisCalls = 0;
+  context.mock.method(global, "fetch", async (_, init) => {
+    if (JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
+    synthesisCalls++;
+    return new Response("PRIVATE_PROVIDER_BODY", { status: 503, headers: { "retry-after": "0" } });
+  });
+  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(synthesisCalls, 3);
+  assert.equal(messages.length, 2);
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.equal(result.retrieval.provider_error_code, "MODEL_UNAVAILABLE");
+  assert.equal(result.retrieval.model_budget.retries_used, 2);
+  assert.equal(result.citations.length, 1);
+  assert.match(result.assistant_message.content, /passing checkout test/);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_BODY/);
+}));
+
 test("access revoked during generation removes claims and source contents before saving an answer", async (context) => fixture(async ({ input, state }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://revocation.invalid/v1", model: "test", config: {} }));
   context.mock.method(global, "fetch", async (_, init) => {

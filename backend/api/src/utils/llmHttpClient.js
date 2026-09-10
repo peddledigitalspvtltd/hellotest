@@ -17,7 +17,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     dependency: "llm-provider",
     operation,
     deadlineMs: timeoutMs,
-    attemptTimeoutMs: timeoutMs,
+    attemptTimeoutMs: Math.min(timeoutMs, Math.max(1_000, Number(options.attemptTimeoutMs || timeoutMs))),
     maxAttempts,
     maxResponseBytes: options.maxResponseBytes,
     bufferResponse: options.bufferResponse !== false,

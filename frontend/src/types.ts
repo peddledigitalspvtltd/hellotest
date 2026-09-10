@@ -113,6 +113,14 @@ export type JiraAttachment = {
   } | null;
 };
 
+export type ExecutionResultAttachment = JiraAttachment & {
+  entity_type: "execution_result";
+  entity_id: string;
+  project_id: string;
+  step_id?: string | null;
+  checksum?: string | null;
+};
+
 export type QualityDashboardGadget = {
   id: string;
   title: string;
@@ -121,7 +129,7 @@ export type QualityDashboardGadget = {
   type: "metric" | "donut" | "bar" | "stacked-bar" | "line" | "table";
   jql: string;
   group_by: "status" | "statusCategory" | "priority" | "issuetype" | "assignee" | "reporter" | "components" | "fixVersion" | "labels" | "sprint" | "resolution" | "module" | "createdWeek" | "updatedWeek" | "createdMonth" | "updatedMonth";
-  metric?: "count" | "resolved" | "unresolved" | "highPriority" | "unassigned" | "overdue" | "stale30d" | "created30d" | "resolved30d" | "resolutionRate" | "averageAgeDays" | "averageResolutionDays" | "releaseConfidence" | "requirementCoverage" | "coverageGaps" | "automationCoverage" | "openDefects" | "failedRuns" | "executionCycleHours" | "completedRuns30d" | "testCases" | "testSuites" | "testRuns" | "moduleCaseCount";
+  metric?: "count" | "resolved" | "unresolved" | "highPriority" | "unassigned" | "overdue" | "stale30d" | "created30d" | "resolved30d" | "resolutionRate" | "averageAgeDays" | "averageResolutionDays" | "releaseConfidence" | "requirementCoverage" | "coverageGaps" | "automationCoverage" | "openDefects" | "failedRuns" | "executionCycleHours" | "completedRuns30d" | "testCases" | "testSuites" | "testRuns" | "moduleCaseCount" | "passRate" | "executionCompletion" | "evidenceConfidence";
   accent?: "blue" | "green" | "purple" | "orange" | "red" | "teal" | "slate";
 };
 
@@ -2489,6 +2497,8 @@ export type ExecutionScopeSnapshot = {
   assigned_to_ids?: string[];
   assigned_user?: ExecutionScopeUser | null;
   assigned_users?: ExecutionScopeUser[];
+  assignment_source?: "run" | "suite" | "module" | "case" | null;
+  suite_id?: string | null;
 };
 
 export type Execution = {
@@ -2502,6 +2512,10 @@ export type Execution = {
     blocked_cases: number;
     running_cases: number;
     pending_cases: number;
+    paused_cases?: number;
+    aborted_cases?: number;
+    skipped_cases?: number;
+    duration_ms?: number;
     defect_count: number;
     story_count: number;
     failed_story_count: number;
@@ -2671,6 +2685,7 @@ export type AgenticWorkflow = {
 
 export type AgenticWorkflowRun = {
   id: string;
+  execution_mode?: "preview";
   workflow_id: string | null;
   project_id: string;
   app_type_id: string | null;
@@ -2701,6 +2716,8 @@ export type AgenticAssistantCitation = {
 };
 
 export type AgenticAssistantEvaluation = {
+  label?: string;
+  method?: "deterministic" | "model_assessment";
   grounding: number;
   completeness: number;
   traceability: number;
@@ -2710,6 +2727,13 @@ export type AgenticAssistantEvaluation = {
 };
 
 export type AgenticAssistantResult = {
+  readiness?: {
+    status: "ready_for_review" | "limited_evidence" | "insufficient_evidence";
+    evidence_count: number;
+    task_evidence_count: number;
+    missing_scopes: string[];
+    limitations: string[];
+  };
   headline?: string;
   executive_summary?: string;
   response: string;
@@ -2743,6 +2767,8 @@ export type AgenticAssistantSessionResponse = {
   guardrails: string[];
   provenance: {
     provider: string;
+    degraded?: boolean;
+    readiness?: AgenticAssistantResult["readiness"];
     model?: string | null;
     generation_mode: string;
     fallback_reason?: string | null;
@@ -2763,6 +2789,16 @@ export type AgenticAssistantSessionResponse = {
     } | null;
     input_fingerprint: string;
     requires_human_review: boolean;
+  };
+};
+
+export type AgenticAssistantSavedSessionResponse = Omit<AgenticAssistantSessionResponse, "result" | "provenance"> & {
+  result: AgenticAssistantResult | null;
+  session_state: "completed" | "running" | "failed" | "unavailable";
+  message: string;
+  provenance: Omit<AgenticAssistantSessionResponse["provenance"], "input_fingerprint"> & {
+    input_fingerprint: string | null;
+    cancelled?: boolean;
   };
 };
 
@@ -3421,8 +3457,13 @@ export type ExecutionResult = {
   suite_id?: string | null;
   suite_name?: string | null;
   app_type_id: string;
-  status: "running" | "passed" | "failed" | "blocked";
+  status: "pending" | "running" | "paused" | "passed" | "failed" | "blocked" | "aborted" | "skipped";
   duration_ms: number | null;
+  elapsed_duration_ms?: number;
+  started_at?: string | null;
+  timer_started_at?: string | null;
+  ended_at?: string | null;
+  lifecycle_history?: Array<{ action: string; from_status: string; to_status: string; actor_id: string | null; actor_name?: string | null; actor_email?: string | null; at: string; duration_ms: number; previous_result_id?: string | null }>;
   error: string | null;
   logs: string | null;
   test_data_set_id?: string | null;

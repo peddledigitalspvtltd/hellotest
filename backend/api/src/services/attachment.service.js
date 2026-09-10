@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const path = require("path");
-const { Transform } = require("stream");
+const { PassThrough, Transform } = require("stream");
+const { pipeline } = require("stream/promises");
 const { createGunzip, createGzip, constants: zlibConstants } = require("zlib");
 const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
@@ -8,6 +9,23 @@ const { config } = require("../config");
 const objectStorage = require("./objectStorage.service");
 const { requireEntityPermission } = require("./entityScope.service");
 const permissionService = require("./permission.service");
+
+const assertExecutionAttachmentAccess = async ({ user, scope, operation }) => {
+  if (!["execution", "execution_result"].includes(scope.entityType)) return;
+  const permissionCode = ["list", "download"].includes(operation) ? "result.view" : "result.manage";
+  if (!await permissionService.hasPermission(user, permissionCode, scope.projectId)) {
+    const error = new Error(`Permission required: ${permissionCode}`);
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
+const shouldCompress = (mimeType, fileName) => {
+  const mime = String(mimeType || "").split(";", 1)[0].trim().toLowerCase();
+  return mime.startsWith("text/")
+    || /^(application\/(?:json|xml|javascript|x-javascript|sql|x-ndjson)|image\/svg\+xml)$/.test(mime)
+    || /\.(?:txt|log|csv|json|jsonl|ndjson|xml|yaml|yml|md|sql|js|css|svg)$/i.test(fileName);
+};
 
 const assertKnowledgeSourceAttachmentAccess = async ({ user, entityType, entityId, permissionCode, operation }) => {
   if (String(entityType || "").trim().toLowerCase().replace(/[\s-]+/g, "_") !== "knowledge_source") return;
@@ -92,6 +110,7 @@ const list = async ({ user, entityType, entityId, projectId }) => {
     entityId,
     projectId
   });
+  await assertExecutionAttachmentAccess({ user, scope, operation: "list" });
   const rows = await db.prepare(`
     SELECT attachments.*, users.name AS author_name, users.email AS author_email
     FROM attachments
@@ -102,7 +121,7 @@ const list = async ({ user, entityType, entityId, projectId }) => {
   return rows.map(serialize);
 };
 
-const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream, permissionCode = "attachment.create" }) => {
+const upload = async ({ user, entityType, entityId, projectId, fileName, mimeType, stream, permissionCode = "attachment.create", maxBytes, onStored }) => {
   await assertKnowledgeSourceAttachmentAccess({ user, entityType, entityId, permissionCode, operation: "upload" });
   const scope = await requireEntityPermission({
     user,
@@ -111,41 +130,45 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
     entityId,
     projectId
   });
+  await assertExecutionAttachmentAccess({ user, scope, operation: "upload" });
   const id = uuid();
   const normalizedFileName = safeFileName(fileName);
   const objectName = `${scope.projectId}/${scope.entityType}/${scope.entityId}/${id}-${normalizedFileName}`;
   const hash = crypto.createHash("sha256");
+  const byteLimit = Math.min(config.objectStorage.maxAttachmentBytes, Number(maxBytes) > 0 ? Number(maxBytes) : config.objectStorage.maxAttachmentBytes);
+  const compression = shouldCompress(mimeType, normalizedFileName) ? "gzip" : "none";
   let bytes = 0;
   const monitored = new Transform({
     transform(chunk, _encoding, callback) {
       bytes += chunk.length;
+      if (bytes > byteLimit) {
+        const error = new Error("Attachment exceeds the configured upload limit.");
+        error.statusCode = 413;
+        callback(error);
+        return;
+      }
       hash.update(chunk);
       callback(null, chunk);
     }
   });
-  const compressor = createGzip({
-    level: zlibConstants.Z_BEST_SPEED
-  });
-  stream.once("error", (error) => monitored.destroy(error));
-  monitored.once("error", (error) => compressor.destroy(error));
-  stream.pipe(monitored).pipe(compressor);
+  const storageStream = compression === "gzip" ? createGzip({ level: zlibConstants.Z_BEST_SPEED }) : new PassThrough();
 
   let stored;
   try {
-    stored = await objectStorage.putObject({
-      objectName,
-      stream: compressor,
-      mimeType: "application/gzip"
-    });
+    const [object] = await Promise.all([
+      objectStorage.putObject({ objectName, stream: storageStream, mimeType: compression === "gzip" ? "application/gzip" : mimeType }),
+      pipeline(stream, monitored, storageStream)
+    ]);
+    stored = object;
 
-    if (stream.truncated || bytes <= 0 || bytes > config.objectStorage.maxAttachmentBytes) {
-      await objectStorage.removeObject({ bucket: stored.bucket, objectName }).catch(() => undefined);
+    if (stream.truncated || bytes <= 0 || bytes > byteLimit) {
       const error = new Error(stream.truncated ? "Attachment exceeds the configured upload limit." : "Attachment must be non-empty.");
-      error.statusCode = 400;
+      error.statusCode = stream.truncated ? 413 : 400;
       throw error;
     }
 
-    const row = await db.prepare(`
+    const persist = async () => {
+      const row = await db.prepare(`
       INSERT INTO attachments (
         id, project_id, entity_type, entity_id, bucket_name, object_name,
         file_name, mime_type, size_bytes, stored_size_bytes, compression,
@@ -164,16 +187,19 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
       String(mimeType || "application/octet-stream").slice(0, 200),
       bytes,
       stored.size,
-      "gzip",
+      compression,
       stored.etag,
       hash.digest("hex"),
       user.id
     );
-    return serialize({ ...row, author_name: user.name, author_email: user.email });
+      const attachment = serialize({ ...row, author_name: user.name, author_email: user.email });
+      if (onStored) await onStored(attachment);
+      return attachment;
+    };
+    return onStored ? await db.transaction(persist)() : await persist();
   } catch (error) {
-    if (stored) {
-      await objectStorage.removeObject({ bucket: stored.bucket, objectName }).catch(() => undefined);
-    }
+    storageStream.destroy();
+    await objectStorage.removeObject({ bucket: stored?.bucket || config.objectStorage.bucket, objectName }).catch(() => undefined);
     throw error;
   }
 };
@@ -181,13 +207,14 @@ const upload = async ({ user, entityType, entityId, projectId, fileName, mimeTyp
 const download = async ({ user, id, permissionCode = "attachment.view" }) => {
   const row = await getRow(id);
   await assertKnowledgeSourceAttachmentAccess({ user, entityType: row.entity_type, entityId: row.entity_id, permissionCode, operation: "download" });
-  await requireEntityPermission({
+  const scope = await requireEntityPermission({
     user,
     permissionCode,
     entityType: row.entity_type,
     entityId: row.entity_id,
     projectId: row.project_id
   });
+  await assertExecutionAttachmentAccess({ user, scope, operation: "download" });
   const storedStream = await objectStorage.getObject({ bucket: row.bucket_name, objectName: row.object_name });
   const stream = row.compression === "gzip" ? storedStream.pipe(createGunzip()) : storedStream;
   return {
@@ -236,23 +263,46 @@ const purgeProjectObjects = async (projectId, knownRows) => {
   };
 };
 
-const remove = async ({ user, id, permissionCode = "attachment.delete" }) => {
+const remove = async ({ user, id, permissionCode = "attachment.delete", expectedEntityType, expectedEntityId }) => {
   const row = await getRow(id);
+  if ((expectedEntityType && row.entity_type !== expectedEntityType) || (expectedEntityId && row.entity_id !== expectedEntityId)) {
+    const error = new Error("Attachment does not belong to this record.");
+    error.statusCode = 404;
+    throw error;
+  }
   await assertKnowledgeSourceAttachmentAccess({ user, entityType: row.entity_type, entityId: row.entity_id, permissionCode, operation: "remove" });
-  await requireEntityPermission({
+  const scope = await requireEntityPermission({
     user,
     permissionCode,
     entityType: row.entity_type,
     entityId: row.entity_id,
     projectId: row.project_id
   });
+  await assertExecutionAttachmentAccess({ user, scope, operation: "remove" });
   await objectStorage.removeObject({ bucket: row.bucket_name, objectName: row.object_name });
-  await db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
-  return { deleted: true, id };
+  const persist = async () => {
+    await db.prepare("DELETE FROM attachments WHERE id = ?").run(id);
+    if (scope.entityType !== "execution_result") return undefined;
+    const result = await db.prepare("SELECT logs, revision FROM execution_results WHERE id = ? FOR UPDATE").get(scope.entityId);
+    if (!result) return undefined;
+    let logs;
+    try { logs = typeof result.logs === "string" ? JSON.parse(result.logs) : result.logs; } catch { return Number(result.revision || 1); }
+    const evidence = logs?.stepEvidence;
+    if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return Number(result.revision || 1);
+    const retained = Object.fromEntries(Object.entries(evidence).filter(([, value]) => value?.attachmentId !== id));
+    if (Object.keys(retained).length === Object.keys(evidence).length) return Number(result.revision || 1);
+    logs.stepEvidence = retained;
+    const revision = Number(result.revision || 1) + 1;
+    await db.prepare("UPDATE execution_results SET logs = ?, revision = ? WHERE id = ?").run(JSON.stringify(logs), revision, scope.entityId);
+    return revision;
+  };
+  const revision = await db.transaction(persist)();
+  return { deleted: true, id, ...(revision !== undefined ? { revision } : {}) };
 };
 
 module.exports = {
   assertKnowledgeSourceAttachmentAccess,
+  assertExecutionAttachmentAccess,
   download,
   downloadManagedKnowledgeObject,
   list,
@@ -260,11 +310,13 @@ module.exports = {
     enabled: objectStorage.isEnabled(),
     provider: config.storageProvider,
     uploadLimit: config.objectStorage.maxAttachmentBytes,
-    compression: "gzip"
+    compression: "gzip",
+    compressionPolicy: "Text and structured files are compressed; already-compressed media and archives retain their bytes."
   }),
   listProjectObjects,
   purgeProjectObjects,
   remove,
   safeFileName,
+  shouldCompress,
   upload
 };

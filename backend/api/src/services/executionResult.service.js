@@ -5,6 +5,27 @@ const { normalizeReferenceList, normalizeStoredReferenceList } = require("../uti
 const { assertExpectedRevision } = require("../utils/revision");
 const requirementDefectService = require("./requirementDefect.service");
 const testCaseDefectService = require("./testCaseDefect.service");
+const { FINAL_CASE_STATUSES, lifecycleError, parseHistory, getExecutionResultDurationMs } = require("../utils/executionCaseLifecycle");
+const { invalidateExecutionCache } = require("../utils/executionCache");
+
+const assertMutableRun = (execution) => {
+  if (!execution || execution.ended_at || !["queued", "running", "retrying"].includes(execution.status)) {
+    throw lifecycleError("Finished runs cannot change case status or timers.", "RUN_FINISHED");
+  }
+};
+const shapeResult = (row) => ({
+  ...row,
+  duration_ms: row.duration_ms == null ? null : Number(row.duration_ms),
+  elapsed_duration_ms: getExecutionResultDurationMs(row),
+  lifecycle_history: parseHistory(row.lifecycle_history),
+  external_references: normalizeStoredReferenceList(row.external_references),
+  defects: normalizeStoredReferenceList(row.defects),
+  case_defects: normalizeStoredReferenceList(row.case_defects),
+  step_defects: normalizeObject(row.step_defects),
+  revision: Number(row.revision || 1)
+});
+
+exports.shapeExecutionResult = shapeResult;
 
 const normalizeObject = (value) => {
   if (!value) return {};
@@ -65,10 +86,14 @@ exports.createExecutionResult = async (data) => {
 
   // Validate execution
   const execution = await db.prepare(`
-    SELECT id, app_type_id FROM executions WHERE id = ?
+    SELECT id, app_type_id, status, trigger, execution_mode, ended_at FROM executions WHERE id = ?
   `).get(execution_id);
 
   if (!execution) throw new Error("Execution not found");
+  if (data.require_explicit_start && status !== "pending") {
+    assertMutableRun(execution);
+    if (execution.trigger === "manual") throw lifecycleError("Start the case explicitly before recording its result.", "CASE_NOT_STARTED");
+  }
 
   const snapshotCase = await getExecutionCaseSnapshot.get(execution_id, test_case_id);
 
@@ -131,7 +156,7 @@ exports.createExecutionResult = async (data) => {
     resolvedSuiteName,
     app_type_id,
     status,
-    duration_ms || null,
+    duration_ms ?? null,
     error || null,
     logs || null,
     test_data_set_id || null,
@@ -206,7 +231,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
     params.push(...recentRunParams, run_limit);
   }
 
-  query += ` ORDER BY execution_results.created_at DESC`;
+  query += ` ORDER BY execution_results.created_at DESC, execution_results.id DESC`;
 
   if (limit) {
     query += ` LIMIT ?`;
@@ -214,14 +239,7 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
   }
 
   const rows = await db.prepare(query).all(...params);
-  return rows.map((row) => ({
-    ...row,
-    external_references: normalizeStoredReferenceList(row.external_references),
-    defects: normalizeStoredReferenceList(row.defects),
-    case_defects: normalizeStoredReferenceList(row.case_defects),
-    step_defects: normalizeObject(row.step_defects),
-    revision: Number(row.revision || 1)
-  }));
+  return rows.map(shapeResult);
 };
 
 
@@ -234,14 +252,7 @@ exports.getExecutionResult = async (id) => {
 
   if (!result) throw new Error("Execution result not found");
 
-  return {
-    ...result,
-    external_references: normalizeStoredReferenceList(result.external_references),
-    defects: normalizeStoredReferenceList(result.defects),
-    case_defects: normalizeStoredReferenceList(result.case_defects),
-    step_defects: normalizeObject(result.step_defects),
-    revision: Number(result.revision || 1)
-  };
+  return shapeResult(result);
 };
 
 exports.findLatestExecutionResult = async ({ execution_id, test_case_id, data_set_iteration_index }) => {
@@ -256,10 +267,27 @@ exports.findLatestExecutionResult = async ({ execution_id, test_case_id, data_se
   ) || null;
 };
 
+// Called inside the parent run's completion transaction. Unfinished cases are
+// stopped without inferring a pass or deleting their recorded evidence.
+exports.stopExecutionCaseTimers = async (executionId, actorId) => {
+  const rows = await db.prepare(`SELECT * FROM execution_results WHERE execution_id = ? AND status IN ('running', 'paused') FOR UPDATE`).all(executionId);
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const actor = actorId ? await db.prepare(`SELECT id, name, email FROM users WHERE id = ?`).get(actorId) : null;
+  for (const row of rows) {
+    const duration = getExecutionResultDurationMs(row, now);
+    const history = [...parseHistory(row.lifecycle_history), { action: "run_finished", from_status: row.status, to_status: "aborted", actor_id: actorId || null, actor_name: actor?.name || null, actor_email: actor?.email || null, at, duration_ms: duration }];
+    await db.prepare(`UPDATE execution_results SET status = 'aborted', duration_ms = ?, timer_started_at = NULL, ended_at = ?, lifecycle_history = ?, revision = revision + 1 WHERE id = ?`).run(duration, at, history, row.id);
+  }
+};
+
 
 // Update Result (only limited fields)
 exports.updateExecutionResult = async (id, data) => {
   const transaction = db.transaction(async () => {
+    const identity = await db.prepare(`SELECT execution_id FROM execution_results WHERE id = ?`).get(id);
+    if (!identity) throw new Error("Execution result not found");
+    const execution = await db.prepare(`SELECT * FROM executions WHERE id = ? FOR UPDATE`).get(identity.execution_id);
     const existing = await db.prepare(`SELECT * FROM execution_results WHERE id = ? FOR UPDATE`).get(id);
     if (!existing) throw new Error("Execution result not found");
 
@@ -268,6 +296,31 @@ exports.updateExecutionResult = async (id, data) => {
 
     if (!EXECUTION_RESULT_STATUS_VALUES.includes(status)) {
       throw new Error("Invalid status");
+    }
+    const changesStatus = status !== existing.status;
+    const isManagedTimer = Boolean(existing.started_at || parseHistory(existing.lifecycle_history).length);
+    if (changesStatus) {
+      assertMutableRun(execution);
+      const latest = await exports.findLatestExecutionResult(existing);
+      if (latest?.id !== id) throw lifecycleError("Only the latest case attempt can change status.", "CASE_ATTEMPT_CHANGED");
+      if (data.require_explicit_start && execution?.trigger === "manual"
+        && (!["passed", "failed"].includes(status) || !existing.started_at || existing.status !== "running")) {
+        throw lifecycleError("Start or resume the case explicitly before recording its result.", "CASE_NOT_STARTED");
+      }
+    }
+    let duration = isManagedTimer ? Number(existing.duration_ms || 0)
+      : data.require_explicit_start && (execution?.trigger === "manual" || execution?.ended_at) ? existing.duration_ms : data.duration_ms ?? existing.duration_ms;
+    let timerStartedAt = existing.timer_started_at || null;
+    let endedAt = existing.ended_at || null;
+    let history = parseHistory(existing.lifecycle_history);
+    if (changesStatus && isManagedTimer) {
+      const now = Date.now();
+      duration = getExecutionResultDurationMs(existing, now);
+      timerStartedAt = status === "running" ? new Date(now).toISOString() : null;
+      endedAt = FINAL_CASE_STATUSES.has(status) ? new Date(now).toISOString() : null;
+      const actorId = data.actor_id || data.executed_by || existing.executed_by;
+      const actor = actorId ? await db.prepare(`SELECT id, name, email FROM users WHERE id = ?`).get(actorId) : null;
+      history = [...history, { action: "record_result", from_status: existing.status, to_status: status, actor_id: actorId || null, actor_name: actor?.name || null, actor_email: actor?.email || null, at: new Date(now).toISOString(), duration_ms: duration }];
     }
 
     const persistedStepDefects = Object.values(normalizeObject(existing.step_defects))
@@ -284,7 +337,7 @@ exports.updateExecutionResult = async (id, data) => {
       WHERE id = ?
     `).run(
       status,
-      data.duration_ms ?? existing.duration_ms,
+      duration,
       data.error ?? existing.error,
       data.logs ?? existing.logs,
       data.external_references !== undefined
@@ -296,10 +349,12 @@ exports.updateExecutionResult = async (id, data) => {
       revision,
       id
     );
+    if (isManagedTimer) await db.prepare(`UPDATE execution_results SET timer_started_at = ?, ended_at = ?, lifecycle_history = ? WHERE id = ?`).run(timerStartedAt, endedAt, history, id);
 
     return {
       updated: true,
       revision,
+      execution_id: existing.execution_id,
       test_case_id: existing.test_case_id,
       case_defects: caseDefects,
       defects: normalizedDefects,
@@ -308,6 +363,7 @@ exports.updateExecutionResult = async (id, data) => {
   });
 
   const result = await transaction();
+  invalidateExecutionCache(result.execution_id);
   if (result.defects_changed) {
     await requirementDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);
     await testCaseDefectService.syncAutomaticDefectsForTestCase(result.test_case_id, result.defects);

@@ -12,7 +12,7 @@ const {
   normalizeTestStepType
 } = require("../utils/testStepAutomation");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
-const { materializeTemplateValue } = require("../utils/testDataGenerators");
+const { resolveParameterLayers, normalizeParameterLayer, collectPriorParameterCaptures } = require("../utils/stepParameterResolution");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const { resolveTestEngineSecret } = require("../security/runtimeSecrets");
 const { readBoundedResponseJson } = require("../utils/boundedResponse");
@@ -108,11 +108,6 @@ const selectLatestLogsForExecution = db.prepare(`
   ORDER BY test_case_id ASC, created_at DESC, id DESC
 `);
 
-const selectExecutionCaseRuntimeParameters = db.prepare(`
-  SELECT parameter_values, suite_parameter_values
-  FROM execution_case_snapshots
-  WHERE execution_id = ? AND test_case_id = ?
-`);
 
 const settleExecutionStatus = db.prepare(`
   UPDATE executions
@@ -1028,8 +1023,8 @@ const buildManualSpec = ({ caseSnapshot, steps, execution }) => {
     })),
     assertions: steps.map((step) => step.expected_result).filter(Boolean),
     test_data: {
-      ...normalizeStringRecord(caseSnapshot.suite_parameter_values),
-      ...normalizeStringRecord(caseSnapshot.parameter_values)
+      ...normalizeParameterLayer(normalizeStringRecord(caseSnapshot.parameter_values), "t"),
+      ...normalizeParameterLayer(normalizeStringRecord(caseSnapshot.suite_parameter_values), "s")
     },
     environment_notes: normalizeText(execution.test_environment?.snapshot?.notes)
   };
@@ -1161,6 +1156,8 @@ const buildEngineEnvelope = async ({
     steps,
     suite_parameters: normalizeStringRecord(caseSnapshot.suite_parameter_values),
     case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
+    run_parameters: normalizeStringRecord(execution.parameter_values),
+    parameters_frozen: true,
     environment: execution.test_environment
       ? {
           name: execution.test_environment.name,
@@ -1295,86 +1292,15 @@ const hydrateJob = (row) => {
   };
 };
 
-const buildRuntimeParameterValues = (envelope, capturedValues = {}) => {
-  const values = {};
-
-  Object.entries(envelope.suite_parameters || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeText(String(key || "").replace(/^@+/, ""))?.toLowerCase();
-    if (!normalizedKey) {
-      return;
-    }
-    values[`s.${normalizedKey.replace(/^s\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeText(String(key || "").replace(/^@+/, ""))?.toLowerCase();
-    if (!normalizedKey) {
-      return;
-    }
-    values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  Object.entries(envelope.manual_spec?.test_data || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeText(String(key || "").replace(/^@+/, ""))?.toLowerCase();
-    if (!normalizedKey) {
-      return;
-    }
-    values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  (envelope.environment?.variables || []).forEach((entry) => {
-    if (!entry?.key) {
-      return;
-    }
-    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = materializeTemplateValue(entry.value);
-  });
-
-  (envelope.configuration?.variables || []).forEach((entry) => {
-    if (!entry?.key) {
-      return;
-    }
-    values[`r.${normalizeText(entry.key).replace(/^r\./, "").toLowerCase()}`] = materializeTemplateValue(entry.value);
-  });
-
-  if (envelope.data_set?.mode === "key_value") {
-    (envelope.data_set.rows || []).forEach((row) => {
-      const normalizedKey = normalizeText(row?.key)?.replace(/^@+/, "").toLowerCase();
-
-      if (!normalizedKey) {
-        return;
-      }
-
-      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row?.value);
-    });
-  } else if (Array.isArray(envelope.data_set?.rows) && envelope.data_set.rows.length) {
-    Object.entries(envelope.data_set.rows[0] || {}).forEach(([key, value]) => {
-      const normalizedKey = normalizeText(key)?.toLowerCase();
-
-      if (!normalizedKey) {
-        return;
-      }
-
-      values[`t.${normalizedKey}`] = materializeTemplateValue(value);
-    });
-  }
-
-  if (envelope.data_set?.source === "test_case") {
-    Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
-      const normalizedKey = normalizeText(String(key || "").replace(/^@+/, ""))?.toLowerCase();
-
-      if (!normalizedKey) {
-        return;
-      }
-
-      values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-    });
-  }
-
-  return {
-    ...values,
-    ...normalizeCapturedValuesRecord(capturedValues)
-  };
-};
+const buildRuntimeParameterValues = (envelope, capturedValues = {}) => resolveParameterLayers({
+  caseValues: { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
+  suiteValues: envelope.suite_parameters,
+  environmentVariables: envelope.environment?.variables,
+  configurationVariables: envelope.configuration?.variables,
+  runValues: envelope.run_parameters,
+  dataSet: envelope.data_set,
+  capturedValues
+});
 
 const resultStatusToJobStatus = (status) => {
   if (status === "passed") {
@@ -2064,29 +1990,16 @@ const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, s
     return {};
   }
 
-  const captures = {};
-  for (const row of orderRows.filter((candidate) =>
-    priorIds.has(candidate.test_case_id)
-    && (!suiteScoped || (candidate.suite_id || null) === (suiteId || null))
-  )) {
-    const caseSnapshot = await selectExecutionCaseRuntimeParameters.get(executionId, row.test_case_id) || {};
-    Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.suite_parameter_values, {}))).forEach(([key, value]) => {
-      captures[`s.${key.replace(/^s\./, "")}`] = value;
-    });
-    Object.entries(normalizeStringRecord(normalizeJsonValue(caseSnapshot.parameter_values, {}))).forEach(([key, value]) => {
-      captures[`t.${key.replace(/^t\./, "")}`] = value;
-    });
-  }
-
+  const capturesByCaseId = {};
   for (const row of toRowArray(await selectLatestLogsForExecution.all(executionId))) {
-    if (!priorIds.has(row.test_case_id)) {
+    if (!priorIds.has(row.test_case_id) || Object.hasOwn(capturesByCaseId, row.test_case_id)) {
       continue;
     }
 
-    Object.assign(captures, executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs));
+    capturesByCaseId[row.test_case_id] = executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs);
   }
 
-  return captures;
+  return collectPriorParameterCaptures(orderRows, testCaseId, capturesByCaseId);
 };
 
 const arePriorCasesComplete = async (executionId, testCaseId, suiteId, suiteScoped) => {

@@ -24,7 +24,7 @@ import { KnowledgeContextStudio } from "../components/KnowledgeContextStudio";
 
 export function KnowledgeRepoPage() {
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
@@ -73,6 +73,17 @@ export function KnowledgeRepoPage() {
   });
 
   const items = asArray(knowledgeQuery.data);
+  const linkedItemId = searchParams.get("item") || "";
+  const linkedItem = items.find((item: any) => item.id === linkedItemId);
+  const closeLinkedKnowledge = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("item");
+    setSearchParams(next, { replace: true });
+  };
+  const linkedKnowledgeRef = useDialogFocus<HTMLDivElement>({
+    active: Boolean(linkedItemId && projectId),
+    onClose: closeLinkedKnowledge
+  });
   const filteredItems = useMemo(() => {
     const normalizedSearch = knowledgeSearch.trim().toLowerCase();
     if (!normalizedSearch) return items;
@@ -308,6 +319,43 @@ export function KnowledgeRepoPage() {
           </Panel>
         </div>
       </div>
+
+      {linkedItemId && projectId && (
+        <div className="modal-backdrop modal-backdrop--scroll" onClick={closeLinkedKnowledge} role="presentation">
+          <div
+            aria-labelledby="linked-knowledge-title"
+            aria-modal="true"
+            className="modal-card requirement-create-modal knowledge-item-modal"
+            onClick={(event) => event.stopPropagation()}
+            ref={linkedKnowledgeRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <div className="requirement-create-header">
+              <div className="requirement-create-title" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                <p className="dialog-context-label">Knowledge document</p>
+                <h2 className="dialog-title" id="linked-knowledge-title">{linkedItem?.title || "Knowledge document"}</h2>
+                {linkedItem && <p>{linkedItem.is_active ? "Active" : "Inactive"} · {linkedItem.content_type || "text"}</p>}
+              </div>
+              <DialogCloseButton label="Close knowledge document" onClick={closeLinkedKnowledge} />
+            </div>
+            <div className="requirement-create-modal-body" style={{ minWidth: 0 }}>
+              {knowledgeQuery.isPending ? <p role="status">Loading knowledge document…</p>
+                : knowledgeQuery.isError ? <p role="alert">The document could not be loaded. Close this dialog and try again.</p>
+                : !linkedItem ? <p role="status">This document is unavailable in the selected project.</p>
+                : <>
+                  {linkedItem.description && <p>{richTextToPlainText(linkedItem.description)}</p>}
+                  {linkedItem.metadata?.repository && <p style={{ overflowWrap: "anywhere" }}><strong>Repository:</strong> {String(linkedItem.metadata.repository)}</p>}
+                  {linkedItem.metadata?.revision && <p style={{ overflowWrap: "anywhere" }}><strong>Revision:</strong> {String(linkedItem.metadata.revision)}</p>}
+                  <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit", margin: 0 }}>{linkedItem.content}</pre>
+                </>}
+            </div>
+            <div className="action-row requirement-create-modal-actions">
+              <button type="button" className="ghost-button" onClick={closeLinkedKnowledge}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={closeKnowledgeDialog} role="presentation">

@@ -38,6 +38,7 @@ const routeModules = [
   { area: "workspace", module: require("./qualityAnalytics.routes") },
   { area: "workspace", module: require("./qualityAssistance.routes") },
   { area: "automation", module: require("./agenticWorkflows.routes") },
+  { area: "automation", module: require("./repositoryAgents.routes") },
   { area: "engine", module: require("./testEngineCallbacks.routes") },
   { area: "engine", module: require("./testEngineInternal.routes") },
   { area: "engine", module: require("./engine.routes") },

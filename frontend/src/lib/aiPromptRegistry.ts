@@ -480,16 +480,40 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Dashboard release confidence",
     surface: "Custom quality dashboards",
     aliases: ["release confidence index", "dashboard release confidence"],
-    formula: "100 − 35% of the Story-coverage gap − 15% of the automation-coverage gap − 3 points per open Bug − 4 points per failed run, clamped to 0–100.",
-    criteria: "Treat this bounded project-portfolio index as prioritization guidance. Disclose the inspected record limit and never present the index as release approval."
+    formula: "Story coverage × 25% + execution completion × 20% + latest-result pass rate × 35% + defect containment × 20%, rounded to a whole percentage and subject to the lowest applicable cap.",
+    criteria: "Use the selected project and optional release scope. Component percentages are rounded first. Defect containment is closed/resolved/done/accepted Bugs ÷ all scoped Bugs × 100, or 100% with no Bugs. Cap at 49% when Stories, Test Cases, or passed/failed/blocked latest results are absent; 69% for any uncovered P1/P2 Story; 59% for any latest blocked result; and 39% for any open Bug whose severity (or priority when severity is absent) is critical/highest. This advisory score does not approve a release."
+  },
+  {
+    key: "metric.dashboard.pass_rate",
+    label: "Dashboard case pass rate",
+    surface: "Custom quality dashboards",
+    aliases: ["dashboard case pass rate", "dashboard pass rate"],
+    formula: "Passed latest case results ÷ (passed + failed + blocked latest case results) × 100, rounded to a whole percentage. An empty denominator returns 0%.",
+    criteria: "Use only the newest result per Test Case in the selected project and optional release scope, ordered by result creation time and ID. A newer running or pending result replaces an older finalized result. Skipped/N/A, aborted, cancelled, running, pending, and absent results are excluded from the pass-rate denominator."
+  },
+  {
+    key: "metric.dashboard.execution_completion",
+    label: "Dashboard execution completion",
+    surface: "Custom quality dashboards",
+    aliases: ["dashboard execution completion", "dashboard case completion"],
+    formula: "Distinct Test Cases whose latest result is passed, failed, blocked, skipped, aborted, or cancelled ÷ distinct Test Cases present in run snapshots or latest results × 100, rounded to a whole percentage. An empty denominator returns 0%.",
+    criteria: "Use the selected project and optional release scope and the newest result per Test Case. Skipped (shown as N/A), aborted, and cancelled count as complete. Planned cases without a result and cases whose latest result is running or pending remain incomplete; a previous finalized attempt does not replace the latest result."
+  },
+  {
+    key: "metric.dashboard.evidence_confidence",
+    label: "Dashboard evidence confidence",
+    surface: "Custom quality dashboards",
+    aliases: ["dashboard evidence confidence"],
+    formula: "Story coverage × 40% + execution completion × 40% + defect traceability × 20%, rounded to a whole percentage.",
+    criteria: "Use the selected project and optional release scope. Defect traceability is scoped Bugs with a linked run, Test Case, or Story ÷ all scoped Bugs × 100. With no Bugs, traceability is 100% and contributes 20 points. Empty Story or planned-case denominators contribute 0%; component percentages are rounded first. This formula has no freshness or partial-evidence caps and measures coverage and linkage, not model certainty or release approval."
   },
   {
     key: "metric.execution.cycle_time",
     label: "Execution cycle time",
     surface: "Custom quality dashboards",
-    aliases: ["execution cycle time", "average completed run cycle", "avg execution"],
-    formula: "Mean of ended_at − started_at (or created_at) in hours for completed runs with valid non-negative durations no longer than 30 days.",
-    criteria: "Exclude missing, negative, and implausibly long durations. Disclose the inspected run sample and keep percentile or queue-time claims separate."
+    aliases: ["execution cycle time", "average run elapsed time", "avg execution"],
+    formula: "Mean of max(0, ended_at − started_at) in hours across scoped runs with both valid timestamps, rounded to one decimal place. No qualifying runs returns 0 hours.",
+    criteria: "Use all runs in the selected project and optional release scope that have valid start and end timestamps, regardless of current status. Missing or invalid timestamps are excluded; negative intervals contribute zero. There is no created_at fallback or 30-day duration cap. This elapsed time includes pauses and does not measure active work or queue time."
   },
   {
     key: "metric.jira.resolution_rate",

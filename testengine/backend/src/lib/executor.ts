@@ -16,8 +16,7 @@ import type {
 } from "../contracts/hellotest.js";
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
-import { materializeTemplateValue } from "./runtimeContext.js";
-import { decodeParameterColumnName, normalizeParameterReferenceKey, STEP_PARAMETER_PATTERN } from "./stepParameterReferences.js";
+import { buildInitialContext, interpolateText, registerContextValue } from "./runtimeContext.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -74,20 +73,6 @@ type EngineCaseLogsPayload = {
   stepCaptures: Record<string, Record<string, string>>;
 };
 
-const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
-  "t.random": "{{randomString:3}}",
-  random: "{{randomString:3}}",
-  "t.randomstring": "{{randomString:8}}",
-  randomstring: "{{randomString:8}}",
-  "t.randomnumber": "{{randomNumber:6}}",
-  randomnumber: "{{randomNumber:6}}",
-  "t.yopmail": "{{yopmail}}",
-  yopmail: "{{yopmail}}",
-  "t.today": "{{date:YYYY-MM-DD}}",
-  today: "{{date:YYYY-MM-DD}}",
-  "t.timestamp": "{{date:ISO}}",
-  timestamp: "{{date:ISO}}"
-};
 const ARTIFACT_ROOT = process.env.ARTIFACT_ROOT || "/artifacts";
 
 const normalizeText = (value?: string | null) => {
@@ -174,142 +159,6 @@ const parseExpectedLiteral = (value?: string | null) => {
   return normalized;
 };
 
-const normalizeKey = (value: string) => normalizeParameterReferenceKey(value);
-
-const registerContextValue = (context: ExecutionContext, key: string, value: unknown) => {
-  const normalizedKey = normalizeKey(key);
-
-  if (!normalizedKey) {
-    return;
-  }
-
-  const normalizedValue = stringifyValue(value);
-  context.values[normalizedKey] = normalizedValue;
-
-  if (!normalizedKey.includes(".")) {
-    context.values[`t.${normalizedKey}`] = normalizedValue;
-  }
-};
-
-const buildInitialContext = (envelope: EngineRunEnvelope): ExecutionContext => {
-  const context: ExecutionContext = {
-    values: Object.entries(GENERATED_CONTEXT_ALIASES).reduce<Record<string, string>>((values, [key, template]) => {
-      values[key] = materializeTemplateValue(template);
-      return values;
-    }, {})
-  };
-
-  Object.entries(envelope.suite_parameters || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeKey(key);
-    if (!normalizedKey) {
-      return;
-    }
-    context.values[`s.${normalizedKey.replace(/^s\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeKey(key);
-    if (!normalizedKey) {
-      return;
-    }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  Object.entries(envelope.manual_spec?.test_data || {}).forEach(([key, value]) => {
-    const normalizedKey = normalizeKey(key);
-    if (!normalizedKey) {
-      return;
-    }
-    context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-  });
-
-  (envelope.environment?.variables || []).forEach((entry) => {
-    if (!entry?.key) {
-      return;
-    }
-    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
-  });
-
-  (envelope.configuration?.variables || []).forEach((entry) => {
-    if (!entry?.key) {
-      return;
-    }
-    context.values[`r.${normalizeKey(entry.key).replace(/^r\./, "")}`] = materializeTemplateValue(entry.value);
-  });
-
-  const dataSetRows = Array.isArray(envelope.data_set?.rows)
-    ? envelope.data_set?.rows
-    : envelope.data_set?.template_rows || [];
-
-  if (envelope.data_set?.mode === "key_value") {
-    dataSetRows.forEach((row) => {
-      const normalizedKey = normalizeKey(row.key);
-      if (!normalizedKey) {
-        return;
-      }
-      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(row.value);
-    });
-  } else if (Array.isArray(dataSetRows) && dataSetRows.length) {
-    Object.entries(dataSetRows[0] || {}).forEach(([key, value]) => {
-      context.values[`t.${normalizeKey(key).replace(/^t\./, "")}`] = materializeTemplateValue(value);
-    });
-  }
-
-  if (envelope.data_set?.source === "test_case") {
-    Object.entries(envelope.case_parameters || {}).forEach(([key, value]) => {
-      const normalizedKey = normalizeKey(key);
-      if (!normalizedKey) {
-        return;
-      }
-      context.values[`t.${normalizedKey.replace(/^t\./, "")}`] = materializeTemplateValue(value);
-    });
-  }
-
-  return context;
-};
-
-const resolveContextValue = (context: ExecutionContext, scopedKey: string, fallbackScope = "t") => {
-  const normalizedKey = normalizeKey(scopedKey);
-
-  if (!normalizedKey) {
-    return "";
-  }
-
-  if (context.values[normalizedKey] !== undefined && !(GENERATED_CONTEXT_ALIASES[normalizedKey] && context.values[normalizedKey] === "")) {
-    return context.values[normalizedKey];
-  }
-
-  if (!normalizedKey.includes(".")) {
-    const direct = context.values[`${fallbackScope}.${normalizedKey}`];
-    if (direct !== undefined) {
-      return direct;
-    }
-
-    const suite = context.values[`s.${normalizedKey}`];
-    if (suite !== undefined) {
-      return suite;
-    }
-
-    const run = context.values[`r.${normalizedKey}`];
-    if (run !== undefined) {
-      return run;
-    }
-  }
-
-  if (GENERATED_CONTEXT_ALIASES[normalizedKey]) {
-    return materializeTemplateValue(GENERATED_CONTEXT_ALIASES[normalizedKey]);
-  }
-
-  return "";
-};
-
-const interpolateText = (value: string | null | undefined, context: ExecutionContext) =>
-  String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
-    if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".") return token;
-    const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
-    const normalizedKey = scope ? `${String(scope).toLowerCase()}.${String(rawName).toLowerCase()}` : String(rawName).toLowerCase();
-    return resolveContextValue(context, normalizedKey, scope ? String(scope).toLowerCase() : "t");
-  });
 
 const interpolateHeaders = (
   headers: EngineApiRequest["headers"],
