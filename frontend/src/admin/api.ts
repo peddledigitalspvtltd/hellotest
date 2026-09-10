@@ -52,8 +52,8 @@ export const adminApi = {
   createAdmin: (input: { name: string; email: string; password: string; role_id: string }) => request<{ id: string }>("/admin-portal/users", { method: "POST", body: JSON.stringify(input) }),
   setUserStatus: (id: string, status: "active" | "suspended") => request(`/admin-portal/users/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
   applySchema: () => request<Overview["schema"]>("/admin-portal/setup/schema", { method: "POST" }),
-  sampleCatalog: () => request<SampleCatalog>("/admin-portal/setup/sample-data"),
-  seedSamples: (modules: string[]) => request<{ installed: string[]; project_id: string; administrator_memberships: number }>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
+  sampleCatalog: (options?: { signal?: AbortSignal }) => request<SampleCatalog>("/admin-portal/setup/sample-data", { signal: options?.signal, cache: "no-store" }),
+  seedSamples: (modules: string[]) => request<SampleInstallResult>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
   flags: (options?: { signal?: AbortSignal }) => request<FlagSnapshot>("/feature-flags", { signal: options?.signal, cache: "no-store" }),
   updateFlags: (flags: Record<string, boolean>) => request<{ updated: boolean; flags: Record<string, boolean> }>("/admin-portal/feature-flags", { method: "PUT", body: JSON.stringify({ flags }) }),
   integrations: () => request<Integration[]>("/integrations"),
@@ -72,7 +72,10 @@ export type Overview = {
 };
 export type User = { id: string; name?: string; email: string; role: string; role_id?: string; role_name?: string; status?: string; created_at: string; last_login_at?: string };
 export type Role = { id: string; name: string };
-export type SampleCatalog = { project_id: string | null; modules: Array<{ key: string; label: string; description: string; tables: string[] }> };
+export type SampleModule = { key: string; label: string; group: string; description: string; tables: string[]; features: string[]; depends_on: string[]; routes: string[]; feature_keys: string[]; available: boolean; record_count: number; expected_record_count: number; status: 'installed' | 'partial' | 'not_installed' };
+export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[] };
+export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string; administrator_memberships: number; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };
+
 export type FlagSnapshot = {
   groups: Array<{
     key: string;

@@ -1,3 +1,5 @@
+import { WORKSPACE_SHELL_MESSAGES } from "./workspaceShellMessages";
+import { SWITCHER_MESSAGES } from "./switcherMessages";
 import { READINESS_MESSAGES } from "./releaseReadinessMessages";
 import { ANALYTICS_MESSAGES } from "./qualityAnalyticsMessages";
 export type LocalizationStrings = Record<string, string>;
@@ -224,3 +226,7 @@ export const mergeLocalizationStrings = (overrides?: LocalizationStrings | null)
 Object.assign(DEFAULT_LOCALIZATION_STRINGS, ANALYTICS_MESSAGES);
 
 Object.assign(DEFAULT_LOCALIZATION_STRINGS, READINESS_MESSAGES);
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, SWITCHER_MESSAGES);
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, WORKSPACE_SHELL_MESSAGES);

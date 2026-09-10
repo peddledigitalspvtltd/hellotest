@@ -18,13 +18,7 @@ const REQUIRED_TABLES = [
   "execution_results", "feedback", "integrations", "app_settings", "admin_audit_log"
 ];
 
-const SAMPLE_MODULES = [
-  { key: "workspace", label: "Workspace", description: "A launch-ready sample project and Web, API, and Mobile application scopes.", tables: ["projects", "app_types"] },
-  { key: "design", label: "Design", description: "Requirements, a test module, suites, test cases, and reusable execution steps.", tables: ["requirements", "test_case_modules", "test_suites", "test_cases", "test_steps"] },
-  { key: "environments", label: "Environments", description: "A staging environment, browser configuration, and representative test data.", tables: ["test_environments", "test_configurations", "test_data_sets"] },
-  { key: "execution", label: "Execution", description: "A completed smoke run with a passing result for dashboard validation.", tables: ["executions", "execution_results"] },
-  { key: "issues", label: "Issues", description: "A realistic open quality issue linked to the sample project.", tables: ["feedback"] }
-];
+
 
 const createError = (message, statusCode) => Object.assign(new Error(message), { statusCode });
 
@@ -289,74 +283,11 @@ const ensureSampleWorkspace = async (actorId) => {
   return administrators.length;
 };
 
-const seedDesign = async (actorId) => {
-  for (const requirement of [
-    ["sample-req-auth", "DEMO-R1", "Secure customer sign-in", "Customers can sign in with verified credentials."],
-    ["sample-req-checkout", "DEMO-R2", "Reliable checkout", "Customers can complete checkout with clear recovery paths."],
-    ["sample-req-accessibility", "DEMO-R3", "Accessible core journeys", "Core journeys meet WCAG interaction expectations."]
-  ]) {
-    await db.prepare(`
-      INSERT INTO requirements (id, display_id, project_id, title, description, priority, status, created_by)
-      VALUES (?, ?, 'sample-project', ?, ?, 1, 'ready', ?)
-      ON CONFLICT (id) DO NOTHING
-    `).run(...requirement, actorId);
-  }
-  await db.prepare(`INSERT INTO test_case_modules (id, display_id, app_type_id, name, description, created_by) VALUES ('sample-module-smoke', 'DEMO-M1', 'sample-app-web', 'Release smoke', 'Critical customer journeys.', ?) ON CONFLICT (id) DO NOTHING`).run(actorId);
-  await db.prepare(`INSERT INTO test_suites (id, display_id, app_type_id, name, labels, created_by) VALUES ('sample-suite-smoke', 'DEMO-S1', 'sample-app-web', 'Release smoke suite', '["smoke","release"]'::jsonb, ?) ON CONFLICT (id) DO NOTHING`).run(actorId);
-  const cases = [
-    ["sample-case-login", "DEMO-T1", "Customer signs in", "sample-req-auth", "yes"],
-    ["sample-case-checkout", "DEMO-T2", "Customer completes checkout", "sample-req-checkout", "no"],
-    ["sample-case-keyboard", "DEMO-T3", "Checkout supports keyboard navigation", "sample-req-accessibility", "no"]
-  ];
-  for (const item of cases) {
-    await db.prepare(`
-      INSERT INTO test_cases (id, display_id, app_type_id, suite_id, title, description, automated, automation_status, requirement_id, status)
-      VALUES (?, ?, 'sample-app-web', 'sample-suite-smoke', ?, 'Generated sample coverage.', ?, CASE WHEN ? = 'yes' THEN 'ready' ELSE 'not_automated' END, ?, 'active')
-      ON CONFLICT (id) DO NOTHING
-    `).run(item[0], item[1], item[2], item[4], item[4], item[3]);
-    await db.prepare(`INSERT INTO test_case_module_cases (module_id, test_case_id, sort_order) VALUES ('sample-module-smoke', ?, 1) ON CONFLICT DO NOTHING`).run(item[0]);
-    await db.prepare(`INSERT INTO suite_test_cases (suite_id, test_case_id, sort_order) VALUES ('sample-suite-smoke', ?, 1) ON CONFLICT DO NOTHING`).run(item[0]);
-  }
-  await db.prepare(`INSERT INTO test_steps (id, test_case_id, step_order, action, expected_result, step_type) VALUES ('sample-step-login-1', 'sample-case-login', 1, 'Open the sign-in page and submit valid credentials.', 'The customer dashboard opens.', 'web') ON CONFLICT (id) DO NOTHING`).run();
-};
+exports.getSampleCatalog = () => require("./sampleData").getCatalog();
 
-const seedEnvironments = async () => {
-  await db.prepare(`INSERT INTO test_data_sets (id, project_id, app_type_id, name, description, mode, columns, rows) VALUES ('sample-data-customers', 'sample-project', 'sample-app-web', 'Customer personas', 'Safe synthetic launch data.', 'table', '["email","segment"]'::jsonb, '[{"email":"alex@example.test","segment":"standard"}]'::jsonb) ON CONFLICT (id) DO NOTHING`).run();
-  await db.prepare(`INSERT INTO test_environments (id, project_id, app_type_id, name, description, base_url, browser, variables) VALUES ('sample-env-staging', 'sample-project', 'sample-app-web', 'Staging', 'Pre-production validation environment.', 'https://staging.example.test', 'Chrome', '[{"key":"REGION","value":"us-east"}]'::jsonb) ON CONFLICT (id) DO NOTHING`).run();
-  await db.prepare(`INSERT INTO test_configurations (id, project_id, app_type_id, name, description, browser, variables) VALUES ('sample-config-chrome', 'sample-project', 'sample-app-web', 'Chrome desktop', 'Primary release browser.', 'Chrome', '[]'::jsonb) ON CONFLICT (id) DO NOTHING`).run();
-};
-
-const seedExecution = async (actorId) => {
-  await db.prepare(`INSERT INTO executions (id, project_id, app_type_id, name, trigger, status, execution_mode, duration_ms, created_by) VALUES ('sample-run-smoke', 'sample-project', 'sample-app-web', 'Launch readiness smoke', 'manual', 'completed', 'remote', 1840, ?) ON CONFLICT (id) DO NOTHING`).run(actorId);
-  await db.prepare(`INSERT INTO execution_results (id, execution_id, test_case_id, test_case_title, suite_id, suite_name, app_type_id, status, duration_ms, executed_by) VALUES ('sample-result-login', 'sample-run-smoke', 'sample-case-login', 'Customer signs in', 'sample-suite-smoke', 'Release smoke suite', 'sample-app-web', 'passed', 1840, ?) ON CONFLICT (id) DO NOTHING`).run(actorId);
-};
-
-const seedIssues = async (actorId) => {
-  await db.prepare(`INSERT INTO feedback (id, display_id, project_id, user_id, title, message, severity, priority, environment, status) VALUES ('sample-issue-checkout', 'DEMO-B1', 'sample-project', ?, 'Checkout focus indicator is unclear', 'Keyboard focus is difficult to see on the payment action.', 'medium', 'medium', 'Staging / Chrome', 'open') ON CONFLICT (id) DO NOTHING`).run(actorId);
-};
-
-exports.getSampleCatalog = async () => {
-  const project = await db.prepare("SELECT id FROM projects WHERE id = 'sample-project'").get();
-  return { project_id: project?.id || null, modules: SAMPLE_MODULES };
-};
-
-exports.seedSampleData = async ({ modules, actorId, ipAddress }) => {
-  const selected = [...new Set((Array.isArray(modules) && modules.length ? modules : SAMPLE_MODULES.map((item) => item.key)).map(String))];
-  const invalid = selected.filter((key) => !SAMPLE_MODULES.some((module) => module.key === key));
-  if (invalid.length) throw createError(`Unknown sample modules: ${invalid.join(", ")}`, 400);
-
-  let administratorMemberships = 0;
-  await db.transaction(async () => {
-    administratorMemberships = await ensureSampleWorkspace(actorId);
-    if (selected.includes("design") || selected.includes("execution")) await seedDesign(actorId);
-    if (selected.includes("environments")) await seedEnvironments();
-    if (selected.includes("execution")) await seedExecution(actorId);
-    if (selected.includes("issues")) await seedIssues(actorId);
-  })();
-
-  await recordAudit({ actorId, action: "sample_data.seed", targetType: "project", targetId: "sample-project", summary: `Installed sample data for ${selected.length} module${selected.length === 1 ? "" : "s"}.`, metadata: { modules: selected, administrator_memberships: administratorMemberships }, ipAddress });
-  return { installed: selected, project_id: "sample-project", administrator_memberships: administratorMemberships, idempotent: true };
-};
+exports.seedSampleData = ({ modules, actorId, ipAddress }) => require("./sampleData").install({
+  requestedModules: modules, actorId, ipAddress, ensureWorkspace: ensureSampleWorkspace, recordAudit
+});
 
 exports.listAudit = async ({ limit = 50 } = {}) => {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));

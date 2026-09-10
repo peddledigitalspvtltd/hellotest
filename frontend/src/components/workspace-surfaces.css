@@ -1,0 +1,878 @@
+/* Admin-derived workspace surfaces. This layer changes presentation only:
+   the shell owns its grid, and editors/virtualizers keep their scroll geometry. */
+:root .workspace-experience-v2 {
+  --ws2-canvas: #f5f6f2;
+  --ws2-paper: #ffffff;
+  --ws2-soft: #f8faf6;
+  --ws2-ink: #172b37;
+  --ws2-muted: #65747c;
+  --ws2-line: #dde3dd;
+  --ws2-line-strong: #bdc9c2;
+  --ws2-navy: #142d3b;
+  --ws2-navy-hover: #244653;
+  --ws2-on-navy: #ffffff;
+  --ws2-green: #237758;
+  --ws2-green-soft: #eaf5ef;
+  --ws2-coral: #b64e2e;
+  --ws2-focus: #237b70;
+}
+
+:root[data-theme="dark"] .workspace-experience-v2 {
+  --ws2-canvas: #111c23;
+  --ws2-paper: #192a33;
+  --ws2-soft: #20343d;
+  --ws2-ink: #e7efec;
+  --ws2-muted: #a4b6ba;
+  --ws2-line: #354b52;
+  --ws2-line-strong: #59716f;
+  --ws2-navy: #b8d8cd;
+  --ws2-navy-hover: #cee6dc;
+  --ws2-on-navy: #142d30;
+  --ws2-green: #9dd5b8;
+  --ws2-green-soft: #213f37;
+  --ws2-coral: #f0ad90;
+  --ws2-focus: #9bcfbe;
+}
+
+:root .workspace-experience-v2 .workspace-main {
+  --surface: var(--ws2-paper);
+  --panel: var(--ws2-paper);
+  --panel-strong: var(--ws2-paper);
+  --line: var(--ws2-line);
+  --border: var(--ws2-line);
+  --text: var(--ws2-ink);
+  --text-primary: var(--ws2-ink);
+  --muted: var(--ws2-muted);
+  --text-secondary: var(--ws2-muted);
+}
+
+/* Give catalog pages the same inset and section rhythm as the admin workspace.
+   Focused authoring/runs deliberately retain their viewport-filling layout. */
+:root
+  .workspace-experience-v2
+  .workspace-main
+  > .page-content:not(.page-content--workspace-focus) {
+  gap: 18px !important;
+  padding: 28px 32px 36px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--ws2-canvas) !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.workspace-master-detail, .workspace-master-detail-panel) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header {
+  display: flex !important;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 0 0 8px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  align-items: flex-start;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header .page-header-text {
+  flex: 1 1 340px;
+  width: auto !important;
+  min-width: 0;
+  gap: 7px;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header .page-header-title {
+  color: var(--ws2-ink) !important;
+  font-family: "Hanken Grotesk", Inter, sans-serif;
+  font-size: clamp(25px, 2.2vw, 34px) !important;
+  font-weight: 650;
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .page-header
+  :is(.page-header-copy, .page-header-copy p) {
+  color: var(--ws2-muted) !important;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header .eyebrow {
+  color: var(--ws2-coral) !important;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header-meta-item {
+  border-color: var(--ws2-line) !important;
+  border-radius: 7px;
+  background: var(--ws2-paper) !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .page-header-meta-item
+  :is(dt, dd) {
+  color: var(--ws2-muted) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .page-header-meta-item dd {
+  color: var(--ws2-ink) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .page-content--workspace-focus
+  > .page-header {
+  padding: 8px 12px !important;
+  background: var(--ws2-paper) !important;
+  border-bottom: 1px solid var(--ws2-line) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .page-content--workspace-focus
+  .page-header-title {
+  font-size: 21px !important;
+}
+
+/* Keep semantic status colors. Flatten only the shared containers and controls. */
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .panel.card,
+    .record-card,
+    .agent-library-card,
+    .settings-section,
+    .settings-prompt-card,
+    .settings-api-key-card
+  ) {
+  border-color: var(--ws2-line) !important;
+  border-radius: 12px !important;
+  background: var(--ws2-paper) !important;
+  background-image: none !important;
+  box-shadow: 0 1px 1px rgb(23 49 62 / 3%) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.record-card, .agent-library-card):hover {
+  border-color: var(--ws2-line-strong) !important;
+  box-shadow: 0 3px 12px rgb(23 49 62 / 5%) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .record-card.is-active {
+  border-color: var(--ws2-green) !important;
+  box-shadow: 0 0 0 1px var(--ws2-green) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .tile-card-title-group > strong,
+    .tile-card-title,
+    .agent-library-card h2,
+    .agent-library-card h3
+  ) {
+  color: var(--ws2-ink) !important;
+  font-weight: 650;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.display-id-badge, .count-pill) {
+  color: var(--ws2-muted) !important;
+  border-color: var(--ws2-line) !important;
+  background: var(--ws2-soft) !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.tile-card-footer, .tile-card-facts, .agent-library-card footer) {
+  border-color: var(--ws2-line) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.quality-metric-strip, .projects-stats-grid) {
+  gap: 14px !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .evidence-flip-card {
+  border: 1px solid var(--ws2-line) !important;
+  border-radius: 12px !important;
+  background: var(--ws2-paper) !important;
+  box-shadow: 0 1px 1px rgb(23 49 62 / 3%) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .evidence-flip-card::before {
+  display: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .evidence-flip-card-face {
+  border-color: var(--ws2-line) !important;
+  border-radius: 11px !important;
+  background: var(--ws2-paper) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .metric-evidence-trigger {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .metric-evidence-trigger
+  > :is(span, small) {
+  color: var(--ws2-muted) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .metric-evidence-trigger
+  > strong {
+  font-family: "Hanken Grotesk", Inter, sans-serif;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+/* Reusable workspace sections use a calm underline with readable selected text. */
+:root .workspace-experience-v2 .workspace-main .workspace-section-tabs-shell {
+  border: 0 !important;
+  border-bottom: 1px solid var(--ws2-line) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .section-switch-bar {
+  display: flex !important;
+  justify-content: flex-start !important;
+  gap: 8px;
+  padding: 0 2px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .section-switch-bar .subnav-tab {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  padding: 11px 13px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--ws2-muted) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .section-switch-bar
+  .subnav-tab
+  :is(strong, .subnav-tab-icon) {
+  color: inherit !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .section-switch-bar
+  .subnav-tab.is-active {
+  color: var(--ws2-green) !important;
+  border-bottom-color: var(--ws2-green) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .section-switch-bar
+  .subnav-tab-meta {
+  background: var(--ws2-soft) !important;
+  color: var(--ws2-muted) !important;
+  border-color: transparent !important;
+}
+
+/* Toolbars retain their existing wrapping and responsive sizing rules. */
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .catalog-command-toolbar,
+    .test-case-catalog-toolbar,
+    .requirement-catalog-toolbar,
+    .resource-catalog-toolbar,
+    .issue-catalog-toolbar,
+    .executions-list-toolbar,
+    .design-list-toolbar
+  ) {
+  gap: 12px;
+  border: 1px solid var(--ws2-line) !important;
+  border-radius: 10px !important;
+  background: var(--ws2-paper) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.catalog-view-toggle, .catalog-search-field) {
+  border-color: var(--ws2-line-strong) !important;
+  border-radius: 8px !important;
+  background: var(--ws2-paper) !important;
+  box-shadow: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .catalog-search-field input {
+  color: var(--ws2-ink) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .catalog-search-field
+  input::placeholder {
+  color: var(--ws2-muted) !important;
+  opacity: 1;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.catalog-view-button, .catalog-filter-button) {
+  background: transparent !important;
+  color: var(--ws2-muted) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.catalog-view-button, .catalog-filter-button).is-active {
+  color: var(--ws2-green) !important;
+  background: var(--ws2-green-soft) !important;
+  border-color: var(--ws2-line) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .primary-button,
+    .create-run-action-button
+  ) {
+  color: var(--ws2-on-navy) !important;
+  background: var(--ws2-navy) !important;
+  background-image: none !important;
+  border-color: var(--ws2-navy) !important;
+  border-radius: 9px !important;
+  box-shadow: 0 2px 5px rgb(16 40 53 / 7%) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .primary-button,
+    .create-run-action-button
+  ):hover:not(:disabled) {
+  background: var(--ws2-navy-hover) !important;
+}
+/* A split action is one surface. Both segments inherit its tone, including
+   their text/icons and interactive states, instead of painting separate pills.
+   Keep each host's dimensions (catalog, compact explorer and focused editor). */
+:root .workspace-experience-v2 .workspace-main .create-run-action-button {
+  display: inline-flex !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button:is(.run-action-main, .run-action-toggle),
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button:is(.run-action-main, .run-action-toggle):is(:hover, :active, :focus-visible, :disabled) {
+  color: inherit !important;
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  transform: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button.run-action-toggle,
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button.run-action-toggle:is(:hover, :active, :focus-visible, :disabled) {
+  flex: 0 0 auto !important;
+  padding: 0 !important;
+  border-inline-start: 1px solid color-mix(in srgb, currentColor 30%, transparent) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button:is(.run-action-main, .run-action-toggle)::before {
+  content: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button:is(.run-action-main, .run-action-toggle) :is(span, svg) {
+  color: inherit !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button
+  > button:is(.run-action-main, .run-action-toggle):focus-visible {
+  outline: 2px solid currentColor !important;
+  outline-offset: -3px !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button:has(> button[aria-expanded="true"]) {
+  background: var(--ws2-navy-hover) !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button:not(.is-explorer-compact):has(> button):not(:has(> button:not(:disabled))) {
+  background: var(--ws2-navy) !important;
+  box-shadow: none !important;
+}
+
+/* Compact explorer actions retain the same neutral parent on both halves. */
+:root .workspace-experience-v2 .workspace-main .create-run-action-button.is-explorer-compact,
+:root .workspace-experience-v2 .workspace-main .create-run-action-button.is-explorer-compact:is(:hover, :focus-within) {
+  color: var(--ws2-ink) !important;
+  background: var(--ws2-paper) !important;
+  border-color: var(--ws2-line) !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+}
+
+:root .workspace-experience-v2 .workspace-main .create-run-action-button.is-explorer-compact:has(> button:hover:not(:disabled)),
+:root .workspace-experience-v2 .workspace-main .create-run-action-button.is-explorer-compact:has(> button[aria-expanded="true"]) {
+  background: var(--ws2-soft) !important;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .catalog-command-toolbar,
+    .page-actions,
+    .tile-card-footer,
+    .execution-run-card-actions,
+    .settings-section-actions,
+    .agent-library-card footer
+  )
+  .ghost-button {
+  border-color: var(--ws2-line) !important;
+  border-radius: 8px !important;
+  background: var(--ws2-paper) !important;
+  color: var(--ws2-ink) !important;
+  box-shadow: none !important;
+}
+
+/* DataTable's column widths, density and horizontal overflow are preserved. */
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.data-table-shell, .catalog-table-wrap) {
+  border-color: var(--ws2-line) !important;
+  background: var(--ws2-paper) !important;
+  box-shadow: none !important;
+}
+:root .workspace-experience-v2 .workspace-main .catalog-data-table th {
+  border-color: var(--ws2-line) !important;
+  background: var(--ws2-soft) !important;
+  color: var(--ws2-muted) !important;
+}
+:root .workspace-experience-v2 .workspace-main .catalog-data-table td {
+  border-color: var(--ws2-line) !important;
+  background: var(--ws2-paper);
+  color: var(--ws2-ink);
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .catalog-data-table
+  tr:hover
+  > td {
+  background: var(--ws2-soft) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .catalog-data-table
+  tr.is-selected
+  > td {
+  background: var(--ws2-green-soft) !important;
+}
+:root .workspace-experience-v2 .workspace-main .data-table-header-label {
+  color: var(--ws2-muted) !important;
+  font-weight: 600;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.settings-section-heading, .settings-top-save-bar) {
+  background: var(--ws2-soft) !important;
+  border-color: var(--ws2-line) !important;
+  box-shadow: none !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .settings-input-field
+  :is(input, select, textarea) {
+  background: var(--ws2-paper) !important;
+  border-color: var(--ws2-line-strong) !important;
+  border-radius: 9px !important;
+  color: var(--ws2-ink) !important;
+  box-shadow: none !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .settings-input-field
+  :is(input, textarea)::placeholder {
+  color: var(--ws2-muted) !important;
+  opacity: 1;
+}
+:root .workspace-experience-v2 .workspace-main .settings-section-stack {
+  gap: 18px;
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(.agent-library-page, .agent-workspace, .page-agentic-workflows) {
+  --agent-panel: var(--ws2-paper);
+  --agent-bg: var(--ws2-canvas);
+  --agent-line: var(--ws2-line);
+  --agent-text: var(--ws2-ink);
+  --agent-muted: var(--ws2-muted);
+}
+
+:root
+  .workspace-experience-v2
+  .workspace-main
+  :is(
+    .page-actions,
+    .catalog-command-toolbar,
+    .section-switch-bar,
+    .settings-section,
+    .agent-library-card,
+    .record-card
+  )
+  :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--ws2-focus) !important;
+  outline-offset: 3px;
+}
+
+@media (min-width: 1440px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > .page-content:not(.page-content--workspace-focus) {
+    padding: 32px 38px 42px !important;
+  }
+}
+@media (max-width: 1050px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > .page-content:not(.page-content--workspace-focus) {
+    padding: 24px !important;
+  }
+}
+@media (max-width: 700px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > .page-content:not(.page-content--workspace-focus) {
+    padding: 20px 16px 28px !important;
+    gap: 14px !important;
+  }
+  :root .workspace-experience-v2 .workspace-main .page-header {
+    gap: 12px;
+  }
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    .page-header
+    .page-header-title {
+    font-size: 26px !important;
+  }
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    .page-content--workspace-focus
+    .page-header-title {
+    font-size: 20px !important;
+  }
+  :root .workspace-experience-v2 .workspace-main .section-switch-bar {
+    gap: 2px;
+  }
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    .section-switch-bar
+    .subnav-tab {
+    padding: 10px 9px !important;
+  }
+}
+
+/* Dedicated overview/agent surfaces share the same palette without replacing
+   their layout grids, chart colors, diagram canvases or status semantics. */
+:root
+  .workspace-experience-v2
+  .workspace-main
+  > :is(.page-agentic-workflows, .quality-analytics) {
+  padding: 28px 32px 36px !important;
+  background: var(--ws2-canvas) !important;
+}
+:root .workspace-experience-v2 .workspace-main .page-agentic-workflows {
+  --agent-ink: var(--ws2-ink);
+  --agent-soft: var(--ws2-soft);
+}
+:root .workspace-experience-v2 .workspace-main .agent-start {
+  background: var(--ws2-soft) !important;
+  border-color: var(--ws2-line) !important;
+  box-shadow: none !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .agent-hub-nav
+  button[aria-current="page"] {
+  background: var(--ws2-green-soft) !important;
+  color: var(--ws2-green) !important;
+}
+:root .workspace-experience-v2 .workspace-main .quality-analytics {
+  --qa-text: var(--ws2-ink);
+  --qa-muted: var(--ws2-muted);
+  --qa-surface: var(--ws2-paper);
+  --qa-soft: var(--ws2-soft);
+  --qa-border: var(--ws2-line);
+  --qa-accent: var(--ws2-green);
+}
+:root .workspace-experience-v2 .workspace-main .release-review {
+  --rr-bg: var(--ws2-paper);
+  --rr-canvas: var(--ws2-canvas);
+  --rr-text: var(--ws2-ink);
+  --rr-muted: var(--ws2-muted);
+  --rr-border: var(--ws2-line);
+  --rr-soft: var(--ws2-soft);
+  --rr-blue: var(--ws2-green);
+  --rr-blue-soft: var(--ws2-green-soft);
+}
+:root .workspace-experience-v2 .workspace-main .custom-dashboard-workspace {
+  --dashboard-ink: var(--ws2-ink);
+  --dashboard-muted: var(--ws2-muted);
+  --dashboard-border: var(--ws2-line);
+  --dashboard-surface: var(--ws2-paper);
+  --dashboard-soft: var(--ws2-soft);
+  --dashboard-accent: var(--ws2-green);
+  --dashboard-selected: var(--ws2-green-soft);
+}
+@media (min-width: 1440px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > :is(.page-agentic-workflows, .quality-analytics) {
+    padding: 32px 38px 42px !important;
+  }
+}
+@media (max-width: 1050px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > :is(.page-agentic-workflows, .quality-analytics) {
+    padding: 24px !important;
+  }
+}
+@media (max-width: 700px) {
+  :root
+    .workspace-experience-v2
+    .workspace-main
+    > :is(.page-agentic-workflows, .quality-analytics) {
+    padding: 20px 16px 28px !important;
+  }
+}
+
+/* Focused authoring keeps its established canvas, sticky footer and scrolling
+   dimensions. Only the existing surface tokens and chrome change here. */
+:root .workspace-experience-v2 .workspace-main .test-case-workspace-shell {
+  --test-case-canvas: var(--ws2-canvas);
+  --test-case-subcanvas: var(--ws2-soft);
+  --test-case-input: var(--ws2-paper);
+  --test-case-ink: var(--ws2-ink);
+  --test-case-primary-bg: var(--ws2-navy);
+  --test-case-primary-hover: var(--ws2-navy-hover);
+  --test-case-border: var(--ws2-line);
+  --test-case-soft-border: var(--ws2-line);
+}
+:root
+  .app-shell.app-layout.workspace-experience-v2
+  > .workspace-main
+  > .page-content--workspace-focus
+  .test-case-workspace-shell
+  :is(.detail-stack, .test-case-detail-layout) {
+  background: var(--ws2-canvas) !important;
+}
+:root
+  .app-shell.app-layout.workspace-experience-v2
+  > .workspace-main
+  > .page-content--workspace-focus
+  .test-case-workspace-shell
+  :is(
+    .editor-accordion-section,
+    .editor-accordion-head,
+    .editor-accordion-body,
+    .test-case-workspace-tabs,
+    .panel-actions-inline,
+    .test-case-detail-footer
+  ) {
+  background: var(--ws2-paper) !important;
+  border-color: var(--ws2-line) !important;
+  box-shadow: none !important;
+}
+:root
+  .app-shell.app-layout.workspace-experience-v2
+  > .workspace-main
+  > .page-content--workspace-focus
+  .test-case-workspace-shell
+  .rich-text-editor-toolbar {
+  background: var(--ws2-soft) !important;
+  border-color: var(--ws2-line) !important;
+  box-shadow: none !important;
+}
+:root
+  .app-shell.app-layout.workspace-experience-v2
+  > .workspace-main
+  > .page-content--workspace-focus
+  .test-case-workspace-primary-actions
+  > .ghost-button {
+  color: var(--ws2-ink) !important;
+  background: var(--ws2-paper) !important;
+  border-color: var(--ws2-line-strong) !important;
+  box-shadow: none !important;
+}
+:root .workspace-experience-v2 .workspace-main .detail-section-tab.is-active {
+  background: var(--ws2-green-soft) !important;
+  border-color: var(--ws2-line-strong) !important;
+  box-shadow: none !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .detail-section-tab.is-active
+  .detail-section-tab-icon {
+  background: var(--ws2-green) !important;
+  color: var(--ws2-paper) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .test-authoring-mode-toggle
+  button.is-active {
+  color: var(--ws2-green) !important;
+  border-bottom-color: var(--ws2-green) !important;
+}
+:root .workspace-experience-v2 .workspace-main .empty-state {
+  background: var(--ws2-soft) !important;
+  border-color: var(--ws2-line) !important;
+  box-shadow: none !important;
+}
+:root .workspace-experience-v2 .workspace-main .execution-case-run-workspace {
+  --case-run-canvas: var(--ws2-canvas);
+  --case-run-subcanvas: var(--ws2-soft);
+  --case-run-surface: var(--ws2-paper);
+  --case-run-input: var(--ws2-paper);
+  --case-run-ink: var(--ws2-ink);
+  --case-run-muted: var(--ws2-muted);
+  --case-run-soft-muted: var(--ws2-muted);
+  --case-run-border: var(--ws2-line);
+  --case-run-soft-border: var(--ws2-line);
+  --case-run-blue-surface: var(--ws2-soft);
+  --case-run-blue-border: var(--ws2-line-strong);
+  --case-run-focus: var(--ws2-focus);
+  --case-run-primary: var(--ws2-navy);
+  --case-run-primary-hover: var(--ws2-navy-hover);
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-workspace
+  :is(.execution-case-run-body, .execution-case-lifecycle) {
+  background: var(--ws2-canvas) !important;
+  border-color: var(--ws2-line) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-workspace
+  :is(.execution-case-run-header, .execution-case-run-tabs) {
+  background: var(--ws2-paper) !important;
+  border-color: var(--ws2-line) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-tabs
+  [aria-selected="true"] {
+  color: var(--ws2-green) !important;
+  border-bottom-color: var(--ws2-green) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-identity-icon {
+  color: var(--ws2-green) !important;
+  background: var(--ws2-green-soft) !important;
+  border-color: var(--ws2-line) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-title-copy
+  > .execution-case-run-eyebrow {
+  color: var(--ws2-coral) !important;
+}
+:root
+  .workspace-experience-v2
+  .workspace-main
+  .execution-case-run-report-bug
+  :is(.run-action-main, .run-action-toggle) {
+  color: var(--ws2-on-navy) !important;
+  background: var(--ws2-navy) !important;
+  border-color: var(--ws2-line-strong) !important;
+  box-shadow: none !important;
+}

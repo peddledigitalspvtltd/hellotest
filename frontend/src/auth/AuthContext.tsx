@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, sessionStorage } from "../lib/api";
 import type { SessionPayload } from "../types";
 
@@ -24,9 +24,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<SessionPayload | null>(() => sessionStorage.read());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sessionRequestVersion = useRef(0);
 
   const refreshSession = async () => {
+    const requestVersion = ++sessionRequestVersion.current;
     const stored = sessionStorage.read();
+    const storedSnapshot = JSON.stringify(stored);
+    const isCurrentRefresh = () => requestVersion === sessionRequestVersion.current && JSON.stringify(sessionStorage.read()) === storedSnapshot;
 
     if (!stored) {
       setSession(null);
@@ -36,16 +40,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const next = await api.auth.session();
+      if (!isCurrentRefresh()) return;
       sessionStorage.write(next);
       setSession(next);
       setError(null);
     } catch (err) {
+      // The API may already have cleared this same session after a 401. That
+      // expiration still needs to reach React, while a replacement session wins.
+      const current = sessionStorage.read();
+      if (requestVersion !== sessionRequestVersion.current || (current !== null && JSON.stringify(current) !== storedSnapshot)) return;
       const errorMessage = err instanceof Error ? err.message : "Session verification failed";
       setError(errorMessage);
       sessionStorage.clear();
       setSession(null);
     } finally {
-      setIsLoading(false);
+      if (requestVersion === sessionRequestVersion.current) setIsLoading(false);
     }
   };
 
@@ -54,8 +63,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setAuthenticatedSession = (next: SessionPayload) => {
+    sessionRequestVersion.current += 1;
     sessionStorage.write(next);
     setSession(next);
+    setIsLoading(false);
   };
 
   const value = useMemo<AuthContextValue>(() => ({
@@ -125,9 +136,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     logout() {
+      sessionRequestVersion.current += 1;
       sessionStorage.clear();
       setSession(null);
       setError(null);
+      setIsLoading(false);
     },
     refreshSession,
     clearError() {

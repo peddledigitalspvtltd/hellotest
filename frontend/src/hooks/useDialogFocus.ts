@@ -75,6 +75,16 @@ export function useDialogFocus<T extends HTMLElement>({
         return;
       }
 
+      // A portalled listbox still belongs to its trigger's dialog. Let it close
+      // itself and restore trigger focus before the containing dialog handles
+      // Escape or Tab. Unrelated popovers cannot bypass this dialog's behavior.
+      const activePopover = document.activeElement?.closest<HTMLElement>("[data-dialog-popover-owner]");
+      const popoverOwnerId = activePopover?.dataset.dialogPopoverOwner;
+      const popoverOwner = popoverOwnerId ? document.getElementById(popoverOwnerId) : null;
+      if (popoverOwner && dialog.contains(popoverOwner) && popoverOwner.getAttribute("aria-expanded") === "true" && popoverOwner.getAttribute("aria-haspopup") === "listbox" && (event.key === "Escape" || event.key === "Tab")) {
+        return;
+      }
+
       const activeAutocomplete = document.activeElement?.matches("[aria-autocomplete='list'][aria-expanded='true']");
       // Let the field close its suggestions or accept a value before the dialog
       // handles Escape or wraps Tab at a focus boundary.

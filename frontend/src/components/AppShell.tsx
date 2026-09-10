@@ -1,33 +1,36 @@
+import { IconChevronRight, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconLanguage, IconSearch } from "@tabler/icons-react";
+import { useDialogFocus } from "../hooks/useDialogFocus";
+import { WorkspaceProjectSwitcher } from "./WorkspaceProjectSwitcher";
+import "./workspace-shell.css";
+import "./workspace-surfaces.css";
 import type { ReactNode } from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import productManagementIcon from "../assets/product-management-icon.png";
 import { useAuth } from "../auth/AuthContext";
 import { useLocalization } from "../context/LocalizationContext";
-import { AppTypeInlineValue } from "./AppTypeDropdown";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { AiAgentsIcon, BacklogIcon, RefreshIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
-import { LoadingState } from "./LoadingState";
 import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { GroundedAssistant } from "./GroundedAssistant";
 import "./module-navigation.css";
 import "./workspace-experience.css";
-import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useWorkspaceScrollRestoration } from "../hooks/useWorkspaceScrollRestoration";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
-import { getNavigationItemLabel, getNavigationItemPermissions, isNavigationItemActive } from "../lib/navigation";
+import { getNavigationItemLabel, getNavigationItemPermissions, isNavigationItemActive, isNavigationDestinationActive } from "../lib/navigation";
 import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/notificationCenter";
 import { readNotificationPreferences } from "../lib/notificationPreferences";
 import { canAccessPath, hasAnyPermission } from "../lib/permissions";
 import { queryKeys } from "../lib/queryKeys";
+import { availableWorkspaceProjects } from "../lib/workspaceSwitcher";
 import { preloadWorkspaceRoute } from "../lib/routePrefetch";
 import {
   PREFERENCES_UPDATED_EVENT,
@@ -51,7 +54,6 @@ import {
   WORKSPACE_PAGE_LABELS,
   WORKSPACE_SECTION_LABEL_KEYS
 } from "../lib/workspaceSections";
-import type { AppType, Project } from "../types";
 import { WORKSPACE_ROUTES } from "../lib/workspaceRoutes";
 
 const WorkspaceNavigator = lazy(() => import("./WorkspaceNavigator").then(module => ({ default: module.WorkspaceNavigator })));
@@ -167,348 +169,6 @@ const navigation = [
   }
 ] as const;
 
-type SidebarScopeSelectorProps = {
-  isCollapsed: boolean;
-  isLoadingProjects: boolean;
-  onProjectChange: (value: string | number) => void;
-  onProjectNavigate: (value: string | number) => Promise<boolean>;
-  projectId: string;
-  projects: Project[];
-};
-
-type SidebarScopePopoverPosition = {
-  left: number;
-  top: number;
-  width: number;
-};
-
-function SidebarScopeProjectBranch({
-  appTypeId,
-  isExpanded,
-  isSelected,
-  onSelectAppType,
-  onSelectProject,
-  onToggle,
-  project
-}: {
-  appTypeId: string;
-  isExpanded: boolean;
-  isSelected: boolean;
-  onSelectAppType: (projectId: string, appTypeId: string) => void;
-  onSelectProject: (projectId: string) => void;
-  onToggle: (projectId: string) => void;
-  project: Project;
-}) {
-  const projectRef = String(project.id);
-  const appTypesQuery = useQuery({
-    queryKey: queryKeys.appTypes(projectRef),
-    queryFn: () => api.appTypes.list({ project_id: projectRef }),
-    enabled: isExpanded,
-    retry: 1,
-    staleTime: 60 * 1000
-  });
-  const appTypes = asArray(appTypesQuery.data);
-
-  return (
-    <div
-      aria-expanded={isExpanded}
-      aria-selected={isSelected}
-      className={isSelected ? "sidebar-scope-project-branch is-selected" : "sidebar-scope-project-branch"}
-      role="treeitem"
-    >
-      <div className="sidebar-scope-project-row">
-        <button
-          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.name} application spaces`}
-          className="sidebar-scope-branch-toggle"
-          onClick={() => onToggle(projectRef)}
-          type="button"
-        >
-          <span className={isExpanded ? "sidebar-scope-branch-chevron is-expanded" : "sidebar-scope-branch-chevron"} aria-hidden="true">
-            <ChevronIcon />
-          </span>
-        </button>
-        <button
-          className="sidebar-scope-project-option"
-          onClick={() => onSelectProject(projectRef)}
-          type="button"
-        >
-          <strong>{project.name}</strong>
-          <span>{project.display_id || project.description || "HelloTest project"}</span>
-        </button>
-      </div>
-      {isExpanded ? (
-        <div className="sidebar-scope-app-type-list" role="group" aria-label={`${project.name} application spaces`}>
-          {appTypesQuery.isPending ? <LoadingState label="Loading application spaces" /> : null}
-          {!appTypesQuery.isPending && appTypes.map((appType: AppType) => {
-            const isAppTypeSelected = isSelected && appType.id === appTypeId;
-            return (
-              <button
-                aria-pressed={isAppTypeSelected}
-                className={isAppTypeSelected ? "sidebar-scope-app-type-option is-selected" : "sidebar-scope-app-type-option"}
-                key={appType.id}
-                onClick={() => onSelectAppType(projectRef, appType.id)}
-                type="button"
-              >
-                <AppTypeInlineValue isUnified={appType.is_unified} label={appType.name} type={appType.type} />
-              </button>
-            );
-          })}
-          {!appTypesQuery.isPending && !appTypes.length ? (
-            <div className="sidebar-scope-empty">No application spaces in this project.</div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SidebarScopeSelector({
-  isCollapsed,
-  isLoadingProjects,
-  onProjectChange,
-  onProjectNavigate,
-  projectId,
-  projects
-}: SidebarScopeSelectorProps) {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [isOpen, setIsOpen] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
-  const [areProjectsExpanded, setAreProjectsExpanded] = useState(true);
-  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => projectId ? [String(projectId)] : []);
-  const [popoverPosition, setPopoverPosition] = useState<SidebarScopePopoverPosition | null>(null);
-  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
-  const appTypesQuery = useQuery({
-    queryKey: queryKeys.appTypes(projectId),
-    queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(projectId),
-    retry: 1,
-    staleTime: 60 * 1000
-  });
-
-  const appTypes = asArray(appTypesQuery.data);
-  const currentProject = projects.find((project) => String(project.id) === String(projectId)) || null;
-  const currentAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
-  const filteredProjects = useMemo(() => {
-    const query = projectSearch.trim().toLowerCase();
-
-    if (!query) {
-      return projects;
-    }
-
-    return projects.filter((project) =>
-      [project.name, project.display_id || "", project.description || ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [projectSearch, projects]);
-
-  const updatePopoverPosition = useCallback(() => {
-    const trigger = triggerRef.current;
-
-    if (!trigger || typeof window === "undefined") {
-      return;
-    }
-
-    const bounds = trigger.getBoundingClientRect();
-    const viewportPadding = 12;
-    const width = Math.min(390, Math.max(240, window.innerWidth - viewportPadding * 2));
-    const estimatedHeight = Math.min(430, window.innerHeight - viewportPadding * 2);
-    const preferredLeft = isCollapsed ? bounds.right + 10 : bounds.left;
-    const preferredTop = isCollapsed ? bounds.top : bounds.bottom + 8;
-    const left = Math.min(Math.max(viewportPadding, preferredLeft), window.innerWidth - width - viewportPadding);
-    const top = Math.min(
-      Math.max(viewportPadding, preferredTop),
-      Math.max(viewportPadding, window.innerHeight - estimatedHeight - viewportPadding)
-    );
-
-    setPopoverPosition({ left, top, width });
-  }, [isCollapsed]);
-
-  useEffect(() => {
-    if (!appTypesQuery.isPending && projectId && appTypes.length && !appTypes.some((appType) => appType.id === appTypeId)) {
-      setAppTypeId(appTypes[0].id);
-    }
-
-    if (!appTypesQuery.isPending && projectId && !appTypes.length && appTypeId) {
-      setAppTypeId("");
-    }
-  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    setExpandedProjectIds((current) => current.includes(String(projectId)) ? current : [...current, String(projectId)]);
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    updatePopoverPosition();
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-
-      if (!target || triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
-        return;
-      }
-
-      setIsOpen(false);
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("resize", updatePopoverPosition);
-    window.addEventListener("scroll", updatePopoverPosition, true);
-
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("resize", updatePopoverPosition);
-      window.removeEventListener("scroll", updatePopoverPosition, true);
-    };
-  }, [isOpen, updatePopoverPosition]);
-
-  const currentProjectName =
-    currentProject?.name || (isLoadingProjects ? "Loading project" : projects.length ? "Select project" : "No projects");
-  const currentAppTypeName =
-    currentAppType?.name || (appTypesQuery.isPending ? "Loading app type" : projectId ? "Select app type" : "Choose project first");
-
-  const handleTriggerClick = () => {
-    if (!isOpen) {
-      updatePopoverPosition();
-    }
-
-    setIsOpen((current) => !current);
-  };
-
-  const toggleProjectBranch = (targetProjectId: string) => {
-    setExpandedProjectIds((current) => current.includes(targetProjectId)
-      ? current.filter((value) => value !== targetProjectId)
-      : [...current, targetProjectId]);
-  };
-
-  const selectProject = async (targetProjectId: string) => {
-    if (!await onProjectNavigate(targetProjectId)) return;
-    onProjectChange(targetProjectId);
-    setExpandedProjectIds((current) => current.includes(targetProjectId) ? current : [...current, targetProjectId]);
-    setProjectSearch("");
-  };
-
-  const selectAppType = async (targetProjectId: string, targetAppTypeId: string) => {
-    if (!await onProjectNavigate(targetProjectId)) return;
-    setCurrentScope(targetProjectId, targetAppTypeId);
-    setIsOpen(false);
-    setProjectSearch("");
-  };
-
-  const selectorPopover =
-    isOpen && popoverPosition
-      ? createPortal(
-          <div
-            className="sidebar-scope-popover"
-            ref={popoverRef}
-            role="dialog"
-            aria-label="Select project and app type"
-            style={{
-              left: popoverPosition.left,
-              top: popoverPosition.top,
-              width: popoverPosition.width
-            }}
-          >
-            <div className="sidebar-scope-popover-head">
-              <span>Workspace Scope</span>
-              <strong>{currentProjectName}</strong>
-            </div>
-            <label className="sidebar-scope-search">
-              <span>Project</span>
-              <input
-                autoFocus
-                onChange={(event) => setProjectSearch(event.target.value)}
-                placeholder="Search projects"
-                type="search"
-                value={projectSearch}
-              />
-            </label>
-            <section className="sidebar-scope-tree-section">
-              <button
-                aria-expanded={areProjectsExpanded}
-                className="sidebar-scope-tree-heading"
-                onClick={() => setAreProjectsExpanded((current) => !current)}
-                type="button"
-              >
-                <span className={areProjectsExpanded ? "sidebar-scope-branch-chevron is-expanded" : "sidebar-scope-branch-chevron"} aria-hidden="true">
-                  <ChevronIcon />
-                </span>
-                <span>Projects and application spaces</span>
-                <em>{filteredProjects.length}</em>
-              </button>
-              {areProjectsExpanded ? (
-                <div className="sidebar-scope-project-list" role="tree" aria-label="Projects and application spaces">
-                  {filteredProjects.map((project) => (
-                    <SidebarScopeProjectBranch
-                      appTypeId={appTypeId}
-                      isExpanded={expandedProjectIds.includes(String(project.id))}
-                      isSelected={String(project.id) === String(projectId)}
-                      key={project.id}
-                      onSelectAppType={selectAppType}
-                      onSelectProject={selectProject}
-                      onToggle={toggleProjectBranch}
-                      project={project}
-                    />
-                  ))}
-                  {!filteredProjects.length ? <div className="sidebar-scope-empty">No matching projects.</div> : null}
-                </div>
-              ) : null}
-            </section>
-          </div>,
-          document.body
-        )
-      : null;
-
-  return (
-    <div className={isCollapsed ? "sidebar-scope-selector is-collapsed" : "sidebar-scope-selector"}>
-      <button
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        aria-label="Select project and app type"
-        className="sidebar-scope-trigger"
-        disabled={isLoadingProjects || !projects.length}
-        onClick={handleTriggerClick}
-        ref={triggerRef}
-        title={isCollapsed ? `${currentProjectName} - ${currentAppTypeName}` : undefined}
-        type="button"
-      >
-        <span className="sidebar-scope-icon" aria-hidden="true">
-          <ProjectScopeIcon />
-        </span>
-        {!isCollapsed ? (
-          <>
-            <span className="sidebar-scope-copy">
-              <span>Current Project</span>
-              <strong>{currentProjectName}</strong>
-              <em>{currentAppTypeName}</em>
-            </span>
-            <span className="sidebar-scope-caret" aria-hidden="true">
-              <ChevronIcon />
-            </span>
-          </>
-        ) : null}
-      </button>
-      {selectorPopover}
-    </div>
-  );
-}
-
 export function AppShell() {
   return <ReadyAppShell />;
 }
@@ -540,8 +200,12 @@ function ReadyAppShell() {
   const { session, error, clearError, logout } = useAuth();
   const { t } = useLocalization();
   const domainMetadataQuery = useDomainMetadata();
+  const projectAccessKey = JSON.stringify([
+    session?.user.id, session?.user.role, session?.user.role_id, session?.user.status,
+    session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions
+  ]);
   const projectsQuery = useQuery({
-    queryKey: queryKeys.projects(),
+    queryKey: [...queryKeys.projects(), projectAccessKey],
     queryFn: api.projects.list,
     retry: 1,
     staleTime: 60 * 1000
@@ -573,11 +237,11 @@ function ReadyAppShell() {
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(() => getUnreadNotificationCount());
 
-  const projects = asArray(projectsQuery.data);
+  const projects = useMemo(() => availableWorkspaceProjects(asArray(projectsQuery.data)), [projectsQuery.data]);
   const hasNoProjects = projectsQuery.isSuccess && projects.length === 0;
   const currentProjectName =
     projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
-    (hasNoProjects ? "No active project" : "Select a project");
+    (hasNoProjects ? t("shell.noProject", "No active project") : t("switcher.chooseProject", "Choose project"));
   const navCounts = {
     projects: projects.length
   };
@@ -665,32 +329,10 @@ function ReadyAppShell() {
     }
   }, [isMobileViewport]);
 
-  useEffect(() => {
-    if (!isMobileSidebarOpen) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsMobileSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMobileSidebarOpen]);
-
-  useEffect(() => {
-    if (!isMobileViewport || !isMobileSidebarOpen) {
-      document.body.style.overflow = "";
-      return;
-    }
-
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [isMobileSidebarOpen, isMobileViewport]);
+  const mobileSidebarRef = useDialogFocus<HTMLElement>({
+    active: isMobileViewport && isMobileSidebarOpen,
+    onClose: () => setIsMobileSidebarOpen(false)
+  });
 
   useEffect(() => {
     if (!projectsQuery.isSuccess) {
@@ -709,12 +351,8 @@ function ReadyAppShell() {
     }
   }, [projects, projectsQuery.isSuccess, setSidebarProjectId, sidebarProjectId]);
 
-  const navigateToProject = useCallback(async (nextProjectId: string | number) => {
-    const normalizedProjectId = String(nextProjectId);
-    if (!projects.some((project) => String(project.id) === normalizedProjectId)) return false;
-    setSidebarProjectId(normalizedProjectId);
-    return true;
-  }, [projects, setSidebarProjectId]);
+  const canChangeScope = useCallback(({ projectId }: { projectId: string }) =>
+    projects.some(project => String(project.id) === projectId), [projects]);
 
   const isWorkspaceWideLibrary = WORKSPACE_LIBRARY_PATHS.has(location.pathname);
 
@@ -816,6 +454,12 @@ function ReadyAppShell() {
     return items.filter((subItem) => canAccessPath(session, subItem.to, pageAccess, sidebarProjectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, [...requiredFeatureFlagsForPath(subItem.to), ...(subItem.featureKeys || [])]));
   };
 
+  const activeSubSection = navigation.flatMap(group => group.items.flatMap(item => resolveSidebarSubItems(item)))
+    .find(item => isNavigationDestinationActive(item.to, location.pathname, location.search));
+  const currentSectionLabel = activeSubSection ? resolveSubItemLabel(activeSubSection)
+    : t(WORKSPACE_SECTION_LABEL_KEYS[location.pathname] || "shell.workspace", currentSection);
+  const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K";
+
   const refreshCurrentScreen = () => window.location.reload();
   const prefetchNavigationTarget = (target: string, disabled = false) => {
     if (!disabled) {
@@ -824,7 +468,7 @@ function ReadyAppShell() {
   };
 
   return (
-    <div className="app-shell app-layout app-layout--workspace-wide">
+    <div className="app-shell app-layout app-layout--workspace-wide workspace-experience-v2">
       <a className="workspace-skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>{t("shell.skip", "Skip to content")}</a>
       <WorkspaceLocalizationLoader />
       {error && (
@@ -846,7 +490,7 @@ function ReadyAppShell() {
         </div>
       ) : null}
       
-      <aside className={sidebarClassName} id="app-sidebar" role="navigation">
+      <aside ref={mobileSidebarRef} className={sidebarClassName} id="app-sidebar" role={isMobileViewport && isMobileSidebarOpen ? "dialog" : undefined} aria-modal={isMobileViewport && isMobileSidebarOpen ? true : undefined} aria-label={t("shell.navigation", "Navigation")} tabIndex={-1}>
         <div className="sidebar-top">
           <div className="sidebar-brand-row">
             <NavLink className="sidebar-brand-lockup" to="/" aria-label="Go to dashboard">
@@ -854,7 +498,7 @@ function ReadyAppShell() {
             </NavLink>
             {isMobileViewport ? (
               <button
-                aria-label="Close navigation"
+                aria-label={t("shell.closeNavigation", "Close navigation")}
                 className="sidebar-mobile-close ghost-button"
                 onClick={() => setIsMobileSidebarOpen(false)}
                 type="button"
@@ -864,31 +508,26 @@ function ReadyAppShell() {
             ) : null}
             {!isMobileViewport ? (
               <button
-                aria-label={shouldCollapseSidebar ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={t(shouldCollapseSidebar ? "shell.expandSidebar" : "shell.collapseSidebar", shouldCollapseSidebar ? "Expand sidebar" : "Collapse sidebar")}
                 className="sidebar-collapse-button ghost-button"
                 onClick={toggleSidebarCollapse}
                 type="button"
               >
-                <MenuIcon />
+                {shouldCollapseSidebar ? <IconLayoutSidebarLeftExpand size={18} /> : <IconLayoutSidebarLeftCollapse size={18} />}
               </button>
             ) : null}
           </div>
 
-          {!hasNoProjects ? (
-            <SidebarScopeSelector
-              isCollapsed={shouldCollapseSidebar}
-              isLoadingProjects={projectsQuery.isPending}
-              onProjectChange={setSidebarProjectId}
-              onProjectNavigate={navigateToProject}
-              projectId={sidebarProjectId}
-              projects={projects}
-            />
-          ) : !shouldCollapseSidebar ? (
-            <div className="sidebar-notice">
-              <p>No projects assigned yet.</p>
-              <p className="text-muted">Ask an admin to add you to a project.</p>
-            </div>
-          ) : null}
+          <WorkspaceProjectSwitcher
+            accessKey={projectAccessKey}
+            isCollapsed={shouldCollapseSidebar}
+            isLoadingProjects={projectsQuery.isPending}
+            projectsError={projectsQuery.isError}
+            onRetryProjects={() => void projectsQuery.refetch()}
+            beforeScopeChange={canChangeScope}
+            projectId={sidebarProjectId}
+            projects={projects}
+          />
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
@@ -967,22 +606,12 @@ function ReadyAppShell() {
                       {!shouldCollapseSidebar && subItems.length && isActive ? (
                         <div className="nav-submenu" aria-label={`${resolveNavLabel(item)} sections`}>
                           {subItems.map((subItem) => {
-                            const subPath = subItem.to.split("?")[0];
-                            const isDefaultDashboardView = item.id === "overview"
-                              && subItem.to === "/?view=analytics"
-                              && location.pathname === "/"
-                              && (!location.search || new URLSearchParams(location.search).get("view") === "analytics");
-                            const isDefaultAgentView = item.id === "agentic-workflows"
-                              && subItem.to === `${WORKSPACE_ROUTES.agenticWorkflows}?view=agents`
-                              && location.pathname === WORKSPACE_ROUTES.agenticWorkflows
-                              && (!location.search || new URLSearchParams(location.search).get("view") === "agents");
-                            const isSubActive = isDefaultDashboardView || isDefaultAgentView || (subItem.to.includes("?")
-                              ? `${location.pathname}${location.search}` === subItem.to
-                              : location.pathname === subPath);
+                            const isSubActive = isNavigationDestinationActive(subItem.to, location.pathname, location.search);
                             const SubIcon = getWorkspaceSubItemIcon("icon" in subItem ? subItem.icon : undefined);
 
                             return (
                               <NavLink
+                                aria-current={isSubActive ? "page" : false}
                                 className={isSubActive ? "nav-submenu-link is-active" : "nav-submenu-link"}
                                 data-nav-identity={"icon" in subItem ? subItem.icon : "default"}
                                 key={subItem.to}
@@ -1006,82 +635,15 @@ function ReadyAppShell() {
         </nav>
 
         <div className="sidebar-footer">
-          <button
-            aria-label="Refresh current screen"
-            className={`sidebar-refresh-button ghost-button${shouldCollapseSidebar ? " explorer-icon-button" : ""}`}
-            onClick={refreshCurrentScreen}
-            title="Refresh current screen"
-            type="button"
-          >
-            {!shouldCollapseSidebar ? <span className="sidebar-refresh-label">Refresh</span> : null}
-            <RefreshIcon size={20} />
-          </button>
-
-          {!shouldCollapseSidebar ? (
-            <button
-              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-              className="theme-toggle"
-              onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
-              type="button"
-            >
-              <div>
-                <strong>Theme</strong>
-                <span>{theme === "light" ? "Light · HelloTest workspace" : "Dark · HelloTest workspace"}</span>
-              </div>
-              <span aria-hidden="true" className="theme-jira-indicator">HelloTest</span>
-            </button>
-          ) : (
-            <button
-              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-              className={theme === "dark" ? "sidebar-icon-button is-dark" : "sidebar-icon-button"}
-              onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
-              title={`Current theme: ${theme}`}
-              type="button"
-            >
-              {theme === "dark" ? <MoonIcon /> : <SunIcon />}
-            </button>
-          )}
-
-          <button
-            aria-expanded={isProfileDialogOpen}
-            aria-haspopup="dialog"
-            aria-label="Open your profile"
-            className="user-chip user-chip-button"
-            onClick={() => setIsProfileDialogOpen(true)}
-            title={shouldCollapseSidebar ? (session?.user.name || "Workspace user") : undefined}
-            type="button"
-          >
-            <div className="user-chip-head">
-              <span className="user-chip-icon" aria-hidden="true">
-                {session?.user.avatar_data_url ? <img alt="" className="user-chip-avatar" src={session.user.avatar_data_url} /> : <UserIcon />}
-              </span>
-              <div className="user-chip-copy">
-                <strong>{session?.user.name || "Workspace User"}</strong>
-                {!shouldCollapseSidebar ? (
-                  <>
-                    <span>{session?.user.email}</span>
-                    <span>{session?.user.role === "admin" ? "Admin" : "Member"}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </button>
-
-          <button 
-            className="ghost-button sidebar-signout" 
-            onClick={logout}
-            type="button"
-            aria-label={t("shell.signOut", "Sign out")}
-            title="Sign out of HelloTest"
-          >
-            <LogoutIcon />
-            {shouldCollapseSidebar ? null : <span>{t("shell.signOut", "Sign out")}</span>}
+          <button className="sidebar-signout" onClick={logout} type="button" aria-label={t("shell.signOut", "Sign out")} title={t("shell.signOut", "Sign out")}>
+            <LogoutIcon />{!shouldCollapseSidebar && <span>{t("shell.signOut", "Sign out")}</span>}
           </button>
         </div>
       </aside>
 
       {isMobileViewport ? (
         <button
+          aria-label={t("shell.closeNavigation", "Close navigation")}
           aria-hidden={!isMobileSidebarOpen}
           className={isMobileSidebarOpen ? "sidebar-backdrop is-visible" : "sidebar-backdrop"}
           onClick={() => setIsMobileSidebarOpen(false)}
@@ -1098,24 +660,26 @@ function ReadyAppShell() {
         data-route={location.pathname}
         data-section={currentSection}
       >
-        {isMobileViewport ? (
-          <div className="mobile-sidebar-bar">
-            <button
-              aria-controls="app-sidebar"
-              aria-expanded={isMobileSidebarOpen}
-              className="mobile-sidebar-toggle ghost-button"
-              onClick={() => setIsMobileSidebarOpen(true)}
-              type="button"
-            >
-              <MenuIcon />
-              <span>{t("shell.navigation", "Navigation")}</span>
+        <header className="workspace-context-bar">
+          <div className="workspace-header-leading">
+            {isMobileViewport && <button aria-controls="app-sidebar" aria-expanded={isMobileSidebarOpen} aria-label={t("shell.openNavigation", "Open navigation")} className="workspace-header-icon mobile-sidebar-toggle" onClick={() => setIsMobileSidebarOpen(true)} type="button"><MenuIcon /></button>}
+            <div className="workspace-breadcrumb" aria-label={t("shell.currentLocation", "Current location")}>
+              <span className="workspace-breadcrumb-project" title={currentProjectName}>{currentProjectName}</span>
+              <IconChevronRight size={14} aria-hidden="true" />
+              <strong>{currentSectionLabel}</strong>
+            </div>
+          </div>
+          <div className="workspace-context-actions">
+            <button className="workspace-search-trigger" type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k" aria-label={t("shell.find", "Find a capability")}><IconSearch size={17} aria-hidden="true"/><span>{t("shell.find", "Find a capability")}</span><kbd>{searchShortcut}</kbd></button>
+            <button className="workspace-header-icon workspace-refresh" type="button" onClick={refreshCurrentScreen} aria-label={t("shell.refresh", "Refresh current screen")} title={t("shell.refresh", "Refresh current screen")}><RefreshIcon size={18}/></button>
+            <button className="workspace-header-icon" type="button" onClick={() => setIsRegionalDialogOpen(true)} aria-label={t("shell.preferences", "Language & region")} title={t("shell.preferences", "Language & region")}><IconLanguage size={18}/></button>
+            <button className="workspace-header-icon" type="button" onClick={() => setTheme(current => current === "light" ? "dark" : "light")} aria-label={t(theme === "light" ? "shell.darkTheme" : "shell.lightTheme", `Switch to ${theme === "light" ? "dark" : "light"} theme`)} title={t(theme === "light" ? "shell.darkTheme" : "shell.lightTheme", `Switch to ${theme === "light" ? "dark" : "light"} theme`)}>{theme === "light" ? <MoonIcon/> : <SunIcon/>}</button>
+            <button className="workspace-profile-button" type="button" aria-haspopup="dialog" aria-expanded={isProfileDialogOpen} aria-label={t("shell.profile", "Open your profile")} onClick={() => setIsProfileDialogOpen(true)}>
+              <span className="workspace-profile-avatar" aria-hidden="true">{session?.user.avatar_data_url ? <img src={session.user.avatar_data_url} alt=""/> : (session?.user.name || session?.user.email || "QA").split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</span>
+              <span className="workspace-profile-copy"><strong>{session?.user.name || t("shell.user", "Workspace user")}</strong><small>{t(session?.user.role === "admin" ? "shell.admin" : "shell.member", session?.user.role === "admin" ? "Workspace admin" : "Workspace member")}</small></span>
             </button>
           </div>
-        ) : null}
-        <div className="workspace-context-bar">
-          <div className="workspace-context-name"><span className="workspace-context-dot" aria-hidden="true" /><span>{currentProjectName}</span></div>
-          <div className="workspace-context-actions"><button type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k"><span aria-hidden="true">⌕</span>{t("shell.find", "Find a capability")}<kbd>⌘ / Ctrl K</kbd></button><button type="button" onClick={() => setIsRegionalDialogOpen(true)}>{t("shell.preferences", "Language & region")}</button></div>
-        </div>
+        </header>
         {isRouteTransitioning ? (
           <div aria-live="polite" className="route-loading-indicator" role="status">
             <span aria-hidden="true" className="loading-state-spinner" />

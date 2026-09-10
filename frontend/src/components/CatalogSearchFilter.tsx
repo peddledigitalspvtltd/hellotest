@@ -38,6 +38,7 @@ export function CatalogSearchFilter({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const inputId = useId();
   const popoverId = useId();
+  const popoverTitleId = useId();
 
   useEffect(() => {
     if (!isOpen) {
@@ -172,7 +173,7 @@ export function CatalogSearchFilter({
 
   const popover = isOpen ? (
     <div
-      aria-labelledby={inputId}
+      aria-labelledby={popoverTitleId}
       className="catalog-filter-popover"
       id={popoverId}
       ref={popoverRef}
@@ -182,7 +183,7 @@ export function CatalogSearchFilter({
     >
       <div className="catalog-filter-popover-header">
         <div className="catalog-filter-popover-title-row">
-          <strong>{title}</strong>
+          <strong id={popoverTitleId}>{title}</strong>
           {subtitle ? <InfoTooltip content={subtitle} label={`${title} information`} /> : null}
         </div>
       </div>

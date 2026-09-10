@@ -2,6 +2,16 @@ These optional browser regressions use an existing Playwright installation and
 Chrome/Chromium. They do not require a backend or signed-in account. Component
 tests create isolated Vite fixtures and remove them after each test.
 
+The workspace switcher regressions (`workspaceProjectSwitcher.test.mjs` and
+`workspaceSwitcherShell.test.mjs`) use the repository's Playwright installation
+and default to Vite on port 5179 (`BROWSER_TEST_BASE_URL` overrides it). They
+verify project/application cache isolation, delayed responses across projects
+and permission changes, atomic explicit selection, remembered values on errors,
+retries, keyboard behavior, and dropdown bounds down to 320px. The real AppShell
+fixture also verifies that Escape closes a nested dropdown before its mobile
+drawer, forward/reverse Tab stays in the drawer, and an unrelated popover cannot
+bypass dialog keyboard handling. All API calls and storage are isolated.
+
 Start the frontend with `npm run dev`, then run from `frontend`:
 
 ```sh

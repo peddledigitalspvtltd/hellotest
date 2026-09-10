@@ -202,6 +202,8 @@ When the stack is up, the Test Engine host serves:
 - `GET /api/v1/capabilities`
 - `GET /api/v1/events`
 - `POST /api/v1/events`
+- `GET /api/v1/ops-telemetry/services`
+- `DELETE /api/v1/events/projects/:projectId`
 - `GET /ops-telemetry`
 
 Every `/api/v1/runs` read, create, and retry route requires the Test Engine
@@ -232,6 +234,23 @@ kubectl apply -f testengine/k8s/testengine-workers.yaml
 
 The `/ops-telemetry` board lets operators filter captured execution hierarchy
 events by `service_name`, status, event type, and execution identifiers.
+
+Telemetry event and service reads accept an optional `project_id` query. Scoped
+responses echo that exact `project_id`; event totals and service counts include
+only matching project records, excluding host events with no project. An
+explicitly empty or invalid project scope returns `400`.
+
+The HelloTest API uses `DELETE /api/v1/events/projects/:projectId` to clear one
+project's events. The same suffix is registered on a configured custom event
+path, without a trailing slash before `/projects`. A successful scoped clear
+returns `{ "ok": true, "project_id": "…", "deleted": 3 }` and preserves other
+projects and unscoped host events in memory and durable storage. The dedicated
+route makes older engines reject the request rather than ignore a query filter.
+Direct engine operators retain unfiltered reads and `DELETE /api/v1/events`
+for the whole store; the existing delete route also accepts `project_id`.
+All these routes retain the existing OPS telemetry authentication policy and
+configured `OPS_TELEMETRY_API_KEY`; project filtering does not replace access
+checks in the HelloTest API.
 
 Queue pull mode polls HelloTest for queued automated API and web jobs every 5
 minutes by default. Configure `queue_poll_interval_minutes` on the active

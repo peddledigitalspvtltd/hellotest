@@ -17,9 +17,12 @@ module.exports = async function (fastify) {
   fastify.delete("/ops-telemetry/logs", async (req) => {
     const { project_id } = req.query || {};
 
-    if (project_id) {
-      await projectService.getProject(project_id, req.user.id);
+    if (!project_id) {
+      const error = new Error("project_id is required");
+      error.statusCode = 400;
+      throw error;
     }
+    await projectService.getProject(project_id, req.user.id);
 
     return opsTelemetryService.clearTelemetryLogs({
       project_id

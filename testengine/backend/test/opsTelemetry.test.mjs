@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -277,6 +277,114 @@ test("startup and writes scrub legacy records and enforce age, count, and file b
     assert.equal(durableLines.length, 2);
     assert.ok(Buffer.byteLength(durable, "utf8") <= 16_384);
     assert.equal(durable.includes("legacy-secret"), false);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("project telemetry filters isolate events, service counts and scoped deletion from other and unscoped events", async () => {
+  const fixture = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "production", OPS_TELEMETRY_API_KEY: "project-isolation-key" });
+  const headers = { authorization: "Bearer project-isolation-key" };
+  const payloads = [
+    { project_id: "project-a", service_name: "api", event_type: "run.started", status: "running", summary: "Checkout" },
+    { project_id: "project-a", service_name: "api", event_type: "run.finished", status: "passed", summary: "Checkout" },
+    { project_id: "project-a", service_name: "worker", event_type: "job.finished", status: "passed" },
+    { project_id: "project-b", service_name: "api", event_type: "run.finished", status: "passed", summary: "Checkout" },
+    { project_id: "project-b", service_name: "mobile", event_type: "run.finished", status: "failed" },
+    { service_name: "host", event_type: "health", status: "passed" }
+  ];
+  const read = async (url) => {
+    const response = await fixture.app.inject({ method: "GET", url, headers });
+    assert.equal(response.statusCode, 200, response.body);
+    return response.json();
+  };
+  try {
+    for (const payload of payloads) assert.equal((await fixture.app.inject({ method: "POST", url: "/api/v1/events", headers, payload })).statusCode, 202);
+    const events = await read("/api/v1/events?project_id=project-a&limit=1");
+    assert.equal(events.project_id, "project-a");
+    assert.equal(events.total, 3, "total is scoped before the limit is applied");
+    assert.equal(events.items.length, 1);
+    assert.ok(events.items.every((event) => event.project_id === "project-a"));
+    const filtered = await read("/api/v1/events?project_id=project-a&service_name=api&event_type=run.finished&status=passed&search=Checkout");
+    assert.equal(filtered.total, 1);
+    assert.equal(filtered.items[0].project_id, "project-a");
+    assert.equal((await read("/api/v1/events?project_id=project")).total, 0, "scope matching is exact");
+    const services = await read("/api/v1/ops-telemetry/services?project_id=project-a");
+    assert.equal(services.project_id, "project-a");
+    assert.deepEqual(services.items.map(({ service_name, count }) => ({ service_name, count })), [{ service_name: "api", count: 2 }, { service_name: "worker", count: 1 }]);
+    assert.deepEqual((await read("/api/v1/ops-telemetry/services?project_id=missing")).items, []);
+    assert.equal((await read("/api/v1/events")).total, 6, "direct engine operators retain the unfiltered view");
+
+    const denied = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" });
+    assert.equal(denied.statusCode, 401, "the dedicated route retains engine authentication");
+    const cleared = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a", headers });
+    assert.equal(cleared.statusCode, 200, cleared.body);
+    assert.deepEqual(cleared.json(), { ok: true, project_id: "project-a", deleted: 3 });
+    assert.equal((await read("/api/v1/events?project_id=project-a")).total, 0);
+    assert.equal((await read("/api/v1/events?project_id=project-b")).total, 2);
+    assert.equal((await read("/api/v1/events")).total, 3);
+    assert.deepEqual((await read("/api/v1/ops-telemetry/services?project_id=project-a")).items, []);
+    assert.deepEqual((await read("/api/v1/ops-telemetry/services?project_id=project-b")).items.map(({ service_name, count }) => ({ service_name, count })), [{ service_name: "api", count: 1 }, { service_name: "mobile", count: 1 }]);
+    const durable = (await readFile(fixture.storePath, "utf8")).trim().split("\n").map(JSON.parse);
+    assert.equal(durable.length, 3);
+    assert.ok(durable.every((event) => event.project_id !== "project-a"));
+    assert.ok(durable.some((event) => event.project_id === null), "unscoped host events remain on disk");
+
+    const queryCleared = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events?project_id=project-b", headers });
+    assert.deepEqual(queryCleared.json(), { ok: true, project_id: "project-b", deleted: 2 });
+    assert.equal((await read("/api/v1/events")).total, 1);
+    const globalCleared = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events", headers });
+    assert.deepEqual(globalCleared.json(), { ok: true, deleted: 1 });
+    assert.equal(await readFile(fixture.storePath, "utf8"), "");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("explicitly invalid project scopes cannot become global reads or clears and custom event paths support scoped deletion", async () => {
+  const fixture = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "local", OPS_TELEMETRY_EVENTS_PATH: "/custom/events/" });
+  try {
+    for (const project_id of ["project-a", "project-b"]) assert.equal((await fixture.app.inject({ method: "POST", url: "/custom/events/", payload: { project_id, event_type: "run.finished" } })).statusCode, 202);
+    for (const url of ["/api/v1/events?project_id=", "/api/v1/events?project_id=%20%20", "/api/v1/events?project_id=a&project_id=b", "/api/v1/ops-telemetry/services?project_id="]) {
+      assert.equal((await fixture.app.inject({ method: "GET", url })).statusCode, 400, url);
+    }
+    for (const url of ["/api/v1/events?project_id=", "/api/v1/events?project_id=a&project_id=b", "/api/v1/events/projects/%20%20", "/custom/events/projects/%20"]) {
+      assert.equal((await fixture.app.inject({ method: "DELETE", url })).statusCode, 400, url);
+    }
+    assert.equal((await fixture.app.inject({ method: "GET", url: "/api/v1/events" })).json().total, 2);
+    const cleared = await fixture.app.inject({ method: "DELETE", url: "/custom/events/projects/project-a" });
+    assert.equal(cleared.statusCode, 200, cleared.body);
+    assert.deepEqual(cleared.json(), { ok: true, project_id: "project-a", deleted: 1 });
+    const listed = (await fixture.app.inject({ method: "GET", url: "/custom/events/" })).json();
+    assert.equal(listed.total, 1);
+    assert.equal(listed.items[0].project_id, "project-b");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("scoped clear preserves another writer's records and does not report success when the store cannot be replaced", async () => {
+  const received_at = new Date().toISOString();
+  const record = (id, project_id) => ({ id, project_id, received_at, payload: { project_id, event_type: "run.finished" } });
+  const fixture = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "local" }, JSON.stringify(record("initial", "project-a")) + "\n");
+  try {
+    // A second writer's durable record is not present in this process's cache.
+    await appendFile(fixture.storePath, JSON.stringify(record("foreign", "project-b")) + "\n");
+    const savedPath = fixture.storePath + ".saved";
+    await rename(fixture.storePath, savedPath);
+    await mkdir(fixture.storePath);
+    const failed = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" });
+    assert.equal(failed.statusCode, 500);
+    const unchanged = (await fixture.app.inject({ method: "GET", url: "/api/v1/events?project_id=project-a" })).json();
+    assert.equal(unchanged.total, 1, "failed durable clear leaves the in-memory record intact");
+    await rm(fixture.storePath, { recursive: true });
+    await rename(savedPath, fixture.storePath);
+
+    const cleared = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" });
+    assert.deepEqual(cleared.json(), { ok: true, project_id: "project-a", deleted: 1 });
+    const durable = (await readFile(fixture.storePath, "utf8")).trim().split("\n").map(JSON.parse);
+    assert.deepEqual(durable.map((event) => event.id), ["foreign"], "scoped replacement retains the other writer's project");
+    assert.equal((await fixture.app.inject({ method: "GET", url: "/api/v1/events?project_id=project-a" })).json().total, 0);
   } finally {
     await fixture.cleanup();
   }

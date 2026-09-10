@@ -60,9 +60,9 @@ export function readSidebarMode(): SidebarMode {
     return "collapsed";
   }
 
-  return window.localStorage.getItem(preferenceStorageKeys.sidebarCollapsed) === "false"
-    ? "expanded"
-    : "collapsed";
+  return window.localStorage.getItem(preferenceStorageKeys.sidebarCollapsed) === "true"
+    ? "collapsed"
+    : "expanded";
 }
 
 export function writeSidebarMode(sidebarMode: SidebarMode) {

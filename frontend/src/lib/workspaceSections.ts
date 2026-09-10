@@ -80,6 +80,9 @@ export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [
 export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/": "Home",
   "/projects": "Projects",
+  "/stories": "Stories",
+  "/agentic-workflows": "Agentic Workflows",
+  "/knowledge-repo": "Knowledge Repo",
   "/requirements": "Backlog",
   "/backlog": "Backlog",
   "/sprints": "Sprints",
@@ -107,6 +110,18 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
 };
 
 export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
+  "/": "page.overview",
+  "/projects": "page.projects",
+  "/admin-space": "page.adminSpace",
+  "/people": "page.people",
+  "/integrations": "page.integrations",
+  "/knowledge-repo": "page.knowledgeRepo",
+  "/agentic-workflows": "page.agenticWorkflows",
+  "/support": "page.support",
+  "/notifications": "page.notifications",
+  "/settings": "page.settings",
+  "/issues": "page.issues",
+  "/feedback": "page.feedback",
   "/agentic-workflows?view=agents": "workspace.aiAgents",
   "/agentic-workflows?view=workflows": "workspace.workflows",
   "/agentic-workflows?view=runs": "workspace.workflowRuns",

@@ -47,7 +47,7 @@ test("AI Agents has a dedicated sidebar catalog and opens a focused specialist W
   ]);
 
   assert.match(sections, /view=agents`, label: "AI Agents"/);
-  assert.match(shell, /isDefaultAgentView/);
+  assert.match(shell, /isNavigationDestinationActive\(subItem\.to, location\.pathname, location\.search\)/);
   assert.match(page, /Turn repository source and project evidence into useful quality work/);
   assert.match(page, /Your task/);
   assert.doesNotMatch(page, /on the beach, on a hike, or while you sleep/);

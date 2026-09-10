@@ -452,6 +452,9 @@ const buildSearchHaystack = (event) => [
     .join(" ")
     .toLowerCase();
 const matchesFilter = (event, filters) => {
+    if (filters.project_id && event.project_id !== filters.project_id) {
+        return false;
+    }
     if (filters.service_name && event.service_name !== filters.service_name) {
         return false;
     }
@@ -474,6 +477,17 @@ const matchesFilter = (event, filters) => {
         return false;
     }
     return true;
+};
+// An omitted scope preserves the authenticated engine-wide operator API. An
+// explicitly invalid scope must never broaden a requested project operation.
+const readProjectFilter = (query) => {
+    if (!Object.prototype.hasOwnProperty.call(query, "project_id"))
+        return null;
+    const projectId = normalizeText(query.project_id);
+    if (!projectId) {
+        throw Object.assign(new Error("project_id must be a non-empty string"), { statusCode: 400 });
+    }
+    return projectId;
 };
 const renderBoardHtml = (config) => {
     const title = `${config.serviceName} OPS Telemetry`;
@@ -1265,7 +1279,9 @@ export const createOpsTelemetry = async (logger) => {
         return storedEvent;
     };
     const listEvents = (query) => {
+        const projectId = readProjectFilter(query);
         const filters = {
+            project_id: projectId,
             service_name: normalizeText(query.service_name),
             event_type: normalizeText(query.event_type),
             status: normalizeText(query.status),
@@ -1280,14 +1296,18 @@ export const createOpsTelemetry = async (logger) => {
             .filter((event) => matchesFilter(event, filters));
         return {
             ok: true,
+            ...(projectId ? { project_id: projectId } : {}),
             total: filtered.length,
             limit,
             items: filtered.slice(0, limit)
         };
     };
-    const listServices = () => {
+    const listServices = (query) => {
+        const projectId = readProjectFilter(query);
         const summary = new Map();
         [...events].reverse().forEach((event) => {
+            if (projectId && event.project_id !== projectId)
+                return;
             const serviceName = event.service_name || "unlabeled";
             const current = summary.get(serviceName);
             if (!current) {
@@ -1302,24 +1322,52 @@ export const createOpsTelemetry = async (logger) => {
         });
         return {
             ok: true,
+            ...(projectId ? { project_id: projectId } : {}),
             items: [...summary.values()].sort((left, right) => right.count - left.count || left.service_name.localeCompare(right.service_name))
         };
     };
-    const clearEvents = async () => {
-        const deleted = events.length;
-        events.splice(0, events.length);
-        writeQueue = writeQueue
-            .then(() => withStoreLock(config.storePath, () => atomicWriteStore(config.storePath, "")))
-            .catch((error) => {
+    const clearEvents = async (query) => {
+        const projectId = readProjectFilter(query);
+        const isInScope = (event) => !projectId || event.project_id === projectId;
+        const deletedIds = new Set(events.filter(isInScope).map((event) => event.id));
+        const operation = writeQueue.then(() => withStoreLock(config.storePath, async () => {
+            // Read inside the lock so another writer's unrelated project events are
+            // preserved. Later local captures enqueue after this clear and survive it.
+            let durableEvents = [];
+            try {
+                durableEvents = (await loadStoredEvents(config)).events;
+            }
+            catch (error) {
+                if (error?.code !== "ENOENT")
+                    throw error;
+            }
+            const retained = durableEvents.filter((event) => {
+                if (!isInScope(event))
+                    return true;
+                deletedIds.add(event.id);
+                return false;
+            });
+            await atomicWriteStore(config.storePath, serializeEventStore(retained));
+            for (let index = events.length - 1; index >= 0; index -= 1) {
+                if (deletedIds.has(events[index].id))
+                    events.splice(index, 1);
+            }
+        }));
+        // Keep the writer queue recoverable, but propagate this operation's failure
+        // to its caller rather than claiming that an unsuccessful clear completed.
+        writeQueue = operation.catch((error) => {
             logger.error({ error, storePath: config.storePath }, "Unable to clear OPS telemetry event store");
         });
-        await writeQueue;
+        await operation;
+        const deleted = deletedIds.size;
         logger.warn({
             ops_telemetry: true,
+            project_id: projectId,
             deleted
         }, "OPS telemetry events cleared");
         return {
             ok: true,
+            ...(projectId ? { project_id: projectId } : {}),
             deleted
         };
     };
@@ -1408,7 +1456,7 @@ export const createOpsTelemetry = async (logger) => {
             if (!authorizeRoute(request, reply)) {
                 return reply;
             }
-            return clearEvents();
+            return clearEvents(request.query);
         });
     };
     return {
@@ -1417,11 +1465,21 @@ export const createOpsTelemetry = async (logger) => {
             for (const routePath of routePaths) {
                 await receiveEvent(app, routePath);
             }
+            // The application proxy uses a dedicated scoped-delete route so older
+            // engines fail with 404 instead of ignoring a filter and clearing all logs.
+            const projectClearPaths = new Set([...routePaths].map((routePath) => `${routePath.replace(/\/+$/, "")}/projects/:projectId`));
+            for (const routePath of projectClearPaths) {
+                app.delete(routePath, async (request, reply) => {
+                    if (!authorizeRoute(request, reply))
+                        return reply;
+                    return clearEvents({ project_id: request.params.projectId });
+                });
+            }
             app.get(config.servicesPath, async (request, reply) => {
                 if (!authorizeRoute(request, reply)) {
                     return reply;
                 }
-                return listServices();
+                return listServices(request.query);
             });
             app.get(config.boardPath, async (request, reply) => {
                 if (!authorizeRoute(request, reply)) {

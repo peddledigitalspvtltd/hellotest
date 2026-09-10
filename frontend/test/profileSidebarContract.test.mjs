@@ -5,11 +5,11 @@ import test from "node:test";
 const readSource = (relativePath) =>
   readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("the sidebar profile chip opens the personal profile dialog", async () => {
+test("the workspace header profile control opens the personal profile dialog", async () => {
   const shell = await readSource("../src/components/AppShell.tsx");
 
   assert.match(shell, /import \{ UserProfileDialog \} from "\.\/UserProfileDialog"/);
-  assert.match(shell, /className="user-chip user-chip-button"/);
+  assert.match(shell, /className="workspace-profile-button"/);
   assert.match(shell, /onClick=\{\(\) => setIsProfileDialogOpen\(true\)\}/);
   assert.match(shell, /<UserProfileDialog isOpen=\{isProfileDialogOpen\}/);
 });

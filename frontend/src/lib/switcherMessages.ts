@@ -1,0 +1,36 @@
+const copy = {
+  project: ["Project", "Proyecto"],
+  application: ["Application", "Aplicación"],
+  chooseProject: ["Choose project", "Elegir proyecto"],
+  chooseApplication: ["Choose application", "Elegir aplicación"],
+  loadingProjects: ["Loading projects…", "Cargando proyectos…"],
+  loadingApplications: ["Loading applications…", "Cargando aplicaciones…"],
+  projectError: ["Projects couldn’t be loaded.", "No se pudieron cargar los proyectos."],
+  applicationError: ["Applications couldn’t be loaded.", "No se pudieron cargar las aplicaciones."],
+  retry: ["Try again", "Reintentar"],
+  emptyProjects: ["No projects available", "No hay proyectos disponibles"],
+  emptyProjectsHelp: ["Your accessible projects will appear here.", "Aquí aparecerán los proyectos a los que tienes acceso."],
+  emptyApplications: ["No applications yet", "Aún no hay aplicaciones"],
+  emptyApplicationsHelp: ["Applications added to this project will appear here.", "Aquí aparecerán las aplicaciones de este proyecto."],
+  projectFirst: ["Choose a project first", "Elige primero un proyecto"],
+  searchProjects: ["Search projects", "Buscar proyectos"],
+  searchApplications: ["Search applications", "Buscar aplicaciones"],
+  noMatches: ["No matches found", "No se encontraron coincidencias"],
+  clearSearch: ["Clear search", "Borrar búsqueda"],
+  close: ["Close selector", "Cerrar selector"],
+  projectLabel: ["Project: {name}", "Proyecto: {name}"],
+  applicationLabel: ["Application: {name}", "Aplicación: {name}"],
+  switching: ["Switching workspace…", "Cambiando de espacio…"],
+  switchError: ["Couldn’t switch workspace. Try again.", "No se pudo cambiar de espacio. Inténtalo de nuevo."],
+  selectionUnavailable: ["This selection is no longer available. Choose another.", "Esta selección ya no está disponible. Elige otra."],
+  currentUnavailable: ["Choose an available application", "Elige una aplicación disponible"],
+  web: ["Web", "Web"],
+  api: ["API", "API"],
+  android: ["Android", "Android"],
+  ios: ["iOS", "iOS"],
+  unified: ["Unified", "Unificada"],
+} as const;
+
+export const SWITCHER_MESSAGES = Object.fromEntries(Object.entries(copy).map(([key, value]) => [`switcher.${key}`, value[0]]));
+export const SWITCHER_MESSAGES_ES = Object.fromEntries(Object.entries(copy).map(([key, value]) => [`switcher.${key}`, value[1]]));
+export type SwitcherMessage = keyof typeof copy;

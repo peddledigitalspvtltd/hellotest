@@ -9,6 +9,7 @@ const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
 
 const OPS_READ_MAX_BYTES = 5 * 1024 * 1024;
 const OPS_READ_MAX_EVENTS = 250;
+const OPS_SERVICES_PATH = "/api/v1/ops-telemetry/services";
 
 const selectExecution = obsDb.prepare(`
   SELECT id, project_id, app_type_id, name, status, started_at, ended_at
@@ -187,6 +188,19 @@ const fetchOpsJson = async ({ url, integration, timeoutMs }) => {
   return payload;
 };
 
+// Older providers may ignore query filters. Never present an unscoped response
+// as a project snapshot, even when the caller can access the selected project.
+const requireProjectScopedPayload = (payload, projectId) => {
+  if (payload?.project_id !== projectId) {
+    throw serviceError(SERVICE_ERROR_CODES.INVALID_RESPONSE, {
+      dependency: "ops-telemetry",
+      operation: "telemetry.scope",
+      retryable: false,
+      statusCode: 502
+    });
+  }
+};
+
 exports.getTelemetrySnapshot = async ({
   project_id,
   service_name,
@@ -203,8 +217,10 @@ exports.getTelemetrySnapshot = async ({
   const integrationConfig = isPlainObject(integration?.config) ? integration.config : {};
   const resolvedBaseUrl = await resolveOpsBaseUrl(integration, projectId);
   const timeoutMs = Math.max(500, Math.min(30_000, normalizeInteger(integrationConfig.timeout_ms, 4000) || 4000));
-  const eventsUrl = new URL(normalizeText(integrationConfig.events_path) || "/api/v1/events", resolvedBaseUrl);
-  const servicesUrl = new URL("/api/v1/services", resolvedBaseUrl);
+  const eventsUrl = new URL(buildEventUrl(resolvedBaseUrl, integrationConfig.events_path));
+  const servicesUrl = new URL(buildEventUrl(resolvedBaseUrl, OPS_SERVICES_PATH));
+  eventsUrl.searchParams.set("project_id", projectId);
+  servicesUrl.searchParams.set("project_id", projectId);
   const filters = { service_name, event_type, status, execution_id, search };
   for (const [key, value] of Object.entries(filters)) {
     const normalized = normalizeText(value);
@@ -216,6 +232,8 @@ exports.getTelemetrySnapshot = async ({
     fetchOpsJson({ url: eventsUrl, integration, timeoutMs }),
     fetchOpsJson({ url: servicesUrl, integration, timeoutMs })
   ]);
+  requireProjectScopedPayload(eventsPayload, projectId);
+  requireProjectScopedPayload(servicesPayload, projectId);
 
   return {
     checked_at: new Date().toISOString(),
@@ -415,12 +433,28 @@ const postEvent = async (integration, payload) => {
 };
 
 exports.clearTelemetryLogs = async ({ project_id } = {}) => {
-  const integration = await resolveActiveOpsIntegration(project_id);
+  const projectId = normalizeText(project_id);
+  if (!projectId) {
+    const error = new Error("project_id is required for OPS telemetry");
+    error.statusCode = 400;
+    throw error;
+  }
+  // URL normalization must never turn a scoped delete into the global path.
+  if (projectId === "." || projectId === "..") {
+    const error = new Error("Invalid project_id for OPS telemetry");
+    error.statusCode = 400;
+    throw error;
+  }
+  const integration = await resolveActiveOpsIntegration(projectId);
   const config = isPlainObject(integration?.config) ? integration.config : {};
-  const resolvedBaseUrl = await resolveOpsBaseUrl(integration, project_id);
+  const resolvedBaseUrl = await resolveOpsBaseUrl(integration, projectId);
   const timeoutMs = Math.max(500, normalizeInteger(config.timeout_ms, 4000) || 4000);
   const headers = buildOpsHeaders(integration);
-  const response = await resilientHttpRequest(buildEventUrl(resolvedBaseUrl, config.events_path), {
+  const eventsUrl = new URL(buildEventUrl(resolvedBaseUrl, config.events_path));
+  // A distinct route makes an old provider fail closed instead of treating an
+  // unsupported project query as an instruction to clear its entire store.
+  eventsUrl.pathname = `${eventsUrl.pathname.replace(/\/+$/, "")}/projects/${encodeURIComponent(projectId)}`;
+  const response = await resilientHttpRequest(eventsUrl, {
     method: "DELETE",
     headers
   }, {
@@ -445,6 +479,8 @@ exports.clearTelemetryLogs = async ({ project_id } = {}) => {
       upstreamStatus: response.status
     });
   }
+
+  requireProjectScopedPayload(payload, projectId);
 
   return {
     cleared: true,

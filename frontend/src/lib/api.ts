@@ -465,13 +465,33 @@ export const sessionStorage = {
   },
   write(session: SessionPayload) {
     window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    readRequestSession();
   },
   clear() {
     window.localStorage.removeItem(SESSION_KEY);
+    readRequestSession();
   }
 };
 
-const getStoredToken = () => sessionStorage.read()?.token || null;
+let requestSessionFingerprint = "";
+let requestSessionRevision = 0;
+
+// Cache ownership follows effective access as well as token identity. Detect
+// storage changes here too, including those made by another browser tab.
+function readRequestSession() {
+  const session = sessionStorage.read();
+  const user = session?.user;
+  const fingerprint = stableStringify([session?.token, user?.id, user?.role, user?.role_id, user?.status, user?.permissions, user?.workspace_permissions, user?.project_permissions]);
+  if (fingerprint !== requestSessionFingerprint) {
+    requestSessionFingerprint = fingerprint;
+    requestSessionRevision += 1;
+    clientGetResponseCache.clear();
+    inFlightClientRequests.clear();
+  }
+  return { token: session?.token || null, revision: requestSessionRevision };
+}
+
+const getStoredToken = () => readRequestSession().token;
 
 const isSessionAuthFailure = (path: string, message: string) => {
   if (path.startsWith("/auth/")) return path === "/auth/session";
@@ -523,12 +543,13 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   const method = String(init?.method || "GET").toUpperCase();
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers(init?.headers);
-  const token = getStoredToken();
+  const requestSession = readRequestSession();
+  const { token } = requestSession;
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const canReuseRequest = method === "GET" && init?.cache !== "no-store";
   const requestKey = canReuseRequest
-    ? stableStringify({ method, path: scopedPath })
+    ? stableStringify({ method, path: scopedPath, session: requestSession.revision })
     : "";
 
   if (canReuseRequest) {
@@ -568,7 +589,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
 
     if (!response.ok) {
       const apiError = await parseApiError(response);
-      if (response.status === 401 && token && isSessionAuthFailure(scopedPath, apiError.message)) {
+      if (response.status === 401 && token && isSessionAuthFailure(scopedPath, apiError.message) && readRequestSession().revision === requestSession.revision) {
         sessionStorage.clear();
         if (!scopedPath.startsWith("/auth/")) window.location.assign("/auth");
       }
@@ -589,7 +610,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   try {
     const response = await pendingRequest;
 
-    if (canReuseRequest) {
+    if (canReuseRequest && readRequestSession().revision === requestSession.revision) {
       rememberClientGetResponse(requestKey, response);
     } else if (method !== "GET") {
       clientGetResponseCache.clear();
@@ -607,7 +628,8 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
 
 async function requestKnowledgeStream(path: string, input: unknown, options: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void } = {}) {
   const scopedPath = appendCurrentProjectScope(path);
-  const token = getStoredToken();
+  const requestSession = readRequestSession();
+  const { token } = requestSession;
   const timeout = AbortSignal.timeout(210_000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response;
@@ -625,7 +647,7 @@ async function requestKnowledgeStream(path: string, input: unknown, options: { s
   }
   if (!response.ok) {
     const error = await parseApiError(response);
-    if (response.status === 401 && token && isSessionAuthFailure(scopedPath, error.message)) {
+    if (response.status === 401 && token && isSessionAuthFailure(scopedPath, error.message) && readRequestSession().revision === requestSession.revision) {
       sessionStorage.clear();
       window.location.assign("/auth");
     }

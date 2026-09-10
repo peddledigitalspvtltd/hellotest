@@ -25,10 +25,11 @@ test("dedicated administration routes protect every control-plane mutation", asy
 });
 
 test("admin foundation is additive, auditable, and forces bootstrap password replacement", async () => {
-  const [service, schema, bootstrap] = await Promise.all([
+  const [service, schema, bootstrap, samples] = await Promise.all([
     readSource("../src/services/adminPortal.service.js"),
     readSource("../../db/schema.sql"),
-    readSource("../src/db/bootstrap.js")
+    readSource("../src/db/bootstrap.js"),
+    readSource("../src/services/sampleData/index.js")
   ]);
 
   assert.match(service, /BOOTSTRAP_EMAIL/);
@@ -40,8 +41,8 @@ test("admin foundation is additive, auditable, and forces bootstrap password rep
   assert.match(administratorSelection, /SELECT DISTINCT users\.id[\s\S]*users\.is_workspace_admin/);
   assert.doesNotMatch(administratorSelection, /JOIN roles|project_members/);
   assert.match(service, /ON CONFLICT \(project_id, user_id\)[\s\S]*DO UPDATE SET role_id = EXCLUDED\.role_id/);
-  assert.match(service, /administrator_memberships: administratorMemberships/);
-  assert.match(service, /idempotent: true/);
+  assert.match(samples, /administrator_memberships: administratorMemberships/);
+  assert.match(samples, /idempotent: true/);
   assert.match(service, /recordAudit/);
   assert.match(schema, /CREATE TABLE admin_audit_log/);
   assert.match(schema, /must_change_password BOOLEAN NOT NULL DEFAULT FALSE/);

@@ -1,3 +1,5 @@
+import { WORKSPACE_SHELL_MESSAGES_ES } from "./workspaceShellMessages";
+import { SWITCHER_MESSAGES_ES } from "./switcherMessages";
 import { READINESS_MESSAGES_ES } from "./releaseReadinessMessages";
 import { ANALYTICS_MESSAGES_ES } from "./qualityAnalyticsMessages";
 import type { LocalizationStrings } from "./localization";
@@ -87,3 +89,7 @@ Object.assign(SPANISH_STRINGS, {
 Object.assign(SPANISH_STRINGS, ANALYTICS_MESSAGES_ES);
 
 Object.assign(SPANISH_STRINGS, READINESS_MESSAGES_ES);
+
+Object.assign(SPANISH_STRINGS, SWITCHER_MESSAGES_ES);
+
+Object.assign(SPANISH_STRINGS, WORKSPACE_SHELL_MESSAGES_ES);

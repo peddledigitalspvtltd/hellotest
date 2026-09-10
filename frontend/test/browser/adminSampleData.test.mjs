@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createRequire } from 'node:module';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const { modules, resolveModules } = createRequire(import.meta.url)('../../../backend/api/src/services/sampleData/catalog.js');
+const { buildRecords } = createRequire(import.meta.url)('../../../backend/api/src/services/sampleData/records.js');
+const records = buildRecords('browser-admin');
+const catalog = { version: 2, project_id: null, project_name: 'HelloTest Launchpad', description: 'Connected sample records', notes: [], modules: modules.map(module => ({ ...module, tables: [...new Set(records[module.key].map(record => record.table))], record_count: 0, expected_record_count: records[module.key].length, status: 'not_installed', available: module.key !== 'agents' })) };
+const root = new URL('../../', import.meta.url);
+test('admin sample coverage supports dependency selection, retries, installation results and responsive navigation', { timeout: 90000 }, async () => {
+  const name = `admin-samples-${randomUUID()}`;
+  const html = new URL(`${name}.html`, root), tsx = new URL(`${name}.tsx`, root);
+  let browser;
+  try {
+    await mkdir('/tmp/qaira-admin-samples', { recursive: true });
+    const fixture = `import React from 'react';import {createRoot} from 'react-dom/client';import {AdminApp} from '/src/admin/AdminApp';import {adminApi,sessionStore} from '/src/admin/api';import '/src/admin/admin.css';import '@fontsource/inter/400.css';import '@fontsource/inter/500.css';import '@fontsource/inter/600.css';import '@fontsource/hanken-grotesk/600.css';
+const catalog=${JSON.stringify(catalog)};const state={failRead:true,failInstall:true,calls:[]};window.sampleFixture=state;sessionStore.write({token:'isolated-admin-samples',user:{id:'browser-admin',name:'QA Administrator',email:'admin@example.test',role:'admin'}});
+adminApi.overview=async()=>({status:'operational',schema:{status:'ready',required_tables:16,available_tables:16,missing_tables:[]},metrics:{users:2,administrators:2,projects:1,integrations:0,active_integrations:0,enabled_features:45,total_features:46},runtime:{api_port:3000,admin_port:8081}});
+adminApi.sampleCatalog=async()=>{if(state.failRead){state.failRead=false;throw new Error('Temporary catalog connection failure');}return structuredClone(catalog)};
+adminApi.seedSamples=async selected=>{state.calls.push(selected);if(state.failInstall){state.failInstall=false;throw new Error('Installation could not finish. No sample records were saved.');}const included=new Set();const visit=key=>{if(included.has(key))return;included.add(key);catalog.modules.find(module=>module.key===key).depends_on.forEach(visit)};selected.forEach(visit);let inserted=0,existing=0;for(const module of catalog.modules)if(included.has(module.key)){inserted+=module.expected_record_count-module.record_count;existing+=module.record_count;module.record_count=module.expected_record_count;module.status='installed';}catalog.project_id='sample-project';return {version:2,requested:selected,installed:[...included],dependencies_added:[...included].filter(key=>!selected.includes(key)),project_id:'sample-project',administrator_memberships:2,idempotent:true,inserted_records:inserted,existing_records:existing,module_results:[]}};
+createRoot(document.getElementById('root')).render(<AdminApp/>);`;
+    await writeFile(tsx, fixture);
+    await writeFile(html, `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/api/**', route => { errors.push('Unexpected live request'); return route.abort(); });
+    await page.goto(`${process.env.ADMIN_TEST_URL || 'http://127.0.0.1:5180'}/${name}.html`);
+    await page.getByRole('button', { name: 'Instance setup', exact: true }).click();
+    await page.getByText('Temporary catalog connection failure', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Reload catalog' }).click();
+    await page.locator('.sample-choice').last().waitFor();
+    assert.equal(await page.locator('.sample-choice').count(), 12);
+    await page.getByRole('textbox', { name: 'Search sample modules and features' }).fill('history');
+    assert.ok(await page.locator('.sample-choice').count() >= 3);
+    await page.getByRole('textbox', { name: 'Search sample modules and features' }).fill('not-a-feature');
+    await page.getByRole('heading', { name: 'No matching modules' }).waitFor();
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear selection' }).click();
+    assert.equal(await page.getByRole('button', { name: 'Install selected samples' }).isDisabled(), true);
+    await page.getByRole('button', { name: 'AI & automation', exact: true }).click();
+    const expected = resolveModules(['agents']);
+    assert.equal(await page.getByRole('checkbox', { checked: true }).count(), expected.installed.length);
+    assert.equal(await page.getByRole('checkbox', { name: /Knowledge repository/ }).isDisabled(), true);
+    await page.getByText('Some selected features are disabled.', { exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Install selected samples' }).click();
+    await page.getByText('Installation could not finish. No sample records were saved.', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { checked: true }).count(), expected.installed.length);
+    await page.getByRole('button', { name: 'Install selected samples' }).click();
+    await page.getByText('Your sample workspace is ready', { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.sample-catalog').getAttribute('aria-busy') || document.querySelector('.sample-catalog').getAttribute('aria-busy') === 'false');
+    assert.deepEqual(await page.evaluate(() => window.sampleFixture.calls), [['agents'], ['agents']]);
+    await page.getByRole('button', { name: 'Full product', exact: true }).click();
+    await page.getByRole('checkbox', { name: /Schedules & activity/ }).focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.getByRole('checkbox', { name: /Schedules & activity/ }).isChecked(), false);
+    await page.getByRole('button', { name: 'Full product', exact: true }).click();
+    for (const width of [1440, 1024, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(() => document.fonts.ready);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `Overflow at ${width}px`);
+      await page.screenshot({ path: `/tmp/qaira-admin-samples/setup-${width}.png`, fullPage: true });
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await Promise.allSettled([rm(html, { force: true }), rm(tsx, { force: true })]);
+  }
+});

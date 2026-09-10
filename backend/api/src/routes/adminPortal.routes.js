@@ -26,7 +26,7 @@ module.exports = async function (fastify) {
     adminPortalService.getSampleCatalog());
 
   fastify.post("/admin-portal/setup/sample-data", { preHandler: [fastify.requireAdmin] }, async (req) => {
-    fastify.validate({ modules: { required: false, type: "array", items: "string", maxItems: 10 } }, req.body || {});
+    fastify.validate({ modules: { required: false, type: "array", items: "string", maxItems: 64 } }, req.body || {});
     return adminPortalService.seedSampleData({ modules: req.body?.modules, actorId: req.user.id, ipAddress: clientIp(req) });
   });
 

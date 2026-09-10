@@ -1,0 +1,94 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+test('sample packs install connected records atomically and preserve edits across repeat installs', { skip: process.env.ADMIN_SAMPLES_POSTGRES !== '1', timeout: 120000 }, async () => {
+  const url = new URL(process.env.DATABASE_URL);
+  assert.match(url.pathname.slice(1), /^agent_verify_admin_samples_[a-z0-9_]+$/);
+  const db = require('../../src/db');
+  try {
+    assert.equal((await db.prepare("SELECT to_regclass('public.projects') AS table_name").get()).table_name, null, 'An empty disposable database is required');
+    await db.query(fs.readFileSync(path.resolve(__dirname, '../../../db/schema.sql'), 'utf8'));
+    await require('../../src/db/bootstrap').ensureRuntimeSchema();
+    await db.prepare("INSERT INTO roles(id,name) VALUES ('sample-test-role','admin') ON CONFLICT DO NOTHING").run();
+    await db.prepare("INSERT INTO users(id,email,password_hash,name,is_workspace_admin,status) VALUES ('sample-test-admin','sample-validation@example.test','not-a-login','Sample validation',TRUE,'active')").run();
+    const service = require('../../src/services/adminPortal.service');
+    const input = { actorId: 'sample-test-admin', modules: undefined };
+    for (const modules of [[], ['unknown'], 'workspace', [null], Array(65).fill('workspace')]) await assert.rejects(service.seedSampleData({ ...input, modules }), error => error.statusCode === 400);
+    assert.equal((await service.getSampleCatalog()).project_id, null);
+    await db.query("ALTER TABLE admin_audit_log ADD CONSTRAINT reject_sample_audit CHECK (action <> 'sample_data.seed')");
+    await assert.rejects(service.seedSampleData({ ...input, modules: ['workspace'] }));
+    assert.equal((await service.getSampleCatalog()).project_id, null, 'Audit failure rolls back the entire installation');
+    await db.query('ALTER TABLE admin_audit_log DROP CONSTRAINT reject_sample_audit');
+    const subset = await service.seedSampleData({ ...input, modules: ['dashboards'] });
+    assert.ok(subset.dependencies_added.includes('execution'));
+    assert.ok(subset.dependencies_added.includes('planning'));
+    assert.ok(!subset.installed.includes('agents'));
+    // Existing v1 demonstrations may have been edited; v2 must not graft new
+    // cases/results onto those records or reuse their display IDs.
+    await db.query(`INSERT INTO test_cases(id,display_id,app_type_id,title) VALUES ('sample-case-login','DEMO-T1','sample-app-web','Edited original demo');
+      INSERT INTO executions(id,project_id,app_type_id,name,trigger,status,execution_mode,duration_ms) VALUES ('sample-run-smoke','sample-project','sample-app-web','Edited original run','manual','completed','remote',1840);
+      INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,duration_ms) VALUES ('sample-result-login','sample-run-smoke','sample-case-login','sample-app-web','passed',1840);`);
+    const featureService = require('../../src/services/featureFlag.service');
+    await featureService.updateLocalFlags({ 'hellotest.ai.agentic_workflows': false });
+    const flagsBefore = (await featureService.getSnapshot()).local_flags;
+    const installed = await service.seedSampleData(input);
+    assert.deepEqual((await featureService.getSnapshot()).local_flags, flagsBefore, 'Installation does not enable disabled features');
+    assert.equal(installed.installed.length, 12);
+    assert.ok(installed.inserted_records > 0);
+    const catalog = await service.getSampleCatalog();
+    assert.equal(catalog.modules.find(module => module.key === 'agents').available, false);
+    assert.ok(catalog.modules.every(module => module.status === 'installed' && module.record_count === module.expected_record_count));
+    const recordCount = catalog.modules.reduce((sum, module) => sum + module.record_count, 0);
+    assert.ok(recordCount >= 250);
+    await db.prepare("UPDATE test_cases SET title = 'My revised scenario' WHERE id = 'sample-v2-case-login'").run();
+    await db.prepare("UPDATE feedback SET message = 'My investigation notes' WHERE id = 'sample-v2-issue-checkout'").run();
+    const repeat = await service.seedSampleData(input);
+    assert.equal(repeat.inserted_records, 0);
+    assert.equal((await db.prepare("SELECT title FROM test_cases WHERE id='sample-case-login'").get()).title, 'Edited original demo');
+    assert.equal((await db.prepare("SELECT duration_ms FROM executions WHERE id='sample-run-smoke'").get()).duration_ms, 1840);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM execution_results WHERE execution_id='sample-run-smoke'").get()).count, 1);
+    assert.equal(repeat.existing_records, recordCount);
+    assert.equal((await db.prepare("SELECT title FROM test_cases WHERE id='sample-v2-case-login'").get()).title, 'My revised scenario');
+    assert.equal((await db.prepare("SELECT message FROM feedback WHERE id='sample-v2-issue-checkout'").get()).message, 'My investigation notes');
+    await db.prepare("DELETE FROM test_steps WHERE id='sample-v2-step-login-2'").run();
+    assert.equal((await service.getSampleCatalog()).modules.find(module => module.key === 'design').status, 'partial');
+    const repaired = await service.seedSampleData({ ...input, modules: ['design', 'design'] });
+    assert.equal(repaired.inserted_records, 1);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM test_steps WHERE id='sample-v2-step-login-2'").get()).count, 1);
+    const scope = await db.prepare(`SELECT COUNT(*)::INT AS count FROM test_cases cases JOIN app_types apps ON apps.id=cases.app_type_id WHERE apps.project_id='sample-project'`).get();
+    assert.ok(scope.count >= 13);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM test_cases WHERE source_issue_id='sample-v2-issue-offline'").get()).count, 1);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM execution_results WHERE status='failed'").get()).count, 2);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM executions runs WHERE duration_ms <> (SELECT SUM(duration_ms) FROM execution_results WHERE execution_id=runs.id)").get()).count, 0);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM execution_case_snapshots snapshots WHERE NOT EXISTS(SELECT 1 FROM execution_step_snapshots steps WHERE steps.execution_id=snapshots.execution_id AND steps.test_case_id=snapshots.test_case_id)").get()).count, 0);
+    assert.ok((await db.prepare("SELECT COUNT(*)::INT AS count FROM ai_knowledge_chunks WHERE search_vector @@ plainto_tsquery('simple','idempotency')").get()).count >= 2);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM ai_knowledge_sources sources WHERE NOT EXISTS (SELECT 1 FROM ai_knowledge_security_bindings acl WHERE acl.source_id=sources.id AND acl.principal_id='sample-project')").get()).count, 0);
+    assert.equal((await db.prepare('SELECT COUNT(*)::INT AS count FROM integrations WHERE is_active').get()).count, 0);
+    assert.equal((await db.prepare('SELECT COUNT(*)::INT AS count FROM execution_schedules WHERE is_active').get()).count, 0);
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM agentic_workflows WHERE status <> 'draft'").get()).count, 0);
+    const { validateWorkflowGraph } = require('../../src/utils/agenticWorkflowGraph');
+    const { AGENT_CATALOG } = require('../../src/services/agenticAssistant.service');
+    for (const workflow of await db.prepare('SELECT nodes,edges FROM agentic_workflows').all()) {
+      validateWorkflowGraph(workflow.nodes, workflow.edges, { requireNodes: true });
+      assert.ok(workflow.nodes.filter(node => node.data.kind === 'agent').every(node => AGENT_CATALOG[node.data.agentId]));
+    }
+    const { normalizeApiRequest } = require('../../src/utils/testStepAutomation');
+    for (const step of await db.prepare('SELECT api_request FROM test_steps WHERE api_request IS NOT NULL').all()) assert.ok(normalizeApiRequest(step.api_request).validations.length);
+    await db.prepare("DELETE FROM ai_knowledge_chunks WHERE id='sample-v2-chunk-api'").run();
+    const concurrent = await Promise.all([service.seedSampleData({ ...input, modules: ['knowledge'] }), service.seedSampleData({ ...input, modules: ['knowledge'] })]);
+    assert.deepEqual(concurrent.map(result => result.inserted_records).sort(), [0, 1], 'Concurrent installs report one exact repair');
+    const detailedRun = await require('../../src/services/execution.service').getExecution('sample-v2-run-smoke');
+    assert.ok(detailedRun.case_snapshots?.length || detailedRun.test_case_ids?.length || detailedRun.suite_ids?.length, 'Native run reader hydrates sample scope');
+    const structured = require('../../src/services/executionStepRuntime.service');
+    for (const row of await db.prepare('SELECT logs FROM execution_results WHERE logs IS NOT NULL').all()) assert.equal(Object.keys(structured.parseStructuredLogs(row.logs).stepStatuses).length, 3);
+    const user = { id: 'sample-test-admin', role: 'admin', is_workspace_admin: true };
+    const search = await require('../../src/services/knowledgeRag.service').search({ projectId: 'sample-project', query: 'idempotency payment', mode: 'keyword', user, limit: 5, filters: { source_kinds: ['knowledge_item'] } });
+    assert.ok(search.items?.length || search.results?.length || search.hits?.length, 'Native knowledge retrieval returns the seeded sources');
+    await db.prepare("UPDATE test_cases SET app_type_id='sample-app-api' WHERE id='sample-v2-case-login'").run();
+    await assert.rejects(service.seedSampleData({ ...input, modules: ['design'] }), error => error.statusCode === 409);
+    assert.equal((await db.prepare("SELECT app_type_id FROM test_cases WHERE id='sample-v2-case-login'").get()).app_type_id, 'sample-app-api', 'Moved records remain untouched');
+    console.log(JSON.stringify({ modules: catalog.modules.length, records: recordCount, repeated_install_new_records: repeat.inserted_records, repaired_records: repaired.inserted_records }));
+  } finally { await db.close(); }
+});

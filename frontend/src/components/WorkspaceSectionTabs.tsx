@@ -1,3 +1,4 @@
+import { isNavigationDestinationActive } from "../lib/navigation";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -31,7 +32,7 @@ export function WorkspaceSectionTabs({
     hasAnyPermission(session, requiredPermissionsForPath(item.to, pageAccess), projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath(item.to))
   );
-  const activeItem = visibleItems.find((item) => item.to === location.pathname) || visibleItems[0];
+  const activeItem = visibleItems.find((item) => isNavigationDestinationActive(item.to, location.pathname, location.search)) || visibleItems[0];
 
   if (!activeItem) {
     return null;
@@ -49,7 +50,7 @@ export function WorkspaceSectionTabs({
           icon: resolveWorkspaceSectionIcon(item.icon)
         }))}
         onChange={(value) => {
-          if (value !== location.pathname) {
+          if (!isNavigationDestinationActive(value, location.pathname, location.search)) {
             navigate(value, { replace: true });
           }
         }}
