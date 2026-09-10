@@ -1,0 +1,248 @@
+const copy = {
+  failedTitleOne: ["1 failed test instance", "1 instancia fallida"],
+  blockedTitleOne: ["1 blocked test instance", "1 instancia bloqueada"],
+  defectTitleOne: ["1 open defect", "1 defecto abierto"],
+  coverageTitleOne: [
+    "1 story needs test links",
+    "1 historia necesita pruebas vinculadas",
+  ],
+  designTitleOne: ["1 case has no steps", "1 caso no tiene pasos"],
+  pendingTitleOne: [
+    "1 test instance remains unfinished",
+    "1 instancia sigue sin finalizar",
+  ],
+  allActions: ["View all {count} signals", "Ver las {count} señales"],
+  fewerActions: ["Show priority signals", "Mostrar señales prioritarias"],
+  title: ["Quality analytics", "Análisis de calidad"],
+  subtitle: [
+    "Understand coverage, follow execution trends and focus the next improvement.",
+    "Entiende la cobertura, sigue las ejecuciones y prioriza la próxima mejora.",
+  ],
+  readiness: ["Release readiness", "Preparación de la versión"],
+  refresh: ["Refresh", "Actualizar"],
+  refreshing: ["Refreshing…", "Actualizando…"],
+  export: ["Export snapshot", "Exportar resumen"],
+  personalize: ["Personalize", "Personalizar"],
+  period: ["Execution window", "Período de ejecución"],
+  days: ["Last {count} days", "Últimos {count} días"],
+  current: ["Current inventory", "Inventario actual"],
+  updated: ["Updated {date}", "Actualizado {date}"],
+  scope: [
+    "Project inventory is current. Run activity uses the selected UTC calendar window.",
+    "El inventario es actual. La actividad de ejecuciones usa el período seleccionado en UTC.",
+  ],
+  coverage: ["Story coverage", "Cobertura de historias"],
+  pass: ["Conclusive pass rate", "Tasa de aprobación concluyente"],
+  attentionMetric: ["Failed or blocked", "Fallidos o bloqueados"],
+  defects: ["Open defects", "Defectos abiertos"],
+  coverageDetail: [
+    "{covered} of {total} stories linked to tests",
+    "{covered} de {total} historias vinculadas a pruebas",
+  ],
+  passDetail: [
+    "{passed} passed · {failed} failed",
+    "{passed} aprobados · {failed} fallidos",
+  ],
+  attentionDetail: [
+    "{failed} failed · {blocked} blocked test instances",
+    "{failed} instancias fallidas · {blocked} bloqueadas",
+  ],
+  defectsDetail: [
+    "Current unresolved project defects",
+    "Defectos actuales sin resolver del proyecto",
+  ],
+  unavailable: ["Unavailable", "No disponible"],
+  noDenominator: ["Not enough evidence", "Evidencia insuficiente"],
+  metricHelp: ["How is {metric} calculated?", "¿Cómo se calcula {metric}?"],
+  activity: ["Execution activity", "Actividad de ejecución"],
+  activityHelp: [
+    "Latest outcomes, grouped by run activity date.",
+    "Últimos resultados, agrupados por fecha de actividad.",
+  ],
+  attention: ["Where to focus", "Dónde enfocarse"],
+  attentionHelp: [
+    "Follow up on observed gaps. Counts may refer to the same work.",
+    "Revisa las brechas observadas. Los recuentos pueden referirse al mismo trabajo.",
+  ],
+  runs: ["Recent runs", "Ejecuciones recientes"],
+  runsHelp: [
+    "Up to 10 runs in this execution window.",
+    "Hasta 10 ejecuciones en este período.",
+  ],
+  inventory: ["Coverage & test design", "Cobertura y diseño de pruebas"],
+  inventoryHelp: [
+    "Current project inventory, independent of the execution window.",
+    "Inventario actual del proyecto, independiente del período.",
+  ],
+  passed: ["Passed", "Aprobados"],
+  failed: ["Failed", "Fallidos"],
+  blocked: ["Blocked", "Bloqueados"],
+  pending: ["Unfinished", "Sin finalizar"],
+  other: ["N/A or aborted", "No aplica o abortados"],
+  completed: ["Completed runs", "Ejecuciones finalizadas"],
+  active: ["Active runs", "Ejecuciones activas"],
+  total: [
+    "Planned / observed test instances",
+    "Instancias planificadas / observadas",
+  ],
+  noRuns: ["No runs in this window", "No hay ejecuciones en este período"],
+  noRunsHelp: [
+    "Try a longer window or open test runs to plan an execution.",
+    "Amplía el período o abre las ejecuciones para planificar una.",
+  ],
+  noActions: [
+    "No gaps flagged in the available signals",
+    "No se detectaron brechas en las señales disponibles",
+  ],
+  noActionsHelp: [
+    "Review release-specific evidence before making a release decision.",
+    "Revisa la evidencia de la versión antes de tomar una decisión.",
+  ],
+  noEvidence: [
+    "No execution evidence yet",
+    "Aún no hay evidencia de ejecución",
+  ],
+  restricted: [
+    "Some sources are unavailable",
+    "Algunas fuentes no están disponibles",
+  ],
+  restrictedHelp: [
+    "Permissions and feature settings determine which sources are included. Unavailable values are shown as a dash.",
+    "Los permisos y ajustes determinan qué fuentes se incluyen. Los valores no disponibles se muestran con una raya.",
+  ],
+  refreshError: [
+    "Refresh failed. The last loaded snapshot is still shown.",
+    "No se pudo actualizar. Se conserva el último resumen cargado.",
+  ],
+  loadError: [
+    "Quality analytics could not be loaded",
+    "No se pudo cargar el análisis de calidad",
+  ],
+  retry: ["Try again", "Reintentar"],
+  selectProject: [
+    "Select a project to explore quality analytics",
+    "Selecciona un proyecto para explorar el análisis de calidad",
+  ],
+  selectHelp: [
+    "Choose a project from the workspace navigation.",
+    "Elige un proyecto en la navegación.",
+  ],
+  method: ["Metric definitions & evidence", "Definiciones y evidencia"],
+  methodHelp: [
+    "Every metric has a scope and a denominator. These signals support review; they do not approve a release.",
+    "Cada métrica tiene un alcance y un denominador. Las señales apoyan la revisión; no aprueban una versión.",
+  ],
+  coverageMethod: [
+    "Stories with at least one linked, existing case in this project ÷ all project stories. Links indicate coverage intent, not successful execution.",
+    "Historias con al menos un caso existente del proyecto vinculado ÷ todas las historias. Los vínculos indican intención de cobertura, no ejecución satisfactoria.",
+  ],
+  passMethod: [
+    "Passed ÷ (passed + failed). Blocked, unfinished, N/A and aborted instances are excluded. No conclusive results means no rate.",
+    "Aprobados ÷ (aprobados + fallidos). Se excluyen bloqueados, sin finalizar, no aplicables y abortados. Sin resultados concluyentes no hay tasa.",
+  ],
+  resultMethod: [
+    "One latest attempt per run, test case and data row. Retries replace the same instance; distinct data rows remain separate. Planned rows without a result remain unfinished.",
+    "Un último intento por ejecución, caso y fila de datos. Los reintentos sustituyen la misma instancia; las filas distintas permanecen separadas. Las filas planificadas sin resultado quedan sin finalizar.",
+  ],
+  defectMethod: [
+    "Project defects whose status is not closed, resolved, done, accepted or cancelled. This is a defect count, independent of the execution window.",
+    "Defectos del proyecto cuyo estado no es cerrado, resuelto, terminado, aceptado o cancelado. Es un recuento independiente del período.",
+  ],
+  trendMethod: [
+    "Runs are assigned to their end date, otherwise start date, otherwise creation date, in UTC. The chart shows their latest outcomes, not historical daily status snapshots. A 90-day view groups consecutive seven-day periods.",
+    "Las ejecuciones se asignan a su fecha de fin, inicio o creación, en ese orden y en UTC. El gráfico muestra sus últimos resultados, no estados históricos diarios. La vista de 90 días agrupa períodos consecutivos de siete días.",
+  ],
+  freshMethod: [
+    "Latest execution evidence: {date}. Refresh reloads the permitted project sources. Unavailable sources are not counted as zero.",
+    "Última evidencia de ejecución: {date}. Actualizar recarga las fuentes permitidas. Las fuentes no disponibles no se cuentan como cero.",
+  ],
+  showTable: ["View data table", "Ver tabla de datos"],
+  hideTable: ["Hide data table", "Ocultar tabla de datos"],
+  chartLabel: [
+    "Passed, failed and blocked test instances by UTC run activity date. The same data is available in the table below.",
+    "Instancias aprobadas, fallidas y bloqueadas por fecha UTC de actividad. Los mismos datos están disponibles en la tabla inferior.",
+  ],
+  date: ["UTC period", "Período UTC"],
+  runName: ["Run name", "Nombre de ejecución"],
+  status: ["Status", "Estado"],
+  outcomes: ["Outcomes", "Resultados"],
+  openRuns: ["Open test runs", "Abrir ejecuciones"],
+  openStories: ["Open stories", "Abrir historias"],
+  openCases: ["Open case library", "Abrir biblioteca de casos"],
+  openBugs: ["Open defects", "Abrir defectos"],
+  stories: ["Linked stories", "Historias vinculadas"],
+  cases: ["Cases with saved steps", "Casos con pasos guardados"],
+  suites: ["Test suites", "Conjuntos de pruebas"],
+  automation: ["Cases marked automated", "Casos marcados automatizados"],
+  automationHelp: [
+    "A catalog label, not proof of a passing automated run.",
+    "Una etiqueta del catálogo, no evidencia de una ejecución automatizada aprobada.",
+  ],
+  layoutHelp: [
+    "Choose and arrange sections for your view. Your metric summary stays visible.",
+    "Elige y ordena secciones. El resumen de métricas permanece visible.",
+  ],
+  moveUp: ["Move {section} up", "Subir {section}"],
+  moveDown: ["Move {section} down", "Bajar {section}"],
+  close: ["Close", "Cerrar"],
+  reset: ["Reset layout", "Restablecer diseño"],
+  review: ["Explain project signals", "Explicar señales del proyecto"],
+  reviewHelp: [
+    "A read-only review of current project evidence, across all dates. It is separate from the selected execution window.",
+    "Revisión de la evidencia actual del proyecto, de todas las fechas y sin cambios. Es independiente del período seleccionado.",
+  ],
+  reviewEmpty: [
+    "No project rule matched the available evidence.",
+    "Ninguna regla coincidió con la evidencia disponible.",
+  ],
+  failedTitle: ["{count} failed test instances", "{count} instancias fallidas"],
+  failedHelp: [
+    "Review failures and retain the execution evidence.",
+    "Revisa los fallos y conserva la evidencia de ejecución.",
+  ],
+  blockedTitle: [
+    "{count} blocked test instances",
+    "{count} instancias bloqueadas",
+  ],
+  blockedHelp: [
+    "Resolve blockers before treating this work as validated.",
+    "Resuelve los bloqueos antes de considerar validado este trabajo.",
+  ],
+  defectTitle: ["{count} open defects", "{count} defectos abiertos"],
+  defectHelp: [
+    "Confirm severity, ownership and regression coverage.",
+    "Confirma gravedad, responsable y cobertura de regresión.",
+  ],
+  coverageTitle: [
+    "{count} stories need test links",
+    "{count} historias necesitan pruebas vinculadas",
+  ],
+  coverageHelp: [
+    "Connect the current scope to reusable test coverage.",
+    "Vincula el alcance actual a una cobertura de pruebas reutilizable.",
+  ],
+  designTitle: ["{count} cases have no steps", "{count} casos no tienen pasos"],
+  designHelp: [
+    "Add steps and expected outcomes before scheduling.",
+    "Añade pasos y resultados esperados antes de programar.",
+  ],
+  pendingTitle: [
+    "{count} test instances remain unfinished",
+    "{count} instancias siguen sin finalizar",
+  ],
+  pendingHelp: [
+    "Includes planned rows without a result, plus pending, paused and running outcomes.",
+    "Incluye filas planificadas sin resultado y resultados pendientes, en pausa o en curso.",
+  ],
+  loading: ["Loading quality analytics", "Cargando análisis de calidad"],
+  notAvailable: [
+    "This source is unavailable under your permissions or feature settings.",
+    "Esta fuente no está disponible según tus permisos o ajustes.",
+  ],
+} as const;
+export const ANALYTICS_MESSAGES = Object.fromEntries(
+  Object.entries(copy).map(([key, value]) => [`analytics.${key}`, value[0]]),
+);
+export const ANALYTICS_MESSAGES_ES = Object.fromEntries(
+  Object.entries(copy).map(([key, value]) => [`analytics.${key}`, value[1]]),
+);

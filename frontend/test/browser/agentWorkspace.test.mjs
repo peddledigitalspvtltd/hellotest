@@ -279,10 +279,10 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await page.locator('.agent-activity-row').filter({ hasText: 'Checkout retry review' }).click();
     await page.getByText(result.headline, { exact: true }).waitFor();
     await page.getByText('Plan a reusable workflow', { exact: true }).click();
-    await page.getByText('Workflow previews validate the plan without executing its tools.', { exact: false }).waitFor();
+    await page.getByText('Create a reusable specialist review with evidence evaluation and a human decision at the end.', { exact: false }).waitFor();
     await page.getByRole('button', { name: 'Create workflow draft', exact: true }).click();
     await page.getByRole('button', { name: 'Preview workflow', exact: true }).waitFor();
-    await page.getByText('Tools are not executed by the preview.', { exact: false }).waitFor();
+    await page.getByText('Check execution readiness before starting.', { exact: false }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Run workflow', exact: true }).count(), 0);
     assert.deepEqual(await page.evaluate(() => window.workspaceCalls.writes), []);
     assert.ok(await page.locator('.agentic-inspector-card .rovo-provider-copy').evaluate(element => element.getBoundingClientRect().width) >= 180, 'workflow provider message remains readable in the inspector');

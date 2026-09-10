@@ -14,7 +14,8 @@ const normalizeNativeMetric = (metric) => {
   return requested;
 };
 const completedRecently = (item, now = Date.now()) => FINAL_RUN_STATUSES.has(item.status)
-  && new Date(item.ended_at || 0).getTime() >= now - 30 * 86_400_000;
+  && new Date(item.ended_at || 0).getTime() >= now - 30 * 86_400_000
+  && new Date(item.ended_at || 0).getTime() <= now;
 
 const loadContext = async (projectId, release = "", sprint = "") => {
   const project = await db.prepare("SELECT id, display_id, name FROM projects WHERE id = ?").get(projectId);
@@ -96,15 +97,15 @@ const loadContext = async (projectId, release = "", sprint = "") => {
       LEFT JOIN test_cases defect_test_cases ON defect_test_cases.id = test_case_defects.test_case_id
       LEFT JOIN app_types defect_app_types ON defect_app_types.id = defect_test_cases.app_type_id
       WHERE feedback.project_id = ?
-         OR executions.project_id = ?
-         OR defect_requirements.project_id = ?
-         OR defect_app_types.project_id = ?
+         OR (feedback.project_id IS NULL AND (executions.project_id = ?
+           OR defect_requirements.project_id = ?
+           OR defect_app_types.project_id = ?))
     `).all(projectId, projectId, projectId, projectId),
     db.prepare(`SELECT test_case_modules.id, test_case_modules.name FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id = ?`).all(projectId)
   ]);
 
   const scopedRequirements = normalizedRelease
-    ? requirements.filter((item) => [item.release, item.fix_version].some((value) => lowerText(value) === normalizedRelease))
+    ? requirements.filter((item) => lowerText(item.fix_version || item.release) === normalizedRelease)
     : requirements;
   const sprintScopedRequirements = normalizedSprint
     ? scopedRequirements.filter((item) => lowerText(item.sprint) === normalizedSprint)
@@ -127,7 +128,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     : suites;
   const scopedResults = results.filter((item) => executionIds.has(item.execution_id) || (!hasPlanningScope && testCaseIds.has(item.test_case_id)));
   const scopedIssues = issues.filter((item) =>
-    (!normalizedRelease || [item.release, item.fix_version].some((value) => lowerText(value) === normalizedRelease) || executionIds.has(item.linked_test_run_id))
+    (!normalizedRelease || lowerText(item.fix_version || item.release) === normalizedRelease || executionIds.has(item.linked_test_run_id))
     && (!normalizedSprint || lowerText(item.sprint) === normalizedSprint || executionIds.has(item.linked_test_run_id))
   );
 
@@ -135,7 +136,7 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     project: { id: project.id, key: project.display_id || project.id, name: project.name },
     release: normalizeText(release) || null,
     sprint: normalizeText(sprint) || null,
-    requirements: sprintScopedRequirements,
+    requirements: sprintScopedRequirements.map(item => ({ ...item, test_case_ids: (item.test_case_ids || []).filter(id => testCaseIds.has(id)) })),
     testCases: scopedTestCases,
     suites: scopedSuites,
     executions: scopedExecutions,
@@ -332,8 +333,28 @@ const evaluateGadget = async ({ projectId, gadget, evaluationCache }) => {
   return evaluateContextGadget({ ...await pending, gadget });
 };
 
+// Per-run evidence cannot be reconstructed from the globally latest result per case.
+const loadRunResultSummaries = ({ projectId, release, sprint }) => db.prepare(`WITH ranked_run_results AS (
+    SELECT execution_results.execution_id, execution_results.status,
+      ROW_NUMBER() OVER (PARTITION BY execution_results.execution_id, execution_results.test_case_id,
+        COALESCE(execution_results.data_set_iteration_index::text, execution_results.data_set_iteration_key, 'default')
+        ORDER BY execution_results.created_at DESC, execution_results.id DESC) AS attempt_rank
+    FROM execution_results JOIN executions ON executions.id = execution_results.execution_id
+    WHERE executions.project_id = ?
+      AND (? = '' OR LOWER(TRIM(COALESCE(executions.release, ''))) = ?)
+      AND (? = '' OR LOWER(TRIM(COALESCE(executions.sprint, ''))) = ?)
+      AND execution_results.created_at <= CURRENT_TIMESTAMP
+  ) SELECT execution_id, COUNT(*) AS result_count,
+      COUNT(*) FILTER (WHERE status = 'passed') AS passed_count,
+      COUNT(*) FILTER (WHERE status = 'failed') AS failed_count,
+      COUNT(*) FILTER (WHERE status = 'blocked') AS blocked_count
+    FROM ranked_run_results WHERE attempt_rank = 1 GROUP BY execution_id
+  `).all(projectId, lowerText(release), lowerText(release), lowerText(sprint), lowerText(sprint));
+
 const qualityInsights = async ({ projectId, release, sprint }) => {
   const context = await loadContext(projectId, release, sprint);
+  const runSummaries = await loadRunResultSummaries({ projectId, release, sprint });
+  const summaryByRun = new Map(runSummaries.map(item => [item.execution_id, item]));
   const metrics = calculateMetrics(context);
   const requestId = `quality-${Date.now()}`;
   const generatedAt = nowIso();
@@ -380,7 +401,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     };
   }).sort((left, right) => right.risk_score - left.risk_score || left.key.localeCompare(right.key));
   const executionEvidence = context.executions.map((execution) => {
-    const executionResults = context.results.filter((item) => item.execution_id === execution.id);
+    const executionSummary = summaryByRun.get(execution.id);
     return {
       id: execution.id,
       key: execution.display_id || execution.id,
@@ -389,14 +410,21 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
       release: execution.release || null,
       sprint: execution.sprint || null,
       build: execution.build || null,
-      started_at: execution.started_at || execution.created_at || null,
+      started_at: execution.started_at || null,
+      created_at: execution.created_at || null,
       ended_at: execution.ended_at || null,
-      result_count: executionResults.length,
-      passed_count: executionResults.filter((item) => lowerText(item.status) === "passed").length,
-      failed_count: executionResults.filter((item) => lowerText(item.status) === "failed").length,
-      blocked_count: executionResults.filter((item) => lowerText(item.status) === "blocked").length
+      result_count: Number(executionSummary?.result_count || 0),
+      passed_count: Number(executionSummary?.passed_count || 0),
+      failed_count: Number(executionSummary?.failed_count || 0),
+      blocked_count: Number(executionSummary?.blocked_count || 0)
     };
   }).sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || "")));
+  const summary = `${context.requirements.length} scoped stories, ${context.testCases.length} cases and ${context.executions.length} runs. ${metrics.coverageGaps} stories lack test links; ${metrics.openDefects} defects remain open.`;
+  const insightEvidence = {
+    coverage: context.requirements.filter(item => !(item.test_case_ids || []).length),
+    runs: context.executions.filter(item => lowerText(item.status) === "failed"),
+    defects: openIssues
+  };
   return {
     integration: { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     generation_mode: "deterministic",
@@ -408,16 +436,28 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     fallback_reason: null,
     requires_human_review: true,
     preview_only: true,
-    scope: { project_id: projectId, release: normalizeText(release) || null, sprint: normalizeText(sprint) || null },
-    summary: `Release confidence is ${metrics.releaseConfidence}% with ${metrics.evidenceConfidence}% evidence confidence.`,
+    project: context.project,
+    scope: { kind: normalizeText(release) ? "release" : "project", project_key: context.project.key, project_id: projectId, release: normalizeText(release) || null, sprint: normalizeText(sprint) || null },
+    summary,
+    release_summary: summary,
+    generated_from: evidence,
     metrics,
     findings,
+    insights: findings.map(finding => ({
+      id: finding.id, title: finding.title, severity: finding.severity,
+      explanation: finding.description, recommended_action: finding.action,
+      evidence: (insightEvidence[finding.id] || []).slice(0, 20).map(item => ({
+        id: item.id, display_id: item.display_id || null, title: item.title || item.name || null,
+        kind: finding.id === "coverage" ? "story" : finding.id === "runs" ? "run" : "bug"
+      }))
+    })),
     traceability,
     execution_evidence: executionEvidence,
     recommended_actions: findings.map((item) => item.action),
     limitations: ["This is an evidence-based advisory score, not a release approval.", "Root cause and product impact require human validation."],
     provenance: {
       capability: "portfolio-quality-insights-preview",
+      confidence_basis: "Legacy deterministic advisory heuristic; not measured prediction accuracy or release approval.",
       provider: "HelloTest relational quality engine",
       generation_mode: "deterministic",
       model: null,
@@ -441,5 +481,6 @@ module.exports = {
   groupRecords,
   evaluateGadget,
   loadContext,
+  loadRunResultSummaries,
   qualityInsights
 };

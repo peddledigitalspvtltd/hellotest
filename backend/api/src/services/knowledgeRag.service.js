@@ -5,6 +5,7 @@ const { config } = require("../config");
 const attachmentService = require("./attachment.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const permissionService = require("./permission.service");
+const featureFlagService = require("./featureFlag.service");
 const knowledgeVectorStore = require("./knowledgeVectorStore.service");
 const knowledgeContracts = require("./knowledgeContracts.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
@@ -190,6 +191,7 @@ const resolveAllowedSourcePermissions = async (user, projectId) => {
   const checks = await Promise.all(permissions.map(async (permissionCode) => ({
     permissionCode,
     allowed: await permissionService.hasPermission(user, permissionCode, projectId)
+      && await featureFlagService.areEnabled(featureFlagService.getFeatureKeysForPermission(permissionCode), { user })
   })));
   return checks.filter((check) => check.allowed).map((check) => check.permissionCode);
 };

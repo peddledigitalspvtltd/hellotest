@@ -18,3 +18,38 @@ button,input,select,textarea { font: inherit; } button { cursor:pointer; }
 @media(max-width:1100px){.metrics-grid{grid-template-columns:1fr 1fr}.integration-grid{grid-template-columns:1fr 1fr}.login-story{padding:38px}.story-copy h1{font-size:52px}.setup-grid{grid-template-columns:1fr}.flag-groups{grid-template-columns:1fr}}
 @media(max-width:800px){.login-page{display:block;background:#f5f6f2}.login-story{display:none}.login-panel{min-height:100vh;padding:30px 20px}.mobile-brand{display:flex;margin-bottom:36px;color:#17313e}.sidebar{transform:translateX(-100%);transition:.2s}.sidebar.open{transform:none}.mobile-close{display:grid;place-items:center;margin-left:auto;border:0;background:transparent;color:#fff}.sidebar-scrim{display:block;position:fixed;z-index:19;inset:0;background:#0d1e29a8}.admin-main{margin-left:0}.menu-button{display:grid}.breadcrumb{display:none}.topbar{padding:0 18px}.profile-button div{display:none}.security-banner{padding:10px 18px}.page{padding:28px 18px 50px}.dashboard-grid,.security-grid{grid-template-columns:1fr}.integration-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.form-grid label.full{grid-column:auto}.sample-footer,.feature-toolbar,.toolbar{align-items:stretch;flex-direction:column}.feature-toolbar>div:last-child{justify-content:space-between}.search{width:100%}}
 @media(max-width:520px){.metrics-grid{grid-template-columns:1fr}.page-heading{display:block}.page-heading>.health-badge{margin-top:14px}.story-stats{gap:18px}.sample-footer{align-items:stretch}.profile-button>span{width:32px;height:32px}.timeline-event>div>div{display:block}.timeline-event time{display:block;margin-top:4px}.login-card h2{font-size:32px}}
+
+/* Feature policy needs readable consequences and generous keyboard targets. */
+.flag-groups { align-items: start; }
+.flag-group-head { align-items: flex-start; padding: 20px; }
+.flag-group-head h3 { font-size: 19px; }
+.flag-group-head p { font-size: 12px; line-height: 1.6; color: #586972; }
+.flag-group-head > span { padding-top: 4px; font-size: 12px; color: #52636c; }
+.flag-row { min-height: 82px; padding: 18px 20px; gap: 16px; color: #172634; }
+.flag-row > div { gap: 5px; padding-right: 0; overflow-wrap: anywhere; }
+.flag-row strong { font-size: 14px; line-height: 1.45; }
+.flag-row > div > span { font-size: 12px; line-height: 1.55; color: #52636c; }
+.flag-row small { color: #66737d; font-size: 11px; line-height: 1.5; }
+.flag-row > div > .flag-dependency { padding-inline-start: 9px; border-inline-start: 3px solid #b98023; color: #79500d; font-weight: 500; }
+.flag-row .toggle { width: 32px; height: 32px; color: #61737d; }
+.flag-row .toggle.on { color: #168159; }
+.flag-row .toggle svg { width: 29px; height: 29px; }
+.flag-row:focus-visible { position: relative; z-index: 1; outline: 3px solid #1e718a; outline-offset: -4px; }
+.flag-row:disabled { cursor: wait; opacity: .65; }
+.feature-toolbar { flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+.feature-toolbar > div:last-child { flex-wrap: wrap; gap: 10px; }
+.feature-toolbar > div:last-child > span { font-size: 12px; color: #52636c; }
+.feature-toolbar .search { min-height: 44px; }
+.feature-toolbar .search input { font-size: 14px; }
+.feature-toolbar button { min-height: 44px; font-size: 12px; }
+.feature-toolbar button:focus-visible, .feature-toolbar .search:focus-within { outline: 3px solid #1e718a; outline-offset: 3px; }
+@media (max-width: 520px) {
+  .feature-toolbar > div:last-child > span { flex-basis: 100%; }
+  .feature-toolbar > div:last-child > button { flex: 1 1 auto; }
+  .flag-group-head { padding: 17px; }
+  .flag-row { padding: 17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-shell .spin { animation: none; }
+  .admin-shell .sidebar { transition: none; }
+}

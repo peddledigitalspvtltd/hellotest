@@ -67,7 +67,8 @@ const getRoutePermissionCode = (req) => {
     return "";
   }
 
-  return ROUTE_PERMISSIONS.get(`${String(req.method || "").toUpperCase()} ${routeUrl}`) || "";
+  const method = String(req.method || "").toUpperCase();
+  return ROUTE_PERMISSIONS.get(`${method === "HEAD" ? "GET" : method} ${routeUrl}`) || "";
 };
 
 const enforceApiKeyScope = (req) => {
@@ -96,7 +97,18 @@ const enforceApiKeyPermissionScope = (req, permissionCode) => {
 };
 
 const enforceFeatureFlagAccess = async (req, permissionCode) => {
-  const featureKeys = featureFlagService.getFeatureKeysForPermission(permissionCode);
+  // Revoking feature availability must not prevent an authorized operator from
+  // stopping work already in flight. Authentication, project grants and API-key
+  // scopes are still checked before reaching this narrow cleanup exception.
+  if (permissionCode === "agentic_workflow.run" && String(req.method).toUpperCase() === "POST" && [
+    "/repository-agents/runs/:id/cancel",
+    "/agentic-workflow-runs/:id/cancel"
+  ].includes(getRouteUrl(req))) return;
+
+  const featureKeys = [...new Set([
+    ...featureFlagService.getFeatureKeysForPermission(permissionCode),
+    ...featureFlagService.getFeatureKeysForRoute(req.method, getRouteUrl(req))
+  ])];
 
   if (!featureKeys.length) {
     return;
@@ -105,7 +117,7 @@ const enforceFeatureFlagAccess = async (req, permissionCode) => {
   const allowed = await featureFlagService.areEnabled(featureKeys, { user: req.user });
 
   if (!allowed) {
-    throw createError("This feature is disabled for the workspace.", 403);
+    throw Object.assign(createError("This feature is disabled for the workspace.", 403), { code: "FEATURE_DISABLED" });
   }
 };
 
@@ -187,7 +199,7 @@ async function accessControlPlugin(fastify) {
     enforceApiKeyPermissionScope(req, permissionCode);
 
     let projectId = typeof options.projectId === "function"
-      ? options.projectId(req)
+      ? await options.projectId(req)
       : options.projectId || req.params?.project_id || req.params?.projectId || req.body?.project_id || req.query?.project_id || null;
 
     if (!projectId) {
@@ -198,6 +210,7 @@ async function accessControlPlugin(fastify) {
         || null;
       if (appTypeId) {
         const appType = await db.prepare("SELECT project_id FROM app_types WHERE id = ?").get(appTypeId);
+        if (!appType?.project_id) throw createError("Application scope was not found.", 404);
         projectId = appType?.project_id || null;
       }
     }
@@ -216,7 +229,8 @@ async function accessControlPlugin(fastify) {
     const url = routeOptions.url;
 
     for (const method of methods) {
-      const permissionCode = ROUTE_PERMISSIONS.get(`${String(method).toUpperCase()} ${url}`);
+      const normalizedMethod = String(method).toUpperCase();
+      const permissionCode = ROUTE_PERMISSIONS.get(`${normalizedMethod === "HEAD" ? "GET" : normalizedMethod} ${url}`);
 
       if (!permissionCode) {
         continue;

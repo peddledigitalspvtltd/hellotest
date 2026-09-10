@@ -1,21 +1,19 @@
-import type { Execution, ExecutionResult, Issue, Requirement, TestCase } from "../types";
+import type {
+  Execution,
+  ExecutionResult,
+  Issue,
+  Requirement,
+  TestCase,
+} from "../types";
 
-export type ReleaseReadinessScope = {
-  release: string;
-  sprint: string;
-};
-
+export type ReleaseReadinessScope = { release: string; sprint: string };
 export type ReadinessGateState = "pass" | "warning" | "block";
-
 export type ReadinessGate = {
   id: string;
-  label: string;
   state: ReadinessGateState;
-  actual: string;
-  expectation: string;
-  detail: string;
+  count: number;
+  total: number;
 };
-
 export type RequirementHotspot = {
   id: string;
   displayId: string;
@@ -28,53 +26,9 @@ export type RequirementHotspot = {
   blockedCount: number;
   openBugCount: number;
   criticalBugCount: number;
-  riskScore: number;
-  riskLabel: "Critical" | "High" | "Medium" | "Low";
-  reasons: string[];
+  needsAttention: boolean;
 };
-
-export type ReleaseReadinessModel = {
-  evidenceComplete: boolean;
-  requirements: Requirement[];
-  testCases: TestCase[];
-  executions: Execution[];
-  executionResults: ExecutionResult[];
-  issues: Issue[];
-  latestCaseResults: ExecutionResult[];
-  metrics: {
-    readinessScore: number;
-    coverage: number;
-    completion: number;
-    passRate: number;
-    defectContainment: number;
-    confidence: number;
-    requirementCount: number;
-    coveredRequirementCount: number;
-    highPriorityUncoveredCount: number;
-    plannedCaseCount: number;
-    executedCaseCount: number;
-    passedCount: number;
-    failedCount: number;
-    blockedCount: number;
-    runningCount: number;
-    notRunCount: number;
-    openBugCount: number;
-    openCriticalBugCount: number;
-    openHighBugCount: number;
-    linkedBugCount: number;
-  };
-  decision: {
-    state: "on-track" | "review" | "at-risk" | "blocked" | "insufficient";
-    label: string;
-    summary: string;
-    primaryAction: string;
-  };
-  gates: ReadinessGate[];
-  hotspots: RequirementHotspot[];
-  latestEvidenceAt: string | null;
-};
-
-type ReleaseReadinessInput = ReleaseReadinessScope & {
+type Input = ReleaseReadinessScope & {
   evidenceComplete?: boolean;
   now?: number;
   requirements: Requirement[];
@@ -83,385 +37,402 @@ type ReleaseReadinessInput = ReleaseReadinessScope & {
   executionResults: ExecutionResult[];
   issues: Issue[];
 };
-
-const normalized = (value: unknown) => String(value || "").trim().toLowerCase();
-const sameValue = (left: unknown, right: unknown) => normalized(left) === normalized(right);
-const unique = <T,>(items: T[]) => [...new Set(items)];
-const uniqueNormalizedStrings = (items: string[]) => {
-  const values = new Map<string, string>();
-  items.forEach((item) => {
-    const value = String(item || "").trim();
-    const key = normalized(value);
-    if (value && key && !values.has(key)) values.set(key, value);
-  });
-  return [...values.values()];
-};
-const percent = (numerator: number, denominator: number, emptyValue = 0) => denominator
-  ? Math.round((numerator / denominator) * 100)
-  : emptyValue;
-const dateValue = (value?: string | null) => value ? new Date(value).getTime() || 0 : 0;
-const isOpenIssue = (issue: Issue) => {
-  const category = normalized(issue.status_category);
-  if (category) return category !== "done";
-  return !/^(done|closed|resolved|cancelled|canceled)(\b|$)/i.test(String(issue.status || "").trim());
-};
-const isCriticalIssue = (issue: Issue) => /critical|blocker|highest/i.test(`${issue.severity || ""} ${issue.priority || ""}`);
-const isHighIssue = (issue: Issue) => /high/i.test(`${issue.severity || ""} ${issue.priority || ""}`);
-
-function requirementRelease(requirement: Requirement) {
-  return requirement.fix_version || requirement.release || "";
-}
-
-function issueRelease(issue: Issue) {
-  return issue.fix_version || issue.release || "";
-}
-
-function issueIdentityValues(issue: Issue) {
-  return uniqueNormalizedStrings([issue.id, issue.jira_bug_key || ""]).map(normalized);
-}
-
-function caseRequirementIds(testCase: TestCase) {
-  return unique([...(testCase.requirement_ids || []), ...(testCase.requirement_id ? [testCase.requirement_id] : [])]);
-}
-
-function caseIdsForExecution(execution: Execution) {
-  return unique([
-    ...(execution.test_case_ids || []),
-    ...(execution.direct_test_case_ids || []),
-    ...(execution.case_snapshots || []).map((item) => item.test_case_id)
+const normalized = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+const sameValue = (left: unknown, right: unknown) =>
+  normalized(left) === normalized(right);
+const unique = <T>(items: T[]) => [...new Set(items)];
+const percentage = (numerator: number, denominator: number) =>
+  denominator ? Math.round((numerator / denominator) * 100) : null;
+const timestamp = (value?: string | null) =>
+  value ? new Date(value).getTime() || 0 : 0;
+export const isOpenReadinessIssue = (issue: Issue) =>
+  issue.status_category
+    ? normalized(issue.status_category) !== "done"
+    : !/^(done|closed|resolved|cancelled|canceled)(\b|$)/i.test(
+        String(issue.status || "").trim(),
+      );
+export const isCriticalReadinessIssue = (issue: Issue) =>
+  /critical|blocker|highest/i.test(
+    `${issue.severity || ""} ${issue.priority || ""}`,
+  );
+const isHighIssue = (issue: Issue) =>
+  /high/i.test(`${issue.severity || ""} ${issue.priority || ""}`);
+const caseRequirementIds = (testCase: TestCase) =>
+  unique([
+    ...(testCase.requirement_ids || []),
+    ...(testCase.requirement_id ? [testCase.requirement_id] : []),
   ]);
-}
+export const caseIdsForReadinessRun = (execution: Execution) =>
+  unique(
+    [
+      ...(execution.test_case_ids || []),
+      ...(execution.direct_test_case_ids || []),
+      ...(execution.case_snapshots || []).map((item) => item.test_case_id),
+    ].filter(Boolean),
+  );
+const assessed = (result: ExecutionResult) =>
+  result.status === "passed" || result.status === "failed";
 
-function pickLatestByCase(results: ExecutionResult[]) {
+/** Keep run/environment boundaries and data rows. An edited old attempt cannot replace a newer attempt. */
+export function latestReadinessResults(results: ExecutionResult[]) {
   const latest = new Map<string, ExecutionResult>();
-
-  results.forEach((result) => {
-    const current = latest.get(result.test_case_id);
-    const nextTime = dateValue(result.updated_at || result.created_at);
-    const currentTime = dateValue(current?.updated_at || current?.created_at);
-    const isNewer = nextTime > currentTime
-      || (nextTime === currentTime && String(result.id).localeCompare(String(current?.id || "")) > 0);
-    if (!current || isNewer) {
-      latest.set(result.test_case_id, result);
-    }
-  });
-
+  for (const result of results) {
+    const key = JSON.stringify([
+      result.execution_id,
+      result.test_case_id,
+      result.test_data_set_id || "",
+      result.data_set_iteration_key ??
+        result.data_set_iteration_index ??
+        "default",
+    ]);
+    const current = latest.get(key);
+    const newer = timestamp(result.created_at) - timestamp(current?.created_at);
+    if (
+      !current ||
+      newer > 0 ||
+      (newer === 0 && String(result.id).localeCompare(current.id) > 0)
+    )
+      latest.set(key, result);
+  }
   return [...latest.values()];
 }
 
-function decisionFor(metrics: ReleaseReadinessModel["metrics"]) {
-  if (!metrics.requirementCount || !metrics.plannedCaseCount || !metrics.executedCaseCount) {
-    return {
-      state: "insufficient" as const,
-      label: "Insufficient evidence",
-      summary: "The selected scope does not yet have enough linked and executed evidence for a defensible release review.",
-      primaryAction: !metrics.requirementCount
-        ? "Map Stories to this release or sprint."
-        : !metrics.plannedCaseCount
-          ? "Link test cases to the scoped stories."
-          : "Execute the planned release scope and capture results."
-    };
-  }
-
-  if (metrics.openCriticalBugCount || metrics.blockedCount) {
-    return {
-      state: "blocked" as const,
-      label: "Blocked",
-      summary: "Critical defects or blocked tests require explicit resolution or risk acceptance before release approval.",
-      primaryAction: metrics.openCriticalBugCount
-        ? "Resolve or formally accept the open critical defect risk."
-        : "Unblock the affected tests and rerun the smallest impacted scope."
-    };
-  }
-
-  if (metrics.failedCount || metrics.openHighBugCount || metrics.highPriorityUncoveredCount || metrics.passRate < 80) {
-    return {
-      state: "at-risk" as const,
-      label: "At risk",
-      summary: "The evidence contains material failure, defect, or priority-coverage risk that needs review.",
-      primaryAction: metrics.failedCount
-        ? "Triage failed tests, link defects, and rerun affected coverage."
-        : "Close the highest-impact coverage or defect gap first."
-    };
-  }
-
-  if (metrics.readinessScore < 80 || metrics.completion < 95) {
-    return {
-      state: "review" as const,
-      label: "Review needed",
-      summary: "No hard blocker is visible, but execution completion or confidence is below the release-review target.",
-      primaryAction: "Complete the remaining evidence and review the warnings with the release owner."
-    };
-  }
-
-  return {
-    state: "on-track" as const,
-    label: "On track",
-    summary: "Current linked evidence supports release review with no deterministic blocker detected.",
-    primaryAction: "Verify the evidence and record the final human-owned release decision."
-  };
-}
-
-export function deriveReleaseReadiness(input: ReleaseReadinessInput): ReleaseReadinessModel {
+export function deriveReleaseReadiness(input: Input) {
   const evidenceComplete = input.evidenceComplete !== false;
-  const now = Number.isFinite(input.now) ? Number(input.now) : Date.now();
   const selectedRelease = input.release.trim();
   const selectedSprint = input.sprint.trim();
-  const matchesRequirementScope = (requirement: Requirement) => (
-    (!selectedRelease || sameValue(requirementRelease(requirement), selectedRelease))
-    && (!selectedSprint || sameValue(requirement.sprint, selectedSprint))
+  const matches = (release: unknown, sprint: unknown) =>
+    (!selectedRelease || sameValue(release, selectedRelease)) &&
+    (!selectedSprint || sameValue(sprint, selectedSprint));
+  const requirements = input.requirements.filter((item) =>
+    matches(item.fix_version || item.release, item.sprint),
   );
-  const matchesExecutionScope = (execution: Execution) => (
-    (!selectedRelease || sameValue(execution.release, selectedRelease))
-    && (!selectedSprint || sameValue(execution.sprint, selectedSprint))
-  );
-
-  const requirements = input.requirements.filter(matchesRequirementScope);
   const requirementIds = new Set(requirements.map((item) => item.id));
-  const explicitlyLinkedCaseIds = new Set(requirements.flatMap((item) => item.test_case_ids || []));
-  const requirementLinkedCases = input.testCases.filter((testCase) => (
-    explicitlyLinkedCaseIds.has(testCase.id)
-    || caseRequirementIds(testCase).some((id) => requirementIds.has(id))
-  ));
-  const executions = input.executions.filter(matchesExecutionScope);
-  const executionIds = new Set(executions.map((item) => item.id));
-  const executionCaseIds = new Set(executions.flatMap(caseIdsForExecution));
-  const testCases = input.testCases.filter((testCase) => (
-    requirementLinkedCases.some((linkedCase) => linkedCase.id === testCase.id)
-    || executionCaseIds.has(testCase.id)
-  ));
-  const testCaseIds = new Set(testCases.map((item) => item.id));
-  const executionResults = input.executionResults.filter((result) => (
-    executionIds.has(result.execution_id) && (!testCaseIds.size || testCaseIds.has(result.test_case_id))
-  ));
-  const latestCaseResults = pickLatestByCase(executionResults);
-  const scopedDefectIds = new Set([
-    ...requirements.flatMap((requirement) => requirement.defect_ids || []),
-    ...testCases.flatMap((testCase) => testCase.defect_ids || []),
-    ...executionResults.flatMap((result) => result.defects || [])
-  ].map(normalized).filter(Boolean));
-  const issueHasScopedTraceLink = (issue: Issue) => (
-    (issue.linked_requirement_ids || []).some((id) => requirementIds.has(id))
-    || (issue.linked_test_case_ids || []).some((id) => testCaseIds.has(id))
-    || Boolean(issue.linked_test_run_id && executionIds.has(issue.linked_test_run_id))
-    || issueIdentityValues(issue).some((id) => scopedDefectIds.has(id))
+  const explicitCaseIds = requirements.flatMap(
+    (item) => item.test_case_ids || [],
   );
-
-  const issues = input.issues.filter((issue) => {
-    const directScopeMatch = (
-      (!selectedRelease || sameValue(issueRelease(issue), selectedRelease))
-      && (!selectedSprint || sameValue(issue.sprint, selectedSprint))
-      && Boolean(selectedRelease || selectedSprint)
+  const executions = input.executions.filter((item) =>
+    matches(item.release, item.sprint),
+  );
+  const executionIds = new Set(executions.map((item) => item.id));
+  const executionResults = input.executionResults.filter((item) =>
+    executionIds.has(item.execution_id),
+  );
+  const latestCaseResults = latestReadinessResults(executionResults);
+  const plannedCaseIds = new Set([
+    ...explicitCaseIds,
+    ...input.testCases
+      .filter((item) =>
+        caseRequirementIds(item).some((id) => requirementIds.has(id)),
+      )
+      .map((item) => item.id),
+    ...executions.flatMap(caseIdsForReadinessRun),
+    ...executionResults.map((item) => item.test_case_id),
+  ]);
+  const testCases = input.testCases.filter((item) =>
+    plannedCaseIds.has(item.id),
+  );
+  const scopedDefectIds = new Set(
+    [
+      ...requirements.flatMap((item) => item.defect_ids || []),
+      ...testCases.flatMap((item) => item.defect_ids || []),
+      ...latestCaseResults.flatMap((item) => item.defects || []),
+    ].map(normalized),
+  );
+  const linkedIssue = (issue: Issue) =>
+    (issue.linked_requirement_ids || []).some((id) => requirementIds.has(id)) ||
+    (issue.linked_test_case_ids || []).some((id) => plannedCaseIds.has(id)) ||
+    Boolean(
+      issue.linked_test_run_id && executionIds.has(issue.linked_test_run_id),
+    ) ||
+    [issue.id, issue.jira_bug_key].some(
+      (id) => id && scopedDefectIds.has(normalized(id)),
     );
-    return selectedRelease || selectedSprint ? directScopeMatch || issueHasScopedTraceLink(issue) : true;
-  });
-  const openIssues = issues.filter(isOpenIssue);
-  const openCriticalIssues = openIssues.filter(isCriticalIssue);
-  const openHighIssues = openIssues.filter((issue) => !isCriticalIssue(issue) && isHighIssue(issue));
-  const linkedBugCount = issues.filter(issueHasScopedTraceLink).length;
-
-  const coveredRequirementCount = requirements.filter((requirement) => (
-    testCases.some((testCase) => explicitlyLinkedCaseIds.has(testCase.id) && requirement.test_case_ids?.includes(testCase.id))
-    || testCases.some((testCase) => caseRequirementIds(testCase).includes(requirement.id))
-  )).length;
-  const highPriorityUncoveredCount = requirements.filter((requirement) => {
-    const covered = testCases.some((testCase) => requirement.test_case_ids?.includes(testCase.id) || caseRequirementIds(testCase).includes(requirement.id));
-    return !covered && Number(requirement.priority || 3) <= 2;
-  }).length;
-  const completedCaseResults = latestCaseResults.filter((result) => result.status !== "running");
-  const passedCount = latestCaseResults.filter((result) => result.status === "passed").length;
-  const failedCount = latestCaseResults.filter((result) => result.status === "failed").length;
-  const blockedCount = latestCaseResults.filter((result) => result.status === "blocked").length;
-  const runningCount = latestCaseResults.filter((result) => result.status === "running").length;
-  const plannedCaseCount = testCases.length;
-  const executedCaseCount = completedCaseResults.length;
-  const coverage = percent(coveredRequirementCount, requirements.length);
-  const completion = percent(executedCaseCount, plannedCaseCount);
-  const passRate = percent(passedCount, completedCaseResults.length);
-  const defectContainment = Math.max(0, 100 - (openCriticalIssues.length * 45) - (openHighIssues.length * 18) - (Math.max(0, openIssues.length - openCriticalIssues.length - openHighIssues.length) * 5));
-  const defectTraceability = issues.length ? percent(linkedBugCount, issues.length) : null;
-  let confidence = defectTraceability === null
-    ? Math.round((coverage * 0.5) + (completion * 0.5))
-    : Math.round((coverage * 0.4) + (completion * 0.4) + (defectTraceability * 0.2));
-  let readinessScore = Math.round((coverage * 0.25) + (completion * 0.2) + (passRate * 0.35) + (defectContainment * 0.2));
-  const latestEvidenceAt = completedCaseResults.reduce<string | null>((latest, result) => (
-    dateValue(result.updated_at || result.created_at) > dateValue(latest)
-      ? result.updated_at || result.created_at || null
-      : latest
-  ), null);
-  const evidenceAgeDays = latestEvidenceAt
-    ? Math.max(0, Math.floor((now - dateValue(latestEvidenceAt)) / 86_400_000))
-    : null;
-
-  if (!requirements.length || !plannedCaseCount || !executedCaseCount) readinessScore = Math.min(readinessScore, 49);
-  if (highPriorityUncoveredCount) readinessScore = Math.min(readinessScore, 69);
-  if (blockedCount) readinessScore = Math.min(readinessScore, 59);
-  if (openCriticalIssues.length) readinessScore = Math.min(readinessScore, 39);
-  if (completedCaseResults.length && latestEvidenceAt === null) readinessScore = Math.min(readinessScore, 79);
-  if (evidenceAgeDays !== null && evidenceAgeDays > 14) readinessScore = Math.min(readinessScore, 79);
-  if (!evidenceComplete) {
-    readinessScore = Math.min(readinessScore, 79);
-    confidence = Math.min(confidence, 69);
+  const issues = input.issues.filter(
+    (item) =>
+      (!selectedRelease && !selectedSprint) ||
+      matches(item.fix_version || item.release, item.sprint) ||
+      linkedIssue(item),
+  );
+  const openIssues = issues.filter(isOpenReadinessIssue);
+  const criticalIssues = openIssues.filter(isCriticalReadinessIssue);
+  const highIssues = openIssues.filter(
+    (item) => !isCriticalReadinessIssue(item) && isHighIssue(item),
+  );
+  const resultsByCase = new Map<string, ExecutionResult[]>();
+  for (const result of latestCaseResults)
+    resultsByCase.set(result.test_case_id, [
+      ...(resultsByCase.get(result.test_case_id) || []),
+      result,
+    ]);
+  const missingRowsByCase = new Map<string, number>();
+  const missingRowsByRun = new Map<string, number>();
+  for (const run of executions) {
+    const ids = caseIdsForReadinessRun(run);
+    for (const id of ids) {
+      const snapshot = run.case_snapshots?.find(
+        (item) => item.test_case_id === id,
+      );
+      const expected = Math.max(1, Number(snapshot?.expected_iterations) || 1);
+      const observed = latestCaseResults.filter(
+        (item) => item.execution_id === run.id && item.test_case_id === id,
+      ).length;
+      const missing = Math.max(0, expected - observed);
+      if (missing) {
+        missingRowsByCase.set(id, (missingRowsByCase.get(id) || 0) + missing);
+        missingRowsByRun.set(
+          run.id,
+          (missingRowsByRun.get(run.id) || 0) + missing,
+        );
+      }
+    }
   }
-
+  const assessedCases = new Set(
+    [...resultsByCase]
+      .filter(
+        ([id, results]) =>
+          results.length &&
+          results.every(assessed) &&
+          !missingRowsByCase.has(id),
+      )
+      .map(([id]) => id),
+  );
+  const caseIdsByStory = new Map(
+    requirements.map((story) => [story.id, new Set(story.test_case_ids || [])]),
+  );
+  for (const testCase of testCases)
+    for (const id of caseRequirementIds(testCase))
+      caseIdsByStory.get(id)?.add(testCase.id);
+  const linkedCasesForStory = (story: Requirement) =>
+    caseIdsByStory.get(story.id) || new Set<string>();
+  const coveredRequirementCount = requirements.filter(
+    (item) => linkedCasesForStory(item).size > 0,
+  ).length;
+  const highPriorityUncoveredCount = requirements.filter(
+    (item) =>
+      Number(item.priority || 3) <= 2 && !linkedCasesForStory(item).size,
+  ).length;
+  const count = (status: ExecutionResult["status"]) =>
+    latestCaseResults.filter((item) => item.status === status).length;
+  const passedCount = count("passed");
+  const failedCount = count("failed");
+  const blockedCount = count("blocked");
+  const latestEvidenceAt = latestCaseResults.reduce<string | null>(
+    (latest, result) => {
+      const candidate =
+        result.updated_at ||
+        result.ended_at ||
+        result.started_at ||
+        result.created_at;
+      return timestamp(candidate) > timestamp(latest)
+        ? candidate || null
+        : latest;
+    },
+    null,
+  );
+  const now = Number.isFinite(input.now) ? Number(input.now) : Date.now();
+  const ageDays = latestEvidenceAt
+    ? Math.max(0, Math.floor((now - timestamp(latestEvidenceAt)) / 86_400_000))
+    : null;
+  const loadedCaseIds = new Set(testCases.map((item) => item.id));
   const metrics = {
-    readinessScore,
-    coverage,
-    completion,
-    passRate,
-    defectContainment,
-    confidence,
+    coverage: percentage(coveredRequirementCount, requirements.length),
+    completion: percentage(assessedCases.size, plannedCaseIds.size),
+    passRate: percentage(passedCount, passedCount + failedCount),
     requirementCount: requirements.length,
     coveredRequirementCount,
     highPriorityUncoveredCount,
-    plannedCaseCount,
-    executedCaseCount,
+    plannedCaseCount: plannedCaseIds.size,
+    executedCaseCount: assessedCases.size,
     passedCount,
     failedCount,
     blockedCount,
-    runningCount,
-    notRunCount: Math.max(plannedCaseCount - executedCaseCount - runningCount, 0),
+    runningCount: count("running"),
+    pausedCount: count("paused"),
+    pendingCount: count("pending"),
+    skippedCount: count("skipped"),
+    abortedCount: count("aborted"),
+    notRunCount: [...plannedCaseIds].filter((id) => !resultsByCase.has(id))
+      .length,
+    unassessedCaseCount: plannedCaseIds.size - assessedCases.size,
+    outcomeCount: latestCaseResults.length,
     openBugCount: openIssues.length,
-    openCriticalBugCount: openCriticalIssues.length,
-    openHighBugCount: openHighIssues.length,
-    linkedBugCount
+    openCriticalBugCount: criticalIssues.length,
+    openHighBugCount: highIssues.length,
+    missingIterationCount: [...missingRowsByCase.values()].reduce(
+      (total, count) => total + count,
+      0,
+    ),
+    linkedBugCount: issues.filter(linkedIssue).length,
+    missingCaseDetailsCount: [...plannedCaseIds].filter(
+      (id) => !loadedCaseIds.has(id),
+    ).length,
   };
-
-  const observedGates: ReadinessGate[] = [
-    {
-      id: "priority-coverage",
-      label: "Priority story coverage",
-      state: highPriorityUncoveredCount ? "block" : requirements.length ? "pass" : "warning",
-      actual: highPriorityUncoveredCount ? `${highPriorityUncoveredCount} uncovered` : `${coverage}% covered`,
-      expectation: "No P1/P2 story uncovered",
-      detail: "Protects the highest business-priority Stories from silent test gaps."
-    },
-    {
-      id: "execution-completion",
-      label: "Execution completion",
-      state: completion >= 95 ? "pass" : completion >= 75 ? "warning" : "block",
-      actual: `${completion}% complete`,
-      expectation: "At least 95% complete",
-      detail: `${executedCaseCount} of ${plannedCaseCount} scoped cases have a terminal result.`
-    },
-    {
-      id: "pass-rate",
-      label: "Latest-result pass rate",
-      state: passRate >= 90 ? "pass" : passRate >= 80 ? "warning" : "block",
-      actual: `${passRate}% passed`,
-      expectation: "At least 90% passed",
-      detail: "Uses only the latest result per scoped test case to avoid inflating evidence with reruns."
-    },
+  const sourcesComplete =
+    evidenceComplete && metrics.missingCaseDetailsCount === 0;
+  const gates: ReadinessGate[] = [
     {
       id: "critical-defects",
-      label: "Critical defect exposure",
-      state: openCriticalIssues.length ? "block" : "pass",
-      actual: `${openCriticalIssues.length} open`,
-      expectation: "Zero open critical defects",
-      detail: "Includes scoped or trace-linked Bugs still outside a resolved status."
+      state: criticalIssues.length ? "block" : "pass",
+      count: criticalIssues.length,
+      total: openIssues.length,
     },
     {
-      id: "blocked-tests",
-      label: "Blocked test evidence",
-      state: blockedCount ? "block" : "pass",
-      actual: `${blockedCount} blocked`,
-      expectation: "Zero blocked latest results",
-      detail: "A blocked result is treated as missing proof, not as a pass or a failure."
+      id: "failed-outcomes",
+      state: failedCount ? "block" : passedCount ? "pass" : "warning",
+      count: failedCount,
+      total: passedCount + failedCount,
     },
     {
-      id: "evidence-freshness",
-      label: "Evidence freshness",
-      state: evidenceAgeDays === null ? "warning" : evidenceAgeDays <= 14 ? "pass" : "warning",
-      actual: evidenceAgeDays === null ? "No dated result" : evidenceAgeDays === 0 ? "Updated today" : `${evidenceAgeDays} days old`,
-      expectation: "Result evidence within 14 days",
-      detail: "Freshness is visible so an old green result cannot silently present as current assurance."
-    }
-  ];
-  const gates = evidenceComplete
-    ? observedGates
-    : observedGates.map((gate) => gate.state === "pass"
-      ? {
-        ...gate,
-        state: "warning" as const,
-        actual: `${gate.actual} observed`,
-        detail: `${gate.detail} The loaded evidence sample is incomplete, so this gate cannot pass definitively.`
-      }
-      : gate);
-
-  const hotspots = requirements.map<RequirementHotspot>((requirement) => {
-    const linkedCases = testCases.filter((testCase) => requirement.test_case_ids?.includes(testCase.id) || caseRequirementIds(testCase).includes(requirement.id));
-    const linkedCaseIds = new Set(linkedCases.map((item) => item.id));
-    const linkedResults = latestCaseResults.filter((result) => linkedCaseIds.has(result.test_case_id));
-    const linkedDefectIds = new Set([
-      ...(requirement.defect_ids || []),
-      ...linkedCases.flatMap((testCase) => testCase.defect_ids || []),
-      ...linkedResults.flatMap((result) => result.defects || [])
-    ].map(normalized).filter(Boolean));
-    const linkedIssues = openIssues.filter((issue) => (
-      issue.linked_requirement_ids?.includes(requirement.id)
-      || issue.linked_test_case_ids?.some((id) => linkedCaseIds.has(id))
-      || issueIdentityValues(issue).some((id) => linkedDefectIds.has(id))
-    ));
-    const criticalBugCount = linkedIssues.filter(isCriticalIssue).length;
-    const failed = linkedResults.filter((result) => result.status === "failed").length;
-    const blocked = linkedResults.filter((result) => result.status === "blocked").length;
-    const reasons: string[] = [];
-    let riskScore = Number(requirement.priority || 3) <= 1 ? 25 : Number(requirement.priority || 3) <= 2 ? 15 : 5;
-
-    if (!linkedCases.length) { riskScore += 35; reasons.push("No linked test"); }
-    if (linkedCases.length && !linkedResults.length) { riskScore += 18; reasons.push("Not executed"); }
-    if (failed) { riskScore += Math.min(35, failed * 18); reasons.push(`${failed} failed`); }
-    if (blocked) { riskScore += Math.min(35, blocked * 20); reasons.push(`${blocked} blocked`); }
-    if (criticalBugCount) { riskScore += Math.min(40, criticalBugCount * 30); reasons.push(`${criticalBugCount} critical bug${criticalBugCount === 1 ? "" : "s"}`); }
-    if (linkedIssues.length > criticalBugCount) { riskScore += Math.min(20, (linkedIssues.length - criticalBugCount) * 6); reasons.push(`${linkedIssues.length} open bug${linkedIssues.length === 1 ? "" : "s"}`); }
-    if (!reasons.length) reasons.push("No dominant deterministic risk");
-    riskScore = Math.min(100, riskScore);
-
-    return {
-      id: requirement.id,
-      displayId: requirement.display_id || requirement.id,
-      title: requirement.title,
-      priority: requirement.priority,
-      coverageCount: linkedCases.length,
-      executedCount: linkedResults.filter((result) => result.status !== "running").length,
-      passedCount: linkedResults.filter((result) => result.status === "passed").length,
-      failedCount: failed,
-      blockedCount: blocked,
-      openBugCount: linkedIssues.length,
-      criticalBugCount,
-      riskScore,
-      riskLabel: riskScore >= 75 ? "Critical" : riskScore >= 50 ? "High" : riskScore >= 25 ? "Medium" : "Low",
-      reasons
-    };
-  }).sort((left, right) => right.riskScore - left.riskScore);
-
+      id: "priority-coverage",
+      state: highPriorityUncoveredCount
+        ? "block"
+        : requirements.length
+          ? "pass"
+          : "warning",
+      count: highPriorityUncoveredCount,
+      total: requirements.length,
+    },
+    {
+      id: "remaining-evidence",
+      state:
+        metrics.unassessedCaseCount || !plannedCaseIds.size
+          ? "warning"
+          : "pass",
+      count: metrics.unassessedCaseCount,
+      total: plannedCaseIds.size,
+    },
+  ].map((gate) => ({
+    ...gate,
+    state:
+      !sourcesComplete && gate.state === "pass"
+        ? "warning"
+        : (gate.state as ReadinessGateState),
+  }));
+  const hotspots = requirements
+    .map<RequirementHotspot>((story) => {
+      const linkedCaseIds = linkedCasesForStory(story);
+      const results = latestCaseResults.filter((item) =>
+        linkedCaseIds.has(item.test_case_id),
+      );
+      const defectIds = new Set(
+        [
+          ...(story.defect_ids || []),
+          ...testCases
+            .filter((item) => linkedCaseIds.has(item.id))
+            .flatMap((item) => item.defect_ids || []),
+          ...results.flatMap((item) => item.defects || []),
+        ].map(normalized),
+      );
+      const bugs = openIssues.filter(
+        (item) =>
+          item.linked_requirement_ids?.includes(story.id) ||
+          item.linked_test_case_ids?.some((id) => linkedCaseIds.has(id)) ||
+          [item.id, item.jira_bug_key].some(
+            (id) => id && defectIds.has(normalized(id)),
+          ),
+      );
+      const failedCount = results.filter(
+        (item) => item.status === "failed",
+      ).length;
+      const blockedCount = results.filter(
+        (item) => item.status === "blocked",
+      ).length;
+      const executedCount = [...linkedCaseIds].filter((id) =>
+        assessedCases.has(id),
+      ).length;
+      return {
+        id: story.id,
+        displayId: story.display_id || story.id,
+        title: story.title,
+        priority: story.priority,
+        coverageCount: linkedCaseIds.size,
+        executedCount,
+        passedCount: results.filter((item) => item.status === "passed").length,
+        failedCount,
+        blockedCount,
+        openBugCount: bugs.length,
+        criticalBugCount: bugs.filter(isCriticalReadinessIssue).length,
+        needsAttention:
+          !linkedCaseIds.size ||
+          executedCount < linkedCaseIds.size ||
+          failedCount > 0 ||
+          bugs.length > 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.criticalBugCount - a.criticalBugCount ||
+        b.failedCount - a.failedCount ||
+        Number(a.priority || 3) - Number(b.priority || 3) ||
+        Number(b.needsAttention) - Number(a.needsAttention) ||
+        a.displayId.localeCompare(b.displayId),
+    );
+  // These are observed review signals, never a release approval or a probability of success.
+  const decisionState =
+    criticalIssues.length ||
+    failedCount ||
+    blockedCount ||
+    highPriorityUncoveredCount ||
+    highIssues.length
+      ? "attention"
+      : !requirements.length ||
+          !plannedCaseIds.size ||
+          !latestCaseResults.length
+        ? "insufficient"
+        : !sourcesComplete ||
+            metrics.unassessedCaseCount ||
+            openIssues.length ||
+            ageDays === null ||
+            ageDays > 14
+          ? "review"
+          : "clear";
   return {
-    evidenceComplete,
+    evidenceComplete: sourcesComplete,
+    missingRowsByRun,
     requirements,
     testCases,
     executions,
     executionResults,
-    issues,
     latestCaseResults,
+    issues,
+    openIssues,
     metrics,
-    decision: decisionFor(metrics),
+    decisionState,
     gates,
     hotspots,
-    latestEvidenceAt
+    latestEvidenceAt,
+    ageDays,
   };
 }
+export type ReleaseReadinessModel = ReturnType<typeof deriveReleaseReadiness>;
 
-export function releaseReadinessScopeOptions(requirements: Requirement[], executions: Execution[], issues: Issue[]) {
+export function releaseReadinessScopeOptions(
+  requirements: Requirement[],
+  executions: Execution[],
+  issues: Issue[],
+) {
+  const distinct = (items: Array<string | null | undefined>) =>
+    [
+      ...new Map(
+        items
+          .filter(Boolean)
+          .map((item) => [normalized(item), String(item).trim()]),
+      ).values(),
+    ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   return {
-    releases: uniqueNormalizedStrings([
-      ...requirements.map(requirementRelease),
-      ...executions.map((execution) => execution.release || ""),
-      ...issues.map(issueRelease)
-    ].filter(Boolean)).sort((left, right) => left.localeCompare(right, undefined, { numeric: true })),
-    sprints: uniqueNormalizedStrings([
-      ...requirements.map((requirement) => requirement.sprint || ""),
-      ...executions.map((execution) => execution.sprint || ""),
-      ...issues.map((issue) => issue.sprint || "")
-    ].filter(Boolean)).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+    releases: distinct([
+      ...requirements.map((item) => item.fix_version || item.release),
+      ...executions.map((item) => item.release),
+      ...issues.map((item) => item.fix_version || item.release),
+    ]),
+    sprints: distinct([
+      ...requirements.map((item) => item.sprint),
+      ...executions.map((item) => item.sprint),
+      ...issues.map((item) => item.sprint),
+    ]),
   };
 }

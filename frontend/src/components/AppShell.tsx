@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
 import { GroundedAssistant } from "./GroundedAssistant";
 import "./module-navigation.css";
+import "./workspace-experience.css";
 import { setCurrentScope, useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
@@ -52,6 +53,9 @@ import {
 } from "../lib/workspaceSections";
 import type { AppType, Project } from "../types";
 import { WORKSPACE_ROUTES } from "../lib/workspaceRoutes";
+
+const WorkspaceNavigator = lazy(() => import("./WorkspaceNavigator").then(module => ({ default: module.WorkspaceNavigator })));
+const RegionalPreferencesDialog = lazy(() => import("./RegionalPreferencesDialog").then(module => ({ default: module.RegionalPreferencesDialog })));
 
 const MOBILE_SIDEBAR_BREAKPOINT = "(max-width: 768px)";
 
@@ -555,11 +559,22 @@ function ReadyAppShell() {
   const [isCollapsed, setIsCollapsed] = useState(() => readSidebarMode() === "collapsed");
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_SIDEBAR_BREAKPOINT).matches);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
+  const [isRegionalDialogOpen, setIsRegionalDialogOpen] = useState(false);
+  useEffect(() => {
+    const openNavigator = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !event.altKey && !document.querySelector("[role=dialog][aria-modal=true]")) {
+        event.preventDefault(); setIsNavigatorOpen(true);
+      }
+    };
+    window.addEventListener("keydown", openNavigator);
+    return () => window.removeEventListener("keydown", openNavigator);
+  }, []);
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(() => getUnreadNotificationCount());
 
   const projects = asArray(projectsQuery.data);
-  const hasNoProjects = !projectsQuery.isPending && projects.length === 0;
+  const hasNoProjects = projectsQuery.isSuccess && projects.length === 0;
   const currentProjectName =
     projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
     (hasNoProjects ? "No active project" : "Select a project");
@@ -678,7 +693,7 @@ function ReadyAppShell() {
   }, [isMobileSidebarOpen, isMobileViewport]);
 
   useEffect(() => {
-    if (projectsQuery.isPending) {
+    if (!projectsQuery.isSuccess) {
       return;
     }
 
@@ -692,7 +707,7 @@ function ReadyAppShell() {
     if (!sidebarProjectId || !projects.some((project) => String(project.id) === String(sidebarProjectId))) {
       setSidebarProjectId(projects[0].id);
     }
-  }, [projects, projectsQuery.isPending, setSidebarProjectId, sidebarProjectId]);
+  }, [projects, projectsQuery.isSuccess, setSidebarProjectId, sidebarProjectId]);
 
   const navigateToProject = useCallback(async (nextProjectId: string | number) => {
     const normalizedProjectId = String(nextProjectId);
@@ -743,7 +758,7 @@ function ReadyAppShell() {
       case "authoring":
         return t("nav.testAuthoring", defaultLabel);
       case "product-management":
-        return defaultLabel;
+        return t("nav.product", defaultLabel);
       case "runs":
         return t("nav.testRuns", defaultLabel);
       case "agentic-workflows":
@@ -751,9 +766,9 @@ function ReadyAppShell() {
       case "admin-space":
         return t("nav.adminSpace", defaultLabel);
       case "automation":
-        return defaultLabel;
+        return t("nav.automation", defaultLabel);
       case "testops":
-        return defaultLabel;
+        return t("nav.testops", defaultLabel);
       case "environment":
         return t("nav.testEnvironment", defaultLabel);
       case "people":
@@ -798,7 +813,7 @@ function ReadyAppShell() {
               : item.id === "agentic-workflows"
                 ? AGENTIC_WORKFLOW_SECTION_ITEMS
                 : [];
-    return items.filter((subItem) => areFeatureFlagsEnabled(featureFlagsQuery.data, subItem.featureKeys || []));
+    return items.filter((subItem) => canAccessPath(session, subItem.to, pageAccess, sidebarProjectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, [...requiredFeatureFlagsForPath(subItem.to), ...(subItem.featureKeys || [])]));
   };
 
   const refreshCurrentScreen = () => window.location.reload();
@@ -810,6 +825,7 @@ function ReadyAppShell() {
 
   return (
     <div className="app-shell app-layout app-layout--workspace-wide">
+      <a className="workspace-skip-link" href="#workspace-content" onClick={event => { event.preventDefault(); document.getElementById("workspace-content")?.focus(); }}>{t("shell.skip", "Skip to content")}</a>
       <WorkspaceLocalizationLoader />
       {error && (
         <div className="global-alert" role="alert">
@@ -910,7 +926,7 @@ function ReadyAppShell() {
                     featureFlagsQuery.data,
                     requiredFeatureFlagsForPath(item.to)
                   );
-                  const navigationTarget = primaryFeatureEnabled ? item.to : subItems[0]?.to || item.to;
+                  const navigationTarget = primaryFeatureEnabled && canAccessPath(session, item.to, pageAccess, sidebarProjectId) ? item.to : subItems[0]?.to || item.to;
 
                   return (
                     <div className="nav-item-stack" key={item.to}>
@@ -1055,11 +1071,11 @@ function ReadyAppShell() {
             className="ghost-button sidebar-signout" 
             onClick={logout}
             type="button"
-            aria-label="Sign out"
+            aria-label={t("shell.signOut", "Sign out")}
             title="Sign out of HelloTest"
           >
             <LogoutIcon />
-            {shouldCollapseSidebar ? null : <span>Sign out</span>}
+            {shouldCollapseSidebar ? null : <span>{t("shell.signOut", "Sign out")}</span>}
           </button>
         </div>
       </aside>
@@ -1075,6 +1091,8 @@ function ReadyAppShell() {
       ) : null}
 
       <main
+        id="workspace-content"
+        tabIndex={-1}
         aria-busy={isRouteTransitioning}
         className={`workspace-main main${isWorkspaceWideLibrary ? " main--library-fill" : ""}`}
         data-route={location.pathname}
@@ -1090,18 +1108,25 @@ function ReadyAppShell() {
               type="button"
             >
               <MenuIcon />
-              <span>Navigation</span>
+              <span>{t("shell.navigation", "Navigation")}</span>
             </button>
           </div>
         ) : null}
+        <div className="workspace-context-bar">
+          <div className="workspace-context-name"><span className="workspace-context-dot" aria-hidden="true" /><span>{currentProjectName}</span></div>
+          <div className="workspace-context-actions"><button type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k"><span aria-hidden="true">⌕</span>{t("shell.find", "Find a capability")}<kbd>⌘ / Ctrl K</kbd></button><button type="button" onClick={() => setIsRegionalDialogOpen(true)}>{t("shell.preferences", "Language & region")}</button></div>
+        </div>
         {isRouteTransitioning ? (
           <div aria-live="polite" className="route-loading-indicator" role="status">
             <span aria-hidden="true" className="loading-state-spinner" />
             Loading {nextSection}…
           </div>
         ) : null}
-        {featureFlagsQuery.isPending && currentFeatureKeys.length ? (
+        {featureFlagsQuery.isError && featureFlagsQuery.data ? <div className="workspace-policy-refresh" role="status"><span>{t("access.refreshHelp", "Availability couldn’t be refreshed. Your current work is still here.")}</span><button className="ghost-button" type="button" disabled={featureFlagsQuery.isFetching} onClick={() => void featureFlagsQuery.refetch()}>{t("common.retry", "Retry")}</button></div> : null}
+        {!featureFlagsQuery.data && featureFlagsQuery.isFetching && currentFeatureKeys.length ? (
           <WorkspacePageSkeleton label="Loading project capabilities" />
+        ) : featureFlagsQuery.isError && !featureFlagsQuery.data && currentFeatureKeys.length ? (
+          <section className="workspace-access-state" role="alert"><h1>{t("access.errorTitle", "We couldn’t verify availability")}</h1><p>{t("access.errorHelp", "Workspace capabilities couldn’t be loaded. Retry the connection to continue.")}</p><div className="workspace-access-actions"><button className="primary-button" type="button" disabled={featureFlagsQuery.isFetching} onClick={() => void featureFlagsQuery.refetch()}>{t("common.retry", "Retry")}</button><button className="ghost-button" type="button" onClick={() => setIsNavigatorOpen(true)}>{t("shell.find", "Find a capability")}</button></div></section>
         ) : canAccessCurrentRoute && canAccessCurrentFeature ? (
           <AppErrorBoundary key={location.pathname}>
             <Suspense fallback={<WorkspacePageSkeleton label={`Loading ${currentSection}`} />}>
@@ -1109,14 +1134,15 @@ function ReadyAppShell() {
             </Suspense>
           </AppErrorBoundary>
         ) : (
-          <section className="permission-empty-state card">
-            <span className="eyebrow">Access Limited</span>
-            <h1>{canAccessCurrentRoute ? "This workspace feature is disabled." : "You do not have permission to view this workspace area."}</h1>
-            <p>{canAccessCurrentRoute ? "Ask a HelloTest administrator to enable this project capability, or choose another available sidebar item." : "Ask an administrator to update your role permissions, or choose another available menu item from the sidebar."}</p>
+          <section className="workspace-access-state">
+            <h1>{canAccessCurrentRoute ? t("access.disabledTitle", "This capability is turned off") : t("access.deniedTitle", "You need access to this area")}</h1>
+            <p>{canAccessCurrentRoute ? t("access.disabledHelp", "An administrator can enable this capability. You can continue in another available area.") : t("access.deniedHelp", "Ask an administrator to review your project permissions, or choose another capability.")}</p>
+            <div className="workspace-access-actions"><button className="primary-button" type="button" onClick={() => setIsNavigatorOpen(true)}>{t("shell.find", "Find a capability")}</button></div>
           </section>
         )}
       </main>
 
+      <Suspense fallback={null}>{isNavigatorOpen ? <WorkspaceNavigator onClose={() => setIsNavigatorOpen(false)} projectId={sidebarProjectId} projectName={currentProjectName} flags={featureFlagsQuery.data} flagsError={featureFlagsQuery.isError} pageAccess={pageAccess} /> : null}{isRegionalDialogOpen ? <RegionalPreferencesDialog onClose={() => setIsRegionalDialogOpen(false)} /> : null}</Suspense>
       <UserProfileDialog isOpen={isProfileDialogOpen} onClose={() => setIsProfileDialogOpen(false)} />
       <GroundedAssistant />
     </div>

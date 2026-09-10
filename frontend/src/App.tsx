@@ -62,6 +62,11 @@ const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   "/signup": { fallback: "Sign Up" }
 };
 
+function PersonalLocalization({ children }: { children: React.ReactNode }) {
+  const { session } = useAuth();
+  return <LocalizationProvider key={session?.user.id || "guest"} userId={session?.user.id}>{children}</LocalizationProvider>;
+}
+
 function ThemeBootstrap() {
   useEffect(() => {
     writeWorkspaceTheme(readWorkspaceTheme());
@@ -221,11 +226,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeBootstrap />
       <AuthProvider>
-        <LocalizationProvider>
+        <PersonalLocalization>
           <Suspense fallback={<div className="splash-screen">Loading workspace…</div>}>
             <RouterProvider router={router} />
           </Suspense>
-        </LocalizationProvider>
+        </PersonalLocalization>
       </AuthProvider>
     </QueryClientProvider>
   );

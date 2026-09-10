@@ -336,15 +336,29 @@ paths:
     get:
       tags: [Feature Flags]
       summary: Read grouped feature definitions and effective local flags
+      description: |
+        Returns one consistent workspace policy snapshot. No project selection is
+        required. Local values preserve administrator intent; effective flags
+        also reflect parent capability dependencies. Requires workspace.view.
       responses:
         "200":
           description: Feature flag snapshot
+          headers:
+            Cache-Control:
+              description: Workspace feature policy must not be cached by intermediaries.
+              schema: { type: string, enum: ["private, no-store"] }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FeatureFlagSnapshot" }
     put:
       tags: [Feature Flags]
-      summary: Replace local feature flag values
+      summary: Apply a partial update to local feature flag values
+      description: |
+        Requires feature_flag.manage and the Administration feature. Every key
+        must be a known feature key and every value must be a boolean. Omitted
+        flags retain their persisted values. Updates to different keys merge
+        atomically; concurrent changes to the same key use the last committed
+        value. The policy update and its audit record commit together.
       requestBody:
         required: true
         content:
@@ -356,6 +370,16 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/FeatureFlagSnapshot" }
+        "400":
+          description: Invalid request. Unknown keys or non-boolean flag values return INVALID_FEATURE_FLAGS and reject the entire update.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagErrorResponse" }
+        "403":
+          description: ACCESS_DENIED for a missing grant, or FEATURE_DISABLED when Administration is unavailable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagErrorResponse" }
 
   /users:
     get:
@@ -2121,6 +2145,13 @@ paths:
     get:
       tags: [Quality Analytics]
       summary: Preview project or release-scoped quality insights
+      description: >-
+        Requires the insight grant and every returned manual source's view grant and
+        feature policy before any evidence read. Automation coverage is omitted when
+        automation analytics is unavailable. Returns project, scope, release_summary
+        and insights with finding-specific evidence references, while preserving legacy
+        summary/findings aliases. Per-run counts use latest run/case/data-row attempts;
+        legacy advisory confidence fields are heuristics, not measured probabilities.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - { name: release, in: query, schema: { type: string } }
@@ -2487,10 +2518,45 @@ paths:
         other widget results remain available. No evidence is cached across requests.
       responses:
         "200": { description: Per-gadget results and structured errors }
+  /analytics/overview:
+    get:
+      tags: [Quality Analytics]
+      summary: Evaluate complete permitted project inventory and a bounded execution window
+      description: >-
+        Requires dashboard.view and project access. Each source is separately checked
+        against its project grant, API-key scope and feature policy before reading it.
+        Unavailable counts are null and unavailable lists empty. A permitted-source
+        failure rejects the request; zero is reserved for actual empty evidence.
+        Inventory aggregates cover the full current project. Run outcomes select the
+        newest attempt per run, test case and data row; frozen unexecuted rows remain
+        pending. The trend groups current run outcomes by UTC end/start/creation day,
+        not historical daily status. Only ten recent runs and eight attention items
+        are returned. No predictive confidence or release approval score is calculated.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: days
+          in: query
+          schema: { type: integer, enum: [14, 30, 90], default: 30 }
+          description: UTC calendar days including today; the upper bound is evaluation time.
+      responses:
+        "200":
+          description: Full inventory aggregates and current outcomes for the selected run cohort
+          headers:
+            Cache-Control: { schema: { type: string }, description: "private, no-store" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QualityAnalyticsOverview" }
+        "400": { description: Invalid project scope or INVALID_ANALYTICS_WINDOW }
+        "403": { description: Project or dashboard permission denied, or dashboard feature disabled }
   /analytics/dashboard-design-preview:
     post:
       tags: [Quality Analytics]
       summary: Produce a review-only stakeholder dashboard design
+      description: >-
+        Returns an unsaved template or model draft with explicit design_method and
+        design_basis provenance. Legacy numeric confidence fields are retained for
+        compatibility only; they are not calibrated accuracy scores and must not
+        be displayed as measured confidence. Review metric choices before saving.
       requestBody:
         required: true
         content:
@@ -3098,9 +3164,21 @@ paths:
   /execution-results/release-readiness:
     get:
       tags: [Execution Results]
-      summary: Calculate project release-readiness evidence from current persisted results
+      summary: Return bounded project release-readiness evidence from current persisted results
+      description: >-
+        Requires run.view and result.view. Release and sprint filters match their
+        respective fields exactly after trimming and case normalization; build never
+        widens release scope. Results retain only the latest attempt per run/case/data
+        row, with lifecycle-derived updated_at. Execution case_snapshots include
+        test_case_id and expected_iterations, without frozen data values. complete and
+        reasons disclose run/result truncation. candidate_runs and candidate_results
+        are bounded limit-plus-one lookahead counts, not full inventory totals.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
+        - { name: release, in: query, schema: { type: string } }
+        - { name: sprint, in: query, schema: { type: string } }
+        - { name: run_limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: result_limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 2000 } }
       responses:
         "200": { description: "Metrics with completeness, methodology, and human-decision disclosure" }
   /execution-results/{id}/defect-links:
@@ -4408,6 +4486,49 @@ paths:
       responses:
         "200": { description: Successful response }
         "400": { description: The graph is empty, cyclic, exceeds limits, or has invalid connections }
+  /agentic-workflows/{id}/readiness:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Automation]
+      summary: Check whether the saved workflow can execute an evidence review
+      description: Requires agentic_workflow.view in the workflow project. Returns ready, node-specific blockers, warnings, ordered steps and execution limits. Only manual graphs with one trigger, one to four registered specialists, optional append aggregators, and output steps can execute.
+      responses:
+        "200": { description: Readiness report for the saved definition }
+        "403": { description: The project permission or feature is unavailable }
+  /agentic-workflows/{id}/executions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Automation]
+      summary: Execute a bounded specialist review workflow
+      description: Requires agentic_workflow.run in the workflow project. Persists an immutable definition before executing registered specialists against permitted evidence. Runs have a three-minute deadline, at most eight steps and four specialists, and no external write actions. Reusing request_id with the same workflow and input returns the saved run. Existing graph previews remain available at the runs endpoint.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                request_id: { type: string, minLength: 8, maxLength: 128, pattern: '^[a-zA-Z0-9_-]+$' }
+                input_payload: { type: object, description: JSON object limited to 16 KB }
+      responses:
+        "202": { description: Persisted review execution; poll the workflow run endpoint for actual results }
+        "400": { description: Input is invalid or exceeds its limit }
+        "403": { description: The project permission or feature is unavailable }
+        "409": { description: The request ID was already used with a different definition or input }
+        "422": { description: The definition is not ready for real review execution }
+        "429": { description: This worker already has two active review workflows }
+  /agentic-workflow-runs/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Automation]
+      summary: Stop a running specialist workflow while retaining completed reviews
+      description: Requires agentic_workflow.run in the actual run project. Cancellation is persisted before active work is interrupted and cannot be overwritten by late completion. Preview records cannot be cancelled; a terminal review returns its current state.
+      responses:
+        "200": { description: Current workflow execution state }
+        "403": { description: The project permission or feature is unavailable }
+        "409": { description: This record is a graph preview }
   /agentic-workflows/api-agent-test:
     post:
       tags: [Automation]
@@ -4808,11 +4929,35 @@ paths:
   /admin-portal/feature-flags:
     put:
       tags: [Admin Portal]
-      summary: Update admin portal feature flags
+      summary: Apply a partial workspace feature-policy update as an administrator
+      description: |
+        Requires a signed-in workspace administrator. Known boolean keys are
+        merged atomically without replacing omitted values. The policy update
+        and audit record commit together. This control-plane endpoint remains
+        available when Administration is disabled in the product workspace.
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateFeatureFlagsRequest" }
       responses:
-        "200": { description: Successful response }
+        "200":
+          description: Persisted local values after the partial update; read the snapshot for effective availability.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateFeatureFlagsResponse" }
+        "400":
+          description: Invalid request. Unknown keys or non-boolean flag values return INVALID_FEATURE_FLAGS and reject the entire update.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagErrorResponse" }
+        "403":
+          description: Workspace administrator access is required.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeatureFlagErrorResponse" }
   /admin-portal/security/password:
     put:
       tags: [Admin Portal]
@@ -5013,6 +5158,88 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    QualityAnalyticsOverview:
+      type: object
+      required: [project, evaluated_at, window, visibility, inventory, execution, trend, recent_runs, attention, evidence, methodology]
+      properties:
+        project:
+          type: object
+          required: [id, key, name]
+          properties: { id: { type: string }, key: { type: string }, name: { type: string } }
+        evaluated_at: { type: string, format: date-time }
+        window:
+          type: object
+          properties: { days: { type: integer, enum: [14, 30, 90] }, from: { type: string, format: date-time }, to: { type: string, format: date-time } }
+        visibility:
+          type: object
+          additionalProperties: false
+          properties:
+            stories: { type: boolean }
+            cases: { type: boolean }
+            suites: { type: boolean }
+            runs: { type: boolean }
+            bugs: { type: boolean }
+            automation: { type: boolean }
+        inventory:
+          type: object
+          properties:
+            stories: { type: integer, minimum: 0, nullable: true }
+            covered_stories: { type: integer, minimum: 0, nullable: true }
+            cases: { type: integer, minimum: 0, nullable: true }
+            designed_cases: { type: integer, minimum: 0, nullable: true }
+            suites: { type: integer, minimum: 0, nullable: true }
+            automated_cases: { type: integer, minimum: 0, nullable: true }
+            open_defects: { type: integer, minimum: 0, nullable: true }
+        execution:
+          type: object
+          properties:
+            passed: { type: integer, minimum: 0, nullable: true }
+            failed: { type: integer, minimum: 0, nullable: true }
+            blocked: { type: integer, minimum: 0, nullable: true }
+            pending: { type: integer, minimum: 0, nullable: true }
+            other: { type: integer, minimum: 0, nullable: true }
+            total: { type: integer, minimum: 0, nullable: true }
+            completed_runs: { type: integer, minimum: 0, nullable: true }
+            active_runs: { type: integer, minimum: 0, nullable: true }
+            latest_evidence_at: { type: string, format: date-time, nullable: true }
+        trend:
+          type: array
+          maxItems: 90
+          items:
+            type: object
+            properties: { date: { type: string, format: date }, runs: { type: integer }, passed: { type: integer }, failed: { type: integer }, blocked: { type: integer } }
+        recent_runs:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              status: { type: string }
+              started_at: { type: string, format: date-time, nullable: true }
+              ended_at: { type: string, format: date-time, nullable: true }
+              passed: { type: integer }
+              failed: { type: integer }
+              blocked: { type: integer }
+              pending: { type: integer }
+              other: { type: integer }
+              total: { type: integer }
+        attention:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            properties: { id: { type: string }, type: { type: string, enum: [stories, cases, runs, bugs] }, title: { type: string }, detail: { type: string }, to: { type: string }, tone: { type: string, enum: [danger, warning, info] } }
+        evidence:
+          type: object
+          properties:
+            complete: { type: boolean, description: All permitted sources loaded; policy exclusions remain in limitations. }
+            latest_at: { type: string, format: date-time, nullable: true }
+            limitations: { type: array, items: { type: string } }
+        methodology:
+          type: object
+          properties: { inventory: { type: string }, execution: { type: string }, trend: { type: string }, availability: { type: string } }
     ExecutionResultAttachment:
       type: object
       required: [id, entity_type, entity_id, project_id, filename, mimeType, size]
@@ -5715,6 +5942,10 @@ components:
         type: boolean
     FeatureFlagSnapshot:
       type: object
+      description: |
+        A single workspace policy snapshot. local_flags contains saved administrator
+        intent; flags contains effective boolean availability after dependencies.
+        A locally enabled child can remain unavailable while its parent is disabled.
       required: [groups, flags, local_flags, provider]
       properties:
         groups:
@@ -5722,6 +5953,14 @@ components:
           items: { $ref: "#/components/schemas/FeatureFlagGroup" }
         flags: { $ref: "#/components/schemas/FeatureFlagMap" }
         local_flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+        dependencies:
+          type: object
+          description: Parent feature keys required for each dependent capability.
+          additionalProperties:
+            type: array
+            items: { type: string }
+          example:
+            hellotest.automation.object_repository: [hellotest.automation.workspace]
         provider:
           type: object
           required: [type, configured, connected]
@@ -5731,9 +5970,33 @@ components:
             connected: { type: boolean }
     UpdateFeatureFlagsRequest:
       type: object
+      description: |
+        Partial update using known feature keys from the snapshot. Only supplied
+        boolean values change; omitted flags are preserved. Unknown keys and
+        non-boolean values reject the entire update. An empty flags object is a no-op.
       required: [flags]
       properties:
         flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+      example:
+        flags:
+          hellotest.ai.agentic_workflows: false
+    UpdateFeatureFlagsResponse:
+      type: object
+      required: [updated, flags]
+      properties:
+        updated: { type: boolean }
+        flags: { $ref: "#/components/schemas/FeatureFlagMap" }
+    FeatureFlagErrorResponse:
+      type: object
+      description: Standard service-error envelope for feature policy validation and access failures.
+      required: [success, code, message, requestId, traceId, retryable]
+      properties:
+        success: { type: boolean, enum: [false] }
+        code: { type: string, example: INVALID_FEATURE_FLAGS }
+        message: { type: string }
+        requestId: { type: string }
+        traceId: { type: string, nullable: true }
+        retryable: { type: boolean }
     AuthSetupResponse:
       type: object
       required: [google, emailVerification]

@@ -50,6 +50,7 @@ const PATH_PERMISSIONS: PageAccessMap = {
   "/test-plans": ["plan.view"],
   "/quality-gates": ["quality_gate.view"],
   "/automation": ["automation.view"],
+  "/local-playwright": ["automation.view"],
   "/automation-assets": ["automation.view"],
   "/object-repository": ["automation.view"],
   "/agentic-workflows": ["agentic_workflow.view"],
@@ -70,23 +71,29 @@ const PATH_PERMISSIONS: PageAccessMap = {
 };
 
 export function hasPermission(session: SessionPayload | null, permission: string, projectId?: string | null) {
-  if (!session?.user) {
+  if (!session?.user || session.user.status === "suspended") {
     return false;
   }
 
-  if (session.user.role === ADMIN_ROLE || session.user.role_id === "jira-admin") {
+  if (session.user.role === ADMIN_ROLE) {
     return true;
   }
 
   const isWorkspaceOnly = WORKSPACE_ONLY_PERMISSIONS.has(permission);
 
   if (projectId && session.user.project_permissions && !isWorkspaceOnly) {
-    return session.user.project_permissions[projectId]?.includes(permission) || false;
+    const projectPermissions = session.user.project_permissions[projectId];
+    return Array.isArray(projectPermissions) && projectPermissions.includes(permission);
   }
+
+  // An aggregate permission list cannot prove access in a particular project.
+  if (projectId && !isWorkspaceOnly) return false;
 
   if (isWorkspaceOnly && Array.isArray(session.user.workspace_permissions)) {
     return session.user.workspace_permissions.includes(permission);
   }
+
+  if (isWorkspaceOnly) return MEMBER_DEFAULT_PERMISSIONS.has(permission);
 
   if (Array.isArray(session.user.permissions)) {
     return session.user.permissions.includes(permission);
@@ -103,8 +110,14 @@ export function hasAnyPermission(
   return permissions.some((permission) => hasPermission(session, permission, projectId));
 }
 
+export function normalizeAccessPath(pathname: string) {
+  return pathname.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+}
+
 export function requiredPermissionsForPath(pathname: string, pageAccess?: PageAccessMap | null) {
-  return pageAccess?.[pathname] || PATH_PERMISSIONS[pathname] || ["workspace.view"];
+  const path = normalizeAccessPath(pathname);
+  const permissions = pageAccess && Object.prototype.hasOwnProperty.call(pageAccess, path) ? pageAccess[path] : PATH_PERMISSIONS[path];
+  return Array.isArray(permissions) && permissions.every((permission) => typeof permission === "string") ? permissions : [];
 }
 
 export function canAccessPath(

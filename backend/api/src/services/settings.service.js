@@ -115,6 +115,15 @@ exports.getLocalizationStrings = async () => {
 };
 
 exports.updateLocalizationStrings = async (strings) => {
+  const invalid = (message) => { const error = new Error(message); error.statusCode = 400; throw error; };
+  if (!strings || typeof strings !== "object" || Array.isArray(strings)) invalid("Localization must be a JSON object of text values.");
+  const entries = Object.entries(strings);
+  if (entries.length > 2000 || Buffer.byteLength(JSON.stringify(strings), "utf8") > 512 * 1024) invalid("Language packs support up to 2,000 strings and 512 KB.");
+  for (const [key, value] of entries) {
+    if (!key.trim() || key.length > 160 || ["__proto__", "constructor", "prototype"].includes(key.trim()) || typeof value !== "string" || value.length > 10000) invalid("Language pack keys and values must be bounded text strings.");
+    if (key === "meta.direction" && !["ltr", "rtl"].includes(value)) invalid("meta.direction must be ltr or rtl.");
+    if (key === "meta.language") { try { if (!Intl.getCanonicalLocales(value).length) invalid("Invalid language tag."); } catch { invalid("meta.language must be a valid language tag."); } }
+  }
   const normalizedStrings = normalizeLocalizationStrings(strings);
 
   await db.prepare(`

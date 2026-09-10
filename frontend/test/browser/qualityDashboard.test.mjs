@@ -32,7 +32,7 @@ api.qualityDashboards.create = async input => { window.dashboardWrites.push(inpu
 api.qualityDashboards.update = async (id, input) => { window.dashboardWrites.push(input); const index = dashboards.findIndex(item => item.id === id); dashboards[index] = { ...input, id }; return structuredClone(dashboards[index]); };
 api.analytics.queryBatch = async input => { window.dashboardCalls.push(input); await new Promise(resolve => setTimeout(resolve, 80)); return { project: { id: 'project', key: 'QA', name: 'Release workspace' }, evaluated_at: new Date().toISOString(), results: input.gadgets.map(gadget => ({ gadget_id: gadget.id, result: result(gadget, input.project_id) })) }; };
 api.analytics.query = async input => result(input.gadget, input.project_id);
-api.analytics.designDashboard = async input => new Promise(resolve => { window.finishDashboardDesign = () => resolve({ dashboard: { ...dashboards[0], name: 'Late AI draft', project_id: input.project_id, id: '' }, confidence: 0.8, provenance: { evidence: [] } }); });
+api.analytics.designDashboard = async input => new Promise(resolve => { window.finishDashboardDesign = (generationMode = 'deterministic') => resolve({ dashboard: { ...dashboards[0], name: 'Late AI draft', project_id: input.project_id, id: '' }, confidence: 0.78, generation_mode: generationMode, provenance: { evidence: [], design_basis: 'Review metric choices and layout; no design accuracy score is calculated.' } }); });
 function FixtureDashboard() { const [projectId, setProjectId] = React.useState('project'); window.changeDashboardProject = setProjectId; return <CustomQualityDashboard projectId={projectId} canManage canUseAi canUseAutomation />; }
 createRoot(document.getElementById('root')).render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><AuthProvider><div className="app-shell app-layout" style={{ gridTemplateColumns: "minmax(0, 1fr)", padding: 0 }}><main className="workspace-main" data-route="/"><div className="page-content page-content--overview overview-layout"><FixtureDashboard /></div></main></div></AuthProvider></QueryClientProvider></MemoryRouter>);
 `;
@@ -130,6 +130,21 @@ test('dashboard presets, creation, layout and request behavior', { timeout: 9000
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await dialog.getByRole('tab', { name: 'AI designer', exact: true }).click();
+    for (const generationMode of ['deterministic', 'llm']) {
+      await page.evaluate(() => { window.finishDashboardDesign = undefined; });
+      await dialog.getByRole('button', { name: 'Design draft', exact: true }).click();
+      await page.waitForFunction(() => typeof window.finishDashboardDesign === 'function');
+      await page.evaluate(mode => window.finishDashboardDesign(mode), generationMode);
+      await dialog.getByRole('tab', { name: 'Build layout', exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelector('[role="tab"][aria-selected="true"]')?.textContent?.includes('Build layout'));
+      await dialog.getByRole('tab', { name: 'AI designer', exact: true }).click();
+      const assurance = await dialog.locator('.dashboard-design-assurance').innerText();
+      assert.match(assurance, generationMode === 'llm' ? /Model draft/ : /Stakeholder template/);
+      assert.doesNotMatch(assurance, /%|confidence/i, 'Legacy numeric metadata must not be presented as measured accuracy');
+      assert.match(await dialog.locator('#dashboard-ai-panel').innerText(), /no design accuracy score is calculated/);
+    }
+    await page.screenshot({ path: '/tmp/qaira-dashboard-design/dashboard-design-provenance.png', fullPage: true });
+    await page.evaluate(() => { window.finishDashboardDesign = undefined; });
     await dialog.getByRole('button', { name: 'Design draft', exact: true }).click();
     await page.waitForFunction(() => typeof window.finishDashboardDesign === 'function');
     await page.evaluate(() => window.changeDashboardProject('project-b'));

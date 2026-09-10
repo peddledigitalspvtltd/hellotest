@@ -23,6 +23,7 @@ import {
   normalizeAiPromptOverrides,
   resolveAiPromptRegistryValue
 } from "../lib/aiPromptRegistry";
+import { parseLocalizationPack, MAX_LOCALIZATION_BYTES } from "../lib/localizationPack";
 import { DEFAULT_LOCALIZATION_STRINGS } from "../lib/localization";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
@@ -113,7 +114,7 @@ function readProjectAutomationSettings(): ProjectAutomationSettings {
 export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
-  const { strings, setWorkspaceStrings, t } = useLocalization();
+  const { strings, setWorkspaceStrings, t, formatDate } = useLocalization();
   const [theme, setTheme] = useState<WorkspaceTheme>("light");
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("collapsed");
   const [defaultCatalogViewMode, setDefaultCatalogViewMode] = useState<CatalogViewModePreference>("tile");
@@ -139,6 +140,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [pendingLanguagePack, setPendingLanguagePack] = useState<{ name: string; strings: Record<string, string> } | null>(null);
   const [isSavingLocalization, setIsSavingLocalization] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
@@ -315,14 +317,17 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     setMessage(error instanceof Error ? error.message : fallback);
   };
 
-  const handleDownloadLocalization = () => {
-    const blob = new Blob([JSON.stringify(strings, null, 2)], { type: "application/json" });
+  const handleDownloadLocalization = async () => {
+    try {
+    const current = await api.settings.getLocalization();
+    const blob = new Blob([JSON.stringify({ ...DEFAULT_LOCALIZATION_STRINGS, ...current.strings }, null, 2)], { type: "application/json" });
     const href = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = href;
     link.download = "hellotest-localization.json";
     link.click();
     URL.revokeObjectURL(href);
+    } catch (error) { showError(error, "Unable to download workspace strings."); }
   };
 
   const persistLocalization = async (nextStrings: Record<string, string>, successMessage: string) => {
@@ -338,6 +343,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       setWorkspaceStrings(response.strings);
       setMessageTone("success");
       setMessage(successMessage);
+      setPendingLanguagePack(null);
     } catch (error) {
       showError(error, "Unable to save localization strings.");
     } finally {
@@ -353,13 +359,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
     }
 
     try {
-      const parsed = JSON.parse(await file.text()) as Record<string, string>;
-
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("Localization file must be a JSON object.");
-      }
-
-      await persistLocalization(parsed, "Localization strings updated.");
+      if (file.size > MAX_LOCALIZATION_BYTES) throw new Error("Language packs must be smaller than 512 KB.");
+      const parsed = parseLocalizationPack(await file.text());
+      setPendingLanguagePack({ name: file.name, strings: parsed });
     } catch (error) {
       showError(error, "Unable to upload localization strings.");
     } finally {
@@ -374,10 +376,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       return "Never";
     }
 
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short"
-    }).format(new Date(value));
+    return formatDate(value);
   };
 
   const copyToClipboard = async (value: string, successMessage: string) => {
@@ -389,6 +388,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
       await navigator.clipboard.writeText(value);
       setMessageTone("success");
       setMessage(successMessage);
+      setPendingLanguagePack(null);
     } catch (error) {
       showError(error, "Unable to copy to clipboard.");
     }
@@ -1038,6 +1038,13 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 </button>
               </div>
 
+              <p className="regional-scope">Workspace packs may include <code>meta.language</code> (for example, <code>es</code>) and <code>meta.direction</code> (<code>ltr</code> or <code>rtl</code>). Omitted labels use English defaults. Personal language and regional preferences are available from the page toolbar.</p>
+              {pendingLanguagePack ? <section className="regional-preview" aria-label="Language pack review">
+                <strong>Review {pendingLanguagePack.name}</strong>
+                <p>{Object.keys(pendingLanguagePack.strings).length} strings will replace the current workspace pack. Review the sample before publishing for everyone.</p>
+                <dl>{Object.entries(pendingLanguagePack.strings).slice(0, 8).map(([key, value]) => <div key={key}><dt>{key}</dt><dd style={{ overflowWrap: "anywhere", maxWidth: "100%" }}>{value.slice(0, 200)}{value.length > 200 ? "…" : ""}</dd></div>)}</dl>
+                <div className="action-row"><button className="primary-button" type="button" disabled={isSavingLocalization || !canManageLocalization} onClick={() => void persistLocalization(pendingLanguagePack.strings, "Workspace language pack published.")}>{isSavingLocalization ? "Publishing…" : "Publish workspace pack"}</button><button className="ghost-button" type="button" disabled={isSavingLocalization} onClick={() => setPendingLanguagePack(null)}>Discard</button></div>
+              </section> : null}
               <input
                 accept="application/json"
                 hidden

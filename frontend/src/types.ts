@@ -4,6 +4,7 @@ export type User = {
   name: string | null;
   avatar_data_url?: string | null;
   role?: "admin" | "member";
+  status?: "active" | "suspended";
   role_id?: string;
   role_name?: string;
   permissions?: string[];
@@ -172,6 +173,10 @@ export type QualityDashboardBatchResponse = {
 };
 
 export type QualityDashboardDesignPreviewResponse = AiAssistedPreviewBase & {
+  provenance: AiAssistanceProvenance & {
+    design_method?: "stakeholder_template" | "model_draft";
+    design_basis?: string;
+  };
   dashboard: QualityDashboard;
   templates: Array<{ id: "executive" | "product" | "quality" | "automation"; name: string; description: string; gadget_count: number }>;
   rationale: string[];
@@ -2685,12 +2690,13 @@ export type AgenticWorkflow = {
 
 export type AgenticWorkflowRun = {
   id: string;
-  execution_mode?: "preview";
+  summary_only?: boolean;
+  execution_mode?: "preview" | "review";
   workflow_id: string | null;
   project_id: string;
   app_type_id: string | null;
   workflow_name: string;
-  status: ExecutionStatus;
+  status: ExecutionStatus | "needs_review" | "interrupted";
   trigger_kind: AgenticWorkflowTriggerKind;
   input_payload: Record<string, unknown>;
   output_payload: Record<string, unknown> | null;
@@ -2701,6 +2707,15 @@ export type AgenticWorkflowRun = {
   completed_at?: string | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type AgenticWorkflowReadiness = {
+  ready: boolean;
+  execution_mode: "review";
+  blockers: Array<{ node_id: string | null; node_name: string | null; message: string }>;
+  warnings: string[];
+  limits: { max_steps: number; max_specialists: number; timeout_ms: number; input_limit_bytes: number };
+  steps: Array<{ node_id: string; name: string; kind: string; specialist_id: string | null }>;
 };
 
 export type AgenticAssistantMode = "chat" | "agent";
@@ -3398,6 +3413,7 @@ export type KnowledgeOverview = {
 };
 
 export type ExecutionCaseSnapshot = {
+  expected_iterations?: number;
   execution_id: string;
   test_case_id: string;
   test_case_title: string;
@@ -3482,6 +3498,8 @@ export type ExecutionResult = {
 };
 
 export type ReleaseReadinessExecutionEvidence = {
+  candidate_runs?: number;
+  evaluated_at?: string;
   executions: Execution[];
   results: ExecutionResult[];
   complete: boolean;

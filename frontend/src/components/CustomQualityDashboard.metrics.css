@@ -1,4 +1,3 @@
-.dashboard-design-confidence,
 .quality-metric-value-label {
   display: inline-flex !important;
   align-items: center;
@@ -6,7 +5,6 @@
   gap: 0.24rem;
 }
 
-.dashboard-design-confidence .metric-methodology-info,
 .quality-metric-value-label .metric-methodology-info {
   color: currentColor !important;
 }

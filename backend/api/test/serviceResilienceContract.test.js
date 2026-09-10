@@ -12,7 +12,11 @@ const { SERVICE_ERROR_CODES, serviceError } = require("../src/utils/serviceError
 
 test.beforeEach(() => resetServiceResilienceState());
 
-test("the boundary client retries only replay-safe requests and bounds the logical operation", async () => {
+test("the boundary client retries only replay-safe requests and bounds the logical operation", { timeout: 5000 }, async (t) => {
+  // The mocked transport has no live request socket. Represent that bounded
+  // connection while the production retry timer deliberately remains unref'ed.
+  const connectionLifetime = setTimeout(() => {}, 5000);
+  t.after(() => clearTimeout(connectionLifetime));
   let getAttempts = 0;
   const getResponse = await resilientHttpRequest("https://user:secret@example.test/data?token=private", {}, {
     dependency: "sample-provider",

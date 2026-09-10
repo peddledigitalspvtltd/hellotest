@@ -54,8 +54,8 @@ export const adminApi = {
   applySchema: () => request<Overview["schema"]>("/admin-portal/setup/schema", { method: "POST" }),
   sampleCatalog: () => request<SampleCatalog>("/admin-portal/setup/sample-data"),
   seedSamples: (modules: string[]) => request<{ installed: string[]; project_id: string; administrator_memberships: number }>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
-  flags: () => request<FlagSnapshot>("/feature-flags"),
-  updateFlags: (flags: Record<string, boolean>) => request("/admin-portal/feature-flags", { method: "PUT", body: JSON.stringify({ flags }) }),
+  flags: (options?: { signal?: AbortSignal }) => request<FlagSnapshot>("/feature-flags", { signal: options?.signal, cache: "no-store" }),
+  updateFlags: (flags: Record<string, boolean>) => request<{ updated: boolean; flags: Record<string, boolean> }>("/admin-portal/feature-flags", { method: "PUT", body: JSON.stringify({ flags }) }),
   integrations: () => request<Integration[]>("/integrations"),
   integrationTypes: () => request<IntegrationType[]>("/admin-portal/integration-types"),
   createIntegration: (input: Record<string, unknown>) => request<{ id: string }>("/admin-portal/integrations", { method: "POST", body: JSON.stringify(input) }),
@@ -88,6 +88,8 @@ export type FlagSnapshot = {
     }>;
   }>;
   flags: Record<string, boolean>;
+  local_flags?: Record<string, boolean>;
+  dependencies?: Record<string, string[]>;
 };
 export type Integration = { id: string; type: string; name: string; base_url?: string; model?: string; is_active: boolean; updated_at: string };
 export type IntegrationType = { value: string; label: string; description: string; defaults?: Record<string, unknown> };

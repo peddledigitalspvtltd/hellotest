@@ -107,6 +107,12 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
 };
 
 export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
+  "/agentic-workflows?view=agents": "workspace.aiAgents",
+  "/agentic-workflows?view=workflows": "workspace.workflows",
+  "/agentic-workflows?view=runs": "workspace.workflowRuns",
+  "/executions?view=suite-runs": "workspace.suiteRuns",
+  "/executions?view=local-runs": "workspace.localRuns",
+  "/executions?view=scheduled-runs": "workspace.scheduledRuns",
   "/?view=analytics": "workspace.qualityAnalytics",
   "/?view=readiness": "workspace.releaseReadiness",
   "/?view=custom": "workspace.customDashboards",

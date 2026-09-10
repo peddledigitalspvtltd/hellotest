@@ -1,5 +1,6 @@
 const { randomUUID: uuid } = require("crypto");
 const db = require("../db");
+const { validateWorkflowGraph } = require("../utils/agenticWorkflowGraph");
 const { readResponsePrefix } = require("../utils/boundedResponse");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 
@@ -264,7 +265,7 @@ const hydrateWorkflowRun = (run) => {
 
   return {
     ...run,
-    execution_mode: "preview",
+    execution_mode: normalizeObject(parseJsonValue(run.workflow_snapshot, {})).execution_mode === "review" ? "review" : "preview",
     input_payload: normalizeObject(parseJsonValue(run.input_payload, {})),
     output_payload: parseJsonValue(run.output_payload, null),
     workflow_snapshot: normalizeObject(parseJsonValue(run.workflow_snapshot, {})),
@@ -421,42 +422,6 @@ const buildNodeDataPolicy = (nodeData, incomingEdges) => {
     aggregate_key: normalizeText(nodeData.aggregateKey) || null
   };
 };
-
-function validateWorkflowGraph(nodes, edges, { requireNodes = false } = {}) {
-  if (!Array.isArray(nodes) || !Array.isArray(edges)) throw workflowError("Workflow nodes and connections must be arrays.");
-  if (nodes.length > 100 || edges.length > 300) throw workflowError("A workflow supports up to 100 steps and 300 connections.");
-  if (requireNodes && !nodes.length) throw workflowError("Add at least one step before previewing this workflow.");
-  const byId = new Map();
-  for (const node of nodes) {
-    const id = normalizeText(node?.id);
-    if (!id || id.length > 160 || byId.has(id)) throw workflowError("Every workflow step needs a unique ID of at most 160 characters.");
-    if (id !== node.id) throw workflowError("Workflow step IDs cannot contain surrounding whitespace.");
-    byId.set(id, node);
-  }
-  const indegree = new Map(nodes.map((node) => [node.id, 0]));
-  const outgoing = new Map(nodes.map((node) => [node.id, []]));
-  const edgeIds = new Set();
-  for (const edge of edges) {
-    if (!byId.has(edge?.source) || !byId.has(edge?.target)) throw workflowError("Each connection must refer to existing workflow steps.");
-    if (edge.source === edge.target) throw workflowError("A workflow step cannot connect to itself.");
-    if (edge.id && edgeIds.has(edge.id)) throw workflowError("Workflow connection IDs must be unique.");
-    if (edge.id) edgeIds.add(edge.id);
-    indegree.set(edge.target, indegree.get(edge.target) + 1);
-    outgoing.get(edge.source).push(edge.target);
-  }
-  const queue = nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id);
-  const ordered = [];
-  for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const id = queue[cursor];
-    ordered.push(byId.get(id));
-    for (const target of outgoing.get(id)) {
-      indegree.set(target, indegree.get(target) - 1);
-      if (indegree.get(target) === 0) queue.push(target);
-    }
-  }
-  if (ordered.length !== nodes.length) throw workflowError("The workflow contains a cycle. Remove the circular connection before saving or previewing.");
-  return ordered;
-}
 
 const boundedPreviewValue = (value, maxChars = 4_000) => {
   const serialized = JSON.stringify(value ?? null);
@@ -653,7 +618,7 @@ exports.getWorkflow = async (id) => {
   const workflow = hydrateWorkflow(await selectWorkflow.get(id));
 
   if (!workflow) {
-    throw new Error("Agentic workflow not found");
+    throw workflowError("Agentic workflow not found", 404);
   }
 
   return workflow;
@@ -778,7 +743,7 @@ exports.createWorkflowRun = async (workflowId, input = {}, actorId = null) => {
   return exports.getWorkflowRun(runId);
 };
 
-exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status, user, limit = 100 } = {}) => {
+exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status, user, limit = 100, summary_only = false } = {}) => {
   let query = `
     SELECT *
     FROM agentic_workflow_runs
@@ -811,17 +776,24 @@ exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status
   params.push(Math.max(1, normalizePositiveInteger(limit, 100, 200)));
 
   const rows = await db.prepare(query).all(...params);
-  return rows.map(hydrateWorkflowRun);
+  const execution = require("./agenticWorkflowExecution.service");
+  const runs = await Promise.all(rows.map(row => execution.reconcile(hydrateWorkflowRun(row))));
+  if (!summary_only) return runs;
+  return runs.map(run => ({ ...run, summary_only: true, input_payload: {},
+    workflow_snapshot: { execution_mode: run.execution_mode },
+    output_payload: { execution_mode: run.execution_mode, summary: run.output_payload?.summary || null, completed_steps: run.output_payload?.completed_steps || 0 },
+    node_results: run.node_results.map(node => ({ node_id: node.node_id, node_name: node.node_name, node_type: node.node_type, specialist_id: node.specialist_id, status: node.status, attempts: node.attempts }))
+  }));
 };
 
 exports.getWorkflowRun = async (id) => {
   const run = hydrateWorkflowRun(await selectWorkflowRun.get(id));
 
   if (!run) {
-    throw new Error("Agentic workflow run not found");
+    throw workflowError("Agentic workflow run not found", 404);
   }
 
-  return run;
+  return require("./agenticWorkflowExecution.service").reconcile(run);
 };
 
 exports._internals = { validateWorkflowGraph, buildRunArtifacts, redactDiagnostic, normalizeApiTestMethod, addAccessibleProjectFilter };

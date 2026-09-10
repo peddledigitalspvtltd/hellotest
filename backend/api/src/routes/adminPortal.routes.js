@@ -61,9 +61,11 @@ module.exports = async function (fastify) {
 
   fastify.put("/admin-portal/feature-flags", { preHandler: [fastify.requireAdmin] }, async (req) => {
     fastify.validate({ flags: { required: true, type: "object" } }, req.body);
-    const result = await featureFlagService.updateLocalFlags(req.body.flags);
-    await adminPortalService.recordAudit({ actorId: req.user.id, action: "feature_flags.update", targetType: "workspace", summary: "Updated workspace feature availability.", metadata: { changed_keys: Object.keys(req.body.flags) }, ipAddress: clientIp(req) });
-    return result;
+    return require("../db").transaction(async () => {
+      const result = await featureFlagService.updateLocalFlags(req.body.flags);
+      await adminPortalService.recordAudit({ actorId: req.user.id, action: "feature_flags.update", targetType: "workspace", summary: "Updated workspace feature availability.", metadata: { changed_keys: Object.keys(req.body.flags), changes: req.body.flags }, ipAddress: clientIp(req) });
+      return result;
+    })();
   });
 
   fastify.get("/admin-portal/integration-types", { preHandler: [fastify.requireAdmin] }, async () => INTEGRATION_TYPE_OPTIONS);

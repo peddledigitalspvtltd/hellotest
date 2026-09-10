@@ -1,5 +1,6 @@
 const projectService = require("../services/project.service");
 const analytics = require("../services/qualityAnalytics.service");
+const overview = require("../services/qualityOverview.service");
 const dashboards = require("../services/qualityDashboard.service");
 const reports = require("../services/qualityDashboardReport.service");
 const { config } = require("../config");
@@ -14,6 +15,29 @@ const requireProject = async (req, projectId) => {
 };
 
 module.exports = async function (fastify) {
+  fastify.get("/analytics/overview", async (req, reply) => {
+    await fastify.authenticate(req);
+    const projectId = req.query.project_id;
+    const window = overview.windowFor(req.query.days || 30);
+    const project = await requireProject(req, projectId);
+    const can = async (...permissions) => {
+      try {
+        for (const permission of permissions) await fastify.requirePermission(permission, { projectId })(req);
+        return true;
+      } catch (error) {
+        if (error?.statusCode === 403) return false;
+        throw error;
+      }
+    };
+    const entries = await Promise.all([
+      ["stories", ["requirement.view"]], ["cases", ["testcase.view"]], ["suites", ["suite.view"]],
+      ["runs", ["run.view", "result.view"]], ["bugs", ["feedback.view"]],
+      ["automation", ["automation.view", "automation.analytics.view"]]
+    ].map(async ([source, permissions]) => [source, await can(...permissions)]));
+    reply.header("Cache-Control", "private, no-store");
+    return overview.getOverview({ projectId, project, days: window.days, visibility: Object.fromEntries(entries) });
+  });
+
   fastify.get("/quality-dashboards", async (req) => {
     await fastify.authenticate(req);
     await requireProject(req, req.query.project_id);
@@ -108,6 +132,21 @@ module.exports = async function (fastify) {
   fastify.get("/ai/quality-insights", async (req) => {
     await fastify.authenticate(req);
     await requireProject(req, req.query.project_id);
-    return analytics.qualityInsights({ projectId: req.query.project_id, release: req.query.release, sprint: req.query.sprint });
+    // This compatibility endpoint returns source records as well as counts.
+    // The insight grant alone must never bypass the permissions on that evidence.
+    for (const permission of ["requirement.view", "testcase.view", "suite.view", "run.view", "result.view", "feedback.view"]) {
+      await fastify.requirePermission(permission, { projectId: req.query.project_id })(req);
+    }
+    let includeAutomation = false;
+    try {
+      await fastify.requirePermission("automation.view", { projectId: req.query.project_id })(req);
+      await fastify.requirePermission("automation.analytics.view", { projectId: req.query.project_id })(req);
+      includeAutomation = true;
+    } catch (error) {
+      if (error?.statusCode !== 403) throw error;
+    }
+    const result = await analytics.qualityInsights({ projectId: req.query.project_id, release: req.query.release, sprint: req.query.sprint });
+    if (!includeAutomation) delete result.metrics.automationCoverage;
+    return result;
   });
 };

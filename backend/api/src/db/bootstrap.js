@@ -676,7 +676,7 @@ const statements = [
   `ALTER TABLE agentic_workflow_runs ALTER COLUMN node_results SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE agentic_workflow_runs ALTER COLUMN node_results SET NOT NULL`,
   `ALTER TABLE agentic_workflow_runs DROP CONSTRAINT IF EXISTS agentic_workflow_runs_status_check`,
-  `ALTER TABLE agentic_workflow_runs ADD CONSTRAINT agentic_workflow_runs_status_check CHECK (status IN ('queued', 'running', 'completed', 'failed', 'aborted'))`,
+  `ALTER TABLE agentic_workflow_runs ADD CONSTRAINT agentic_workflow_runs_status_check CHECK (status IN ('queued', 'running', 'completed', 'needs_review', 'failed', 'aborted', 'cancelled', 'interrupted'))`,
   `CREATE INDEX IF NOT EXISTS idx_agentic_workflow_runs_scope ON agentic_workflow_runs (project_id, app_type_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_agentic_workflow_runs_workflow ON agentic_workflow_runs (workflow_id, created_at DESC)`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'local'`,

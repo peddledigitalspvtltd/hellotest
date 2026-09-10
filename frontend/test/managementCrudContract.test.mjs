@@ -172,7 +172,9 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(releases, /generateReleaseNotes/);
   assert.match(releases, /Open release readiness board/);
   assert.match(releases, /<ReleaseReadinessIcon size=\{26\}/);
-  assert.match(readiness, /<ReleaseReadinessIcon size=\{28\}/);
+  assert.match(readiness, /deriveReleaseReadiness/);
+  assert.match(readiness, /searchParams\.get\("release_id"\)/);
+  assert.match(readiness, /validContext\.requirements/);
   assert.match(icons, /export function ReleaseReadinessIcon[\s\S]*IconRocket[\s\S]*release-readiness-icon__checks/);
   assert.doesNotMatch(icons, /IconHierarchy3|release-readiness-icon__hierarchy/);
   assert.match(releases, /release_id=/);
@@ -195,10 +197,10 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(releases, /requirement-catalog-card release-story-tile/);
   assert.match(releases, /sprint-create-dialog sprint-new-dialog release-create-dialog/);
   assert.match(releases, /included by Sprint/);
-  assert.match(readiness, /requestedReleaseId/);
-  assert.match(readiness, /releaseContext\.requirements/);
-  assert.match(readiness, /disabled=\{isReleaseScopeLocked\}/);
-  assert.match(readiness, /setRelease\(deepLinkedRelease\)/);
+
+
+
+
   assert.match(issues, /autoModuleIds/);
   assert.match(issues, /autoRequirementIds/);
   assert.match(completionGuard, /Completion blocked/);

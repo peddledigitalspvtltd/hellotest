@@ -5,6 +5,7 @@ const { EXECUTION_RESULT_STATUS_VALUES } = require("../domain/catalog");
 const projectService = require("../services/project.service");
 const executionService = require("../services/execution.service");
 const db = require("../db");
+const { evidenceTime } = require("../services/qualityOverview.service");
 
 const ensureResultAccess = async (id, userId) => {
   const result = await service.getExecutionResult(id);
@@ -78,23 +79,50 @@ module.exports = async function (fastify) {
     fastify.validate({ project_id: { required: true, type: "string" }, release: { required: false, type: "string" }, sprint: { required: false, type: "string" }, run_limit: { required: false, type: "string" }, result_limit: { required: false, type: "string" } }, req.query || {});
     await projectService.getProject(req.query.project_id, req.user.id);
     await fastify.requirePermission("result.view", { projectId: req.query.project_id })(req);
+    await fastify.requirePermission("run.view", { projectId: req.query.project_id })(req);
     const runLimit = Math.max(1, Math.min(500, Number.parseInt(String(req.query.run_limit || 100), 10) || 100));
     const resultLimit = Math.max(1, Math.min(5000, Number.parseInt(String(req.query.result_limit || 2000), 10) || 2000));
     const conditions = ["project_id = ?"];
     const params = [req.query.project_id];
-    if (req.query.release) { conditions.push("(release = ? OR build = ?)"); params.push(req.query.release, req.query.release); }
-    if (req.query.sprint) { conditions.push("sprint = ?"); params.push(req.query.sprint); }
-    const executions = await db.prepare(`SELECT * FROM executions WHERE ${conditions.join(" AND ")} ORDER BY COALESCE(ended_at, started_at, created_at) DESC LIMIT ?`).all(...params, runLimit + 1);
+    if (String(req.query.release || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(release, ''))) = ?"); params.push(String(req.query.release).trim().toLowerCase()); }
+    if (String(req.query.sprint || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(sprint, ''))) = ?"); params.push(String(req.query.sprint).trim().toLowerCase()); }
+    const executions = await db.prepare(`SELECT id, project_id, app_type_id, name, status, release, sprint, build,
+      created_at, started_at, ended_at, start_date, end_date, direct_test_case_ids
+      FROM executions WHERE ${conditions.join(" AND ")} ORDER BY COALESCE(ended_at, started_at, created_at) DESC, id DESC LIMIT ?`).all(...params, runLimit + 1);
     const boundedExecutions = executions.slice(0, runLimit);
     let results = [];
+    let snapshots = [];
     if (boundedExecutions.length) {
       const ids = boundedExecutions.map((item) => item.id);
-      results = await db.prepare(`SELECT * FROM execution_results WHERE execution_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at DESC LIMIT ?`).all(...ids, resultLimit + 1);
+      [results, snapshots] = await Promise.all([
+        db.prepare(`SELECT ranked.* FROM (
+          SELECT id, execution_id, test_case_id, app_type_id, status, created_at, started_at, timer_started_at, ended_at,
+            lifecycle_history->-1->>'at' AS lifecycle_updated_at, data_set_iteration_index, data_set_iteration_key, defects, external_references,
+            ROW_NUMBER() OVER (PARTITION BY execution_id, test_case_id, COALESCE(data_set_iteration_index::text, data_set_iteration_key, 'default') ORDER BY created_at DESC, id DESC) AS attempt_rank
+          FROM execution_results WHERE execution_id IN (${ids.map(() => "?").join(",")}) AND created_at <= CURRENT_TIMESTAMP
+        ) ranked WHERE attempt_rank = 1 ORDER BY GREATEST(ended_at, timer_started_at, started_at, created_at) DESC, created_at DESC, id DESC LIMIT ?`).all(...ids, resultLimit + 1),
+        db.prepare(`WITH frozen_cases AS (
+          SELECT snapshot.execution_id, snapshot.test_case_id,
+            CASE WHEN snapshot.test_data_set_snapshot IS NOT NULL OR snapshot.test_data_set_id IS NOT NULL
+              THEN snapshot.test_data_set_snapshot ELSE executions.test_data_set_snapshot END AS data_snapshot
+          FROM execution_case_snapshots snapshot JOIN executions ON executions.id = snapshot.execution_id
+          WHERE snapshot.execution_id IN (${ids.map(() => "?").join(",")})
+        ) SELECT execution_id, test_case_id,
+          CASE WHEN data_snapshot->>'mode' = 'key_value' THEN 1
+            WHEN jsonb_typeof(data_snapshot->'rows') = 'array' THEN GREATEST(1, jsonb_array_length(data_snapshot->'rows'))
+            WHEN jsonb_typeof(data_snapshot->'template_rows') = 'array' THEN GREATEST(1, jsonb_array_length(data_snapshot->'template_rows'))
+            ELSE 1 END AS expected_iterations FROM frozen_cases`).all(...ids)
+      ]);
     }
     const reasons = [];
     if (executions.length > runLimit) reasons.push(`Run evidence exceeded the ${runLimit}-run limit.`);
     if (results.length > resultLimit) reasons.push(`Execution results exceeded the ${resultLimit}-result limit.`);
-    return { executions: boundedExecutions, results: results.slice(0, resultLimit).map((item) => ({ ...item, defects: Array.isArray(item.defects) ? item.defects : [], external_references: Array.isArray(item.external_references) ? item.external_references : [] })), complete: reasons.length === 0, reasons, runs_scanned: boundedExecutions.length, results_scanned: Math.min(results.length, resultLimit), candidate_results: results.length, limits: { runs: runLimit, results: resultLimit, results_per_run: resultLimit } };
+    const snapshotsByRun = new Map();
+    for (const snapshot of snapshots) {
+      if (!snapshotsByRun.has(snapshot.execution_id)) snapshotsByRun.set(snapshot.execution_id, []);
+      snapshotsByRun.get(snapshot.execution_id).push({ test_case_id: snapshot.test_case_id, expected_iterations: Number(snapshot.expected_iterations) });
+    }
+    return { executions: boundedExecutions.map(execution => ({ ...execution, case_snapshots: snapshotsByRun.get(execution.id) || [] })), results: results.slice(0, resultLimit).map((item) => ({ ...item, updated_at: evidenceTime(item), defects: Array.isArray(item.defects) ? item.defects : [], external_references: Array.isArray(item.external_references) ? item.external_references : [] })), complete: reasons.length === 0, reasons, runs_scanned: boundedExecutions.length, results_scanned: Math.min(results.length, resultLimit), candidate_results: results.length, candidate_runs: executions.length, evaluated_at: new Date().toISOString(), limits: { runs: runLimit, results: resultLimit, results_per_run: resultLimit } };
   });
 
   // CREATE RESULT

@@ -1,5 +1,6 @@
 const agenticWorkflowService = require("../services/agenticWorkflow.service");
 const agenticAssistantService = require("../services/agenticAssistant.service");
+const workflowExecution = require("../services/agenticWorkflowExecution.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 
@@ -169,6 +170,32 @@ module.exports = async function (fastify) {
     return agenticWorkflowService.createWorkflowRun(req.params.id, req.body || {}, req.user.id);
   });
 
+  fastify.get("/agentic-workflows/:id/readiness", async (req) => {
+    await fastify.authenticate(req);
+    const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
+    return workflowExecution.readiness(workflow);
+  });
+
+  fastify.post("/agentic-workflows/:id/executions", async (req, reply) => {
+    await fastify.authenticate(req);
+    const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
+    await requireProjectPermission(req, workflow.project_id, "agentic_workflow.run");
+    fastify.validate({
+      request_id: { required: false, type: "string", minLength: 8, maxLength: 128 },
+      input_payload: { required: false, type: "object" }
+    }, req.body || {});
+    const run = await workflowExecution.start(workflow, req.body || {}, req.user);
+    return reply.code(202).send(run);
+  });
+
+  fastify.post("/agentic-workflow-runs/:id/cancel", async (req) => {
+    await fastify.authenticate(req);
+    const run = await agenticWorkflowService.getWorkflowRun(req.params.id);
+    await requireProjectPermission(req, run.project_id, "agentic_workflow.run");
+    return workflowExecution.cancel(run, req.user);
+  });
+
   fastify.get("/agentic-workflow-runs", async (req) => {
     await fastify.authenticate(req);
 
@@ -189,7 +216,8 @@ module.exports = async function (fastify) {
       workflow_id: req.query.workflow_id,
       status: req.query.status,
       user: req.user,
-      limit: req.query.limit
+      limit: req.query.limit,
+      summary_only: req.query.summary_only === true || req.query.summary_only === "true"
     });
   });
 

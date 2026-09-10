@@ -4,6 +4,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const integrationService = require("./integration.service");
 const knowledgeRagService = require("./knowledgeRag.service");
 const permissionService = require("./permission.service");
+const featureFlagService = require("./featureFlag.service");
 const projectService = require("./project.service");
 const appTypeService = require("./appType.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -108,7 +109,8 @@ const JSON_MODE_REJECTION = /(?:unsupported|not supported|unknown|unrecognized|i
 const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smartContext, user, contextRoute }) => {
   const context = {};
   let knowledgeRetrieval = null;
-  if (scopes.includes("knowledge") && user && await permissionService.hasPermission(user, "knowledge.view", projectId)) {
+  if (scopes.includes("knowledge") && user && await permissionService.hasPermission(user, "knowledge.view", projectId)
+    && await featureFlagService.areEnabled(featureFlagService.getFeatureKeysForPermission("knowledge.view"), { user })) {
     const retrievalQueries = [...new Map([
       smartContext.query,
       normalizeText(prompt, 2_000),

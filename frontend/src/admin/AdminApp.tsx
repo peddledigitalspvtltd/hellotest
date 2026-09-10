@@ -13,6 +13,7 @@ import {
   adminApi, sessionStore, type AdminSession, type AuditEvent, type FlagSnapshot,
   type Integration, type IntegrationType, type Overview, type Role, type SampleCatalog, type User
 } from "./api";
+import { createFeatureFlagPatch, effectiveFeatureFlags } from "../lib/featureFlags";
 
 type Section = "overview" | "people" | "setup" | "features" | "integrations" | "audit" | "security";
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -31,7 +32,7 @@ const title: Record<Section, { eyebrow: string; heading: string; copy: string }>
   overview: { eyebrow: "Instance command", heading: "Control center", copy: "A live view of launch readiness, platform capacity, and the configuration that keeps HelloTest healthy." },
   people: { eyebrow: "Identity & access", heading: "Administrators", copy: "Onboard trusted operators and keep control-plane access intentional." },
   setup: { eyebrow: "Launch sequence", heading: "Instance setup", copy: "Validate the shared schema and install safe, idempotent sample content module by module." },
-  features: { eyebrow: "Release control", heading: "Feature availability", copy: "Expose capabilities deliberately. Changes apply immediately to product navigation, API permissions, and contextual creation controls." },
+  features: { eyebrow: "Release control", heading: "Feature availability", copy: "Manage the capabilities available to your workspace. Published policy applies to API requests immediately; workspace controls refresh automatically." },
   integrations: { eyebrow: "Connected services", heading: "Backend integrations", copy: "Create and govern server-side connections without exposing credentials to the product UI." },
   audit: { eyebrow: "Governance trail", heading: "Audit activity", copy: "Review recent administrator actions across setup, people, flags, and integrations." },
   security: { eyebrow: "Account protection", heading: "Security", copy: "Replace bootstrap credentials and review the runtime boundary for this control plane." }
@@ -41,7 +42,7 @@ const formatDate = (value?: string) => value ? new Intl.DateTimeFormat(undefined
 const initials = (name?: string, email?: string) => (name || email || "A").split(/[\s@.]+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
 
 function Toast({ message, tone, onClose }: { message: string; tone: "success" | "error"; onClose: () => void }) {
-  return <div className={`toast ${tone}`} role="status"><span>{tone === "success" ? <Check size={17} /> : <CircleAlert size={17} />}</span>{message}<button onClick={onClose}><X size={16} /></button></div>;
+  return <div className={`toast ${tone}`} role="status"><span>{tone === "success" ? <Check size={17} /> : <CircleAlert size={17} />}</span>{message}<button aria-label="Dismiss notification" onClick={onClose}><X size={16} /></button></div>;
 }
 
 function Login({ onAuthenticated }: { onAuthenticated: (session: AdminSession) => void }) {
@@ -139,11 +140,79 @@ function SetupPage({ schema, notify, refresh }: { schema: Overview["schema"]; no
 }
 
 function FeaturesPage({ notify }: { notify: (message: string, tone?: "success" | "error") => void }) {
-  const [snapshot, setSnapshot] = useState<FlagSnapshot | null>(null); const [draft, setDraft] = useState<Record<string, boolean>>({}); const [search, setSearch] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { void adminApi.flags().then((value) => { setSnapshot(value); setDraft(value.flags); }); }, []);
-  const changes = snapshot ? Object.keys(draft).filter((key) => draft[key] !== snapshot.flags[key]).length : 0;
-  const save = async () => { setBusy(true); try { await adminApi.updateFlags(draft); const next = await adminApi.flags(); setSnapshot(next); setDraft(next.flags); notify("Feature availability published."); } catch (reason) { notify(reason instanceof Error ? reason.message : "Feature update failed", "error"); } finally { setBusy(false); } };
-  return <><div className="feature-toolbar"><div className="search"><Search size={17} /><input aria-label="Find a capability" placeholder="Find a capability" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div><span>{changes ? `${changes} unpublished change${changes === 1 ? "" : "s"}` : "All changes published"}</span><button className="primary-button" disabled={!changes || busy} onClick={() => void save()}>{busy ? "Publishing…" : "Publish changes"}</button></div></div><div className="flag-groups">{snapshot?.groups.map((group) => { const features = group.features.filter((feature) => `${feature.label} ${feature.description || ""} ${feature.key} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.toLowerCase())); if (!features.length) return null; const enabled = features.filter((feature) => draft[feature.key]).length; return <section className="surface flag-group" key={group.key}><div className="flag-group-head"><div><h3>{group.label}</h3><p>{group.description}</p></div><span>{enabled}/{features.length} on</span></div><div>{features.map((feature) => <button aria-pressed={Boolean(draft[feature.key])} className="flag-row" key={feature.key} onClick={() => setDraft((current) => ({ ...current, [feature.key]: !current[feature.key] }))} type="button"><div><strong>{feature.label}</strong>{feature.description ? <span>{feature.description}</span> : null}<small>{feature.key}</small></div><span aria-hidden="true" className={`toggle ${draft[feature.key] ? "on" : ""}`}>{draft[feature.key] ? <ToggleRight /> : <ToggleLeft />}</span></button>)}</div></section>; })}</div></>;
+  const [snapshot, setSnapshot] = useState<FlagSnapshot | null>(null);
+  const [draft, setDraft] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoadState("loading");
+    setError("");
+    void adminApi.flags({ signal: controller.signal }).then((value) => {
+      if (controller.signal.aborted) return;
+      setSnapshot(value);
+      setDraft(value.local_flags || value.flags);
+      setLoadState("ready");
+    }).catch((reason: unknown) => {
+      if (controller.signal.aborted) return;
+      setError(reason instanceof Error ? reason.message : "Feature availability could not be loaded.");
+      setLoadState("error");
+    });
+    return () => controller.abort();
+  }, [reload]);
+
+  const patch = snapshot ? createFeatureFlagPatch(snapshot.local_flags || snapshot.flags, draft) : {};
+  const changes = Object.keys(patch).length;
+  const effective = effectiveFeatureFlags(draft, snapshot?.dependencies);
+  const labels = new Map(snapshot?.groups.flatMap((group) => group.features.map((feature) => [feature.key, feature.label] as const)) || []);
+  const filteredGroups = snapshot?.groups.map((group) => ({ ...group, features: group.features.filter((feature) =>
+    `${feature.label} ${feature.description || ""} ${feature.key} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase())
+  ) })).filter((group) => group.features.length) || [];
+
+  const save = async () => {
+    if (!snapshot || !changes || busy) return;
+    setBusy(true);
+    try {
+      const result = await adminApi.updateFlags(patch);
+      setSnapshot({ ...snapshot, local_flags: result.flags, flags: effectiveFeatureFlags(result.flags, snapshot.dependencies) });
+      setDraft(result.flags);
+      notify(`${changes} feature change${changes === 1 ? "" : "s"} published.`);
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : "Feature update failed. Your changes are retained.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loadState === "loading") return <section className="surface loading" role="status"><RefreshCw className="spin" aria-hidden="true" /><span>Loading feature availability…</span></section>;
+  if (loadState === "error") return <section className="surface empty-state" role="alert"><CircleAlert aria-hidden="true" /><h3>Feature availability is unavailable</h3><p>{error}</p><button className="secondary-button" onClick={() => setReload((value) => value + 1)} type="button">Try again</button></section>;
+
+  return <>
+    <div className="feature-toolbar">
+      <div className="search"><Search size={17} aria-hidden="true" /><input aria-label="Find a capability" placeholder="Find a capability" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      <div><span role="status">{changes ? `${changes} unpublished change${changes === 1 ? "" : "s"}` : "All changes published"}</span>
+        {changes ? <button className="secondary-button" disabled={busy} onClick={() => setDraft(snapshot?.local_flags || snapshot?.flags || {})} type="button">Discard changes</button> : null}
+        <button className="primary-button" disabled={!changes || busy} onClick={() => void save()} type="button">{busy ? "Publishing…" : "Publish changes"}</button>
+      </div>
+    </div>
+    <div className="flag-groups">{filteredGroups.map((group) => <section className="surface flag-group" key={group.key}>
+      <div className="flag-group-head"><div><h3>{group.label}</h3><p>{group.description}</p></div><span>{group.features.filter((feature) => effective[feature.key]).length}/{group.features.length} available</span></div>
+      <div>{group.features.map((feature) => {
+        const missingDependencies = (snapshot?.dependencies?.[feature.key] || []).filter((key) => !draft[key]);
+        return <button aria-pressed={Boolean(draft[feature.key])} className="flag-row" disabled={busy} key={feature.key} onClick={() => setDraft((current) => ({ ...current, [feature.key]: !current[feature.key] }))} type="button">
+          <div><strong>{feature.label}</strong>{feature.description ? <span>{feature.description}</span> : null}
+            {draft[feature.key] && missingDependencies.length ? <span className="flag-dependency">Unavailable until {missingDependencies.map((key) => labels.get(key) || key).join(", ")} is enabled.</span> : null}
+            <small>{feature.key}</small>
+          </div><span aria-hidden="true" className={`toggle ${draft[feature.key] ? "on" : ""}`}>{draft[feature.key] ? <ToggleRight /> : <ToggleLeft />}</span>
+        </button>;
+      })}</div>
+    </section>)}</div>
+    {!filteredGroups.length ? <section className="surface empty-state"><Search aria-hidden="true" /><h3>No matching capabilities</h3><p>Try a feature name, task or page.</p><button className="secondary-button" onClick={() => setSearch("")} type="button">Clear search</button></section> : null}
+  </>;
 }
 
 function IntegrationsPage({ notify }: { notify: (message: string, tone?: "success" | "error") => void }) {
@@ -153,7 +222,7 @@ function IntegrationsPage({ notify }: { notify: (message: string, tone?: "succes
   const create = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); let config = {}; try { config = JSON.parse(String(form.get("config") || "{}")); } catch { return notify("Advanced configuration must be valid JSON.", "error"); } try { await adminApi.createIntegration({ type: form.get("type"), name: form.get("name"), base_url: form.get("base_url") || undefined, api_key: form.get("api_key") || undefined, model: form.get("model") || undefined, config, is_active: true }); notify("Backend integration created."); setShowForm(false); await load(); } catch (reason) { notify(reason instanceof Error ? reason.message : "Integration creation failed", "error"); } };
   const remove = async (item: Integration) => { if (!confirm(`Delete ${item.name}?`)) return; try { await adminApi.deleteIntegration(item.id); notify("Integration removed."); await load(); } catch (reason) { notify(reason instanceof Error ? reason.message : "Could not delete integration", "error"); } };
   const filtered = items.filter((item) => `${item.name} ${item.type}`.toLowerCase().includes(search.toLowerCase()));
-  return <><div className="toolbar"><div className="search"><Search size={17} /><input placeholder="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} /></div><button className="primary-button" onClick={() => setShowForm(true)}><PlugZap size={17} />Create integration</button></div><div className="integration-grid">{filtered.map((item) => <article className="surface integration-card" key={item.id}><div className="integration-top"><span className="integration-logo">{item.type.slice(0, 2).toUpperCase()}</span><span className={`status-label ${item.is_active ? "active" : "muted"}`}><i />{item.is_active ? "Active" : "Inactive"}</span></div><h3>{item.name}</h3><p>{types.find((type) => type.value === item.type)?.description || item.type}</p><div className="integration-meta"><span>{item.type.split("_").join(" ")}</span><span>{item.base_url || item.model || "Server managed"}</span></div><div className="card-actions"><button className="text-button danger" onClick={() => void remove(item)}>Delete</button><button className="secondary-button">Manage <ExternalLink size={15} /></button></div></article>)}</div>
+  return <><div className="toolbar"><div className="search"><Search size={17} /><input placeholder="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} /></div><button className="primary-button" onClick={() => setShowForm(true)}><PlugZap size={17} />Create integration</button></div><div className="integration-grid">{filtered.map((item) => <article className="surface integration-card" key={item.id}><div className="integration-top"><span className="integration-logo">{item.type.slice(0, 2).toUpperCase()}</span><span className={`status-label ${item.is_active ? "active" : "muted"}`}><i />{item.is_active ? "Active" : "Inactive"}</span></div><h3>{item.name}</h3><p>{types.find((type) => type.value === item.type)?.description || item.type}</p><div className="integration-meta"><span>{item.type.split("_").join(" ")}</span><span>{item.base_url || item.model || "Server managed"}</span></div><div className="card-actions"><button className="text-button danger" onClick={() => void remove(item)}>Delete</button></div></article>)}</div>
     {!filtered.length ? <div className="empty-state"><PlugZap size={32} /><h3>No integrations found</h3><p>Create a backend connection for AI, issue tracking, identity, storage, or execution.</p></div> : null}
     {showForm ? <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}><form className="modal wide" onSubmit={create}><div className="modal-head"><div><p className="kicker">Server-side connection</p><h3>Create integration</h3></div><button type="button" onClick={() => setShowForm(false)}><X /></button></div><div className="form-grid"><label>Integration type<select name="type" required>{types.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label>Display name<input name="name" required minLength={2} placeholder="Production provider" /></label><label className="full">Base URL <span>optional</span><input name="base_url" type="url" placeholder="https://api.example.com" /></label><label>API key <span>encrypted boundary</span><input name="api_key" type="password" /></label><label>Model <span>for AI providers</span><input name="model" placeholder="e.g. gpt-5" /></label><label className="full">Advanced configuration <span>JSON</span><textarea name="config" defaultValue="{}" rows={5} /></label></div><div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="primary-button">Create connection</button></div></form></div> : null}</>;
 }
@@ -201,9 +270,9 @@ export function AdminApp() {
   if (!session) return <Login onAuthenticated={setSession} />;
   const logout = () => { sessionStore.clear(); setSession(null); };
   return <div className="admin-shell">
-    <aside className={sidebarOpen ? "sidebar open" : "sidebar"}><div className="brand sidebar-brand"><span className="brand-mark"><Sparkles size={19} /></span><span>HelloTest <b>Admin</b></span><button className="mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div><div className="instance-chip"><span>H</span><div><strong>HelloTest instance</strong><small><i /> Operational</small></div></div><nav>{nav.map((item) => <button className={section === item.id ? "active" : ""} key={item.id} onClick={() => { setSection(item.id); setSidebarOpen(false); }}>{item.icon}<span>{item.label}</span>{section === item.id ? <ChevronRight size={16} /> : null}</button>)}</nav><div className="sidebar-foot"><a href="http://localhost:5173" target="_blank" rel="noreferrer"><ExternalLink size={17} />Open HelloTest workspace</a><button onClick={logout}><LogOut size={17} />Sign out</button></div></aside>
+    <aside className={sidebarOpen ? "sidebar open" : "sidebar"}><div className="brand sidebar-brand"><span className="brand-mark"><Sparkles size={19} /></span><span>HelloTest <b>Admin</b></span><button aria-label="Close administration navigation" className="mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div><div className="instance-chip"><span>H</span><div><strong>HelloTest instance</strong><small><i /> Operational</small></div></div><nav>{nav.map((item) => <button className={section === item.id ? "active" : ""} key={item.id} onClick={() => { setSection(item.id); setSidebarOpen(false); }}>{item.icon}<span>{item.label}</span>{section === item.id ? <ChevronRight size={16} /> : null}</button>)}</nav><div className="sidebar-foot"><a href="http://localhost:5173" target="_blank" rel="noreferrer"><ExternalLink size={17} />Open HelloTest workspace</a><button onClick={logout}><LogOut size={17} />Sign out</button></div></aside>
     {sidebarOpen ? <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} /> : null}
-    <main className="admin-main"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="breadcrumb"><span>Administration</span><ChevronRight size={15} /><strong>{activeMeta.heading}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => void loadOverview()} title="Refresh"><RefreshCw size={18} /></button><button className="profile-button" onClick={() => setSection("security")}><span>{initials(session.user.name, session.user.email)}</span><div><strong>{session.user.name || "Administrator"}</strong><small>Workspace admin</small></div></button></div></header>
+    <main className="admin-main"><header className="topbar"><button aria-label="Open administration navigation" aria-expanded={sidebarOpen} className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="breadcrumb"><span>Administration</span><ChevronRight size={15} /><strong>{activeMeta.heading}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => void loadOverview()} title="Refresh"><RefreshCw size={18} /></button><button className="profile-button" onClick={() => setSection("security")}><span>{initials(session.user.name, session.user.email)}</span><div><strong>{session.user.name || "Administrator"}</strong><small>Workspace admin</small></div></button></div></header>
       {session.user.must_change_password ? <button className="security-banner" onClick={() => setSection("security")}><CircleAlert size={18} /><span><strong>Bootstrap password in use.</strong> Replace it now to secure this instance.</span><ArrowRight size={18} /></button> : null}
       <div className="page"><header className="page-heading"><div><p className="kicker">{activeMeta.eyebrow}</p><h1>{activeMeta.heading}</h1><p>{activeMeta.copy}</p></div>{section === "overview" ? <span className={`health-badge ${overview?.status === "operational" ? "good" : "warn"}`}><i />{overview?.status || "Checking"}</span> : null}</header>
         {state === "loading" && !overview ? <div className="loading"><RefreshCw className="spin" />Loading control plane…</div> : state === "error" && !overview ? <div className="empty-state"><CircleAlert /><h3>Control plane unavailable</h3><p>Confirm the backend and PostgreSQL are running, then retry.</p><button className="primary-button" onClick={() => void loadOverview()}>Retry</button></div> : content}

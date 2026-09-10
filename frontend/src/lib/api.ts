@@ -1,3 +1,4 @@
+import type { AnalyticsWindow, QualityOverview } from "./qualityAnalytics";
 import type { IntegrationConnectionInput, IntegrationConnectionResult } from "./integrationConnection";
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "../agents/types";
 import type { ExecutionCaseIdentity, ExecutionCaseLifecycleAction } from "./executionCaseLifecycle";
@@ -9,6 +10,7 @@ import type {
   AgenticAssistantSavedSessionResponse,
   AgenticWorkflow,
   AgenticWorkflowRun,
+  AgenticWorkflowReadiness,
   ApiKeyScope,
   ApiKeyScopeOption,
   AppNotification,
@@ -830,6 +832,8 @@ export const api = {
     })
   },
   analytics: {
+    overview: (input: { project_id: string; days: AnalyticsWindow }, options?: { signal?: AbortSignal }) =>
+      request<QualityOverview>(`/analytics/overview${toQueryString(input)}`, { signal: options?.signal, cache: "no-store" }),
     query: (input: { project_id: string; jql: string; gadget: QualityDashboardGadget; limit?: number }) =>
       request<QualityDashboardGadgetResult>("/analytics/jql", { method: "POST", body: JSON.stringify(input) }),
     queryBatch: (input: { project_id: string; gadgets: QualityDashboardGadget[]; limit?: number }) =>
@@ -2212,10 +2216,16 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string; limit?: number }, options?: { signal?: AbortSignal }) =>
+    readiness: (id: string) =>
+      request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness`, { cache: "no-store" }),
+    execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown> }) =>
+      request<AgenticWorkflowRun>(`/agentic-workflows/${encodeURIComponent(id)}/executions`, { method: "POST", body: JSON.stringify(input) }),
+    cancelRun: (id: string) =>
+      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+    listRuns: (query?: { project_id?: string; app_type_id?: string; workflow_id?: string; status?: string; limit?: number; summary_only?: boolean }, options?: { signal?: AbortSignal }) =>
       request<AgenticWorkflowRun[]>(`/agentic-workflow-runs${toQueryString(query)}`, { signal: options?.signal }),
-    getRun: (id: string) =>
-      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${id}`)
+    getRun: (id: string, options?: { signal?: AbortSignal }) =>
+      request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" })
   },
   executionResults: {
     ensure: (input: ExecutionCaseIdentity) => request<ExecutionResult>("/execution-results/ensure", { method: "POST", body: JSON.stringify(input) }),

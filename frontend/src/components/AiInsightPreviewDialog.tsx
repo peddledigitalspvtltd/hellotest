@@ -40,6 +40,7 @@ type AiInsightPreviewDialogProps = {
   subtitle: string;
   assuranceTitle: string;
   scoreLabel?: string;
+  showScore?: boolean;
   response: AiAssistedPreviewBase | null | undefined;
   loading?: boolean;
   error?: string | null;
@@ -80,6 +81,7 @@ export function AiInsightPreviewDialog({
   subtitle,
   assuranceTitle,
   scoreLabel = "Evidence grounding",
+  showScore = true,
   response,
   loading = false,
   error,
@@ -329,6 +331,7 @@ export function AiInsightPreviewDialog({
                     gaps={effectiveGaps}
                     provenance={provenanceLabel}
                     reviewState="review-required"
+                    showScore={showScore}
                     score={confidence}
                     scoreLabel={scoreLabel}
                     signals={effectiveSignals}

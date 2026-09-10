@@ -19,6 +19,7 @@ export function AiAssurancePanel({
   summary,
   score,
   scoreLabel,
+  showScore = true,
   provenance,
   reviewState,
   signals,
@@ -29,6 +30,7 @@ export function AiAssurancePanel({
   summary: string;
   score: number;
   scoreLabel: string;
+  showScore?: boolean;
   provenance: string;
   reviewState: AiReviewState;
   signals: AiAssuranceSignal[];
@@ -54,7 +56,7 @@ export function AiAssurancePanel({
 
       <p className="ai-assurance-summary">{summary}</p>
 
-      <div className="ai-assurance-score-row">
+      {showScore && <div className="ai-assurance-score-row">
         <div>
           <strong>{normalizedScore}%</strong>
           <span>{scoreLabel}</span>
@@ -74,7 +76,7 @@ export function AiAssurancePanel({
         <div className="ai-assurance-meter" aria-label={`${scoreLabel}: ${normalizedScore}%`} role="progressbar" aria-valuemax={100} aria-valuemin={0} aria-valuenow={normalizedScore}>
           <span className={scoreTone} style={{ width: `${normalizedScore}%` }} />
         </div>
-      </div>
+      </div>}
 
       <div className="ai-assurance-signals" aria-label="Decision signals">
         {signals.map((signal) => (
@@ -87,7 +89,7 @@ export function AiAssurancePanel({
 
       <div className="ai-assurance-foot">
         <span><b>Basis:</b> {provenance}</span>
-        <span>This percentage is a transparent readiness check, not model certainty.</span>
+        {showScore && <span>This percentage is a transparent readiness check, not model certainty.</span>}
       </div>
 
       {gaps.length ? (

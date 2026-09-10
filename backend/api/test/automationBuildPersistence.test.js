@@ -132,6 +132,29 @@ test("manual build preparation creates a separate linked case and copies module 
   assert.deepEqual(moduleWrites[0].args, ["automation-output", "manual"]);
 });
 
+test("recording never falls back to an unrelated linked step at the same position", async () => {
+  const moduleWrites = [];
+  const database = { prepare: sql => ({ get: async () => ({ id: "automation-output" }), all: async id => id === "manual" ? sourceSteps : sourceSteps.map((step, index) => ({ ...step, id: `target-${index}`, action: "A different step" })), run: async (...args) => moduleWrites.push(args) }) };
+  const service = loadService("../src/services/automationCasePreparation.service.js", { "../db": database, "./testCase.service": { getTestCase: async () => source } });
+  await assert.rejects(service.prepareAutomationTarget({ testCaseId: "manual", targetStepId: "login" }), { statusCode: 409 });
+  assert.equal(moduleWrites.length, 0);
+});
+
+test("recording retains exact matches after linked automation steps are reordered", async () => {
+  const targets = sourceSteps.map((step, index) => ({ ...step, id: `target-${index}` })).reverse();
+  const database = { prepare: () => ({ get: async () => ({ id: "automation-output" }), all: async id => id === "manual" ? sourceSteps : targets, run: async () => ({ changes: 1 }) }) };
+  const service = loadService("../src/services/automationCasePreparation.service.js", { "../db": database, "./testCase.service": { getTestCase: async () => source } });
+  const mapped = await service.prepareAutomationTarget({ testCaseId: "manual", targetStepId: "login" });
+  assert.equal(mapped.target_step_id, "target-1");
+});
+
+test("recording into an automated case validates that the chosen step belongs to it", async () => {
+  const database = { prepare: () => ({ all: async () => sourceSteps }) };
+  const service = loadService("../src/services/automationCasePreparation.service.js", { "../db": database, "./testCase.service": { getTestCase: async () => ({ ...source, automated: "yes" }) } });
+  await assert.rejects(service.prepareAutomationTarget({ testCaseId: "manual", targetStepId: "another-case-step" }), { statusCode: 400 });
+  assert.equal((await service.prepareAutomationTarget({ testCaseId: "manual", targetStepId: "login" })).target_step_id, "login");
+});
+
 test("automation status endpoint authorizes the transaction project and reports actual saved progress", async () => {
   let transaction = { id: "build", category: "automation_build", project_id: "project", status: "running", metadata: { progress_percent: 45, test_case_id: "automation-output" } };
   const checks = [];

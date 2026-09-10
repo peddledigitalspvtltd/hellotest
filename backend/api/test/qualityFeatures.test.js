@@ -54,13 +54,33 @@ test("hard evidence caps keep open critical defects and blocked results visible"
   assert.ok(metrics.releaseConfidence <= 39);
 });
 
-test("QA dashboard designer provides eight review-only widgets", () => {
+test("QA dashboard designer provides review-only widgets with explicit design provenance", async (t) => {
   const preview = dashboards.designPreview({ projectId: "project-1", stakeholder: "quality", release: "2026.07" });
   assert.equal(preview.preview_only, true);
   assert.equal(preview.requires_human_review, true);
   assert.equal(preview.dashboard.gadgets.length, 8);
   assert.equal(preview.dashboard.gadgets.every((item) => item.release === "2026.07"), true);
   assert.equal(preview.provenance.capability, "quality-dashboard-design-preview");
+  assert.equal(preview.provenance.design_method, "stakeholder_template");
+  assert.match(preview.provenance.design_basis, /predefined stakeholder template/);
+  assert.match(preview.provenance.confidence_basis, /no design accuracy score/);
+  assert.equal(typeof preview.confidence, "number", "Retains the existing wire contract for older clients");
+
+  const selection = require("../src/services/aiLlmSelection.service");
+  let integration = null;
+  t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => integration);
+  const fallback = await dashboards.designPreviewWithAi({ projectId: "project-1" });
+  assert.equal(fallback.fallback_used, true);
+  assert.equal(fallback.provenance.design_method, "stakeholder_template");
+
+  integration = { id: "model-fixture", name: "Fixture provider", type: "llm", model: "fixture-model" };
+  t.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ name: "Review dashboard", gadgets: [{ title: "Cases", metric: "testCases", type: "metric" }] }) } }] }), { status: 200 }));
+  const generated = await dashboards.designPreviewWithAi({ projectId: "project-1" });
+  assert.equal(generated.generation_mode, "llm");
+  assert.equal(generated.provenance.design_method, "model_draft");
+  assert.match(generated.provenance.design_basis, /normalized to supported widgets/);
+  assert.match(generated.provenance.confidence_basis, /no design accuracy score/);
+  assert.equal(generated.requires_human_review, true);
 });
 
 test("dashboard gadget count and visualization inputs are normalized", () => {

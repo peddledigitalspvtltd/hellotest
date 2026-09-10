@@ -314,6 +314,26 @@ const FEATURE_DEFINITIONS = FEATURE_GROUPS_WITH_PERMISSIONS.flatMap((group) =>
 
 const DEFAULT_FEATURE_FLAGS = Object.fromEntries(FEATURE_DEFINITIONS.map((feature) => [feature.key, feature.default_enabled !== false]));
 
+// A child capability cannot be called directly after its workspace is disabled.
+// Preview and step-code are intentionally independent: manual editors use them
+// without requiring the Automation workspace.
+const FEATURE_DEPENDENCIES = {
+  "hellotest.automation.assets": ["hellotest.automation.workspace"],
+  "hellotest.automation.object_repository": ["hellotest.automation.workspace"],
+  "hellotest.automation.builder": ["hellotest.automation.workspace"],
+  "hellotest.automation.local_execution": ["hellotest.automation.workspace"],
+  "hellotest.automation.remote_execution": ["hellotest.automation.workspace"],
+  "hellotest.automation.parallel_execution": ["hellotest.automation.workspace"]
+};
+
+const ROUTE_FEATURES = new Map([
+  ["GET /test-cases/automation/learning-cache", ["hellotest.automation.object_repository"]],
+  ["GET /test-cases/automation/repository-context", ["hellotest.automation.object_repository"]],
+  ["GET /test-cases/automation/learning-cache/:id/usage", ["hellotest.automation.object_repository"]],
+  ["GET /test-cases/automation/learning-cache/screens/:screenName/usage", ["hellotest.automation.object_repository"]],
+  ["POST /test-cases/automation/learning-cache/:id/ai-improve", ["hellotest.automation.object_repository"]]
+]);
+
 const normalizeObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 
 const normalizeBooleanFlagMap = (input) => {
@@ -321,7 +341,7 @@ const normalizeBooleanFlagMap = (input) => {
   return Object.fromEntries(
     FEATURE_DEFINITIONS.map((feature) => [
       feature.key,
-      typeof rawFlags[feature.key] === "boolean" ? rawFlags[feature.key] : DEFAULT_FEATURE_FLAGS[feature.key]
+      Object.hasOwn(rawFlags, feature.key) ? rawFlags[feature.key] === true : DEFAULT_FEATURE_FLAGS[feature.key]
     ])
   );
 };
@@ -337,42 +357,61 @@ const getStoredFlags = async () => {
 };
 
 const saveStoredFlags = async (flags) => {
-  const normalizedFlags = normalizeBooleanFlagMap({ flags });
+  if (!flags || typeof flags !== "object" || Array.isArray(flags)) {
+    throw Object.assign(new Error("Feature changes must be an object of known boolean flags."), { statusCode: 400, code: "INVALID_FEATURE_FLAGS" });
+  }
+  for (const [key, value] of Object.entries(flags)) {
+    if (!Object.hasOwn(DEFAULT_FEATURE_FLAGS, key) || typeof value !== "boolean") {
+      throw Object.assign(new Error(`Invalid feature flag: ${key}. Use a known flag with a boolean value.`), { statusCode: 400, code: "INVALID_FEATURE_FLAGS" });
+    }
+  }
+  if (!Object.keys(flags).length) return getStoredFlags();
 
-  await db.prepare(`
+  // Merge in PostgreSQL rather than read/replace in JavaScript. Independent
+  // administrator edits remain intact even when they arrive concurrently.
+  const row = await db.prepare(`
     INSERT INTO app_settings (key, value, updated_at)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT (key)
-    DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
-  `).run(FEATURE_FLAGS_SETTINGS_KEY, { flags: normalizedFlags });
+    DO UPDATE SET value = jsonb_set(
+      CASE WHEN jsonb_typeof(app_settings.value) = 'object' THEN app_settings.value ELSE '{}'::jsonb END,
+      '{flags}',
+      (CASE
+        WHEN jsonb_typeof(app_settings.value->'flags') = 'object' THEN app_settings.value->'flags'
+        WHEN jsonb_typeof(app_settings.value) = 'object' THEN app_settings.value
+        ELSE '{}'::jsonb
+      END) || ?::jsonb,
+      true
+    ), updated_at = CURRENT_TIMESTAMP
+    RETURNING value
+  `).get(FEATURE_FLAGS_SETTINGS_KEY, { flags: normalizeBooleanFlagMap({ flags }) }, flags);
 
-  return normalizedFlags;
+  return normalizeBooleanFlagMap(normalizeObject(row?.value));
 };
 
-const evaluateFlags = async () => {
-  const localFlags = await getStoredFlags();
-
-  return Object.fromEntries(
-    FEATURE_DEFINITIONS.map((feature) => {
-      const locallyEnabled = localFlags[feature.key] !== false;
-      return [feature.key, locallyEnabled];
-    })
-  );
-};
+const evaluateLocalFlags = (localFlags) => Object.fromEntries(
+  FEATURE_DEFINITIONS.map((feature) => [feature.key,
+    localFlags[feature.key] === true
+    && (FEATURE_DEPENDENCIES[feature.key] || []).every((key) => localFlags[key] === true)
+  ])
+);
+const evaluateFlags = async () => evaluateLocalFlags(await getStoredFlags());
 
 exports.FEATURE_GROUPS = FEATURE_GROUPS_WITH_PERMISSIONS;
 exports.FEATURE_DEFINITIONS = FEATURE_DEFINITIONS;
+exports.FEATURE_DEPENDENCIES = FEATURE_DEPENDENCIES;
+exports.getFeatureKeysForRoute = (method, routeUrl) => ROUTE_FEATURES.get(`${String(method).toUpperCase() === "HEAD" ? "GET" : String(method).toUpperCase()} ${routeUrl}`) || [];
 
-exports.getSnapshot = async ({ user } = {}) => ({
-  groups: FEATURE_GROUPS_WITH_PERMISSIONS,
-  flags: await evaluateFlags({ user }),
-  local_flags: await getStoredFlags(),
-  provider: {
-    type: "local",
-    configured: true,
-    connected: true
-  }
-});
+exports.getSnapshot = async () => {
+  const localFlags = await getStoredFlags();
+  return {
+    groups: FEATURE_GROUPS_WITH_PERMISSIONS,
+    flags: evaluateLocalFlags(localFlags),
+    local_flags: localFlags,
+    dependencies: FEATURE_DEPENDENCIES,
+    provider: { type: "local", configured: true, connected: true }
+  };
+};
 
 exports.updateLocalFlags = async (flags) => ({
   updated: true,
@@ -380,19 +419,22 @@ exports.updateLocalFlags = async (flags) => ({
 });
 
 exports.isEnabled = async (featureKey, { user } = {}) => {
+  if (typeof featureKey !== "string" || !Object.hasOwn(DEFAULT_FEATURE_FLAGS, featureKey)) return false;
   const flags = await evaluateFlags({ user });
-  return flags[featureKey] !== false;
+  return Object.hasOwn(flags, featureKey) && flags[featureKey] === true;
 };
 
 exports.areEnabled = async (featureKeys = [], { user } = {}) => {
-  const keys = Array.isArray(featureKeys) ? featureKeys.filter(Boolean) : [];
+  if (!Array.isArray(featureKeys)) return false;
+  const keys = featureKeys;
+  if (keys.some((key) => typeof key !== "string" || !Object.hasOwn(DEFAULT_FEATURE_FLAGS, key))) return false;
 
   if (!keys.length) {
     return true;
   }
 
   const flags = await evaluateFlags({ user });
-  return keys.every((featureKey) => flags[featureKey] !== false);
+  return keys.every((featureKey) => typeof featureKey === "string" && Object.hasOwn(flags, featureKey) && flags[featureKey] === true);
 };
 
 exports.getFeatureKeysForPermission = (permissionCode) => PERMISSION_FEATURES[permissionCode] || [];
@@ -408,7 +450,7 @@ exports.getDisabledPermissionCodes = async (permissionCodes = []) => {
 
   return codes.filter((permissionCode) => {
     const featureKeys = exports.getFeatureKeysForPermission(permissionCode);
-    return featureKeys.some((featureKey) => flags[featureKey] === false);
+    return featureKeys.some((featureKey) => flags[featureKey] !== true);
   });
 };
 
@@ -418,17 +460,12 @@ exports.filterPermissionsByEnabledFeatures = async (permissions = []) => {
 };
 
 exports.filterPermissionGroupsByEnabledFeatures = async (permissionGroups = []) => {
-  const filteredGroups = await Promise.all(
-    permissionGroups.map(async (group) => ({
-      ...group,
-      permissions: (await exports.filterPermissionsByEnabledFeatures(
-        group.permissions.map((permission) => Array.isArray(permission)
-          ? { code: permission[0], description: permission[1], tuple: permission }
-          : permission
-        )
-      )).map((permission) => permission.tuple || permission)
-    }))
-  );
+  const codes = permissionGroups.flatMap((group) => group.permissions.map((permission) => Array.isArray(permission) ? permission[0] : permission.code));
+  const disabledCodes = new Set(await exports.getDisabledPermissionCodes(codes));
+  const filteredGroups = permissionGroups.map((group) => ({
+    ...group,
+    permissions: group.permissions.filter((permission) => !disabledCodes.has(Array.isArray(permission) ? permission[0] : permission.code))
+  }));
 
   return filteredGroups.filter((group) => group.permissions.length);
 };

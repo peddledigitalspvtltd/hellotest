@@ -430,7 +430,11 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   const canView = async (permissionCode) => {
     execution.assertActive();
     if (!user) return false;
-    if (!permissionCache.has(permissionCode)) permissionCache.set(permissionCode, permissionService.hasPermission(user, permissionCode, projectId));
+    if (!permissionCache.has(permissionCode)) permissionCache.set(permissionCode, (async () => {
+      if (!await permissionService.hasPermission(user, permissionCode, projectId)) return false;
+      const flags = require("./featureFlag.service");
+      return flags.areEnabled(flags.getFeatureKeysForPermission(permissionCode), { user });
+    })());
     const allowed = Boolean(await permissionCache.get(permissionCode));
     execution.assertActive();
     return allowed;

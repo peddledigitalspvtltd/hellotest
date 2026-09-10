@@ -10,6 +10,7 @@ const rag = require("../src/services/knowledgeRag.service");
 const selection = require("../src/services/aiLlmSelection.service");
 const transactions = require("../src/services/workspaceTransaction.service");
 const permissions = require("../src/services/permission.service");
+const flags = require("../src/services/featureFlag.service");
 const projects = require("../src/services/project.service");
 const appTypes = require("../src/services/appType.service");
 const db = require("../src/db");
@@ -28,6 +29,7 @@ function setupAssistant(t, { model = null } = {}) {
   const events = [];
   const records = [];
   t.mock.method(permissions, "hasPermission", async () => true);
+  t.mock.method(flags, "areEnabled", async () => true);
   t.mock.method(knowledge, "buildKnowledgeContextPackage", async () => ({ knowledge: [], retrieval: {} }));
   t.mock.method(rag, "search", async () => ({ results: [], retrieval: {} }));
   t.mock.method(context, "buildLiveProjectEvidence", async () => ({ hits: [storyHit()], counts: { stories: 5 } }));
@@ -71,6 +73,23 @@ test("failed knowledge retrieval preserves available current project evidence", 
   assert.equal(result.provenance.degraded, true);
   assert.match(result.result.evidence_gaps.join(" "), /Knowledge retrieval was unavailable/);
   assert.doesNotMatch(JSON.stringify(result), /private provider details/);
+});
+
+test("disabled knowledge capability prevents specialist retrieval even when its permission is granted", async t => {
+  setupAssistant(t);
+  t.mock.method(flags, "areEnabled", async () => false);
+  t.mock.method(knowledge, "buildKnowledgeContextPackage", async () => assert.fail("Disabled knowledge must not be retrieved"));
+  t.mock.method(rag, "search", async () => assert.fail("Disabled knowledge must not be retrieved"));
+  const result = await assistant.respond(input);
+  assert.ok(result.citations.length, "Permitted live project evidence still remains available");
+});
+
+test("indexed source permissions exclude disabled product capabilities", async t => {
+  t.mock.method(permissions, "hasPermission", async () => true);
+  t.mock.method(flags, "areEnabled", async keys => !keys.includes("hellotest.manual.requirements"));
+  const allowed = await rag.resolveAllowedSourcePermissions(user, "project-a");
+  assert.equal(allowed.includes("requirement.view"), false);
+  assert.ok(allowed.includes("testcase.view"));
 });
 
 test("failed live reads never become an authoritative zero", async t => {

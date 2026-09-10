@@ -16,18 +16,27 @@ const copyModuleMembership = db.prepare(`
 
 exports.prepareAutomationTarget = async ({ testCaseId, createdBy, targetStepId } = {}) => {
   const source = await testCaseService.getTestCase(testCaseId);
-  if (source.automated === "yes") return { test_case_id: source.id, source_test_case_id: null, target_step_id: targetStepId || null };
+  if (source.automated === "yes") {
+    if (targetStepId && !(await selectSteps.all(source.id)).some(step => step.id === targetStepId)) throw Object.assign(new Error("The selected recorder target step does not belong to this test case."), { statusCode: 400 });
+    return { test_case_id: source.id, source_test_case_id: null, target_step_id: targetStepId || null };
+  }
   const sourceSteps = await selectSteps.all(source.id);
   const sourceStepIndex = targetStepId ? sourceSteps.findIndex((step) => step.id === targetStepId) : -1;
-  if (targetStepId && sourceStepIndex < 0) throw new Error("The selected recorder target step does not belong to this test case.");
+  if (targetStepId && sourceStepIndex < 0) throw Object.assign(new Error("The selected recorder target step does not belong to this test case."), { statusCode: 400 });
   const existing = await selectPreparedCase.get(source.app_type_id, `automation-builder:${source.id}`);
   const prepared = existing || await testCaseService.createTestCase(buildAutomationCaseBlueprint({ source, steps: sourceSteps, createdBy }));
-  await copyModuleMembership.run(prepared.id, source.id);
   const targetSteps = targetStepId ? await selectSteps.all(prepared.id) : [];
   const sourceStep = sourceSteps[sourceStepIndex];
-  const matchingTargetSteps = targetStepId ? targetSteps.filter((step) => step.action === sourceStep.action && step.expected_result === sourceStep.expected_result) : [];
-  const sourceOccurrence = targetStepId ? sourceSteps.slice(0, sourceStepIndex).filter((step) => step.action === sourceStep.action && step.expected_result === sourceStep.expected_result).length : 0;
-  const targetStep = targetStepId ? matchingTargetSteps[sourceOccurrence] || targetSteps[sourceStepIndex] : null;
-  if (targetStepId && !targetStep) throw new Error("The linked automation case no longer contains this manual step. Restore its step mapping before recording.");
+  const sameStep = step => step.action === sourceStep.action && step.expected_result === sourceStep.expected_result
+    && (step.step_type || "web") === (sourceStep.step_type || "web")
+    && (step.reusable_group_id || null) === (sourceStep.reusable_group_id || null);
+  const matchingTargetSteps = targetStepId ? targetSteps.filter(sameStep) : [];
+  const matchingSourceSteps = targetStepId ? sourceSteps.filter(sameStep) : [];
+  const sourceOccurrence = targetStepId ? sourceSteps.slice(0, sourceStepIndex).filter(sameStep).length : 0;
+  // Step positions can change independently in linked cases. Never substitute
+  // an unrelated step just because it occupies the old recorder position.
+  const targetStep = targetStepId && matchingSourceSteps.length === matchingTargetSteps.length ? matchingTargetSteps[sourceOccurrence] : null;
+  if (targetStepId && !targetStep) throw Object.assign(new Error("The linked automation case no longer has an unambiguous match for this manual step. Restore its step mapping before recording."), { statusCode: 409 });
+  await copyModuleMembership.run(prepared.id, source.id);
   return { test_case_id: prepared.id, source_test_case_id: source.id, target_step_id: targetStep?.id || null };
 };

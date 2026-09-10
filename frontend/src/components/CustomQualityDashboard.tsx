@@ -814,7 +814,11 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                     <FormField className="dashboard-designer-prompt" label="Dashboard build prompt" hint="Use this rich default, erase it, or write your own bounded quality-dashboard brief."><textarea maxLength={2000} rows={5} value={designerDraft.prompt} onChange={(event) => setDesignerDraft((current) => ({ ...current, prompt: event.target.value }))} /></FormField>
                     <button className="primary-button" disabled={!canManage || design.isPending} onClick={() => design.mutate({ ...designerDraft, projectId, editorGeneration: editorGenerationRef.current })} type="button"><SparkIcon />{design.isPending ? "Designing…" : "Design draft"}</button>
                   </div>
-                  {design.data ? <div className="dashboard-design-assurance"><span className="dashboard-design-confidence">{Math.round(design.data.confidence * 100)}% design confidence <MetricMethodologyInfo criteriaKey="metric.ai.evidence_grounding" evidence={`${asArray(design.data.dashboard?.gadgets).length} bounded gadget proposals and ${asArray(design.data.provenance?.evidence).length} evidence references.`} organizationCriteria={getMetricCriteria("metric.ai.evidence_grounding")} /></span><span>{asArray(design.data.dashboard?.gadgets).length} bounded gadgets</span><span>Editable draft</span></div> : null}
+                  {design.data ? <>
+                    <div className="dashboard-design-assurance"><span>{design.data.generation_mode === "llm" ? "Model draft" : "Stakeholder template"}</span><span>{asArray(design.data.dashboard?.gadgets).length} supported widgets</span><span>Review before saving</span></div>
+                    <p className="helper-text">{design.data.provenance?.design_basis || "Review metric choices and layout against your question. No design accuracy score is calculated."}</p>
+                    {design.data.fallback_used && design.data.fallback_reason ? <p className="helper-text">{design.data.fallback_reason}</p> : null}
+                  </> : null}
                 </section>
               </section> : null}
               </fieldset>

@@ -5108,7 +5108,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <OpenIcon />
                     <span>Run remote</span>
                   </button>
-                  <button className="primary-button automation-choose-manual-toolbar-button" onClick={() => setIsCreateAutomationOpen(true)} type="button">
+                  <button className="primary-button automation-choose-manual-toolbar-button" disabled={!canUseAutomationBuilder || !appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
                     <AddIcon />
                     <span>Create automation case</span>
                   </button>
@@ -5117,8 +5117,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             )}
           >
             {testCasesQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-            {!testCasesQuery.isLoading && !automatedCases.length ? (
-              <div className="empty-state compact">No automation cases yet. Create one from a manual case, AI guidance, recorder capture, or a blank canvas.</div>
+            {testCasesQuery.isError ? <div className="workspace-access-state" role="alert"><h2>Automation cases couldn’t be loaded</h2><p>Retry to restore your cases and their current state.</p><button className="ghost-button" type="button" onClick={() => void testCasesQuery.refetch()}>Retry</button></div> : null}
+            {testCasesQuery.isSuccess && !automatedCases.length ? (
+              <section className="automation-start-guide">
+                <div><span className="eyebrow">Build your first automation</span><h2>Start with a behavior worth protecting.</h2><p>Bring a manual case or describe the flow. Review the generated steps and objects before your first run.</p></div>
+                <div className="automation-start-options">
+                  <article><span className="automation-start-number">01</span><h3>Define the behavior</h3><p>Use an existing case, record a browser flow or author steps in the editor.</p><button className="primary-button" disabled={!canUseAutomationBuilder || !appTypeId} type="button" onClick={() => setIsCreateAutomationOpen(true)}>Create automation case <span aria-hidden="true">→</span></button>{!canUseAutomationBuilder ? <small>Automation authoring permission is required.</small> : !appTypeId ? <small>Select an application to begin.</small> : null}</article>
+                  <article><span className="automation-start-number">02</span><h3>Build reusable objects</h3><p>Generate locator candidates from source and review them in the object repository.</p>{hasPermission(session, "agentic_workflow.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button" type="button" onClick={() => navigate("/agentic-workflows?view=agents")}>Explore source agents <span aria-hidden="true">→</span></button> : <small>Source agents need agent access and the Agents feature.</small>}</article>
+                  <article><span className="automation-start-number">03</span><h3>Run with evidence</h3><p>Choose an environment and configuration, then capture outcomes, logs and attachments.</p><small>Run actions become available after you select an automation case.</small></article>
+                </div>
+              </section>
             ) : null}
             {!testCasesQuery.isLoading && automatedCases.length ? (
               <TileBrowserPane className="automation-case-tile-browser" scrollKey={`automation-cases:${projectId}:${appTypeId}`}>

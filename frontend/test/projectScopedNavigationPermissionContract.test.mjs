@@ -32,11 +32,11 @@ test("workspace route, tab, and quick-action gates pass the active project", asy
   const [shell, sectionTabs, overview] = await Promise.all([
     readSource("../src/components/AppShell.tsx"),
     readSource("../src/components/WorkspaceSectionTabs.tsx"),
-    readSource("../src/pages/OverviewPage.tsx")
+    readSource("../src/components/QualityAnalyticsDashboard.tsx")
   ]);
 
   assert.match(shell, /canAccessPath\(session, location\.pathname, pageAccess, sidebarProjectId\)/);
   assert.match(shell, /hasAnyPermission\(session, getNavigationItemPermissions\(item, pageAccess\), sidebarProjectId\)/);
   assert.match(sectionTabs, /hasAnyPermission\(session, requiredPermissionsForPath\(item\.to, pageAccess\), projectId\)/);
-  assert.match(overview, /canAccessPath\(session, action\.to, undefined, activeProjectId\)/);
+  assert.match(overview, /canAccessPath\(session, to, undefined, projectId\)/);
 });

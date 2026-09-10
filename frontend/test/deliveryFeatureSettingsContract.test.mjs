@@ -16,7 +16,11 @@ test("Admin Feature Availability explains accumulated manual workflow boundaries
   ]);
 
   assert.match(adminApp, /feature\.description \|\| ""/);
-  assert.match(adminApp, /API permissions, and contextual creation controls/);
+  // Policy edits are based on administrator intent, not effective dependency
+  // values; publishing a parent toggle must preserve unrelated child settings.
+  assert.match(adminApp, /createFeatureFlagPatch\(snapshot\.local_flags \|\| snapshot\.flags, draft\)/);
+  assert.match(adminApp, /adminApi\.updateFlags\(patch\)/);
+  assert.match(adminApp, /effectiveFeatureFlags\(draft, snapshot\?\.dependencies\)/);
   assert.match(adminApp, /\{feature\.description \? <span>\{feature\.description\}<\/span> : null\}/);
   assert.match(adminApp, /aria-pressed=\{Boolean\(draft\[feature\.key\]\)\}/);
   assert.match(adminApp, /\(feature\.routes \|\| \[\]\)\.join\(" "\)/);

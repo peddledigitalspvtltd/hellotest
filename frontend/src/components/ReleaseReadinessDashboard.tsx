@@ -1,1065 +1,1224 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   IconAlertTriangle,
   IconArrowRight,
   IconBug,
-  IconChartBar,
   IconCheck,
-  IconChevronRight,
-  IconCircleCheck,
+  IconChevronDown,
   IconClock,
-  IconExternalLink,
-  IconFileAnalytics,
-  IconFlag,
   IconGitBranch,
   IconListCheck,
   IconRefresh,
-  IconRoute,
   IconShieldCheck,
   IconSparkles,
-  IconTargetArrow,
-  IconTestPipe
+  IconTestPipe,
 } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
+import { useLocalization } from "../context/LocalizationContext";
 import { useCurrentProject } from "../hooks/useCurrentProject";
-import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
-import { useWorkspaceData } from "../hooks/useWorkspaceData";
 import { api } from "../lib/api";
-import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import {
   deriveReleaseReadiness,
+  isCriticalReadinessIssue,
   releaseReadinessScopeOptions,
-  type ReadinessGateState
 } from "../lib/releaseReadiness";
-import type { ExecutionResult } from "../types";
-import { AiInsightPreviewDialog, type AiPreviewFinding } from "./AiInsightPreviewDialog";
-import { EvidenceFlipCard } from "./EvidenceFlipCard";
-import { ReleaseReadinessIcon } from "./AppIcons";
+import { READINESS_MESSAGES } from "../lib/releaseReadinessMessages";
+import {
+  AiInsightPreviewDialog,
+  type AiPreviewFinding,
+} from "./AiInsightPreviewDialog";
 import { LoadingState } from "./LoadingState";
-import { MetricMethodologyInfo } from "./MetricMethodologyInfo";
-import { ProgressMeter } from "./ProgressMeter";
 import { StatusBadge } from "./StatusBadge";
 import "./ReleaseReadinessDashboard.css";
 
-type ReadinessView = "brief" | "traceability" | "execution";
-
-const dateTimeFormatter = new Intl.DateTimeFormat("en", {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit"
-});
-
-const latestResultMap = (results: ExecutionResult[]) => {
-  const latest = new Map<string, ExecutionResult>();
-  results.forEach((result) => {
-    const key = `${result.execution_id}:${result.test_case_id}`;
-    const current = latest.get(key);
-    const currentTimestamp = current?.updated_at || current?.created_at;
-    const nextTimestamp = result.updated_at || result.created_at;
-    const currentTime = currentTimestamp ? new Date(currentTimestamp).getTime() || 0 : 0;
-    const nextTime = nextTimestamp ? new Date(nextTimestamp).getTime() || 0 : 0;
-    const isNewer = nextTime > currentTime
-      || (nextTime === currentTime && String(result.id).localeCompare(String(current?.id || "")) > 0);
-    if (!current || isNewer) latest.set(key, result);
-  });
-  return latest;
-};
-
-function GateIcon({ state }: { state: ReadinessGateState }) {
-  return (
-    <span aria-hidden="true" className={`readiness-gate-icon is-${state}`}>
-      {state === "pass"
-        ? <IconCheck size={15} stroke={2.4} />
-        : state === "block"
-          ? <IconAlertTriangle size={15} stroke={2.2} />
-          : <IconClock size={15} stroke={2.1} />}
-    </span>
-  );
-}
-
-function ScopeSelect({
-  label,
-  value,
-  options,
-  emptyLabel,
-  onChange,
-  disabled = false
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  emptyLabel: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="readiness-scope-field">
-      <span>{label}</span>
-      <select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">{emptyLabel}</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-  tone,
-  progress,
-  methodology
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  detail: string;
-  tone: "blue" | "green" | "amber" | "red";
-  progress?: number;
-  methodology?: ReactNode;
-}) {
-  const mappedTone = tone === "green" ? "success" : tone === "amber" ? "warning" : tone === "red" ? "danger" : "info";
-  return (
-    <EvidenceFlipCard
-      caption={typeof progress === "number" ? `${Math.max(0, Math.min(100, Math.round(progress)))}% measured` : "Open for evidence"}
-      className={`readiness-metric-flip-card is-${tone}`}
-      evidence={[detail, methodology].filter(Boolean) as ReactNode[]}
-      frontIcon={icon}
-      label={label}
-      maxEvidenceItems={3}
-      tone={mappedTone}
-      value={value}
-    />
-  );
-}
+type View = "review" | "stories" | "runs";
+const PAGE_SIZE = 100;
+const MAX_PAGES = 10;
+const RUN_LIMIT = 10;
+const RESULT_LIMIT = 300;
+const same = (a: unknown, b: unknown) =>
+  String(a || "")
+    .trim()
+    .toLowerCase() ===
+  String(b || "")
+    .trim()
+    .toLowerCase();
+const unique = <T extends { id: string }>(items: T[]) => [
+  ...new Map(items.map((item) => [item.id, item])).values(),
+];
 
 export function ReleaseReadinessDashboard() {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const { session } = useAuth();
-  const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [projectId] = useCurrentProject();
-  const requestedReleaseId = searchParams.get("release_id") || "";
+  const { t } = useLocalization();
+  if (!projectId)
+    return (
+      <div className="release-review">
+        <div className="rr-empty">
+          <IconGitBranch size={30} />
+          <h2>
+            {t(
+              "readiness.noProject",
+              READINESS_MESSAGES["readiness.noProject"],
+            )}
+          </h2>
+        </div>
+      </div>
+    );
+  // Project changes destroy local selections and pending AI responses.
+  return <ReadinessWorkspace key={projectId} projectId={projectId} />;
+}
+
+function ReadinessWorkspace({ projectId }: { projectId: string }) {
+  const { session } = useAuth();
+  const { t, formatDate, formatNumber } = useLocalization();
+  const text = (key: string, values?: Record<string, string | number>) =>
+    t(`readiness.${key}`, READINESS_MESSAGES[`readiness.${key}`], values);
+  const n = (value: number) => formatNumber(value);
+  const flags = useFeatureFlags();
+  const authorizationKey = JSON.stringify([session?.user.id, session?.user.role, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions, flags.data?.flags]);
+  const dashboardGranted = hasPermission(session, "dashboard.view", projectId);
+  const dashboardEnabled = areFeatureFlagsEnabled(flags.data, ["hellotest.analytics.dashboards"]);
+  const allowed = (permission: string, flag: string) =>
+    dashboardGranted && dashboardEnabled && hasPermission(session, permission, projectId) &&
+    areFeatureFlagsEnabled(flags.data, [flag]);
+  const canStories = allowed(
+    "requirement.view",
+    "hellotest.manual.requirements",
+  );
+  const canCases = allowed("testcase.view", "hellotest.manual.test_cases");
+  const canBugs = allowed("feedback.view", "hellotest.manual.bugs");
+  const canRuns =
+    allowed("run.view", "hellotest.manual.runs") &&
+    hasPermission(session, "result.view", projectId);
+  const canProjects = allowed("project.view", "hellotest.ops.projects");
+  const canAi = canStories && canCases && canBugs && canRuns && allowed("suite.view", "hellotest.manual.suites") && allowed("quality_insight.view", "hellotest.ai.quality_insights");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const releaseId = searchParams.get("release_id") || "";
   const requestedRelease = searchParams.get("release") || "";
-  const requestedSprint = searchParams.get("sprint") || "";
-  const [release, setRelease] = useState(requestedRelease);
-  const [sprint, setSprint] = useState(requestedSprint);
-  const [activeView, setActiveView] = useState<ReadinessView>("brief");
-  const [isAiOpen, setIsAiOpen] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedGateId, setSelectedGateId] = useState("");
-  const [selectedHotspotId, setSelectedHotspotId] = useState("");
-  const [selectedExecutionId, setSelectedExecutionId] = useState("");
-  const { getMetricCriteria } = useAiPromptRegistry();
-  const canViewProjects = hasPermission(session, "project.view", projectId);
-  const canViewStories = hasPermission(session, "requirement.view", projectId);
-  const canViewCases = hasPermission(session, "testcase.view", projectId);
-  const canViewRuns = hasPermission(session, "run.view", projectId);
-  const canViewResults = hasPermission(session, "result.view", projectId);
-  const canViewBugs = hasPermission(session, "feedback.view", projectId);
-  const unavailableEvidenceSources = [
-    !canViewStories ? "Stories" : "",
-    !canViewCases ? "Test Cases" : "",
-    !canViewRuns ? "Runs" : "",
-    !canViewResults ? "Results" : "",
-    !canViewBugs ? "Bugs" : ""
-  ].filter(Boolean);
-  const workspace = useWorkspaceData({
-    users: false,
-    roles: false,
-    projects: canViewProjects,
-    projectMembers: false,
-    appTypes: false,
-    testSuites: false,
-    requirements: false,
-    testCases: false,
-    executions: false,
-    executionResults: false,
-    issues: false
+  const sprint = searchParams.get("sprint") || "";
+  const [view, setView] = useState<View>("review");
+  const [actionLimit, setActionLimit] = useState(6);
+  const [aiScope, setAiScope] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const tabId = useId();
+  const projects = useQuery({
+    queryKey: ["release-review-projects", authorizationKey],
+    queryFn: () => api.projects.list(),
+    enabled: canProjects,
+    staleTime: 60_000,
   });
-  const projects = asArray(workspace.projects.data);
-  const activeProjectId = String(projectId || projects[0]?.id || "");
-  const selectedProject = projects.find((project) => String(project.id) === activeProjectId) || null;
-  const releaseContextQuery = useQuery({
-    queryKey: ["release-readiness-context", requestedReleaseId],
-    queryFn: () => api.requirementReleases.get(requestedReleaseId),
-    enabled: Boolean(requestedReleaseId),
-    staleTime: 30_000
+  const context = useQuery({
+    queryKey: ["release-review-context", authorizationKey, projectId, releaseId],
+    queryFn: () => api.requirementReleases.get(releaseId),
+    enabled: Boolean(releaseId && canStories),
+    staleTime: 30_000,
+    retry: 1,
   });
-  const releaseContext = releaseContextQuery.data && String(releaseContextQuery.data.project_id) === activeProjectId
-    ? releaseContextQuery.data
-    : null;
-  const deepLinkedRelease = releaseContext?.fix_version || requestedRelease;
-  const isReleaseScopeLocked = Boolean(requestedReleaseId && releaseContext);
-  const requirementsPageQuery = useQuery({
-    queryKey: ["release-readiness-stories", activeProjectId],
-    queryFn: () => api.requirements.listPage({
-      project_id: activeProjectId,
-      page_size: 100,
-      projection: "summary"
-    }),
-    enabled: Boolean(activeProjectId && canViewStories),
-    staleTime: 30_000
-  });
-  const testCasesPageQuery = useQuery({
-    queryKey: ["release-readiness-test-cases", activeProjectId],
-    queryFn: () => api.testCases.listPage({
-      page_size: 100,
-      projection: "summary"
-    }),
-    enabled: Boolean(activeProjectId && canViewCases),
-    staleTime: 30_000
-  });
-  const issuesPageQuery = useQuery({
-    queryKey: ["release-readiness-bugs", activeProjectId],
-    queryFn: () => api.issues.listPage({
-      project_id: activeProjectId,
-      page_size: 100,
-      projection: "detail"
-    }),
-    enabled: Boolean(activeProjectId && canViewBugs),
-    staleTime: 30_000
-  });
-  const executionEvidenceQuery = useQuery({
-    queryKey: ["release-readiness-execution-evidence", activeProjectId, release, sprint],
-    queryFn: () => api.executionResults.releaseReadiness({
-      project_id: activeProjectId,
-      ...(release ? { release } : {}),
-      ...(sprint ? { sprint } : {}),
-      run_limit: 10,
-      result_limit: 300
-    }),
-    enabled: Boolean(
-      activeProjectId
-      && canViewRuns
-      && canViewResults
-      && (!requestedReleaseId || releaseContext || releaseContextQuery.isError)
-    ),
-    staleTime: 30_000
-  });
+  const validContext =
+    context.data && String(context.data.project_id) === projectId
+      ? context.data
+      : null;
+  const invalidContext = Boolean(
+    releaseId &&
+      (!canStories || context.isError || (context.data && !validContext)),
+  );
+  const release = validContext?.fix_version || requestedRelease;
+  const contextReady = !releaseId || Boolean(validContext);
+  const [draftRelease, setDraftRelease] = useState(release);
+  const [draftSprint, setDraftSprint] = useState(sprint);
   useEffect(() => {
-    setRelease(deepLinkedRelease);
-    setSprint(requestedSprint);
-    setSelectedGateId("");
-    setSelectedHotspotId("");
-    setSelectedExecutionId("");
-    setIsAiOpen(false);
-  }, [activeProjectId, deepLinkedRelease, requestedSprint]);
-  const requirements = useMemo(
-    () => (requirementsPageQuery.data?.items || []).filter((requirement) => String(requirement.project_id) === activeProjectId),
-    [activeProjectId, requirementsPageQuery.data?.items]
-  );
-  const readinessRequirements = useMemo(() => {
-    if (!releaseContext) return requirements;
-    return asArray(releaseContext.requirements).map((requirement) => ({
-      ...requirement,
-      fix_version: releaseContext.fix_version,
-      release: releaseContext.name
-    }));
-  }, [releaseContext, requirements]);
-  const executions = useMemo(
-    () => (executionEvidenceQuery.data?.executions || []).filter((execution) => String(execution.project_id) === activeProjectId),
-    [activeProjectId, executionEvidenceQuery.data?.executions]
-  );
-  const executionIds = useMemo(() => new Set(executions.map((execution) => execution.id)), [executions]);
-  const results = useMemo(
-    () => (executionEvidenceQuery.data?.results || []).filter((result) => executionIds.has(result.execution_id)),
-    [executionEvidenceQuery.data?.results, executionIds]
-  );
-  const testCases = testCasesPageQuery.data?.items || [];
-  const issues = issuesPageQuery.data?.items || [];
-  const ambiguousSprintNames = (() => {
-    const idsByName = new Map<string, Set<string>>();
-    requirements.forEach((requirement) => {
-      const name = String(requirement.sprint || "").trim();
-      const id = String(requirement.sprint_id || "").trim();
-      if (!name || !id) return;
-      const key = name.toLowerCase();
-      const ids = idsByName.get(key) || new Set<string>();
-      ids.add(id);
-      idsByName.set(key, ids);
-    });
-    return [...idsByName.entries()].filter(([, ids]) => ids.size > 1).map(([name]) => name);
-  })();
-  const incompleteEvidenceSources = [
-    !releaseContext && requirementsPageQuery.data?.is_last === false ? `Stories are paged (${requirements.length} of ${requirementsPageQuery.data.total} loaded)` : "",
-    testCasesPageQuery.data?.is_last === false ? `Test Cases are paged (${testCases.length} of ${testCasesPageQuery.data.total} loaded)` : "",
-    issuesPageQuery.data?.is_last === false ? `Bugs are paged (${issues.length} of ${issuesPageQuery.data.total} loaded)` : "",
-    executionEvidenceQuery.data?.complete === false
-      ? `run evidence is bounded (${executionEvidenceQuery.data.reasons.join(", ").replace(/_/g, " ") || "scan limit"})`
-      : "",
-    issues.some((issue) => issue.traceability_truncated === true) ? "Bug traceability is truncated" : "",
-    testCases.some((testCase) => testCase.detail_complete === false && testCase.summary_complete !== true)
-      ? "legacy Test Case summary metadata is unknown"
-      : "",
-    ambiguousSprintNames.length
-      ? `duplicate Sprint names require Fix Version disambiguation (${ambiguousSprintNames.join(", ")})`
-      : "",
-    executions.some((execution) => Number(execution.scope_case_count || 0) > new Set([
-      ...(execution.test_case_ids || []),
-      ...(execution.direct_test_case_ids || []),
-      ...(execution.case_snapshots || []).map((item) => item.test_case_id)
-    ]).size) ? "one or more run scopes are only partially projected" : ""
-  ].filter(Boolean);
-  const evidenceScopeIncomplete = incompleteEvidenceSources.length > 0;
-  const evidenceLoadFailed = (canViewStories && requirementsPageQuery.isError)
-    || (canViewCases && testCasesPageQuery.isError)
-    || (canViewBugs && issuesPageQuery.isError)
-    || (canViewRuns && canViewResults && executionEvidenceQuery.isError);
-  const scopeIsExplicit = Boolean(release || sprint);
-  const evidenceIsProvisional = evidenceScopeIncomplete
-    || evidenceLoadFailed
-    || unavailableEvidenceSources.length > 0
-    || !scopeIsExplicit;
-  const scopeOptions = useMemo(
-    () => {
-      const options = releaseReadinessScopeOptions(readinessRequirements, executions, issues);
-      return releaseContext && !options.releases.includes(releaseContext.fix_version)
-        ? { ...options, releases: [releaseContext.fix_version, ...options.releases] }
-        : options;
-    },
-    [executions, issues, readinessRequirements, releaseContext]
-  );
-  const sprintOptions = useMemo(() => {
-    if (!release) return scopeOptions.sprints;
-    const matchesRelease = (value: string | null | undefined) => String(value || "").trim().toLowerCase() === release.trim().toLowerCase();
-    return releaseReadinessScopeOptions(
-      readinessRequirements.filter((requirement) => matchesRelease(requirement.fix_version || requirement.release)),
-      executions.filter((execution) => matchesRelease(execution.release)),
-      issues.filter((issue) => matchesRelease(issue.fix_version || issue.release))
-    ).sprints;
-  }, [executions, issues, readinessRequirements, release, scopeOptions.sprints]);
-  const model = useMemo(() => deriveReleaseReadiness({
-    release,
-    sprint,
-    requirements: readinessRequirements,
-    testCases,
-    executions,
-    executionResults: results,
-    issues,
-    evidenceComplete: !evidenceIsProvisional
-  }), [evidenceIsProvisional, executions, issues, readinessRequirements, release, results, sprint, testCases]);
-  const canUseAi = hasPermission(session, "quality_insight.view", projectId)
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.quality_insights"]);
-  const qualityInsightPreview = useMutation({
-    mutationFn: ({ activeProject, activeRelease }: { activeProject: string; activeRelease: string }) => api.ai.qualityInsights({
-      project_id: activeProject,
-      ...(activeRelease ? { release: activeRelease } : {})
-    })
-  });
-  const aiFindings = useMemo<AiPreviewFinding[]>(() => (qualityInsightPreview.data?.insights || []).map((insight) => ({
-    id: insight.id,
-    title: insight.title,
-    severity: insight.severity,
-    description: insight.explanation,
-    action: insight.recommended_action,
-    meta: `${insight.evidence.length} linked work item${insight.evidence.length === 1 ? "" : "s"}`,
-    evidence: insight.evidence.map((item) => item.display_id || item.id).filter(Boolean)
-  })), [qualityInsightPreview.data]);
-  const runResultMap = useMemo(() => latestResultMap(model.executionResults), [model.executionResults]);
-  const executionSummaries = useMemo(() => model.executions
-    .map((execution) => {
-      const executionResults = [...runResultMap.values()].filter((result) => result.execution_id === execution.id);
-      return {
-        execution,
-        total: executionResults.length,
-        passed: executionResults.filter((result) => result.status === "passed").length,
-        failed: executionResults.filter((result) => result.status === "failed").length,
-        blocked: executionResults.filter((result) => result.status === "blocked").length,
-        running: executionResults.filter((result) => result.status === "running").length
-      };
-    })
-    .sort((left, right) => {
-      const leftTime = new Date(left.execution.ended_at || left.execution.started_at || left.execution.created_at || 0).getTime() || 0;
-      const rightTime = new Date(right.execution.ended_at || right.execution.started_at || right.execution.created_at || 0).getTime() || 0;
-      return rightTime - leftTime;
-    }), [model.executions, runResultMap]);
-  const selectedGate = model.gates.find((gate) => gate.id === selectedGateId)
-    || model.gates.find((gate) => gate.state === "block")
-    || model.gates.find((gate) => gate.state === "warning")
-    || model.gates[0]
-    || null;
-  const selectedHotspot = model.hotspots.find((hotspot) => hotspot.id === selectedHotspotId)
-    || model.hotspots[0]
-    || null;
-  const selectedExecutionSummary = executionSummaries.find(({ execution }) => execution.id === selectedExecutionId)
-    || executionSummaries[0]
-    || null;
-  const actionableHotspots = model.hotspots.filter((hotspot) => !hotspot.reasons.includes("No dominant deterministic risk"));
-  const completedStoryCount = model.requirements.filter((requirement) => (
-    String(requirement.status_category || "").trim().toLowerCase() === "done"
-    || /^(done|closed|resolved)(\b|$)/i.test(String(requirement.status || "").trim())
-  )).length;
-  const knownCaseDesignCount = model.testCases.filter((testCase) => Number.isFinite(testCase.step_count)).length;
-  const reviewAttentionCount = model.testCases.filter((testCase) => (
-    testCase.review_status === "pending" || testCase.review_status === "changes_requested"
-  )).length;
-  const loading = Boolean(requestedReleaseId && releaseContextQuery.isPending)
-    || (canViewStories && requirementsPageQuery.isPending)
-    || (canViewCases && testCasesPageQuery.isPending)
-    || (canViewBugs && issuesPageQuery.isPending)
-    || (canViewRuns && canViewResults && executionEvidenceQuery.isPending);
-  const scopeLabel = [release || "All releases", sprint || "All sprints"].join(" · ");
-  const passingGateCount = model.gates.filter((gate) => gate.state === "pass").length;
-  const blockingSignalCount = model.metrics.openCriticalBugCount
-    + model.metrics.blockedCount
-    + model.metrics.highPriorityUncoveredCount;
-  const latestEvidenceLabel = model.latestEvidenceAt
-    ? dateTimeFormatter.format(new Date(model.latestEvidenceAt))
-    : "No dated result";
-  const latestScopedExecution = executionSummaries[0]?.execution || null;
-  const latestRunEnvironment = latestScopedExecution?.test_environment?.name || "Not recorded";
-  const latestRunConfiguration = latestScopedExecution?.test_configuration?.name || "Not recorded";
-  const latestRunDataSet = latestScopedExecution?.test_data_set?.name || "Not recorded";
-  const evidenceFooterState = evidenceLoadFailed
-    ? "error"
-    : evidenceIsProvisional
-      ? "provisional"
-      : "current";
-  const metricMethodology = (criteriaKey: string, evidence: ReactNode, label?: string, trigger: "button" | "span" = "button") => (
-    <MetricMethodologyInfo
-      criteriaKey={criteriaKey}
-      evidence={evidence}
-      label={label}
-      organizationCriteria={getMetricCriteria(criteriaKey)}
-      trigger={trigger}
-    />
-  );
-
-  const openAiBrief = () => {
-    setIsAiOpen(true);
-    qualityInsightPreview.reset();
-    if (activeProjectId) qualityInsightPreview.mutate({ activeProject: activeProjectId, activeRelease: release });
+    setDraftRelease(release);
+    setDraftSprint(sprint);
+    setActionLimit(6);
+    setAiScope(null);
+  }, [release, sprint, releaseId]);
+  const queryDefaults = {
+    initialPageParam: undefined as string | undefined,
+    staleTime: 30_000,
+    retry: 1,
   };
-
-  const refreshEvidence = async () => {
-    setIsRefreshing(true);
+  const storiesQuery = useInfiniteQuery({
+    ...queryDefaults,
+    queryKey: ["release-review-stories", authorizationKey, projectId],
+    queryFn: ({ pageParam }) =>
+      api.requirements.listPage({
+        project_id: projectId,
+        page_size: PAGE_SIZE,
+        projection: "summary",
+        cursor: pageParam,
+      }),
+    getNextPageParam: (page, pages) =>
+      !page.is_last && pages.length < MAX_PAGES
+        ? page.next_cursor || undefined
+        : undefined,
+    enabled: canStories && contextReady && !validContext,
+  });
+  const casesQuery = useInfiniteQuery({
+    ...queryDefaults,
+    queryKey: ["release-review-cases", authorizationKey, projectId],
+    queryFn: ({ pageParam }) =>
+      api.testCases.listPage({
+        project_id: projectId,
+        page_size: PAGE_SIZE,
+        projection: "summary",
+        cursor: pageParam,
+      }),
+    getNextPageParam: (page, pages) =>
+      !page.is_last && pages.length < MAX_PAGES
+        ? page.next_cursor || undefined
+        : undefined,
+    enabled: canCases && contextReady,
+  });
+  const bugsQuery = useInfiniteQuery({
+    ...queryDefaults,
+    queryKey: ["release-review-bugs", authorizationKey, projectId],
+    queryFn: ({ pageParam }) =>
+      api.issues.listPage({
+        project_id: projectId,
+        page_size: PAGE_SIZE,
+        projection: "detail",
+        cursor: pageParam,
+      }),
+    getNextPageParam: (page, pages) =>
+      !page.is_last && pages.length < MAX_PAGES
+        ? page.next_cursor || undefined
+        : undefined,
+    enabled: canBugs && contextReady,
+  });
+  const runsQuery = useQuery({
+    queryKey: ["release-review-runs", authorizationKey, projectId, release, sprint],
+    queryFn: () =>
+      api.executionResults.releaseReadiness({
+        project_id: projectId,
+        ...(release ? { release } : {}),
+        ...(sprint ? { sprint } : {}),
+        run_limit: RUN_LIMIT,
+        result_limit: RESULT_LIMIT,
+      }),
+    enabled: canRuns && contextReady,
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const requirements = useMemo(
+    () =>
+      canStories
+        ? validContext
+          ? (validContext.requirements || []).filter(item => String(item.project_id) === projectId).map(item => ({ ...item, fix_version: validContext.fix_version }))
+          : unique(storiesQuery.data?.pages.flatMap(page => page.items) || []).filter(item => String(item.project_id) === projectId)
+        : [],
+    [canStories, storiesQuery.data, projectId, validContext],
+  );
+  const testCases = useMemo(
+    () =>
+      canCases
+        ? unique(casesQuery.data?.pages.flatMap((page) => page.items) || [])
+        : [],
+    [canCases, casesQuery.data],
+  );
+  const issues = useMemo(
+    () =>
+      canBugs
+        ? unique(bugsQuery.data?.pages.flatMap((page) => page.items) || [])
+        : [],
+    [canBugs, bugsQuery.data, projectId],
+  );
+  const executions = useMemo(
+    () =>
+      canRuns
+        ? (runsQuery.data?.executions || []).filter(
+            (item) => String(item.project_id) === projectId,
+          )
+        : [],
+    [canRuns, runsQuery.data, projectId],
+  );
+  const executionResults = useMemo(
+    () => (canRuns ? runsQuery.data?.results || [] : []),
+    [canRuns, runsQuery.data],
+  );
+  const sources = [
+    {
+      id: "stories",
+      enabled: canStories,
+      error: validContext ? context.isError : storiesQuery.isError,
+      loaded: requirements.length,
+      total: validContext?.requirement_count ?? storiesQuery.data?.pages[0]?.total ?? 0,
+      incomplete: validContext ? requirements.length < validContext.requirement_count : storiesQuery.data?.pages.slice(-1)[0]?.is_last === false,
+      more: !validContext && storiesQuery.hasNextPage,
+      fetching: storiesQuery.isFetchingNextPage,
+    },
+    {
+      id: "cases",
+      enabled: canCases,
+      error: casesQuery.isError,
+      loaded: testCases.length,
+      total: casesQuery.data?.pages[0]?.total || 0,
+      incomplete: casesQuery.data?.pages.slice(-1)[0]?.is_last === false,
+      more: casesQuery.hasNextPage,
+      fetching: casesQuery.isFetchingNextPage,
+    },
+    {
+      id: "bugs",
+      enabled: canBugs,
+      error: bugsQuery.isError,
+      loaded: issues.length,
+      total: bugsQuery.data?.pages[0]?.total || 0,
+      incomplete: bugsQuery.data?.pages.slice(-1)[0]?.is_last === false,
+      more: bugsQuery.hasNextPage,
+      fetching: bugsQuery.isFetchingNextPage,
+    },
+  ];
+  const failed = flags.isError ||
+    sources.some((item) => item.enabled && item.error) ||
+    (canRuns && runsQuery.isError);
+  const incomplete =
+    sources.some((item) => !item.enabled || item.incomplete || item.error) ||
+    !canRuns ||
+    runsQuery.data?.complete !== true ||
+    (!release && !sprint) ||
+    issues.some((item) => item.traceability_truncated) ||
+    testCases.some(
+      (item) =>
+        item.detail_complete === false && item.summary_complete !== true,
+    );
+  const duplicateSprint = Boolean(
+    sprint &&
+      new Set(
+        requirements
+          .filter(
+            (item) =>
+              same(item.sprint, sprint) &&
+              (!release || same(item.fix_version || item.release, release)),
+          )
+          .map((item) => item.sprint_id)
+          .filter(Boolean),
+      ).size > 1,
+  );
+  const model = useMemo(
+    () =>
+      deriveReleaseReadiness({
+        release,
+        sprint,
+        requirements,
+        testCases,
+        issues,
+        executions,
+        executionResults,
+        evidenceComplete: !incomplete && !duplicateSprint,
+      }),
+    [
+      release,
+      sprint,
+      requirements,
+      testCases,
+      issues,
+      executions,
+      executionResults,
+      incomplete,
+      duplicateSprint,
+    ],
+  );
+  const provisional =
+    incomplete || duplicateSprint || model.metrics.missingCaseDetailsCount > 0;
+  const scopeOptions = useMemo(
+    () => releaseReadinessScopeOptions(requirements, executions, issues),
+    [requirements, executions, issues],
+  );
+  const projectName = (canProjects && Array.isArray(projects.data) ? projects.data : []).find(
+    (item) => String(item.id) === projectId,
+  )?.name;
+  const aiKey = JSON.stringify([authorizationKey, projectId, release]);
+  const ai = useMutation({
+    mutationFn: async (scope: {
+      project_id: string;
+      release: string;
+      key: string;
+    }) => ({
+      key: scope.key,
+      response: await api.ai.qualityInsights({
+        project_id: scope.project_id,
+        release: scope.release,
+      }),
+    }),
+  });
+  useEffect(() => { setAiScope(null); ai.reset(); }, [authorizationKey]);
+  const aiResponse =
+    aiScope === aiKey && ai.data?.key === aiKey ? ai.data.response : undefined;
+  const aiFindings: AiPreviewFinding[] = (aiResponse?.insights || []).map(
+    (item) => ({
+      id: item.id,
+      title: item.title,
+      severity: item.severity,
+      description: item.explanation,
+      action: item.recommended_action,
+      evidence: item.evidence.map((source) => source.display_id || source.id),
+    }),
+  );
+  const runs = useMemo(
+    () =>
+      executions.map((execution) => {
+        const rows = model.latestCaseResults.filter(
+          (item) => item.execution_id === execution.id,
+        );
+        return {
+          execution,
+          rows,
+          passed: rows.filter((item) => item.status === "passed").length,
+          failed: rows.filter((item) => item.status === "failed").length,
+          blocked: rows.filter((item) => item.status === "blocked").length,
+          paused: rows.filter((item) => item.status === "paused").length,
+          unassessed:
+            rows.filter(
+              (item) => item.status !== "passed" && item.status !== "failed",
+            ).length + (model.missingRowsByRun.get(execution.id) || 0),
+        };
+      }),
+    [executions, model.latestCaseResults, model.missingRowsByRun],
+  );
+  const recordLink = (path: string, key: string, value: string) =>
+    `${path}?${new URLSearchParams({ [key]: value, project_id: projectId })}`;
+  const actions = [
+    ...(canBugs
+      ? [...model.openIssues]
+          .sort(
+            (a, b) =>
+              Number(isCriticalReadinessIssue(b)) -
+              Number(isCriticalReadinessIssue(a)),
+          )
+          .map((issue) => ({
+            id: `bug:${issue.id}`,
+            kind: "bug",
+            title: issue.title,
+            label: issue.jira_bug_key || text("defect"),
+            detail: isCriticalReadinessIssue(issue)
+              ? text("critical")
+              : issue.severity || issue.priority || text("defect"),
+            link: recordLink("/issues", "issue", issue.id),
+            action: text("openDefect"),
+            danger: isCriticalReadinessIssue(issue),
+          }))
+      : []),
+    ...runs
+      .filter((run) => run.failed || run.blocked || run.paused)
+      .map((run) => ({
+        id: `run:${run.execution.id}`,
+        kind: "run",
+        title: run.execution.name || text("runName"),
+        label: text("tab.runs"),
+        detail: [
+          run.failed ? text("failed", { count: n(run.failed) }) : "",
+          run.blocked ? text("blocked", { count: n(run.blocked) }) : "",
+          run.paused ? text("paused", { count: n(run.paused) }) : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        link: recordLink("/executions", "execution", run.execution.id),
+        action: text("openRun"),
+        danger: run.failed > 0,
+      })),
+    ...(canStories
+      ? model.hotspots
+          .filter(
+            (story) =>
+              !story.coverageCount || story.executedCount < story.coverageCount,
+          )
+          .map((story) => ({
+            id: `story:${story.id}`,
+            kind: "story",
+            title: story.title,
+            label: story.displayId,
+            detail: !story.coverageCount
+              ? text("noTests")
+              : text("remaining", {
+                  count: n(story.coverageCount - story.executedCount),
+                }),
+            link: recordLink("/stories", "requirement", story.id),
+            action: text("openStory"),
+            danger: !story.coverageCount && Number(story.priority || 3) <= 2,
+          }))
+      : []),
+  ];
+  const loading =
+    flags.isPending ||
+    Boolean(releaseId && canStories && context.isPending) ||
+    (contextReady &&
+      ((canStories && !validContext && storiesQuery.isPending) ||
+        (canCases && casesQuery.isPending) ||
+        (canBugs && bugsQuery.isPending) ||
+        (canRuns && runsQuery.isPending)));
+  const refresh = async () => {
+    setRefreshing(true);
     try {
-      await Promise.all([
-        ...(canViewStories ? [requirementsPageQuery.refetch()] : []),
-        ...(canViewCases ? [testCasesPageQuery.refetch()] : []),
-        ...(canViewRuns && canViewResults ? [executionEvidenceQuery.refetch()] : []),
-        ...(canViewBugs ? [issuesPageQuery.refetch()] : [])
+      await Promise.allSettled([
+        flags.refetch(),
+        ...(releaseId && canStories ? [context.refetch()] : []),
+        ...(canStories && contextReady && !validContext ? [storiesQuery.refetch()] : []),
+        ...(canCases && contextReady ? [casesQuery.refetch()] : []),
+        ...(canBugs && contextReady ? [bugsQuery.refetch()] : []),
+        ...(canRuns && contextReady ? [runsQuery.refetch()] : []),
       ]);
     } finally {
-      setIsRefreshing(false);
+      setRefreshing(false);
     }
   };
-
-  const inspectSelectedGate = () => {
-    if (!selectedGate) return;
-    if (selectedGate.id === "critical-defects") {
-      if (canViewBugs) navigate("/issues");
-      return;
-    }
-    if (selectedGate.id === "priority-coverage") {
-      if (canViewStories && canViewCases) setActiveView("traceability");
-      return;
-    }
-    if (canViewRuns && canViewResults) setActiveView("execution");
+  const loadMore = () =>
+    Promise.allSettled([
+      ...(canStories && storiesQuery.hasNextPage
+        ? [storiesQuery.fetchNextPage()]
+        : []),
+      ...(canCases && casesQuery.hasNextPage
+        ? [casesQuery.fetchNextPage()]
+        : []),
+      ...(canBugs && bugsQuery.hasNextPage ? [bugsQuery.fetchNextPage()] : []),
+    ]);
+  const applyScope = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("release_id");
+    draftRelease.trim()
+      ? next.set("release", draftRelease.trim())
+      : next.delete("release");
+    draftSprint.trim()
+      ? next.set("sprint", draftSprint.trim())
+      : next.delete("sprint");
+    setSearchParams(next);
   };
-
-  if (!activeProjectId) {
-    return <div className="page-content page-content--overview"><div className="empty-state compact">Select a project to review release readiness.</div></div>;
-  }
-
+  const clearContext = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("release_id");
+    setSearchParams(next);
+  };
+  const tabs: View[] = ["review", "stories", "runs"];
+  const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const next =
+      event.key === "ArrowRight"
+        ? (index + 1) % tabs.length
+        : event.key === "ArrowLeft"
+          ? (index + tabs.length - 1) % tabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    setView(tabs[next]);
+    document.getElementById(`${tabId}-${tabs[next]}`)?.focus();
+  };
+  const percent = (value: number | null, available: boolean) =>
+    available && value !== null ? `${n(value)}%` : "—";
+  const metricCards = [
+    {
+      icon: IconGitBranch,
+      label: text("metric.stories"),
+      value: percent(model.metrics.coverage, canStories && canCases),
+      detail: text("storiesDetail", {
+        covered: n(model.metrics.coveredRequirementCount),
+        total: n(model.metrics.requirementCount),
+      }),
+      available: canStories && canCases,
+      target: "stories" as View,
+    },
+    {
+      icon: IconListCheck,
+      label: text("metric.assessed"),
+      value: percent(
+        model.metrics.completion,
+        canRuns && canCases && canStories,
+      ),
+      detail: text("casesDetail", {
+        assessed: n(model.metrics.executedCaseCount),
+        total: n(model.metrics.plannedCaseCount),
+      }),
+      available: canRuns && canCases && canStories,
+      target: "runs" as View,
+    },
+    {
+      icon: IconTestPipe,
+      label: text("metric.outcomes"),
+      value: percent(model.metrics.passRate, canRuns),
+      detail: text("outcomesDetail", {
+        passed: n(model.metrics.passedCount),
+        failed: n(model.metrics.failedCount),
+      }),
+      available: canRuns,
+      target: "runs" as View,
+    },
+    {
+      icon: IconBug,
+      label: text("metric.defects"),
+      value: canBugs ? n(model.metrics.openBugCount) : "—",
+      detail: text("defectsDetail", {
+        critical: n(model.metrics.openCriticalBugCount),
+        high: n(model.metrics.openHighBugCount),
+      }),
+      available: canBugs,
+      target: "review" as View,
+    },
+  ];
+  if (!dashboardGranted || flags.data && !dashboardEnabled) return <div className="release-review"><div className="rr-empty"><h2>{t(dashboardGranted ? "access.disabledTitle" : "access.deniedTitle")}</h2><p>{t(dashboardGranted ? "access.disabledHelp" : "access.deniedHelp")}</p></div></div>;
   return (
-    <div className="page-content page-content--overview readiness-page readiness-command-page">
-      <header className="readiness-command-header">
-        <div className="readiness-command-identity">
-          <span className="readiness-command-mark" aria-hidden="true">
-            <ReleaseReadinessIcon size={28} strokeWidth={1.9} />
-          </span>
-          <div>
-            <p>Release decision room</p>
-            <h1>Release readiness</h1>
-            <span>{selectedProject?.name || "Selected project"} · {release || "All Fix Versions"}</span>
-          </div>
+    <div className="release-review">
+      <header className="rr-header">
+        <div className="rr-heading">
+          <span className="rr-eyebrow">{projectName || text("eyebrow")}</span>
+          <h1>{text("title")}</h1>
+          <p>{text("subtitle")}</p>
         </div>
-
-        <div className="readiness-command-scope" aria-label="Release scope">
-          <ScopeSelect
-            disabled={isReleaseScopeLocked}
-            emptyLabel="All releases"
-            label="Fix Version"
-            onChange={(value) => {
-              setRelease(value);
-              setSprint("");
-              setSelectedGateId("");
-              setSelectedHotspotId("");
-              setSelectedExecutionId("");
-            }}
-            options={scopeOptions.releases}
-            value={release}
-          />
-          <ScopeSelect
-            emptyLabel="All sprints"
-            label="Sprint"
-            onChange={(value) => {
-              setSprint(value);
-              setSelectedGateId("");
-              setSelectedHotspotId("");
-              setSelectedExecutionId("");
-            }}
-            options={sprintOptions}
-            value={sprint}
-          />
-          {(release || sprint) && !isReleaseScopeLocked ? (
+        <div className="rr-header-actions">
+          <button
+            className="rr-button"
+            type="button"
+            onClick={() => void refresh()}
+            disabled={refreshing || loading}
+          >
+            <IconRefresh size={17} className={refreshing ? "rr-spin" : ""} />
+            {text(refreshing ? "refreshing" : "refresh")}
+          </button>
+          {canAi && release && contextReady && (
             <button
-              className="readiness-clear-scope"
+              type="button"
+              className="rr-button rr-button-primary"
+              title={text("explainHelp")}
               onClick={() => {
-                setRelease("");
-                setSprint("");
-                setSelectedGateId("");
-                setSelectedHotspotId("");
-                setSelectedExecutionId("");
+                ai.reset();
+                setAiScope(aiKey);
+                ai.mutate({ project_id: projectId, release, key: aiKey });
               }}
-              type="button"
+              disabled={ai.isPending}
             >
-              Clear scope
+              <IconSparkles size={17} />
+              {text("explain")}
             </button>
-          ) : null}
-        </div>
-
-        <div className="readiness-command-actions" aria-label="Readiness actions">
-          <button
-            className="readiness-command-button"
-            disabled={!canViewStories || !canViewCases || !actionableHotspots.length}
-            onClick={() => setActiveView("traceability")}
-            title={!canViewStories || !canViewCases ? "Story and Test Case view permissions are required" : !actionableHotspots.length ? "No actionable Story gap is visible" : "Review actionable Story evidence gaps"}
-            type="button"
-          >
-            <IconTargetArrow aria-hidden="true" size={18} stroke={1.9} />
-            <span>Review gaps</span>
-          </button>
-          <button
-            className="readiness-command-button"
-            disabled={!canViewRuns || !canViewResults}
-            onClick={() => setActiveView("execution")}
-            title={!canViewRuns || !canViewResults ? "Run and result view permissions are required" : "Review scoped execution evidence"}
-            type="button"
-          >
-            <IconChartBar aria-hidden="true" size={18} stroke={1.9} />
-            <span>Execution evidence</span>
-          </button>
-          <button
-            className="readiness-command-button"
-            disabled={!canViewBugs}
-            onClick={() => navigate("/issues")}
-            title={!canViewBugs ? "Bug view permission is required" : "Open the Bugs workspace"}
-            type="button"
-          >
-            <IconBug aria-hidden="true" size={18} stroke={1.9} />
-            <span>Open Bugs</span>
-          </button>
-          {canUseAi ? (
-            <button
-              className="readiness-command-button is-primary"
-              disabled={qualityInsightPreview.isPending}
-              onClick={openAiBrief}
-              type="button"
-            >
-              <IconSparkles aria-hidden="true" size={18} stroke={1.9} />
-              <span>{qualityInsightPreview.isPending ? "Reviewing…" : "Explain with AI"}</span>
-            </button>
-          ) : null}
-          <button
-            aria-label="Refresh readiness evidence"
-            className={`readiness-command-button is-icon${isRefreshing ? " is-loading" : ""}`}
-            disabled={isRefreshing}
-            onClick={refreshEvidence}
-            title="Refresh readiness evidence"
-            type="button"
-          >
-            <IconRefresh aria-hidden="true" size={19} stroke={1.9} />
-          </button>
+          )}
         </div>
       </header>
-
-      {!scopeIsExplicit ? (
-        <div className="readiness-command-notice" role="status">
-          <IconClock aria-hidden="true" size={17} stroke={2} />
-          <span>Select a Fix Version or Sprint for a definitive release decision. Until then, this is a provisional project portfolio snapshot.</span>
+      <form
+        className="rr-scope"
+        onSubmit={(event) => {
+          event.preventDefault();
+          applyScope();
+        }}
+      >
+        <label>
+          <span>{text("release")}</span>
+          <input
+            list={`${tabId}-releases`}
+            value={draftRelease}
+            placeholder={text("allReleases")}
+            onChange={(event) => setDraftRelease(event.target.value)}
+            disabled={Boolean(releaseId && validContext)}
+          />
+          <datalist id={`${tabId}-releases`}>
+            {scopeOptions.releases.map((value) => (
+              <option key={value} value={value} />
+            ))}
+          </datalist>
+        </label>
+        <label>
+          <span>{text("sprint")}</span>
+          <input
+            list={`${tabId}-sprints`}
+            value={draftSprint}
+            placeholder={text("allSprints")}
+            onChange={(event) => setDraftSprint(event.target.value)}
+          />
+          <datalist id={`${tabId}-sprints`}>
+            {scopeOptions.sprints.map((value) => (
+              <option key={value} value={value} />
+            ))}
+          </datalist>
+        </label>
+        <button
+          type="submit"
+          className="rr-button"
+          disabled={draftRelease === release && draftSprint === sprint}
+        >
+          {text("apply")}
+        </button>
+        {releaseId && (
+          <button
+            type="button"
+            className="rr-link-button"
+            onClick={clearContext}
+          >
+            {text("changeScope")}
+          </button>
+        )}
+        <div className="rr-active-scope">
+          <IconGitBranch size={17} />
+          <span>
+            {release || sprint
+              ? [
+                  release || text("allReleases"),
+                  sprint || text("allSprints"),
+                ].join(" · ")
+              : text("scopeOverview")}
+          </span>
         </div>
-      ) : null}
-
-      {unavailableEvidenceSources.length ? (
-        <div className="readiness-command-notice" role="status">
-          <IconAlertTriangle aria-hidden="true" size={17} stroke={2} />
-          <span>Evidence is permission-limited: {unavailableEvidenceSources.join(", ")} cannot be read by this role. Available records remain visible, but no definitive release verdict is produced.</span>
-        </div>
-      ) : null}
-
-      {evidenceScopeIncomplete ? (
-        <div className="readiness-command-notice" role="status">
-          <IconAlertTriangle aria-hidden="true" size={17} stroke={2} />
-          <span>Readiness is provisional: {incompleteEvidenceSources.join("; ")}. Use the linked workspaces to review the complete paged scope.</span>
-        </div>
-      ) : null}
-
-      {evidenceLoadFailed ? (
-        <div className="readiness-command-notice is-error" role="alert">
-          <IconAlertTriangle aria-hidden="true" size={17} stroke={2} />
-          <span>Some delivery evidence could not be refreshed. Visible metrics remain provisional until every evidence source loads successfully.</span>
-          <button disabled={isRefreshing} onClick={() => void refreshEvidence()} type="button">Retry</button>
-        </div>
-      ) : null}
-
+      </form>
       {loading ? (
-        <div className="readiness-command-loading">
-          <LoadingState label="Building the release evidence graph" description="Connecting delivery scope, traceability, latest results, and linked Bugs." />
+        <LoadingState label={text("loading")} />
+      ) : invalidContext ? (
+        <div className="rr-empty" role="alert">
+          <IconAlertTriangle size={28} />
+          <h2>{text("contextError")}</h2>
+          <p>{text("contextHelp")}</p>
+          <button
+            type="button"
+            className="rr-button"
+            onClick={() => void refresh()}
+          >
+            {text("retry")}
+          </button>
+          <button
+            type="button"
+            className="rr-link-button"
+            onClick={clearContext}
+          >
+            {text("changeScope")}
+          </button>
+        </div>
+      ) : !flags.data && flags.isError ? (
+        <div className="rr-notice" role="alert">
+          {text("flagsError")}
+          <button
+            type="button"
+            className="rr-button"
+            onClick={() => void flags.refetch()}
+          >
+            {text("retry")}
+          </button>
         </div>
       ) : (
         <>
-          <section aria-label="Readiness metrics" className="readiness-metric-grid metric-strip page-metric-strip">
-            <MetricCard
-              detail={`${evidenceIsProvisional ? "Provisional · " : ""}${model.decision.label} · ${model.metrics.confidence}% confidence`}
-              icon={<IconShieldCheck size={28} stroke={1.7} />}
-              label="Overall readiness"
-              methodology={metricMethodology(
-                "metric.release.readiness",
-                `${model.metrics.coverage}% Story coverage, ${model.metrics.completion}% completion, ${model.metrics.passRate}% latest-terminal pass rate, and ${model.metrics.openCriticalBugCount} open critical Bugs.`,
-                "How overall readiness is calculated"
+          {failed && (
+            <div className="rr-notice" role="alert">
+              <IconAlertTriangle size={18} />
+              <span>{text("cachedError")}</span>
+              <button
+                type="button"
+                className="rr-link-button"
+                onClick={() => void refresh()}
+              >
+                {text("retry")}
+              </button>
+            </div>
+          )}
+          <section
+            className={`rr-decision is-${model.decisionState}`}
+            aria-labelledby={`${tabId}-decision`}
+          >
+            <div className="rr-decision-icon">
+              {model.decisionState === "clear" ? (
+                <IconShieldCheck size={26} />
+              ) : (
+                <IconAlertTriangle size={25} />
               )}
-              progress={model.metrics.readinessScore}
-              tone={model.decision.state === "on-track"
-                ? "green"
-                : model.decision.state === "review"
-                  ? "amber"
-                  : model.decision.state === "insufficient"
-                    ? "blue"
-                    : "red"}
-              value={`${model.metrics.readinessScore}/100`}
-            />
-            <MetricCard
-              detail={`${model.metrics.coveredRequirementCount} of ${model.metrics.requirementCount} Stories linked · ${model.metrics.highPriorityUncoveredCount} priority gaps`}
-              icon={<IconGitBranch size={28} stroke={1.7} />}
-              label="Story coverage"
-              methodology={metricMethodology("metric.story.coverage", `${model.metrics.coveredRequirementCount} linked Stories ÷ ${model.metrics.requirementCount} scoped Stories.`)}
-              progress={model.metrics.coverage}
-              tone={!model.metrics.requirementCount ? "blue" : model.metrics.coverage >= 90 ? "green" : "amber"}
-              value={`${model.metrics.coverage}%`}
-            />
-            <MetricCard
-              detail={`${model.metrics.completion}% execution complete · ${model.metrics.notRunCount} not run · ${latestEvidenceLabel}`}
-              icon={<IconCircleCheck size={28} stroke={1.7} />}
-              label="Latest pass rate"
-              methodology={metricMethodology("metric.execution.pass_rate", `${model.metrics.passedCount} passed ÷ ${model.metrics.executedCaseCount} latest terminal outcomes.`)}
-              progress={model.metrics.passRate}
-              tone={!model.metrics.executedCaseCount
-                ? "blue"
-                : model.metrics.failedCount || model.metrics.blockedCount
-                  ? "red"
-                  : model.metrics.passRate >= 90
-                    ? "green"
-                    : "amber"}
-              value={`${model.metrics.passRate}%`}
-            />
-            <MetricCard
-              detail={`${model.metrics.openCriticalBugCount} critical Bugs · ${model.metrics.blockedCount} blocked tests · ${model.metrics.highPriorityUncoveredCount} coverage gaps`}
-              icon={<IconAlertTriangle size={28} stroke={1.7} />}
-              label="Blocking signals"
-              methodology={metricMethodology("metric.release.blocking_signals", `${model.metrics.openCriticalBugCount} critical Bugs + ${model.metrics.blockedCount} blocked latest outcomes + ${model.metrics.highPriorityUncoveredCount} uncovered P1/P2 Stories.`)}
-              tone={blockingSignalCount ? "red" : evidenceIsProvisional ? "blue" : model.metrics.openHighBugCount ? "amber" : "green"}
-              value={evidenceIsProvisional && !blockingSignalCount ? "—" : String(blockingSignalCount)}
-            />
-          </section>
-
-          <section aria-label="Readiness evidence context" className="readiness-command-context-bar">
-            <div>
-              <span>connected release scope</span>
-              <strong>{scopeLabel}</strong>
-              <small>{completedStoryCount}/{model.metrics.requirementCount} Stories Done · Fix Version and Sprint are authoritative.</small>
             </div>
             <div>
-              <span>Latest run context</span>
-              <strong>{latestRunEnvironment} · {latestScopedExecution?.build || "No build"}</strong>
-              <small>{latestRunConfiguration} · {latestRunDataSet}</small>
-            </div>
-            <div>
-              <span>Evidence snapshot</span>
-              <strong>{latestEvidenceLabel}</strong>
-              <small>{passingGateCount}/{model.gates.length} gates passing · {knownCaseDesignCount}/{model.metrics.plannedCaseCount} case designs known{reviewAttentionCount ? ` · ${reviewAttentionCount} review alerts` : ""}</small>
-            </div>
-            <div>
-              <span>Decision ownership</span>
-              <strong>Human owned · {model.metrics.confidence}% confidence</strong>
-              <small className="readiness-inline-methodology">Scores guide attention; people own the decision. {metricMethodology("metric.release.evidence_confidence", `${model.metrics.coverage}% coverage and ${model.metrics.completion}% completion${model.metrics.openBugCount ? ` with ${model.metrics.linkedBugCount} of ${model.metrics.openBugCount} scoped Bugs trace-linked` : "; no scoped Bug denominator"}.`)}</small>
-            </div>
-          </section>
-
-          <section className="readiness-command-workspace">
-            <aside className="readiness-command-hierarchy" aria-label="Release evidence navigation">
-              <div className="readiness-command-pane-heading">
-                <span><IconRoute aria-hidden="true" size={18} stroke={1.9} /> Evidence map</span>
-                <small>{model.metrics.requirementCount + model.metrics.plannedCaseCount} records</small>
+              <div className="rr-decision-title">
+                <h2 id={`${tabId}-decision`}>
+                  {text(
+                    `state.${provisional && model.decisionState === "clear" ? "review" : model.decisionState}`,
+                  )}
+                </h2>
+                <span
+                  className={`rr-badge ${provisional ? "is-warning" : "is-neutral"}`}
+                >
+                  {text(provisional ? "partial" : "complete")}
+                </span>
               </div>
-
-              <nav aria-label="Readiness report views" className="readiness-command-view-nav">
-                {([
-                  ["brief", "Decision brief", "Gates and leading risks", <IconFileAnalytics aria-hidden="true" size={18} stroke={1.9} />],
-                  ["traceability", "Traceability", "Story-to-evidence matrix", <IconGitBranch aria-hidden="true" size={18} stroke={1.9} />],
-                  ["execution", "Execution evidence", "Runs and latest results", <IconChartBar aria-hidden="true" size={18} stroke={1.9} />]
-                ] as const).map(([id, label, detail, icon]) => (
-                  <button
-                    aria-current={activeView === id ? "page" : undefined}
-                    className={activeView === id ? "is-active" : ""}
-                    key={id}
-                    onClick={() => setActiveView(id)}
-                    type="button"
-                  >
-                    {icon}
-                    <span><strong>{label}</strong><small>{detail}</small></span>
-                    <IconChevronRight aria-hidden="true" size={16} stroke={1.9} />
-                  </button>
-                ))}
-              </nav>
-
-              <div className="readiness-command-gates">
-                <div className="readiness-command-subheading">
-                  <span>Release controls</span>
-                  <small>{passingGateCount}/{model.gates.length}</small>
-                </div>
-                {model.gates.map((gate) => (
-                  <button
-                    aria-pressed={selectedGate?.id === gate.id}
-                    className={selectedGate?.id === gate.id ? "is-selected" : ""}
-                    key={gate.id}
-                    onClick={() => {
-                      setSelectedGateId(gate.id);
-                      setActiveView("brief");
-                    }}
-                    type="button"
-                  >
-                    <GateIcon state={gate.state} />
-                    <span><strong>{gate.label}</strong><small>{gate.actual}</small></span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="readiness-command-ai-card">
-                <div><IconSparkles aria-hidden="true" size={18} stroke={1.9} /><strong>Explainable assist</strong></div>
-                <p>Summarize release-scoped delivery evidence with cited records and human-owned actions.</p>
-                {canUseAi ? (
-                  <button disabled={qualityInsightPreview.isPending} onClick={openAiBrief} type="button">
-                    {qualityInsightPreview.isPending ? "Building evidence brief…" : "Open evidence brief"}
-                  </button>
-                ) : (
-                  <small>Quality insights are not enabled for this role or project.</small>
+              <p>
+                {text(
+                  `summary.${provisional && model.decisionState === "clear" ? "review" : model.decisionState}`,
                 )}
+              </p>
+            </div>
+            <div className="rr-freshness">
+              <IconClock size={15} />
+              <span>
+                {text("updated")}
+                <strong>
+                  {model.latestEvidenceAt
+                    ? formatDate(model.latestEvidenceAt)
+                    : text("noDate")}
+                </strong>
+              </span>
+            </div>
+          </section>
+          <div className="rr-metrics">
+            {metricCards.map((card) => (
+              <button
+                key={card.label}
+                type="button"
+                className="rr-metric"
+                onClick={() => {
+                  setView(card.target);
+                  document.getElementById(`${tabId}-${card.target}`)?.focus();
+                }}
+              >
+                <span className="rr-metric-heading">
+                  <card.icon size={19} />
+                  <span>{card.label}</span>
+                  <IconArrowRight className="rr-metric-arrow" size={16} />
+                </span>
+                <strong>{card.value}</strong>
+                <span>
+                  {card.available ? card.detail : text("source.unavailable")}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="rr-workspace">
+            <section className="rr-evidence">
+              <div
+                className="rr-tabs"
+                role="tablist"
+                aria-label={text("title")}
+              >
+                {tabs.map((item, index) => (
+                  <button
+                    id={`${tabId}-${item}`}
+                    key={item}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === item}
+                    aria-controls={`${tabId}-panel-${item}`}
+                    tabIndex={view === item ? 0 : -1}
+                    onKeyDown={(event) => onTabKey(event, index)}
+                    onClick={() => setView(item)}
+                  >
+                    {text(`tab.${item}`)}
+                    <span>
+                      {n(
+                        item === "stories"
+                          ? model.requirements.length
+                          : item === "runs"
+                            ? runs.length
+                            : actions.length,
+                      )}
+                    </span>
+                  </button>
+                ))}
               </div>
-            </aside>
-
-            <main className="readiness-command-main">
-              <header className="readiness-command-main-header">
-                <div>
-                  <p>{activeView === "brief" ? "Release control center" : activeView === "traceability" ? "Traceability analysis" : "Run evidence"}</p>
-                  <h2>{activeView === "brief" ? "Priority evidence queue" : activeView === "traceability" ? "Story → tests → latest evidence → Bugs" : "Scoped execution history"}</h2>
-                  <span>
-                    {activeView === "brief"
-                      ? "Ranked by coverage gaps, latest failures, blockers, and open linked Bugs."
-                      : activeView === "traceability"
-                        ? "One row per Story, ranked by explainable risk."
-                        : "Latest result per case within each run; reruns do not inflate progress."}
-                  </span>
-                </div>
-                <div className="readiness-command-main-actions">
-                  <button disabled={!canViewStories} onClick={() => navigate("/backlog")} type="button">
-                    <IconFlag aria-hidden="true" size={16} stroke={1.9} />
-                    <span>Stories</span>
-                  </button>
-                  <button disabled={!canViewRuns} onClick={() => navigate("/executions")} type="button">
-                    <IconExternalLink aria-hidden="true" size={16} stroke={1.9} />
-                    <span>Runs</span>
-                  </button>
-                </div>
-              </header>
-
-              <div className="readiness-command-main-scroll">
-                {activeView === "brief" ? (
+              <div
+                role="tabpanel"
+                tabIndex={0}
+                id={`${tabId}-panel-${view}`}
+                aria-labelledby={`${tabId}-${view}`}
+                className="rr-panel"
+              >
+                {view === "review" && (
                   <>
-                    <section className="readiness-command-trace-path" aria-label="Release traceability path">
-                      {[
-                        { label: "Stories", value: model.metrics.requirementCount, detail: "delivery scope", to: "/backlog", enabled: canViewStories, icon: <IconFlag size={17} stroke={1.9} /> },
-                        { label: "Covered", value: model.metrics.coveredRequirementCount, detail: `${model.metrics.coverage}% mapped`, to: "/test-cases", enabled: canViewStories && canViewCases, icon: <IconGitBranch size={17} stroke={1.9} /> },
-                        { label: "Scoped tests", value: model.metrics.plannedCaseCount, detail: "Linked cases", to: "/test-cases", enabled: canViewCases, icon: <IconTestPipe size={17} stroke={1.9} /> },
-                        { label: "Executed", value: model.metrics.executedCaseCount, detail: `${model.metrics.completion}% complete`, to: "/executions", enabled: canViewRuns && canViewResults, icon: <IconListCheck size={17} stroke={1.9} /> },
-                        { label: "Passing", value: model.metrics.passedCount, detail: `${model.metrics.passRate}% pass rate`, to: "/executions", enabled: canViewRuns && canViewResults, icon: <IconCircleCheck size={17} stroke={1.9} /> },
-                        { label: "Open Bugs", value: model.metrics.openBugCount, detail: `${model.metrics.openCriticalBugCount} critical`, to: "/issues", enabled: canViewBugs, icon: <IconBug size={17} stroke={1.9} /> }
-                      ].map((step, index, steps) => (
-                        <div className="readiness-command-trace-step" key={step.label}>
-                          <button disabled={!step.enabled} onClick={() => navigate(step.to)} type="button">
-                            <span aria-hidden="true">{step.icon}</span>
-                            <strong>{step.value}</strong>
-                            <b>{step.label}</b>
-                            <small>{step.detail}</small>
-                          </button>
-                          {index < steps.length - 1 ? <IconChevronRight aria-hidden="true" size={16} stroke={1.9} /> : null}
-                        </div>
-                      ))}
-                    </section>
-
-                    <section className="readiness-command-section">
-                      <header>
-                        <div><span className="readiness-inline-methodology">Priority queue {metricMethodology("metric.story.release_risk", "Each Story is ranked from priority, direct coverage, latest terminal outcomes, and open linked Bugs.")}</span><strong>Stories needing attention</strong></div>
-                        <button onClick={() => setActiveView("traceability")} type="button">View full matrix</button>
-                      </header>
-                      <div className="readiness-command-risk-list">
-                        {actionableHotspots.slice(0, 8).map((hotspot) => (
-                          <button
-                            aria-pressed={selectedHotspot?.id === hotspot.id}
-                            className={selectedHotspot?.id === hotspot.id ? "is-selected" : ""}
-                            key={hotspot.id}
-                            onClick={() => setSelectedHotspotId(hotspot.id)}
-                            type="button"
-                          >
-                            <span className={`readiness-risk-score is-${hotspot.riskLabel.toLowerCase()}`}>{hotspot.riskScore}</span>
-                            <span className="readiness-command-risk-copy">
-                              <strong>{hotspot.displayId} · {hotspot.title}</strong>
-                              <small>{hotspot.reasons.join(" · ")}</small>
+                    <div className="rr-panel-heading">
+                      <h2>{text("actions")}</h2>
+                      <p>{text("actionsHelp")}</p>
+                    </div>
+                    {actions.length ? (
+                      <ol className="rr-actions">
+                        {actions.slice(0, actionLimit).map((action, index) => (
+                          <li key={action.id}>
+                            <span
+                              className={`rr-action-symbol ${action.danger ? "is-danger" : ""}`}
+                            >
+                              {action.kind === "bug" ? (
+                                <IconBug size={20} />
+                              ) : action.kind === "run" ? (
+                                <IconTestPipe size={20} />
+                              ) : (
+                                <IconGitBranch size={20} />
+                              )}
                             </span>
-                            <span>{hotspot.coverageCount} tests</span>
-                            <span>{hotspot.openBugCount} Bugs</span>
-                            <IconArrowRight aria-hidden="true" size={17} stroke={1.9} />
-                          </button>
-                        ))}
-                        {!actionableHotspots.length ? <div className="readiness-empty">No actionable Story gap is visible in the loaded scope.</div> : null}
-                      </div>
-                    </section>
-                  </>
-                ) : null}
-
-                {activeView === "traceability" ? (
-                  <div className="readiness-table-wrap">
-                    <table className="readiness-matrix">
-                      <thead><tr><th>Story</th><th>Priority</th><th>Coverage</th><th>Latest results</th><th>Open Bugs</th><th><span className="readiness-inline-methodology">Risk {metricMethodology("metric.story.release_risk", "Priority baseline plus traceability, execution, and open-Bug penalties; capped at 100.")}</span></th></tr></thead>
-                      <tbody>
-                        {model.hotspots.map((hotspot) => (
-                          <tr
-                            className={selectedHotspot?.id === hotspot.id ? "is-selected" : ""}
-                            key={hotspot.id}
-                          >
-                            <td>
-                              <button
-                                aria-pressed={selectedHotspot?.id === hotspot.id}
-                                className="readiness-matrix-story-button"
-                                onClick={() => setSelectedHotspotId(hotspot.id)}
-                                type="button"
+                            <div className="rr-action-copy">
+                              <span className="rr-action-meta">
+                                {n(index + 1)} · {action.label}
+                              </span>
+                              <Link to={action.link}>{action.title}</Link>
+                              <span
+                                className={
+                                  action.danger ? "rr-danger-text" : ""
+                                }
                               >
-                                <strong>{hotspot.displayId}</strong><span>{hotspot.title}</span>
-                              </button>
-                            </td>
-                            <td>{hotspot.priority ? `P${hotspot.priority}` : "—"}</td>
-                            <td><strong>{hotspot.coverageCount}</strong><span>{hotspot.executedCount} executed</span></td>
-                            <td><div className="readiness-result-pills"><span className="is-pass">{hotspot.passedCount} passed</span><span className="is-fail">{hotspot.failedCount} failed</span><span className="is-blocked">{hotspot.blockedCount} blocked</span></div></td>
-                            <td><strong>{hotspot.openBugCount}</strong><span>{hotspot.criticalBugCount} critical</span></td>
-                            <td><span className={`readiness-risk-pill is-${hotspot.riskLabel.toLowerCase()}`}>{hotspot.riskScore} · {hotspot.riskLabel}</span><small>{hotspot.reasons.join(" · ")}</small></td>
-                          </tr>
+                                {action.detail}
+                              </span>
+                            </div>
+                            <Link
+                              className="rr-action-link"
+                              to={action.link}
+                              aria-label={`${action.action}: ${action.title}`}
+                            >
+                              {action.action}
+                              <IconArrowRight size={16} />
+                            </Link>
+                          </li>
                         ))}
-                      </tbody>
-                    </table>
-                    {!model.hotspots.length ? <div className="readiness-empty">No Story traceability is available for {scopeLabel}.</div> : null}
-                  </div>
-                ) : null}
-
-                {activeView === "execution" ? (
-                  <div className="readiness-run-list">
-                    {executionSummaries.map(({ execution, total, passed, failed, blocked, running }) => {
-                      const passRate = total ? Math.round((passed / total) * 100) : 0;
-                      return (
-                        <button
-                          aria-pressed={selectedExecutionSummary?.execution.id === execution.id}
-                          className={selectedExecutionSummary?.execution.id === execution.id ? "is-selected" : ""}
-                          key={execution.id}
-                          onClick={() => setSelectedExecutionId(execution.id)}
-                          type="button"
-                        >
-                          <div className="readiness-run-head">
-                            <div><strong>{execution.display_id || execution.name || "Unnamed run"}</strong><span>{execution.name && execution.display_id ? execution.name : `${execution.trigger || "manual"} execution`}</span></div>
-                            <StatusBadge value={execution.status} />
-                          </div>
-                          <ProgressMeter detail={`${passed} passed · ${failed} failed · ${blocked} blocked · ${running} running`} label="Pass rate" tone={failed || blocked ? "danger" : "success"} value={passRate} />
-                          <footer><span>{execution.release || "No release"} · {execution.sprint || "No sprint"}</span><span>{execution.ended_at || execution.started_at ? dateTimeFormatter.format(new Date(execution.ended_at || execution.started_at || "")) : "Not started"}</span></footer>
-                        </button>
-                      );
-                    })}
-                    {!executionSummaries.length ? <div className="readiness-empty">No executions match the selected release and Sprint.</div> : null}
-                  </div>
-                ) : null}
-              </div>
-            </main>
-
-            <aside className="readiness-command-analysis" aria-label="Release analysis workspace">
-              <div className="readiness-command-pane-heading">
-                <span><IconShieldCheck aria-hidden="true" size={18} stroke={1.9} /> Decision analysis</span>
-                <small>{evidenceIsProvisional ? "Provisional" : "Current"}</small>
-              </div>
-
-              <div className="readiness-command-analysis-scroll">
-                <article className={`readiness-command-verdict is-${model.decision.state}`}>
-                  <div className="readiness-command-verdict-head">
-                    <span className="readiness-inline-methodology">{scopeIsExplicit ? "Release verdict" : "Portfolio snapshot"} {metricMethodology("metric.release.readiness", "The score below uses the exact currently selected release scope and is capped when evidence is incomplete.")}</span>
-                    <strong>{model.decision.label}</strong>
-                  </div>
-                  <div className="readiness-command-verdict-score">
-                    <strong>{model.metrics.readinessScore}</strong><span>/100</span>
-                  </div>
-                  <progress aria-label={`${model.metrics.readinessScore} out of 100 release readiness`} max={100} value={model.metrics.readinessScore} />
-                  <h3>{model.decision.summary}</h3>
-                  <p>{model.decision.primaryAction}</p>
-                  <div className="readiness-command-confidence">
-                    <span className="readiness-inline-methodology">Evidence confidence {metricMethodology("metric.release.evidence_confidence", `${model.metrics.coverage}% Story coverage, ${model.metrics.completion}% execution completion, and ${model.metrics.linkedBugCount}/${model.metrics.openBugCount} scoped Bugs trace-linked.`)}</span><strong>{model.metrics.confidence}%</strong>
-                  </div>
-                  <progress aria-label={`${model.metrics.confidence}% evidence confidence`} max={100} value={model.metrics.confidence} />
-                  <details className="readiness-method">
-                    <summary>How the score works</summary>
-                    <p>Coverage 25% · completion 20% · pass rate 35% · defect containment 20%. Missing, stale, bounded, permission-limited, or failed evidence; P1/P2 gaps; blocked tests; and critical Bugs cap the score. When no scoped Bugs exist, confidence is reweighted across coverage and completion.</p>
-                  </details>
-                </article>
-
-                {activeView === "execution" ? (
-                  <section className="readiness-command-inspector">
-                    <div className="readiness-command-section-title"><IconChartBar aria-hidden="true" size={17} stroke={1.9} /><strong>Run inspector</strong></div>
-                    {selectedExecutionSummary ? (
-                      <article>
-                        <header>
-                          <div><strong>{selectedExecutionSummary.execution.display_id || selectedExecutionSummary.execution.name || "Unnamed run"}</strong><span>{selectedExecutionSummary.execution.name || `${selectedExecutionSummary.execution.trigger || "manual"} execution`}</span></div>
-                          <StatusBadge value={selectedExecutionSummary.execution.status} />
-                        </header>
-                        <div className="readiness-result-stack">
-                          {[
-                            ["Passed", selectedExecutionSummary.passed, "pass"],
-                            ["Failed", selectedExecutionSummary.failed, "fail"],
-                            ["Blocked", selectedExecutionSummary.blocked, "blocked"],
-                            ["Running", selectedExecutionSummary.running, "running"],
-                            ["Total results", selectedExecutionSummary.total, "not-run"]
-                          ].map(([label, count, tone]) => <div key={label}><span><i className={`is-${tone}`} />{label}</span><strong>{count}</strong></div>)}
-                        </div>
-                        <button disabled={!canViewRuns} onClick={() => navigate(`/executions?execution=${encodeURIComponent(selectedExecutionSummary.execution.id)}`)} type="button">
-                          Open run evidence <IconArrowRight aria-hidden="true" size={16} stroke={1.9} />
-                        </button>
-                      </article>
-                    ) : <div className="readiness-empty">Select a run to inspect its release evidence.</div>}
-                  </section>
-                ) : (
-                  <>
-                    <section className="readiness-command-inspector">
-                      <div className="readiness-command-section-title"><IconAlertTriangle aria-hidden="true" size={17} stroke={1.9} /><strong className="readiness-inline-methodology">Risk inspector {metricMethodology("metric.story.release_risk", selectedHotspot ? selectedHotspot.reasons.join(" · ") : "No scoped Story risk is selected.")}</strong></div>
-                      {selectedHotspot ? (
-                        <article>
-                          <header>
-                            <div><strong>{selectedHotspot.displayId}</strong><span>{selectedHotspot.title}</span></div>
-                            <span className={`readiness-risk-pill is-${selectedHotspot.riskLabel.toLowerCase()}`}>{selectedHotspot.riskScore} · {selectedHotspot.riskLabel}</span>
-                          </header>
-                          <ul>{selectedHotspot.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-                          <div className="readiness-command-inspector-facts">
-                            <span><strong>{selectedHotspot.coverageCount}</strong><small>Linked tests</small></span>
-                            <span><strong>{selectedHotspot.failedCount + selectedHotspot.blockedCount}</strong><small>Failed/blocked</small></span>
-                            <span><strong>{selectedHotspot.openBugCount}</strong><small>Open Bugs</small></span>
-                          </div>
-                          <button disabled={!canViewStories} onClick={() => navigate(`/backlog?requirement=${encodeURIComponent(selectedHotspot.id)}`)} type="button">
-                            Open Story evidence <IconArrowRight aria-hidden="true" size={16} stroke={1.9} />
-                          </button>
-                        </article>
-                      ) : <div className="readiness-empty">No Story risk is available in this scope.</div>}
-                    </section>
-
-                    <section className="readiness-command-inspector">
-                      <div className="readiness-command-section-title"><IconListCheck aria-hidden="true" size={17} stroke={1.9} /><strong>Selected gate</strong></div>
-                      {selectedGate ? (
-                        <article className="readiness-command-gate-detail">
-                          <header><div><strong>{selectedGate.label}</strong><span>{selectedGate.expectation}</span></div><GateIcon state={selectedGate.state} /></header>
-                          <b className={`is-${selectedGate.state}`}>{selectedGate.actual}</b>
-                          <p>{selectedGate.detail}</p>
+                      </ol>
+                    ) : (
+                      <div className="rr-empty">
+                        <IconShieldCheck size={28} />
+                        <h3>{text("noActions")}</h3>
+                        <p>{text("noActionsHelp")}</p>
+                      </div>
+                    )}
+                    {actions.length > 0 && (
+                      <div className="rr-list-footer">
+                        <span>
+                          {text("actionCount", {
+                            shown: n(Math.min(actionLimit, actions.length)),
+                            total: n(actions.length),
+                          })}
+                        </span>
+                        {actions.length > actionLimit && (
                           <button
-                            disabled={selectedGate.id === "critical-defects"
-                              ? !canViewBugs
-                              : selectedGate.id === "priority-coverage"
-                                ? !canViewStories || !canViewCases
-                                : !canViewRuns || !canViewResults}
-                            onClick={inspectSelectedGate}
+                            className="rr-link-button"
                             type="button"
+                            onClick={() =>
+                              setActionLimit((value) => value + 10)
+                            }
                           >
-                            Inspect gate evidence <IconArrowRight aria-hidden="true" size={16} stroke={1.9} />
+                            {text("moreActions")}
+                            <IconChevronDown size={15} />
                           </button>
-                        </article>
-                      ) : null}
-                    </section>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
-
-                <section className="readiness-command-action-queue">
-                  <div className="readiness-command-section-title"><IconTargetArrow aria-hidden="true" size={17} stroke={1.9} /><strong className="readiness-inline-methodology">Next review actions {metricMethodology("metric.story.release_risk", "The three highest deterministic Story release-risk scores are shown.")}</strong></div>
-                  {actionableHotspots.slice(0, 3).map((hotspot) => (
-                    <button key={hotspot.id} onClick={() => { setActiveView("traceability"); setSelectedHotspotId(hotspot.id); }} type="button">
-                      <span className={`is-${hotspot.riskLabel.toLowerCase()}`}>{hotspot.riskScore}</span>
-                      <strong>{hotspot.displayId}</strong>
-                      <small>{hotspot.reasons[0]}</small>
-                      <IconChevronRight aria-hidden="true" size={15} stroke={1.9} />
-                    </button>
+                {view === "stories" && (
+                  <>
+                    <div className="rr-panel-heading">
+                      <h2>{text("tab.stories")}</h2>
+                      <p>{text("storiesHelp")}</p>
+                    </div>
+                    {!canStories ? (
+                      <div className="rr-empty">
+                        {text("source.unavailable")}
+                      </div>
+                    ) : model.hotspots.length ? (
+                      <div className="rr-story-list">
+                        <div className="rr-story-head">
+                          <span>{text("storyColumn")}</span>
+                          <span>{text("coverageColumn")}</span>
+                          <span>{text("assessedColumn")}</span>
+                          <span>{text("signalsColumn")}</span>
+                        </div>
+                        {model.hotspots.map((story) => (
+                          <div className="rr-story-row" key={story.id}>
+                            <div>
+                              <span className="rr-action-meta">
+                                {story.displayId}
+                                {story.priority ? ` · P${story.priority}` : ""}
+                              </span>
+                              <Link
+                                to={recordLink(
+                                  "/stories",
+                                  "requirement",
+                                  story.id,
+                                )}
+                              >
+                                {story.title}
+                              </Link>
+                            </div>
+                            <div>
+                              <span className="rr-mobile-label">
+                                {text("coverageColumn")}
+                              </span>
+                              <strong>{n(story.coverageCount)}</strong>
+                            </div>
+                            <div>
+                              <span className="rr-mobile-label">
+                                {text("assessedColumn")}
+                              </span>
+                              {canRuns
+                                ? `${n(story.executedCount)} / ${n(story.coverageCount)}`
+                                : "—"}
+                            </div>
+                            <div className="rr-story-signals">
+                              {!story.coverageCount && (
+                                <span className="rr-badge is-warning">
+                                  {text("noTests")}
+                                </span>
+                              )}
+                              {story.failedCount > 0 && (
+                                <span className="rr-badge is-danger">
+                                  {text("failed", {
+                                    count: n(story.failedCount),
+                                  })}
+                                </span>
+                              )}
+                              {story.openBugCount > 0 && (
+                                <span className="rr-badge is-warning">
+                                  {n(story.openBugCount)} {text("source.bugs")}
+                                </span>
+                              )}
+                              {story.blockedCount > 0 && (
+                                <span className="rr-badge is-warning">
+                                  {text("blocked", {
+                                    count: n(story.blockedCount),
+                                  })}
+                                </span>
+                              )}
+                              {!story.needsAttention && (
+                                <span className="rr-muted">
+                                  {text("noSignal")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rr-empty">
+                        <h3>{text("noStories")}</h3>
+                        <p>{text("noStoriesHelp")}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+                {view === "runs" && (
+                  <>
+                    <div className="rr-panel-heading">
+                      <h2>{text("tab.runs")}</h2>
+                      <p>{text("runsHelp")}</p>
+                    </div>
+                    {!canRuns ? (
+                      <div className="rr-empty">
+                        {text("source.unavailable")}
+                      </div>
+                    ) : runs.length ? (
+                      <div className="rr-runs">
+                        {runs.map((run) => (
+                          <article className="rr-run" key={run.execution.id}>
+                            <div className="rr-run-heading">
+                              <Link
+                                to={recordLink(
+                                  "/executions",
+                                  "execution",
+                                  run.execution.id,
+                                )}
+                              >
+                                {run.execution.name || text("runName")}
+                                <IconArrowRight size={16} />
+                              </Link>
+                              <StatusBadge value={run.execution.status} />
+                            </div>
+                            <div className="rr-run-context">
+                              <span>
+                                {text("environment")}:{" "}
+                                {run.execution.test_environment?.name ||
+                                  text("notRecorded")}
+                              </span>
+                              <span>
+                                {text("configuration")}:{" "}
+                                {run.execution.test_configuration?.name ||
+                                  text("notRecorded")}
+                              </span>
+                              <span>
+                                {formatDate(
+                                  run.execution.started_at ||
+                                    run.execution.created_at,
+                                )}
+                              </span>
+                            </div>
+                            <div className="rr-outcome-bar" aria-hidden="true">
+                              {run.rows.length ? (
+                                <>
+                                  {run.passed > 0 && (
+                                    <span
+                                      className="is-passed"
+                                      style={{ flex: run.passed }}
+                                    />
+                                  )}
+                                  {run.failed > 0 && (
+                                    <span
+                                      className="is-failed"
+                                      style={{ flex: run.failed }}
+                                    />
+                                  )}
+                                  {run.unassessed > 0 && (
+                                    <span
+                                      className="is-unassessed"
+                                      style={{ flex: run.unassessed }}
+                                    />
+                                  )}
+                                </>
+                              ) : (
+                                <span className="is-unassessed" />
+                              )}
+                            </div>
+                            <div className="rr-run-outcomes">
+                              <span className="rr-passed-text">
+                                {text("passed", { count: n(run.passed) })}
+                              </span>
+                              <span
+                                className={run.failed ? "rr-danger-text" : ""}
+                              >
+                                {text("failed", { count: n(run.failed) })}
+                              </span>
+                              <span>
+                                {text("notAssessed", {
+                                  count: n(run.unassessed),
+                                })}
+                              </span>
+                              <span>
+                                {text("runCount", {
+                                  count: n(run.rows.length),
+                                })}
+                              </span>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rr-empty">
+                        <h3>{text("noRuns")}</h3>
+                        <p>{text("noRunsHelp")}</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </section>
+            <aside className="rr-sidebar">
+              <section className="rr-card">
+                <h2>{text("checks")}</h2>
+                <p>{text("checksHelp")}</p>
+                <ul className="rr-checks">
+                  {model.gates.map((gate) => (
+                    <li key={gate.id}>
+                      <span className={`rr-check-icon is-${gate.state}`}>
+                        {gate.state === "pass" ? (
+                          <IconCheck size={16} />
+                        ) : (
+                          <IconAlertTriangle size={16} />
+                        )}
+                      </span>
+                      <div>
+                        <span>{text(`check.${gate.id}`)}</span>
+                        <small>{text(`check.${gate.state}`)}</small>
+                      </div>
+                      <strong>{n(gate.count)}</strong>
+                    </li>
                   ))}
-                  {!actionableHotspots.length ? <div className="readiness-empty">No deterministic review action is queued.</div> : null}
-                </section>
-              </div>
-
-              <div className="readiness-command-analysis-footer">
-                {canUseAi ? (
-                  <button disabled={qualityInsightPreview.isPending} onClick={openAiBrief} type="button">
-                    <IconSparkles aria-hidden="true" size={18} stroke={1.9} />
-                    <span>{qualityInsightPreview.isPending ? "Building evidence brief…" : "Open AI evidence brief"}</span>
+                </ul>
+              </section>
+              <section className="rr-card rr-boundary">
+                <h2>{text("sources")}</h2>
+                <dl>
+                  {sources.map((source) => (
+                    <div key={source.id}>
+                      <dt>{text(`source.${source.id}`)}</dt>
+                      <dd>
+                        {!source.enabled
+                          ? text("source.unavailable")
+                          : source.error
+                            ? text("source.error")
+                            : text("source.loaded", {
+                                loaded: n(source.loaded),
+                                total: n(source.total),
+                              })}
+                      </dd>
+                    </div>
+                  ))}
+                  <div>
+                    <dt>{text("source.runs")}</dt>
+                    <dd>
+                      {!canRuns
+                        ? text("source.unavailable")
+                        : runsQuery.isError
+                          ? text("source.error")
+                          : `${n(executions.length)} · ${n(model.metrics.outcomeCount)}`}
+                    </dd>
+                  </div>
+                </dl>
+                {sources.some((source) => source.enabled && source.more) && (
+                  <button
+                    className="rr-button"
+                    type="button"
+                    disabled={sources.some((source) => source.fetching)}
+                    onClick={() => void loadMore()}
+                  >
+                    {text(
+                      sources.some((source) => source.fetching)
+                        ? "loadingMore"
+                        : "loadMore",
+                    )}
                   </button>
-                ) : <span>AI quality insights are unavailable for this role or project.</span>}
-              </div>
+                )}
+                <ul className="rr-boundary-notes">
+                  {!release && !sprint && <li>{text("scopeNeeded")}</li>}
+                  {(sources.some((source) => source.incomplete) ||
+                    runsQuery.data?.complete === false) && (
+                    <li>{text("bounded")}</li>
+                  )}
+                  {model.metrics.missingCaseDetailsCount > 0 && (
+                    <li>
+                      {text("missingDetails", {
+                        count: n(model.metrics.missingCaseDetailsCount),
+                      })}
+                    </li>
+                  )}
+                  {model.metrics.missingIterationCount > 0 && (
+                    <li>
+                      {text("missingIterations", {
+                        count: n(model.metrics.missingIterationCount),
+                      })}
+                    </li>
+                  )}
+                  {duplicateSprint && <li>{text("ambiguousSprint")}</li>}
+                  {model.ageDays !== null && model.ageDays > 14 && (
+                    <li>{text("stale")}</li>
+                  )}
+                </ul>
+                <details>
+                  <summary>
+                    {text("window")}
+                    <IconChevronDown size={14} />
+                  </summary>
+                  <p>
+                    {text("windowDetail", {
+                      runs: n(RUN_LIMIT),
+                      results: n(RESULT_LIMIT),
+                    })}
+                  </p>
+                </details>
+              </section>
             </aside>
-          </section>
-
-          <footer className={`readiness-command-footer is-${evidenceFooterState}`}>
-            <span>
-              {evidenceFooterState === "current"
-                ? <IconCircleCheck aria-hidden="true" size={15} stroke={2} />
-                : evidenceFooterState === "error"
-                  ? <IconAlertTriangle aria-hidden="true" size={15} stroke={2} />
-                  : <IconClock aria-hidden="true" size={15} stroke={2} />}
-              {evidenceFooterState === "current" ? "Current delivery evidence" : evidenceFooterState === "error" ? "Evidence source error" : "Provisional delivery evidence"}
-            </span>
-            <span>{model.metrics.requirementCount} Stories · {model.metrics.plannedCaseCount} cases · {model.executions.length} runs · {model.metrics.openBugCount} open Bugs</span>
-            <span>{evidenceIsProvisional ? "Review scope, permissions, and source notices" : `Latest evidence ${latestEvidenceLabel}`}</span>
-          </footer>
+          </div>
+          <details className="rr-methodology">
+            <summary>
+              <IconListCheck size={18} />
+              {text("methodology")}
+              <IconChevronDown size={16} />
+            </summary>
+            <p>{text("methodologyBody")}</p>
+          </details>
         </>
       )}
-
       <AiInsightPreviewDialog
-        assuranceTitle="Release evidence grounding"
-        emptyMessage="No deterministic release risk signal matched. This is not a release guarantee."
-        error={qualityInsightPreview.error instanceof Error ? qualityInsightPreview.error.message : null}
-        eyebrow="Release readiness"
+        showScore={false}
+        open={Boolean(aiScope === aiKey && canAi)}
+        onClose={() => setAiScope(null)}
+        title={text("aiTitle")}
+        eyebrow={text("title")}
+        subtitle={text("aiScope", { release })}
+        assuranceTitle={text("aiGrounding")}
+        response={aiResponse}
+        loading={ai.isPending}
+        error={
+          aiScope === aiKey && ai.error instanceof Error
+            ? ai.error.message
+            : null
+        }
+        summary={text("aiHelp")}
         findings={aiFindings}
-        gaps={[
-          ...(sprint ? ["The AI endpoint evaluates connected release scope; the Sprint filter remains visible in the deterministic page metrics."] : []),
-          ...(!release && scopeOptions.releases.length ? ["Select a Fix Version for a release-specific AI evidence brief."] : [])
-        ]}
-        limitations={qualityInsightPreview.data?.limitations || []}
-        loading={qualityInsightPreview.isPending}
-        onClose={() => setIsAiOpen(false)}
-        open={isAiOpen}
-        recommendedActions={aiFindings.map((finding) => finding.action).filter((action): action is string => Boolean(action))}
-        response={qualityInsightPreview.data}
-        signals={qualityInsightPreview.data ? [
-          { label: "Scope", value: release || "Project", tone: release ? "positive" : "neutral" },
-          { label: "Evidence", value: `${qualityInsightPreview.data.provenance.evidence.length} references`, tone: qualityInsightPreview.data.provenance.evidence.length ? "positive" : "warning" },
-          { label: "Decision", value: "Human owned", tone: "warning" }
-        ] : []}
-        subtitle={`Read-only review for ${selectedProject?.name || "the selected project"}${release ? ` · ${release}` : ""}.`}
-        summary="HelloTest applies transparent rules to visible work-item fields, issue links, properties, and execution evidence. It explains risk and suggests review work; it does not decide release readiness."
-        title="AI release evidence brief"
+        limitations={aiResponse?.limitations || []}
+        gaps={sprint ? [text("explainHelp")] : []}
+        emptyMessage={text("aiEmpty")}
       />
     </div>
   );
