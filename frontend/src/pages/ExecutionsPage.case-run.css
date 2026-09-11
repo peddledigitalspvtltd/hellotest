@@ -8,8 +8,10 @@
  */
 
 /* The focused case workspace uses one viewport-sized page scroller. Its
-   content wrappers must grow with saved steps, comments, and evidence. */
+   content wrappers fill the viewport and grow with steps, comments and evidence. */
 :root .app-shell.app-layout > .workspace-main:has(> .page-content--workspace-focus.page-content--executions-full .execution-case-run-workspace) {
+  /* Contain absolute accessibility hints inside this scroller as well. */
+  position: relative;
   height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
@@ -21,6 +23,27 @@
 :root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--executions-full:has(.execution-case-run-workspace) > .workspace-master-detail > .workspace-master-detail-panel {
   height: auto;
   overflow: visible;
+}
+
+:root .app-shell.app-layout > .workspace-main > .page-content--workspace-focus.page-content--executions-full:has(.execution-case-run-workspace) {
+  flex: 1 0 auto;
+  min-height: 100%;
+  grid-template-rows: auto;
+}
+
+/* Reserve a compact assistant slot beside the footer actions, not over content. */
+.app-shell:has(.execution-case-run-workspace) .grounded-assistant-trigger {
+  bottom: calc(1.35rem + env(safe-area-inset-bottom));
+  width: 3.25rem;
+  gap: 0;
+}
+
+.app-shell:has(.execution-case-run-workspace) .grounded-assistant-trigger-label {
+  display: none;
+}
+
+:root .execution-case-run-workspace .execution-case-run-footer {
+  padding-right: max(28px, calc(5.95rem + env(safe-area-inset-right)));
 }
 
 .execution-case-run-workspace {
@@ -49,7 +72,7 @@
   width: 100%;
   height: auto;
   min-width: 0;
-  min-height: 0;
+  min-height: 100dvh;
   overflow: visible;
   background: var(--case-run-surface);
   color: var(--case-run-ink);
@@ -347,6 +370,7 @@
 
 .execution-case-run-body {
   display: grid;
+  flex: 1 0 auto;
   grid-template-columns: minmax(0, 1.82fr) minmax(360px, 0.95fr);
   gap: clamp(22px, 2.4vw, 36px);
   align-items: start;
@@ -1017,7 +1041,9 @@
 }
 
 .execution-case-run-footer {
-  position: relative;
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
   z-index: 22;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);

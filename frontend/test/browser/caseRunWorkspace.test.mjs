@@ -15,7 +15,8 @@ runs.splice(0, runs.length, makeRun('active', 'Case lifecycle regression', 'runn
 const run = runs[0];
 run.case_snapshots = run.case_snapshots.slice(0,1);
 run.test_case_ids = ['case-1']; run.direct_test_case_ids = [];
-run.test_data_set.snapshot = { ...data, mode: 'table', columns: ['email'], rows: [{ email: 'first-row@example.test' }, { email: 'second-row@example.test' }] };
+// Explicit test scope overrides @t.email; an unqualified column now targets run scope.
+run.test_data_set.snapshot = { ...data, mode: 'table', columns: ['t.email'], rows: [{ 't.email': 'first-row@example.test' }, { 't.email': 'second-row@example.test' }] };
 run.case_snapshots[0].parameter_values = { 't.email': 'case-default@example.test' };
 run.case_snapshots[0].suite_parameter_values = { 't.email': 'suite-default@example.test' };
 run.case_snapshots[0].test_data_set_id = 'data';
@@ -223,7 +224,7 @@ test('long case steps and comments wrap, remain reachable, and scroll with the p
   const parameter = `customer-with-a-long-parameter-${'x'.repeat(180)}@example.test`;
   const observation = 'Paused review: verify the account identifier and the complete dashboard confirmation message. '.repeat(7) + `Trace ${'a'.repeat(180)}`;
   const longContent = `
-run.test_data_set.snapshot.rows[0].email = ${JSON.stringify(parameter)};
+run.test_data_set.snapshot.rows[0]['t.email'] = ${JSON.stringify(parameter)};
 run.step_snapshots[0].action = 'Given the customer account is active and has completed the required registration and approval checks for @t.missing_visual_value';
 run.step_snapshots[1].action = 'When the customer signs in with @t.email and confirms the account details shown on the dashboard before proceeding to checkout';
 const longResult = makeResult({ data_set_iteration_index: 0 });
