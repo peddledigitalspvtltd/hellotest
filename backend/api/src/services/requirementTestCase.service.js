@@ -1,5 +1,24 @@
 const db = require("../db");
 const requirementDefectService = require("./requirementDefect.service");
+const testCaseScopes = require("./testCaseScope.service");
+
+const scopeError = (message, statusCode) => Object.assign(new Error(message), { statusCode });
+const mappingIds = (values) => {
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || !value.trim())) {
+    throw scopeError("Mapping IDs must be non-empty strings", 400);
+  }
+  return [...new Set(values.map((value) => value.trim()))];
+};
+
+const assertCaseProject = (testCase, projectId) => {
+  if (!testCase) throw scopeError("Test Case not found", 404);
+  if (testCase.project_ids.length !== 1) {
+    throw scopeError("The Test Case does not have a single project scope", 409);
+  }
+  if (testCase.project_ids[0] !== projectId) {
+    throw scopeError("Story and Test Case must belong to the same project", 403);
+  }
+};
 
 const listForRequirement = db.prepare(`
   SELECT test_case_id
@@ -63,37 +82,24 @@ exports.listMappings = async ({ requirement_id, test_case_id }) => {
 };
 
 exports.replaceMappingsForRequirement = async (requirementId, testCaseIds = []) => {
-  const requirement = await db.prepare(`
-    SELECT id
-    FROM requirements
-    WHERE id = ?
-  `).get(requirementId);
-
-  if (!requirement) {
-    throw new Error("Requirement not found");
-  }
-
-  const uniqueIds = [...new Set(testCaseIds.filter(Boolean))];
-  const selectTestCase = db.prepare(`
-    SELECT id
-    FROM test_cases
-    WHERE id = ?
-  `);
+  const uniqueIds = mappingIds(testCaseIds);
   const syncLegacyRequirement = db.prepare(`
     UPDATE test_cases
     SET requirement_id = ?
     WHERE id = ?
   `);
 
-  for (const testCaseId of uniqueIds) {
-    const testCase = await selectTestCase.get(testCaseId);
-
-    if (!testCase) {
-      throw new Error(`Test case not found: ${testCaseId}`);
-    }
-  }
-
   const transaction = db.transaction(async () => {
+    const requirement = await db.prepare(`
+      SELECT id, project_id FROM requirements WHERE id = ? FOR UPDATE
+    `).get(requirementId);
+    if (!requirement) throw scopeError("Story not found", 404);
+    if (uniqueIds.length) {
+      // Prevent a case moving application/project during the scope check.
+      await db.prepare(`SELECT id FROM test_cases WHERE id IN (${uniqueIds.map(() => "?").join(",")}) ORDER BY id FOR SHARE`).all(...uniqueIds);
+      const cases = new Map((await testCaseScopes.resolveTestCaseScopes(uniqueIds)).map((row) => [row.id, row]));
+      for (const testCaseId of uniqueIds) assertCaseProject(cases.get(testCaseId), requirement.project_id);
+    }
     await deleteForRequirement.run(requirementId);
     await db.prepare(`
       UPDATE test_cases
@@ -114,20 +120,7 @@ exports.replaceMappingsForRequirement = async (requirementId, testCaseIds = []) 
 };
 
 exports.syncMappingsForTestCase = async (testCaseId, requirementIds = []) => {
-  const uniqueIds = [...new Set(requirementIds.filter(Boolean))];
-  const selectRequirement = db.prepare(`
-    SELECT id
-    FROM requirements
-    WHERE id = ?
-  `);
-
-  for (const requirementId of uniqueIds) {
-    const requirement = await selectRequirement.get(requirementId);
-
-    if (!requirement) {
-      throw new Error(`Requirement not found: ${requirementId}`);
-    }
-  }
+  const uniqueIds = mappingIds(requirementIds);
 
   const updateLegacyRequirement = db.prepare(`
     UPDATE test_cases
@@ -136,6 +129,20 @@ exports.syncMappingsForTestCase = async (testCaseId, requirementIds = []) => {
   `);
 
   const transaction = db.transaction(async () => {
+    const caseRow = await db.prepare("SELECT id FROM test_cases WHERE id = ? FOR UPDATE").get(testCaseId);
+    if (!caseRow) throw scopeError("Test Case not found", 404);
+    const [testCase] = await testCaseScopes.resolveTestCaseScopes([testCaseId]);
+    if (uniqueIds.length) {
+      const requirements = await db.prepare(`
+        SELECT id, project_id FROM requirements WHERE id IN (${uniqueIds.map(() => "?").join(",")}) ORDER BY id FOR SHARE
+      `).all(...uniqueIds);
+      const byId = new Map(requirements.map((row) => [row.id, row]));
+      for (const requirementId of uniqueIds) {
+        const requirement = byId.get(requirementId);
+        if (!requirement) throw scopeError("Story not found", 404);
+        assertCaseProject(testCase, requirement.project_id);
+      }
+    }
     await deleteForTestCase.run(testCaseId);
 
     for (const requirementId of uniqueIds) {

@@ -35,6 +35,7 @@ import { TileCardMetric, TileCardProgress, TileCardStatusIndicator, formatTileCa
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { getDomainOptions, getDomainSuggestions } from "../lib/domainOptions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
@@ -573,6 +574,9 @@ export function IssuesPage() {
   const [selectedIssueId, setSelectedIssueId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
+  const rootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.root_causes", ISSUE_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.root_cause]);
+  const qaRootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.qa_root_causes", ISSUE_QA_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.qa_root_cause]);
+  const bugTypeOptions = getDomainOptions(domainMetadataQuery.data, "issues.bug_types", ISSUE_BUG_TYPE_OPTIONS.map(value => ({ value, label: value })), [draft.bug_type]);
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   const [isPendingAttachmentDragActive, setIsPendingAttachmentDragActive] = useState(false);
   const pendingAttachmentInputRef = useRef<HTMLInputElement>(null);
@@ -682,10 +686,11 @@ export function IssuesPage() {
   });
 
   const items = asArray<Issue>(issues.data);
-  const issueLabelOptions = useMemo(
+  const observedIssueLabels = useMemo(
     () => Array.from(new Set(items.flatMap((item) => item.labels || []).map((label) => label.trim()).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
     [items]
   );
+  const issueLabelOptions = getDomainSuggestions(domainMetadataQuery.data, "issues.labels", observedIssueLabels);
   const bugStatusBreakdown = useMemo(() => Object.entries(items.reduce<Record<string, number>>((counts, item) => {
     const status = formatTileCardLabel(item.status, "Open");
     counts[status] = (counts[status] || 0) + 1;
@@ -2840,7 +2845,7 @@ export function IssuesPage() {
                     <FormField label="Bug Type">
                       <select value={draft.bug_type} onChange={(event) => setDraft((current) => ({ ...current, bug_type: event.target.value }))}>
                         <option value="">Not set</option>
-                        {ISSUE_BUG_TYPE_OPTIONS.map((bugType) => <option key={bugType} value={bugType}>{bugType}</option>)}
+                        {bugTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
                       </select>
                     </FormField>
                     <label className="checkbox-field bug-regression-field">
@@ -2945,13 +2950,13 @@ export function IssuesPage() {
                     <FormField label="Primary Root Cause">
                       <select value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
                         <option value="">Not determined</option>
-                        {ISSUE_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
+                        {rootCauseOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
                       </select>
                     </FormField>
                     <FormField label="QA Root Cause">
                       <select value={draft.qa_root_cause} onChange={(event) => setDraft((current) => ({ ...current, qa_root_cause: event.target.value }))}>
                         <option value="">Not determined</option>
-                        {ISSUE_QA_ROOT_CAUSE_OPTIONS.map((rootCause) => <option key={rootCause} value={rootCause}>{rootCause}</option>)}
+                        {qaRootCauseOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
                       </select>
                     </FormField>
                   </div>

@@ -12,7 +12,7 @@ export function buildAutomationCreateParameters({ dataSet, sources, draftSteps, 
   suites: Array<Pick<TestSuite, "id" | "parameter_values">>;
   suiteIds: string[];
 }) {
-  const sourceValues = Object.assign({}, ...[...sources].reverse().map(({ testCase }) => normalizeStepParameterValues(testCase.parameter_values || {}, "t")));
+  const sourceValues = Object.assign({}, ...[...sources].reverse().map(({ testCase }) => normalizeStepParameterValues(testCase.parameter_values || {}, "r")));
   const suiteValues = Object.assign({}, ...[...suiteIds].reverse().map((id) => normalizeStepParameterValues(suites.find((suite) => suite.id === id)?.parameter_values || {}, "s")));
   const values = excludeSensitiveStepParameterValues(
     combineStepParameterValues(buildDataSetParameterValues(dataSet), sourceValues, suiteValues),

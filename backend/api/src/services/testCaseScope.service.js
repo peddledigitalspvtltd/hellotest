@@ -76,6 +76,43 @@ const resolveTestCaseProjectIds = async (testCaseId) => {
   return rows.map((row) => row.project_id);
 };
 
+// Resolve batches without one query per selected case. Include legacy and
+// current relationships so conflicting historical scope fails closed too.
+const resolveTestCaseScopes = async (testCaseIds) => {
+  const ids = uniqueIds(testCaseIds);
+  if (!ids.length) return [];
+  return db.prepare(`
+    WITH selected_cases AS (
+      SELECT id, app_type_id, suite_id, requirement_id
+      FROM test_cases WHERE id IN (${ids.map(() => "?").join(", ")})
+    ), case_scopes AS (
+      SELECT selected_cases.id, app_types.project_id FROM selected_cases
+      JOIN app_types ON app_types.id = selected_cases.app_type_id
+      UNION
+      SELECT selected_cases.id, requirements.project_id FROM selected_cases
+      JOIN requirements ON requirements.id = selected_cases.requirement_id
+      UNION
+      SELECT selected_cases.id, requirements.project_id FROM selected_cases
+      JOIN requirement_test_cases ON requirement_test_cases.test_case_id = selected_cases.id
+      JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
+      UNION
+      SELECT selected_cases.id, app_types.project_id FROM selected_cases
+      JOIN test_suites ON test_suites.id = selected_cases.suite_id
+      JOIN app_types ON app_types.id = test_suites.app_type_id
+      UNION
+      SELECT selected_cases.id, app_types.project_id FROM selected_cases
+      JOIN suite_test_cases ON suite_test_cases.test_case_id = selected_cases.id
+      JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
+      JOIN app_types ON app_types.id = test_suites.app_type_id
+    )
+    SELECT selected_cases.id,
+      ARRAY_REMOVE(ARRAY_AGG(DISTINCT case_scopes.project_id), NULL) AS project_ids
+    FROM selected_cases
+    LEFT JOIN case_scopes ON case_scopes.id = selected_cases.id
+    GROUP BY selected_cases.id
+  `).all(...ids);
+};
+
 const resolveSuiteScopes = async (suiteIds) => {
   const ids = uniqueIds(suiteIds);
   if (!ids.length) return [];
@@ -94,6 +131,7 @@ module.exports = {
   getSuiteScope,
   resolveListProjectId,
   resolveSuiteScopes,
+  resolveTestCaseScopes,
   resolveTestCaseProjectIds,
   uniqueIds
 };

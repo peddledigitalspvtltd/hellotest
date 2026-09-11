@@ -5,6 +5,7 @@ const {
   ROUTE_PERMISSION_RULES
 } = require("../security/permissions.catalog");
 const featureFlagService = require("./featureFlag.service");
+const dropdownCatalogService = require("./dropdownCatalog.service");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -15,12 +16,15 @@ const routePermissionCatalog = () => ROUTE_PERMISSION_RULES.map(([method, path, 
 }));
 
 exports.getDomainMetadata = async () => {
-  const permissionGroups = await featureFlagService.filterPermissionGroupsByEnabledFeatures(PERMISSION_GROUPS);
+  const [permissionGroups, dropdownCatalog] = await Promise.all([
+    featureFlagService.filterPermissionGroupsByEnabledFeatures(PERMISSION_GROUPS),
+    dropdownCatalogService.getCatalog()
+  ]);
   const routePermissions = routePermissionCatalog();
   const disabledRoutePermissionCodes = new Set(await featureFlagService.getDisabledPermissionCodes(routePermissions.map((route) => route.permission)));
 
   return {
-    ...cloneDomainMetadata(),
+    ...dropdownCatalogService.applyToDomainMetadata(cloneDomainMetadata(), dropdownCatalog),
     access: {
       default_permissions: ["workspace.view"],
       pages: clone(PAGE_ACCESS),

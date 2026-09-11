@@ -33,11 +33,12 @@ test("test case metadata and data set links are durable and scope checked", asyn
   assert.match(dataSetService, /is_secret: true, value: "", has_stored_value: Boolean\(entry\.value\)/);
   assert.match(service, /author:/);
   assert.match(routes, /test_case_type:/);
-  assert.match(schema, /test_case_type[^\n]*'accessibility','ios'/);
-  assert.match(bootstrap, /test_cases_test_case_type_check[^\n]*[\s\S]{0,220}'accessibility', 'ios'/);
-  assert.match(service, /TEST_CASE_TYPE_VALUES = \[[^\]]*"accessibility", "ios"/);
-  assert.match(routes, /TEST_CASE_TYPE_VALUES = \[[^\]]*"accessibility", "ios"/);
-  assert.equal((openapi.match(/test_case_type: \{ type: string, enum: \[[^\]]*accessibility, ios\] \}/g) || []).length, 3);
+  assert.match(schema, /test_case_type ~ '\^\[a-z\]\[a-z0-9_-\]\{0,119\}\$'/);
+  assert.match(bootstrap, /test_cases_test_case_type_check CHECK \(test_case_type ~/);
+  assert.match(service, /dropdownCatalog\.validateValue\("test_cases\.types", normalized, \{ existingValue, allowEmpty: false \}\)/);
+  assert.doesNotMatch(service, /TEST_CASE_TYPE_VALUES/);
+  assert.equal((routes.match(/test_case_type: \{ required: false, type: "string", minLength: 1, maxLength: 120 \}/g) || []).length, 2);
+  assert.equal((openapi.match(/test_case_type: \{ type: string, minLength: 1, maxLength: 120,[^\n]*test_cases\.types dropdown catalog/g) || []).length, 3);
   assert.equal((routes.match(/test_data_set_ids: \{ required: false, type: "array", items: "string", maxItems: 1 \}/g) || []).length, 2);
   assert.match(versionRestore, /version\.content\.test_data_set_ids\.slice\(0, 1\)/);
 });

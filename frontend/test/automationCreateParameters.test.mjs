@@ -22,13 +22,13 @@ test("creation suggestions include its linked data columns, all source defaults,
       { testCase: { parameter_values: { user: "first-source" } }, steps: [{ id: "source-1", action: "Save @r.session", expected_result: "", automation_code: "", api_request: null }] },
       { testCase: { parameter_values: { user: "second-source", plan: "premium" } }, steps: [] }
     ],
-    draftSteps: [{ id: "draft", action: "Use @t.region", expected_result: "@r.receipt exists" }],
+    draftSteps: [{ id: "draft", action: "Use @r.region", expected_result: "@r.receipt exists" }],
     suites: [{ id: "suite", parameter_values: { tenant: "accounts" } }, { id: "unlinked", parameter_values: { unrelated: "ignore" } }],
     suiteIds: ["suite"]
   });
-  assert.deepEqual(result.values, { "t.first name": "Jay", "t.region": "IN", "t.user": "first-source", "t.plan": "premium", "s.tenant": "accounts" });
-  for (const name of ["t.first name", "t.user", "t.plan", "s.tenant", "r.session", "r.receipt"]) assert.ok(result.definitions.some((item) => item.name === name), name);
-  assert.equal(result.definitions.find((item) => item.name === "t.first name").token, "@t.[first name]");
+  assert.deepEqual(result.values, { "r.first name": "Jay", "r.region": "IN", "r.user": "first-source", "r.plan": "premium", "s.tenant": "accounts" });
+  for (const name of ["r.first name", "r.user", "r.plan", "s.tenant", "r.session", "r.receipt"]) assert.ok(result.definitions.some((item) => item.name === name), name);
+  assert.equal(result.definitions.find((item) => item.name === "r.first name").token, "@r.[first name]");
   assert.ok(!result.definitions.some((item) => item.name === "s.unrelated"));
 });
 
@@ -38,6 +38,6 @@ test("secret linked parameters stay suggestible without exposing source defaults
     sources: [{ testCase: { parameter_values: { token: "source-secret" } }, steps: [] }],
     draftSteps: [], suites: [], suiteIds: []
   });
-  assert.equal(result.values["t.token"], undefined);
-  assert.equal(result.definitions.find((item) => item.name === "t.token").sensitive, true);
+  assert.equal(result.values["r.token"], undefined);
+  assert.equal(result.definitions.find((item) => item.name === "r.token").sensitive, true);
 });

@@ -878,6 +878,7 @@ paths:
     get:
       tags: [Requirements]
       summary: List requirement defect mappings
+      description: Requires requirement.view and feedback.view in the persisted Story or Bug project. Non-administrators must supply requirement_id or issue_id. Both filters, when present, must belong to the same project.
       parameters:
         - $ref: "#/components/parameters/RequirementIdQuery"
         - name: issue_id
@@ -893,10 +894,14 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/RequirementDefectMapping"
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
   /requirement-defects/replace:
     put:
       tags: [Requirements]
       summary: Replace linked defects for a requirement
+      description: Requires requirement.view and feedback.manage in the persisted Story project. Every selected Bug must belong to that project. Invalid selection preserves existing links; an empty issue_ids array clears them. At most 1000 Bug IDs may be submitted.
       requestBody:
         required: true
         content:
@@ -913,6 +918,9 @@ paths:
                 properties:
                   updated: { type: boolean }
                   mapped: { type: integer }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
 
   /test-suites:
     get:
@@ -1312,6 +1320,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /executions/parameter-plan:
+    post:
+      summary: Collect scoped input columns for all selected cases and descendant suites
+      description: Optional execution_id previews an edit using retained frozen cases and new authoring only for added scope. Requires run.view for the run. Unchanged context IDs retain frozen context; an empty context ID explicitly clears that resource.
+      tags: [Executions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, app_type_id]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                execution_id: { type: string, maxLength: 255 }
+                suite_ids: { type: array, maxItems: 1000, items: { type: string } }
+                test_case_ids: { type: array, maxItems: 5000, items: { type: string } }
+                test_data_set_id: { type: string }
+                test_environment_id: { type: string }
+                test_configuration_id: { type: string }
+      responses:
+        '200':
+          description: Parameter names only; no default or secret values are exported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expected_instance_count: { type: integer }
+                  case_count: { type: integer }
+                  suite_count: { type: integer }
+                  suite_ids: { type: array, items: { type: string } }
+                  parameters:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        token: { type: string }
+                        scope: { type: string, enum: [t, s, r] }
+                        case_count: { type: integer }
   /executions/smart-plan-preview:
     post:
       tags: [Executions]
@@ -2379,6 +2429,7 @@ paths:
     get:
       tags: [Releases]
       summary: List readiness metrics for every project Release
+      description: Requires requirement_iteration.view, requirement.view, testcase.view, run.view, result.view and feedback.view in the selected project, including enabled source features. Returns 403 when any source is unavailable. Execution evidence is limited to linked cases and runs whose release exactly matches the stored Release fix version after trimming and case normalization.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
@@ -2389,6 +2440,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/RequirementReleaseReadiness" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /requirement-releases/{id}:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -2448,20 +2500,24 @@ paths:
     get:
       tags: [Releases]
       summary: Calculate readiness metrics for one Release
+      description: Requires delivery, Story, Test Case, Run, Result and Bug read grants in the persisted Release project. Caller-supplied scope does not override ownership. Runs must have that project's exact normalized stored Release fix version. No matching results produces a null pass rate; results from other releases are not substituted.
       responses:
         "200":
           description: Release readiness evidence
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RequirementReleaseReadiness" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /requirement-releases/{id}/release-notes:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     post:
       tags: [Releases]
       summary: Generate evidence-bounded release notes for human review
+      description: Requires requirement_iteration.view, requirement.view, testcase.view, run.view, result.view and feedback.view in the persisted Release project before gathering evidence or calling an AI provider. Execution validation uses the same stored Release fix-version cohort as readiness.
       responses:
         "200": { description: "Release notes, generation provenance, scope summary, and readiness evidence" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
   /quality-dashboards:
     get:
       tags: [Quality Analytics]
@@ -3992,6 +4048,68 @@ paths:
       security: []
       responses:
         "200": { description: Successful response }
+  /admin-portal/dropdowns:
+    get:
+      tags: [Admin Portal]
+      summary: List dropdown fields, values and ownership policies
+      description: Administrator-only catalog containing extensible classifications, suggestions, protected system choices and record-backed selectors. Responses are not cached.
+      responses:
+        '200':
+          description: Current catalog revision and registered fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DropdownCatalog'
+        '401':
+          description: Authentication required
+        '403':
+          description: Administrator access required
+  /admin-portal/dropdowns/{key}:
+    put:
+      tags: [Admin Portal]
+      summary: Publish values for a configurable dropdown
+      description: |
+        Requires administrator access and the current global catalog revision.
+        Existing codes cannot be deleted or changed; deactivate options to preserve history.
+        Labels, descriptions, order, active state and supported defaults are configurable.
+        The update and audit entry commit atomically. An unchanged submission creates no new revision or audit event.
+      parameters:
+        - in: path
+          name: key
+          required: true
+          schema: { type: string, example: test_cases.types }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision, options]
+              properties:
+                expected_revision: { type: integer, minimum: 0 }
+                default_value: { type: string, nullable: true, maxLength: 120 }
+                options:
+                  type: array
+                  maxItems: 200
+                  items:
+                    $ref: '#/components/schemas/DropdownOptionInput'
+      responses:
+        '200':
+          description: Updated catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DropdownCatalog'
+        '400':
+          description: Invalid or duplicate options, disabled default, or system-managed field
+        '401':
+          description: Authentication required
+        '403':
+          description: Administrator access required
+        '404':
+          description: Unregistered field
+        '409':
+          description: Catalog revision changed; reload before publishing
   /admin-portal/audit:
     get:
       tags: [Admin Portal]
@@ -4252,8 +4370,16 @@ paths:
     get:
       tags: [Requirements]
       summary: Read requirement test cases
+      description: Requires requirement.view and testcase.view in the persisted Story or Test Case project. Non-administrators must supply requirement_id or test_case_id. When both filters are supplied, both records must belong to the same project. A caller-supplied project_id does not override record ownership.
+      parameters:
+        - { name: requirement_id, in: query, schema: { type: string, minLength: 1 } }
+        - { name: test_case_id, in: query, schema: { type: string, minLength: 1 } }
       responses:
         "200": { description: Successful response }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { description: Test Case has missing or conflicting project relationships }
   /requirements/alm/projects:
     get:
       tags: [Requirements]
@@ -5004,9 +5130,24 @@ paths:
   /requirement-test-cases/replace:
     put:
       tags: [Requirements]
-      summary: Update requirement test cases replace
+      summary: Replace Story test case links
+      description: Requires requirement.view and testcase.update in the persisted Story project. Every selected Test Case must have exactly one project scope matching the Story. Invalid selection leaves existing mappings unchanged. An empty array clears the Story links.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requirement_id, test_case_ids]
+              properties:
+                requirement_id: { type: string }
+                test_case_ids: { type: array, maxItems: 1000, items: { type: string, minLength: 1 } }
       responses:
         "200": { description: Successful response }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { description: Test Case has missing or conflicting project relationships }
   /requirements/{id}/related-requirements:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -5183,6 +5324,58 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    DropdownOptionInput:
+      type: object
+      required: [value, label, active]
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Immutable code; case types use lowercase slug codes and story estimates use integers 1–999
+        label: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        active: { type: boolean }
+    DropdownCatalog:
+      type: object
+      required: [revision, fields]
+      properties:
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time, nullable: true }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [key, label, group, kind, options, can_add, can_edit]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              group: { type: string }
+              description: { type: string }
+              kind: { type: string, enum: [configurable, suggestions, system, records] }
+              value_format: { type: string, enum: [text, slug, integer] }
+              can_add: { type: boolean }
+              can_edit: { type: boolean }
+              required: { type: boolean }
+              supports_default: { type: boolean }
+              default_value: { type: string, nullable: true }
+              reason: { type: string }
+              manage_path: { type: string }
+              usage:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label: { type: string }
+                    path: { type: string }
+              options:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/DropdownOptionInput'
+                    - type: object
+                      properties:
+                        builtin: { type: boolean }
     QualityAnalyticsOverview:
       type: object
       required: [project, evaluated_at, window, visibility, inventory, execution, trend, recent_runs, attention, evidence, methodology]
@@ -6662,6 +6855,7 @@ components:
         requirement_id: { type: string }
         issue_ids:
           type: array
+          maxItems: 1000
           items: { type: string }
     BulkImportRequirementsRequest:
       type: object
@@ -6710,6 +6904,9 @@ components:
     TestSuite:
       type: object
       properties:
+        description: { type: string, nullable: true }
+        parameter_values: { type: object, additionalProperties: { type: string } }
+        test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
         id: { type: string }
         app_type_id: { type: string }
         name: { type: string }
@@ -6719,12 +6916,18 @@ components:
       type: object
       required: [app_type_id, name]
       properties:
+        description: { type: string, nullable: true }
+        parameter_values: { type: object, additionalProperties: { type: string } }
+        test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
         app_type_id: { type: string }
         name: { type: string }
         parent_id: { type: string }
     UpdateTestSuiteRequest:
       type: object
       properties:
+        description: { type: string, nullable: true }
+        parameter_values: { type: object, additionalProperties: { type: string } }
+        test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
         name: { type: string }
         parent_id: { type: string }
     TestCaseModule:
@@ -6808,7 +7011,7 @@ components:
         manual_test_case_id: { type: string, nullable: true, description: Primary manual test case linked to this independent automation case. }
         manual_test_case_ids: { type: array, items: { type: string }, description: All manual test cases linked to this automation case. }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
+        test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. Table rows remain separate execution iterations. }
         author_id: { type: string, nullable: true, description: Selected Test Case author. Legacy records fall back to the immutable creator. }
         author:
@@ -6848,7 +7051,7 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
+        test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. }
         author_id: { type: string, description: Project member recorded as the Test Case author. Defaults to the acting user. }
         gherkin_document: { type: string, nullable: true }
@@ -6877,7 +7080,7 @@ components:
         manual_test_case_id: { type: string, nullable: true }
         manual_test_case_ids: { type: array, items: { type: string } }
         authoring_mode: { type: string, enum: [structured, gherkin] }
-        test_case_type: { type: string, enum: [functional, regression, smoke, integration, acceptance, exploratory, performance, security, accessibility, ios] }
+        test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Replaces the Test Case data link with zero or one reusable data set. }
         author_id: { type: string, description: Project member to record as the Test Case author. }
         gherkin_document: { type: string, nullable: true }
@@ -7377,7 +7580,7 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ExecutionDataSetSnapshot"
-        data_set_source: { type: string, nullable: true, enum: [run, test_case] }
+        data_set_source: { type: string, nullable: true, enum: [run, suite, test_case] }
         sort_order: { type: integer }
         assigned_to: { type: string, nullable: true }
         assigned_to_ids:
@@ -7412,6 +7615,7 @@ components:
     Execution:
       type: object
       properties:
+        parameter_scope_default: { type: string, enum: [t, r], description: "Frozen parameter policy; legacy runs use t and newly created runs use r." }
         id: { type: string }
         display_id: { type: string, nullable: true }
         project_id: { type: string }

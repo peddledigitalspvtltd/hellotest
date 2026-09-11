@@ -1,3 +1,4 @@
+import { RunDataSetup } from "../components/RunDataSetup";
 import { DragEvent, FormEvent, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -43,6 +44,8 @@ import "../components/suite-authoring-reference.css";
 import "../components/create-suite-modal.css";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useDomainSuggestions } from "../hooks/useDomainOptions";
+import { resolveDomainSuggestionValue } from "../lib/domainOptions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
@@ -429,7 +432,7 @@ export function DesignPage() {
 
   const createSuiteMutation = useMutation({ mutationFn: api.testSuites.create });
   const updateSuiteMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number }> }) =>
       api.testSuites.update(id, input)
   });
   const assignSuiteCasesMutation = useMutation({
@@ -1316,7 +1319,7 @@ export function DesignPage() {
     setIsTestCaseEditorModalOpen(true);
   };
 
-  const handleSuiteSave = async (input: { name: string; description: string; labels: string[]; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => {
+  const handleSuiteSave = async (input: { name: string; description: string; labels: string[]; selectedIds: string[]; test_data_set_id?: string; parallel_enabled?: boolean; parallel_count?: number }) => {
     if ((suiteModalMode === "create" && !canCreateSuites) || (suiteModalMode === "edit" && !canUpdateSuites)) {
       showError(new Error("Your HelloTest role cannot save test suites."), "Unable to save suite");
       return;
@@ -1331,6 +1334,7 @@ export function DesignPage() {
           name: input.name,
           description: input.description,
           labels: input.labels,
+          test_data_set_id: input.test_data_set_id || "",
           parallel_enabled: canConfigureParallelAutomation ? input.parallel_enabled : false,
           parallel_count: canConfigureParallelAutomation && input.parallel_enabled ? input.parallel_count : 1
         });
@@ -1342,6 +1346,7 @@ export function DesignPage() {
             name: input.name,
             description: input.description,
             labels: input.labels,
+            test_data_set_id: input.test_data_set_id || "",
             ...(canConfigureParallelAutomation ? {
               parallel_enabled: input.parallel_enabled,
               parallel_count: input.parallel_enabled ? input.parallel_count : 1
@@ -2184,7 +2189,12 @@ export function DesignPage() {
         <SuiteModal
           key={suiteModalMode === "edit" ? `edit-${selectedSuite?.id || "none"}` : "create-new"}
           mode={suiteModalMode}
+          projectId={projectId}
+          appTypeId={appTypeId}
           suite={suiteModalMode === "edit" ? selectedSuite : null}
+          childSuites={suiteModalMode === "edit" && selectedSuite
+            ? suites.filter(item => item.parent_id === selectedSuite.id && item.id !== selectedSuite.id && item.app_type_id === appTypeId)
+            : []}
           appTypeCases={allTestCases}
           availableLabels={existingSuiteLabels}
           canConfigureParallelAutomation={canConfigureParallelAutomation}
@@ -4115,12 +4125,14 @@ function SuiteExecutionModal({
               onConfigurationChange={onConfigurationChange}
               onDataSetChange={onDataSetChange}
               onEnvironmentChange={onEnvironmentChange}
-              prefillFirstAvailable={true}
+              prefillFirstAvailable={false}
               projectId={projectId}
               selectedConfigurationId={selectedConfigurationId}
               selectedDataSetId={selectedDataSetId}
               selectedEnvironmentId={selectedEnvironmentId}
             />
+
+            <RunDataSetup appTypeId={appTypeId} projectId={projectId} suites={scopeSuites.filter(suite => selectedSuiteIds.includes(suite.id))} cases={[]} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange} environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
             <RunHooksBuilder
               onChange={onExecutionHookDraftChange}
@@ -4174,6 +4186,7 @@ function SuiteLabelsField({
   onChange: (value: string) => void;
   availableLabels: string[];
 }) {
+  const suggestedLabels = useDomainSuggestions("test_suites.labels", availableLabels);
   const [draftLabel, setDraftLabel] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const inputId = `suite-label-${useId().replace(/:/g, "")}`;
@@ -4182,10 +4195,10 @@ function SuiteLabelsField({
   const filteredLabels = useMemo(() => {
     const search = draftLabel.trim().toLowerCase();
     const selected = new Set(selectedLabels.map((label) => label.toLowerCase()));
-    return availableLabels
-      .filter((label) => !selected.has(label.toLowerCase()))
-      .filter((label) => !search || label.toLowerCase().includes(search));
-  }, [availableLabels, draftLabel, selectedLabels]);
+    return suggestedLabels
+      .filter((label) => !selected.has(label.value.toLowerCase()))
+      .filter((label) => !search || `${label.label} ${label.value}`.toLowerCase().includes(search));
+  }, [suggestedLabels, draftLabel, selectedLabels]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -4199,7 +4212,7 @@ function SuiteLabelsField({
   }, []);
 
   const commitLabel = (label: string) => {
-    const normalizedLabel = label.trim();
+    const normalizedLabel = resolveDomainSuggestionValue(label, suggestedLabels);
 
     if (!normalizedLabel) {
       return;
@@ -4255,11 +4268,11 @@ function SuiteLabelsField({
           {isMenuOpen && (filteredLabels.length || draftLabel.trim()) ? (
             <div className="requirement-label-menu" role="listbox" aria-label="Available suite labels">
               {filteredLabels.map((label) => (
-                <button className="requirement-label-menu-option" key={label} onClick={() => commitLabel(label)} role="option" type="button">
-                  {label}
+                <button className="requirement-label-menu-option" key={label.value} onClick={() => commitLabel(label.value)} role="option" type="button">
+                  {label.label}
                 </button>
               ))}
-              {draftLabel.trim() && !filteredLabels.some((label) => label.toLowerCase() === draftLabel.trim().toLowerCase()) ? (
+              {draftLabel.trim() && !filteredLabels.some((label) => [label.value, label.label].some(value => value.toLowerCase() === draftLabel.trim().toLowerCase())) ? (
                 <button className="requirement-label-menu-option is-add" onClick={() => commitLabel(draftLabel)} role="option" type="button">
                   Add "{draftLabel.trim()}"
                 </button>
@@ -4284,7 +4297,10 @@ function SuiteLabelsField({
 
 function SuiteModal({
   mode,
+  projectId,
+  appTypeId,
   suite,
+  childSuites,
   appTypeCases,
   availableLabels,
   canConfigureParallelAutomation,
@@ -4296,7 +4312,10 @@ function SuiteModal({
   isSaving
 }: {
   mode: SuiteModalMode;
+  projectId: string;
+  appTypeId: string;
   suite: TestSuite | null;
+  childSuites: TestSuite[];
   appTypeCases: TestCase[];
   availableLabels: string[];
   canConfigureParallelAutomation: boolean;
@@ -4304,7 +4323,7 @@ function SuiteModal({
   metadataByCaseId: SuitePickerMetadataByCaseId;
   selectedCaseIds: string[];
   onClose: () => void;
-  onSubmit: (input: { name: string; description: string; labels: string[]; selectedIds: string[]; parallel_enabled?: boolean; parallel_count?: number }) => void;
+  onSubmit: (input: { name: string; description: string; labels: string[]; selectedIds: string[]; test_data_set_id?: string; parallel_enabled?: boolean; parallel_count?: number }) => void;
   isSaving: boolean;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
@@ -4317,6 +4336,7 @@ function SuiteModal({
     [availableCaseIdSet, selectedCaseIds]
   );
 
+  const [dataSetId, setDataSetId] = useState(suite?.test_data_set_id || "");
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
   const [description, setDescription] = useState(() => (mode === "edit" && suite ? suite.description || "" : ""));
   const [labelsText, setLabelsText] = useState(() => (mode === "edit" && suite ? formatReferenceList(suite.labels) : ""));
@@ -4379,6 +4399,7 @@ function SuiteModal({
               labels: parseReferenceList(labelsText),
               parallel_enabled: canConfigureParallelAutomation && parallelEnabled,
               parallel_count: canConfigureParallelAutomation && parallelEnabled ? parallelCount : 1,
+              test_data_set_id: dataSetId,
               selectedIds: localSelectedIds
             });
           }}
@@ -4410,6 +4431,8 @@ function SuiteModal({
                   value={description}
                 />
               </FormField>
+              {/* Expand children, while the unsaved selection supplies this suite's own cases. */}
+              <RunDataSetup suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={appTypeCases.filter(item => localSelectedIds.includes(item.id))} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
               <SuiteLabelsField
                 availableLabels={availableLabels}
                 value={labelsText}

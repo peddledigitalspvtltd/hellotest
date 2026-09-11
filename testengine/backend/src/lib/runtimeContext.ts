@@ -19,7 +19,14 @@ const GENERATED_CONTEXT_ALIASES: Record<string, string> = {
   "t.today": "{{date:YYYY-MM-DD}}",
   today: "{{date:YYYY-MM-DD}}",
   "t.timestamp": "{{date:ISO}}",
-  timestamp: "{{date:ISO}}"
+  timestamp: "{{date:ISO}}",
+  "r.random": "{{randomString:3}}",
+  "r.randomstring": "{{randomString:8}}",
+  "r.randomnumber": "{{randomNumber:6}}",
+  "r.yopmail": "{{yopmail}}",
+  "r.today": "{{date:YYYY-MM-DD}}",
+  "r.timestamp": "{{date:ISO}}",
+
 };
 const GENERATOR_ALIAS_TEMPLATES: Record<string, string> = {
   random: "{{randomString:3}}",
@@ -135,7 +142,7 @@ export const registerContextValue = (
   key: string | null | undefined,
   value: unknown
 ) => {
-  const normalizedKey = normalizeScopedParameterKey(key || "", "t");
+  const normalizedKey = normalizeScopedParameterKey(key || "", "r");
 
   if (!normalizedKey) {
     return;
@@ -156,8 +163,8 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     }
   };
   const entries = (values: Array<{ key: string; value: string }> = []) => Object.fromEntries(values.map((entry) => [entry.key, entry.value]));
-  apply(envelope.manual_spec?.test_data, "t");
-  apply(envelope.case_parameters, "t");
+  apply(envelope.manual_spec?.test_data, "r");
+  apply(envelope.case_parameters, "r");
   apply(envelope.suite_parameters, "s");
   apply(entries(envelope.environment?.variables), "r");
   apply(entries(envelope.configuration?.variables), "r");
@@ -165,10 +172,10 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
   const rows = envelope.data_set?.rows || [];
   apply(envelope.data_set?.mode === "key_value"
     ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
-    : rows[0], "t");
+    : rows[0], "r");
   Object.entries(capturedValues).forEach(([key, value]) => registerContextValue(context, key, value));
   for (const [key, template] of Object.entries(GENERATED_CONTEXT_ALIASES)) {
-    if (key.startsWith("t.") && !Object.hasOwn(context.values, key)) context.values[key] = materializeTemplateValue(template);
+    if (/^[tr]\./.test(key) && !Object.hasOwn(context.values, key)) context.values[key] = materializeTemplateValue(template);
   }
   return context;
 };
@@ -176,7 +183,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
 export const resolveContextValue = (
   context: RuntimeExecutionContext,
   scopedKey: string,
-  fallbackScope = "t"
+  fallbackScope = "r"
 ) => {
   const normalizedKey = normalizeKey(scopedKey);
 
@@ -219,9 +226,9 @@ export const interpolateText = (
   String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, referenceName, offset, source) => {
     if (!scope && /^[tsr]$/i.test(referenceName) && source[offset + token.length] === ".") return token;
     const rawName = referenceName.startsWith("[") ? decodeParameterColumnName(referenceName.slice(1, -1)) : referenceName;
-    const normalizedKey = `${scope ? String(scope).toLowerCase() : "t"}.${String(rawName).toLowerCase()}`;
+    const normalizedKey = `${scope ? String(scope).toLowerCase() : "r"}.${String(rawName).toLowerCase()}`;
 
-    return resolveContextValue(context, normalizedKey, scope ? String(scope).toLowerCase() : "t");
+    return resolveContextValue(context, normalizedKey, scope ? String(scope).toLowerCase() : "r");
   });
 
 export const interpolateHeaders = (

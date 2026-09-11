@@ -328,6 +328,7 @@ test('generated API drafts pass the actual Test Case service normalization and p
   database(t, (sql, method, args) => {
     if (sql.includes('FROM users')) return { id: user.id, name: 'Reviewer' };
     if (sql.includes('FROM project_members')) return { user_id: user.id };
+    if (sql === 'SELECT value, updated_at FROM app_settings WHERE key = ?') { assert.deepEqual(args, ['dropdown_catalog']); return null; }
     if (sql.includes('source_idempotency_key = ?')) return null;
     if (sql.startsWith('INSERT INTO test_cases ') || sql.startsWith('INSERT INTO test_steps ')) {
       const columns = /INSERT INTO \w+ \((.*?)\) VALUES/.exec(sql)[1].split(',').map(column => column.trim());

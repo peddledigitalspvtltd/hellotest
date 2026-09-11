@@ -4,6 +4,7 @@ const displayIdService = require("./displayId.service");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 const { normalizeReferenceList } = require("../utils/externalReferences");
 const issueHistory = require("./issueHistory.service");
+const dropdownCatalog = require("./dropdownCatalog.service");
 
 const DEFAULT_ISSUE_STATUS = DOMAIN_METADATA.issues.default_status;
 
@@ -75,12 +76,14 @@ const normalizeText = (value) => {
   return normalized || null;
 };
 
-const QA_ROOT_CAUSE_OPTIONS = ["Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"];
-const validateQaRootCause = (value) => {
-  const normalized = normalizeText(value);
-  if (normalized && !QA_ROOT_CAUSE_OPTIONS.includes(normalized)) {
-    throw Object.assign(new Error("Invalid QA Root Cause"), { statusCode: 400 });
+const validateClassifications = async (input, existing = {}) => {
+  const validated = { ...input };
+  for (const [field, key] of [["root_cause", "issues.root_causes"], ["qa_root_cause", "issues.qa_root_causes"], ["bug_type", "issues.bug_types"]]) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      validated[field] = await dropdownCatalog.validateValue(key, input[field], { existingValue: existing[field] });
+    }
   }
+  return validated;
 };
 
 const normalizeStatus = (value) => {
@@ -199,7 +202,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
 
   await validateUser(user_id, "User not found");
   await validateUser(details.assignee_id, "Assignee not found");
-  validateQaRootCause(details.qa_root_cause);
+  details = await validateClassifications(details);
 
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("issue");
@@ -333,7 +336,7 @@ exports.updateIssue = async (id, data, { actorId } = {}) => db.transaction(async
   // Serialize updates before reading the previous values used by the audit log.
   await db.prepare("SELECT id FROM feedback WHERE id = ? FOR UPDATE").get(id);
   const existing = await exports.getIssueItem(id);
-  if (Object.prototype.hasOwnProperty.call(data, "qa_root_cause")) validateQaRootCause(data.qa_root_cause);
+  data = await validateClassifications(data, existing);
 
   if (data.user_id && data.user_id !== existing.user_id) {
     await validateUser(data.user_id, "User not found");

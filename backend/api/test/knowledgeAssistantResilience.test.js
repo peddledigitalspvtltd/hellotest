@@ -25,6 +25,17 @@ test("an exhausted deadline never starts another retrieval or model call", async
   assert.equal(called, false);
 });
 
+test("synthesis leaves time for authorization and saving within the whole conversation deadline", async (context) => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  await execution.run({ turn: { deadlineAt: 91_000 } }, async () => {
+    assert.equal(assistant._internals.answerModelTimeout(), 45_000);
+    context.mock.timers.tick(60_000);
+    assert.equal(assistant._internals.answerModelTimeout(), 20_000);
+    context.mock.timers.tick(20_000);
+    assert.equal(assistant._internals.answerModelTimeout(), 0);
+  });
+});
+
 test("a timed-out model aborts its transport and leaves the parent turn able to return evidence", async () => {
   let modelSignal;
   gateway.registerAdapter("bounded-test", ({ signal }) => { modelSignal = signal; return new Promise(() => {}); });

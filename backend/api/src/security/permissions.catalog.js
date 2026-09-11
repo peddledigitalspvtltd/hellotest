@@ -523,6 +523,7 @@ const ROUTE_PERMISSION_RULES = [
   ["GET", "/executions/:id", "run.view"],
   ["GET", "/executions/:id/report.pdf", "run.report.export"],
   ["GET", "/executions/:id/report.html", "run.report.export"],
+  ["POST", "/executions/parameter-plan", "testcase.view"],
   ["POST", "/executions/smart-plan-preview", "run.ai"],
   ["POST", "/executions/manual-run-suggestion", "run.ai"],
   ["POST", "/executions", "run.create"],

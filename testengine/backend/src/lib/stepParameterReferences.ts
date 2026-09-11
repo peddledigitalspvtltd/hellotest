@@ -7,7 +7,7 @@ export const normalizeParameterReferenceKey = (key: string) => key.trim().replac
   .replace(/^([tsr])\.\[((?:\\.|[^\]\\])+)\]$/i, (_match, scope: string, name: string) => `${scope}.${decodeParameterColumnName(name)}`)
   .toLowerCase();
 
-export const normalizeScopedParameterKey = (key: string, scope: "t" | "s" | "r" = "t") => {
+export const normalizeScopedParameterKey = (key: string, scope: "t" | "s" | "r" = "r") => {
   const normalized = normalizeParameterReferenceKey(key);
   return normalized ? normalizeParameterReferenceKey(/^[tsr]\./.test(normalized) ? normalized : `${scope}.${normalized}`) : "";
 };

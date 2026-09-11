@@ -83,6 +83,8 @@ import {
 } from "./TestEnvironmentPage";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useDomainSuggestions } from "../hooks/useDomainOptions";
+import { getDomainOptions, getDomainDefault, resolveDomainSuggestionValue } from "../lib/domainOptions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
@@ -403,12 +405,15 @@ const getTestCaseExecutionTypeLabel = (steps: Array<Pick<TestStep, "step_type" |
 function CaseLabelsField({
   value,
   onChange,
-  availableLabels
+  availableLabels,
+  domainField = "test_cases.labels"
 }: {
+  domainField?: string;
   value: string;
   onChange: (value: string) => void;
   availableLabels: string[];
 }) {
+  const suggestedLabels = useDomainSuggestions(domainField, availableLabels);
   const [draftLabel, setDraftLabel] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const inputId = `case-label-${useId().replace(/:/g, "")}`;
@@ -417,10 +422,10 @@ function CaseLabelsField({
   const filteredLabels = useMemo(() => {
     const search = draftLabel.trim().toLowerCase();
     const selected = new Set(selectedLabels.map((label) => label.toLowerCase()));
-    return availableLabels
-      .filter((label) => !selected.has(label.toLowerCase()))
-      .filter((label) => !search || label.toLowerCase().includes(search));
-  }, [availableLabels, draftLabel, selectedLabels]);
+    return suggestedLabels
+      .filter((label) => !selected.has(label.value.toLowerCase()))
+      .filter((label) => !search || `${label.label} ${label.value}`.toLowerCase().includes(search));
+  }, [suggestedLabels, draftLabel, selectedLabels]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -434,7 +439,7 @@ function CaseLabelsField({
   }, []);
 
   const commitLabel = (label: string) => {
-    const normalizedLabel = label.trim();
+    const normalizedLabel = resolveDomainSuggestionValue(label, suggestedLabels);
 
     if (!normalizedLabel) {
       return;
@@ -490,11 +495,11 @@ function CaseLabelsField({
           {isMenuOpen && (filteredLabels.length || draftLabel.trim()) ? (
             <div className="requirement-label-menu" role="listbox" aria-label="Available labels">
               {filteredLabels.map((label) => (
-                <button className="requirement-label-menu-option" key={label} onClick={() => commitLabel(label)} role="option" type="button">
-                  {label}
+                <button className="requirement-label-menu-option" key={label.value} onClick={() => commitLabel(label.value)} role="option" type="button">
+                  {label.label}
                 </button>
               ))}
-              {draftLabel.trim() && !filteredLabels.some((label) => label.toLowerCase() === draftLabel.trim().toLowerCase()) ? (
+              {draftLabel.trim() && !filteredLabels.some((label) => [label.value, label.label].some(value => value.toLowerCase() === draftLabel.trim().toLowerCase())) ? (
                 <button className="requirement-label-menu-option is-add" onClick={() => commitLabel(draftLabel)} role="option" type="button">
                   Add "{draftLabel.trim()}"
                 </button>
@@ -520,7 +525,8 @@ function CaseLabelsField({
 const createEmptyCaseDraft = (
   defaultStatus = "active",
   defaultAutomated: "yes" | "no" = "no",
-  currentUserId = ""
+  currentUserId = "",
+  defaultType = "functional"
 ): TestCaseDraft => ({
   title: "",
   description: "",
@@ -534,7 +540,7 @@ const createEmptyCaseDraft = (
   author_id: currentUserId,
   reviewer_id: "",
   authoring_mode: "structured",
-  test_case_type: "functional",
+  test_case_type: defaultType,
   gherkin_document: ""
 });
 
@@ -2487,11 +2493,13 @@ export function TestCasesPage() {
       ];
   const defaultDataSetMode = (domainMetadataQuery.data?.test_data_sets?.default_mode || "table") as TestDataSet["mode"];
   const emptyDataSetDraft = useMemo(() => buildEmptyDataSetDraft(defaultDataSetMode), [defaultDataSetMode]);
+  const defaultTestCaseType = getDomainDefault(domainMetadataQuery.data, "test_cases.types", "functional");
   const emptyCaseDraft = useMemo(
-    () => createEmptyCaseDraft(defaultTestCaseStatus, defaultTestCaseAutomated, session?.user.id || ""),
-    [defaultTestCaseAutomated, defaultTestCaseStatus, session?.user.id]
+    () => createEmptyCaseDraft(defaultTestCaseStatus, defaultTestCaseAutomated, session?.user.id || "", defaultTestCaseType),
+    [defaultTestCaseAutomated, defaultTestCaseStatus, defaultTestCaseType, session?.user.id]
   );
   const [caseDraft, setCaseDraft] = useState<TestCaseDraft>(() => createEmptyCaseDraft("active", "no", session?.user.id || ""));
+  const testCaseTypeOptions = getDomainOptions(domainMetadataQuery.data, "test_cases.types", TEST_CASE_TYPE_OPTIONS, [caseDraft.test_case_type]);
   const [newStepDraft, setNewStepDraft] = useState<StepDraft>(EMPTY_STEP_DRAFT);
   const [stepInsertIndex, setStepInsertIndex] = useState<number | null>(null);
   const [stepInsertGroupContext, setStepInsertGroupContext] = useState<StepInsertionGroupContext | null>(null);
@@ -11433,12 +11441,12 @@ export function TestCasesPage() {
                                 test_case_type: event.target.value as NonNullable<TestCase["test_case_type"]>
                               }))}
                             >
-                              {TEST_CASE_TYPE_OPTIONS.map((option) => (
+                              {testCaseTypeOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
                             <small id="test-case-type-hint">
-                              {TEST_CASE_TYPE_OPTIONS.find((option) => option.value === caseDraft.test_case_type)?.description}
+                              {testCaseTypeOptions.find((option) => option.value === caseDraft.test_case_type)?.description}
                             </small>
                           </FormField>
                           <FormField className="test-case-author-selector-field" label="Author" required>
@@ -13942,6 +13950,7 @@ function TestCaseSuiteModal({
                 />
               </FormField>
               <CaseLabelsField
+                domainField="test_suites.labels"
                 availableLabels={availableLabels}
                 value={labelsText}
                 onChange={setLabelsText}

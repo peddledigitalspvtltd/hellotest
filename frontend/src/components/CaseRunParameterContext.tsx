@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { IconChevronDown, IconDownload, IconVariable } from "@tabler/icons-react";
-import { downloadParameterCsvTemplate, resolveExecutionParameterContext } from "../lib/executionParameterContext";
+import { IconChevronDown, IconVariable } from "@tabler/icons-react";
+import { resolveExecutionParameterContext } from "../lib/executionParameterContext";
 import "./CaseRunParameterContext.css";
 
 export function CaseRunParameterContext(props: Parameters<typeof resolveExecutionParameterContext>[0] & { collapsible?: boolean }) {
@@ -15,11 +15,11 @@ export function CaseRunParameterContext(props: Parameters<typeof resolveExecutio
   return <section className="case-run-parameter-context" aria-label="Effective test parameters">
     <header>
       {props.collapsible ? <button className="case-run-parameter-toggle" type="button" aria-expanded={isOpen} onClick={() => setOpenCaseKey(isOpen ? "" : caseKey)}><IconVariable aria-hidden="true" size={17} /><strong>Test parameters</strong><span>{context.entries.length}</span><IconChevronDown className={isOpen ? "is-expanded" : ""} aria-hidden="true" size={15} /></button> : <div><IconVariable aria-hidden="true" size={17} /><strong>Test parameters</strong><span>{context.entries.length}</span></div>}
-      <button className="ghost-button" type="button" onClick={() => downloadParameterCsvTemplate(context.entries)}><IconDownload aria-hidden="true" size={15} />Download template</button>
+      <span className="case-run-parameter-snapshot-label">Frozen run context</span>
     </header>
     {context.unresolved.length ? <p className="case-run-parameter-gap" role="status">{context.unresolved.length} declared parameter{context.unresolved.length === 1 ? " needs" : "s need"} a value.</p> : null}
     {isOpen ? <>
-    <details className="case-run-parameter-policy"><summary>How values are chosen</summary><p>Later sources override earlier ones: case, suite, environment, configuration, run, selected data row, captured output. Explicit @t, @s and @r scopes stay separate. An empty string overrides a value; a missing field keeps the earlier value. Templates are frozen for this run.</p></details>
+    <details className="case-run-parameter-policy"><summary>How values are chosen</summary><p>Later sources override earlier ones: case, suite, environment, configuration, run, selected data row, captured output. @name defaults to run scope (@r.name). Explicit @t.name, @s.name and @r.name scopes stay separate. An empty string overrides a value; a missing field keeps the earlier value. Templates are frozen for this run.</p></details>
     <div className="case-run-parameter-entries">
       {visibleEntries.map((entry) => <article className={!entry.resolved ? "is-unresolved" : ""} key={entry.name}>
         <code>{entry.token}</code>

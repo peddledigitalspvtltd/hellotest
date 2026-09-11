@@ -42,11 +42,12 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       await db.query("CREATE TEMP TABLE roles (id TEXT PRIMARY KEY, name TEXT) ON COMMIT DROP");
       await db.query("CREATE TEMP TABLE users (id TEXT PRIMARY KEY, default_role_id TEXT, status TEXT) ON COMMIT DROP");
       await db.query("CREATE TEMP TABLE project_members (project_id TEXT, user_id TEXT, role_id TEXT) ON COMMIT DROP");
+      await db.query("CREATE TEMP TABLE role_permissions (role_id TEXT, permission_id TEXT, PRIMARY KEY (role_id, permission_id)) ON COMMIT DROP");
       await db.query("INSERT INTO roles (id, name) VALUES ('workspace-role', 'workspace-reviewer'), ('project-role', 'project-reviewer'), ('other-role', 'other-reviewer')");
       await db.query("INSERT INTO users (id, default_role_id, status) VALUES ('reader', 'workspace-role', 'active')");
       await db.query("INSERT INTO project_members (project_id, user_id, role_id) VALUES ('project', 'reader', 'project-role'), ('other-project', 'reader', 'other-role')");
       const schema = await readFile(path.join(__dirname, "../../db/schema.sql"), "utf8");
-      for (const table of ["ai_knowledge_sources", "ai_knowledge_documents", "ai_knowledge_chunks", "ai_knowledge_index_states", "ai_knowledge_security_bindings", "ai_knowledge_collection_sources", "ai_knowledge_ingestion_jobs", "ai_knowledge_ingestion_inputs", "ai_knowledge_ingestion_results", "ai_knowledge_relations"]) {
+      for (const table of ["app_settings", "permissions", "ai_knowledge_sources", "ai_knowledge_documents", "ai_knowledge_chunks", "ai_knowledge_index_states", "ai_knowledge_security_bindings", "ai_knowledge_collection_sources", "ai_knowledge_ingestion_jobs", "ai_knowledge_ingestion_inputs", "ai_knowledge_ingestion_results", "ai_knowledge_relations"]) {
         const block = schema.match(new RegExp(`CREATE TABLE ${table} \\([\\s\\S]*?\\n\\);`))[0];
         await db.query(block.replace("CREATE TABLE", "CREATE TEMP TABLE")
           .replace(/ REFERENCES [a-z_]+\(id\) ON DELETE (?:CASCADE|SET NULL)/g, "")
@@ -72,9 +73,13 @@ test("PostgreSQL knowledge revision promotion, ACL prefilters and archive retain
       vector.isConfigured = () => true;
       vector.replaceDocument = async () => { throw new Error("Index unavailable"); };
       const pending = await persist("# Current onboarding\nA changed form requires a new indexed revision.");
-      assert.equal(pending.document.is_active, false);
-      assert.equal((await db.prepare("SELECT id FROM ai_knowledge_documents WHERE is_active = TRUE").get()).id, first.document.id);
-      assert.equal((await db.prepare("SELECT required_indexes_ready FROM ai_knowledge_index_states WHERE document_id = ?").get(pending.document.id)).required_indexes_ready, false);
+      assert.equal(pending.document.is_active, true, "Optional vector outages must not hide the current canonical revision.");
+      assert.equal((await db.prepare("SELECT id FROM ai_knowledge_documents WHERE is_active = TRUE").get()).id, pending.document.id);
+      assert.equal((await db.prepare("SELECT required_indexes_ready FROM ai_knowledge_index_states WHERE document_id = ?").get(pending.document.id)).required_indexes_ready, true);
+      assert.match(pending.warning, /searchable using PostgreSQL/);
+      const duringOutage = await rag.search({ projectId: "project", query: "changed form", user: admin,
+        mode: "keyword", filters: { source_ids: [pending.source.id] } });
+      assert.ok(duringOutage.results.some((hit) => hit.document_id === pending.document.id));
       vector.replaceDocument = async ({ chunks }) => ({ dimensions: 256, indexed: chunks.length });
       const promoted = await persist("# Current onboarding\nThe changed onboarding form is now indexed.\n\n# Internal evaluation\nPrivate onboarding participant observations.\n".repeat(8));
       assert.equal(promoted.document.is_active, true);

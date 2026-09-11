@@ -56,7 +56,11 @@ test("release readiness is loaded in one project request instead of one browser 
 
   assert.match(page, /api\.requirementReleases\.listReadiness/);
   assert.doesNotMatch(page, /useQueries/);
-  assert.match(page, /isReadinessLoading \? "—"/);
+  assert.match(page, /isReadinessLoading \|\| isReadinessUnavailable \? "—"/);
+  assert.match(page, /Release evidence unavailable/);
+  assert.match(page, /canReadReadiness && !releaseReadinessQuery\.isError \? asArray\(releaseReadinessQuery\.data\) : \[\]/);
+  assert.match(page, /api\.executionResults\.releaseReadiness\(\{ project_id: projectId, release: expandedRelease!\.fix_version/);
+  assert.doesNotMatch(page, /api\.executionResults\.list\(/);
   assert.match(api, /\/requirement-releases\/readiness/);
 });
 

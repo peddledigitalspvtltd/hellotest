@@ -7,6 +7,7 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 const notificationService = require("./notification.service");
 const testCaseVersionService = require("./testCaseVersion.service");
 const { redactTestDataSetRows } = require("./testDataSet.service");
+const dropdownCatalog = require("./dropdownCatalog.service");
 const { DOMAIN_METADATA, TEST_CASE_AUTOMATED_VALUES, TEST_CASE_STATUS_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const {
@@ -23,7 +24,6 @@ const DEFAULT_STATUS = DOMAIN_METADATA.test_cases.default_status;
 const DEFAULT_AUTOMATED = DOMAIN_METADATA.test_cases.default_automated || "no";
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
 const REVIEW_STATUS_VALUES = ["not_requested", "pending", "accepted", "changes_requested"];
-const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility", "ios"];
 const IMPORT_SOURCE_LABELS = {
   csv: "CSV",
   junit_xml: "JUnit XML",
@@ -280,7 +280,13 @@ const hydrateTestCases = async (testCases) => {
     db.prepare(`
       SELECT mapping.test_case_id, mapping.test_data_set_id, data_set.app_type_id, data_set.name, data_set.description, data_set.mode, data_set.columns, data_set.rows
       FROM test_case_data_sets AS mapping
+      JOIN test_cases AS linked_case ON linked_case.id = mapping.test_case_id
+      LEFT JOIN test_suites AS legacy_suite ON legacy_suite.id = linked_case.suite_id
+      LEFT JOIN app_types AS case_app ON case_app.id = COALESCE(linked_case.app_type_id, legacy_suite.app_type_id)
+      LEFT JOIN requirements AS story ON story.id = linked_case.requirement_id
       JOIN test_data_sets AS data_set ON data_set.id = mapping.test_data_set_id
+        AND data_set.project_id = COALESCE(case_app.project_id, story.project_id)
+        AND (data_set.app_type_id IS NULL OR data_set.app_type_id = case_app.id)
       WHERE mapping.test_case_id IN (${placeholders})
       ORDER BY mapping.test_case_id ASC, mapping.sort_order ASC, mapping.test_data_set_id ASC
     `).all(...ids),
@@ -674,12 +680,11 @@ const normalizeAuthoringMode = (value, fallback = "structured") => {
   return normalized;
 };
 
-const normalizeTestCaseType = (value, fallback = "functional") => {
-  const normalized = (normalizeText(value) || fallback).toLowerCase();
-  if (!TEST_CASE_TYPE_VALUES.includes(normalized)) {
-    throw new Error(`Test case type must be one of: ${TEST_CASE_TYPE_VALUES.join(", ")}`);
-  }
-  return normalized;
+const normalizeTestCaseType = async (value, existingValue) => {
+  const normalized = value === undefined
+    ? await dropdownCatalog.getDefaultValue("test_cases.types")
+    : typeof value === "string" ? value.trim().toLowerCase() : value;
+  return dropdownCatalog.validateValue("test_cases.types", normalized, { existingValue, allowEmpty: false });
 };
 
 const normalizeGroupKind = (value) => {
@@ -1186,6 +1191,10 @@ const createPersistablePayload = async ({
       : resolvedReviewStatus === "changes_requested"
         ? "draft"
         : normalizeStatus(status);
+  const previousSourceCase = source_idempotency_key
+    ? await db.prepare("SELECT test_case_type FROM test_cases WHERE app_type_id = ? AND source_idempotency_key = ?")
+      .get(resolvedAppTypeId, normalizeText(source_idempotency_key))
+    : null;
 
   return {
     app_type_id: resolvedAppTypeId,
@@ -1208,7 +1217,7 @@ const createPersistablePayload = async ({
     manual_test_case_id: resolvedManualTestCaseIds[0] || null,
     manual_test_case_ids: resolvedManualTestCaseIds,
     authoring_mode: normalizeAuthoringMode(authoring_mode),
-    test_case_type: normalizeTestCaseType(test_case_type),
+    test_case_type: await normalizeTestCaseType(test_case_type, previousSourceCase?.test_case_type),
     gherkin_document: setGherkinFeatureTitle(normalizeText(gherkin_document), linkedRequirements[0]?.title),
     priority: normalizePriority(priority),
     status: resolvedStatus,
@@ -1834,8 +1843,8 @@ exports.updateTestCase = async (id, data) => {
       ? normalizeAuthoringMode(data.authoring_mode, existing.authoring_mode || "structured")
       : normalizeAuthoringMode(existing.authoring_mode || "structured"),
     test_case_type: data.test_case_type !== undefined
-      ? normalizeTestCaseType(data.test_case_type, existing.test_case_type || "functional")
-      : normalizeTestCaseType(existing.test_case_type || "functional"),
+      ? await normalizeTestCaseType(data.test_case_type, existing.test_case_type)
+      : existing.test_case_type || "functional",
     gherkin_document: setGherkinFeatureTitle(
       data.gherkin_document !== undefined ? normalizeText(data.gherkin_document) : normalizeText(existing.gherkin_document),
       linkedRequirements[0]?.title

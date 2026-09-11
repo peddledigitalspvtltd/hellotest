@@ -11,7 +11,7 @@ const { materializeVariableSnapshot, materializeDataSetSnapshot, freezeReference
 test("canonical scope precedence preserves blanks, missing cells and quoted column names", () => {
   assert.equal(normalizeParameterKey("@T.[First Name]", "s"), "t.first name");
   assert.equal(normalizeParameterKey("account.email", "s"), "s.account.email");
-  const layers = { caseValues: { email: "case", missing: "default" }, suiteValues: { "t.email": "suite override", email: "suite value" }, environmentVariables: [{ key: "t.email", value: "env" }], configurationVariables: [{ key: "t.email", value: "config" }], runValues: { "t.email": "run" }, dataSet: { mode: "table", columns: ["email", "missing"], rows: [{ email: "first" }, { "@t.[email]": "", "s.email": "row", "r.[Build Number]": "42" }] }, rowIndex: 1 };
+  const layers = { caseValues: { "t.email": "case", "t.missing": "default" }, suiteValues: { "t.email": "suite override", email: "suite value" }, environmentVariables: [{ key: "t.email", value: "env" }], configurationVariables: [{ key: "t.email", value: "config" }], runValues: { "t.email": "run" }, dataSet: { mode: "table", columns: ["email", "missing"], rows: [{ email: "first" }, { "@t.[email]": "", "s.email": "row", "r.[Build Number]": "42" }] }, rowIndex: 1 };
   assert.deepEqual(resolveParameterLayers(layers), { "t.email": "", "t.missing": "default", "s.email": "row", "r.build number": "42" });
   assert.equal(resolveParameterLayers({ ...layers, capturedValues: { "@t.email": "captured" } })["t.email"], "captured");
   assert.equal(resolveParameterLayers({ ...layers, dataSet: null })["t.email"], "run");
@@ -33,7 +33,7 @@ test("API dispatch and web/mobile engine initial context agree on selected data 
     await writeFile(path.join(directory, `${name}.js`), stripTypeScriptTypes(source));
   }
   const { buildInitialContext, interpolateText } = await import(pathToFileURL(path.join(directory, "runtimeContext.js")));
-  const envelope = { parameters_frozen: true, case_parameters: { "@t.[First Name]": "case", random: "", literal: "{{randomString:8}}" }, suite_parameters: { "t.[First Name]": "suite", tenant: "suite namespace" }, environment: { variables: [{ key: "t.[First Name]", value: "environment" }] }, configuration: { variables: [{ key: "t.[First Name]", value: "configuration" }] }, run_parameters: { "t.[First Name]": "run" }, data_set: { source: "test_case", mode: "table", rows: [{ "t.[First Name]": "", "s.tenant": "row suite", "r.build": "123" }] } };
+  const envelope = { parameters_frozen: true, case_parameters: { "@t.[First Name]": "case", "t.random": "", "t.literal": "{{randomString:8}}" }, suite_parameters: { "t.[First Name]": "suite", tenant: "suite namespace" }, environment: { variables: [{ key: "t.[First Name]", value: "environment" }] }, configuration: { variables: [{ key: "t.[First Name]", value: "configuration" }] }, run_parameters: { "t.[First Name]": "run" }, data_set: { source: "test_case", mode: "table", rows: [{ "t.[First Name]": "", "s.tenant": "row suite", "r.build": "123" }] } };
   const expected = resolveParameterLayers({ caseValues: envelope.case_parameters, suiteValues: envelope.suite_parameters, environmentVariables: envelope.environment.variables, configurationVariables: envelope.configuration.variables, runValues: envelope.run_parameters, dataSet: envelope.data_set });
   const actual = buildInitialContext(envelope);
   for (const [name, value] of Object.entries(expected)) assert.equal(actual.values[name], value, name);
@@ -55,7 +55,7 @@ test("environment and case generators freeze once and reruns materialize preserv
   assert.match(parameters.parameter_values["t.randomnumber"], /^\d{6}$/);
   assert.equal(materializeParameterValues(parameters.parameter_template_values, new Date("2026-09-11"))["t.today"], "2026-09-11");
   const data = materializeDataSetSnapshot({ mode: "table", columns: ["stamp"], rows: [{ stamp: "{{date:ISO}}" }] }, now);
-  assert.equal(resolveParameterLayers({ dataSet: data })["t.stamp"], now.toISOString());
+  assert.equal(resolveParameterLayers({ dataSet: data })["r.stamp"], now.toISOString());
 });
 
 test("public run snapshots redact secret values and templates in nested and raw aliases", async (context) => {

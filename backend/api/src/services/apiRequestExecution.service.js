@@ -56,7 +56,14 @@ const GENERATED_CONTEXT_ALIASES = {
   "t.today": "{{date:YYYY-MM-DD}}",
   today: "{{date:YYYY-MM-DD}}",
   "t.timestamp": "{{date:ISO}}",
-  timestamp: "{{date:ISO}}"
+  timestamp: "{{date:ISO}}",
+  "r.random": "{{randomString:3}}",
+  "r.randomstring": "{{randomString:8}}",
+  "r.randomnumber": "{{randomNumber:6}}",
+  "r.yopmail": "{{yopmail}}",
+  "r.today": "{{date:YYYY-MM-DD}}",
+  "r.timestamp": "{{date:ISO}}",
+
 };
 
 const ensureHttpUrl = (value) => {
@@ -234,7 +241,7 @@ const readLimitedResponseBody = async (response, maxBytes = API_PREVIEW_MAX_RESP
   return { bodyText: chunks.join(""), bytesReceived, truncated };
 };
 
-const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
+const resolveContextValue = (values, rawKey, fallbackScope = "r") => {
   const normalizedKey = normalizeContextKey(rawKey);
 
   if (!normalizedKey) {
@@ -275,8 +282,8 @@ const resolveContextValue = (values, rawKey, fallbackScope = "t") => {
 const interpolateText = (value, parameterValues = {}) =>
   String(value || "").replace(STEP_PARAMETER_PATTERN, (token, scope, rawName, offset, source) => {
     if (!scope && /^[tsr]$/i.test(rawName) && source[offset + token.length] === ".") return token;
-    const normalizedKey = `${scope || "t"}.${rawName}`;
-    return resolveContextValue(parameterValues, normalizedKey, scope ? String(scope).toLowerCase() : "t");
+    const normalizedKey = `${scope || "r"}.${rawName}`;
+    return resolveContextValue(parameterValues, normalizedKey, scope ? String(scope).toLowerCase() : "r");
   });
 
 const resolveApiRequestParameters = (request, parameterValues = {}) => {

@@ -124,5 +124,5 @@ test("Gherkin resolves and highlights quoted data columns without changing autho
     "@t.[First Name]", "@s.[API Host]", "@r.[123]", "@t.[price.total]", String.raw`@t.[closing\]]`, String.raw`@t.[folder\\file]`
   ]);
   assert.equal(resolveGherkinParameterText("When @t. is being edited", { "t.t": "incorrect" }), "When @t. is being edited");
-  assert.equal(resolveGherkinParameterText("When <name> enters @t.[First Name]", { "t.name": "@s.tenant", "t.first name": "<name>", "s.tenant": "incorrect" }), "When @s.tenant enters <name>");
+  assert.equal(resolveGherkinParameterText("When <name> enters @t.[First Name]", { "r.name": "@s.tenant", "t.first name": "<name>", "s.tenant": "incorrect" }), "When @s.tenant enters <name>");
 });

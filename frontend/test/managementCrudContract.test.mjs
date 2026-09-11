@@ -531,6 +531,6 @@ test("admin password replacement retains the form across awaits and sample setup
   assert.match(securityPage, /await adminApi\.changePassword[\s\S]*formElement\.reset\(\)[\s\S]*await onRefresh\(\)/);
   assert.doesNotMatch(securityPage, /event\.currentTarget\.reset/);
   assert.match(securityPage, /disabled=\{busy\}[\s\S]*Updating…/);
-  assert.match(admin, /granted \$\{result\.administrator_memberships\} active administrator/);
+  assert.match(admin, /SampleDataSetup as SetupPage/);
   assert.match(api, /administrator_memberships: number/);
 });

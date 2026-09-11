@@ -299,11 +299,15 @@ exports.createRelease = async ({ project_id, name, description, fix_version, tar
   const release = {
     id, project_id: projectId, name: releaseName, fix_version: fixVersion
   };
+  const nextState = normalizeState(state);
   const transaction = db.transaction(async () => {
+    if (nextState === "released") {
+      await ensureReleaseStoriesComplete(release, requirementIds, sprintIds);
+    }
     await db.prepare(`
       INSERT INTO requirement_releases (id, display_id, project_id, name, description, fix_version, target_date_label, plan_date, target_date, external_link, state, sprint_ids, created_by, updated_by, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(id, displayId, projectId, releaseName, normalizeText(description), fixVersion, normalizeText(target_date_label), normalizeDate(plan_date), normalizeDate(target_date), normalizeText(external_link), normalizeState(state), JSON.stringify(sprintIds), actor, actor);
+    `).run(id, displayId, projectId, releaseName, normalizeText(description), fixVersion, normalizeText(target_date_label), normalizeDate(plan_date), normalizeDate(target_date), normalizeText(external_link), nextState, JSON.stringify(sprintIds), actor, actor);
     await replaceMembership(release, requirementIds, sprintIds);
   });
   await transaction();
@@ -354,23 +358,30 @@ exports.getReadiness = async (id) => {
   const links = await db.prepare(`SELECT DISTINCT requirement_id, test_case_id FROM requirement_test_cases WHERE requirement_id IN (${placeholders})`).all(...storyIds);
   const caseIds = [...new Set(links.map((row) => row.test_case_id))];
   const casePlaceholders = caseIds.map(() => "?").join(",");
+  // Runs persist the canonical delivery token (fix_version), not a release ID.
+  // Resolve it from the stored Release; a shared case's unrelated latest run is
+  // not evidence for this Release, even when it belongs to the same project.
+  const releaseToken = String(release.fix_version || "").trim().toLowerCase();
   const latestResults = caseIds.length ? await db.prepare(`
     SELECT DISTINCT ON (execution_results.test_case_id) execution_results.test_case_id, execution_results.status
     FROM execution_results JOIN executions ON executions.id = execution_results.execution_id
     WHERE execution_results.test_case_id IN (${casePlaceholders}) AND executions.project_id = ?
+      AND ? <> '' AND LOWER(TRIM(COALESCE(executions.release, ''))) = ?
     ORDER BY execution_results.test_case_id, execution_results.created_at DESC, execution_results.id DESC
-  `).all(...caseIds, release.project_id) : [];
-  const cases = caseIds.length ? await db.prepare(`SELECT id, automation_status FROM test_cases WHERE id IN (${casePlaceholders})`).all(...caseIds) : [];
+  `).all(...caseIds, release.project_id, releaseToken, releaseToken) : [];
+  const cases = caseIds.length ? await db.prepare(`SELECT id, automated, automation_status FROM test_cases WHERE id IN (${casePlaceholders})`).all(...caseIds) : [];
   const bugs = await db.prepare(`
     SELECT DISTINCT feedback.id, feedback.status
     FROM requirement_defects JOIN feedback ON feedback.id = requirement_defects.issue_id
     WHERE requirement_defects.requirement_id IN (${placeholders})
-  `).all(...storyIds);
+      AND feedback.project_id = ?
+  `).all(...storyIds, release.project_id);
   const percent = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
   const coveredStories = new Set(links.map((row) => row.requirement_id)).size;
   const passedCases = latestResults.filter((row) => String(row.status).toLowerCase() === "passed").length;
   const openBugs = bugs.filter((row) => !["closed", "done", "resolved"].includes(String(row.status || "").toLowerCase())).length;
-  const automatedCases = cases.filter((row) => ["automated", "yes", "covered"].includes(String(row.automation_status || "").toLowerCase())).length;
+  const automatedCases = cases.filter((row) => String(row.automated || "").toLowerCase() === "yes"
+    || ["ready", "automated", "yes", "covered"].includes(String(row.automation_status || "").toLowerCase())).length;
   const testCoverage = percent(coveredStories, storyIds.length);
   const passRate = percent(passedCases, latestResults.length);
   const bugHealth = Math.max(0, 100 - (openBugs / storyIds.length) * 25);
@@ -397,7 +408,9 @@ exports.getReadiness = async (id) => {
       bug_health_weight: 20,
       automation_is_informational: true,
       test_coverage: "Stories with at least one linked Test Case divided by release Stories.",
-      pass_rate: "Latest passed result divided by linked Test Cases with a result.",
+      pass_rate: "Latest passed result divided by linked Test Cases with a result in this Release's runs.",
+      execution_scope: "Same project and exact normalized run release matching the stored Release fix version; linked Test Cases only.",
+      release_token: release.fix_version || "",
       bug_health: "100 minus 25 points per open Bug per Story, floored at zero."
     }
   };

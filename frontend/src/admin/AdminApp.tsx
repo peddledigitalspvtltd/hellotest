@@ -1,4 +1,5 @@
 import { SampleDataSetup as SetupPage } from './SampleDataSetup';
+import { DropdownValues } from "./DropdownValues";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   IconActivity as Activity, IconArrowRight as ArrowRight, IconBoxMultiple as Boxes,
@@ -8,15 +9,15 @@ import {
   IconLock as LockKeyhole, IconLogout as LogOut, IconMenu2 as Menu, IconPlugConnected as PlugZap,
   IconRefresh as RefreshCw, IconSearch as Search, IconServerCog as ServerCog,
   IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconToggleLeft as ToggleLeft,
-  IconToggleRight as ToggleRight, IconUserPlus as UserPlus, IconUsers as Users, IconX as X
+  IconToggleRight as ToggleRight, IconUserPlus as UserPlus, IconUsers as Users, IconX as X, IconListDetails as ListDetails
 } from "@tabler/icons-react";
 import {
-  adminApi, sessionStore, type AdminSession, type AuditEvent, type FlagSnapshot,
+  adminApi, sessionStore, workspaceUrl, type AdminSession, type AuditEvent, type FlagSnapshot,
   type Integration, type IntegrationType, type Overview, type Role, type User
 } from "./api";
 import { createFeatureFlagPatch, effectiveFeatureFlags } from "../lib/featureFlags";
 
-type Section = "overview" | "people" | "setup" | "features" | "integrations" | "audit" | "security";
+type Section = "overview" | "people" | "setup" | "features" | "dropdowns" | "integrations" | "audit" | "security";
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 const nav: Array<{ id: Section; label: string; icon: ReactNode }> = [
@@ -24,6 +25,7 @@ const nav: Array<{ id: Section; label: string; icon: ReactNode }> = [
   { id: "people", label: "Administrators", icon: <Users size={19} /> },
   { id: "setup", label: "Instance setup", icon: <Database size={19} /> },
   { id: "features", label: "Feature availability", icon: <Feature size={19} /> },
+  { id: "dropdowns", label: "Dropdown values", icon: <ListDetails size={19} /> },
   { id: "integrations", label: "Backend integrations", icon: <PlugZap size={19} /> },
   { id: "audit", label: "Audit activity", icon: <Activity size={19} /> },
   { id: "security", label: "Security", icon: <ShieldCheck size={19} /> }
@@ -34,6 +36,7 @@ const title: Record<Section, { eyebrow: string; heading: string; copy: string }>
   people: { eyebrow: "Identity & access", heading: "Administrators", copy: "Onboard trusted operators and keep control-plane access intentional." },
   setup: { eyebrow: "Launch sequence", heading: "Instance setup", copy: "Validate the shared schema and install safe, idempotent sample content module by module." },
   features: { eyebrow: "Release control", heading: "Feature availability", copy: "Manage the capabilities available to your workspace. Published policy applies to API requests immediately; workspace controls refresh automatically." },
+  dropdowns: { eyebrow: "Workspace vocabulary", heading: "Dropdown values", copy: "Keep choices consistent across the product. Manage business values, curate suggestions, and see where each field is used." },
   integrations: { eyebrow: "Connected services", heading: "Backend integrations", copy: "Create and govern server-side connections without exposing credentials to the product UI." },
   audit: { eyebrow: "Governance trail", heading: "Audit activity", copy: "Review recent administrator actions across setup, people, flags, and integrations." },
   security: { eyebrow: "Account protection", heading: "Security", copy: "Replace bootstrap credentials and review the runtime boundary for this control plane." }
@@ -252,19 +255,25 @@ function SecurityPage({ session, notify, onRefresh }: { session: AdminSession; n
 
 export function AdminApp() {
   const [session, setSession] = useState<AdminSession | null>(() => sessionStore.read()); const [section, setSection] = useState<Section>("overview"); const [overview, setOverview] = useState<Overview | null>(null); const [state, setState] = useState<LoadState>("idle"); const [sidebarOpen, setSidebarOpen] = useState(false); const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [dropdownDirty, setDropdownDirty] = useState(false);
+  const navigate = useCallback((next: Section) => {
+    if (next === section) return;
+    if (section === "dropdowns" && dropdownDirty && !window.confirm("Leave Dropdown values and discard unsaved changes?")) return;
+    setDropdownDirty(false); setSection(next);
+  }, [section, dropdownDirty]);
   const notify = (message: string, tone: "success" | "error" = "success") => { setToast({ message, tone }); window.setTimeout(() => setToast(null), 4200); };
   const loadOverview = useCallback(async () => { if (!sessionStore.read()) return; setState("loading"); try { setOverview(await adminApi.overview()); setState("ready"); } catch { setState("error"); } }, []);
   useEffect(() => { if (session) void loadOverview(); }, [session, loadOverview]);
   const refreshSession = async () => { try { const next = await adminApi.session(); sessionStore.write(next); setSession(next); } catch { /* current page already explains any failure */ } };
   const activeMeta = title[section];
-  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={setSection} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview]);
+  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={navigate} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} />; if (section === "dropdowns") return <DropdownValues onDirtyChange={setDropdownDirty} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview, navigate]);
   if (!session) return <Login onAuthenticated={setSession} />;
-  const logout = () => { sessionStore.clear(); setSession(null); };
+  const logout = () => { if (dropdownDirty && !window.confirm("Sign out and discard unsaved dropdown changes?")) return; setDropdownDirty(false); sessionStore.clear(); setSession(null); };
   return <div className="admin-shell">
-    <aside className={sidebarOpen ? "sidebar open" : "sidebar"}><div className="brand sidebar-brand"><span className="brand-mark"><Sparkles size={19} /></span><span>HelloTest <b>Admin</b></span><button aria-label="Close administration navigation" className="mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div><div className="instance-chip"><span>H</span><div><strong>HelloTest instance</strong><small><i /> Operational</small></div></div><nav>{nav.map((item) => <button className={section === item.id ? "active" : ""} key={item.id} onClick={() => { setSection(item.id); setSidebarOpen(false); }}>{item.icon}<span>{item.label}</span>{section === item.id ? <ChevronRight size={16} /> : null}</button>)}</nav><div className="sidebar-foot"><a href="http://localhost:5173" target="_blank" rel="noreferrer"><ExternalLink size={17} />Open HelloTest workspace</a><button onClick={logout}><LogOut size={17} />Sign out</button></div></aside>
+    <aside className={sidebarOpen ? "sidebar open" : "sidebar"}><div className="brand sidebar-brand"><span className="brand-mark"><Sparkles size={19} /></span><span>HelloTest <b>Admin</b></span><button aria-label="Close administration navigation" className="mobile-close" onClick={() => setSidebarOpen(false)}><X /></button></div><div className="instance-chip"><span>H</span><div><strong>HelloTest instance</strong><small><i /> Operational</small></div></div><nav>{nav.map((item) => <button className={section === item.id ? "active" : ""} key={item.id} onClick={() => { navigate(item.id); setSidebarOpen(false); }}>{item.icon}<span>{item.label}</span>{section === item.id ? <ChevronRight size={16} /> : null}</button>)}</nav><div className="sidebar-foot"><a href={workspaceUrl()} target="_blank" rel="noreferrer"><ExternalLink size={17} />Open HelloTest workspace</a><button onClick={logout}><LogOut size={17} />Sign out</button></div></aside>
     {sidebarOpen ? <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} /> : null}
-    <main className="admin-main"><header className="topbar"><button aria-label="Open administration navigation" aria-expanded={sidebarOpen} className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="breadcrumb"><span>Administration</span><ChevronRight size={15} /><strong>{activeMeta.heading}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => void loadOverview()} title="Refresh"><RefreshCw size={18} /></button><button className="profile-button" onClick={() => setSection("security")}><span>{initials(session.user.name, session.user.email)}</span><div><strong>{session.user.name || "Administrator"}</strong><small>Workspace admin</small></div></button></div></header>
-      {session.user.must_change_password ? <button className="security-banner" onClick={() => setSection("security")}><CircleAlert size={18} /><span><strong>Bootstrap password in use.</strong> Replace it now to secure this instance.</span><ArrowRight size={18} /></button> : null}
+    <main className="admin-main"><header className="topbar"><button aria-label="Open administration navigation" aria-expanded={sidebarOpen} className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="breadcrumb"><span>Administration</span><ChevronRight size={15} /><strong>{activeMeta.heading}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => void loadOverview()} title="Refresh"><RefreshCw size={18} /></button><button className="profile-button" onClick={() => navigate("security")}><span>{initials(session.user.name, session.user.email)}</span><div><strong>{session.user.name || "Administrator"}</strong><small>Workspace admin</small></div></button></div></header>
+      {session.user.must_change_password ? <button className="security-banner" onClick={() => navigate("security")}><CircleAlert size={18} /><span><strong>Bootstrap password in use.</strong> Replace it now to secure this instance.</span><ArrowRight size={18} /></button> : null}
       <div className="page"><header className="page-heading"><div><p className="kicker">{activeMeta.eyebrow}</p><h1>{activeMeta.heading}</h1><p>{activeMeta.copy}</p></div>{section === "overview" ? <span className={`health-badge ${overview?.status === "operational" ? "good" : "warn"}`}><i />{overview?.status || "Checking"}</span> : null}</header>
         {state === "loading" && !overview ? <div className="loading"><RefreshCw className="spin" />Loading control plane…</div> : state === "error" && !overview ? <div className="empty-state"><CircleAlert /><h3>Control plane unavailable</h3><p>Confirm the backend and PostgreSQL are running, then retry.</p><button className="primary-button" onClick={() => void loadOverview()}>Retry</button></div> : content}
       </div>

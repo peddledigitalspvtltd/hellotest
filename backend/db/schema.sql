@@ -691,7 +691,7 @@ CREATE TABLE test_cases (
   automation_status TEXT NOT NULL DEFAULT 'not_automated' CHECK(automation_status IN ('not_automated','ready','incomplete')),
   manual_test_case_id TEXT,
   authoring_mode TEXT NOT NULL DEFAULT 'structured' CHECK(authoring_mode IN ('structured','gherkin')),
-  test_case_type TEXT NOT NULL DEFAULT 'functional' CHECK(test_case_type IN ('functional','regression','smoke','integration','acceptance','exploratory','performance','security','accessibility','ios')),
+  test_case_type TEXT NOT NULL DEFAULT 'functional' CHECK(test_case_type ~ '^[a-z][a-z0-9_-]{0,119}$'),
   gherkin_document TEXT,
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'active',
@@ -978,7 +978,7 @@ CREATE TABLE execution_case_snapshots (
   test_data_set_id TEXT,
   test_data_set_name TEXT,
   test_data_set_snapshot JSONB,
-  data_set_source TEXT CHECK(data_set_source IS NULL OR data_set_source IN ('run','test_case')),
+  data_set_source TEXT CHECK(data_set_source IS NULL OR data_set_source IN ('run','suite','test_case')),
   sort_order INTEGER NOT NULL DEFAULT 1,
   assigned_to TEXT,
   assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -1300,6 +1300,8 @@ CREATE TABLE IF NOT EXISTS requirement_defects (
 CREATE INDEX IF NOT EXISTS idx_requirement_defects_issue
   ON requirement_defects (issue_id);
 
+ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS test_data_set_id TEXT REFERENCES test_data_sets(id) ON DELETE SET NULL;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS labels JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN;
@@ -1437,6 +1439,7 @@ ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT;
 
 ALTER TABLE executions
   ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS parameter_scope_default TEXT NOT NULL DEFAULT 't' CHECK (parameter_scope_default IN ('t', 'r'));
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS suite_assignments JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE executions ADD COLUMN IF NOT EXISTS module_assignments JSONB NOT NULL DEFAULT '{}'::jsonb;
@@ -1532,9 +1535,9 @@ ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_id T
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_name TEXT;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS data_set_source TEXT;
-UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'test_case');
+UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'suite', 'test_case');
 ALTER TABLE execution_case_snapshots DROP CONSTRAINT IF EXISTS execution_case_snapshots_data_set_source_check;
-ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'test_case'));
+ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'suite', 'test_case'));
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT;

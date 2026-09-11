@@ -8,8 +8,8 @@ import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { buildDataSetParameterDefinitions, buildStepParameterDefinitionsFromValues, collectStepParameters, mergeStepParameterDefinitions, normalizeStepParameterValues } from "../lib/stepParameters";
 import type { TestCase, TestSuite, TestStep } from "../types";
 
-export function RunParameterTemplateButton({ cases, suites = [], projectId, environmentId = "", configurationId = "", dataSetId = "", disabled = false }: {
-  cases: Array<TestCase & { steps?: TestStep[] }>; suites?: TestSuite[]; projectId: string; environmentId?: string; configurationId?: string; dataSetId?: string; disabled?: boolean;
+export function RunParameterTemplateButton({ cases, suites = [], projectId, appTypeId = "", executionId, onPlan, fileName = "run-parameter-template.csv", environmentId = "", configurationId = "", dataSetId = "", disabled = false }: {
+  cases: Array<TestCase & { steps?: TestStep[] }>; suites?: TestSuite[]; projectId: string; appTypeId?: string; executionId?: string; fileName?: string; onPlan?: (plan: { case_count: number; suite_count: number; parameter_count: number }) => void; environmentId?: string; configurationId?: string; dataSetId?: string; disabled?: boolean;
 }) {
   const { session } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -17,7 +17,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, envi
   const [failed, setFailed] = useState(false);
   const active = useRef<{ cancelled: boolean } | null>(null);
   const selectionKey = JSON.stringify([
-    projectId, environmentId, configurationId, dataSetId, disabled,
+    projectId, appTypeId, executionId, environmentId, configurationId, dataSetId, disabled,
     cases.map((item) => [item.id, item.title, item.authoring_mode, item.gherkin_document, Object.keys(item.parameter_values || {}).sort(), item.steps?.map((step) => [step.id, step.action, step.expected_result, step.automation_code, step.api_request])]),
     suites.map((suite) => [suite.id, Object.keys(suite.parameter_values || {}).sort()])
   ]);
@@ -38,6 +38,17 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, envi
     const isCurrent = () => active.current === request && !request.cancelled;
     setBusy(true); setFeedback(""); setFailed(false);
     try {
+      if (appTypeId) {
+        const plan = await api.executions.parameterPlan({ project_id: projectId, app_type_id: appTypeId, execution_id: executionId,
+          suite_ids: suites.map(suite => suite.id), test_case_ids: cases.map(item => item.id),
+          test_environment_id: environmentId || (executionId ? "" : undefined), test_configuration_id: configurationId || (executionId ? "" : undefined), test_data_set_id: dataSetId || (executionId ? "" : undefined) });
+        if (!isCurrent()) return;
+        onPlan?.({ case_count: plan.case_count, suite_count: plan.suite_count, parameter_count: plan.parameters.length });
+        if (!plan.parameters.length) { setFeedback("No parameters are declared in the selected scope yet."); return; }
+        downloadParameterCsvTemplate(plan.parameters.map(item => ({ ...item, rawName: item.name.slice(2), label: item.name.slice(2), scopeLabel: item.scope, stepIds: [], occurrenceCount: item.case_count })), fileName);
+        setFeedback(`${plan.parameters.length} parameter columns from ${plan.case_count} cases and ${plan.suite_count} suites downloaded, including child suites.`);
+        return;
+      }
       for (const [needed, permission] of [[cases.some((item) => !Array.isArray(item.steps)), "testcase.view"], [environmentId, "environment.view"], [configurationId, "configuration.view"], [dataSetId, "data.view"]] as const) {
         if (needed && !hasPermission(session, permission, projectId)) throw new Error(`Permission required to include this source: ${permission}.`);
       }
@@ -72,7 +83,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, envi
         buildDataSetParameterDefinitions(dataSet)
       );
       if (!declarations.length) { setFeedback("No parameters are declared in the selected scope yet."); return; }
-      downloadParameterCsvTemplate(declarations, "run-parameter-template.csv");
+      downloadParameterCsvTemplate(declarations, fileName);
       setFeedback(`${declarations.length} parameter columns downloaded. Fill the values before attaching this CSV as test data.`);
     } catch (error) {
       if (!isCurrent()) return;

@@ -58,6 +58,7 @@ const fixture = () => {
       if (dependency === "crypto") return require("node:crypto");
       if (dependency.startsWith("../utils/") || dependency === "../domain/catalog") return require(path.join(__dirname, "../src/services", dependency));
       if (dependency === "./displayId.service") return { createDisplayId: async () => "TC-1" };
+      if (dependency === "./dropdownCatalog.service") return { getDefaultValue: async () => "functional", validateValue: async (key, value) => { assert.equal(key, "test_cases.types"); assert.equal(value, "functional"); return value; } };
       if (dependency === "./mobileFeature.service") return { assertAuthoringMobileFeatureEnabled: noop };
       if (dependency === "./testCaseVersion.service") return { assertExpectedRevision: noop, capture: noop, buildSnapshot: async () => ({ steps: [] }) };
       return {};

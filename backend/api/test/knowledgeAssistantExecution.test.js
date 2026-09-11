@@ -175,6 +175,40 @@ test("exhausted synthesis retries save one grounded fallback with usable citatio
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_BODY/);
 }));
 
+test("a late retrieval leaves a saved cited fallback instead of starting a model beyond the turn budget", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true,
+    api_key: "test-credential", base_url: "https://turn-budget.invalid/v1", model: "test", config: {} }));
+  let synthesisCalls = 0;
+  context.mock.method(global, "fetch", async (_, init) => {
+    if (!JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) synthesisCalls++;
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
+  });
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => {
+    if (event.stage === "GENERATION" && event.status === "IN_PROGRESS") context.mock.timers.tick(81_000);
+  } });
+  assert.equal(synthesisCalls, 0);
+  assert.equal(messages.length, 2);
+  assert.equal(result.retrieval.provider_error_code, "MODEL_TIMEOUT");
+  assert.equal(result.citations.length, 1);
+  assert.match(result.assistant_message.content, /passing checkout test/);
+}));
+
+test("the whole turn deadline bounds a stalled idempotency read and prevents late message writes", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
+  const prepare = db.prepare;
+  let release;
+  db.prepare = (sql) => sql.includes("role = 'assistant'")
+    ? { get: () => new Promise((resolve) => { release = resolve; }) } : prepare(sql);
+  const pending = assert.rejects(assistant.respond(input), { code: "DEADLINE_EXCEEDED" });
+  await new Promise((resolve) => setImmediate(resolve));
+  context.mock.timers.tick(90_000);
+  await pending;
+  release(null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(messages.length, 0);
+}));
+
 test("access revoked during generation removes claims and source contents before saving an answer", async (context) => fixture(async ({ input, state }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://revocation.invalid/v1", model: "test", config: {} }));
   context.mock.method(global, "fetch", async (_, init) => {

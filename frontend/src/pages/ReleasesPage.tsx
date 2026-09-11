@@ -127,6 +127,9 @@ export function ReleasesPage() {
   const canCreate = hasPermission(session, "requirement_iteration.create", projectId);
   const canUpdate = hasPermission(session, "requirement_iteration.update", projectId);
   const canDelete = hasPermission(session, "requirement_iteration.delete", projectId);
+  const canReadReadiness = ["requirement_iteration.view", "requirement.view", "testcase.view", "run.view", "result.view", "feedback.view"]
+    .every((permission) => hasPermission(session, permission, projectId));
+  const readinessAccessKey = JSON.stringify([session?.user.id, session?.user.role, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions]);
 
   const releasesQuery = useQuery({
     queryKey: ["requirement-releases", projectId],
@@ -134,11 +137,13 @@ export function ReleasesPage() {
     enabled: Boolean(projectId)
   });
   const releases = asArray(releasesQuery.data);
+  const expandedRelease = releases.find((release) => release.id === selectedReleaseId);
   const releaseReadinessQuery = useQuery({
-    queryKey: ["requirement-release-readiness", "project", projectId],
+    queryKey: ["requirement-release-readiness", "project", projectId, readinessAccessKey],
     queryFn: () => api.requirementReleases.listReadiness({ project_id: projectId }),
-    enabled: Boolean(projectId),
-    staleTime: 30_000
+    enabled: Boolean(projectId && canReadReadiness),
+    staleTime: 30_000,
+    retry: 1
   });
   const sprintsQuery = useQuery({
     queryKey: ["requirement-iterations", projectId],
@@ -156,9 +161,10 @@ export function ReleasesPage() {
     enabled: Boolean(projectId && appTypeId)
   });
   const releaseStoryExecutionResultsQuery = useQuery({
-    queryKey: ["release-story-execution-results", projectId, appTypeId],
-    queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 })),
-    enabled: Boolean(projectId && appTypeId)
+    queryKey: ["release-story-execution-results", projectId, expandedRelease?.id, expandedRelease?.fix_version, readinessAccessKey],
+    queryFn: () => api.executionResults.releaseReadiness({ project_id: projectId, release: expandedRelease!.fix_version, run_limit: 50, result_limit: 1000 }),
+    enabled: Boolean(projectId && expandedRelease?.fix_version && canReadReadiness),
+    retry: 1
   });
   const createRelease = useMutation({ mutationFn: api.requirementReleases.create });
   const updateRelease = useMutation({ mutationFn: ({ id, state }: { id: string; state: "in_progress" | "released" }) => api.requirementReleases.update(id, { state }) });
@@ -175,7 +181,8 @@ export function ReleasesPage() {
   const sprints = asArray(sprintsQuery.data);
   const stories = asArray(storiesQuery.data);
   const releaseStoryTestCases = asArray(releaseStoryTestCasesQuery.data);
-  const releaseStoryExecutionResults = asArray(releaseStoryExecutionResultsQuery.data);
+  const releaseStoryExecutionResults = canReadReadiness && !releaseStoryExecutionResultsQuery.isError ? asArray(releaseStoryExecutionResultsQuery.data?.results) : [];
+  const hasCompleteStoryRunEvidence = canReadReadiness && !releaseStoryExecutionResultsQuery.isError && releaseStoryExecutionResultsQuery.data?.complete === true;
   const storyEvidenceById = useMemo(
     () => new Map(stories.map((story) => [story.id, story])),
     [stories]
@@ -207,8 +214,8 @@ export function ReleasesPage() {
     [releaseStoryTestCases]
   );
   const readinessByReleaseId = useMemo(() => new Map<string, RequirementReleaseReadiness>(
-    asArray(releaseReadinessQuery.data).map((readiness) => [readiness.release_id, readiness])
-  ), [releaseReadinessQuery.data]);
+    (canReadReadiness && !releaseReadinessQuery.isError ? asArray(releaseReadinessQuery.data) : []).map((readiness) => [readiness.release_id, readiness])
+  ), [canReadReadiness, releaseReadinessQuery.data, releaseReadinessQuery.isError]);
   const normalizedStorySearch = storySearch.trim().toLowerCase();
   const visibleStories = useMemo(() => stories.filter((story) => !normalizedStorySearch || [story.display_id || story.id, story.title, story.status || "", story.scrum_team || ""].some((value) => value.toLowerCase().includes(normalizedStorySearch))), [normalizedStorySearch, stories]);
   const normalizedReleaseSearch = releaseSearch.trim().toLowerCase();
@@ -226,7 +233,11 @@ export function ReleasesPage() {
   const sprintStoryIds = useMemo(() => new Set(stories.filter((story) => draft.sprintIds.includes(String(story.iteration_id || ""))).map((story) => story.id)), [draft.sprintIds, stories]);
   const selectedStoryCount = new Set([...draft.requirementIds, ...sprintStoryIds]).size;
   const portfolioReadiness = [...readinessByReleaseId.values()];
-  const isReadinessLoading = releaseReadinessQuery.isPending;
+  const isReadinessLoading = canReadReadiness && releaseReadinessQuery.isPending;
+  const isReadinessUnavailable = !canReadReadiness || releaseReadinessQuery.isError;
+  const readinessUnavailableReason = !canReadReadiness
+    ? "Release evidence requires access to Stories, Test Cases, Runs, Results and Bugs in this project."
+    : releaseReadinessQuery.error instanceof Error ? releaseReadinessQuery.error.message : "Release evidence could not be loaded.";
   const releaseReadyCount = portfolioReadiness.filter((item) => item.total_stories > 0 && item.readiness_state === "ready").length;
   const atRiskCount = releases.filter((release) => {
     if (release.persisted_state === "released") return false;
@@ -533,9 +544,9 @@ export function ReleasesPage() {
           {
             icon: <IconTargetArrow aria-hidden="true" size={13} stroke={1.8} />,
             label: "Readiness",
-            value: readiness ? `${readiness.readiness_score}%` : "Loading…",
-            tone: readiness?.readiness_state === "ready" ? "success" : readiness?.readiness_state === "at_risk" ? "warning" : "danger",
-            title: readinessLabel(readiness)
+            value: readiness ? `${readiness.readiness_score}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
+            tone: !readiness ? "neutral" : readiness.readiness_state === "ready" ? "success" : readiness.readiness_state === "at_risk" ? "warning" : "danger",
+            title: isReadinessUnavailable ? readinessUnavailableReason : readinessLabel(readiness)
           },
           {
             icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />,
@@ -547,16 +558,16 @@ export function ReleasesPage() {
           {
             icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />,
             label: "Test coverage",
-            value: readiness ? `${readiness.test_coverage_percent ?? 0}%` : "Loading…",
-            tone: (readiness?.test_coverage_percent ?? 0) >= 80 ? "success" : "warning",
-            title: readiness ? `${readiness.covered_stories}/${readiness.total_stories} scoped Stories have linked test coverage.` : "Loading release test evidence."
+            value: readiness ? `${readiness.test_coverage_percent ?? 0}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
+            tone: !readiness ? "neutral" : (readiness.test_coverage_percent ?? 0) >= 80 ? "success" : "warning",
+            title: readiness ? `${readiness.covered_stories}/${readiness.total_stories} scoped Stories have linked test coverage.` : isReadinessUnavailable ? readinessUnavailableReason : "Loading release test evidence."
           },
           {
             icon: <IconBug aria-hidden="true" size={13} stroke={1.8} />,
             label: "Open Bugs",
-            value: readiness ? String(readiness.open_bugs) : "Loading…",
-            tone: readiness?.open_bugs ? "danger" : "success",
-            title: readiness ? `${readiness.open_bugs} open Bugs across ${readiness.total_bugs} total Bugs.` : "Loading release Bug evidence."
+            value: readiness ? String(readiness.open_bugs) : isReadinessUnavailable ? "Unavailable" : "Loading…",
+            tone: !readiness ? "neutral" : readiness.open_bugs ? "danger" : "success",
+            title: readiness ? `${readiness.open_bugs} open Bugs across ${readiness.total_bugs} total Bugs.` : isReadinessUnavailable ? readinessUnavailableReason : "Loading release Bug evidence."
           }
         ]}
       />
@@ -581,7 +592,7 @@ export function ReleasesPage() {
         <PencilIcon size={16} />
       </button>
       <button aria-label={`Open readiness board for ${release.name}`} className="ghost-button compact release-readiness-button release-ribbon-action" onClick={() => openReleaseReadiness(release)} title="Open release readiness board" type="button"><ReleaseReadinessIcon size={26} /></button>
-      <button aria-label={`${generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id ? "Generating" : "Generate"} release notes for ${release.name}`} className="ghost-button compact release-notes-button release-ribbon-action" disabled={generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id} onClick={() => openReleaseNotes(release)} title="Evaluate scoped Stories and compose Release notes" type="button"><ReleaseNotesIcon size={23} /></button>
+      <button aria-label={`${generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id ? "Generating" : "Generate"} release notes for ${release.name}`} className="ghost-button compact release-notes-button release-ribbon-action" disabled={!canReadReadiness || generateReleaseNotes.isPending && releaseNotesRelease?.id === release.id} onClick={() => openReleaseNotes(release)} title={!canReadReadiness ? readinessUnavailableReason : "Evaluate scoped Stories and compose Release notes"} type="button"><ReleaseNotesIcon size={23} /></button>
       {release.external_link ? <a aria-label={`Open external reference for ${release.name}`} className="ghost-button compact release-external-action" href={release.external_link} rel="noreferrer" target="_blank" title="Open external Release reference"><IconExternalLink size={16} /></a> : null}
       <button aria-label={`Delete release ${release.name}`} className="ghost-button compact danger release-delete-button" disabled={!canDelete || deleteRelease.isPending} onClick={() => void removeRelease(release)} title="Delete Release" type="button"><IconTrash size={16} /></button>
     </div>
@@ -631,7 +642,9 @@ export function ReleasesPage() {
     const testCoveragePercent = linkedCaseCount ? 100 : 0;
     const bugHealthPercent = Math.max(0, 100 - linkedBugCount * 25);
     const readinessScore = Math.round((testCoveragePercent * 0.3) + (passPercent * 0.5) + (bugHealthPercent * 0.2));
-    const passCoverageTitle = linkedCaseCount
+    const passCoverageTitle = !hasCompleteStoryRunEvidence
+      ? !canReadReadiness ? readinessUnavailableReason : releaseStoryExecutionResultsQuery.isPending ? "Loading this Release's execution evidence" : "Release execution evidence is unavailable or incomplete; open the readiness board to inspect coverage."
+      : linkedCaseCount
       ? `${passedCaseCount}/${linkedCaseCount} linked test cases passed`
       : "No linked test cases to measure pass coverage";
     const automationCoverageTitle = !hasCompleteAutomationCoverage
@@ -664,11 +677,11 @@ export function ReleasesPage() {
           <CatalogCardDescription fallback="No Story description captured yet." profile="story" value={evidenceStory.description} />
           <div className="requirement-progress-stack release-story-progress-stack">
             <TileCardProgress
-              displayValue={`${passPercent}%`}
+              displayValue={hasCompleteStoryRunEvidence ? `${passPercent}%` : "—"}
               label="Pass rate"
               title={passCoverageTitle}
-              tone={!linkedCaseCount ? "neutral" : passedCaseCount >= linkedCaseCount ? "success" : passedCaseCount ? "info" : "danger"}
-              value={passPercent}
+              tone={!hasCompleteStoryRunEvidence || !linkedCaseCount ? "neutral" : passedCaseCount >= linkedCaseCount ? "success" : passedCaseCount ? "info" : "danger"}
+              value={hasCompleteStoryRunEvidence ? passPercent : null}
             />
             <TileCardProgress
               displayValue={hasCompleteAutomationCoverage ? `${automationPercent}%` : "—"}
@@ -682,7 +695,7 @@ export function ReleasesPage() {
             <TileCardMetric className="story-tile-metric" label="Priority" tone={(evidenceStory.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${evidenceStory.priority ?? 3}`} />
             <TileCardMetric className="story-tile-metric" label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={String(linkedCaseCount)} />
             <TileCardMetric className="story-tile-metric" label="Defect density" tone={linkedBugCount ? "danger" : "success"} value={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"} />
-            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={`${readinessScore}%`} />
+            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={!hasCompleteStoryRunEvidence ? "neutral" : readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={hasCompleteStoryRunEvidence ? `${readinessScore}%` : "Unavailable"} />
           </div>
           <div className="tile-card-facts release-story-context-facts" aria-label={`${evidenceStory.title} delivery context`}>
             <TileCardFact label={evidenceStory.sprint || "No Sprint"} title={evidenceStory.sprint ? `Included through Sprint ${evidenceStory.sprint}` : "Direct Release scope without a Sprint"} tone={evidenceStory.sprint ? "info" : "neutral"}><SprintIcon size={14} /></TileCardFact>
@@ -730,18 +743,20 @@ export function ReleasesPage() {
         description="Plan versioned delivery scope from Stories and Sprints, then review evidence-backed readiness from the exact release context."
         meta={[
           { label: "Releases", value: releases.length },
-          { label: "Release ready", value: isReadinessLoading ? "Loading…" : releaseReadyCount },
+          { label: "Release ready", value: isReadinessUnavailable ? "Unavailable" : isReadinessLoading ? "Loading…" : releaseReadyCount },
           { label: "Overdue", value: releases.filter((item) => item.state === "overdue").length }
         ]}
       />
       <section aria-busy={isReadinessLoading} aria-label="Release portfolio health" className="release-portfolio-grid">
         <article className="release-portfolio-card tone-scope"><span>Total releases</span><strong>{releases.length}</strong><small>{releases.filter((item) => item.persisted_state === "planned").length} planned</small></article>
         <article className="release-portfolio-card tone-active"><span>In progress</span><strong>{releases.filter((item) => item.state === "in_progress").length}</strong><small>Actively moving toward a target</small></article>
-        <article className="release-portfolio-card tone-ready"><span>Release ready</span><strong>{isReadinessLoading ? "—" : releaseReadyCount}</strong><small>{isReadinessLoading ? "Loading quality evidence…" : "Quality evidence meets the readiness policy"}</small></article>
-        <article className="release-portfolio-card tone-risk"><span>At risk</span><strong>{isReadinessLoading ? "—" : atRiskCount}</strong><small>{isReadinessLoading ? "Evaluating schedule and quality…" : "Schedule or quality evidence needs action"}</small></article>
+        <article className="release-portfolio-card tone-ready"><span>Release ready</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : releaseReadyCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Loading quality evidence…" : "Quality evidence meets the readiness policy"}</small></article>
+        <article className="release-portfolio-card tone-risk"><span>At risk</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : atRiskCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Evaluating schedule and quality…" : "Schedule or quality evidence needs action"}</small></article>
         <article className="release-portfolio-card tone-overdue"><span>Overdue</span><strong>{releases.filter((item) => item.state === "overdue").length}</strong><small>Open releases beyond their target date</small></article>
         <article className="release-portfolio-card tone-completion"><span>Story completion</span><strong>{portfolioCompletionPercent}%</strong><small>{releaseStoryCompletion.completed}/{releaseStoryCompletion.total} scoped Stories QA done</small></article>
       </section>
+
+      {isReadinessUnavailable ? <div className="notice" role="status"><strong>Release evidence unavailable. </strong>{readinessUnavailableReason}{canReadReadiness ? <button className="ghost-button compact" type="button" onClick={() => void releaseReadinessQuery.refetch()}>Retry evidence</button> : null}</div> : null}
 
       {releasesQuery.isLoading ? <LoadingState label="Loading releases" /> : (
         <div className="release-workspace">

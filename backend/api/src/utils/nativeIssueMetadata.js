@@ -1,4 +1,5 @@
 const { REQUIREMENT_STATUS_OPTIONS, ISSUE_STATUS_OPTIONS, PRIORITY_SCALE } = require("../domain/catalog");
+const dropdownCatalog = require("../services/dropdownCatalog.service");
 
 const field = (id, name, { required = false, type = "string", allowedValues } = {}) => ({
   id,
@@ -21,7 +22,7 @@ const statuses = (options, currentStatus) => options.map((option) => ({
   transition_id: option.value
 }));
 
-const build = ({ project, kind, mode = "create", currentValues = {} }) => {
+const build = ({ project, kind, mode = "create", currentValues = {}, classificationFields = [] }) => {
   const isRequirement = kind === "requirement";
   const statusOptions = isRequirement ? REQUIREMENT_STATUS_OPTIONS : ISSUE_STATUS_OPTIONS;
   const defaultStatus = isRequirement ? "open" : "open";
@@ -34,7 +35,7 @@ const build = ({ project, kind, mode = "create", currentValues = {} }) => {
     field("fixVersions", "Fix version / Release"),
     field("status", "Status", { allowedValues: statuses(statusOptions, currentValues.status).map((item) => ({ value: item.value, name: item.label, label: item.label })) })
   ];
-  if (!isRequirement) coreFields.push(field("assignee", "Assignee"));
+  if (!isRequirement) coreFields.push(field("assignee", "Assignee"), ...classificationFields);
 
   return {
     mode,
@@ -67,5 +68,22 @@ const build = ({ project, kind, mode = "create", currentValues = {} }) => {
 
 module.exports = {
   requirementMetadata: (input) => build({ ...input, kind: "requirement" }),
-  issueMetadata: (input) => build({ ...input, kind: "issue" })
+  issueMetadata: async (input) => {
+    const classificationFields = await Promise.all([
+      ["root_cause", "Primary Root Cause", "issues.root_causes"],
+      ["qa_root_cause", "QA Root Cause", "issues.qa_root_causes"],
+      ["bug_type", "Bug Type", "issues.bug_types"]
+    ].map(async ([id, name, key]) => {
+      const current = input.mode === "edit" ? input.currentValues?.[id] : null;
+      const options = await dropdownCatalog.getOptions(key, { includeInactive: true });
+      const values = options.filter(option => option.active !== false || option.value === current)
+        .map(option => ({ value: option.value, name: option.label, label: option.label,
+          ...(option.value === current ? { current: true } : {}), ...(option.active === false ? { inactive: true } : {}) }));
+      if (current && !values.some(option => option.value === current)) {
+        values.push({ value: current, name: current, label: current, current: true, inactive: true });
+      }
+      return field(id, name, { allowedValues: values });
+    }));
+    return build({ ...input, kind: "issue", classificationFields });
+  }
 };

@@ -12,7 +12,7 @@ test("data-set column references resolve spaces, dots, numeric prefixes and esca
   const context = buildInitialContext({ data_set: { mode: "table", rows: [{
     "First Name": "Jay", "account.email": "jay@example.test", "2FA": "enabled", "choice]value": "yes", "folder\\name": "docs"
   }] } });
-  assert.equal(interpolateText("@t.[First Name] <@t.[account.email]> @t.[2FA] @t.[choice\\]value] @t.[folder\\\\name]", context),
+  assert.equal(interpolateText("@r.[First Name] <@r.[account.email]> @r.[2FA] @r.[choice\\]value] @r.[folder\\\\name]", context),
     "Jay <jay@example.test> enabled yes docs");
 });
 
@@ -36,5 +36,5 @@ test("selected data rows override case defaults for quoted columns", () => {
     case_parameters: { "first name": "override" },
     data_set: { source: "test_case", mode: "table", rows: [{ "First Name": "inherited" }] }
   });
-  assert.equal(interpolateText("@t.[First Name]", context), "inherited");
+  assert.equal(interpolateText("@r.[First Name]", context), "inherited");
 });

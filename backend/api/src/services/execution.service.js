@@ -1,3 +1,5 @@
+const { preserveFrozenRunParameters, normalizeFrozenCapturedValues } = require("../utils/frozenRunParameterCompatibility");
+const { expandSuiteSelection, loadSuiteContexts } = require("./suiteExecutionContext.service");
 const db = require("../db");
 const { resilientHttpRequest } = require("../utils/resilientHttpClient");
 const { randomUUID: uuid } = require("crypto");
@@ -11,7 +13,7 @@ const opsTelemetryService = require("./opsTelemetry.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { materializeDataSetSnapshot, materializeParameterValues, materializeVariableSnapshot, freezeReferencedParameterGenerators } = require("../utils/testDataGenerators");
-const { resolveParameterLayers, collectPriorParameterCaptures } = require("../utils/stepParameterResolution");
+const { resolveParameterLayers, collectPriorParameterCaptures, matchesParameterIteration } = require("../utils/stepParameterResolution");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const { assertExpectedRevision } = require("../utils/revision");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
@@ -124,7 +126,7 @@ const getResultsForExecution = db.prepare(`
 `);
 
 const getResultLogsForExecution = db.prepare(`
-  SELECT test_case_id, logs, created_at, id
+  SELECT test_case_id, logs, created_at, id, test_data_set_id, data_set_iteration_index
   FROM execution_results
   WHERE execution_id = ?
   ORDER BY created_at ASC, id ASC
@@ -512,7 +514,7 @@ function resolveExecutionCaseDataSet(execution, caseSnapshot) {
       id: caseSnapshot?.test_data_set_id || caseSnapshotDataSet?.id || null,
       name: caseSnapshot?.test_data_set_name || caseSnapshotDataSet?.name || null,
       snapshot: caseSnapshotDataSet,
-      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+      source: ["test_case", "suite"].includes(caseSnapshot?.data_set_source) ? caseSnapshot.data_set_source : "run"
     };
   }
 
@@ -603,15 +605,17 @@ function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedV
     runValues: normalizeParameterValues(execution?.parameter_values),
     dataSet: resolveExecutionCaseDataSet(execution, caseSnapshot)?.snapshot,
     rowIndex: Number.isInteger(dataSetIterationIndex) ? dataSetIterationIndex : 0,
-    capturedValues
+    capturedValues: normalizeFrozenCapturedValues(capturedValues, execution?.parameter_scope_default)
   });
 }
 
-async function collectSuiteScopedCapturedValues(execution, caseSnapshot, currentTestCaseId) {
+async function collectSuiteScopedCapturedValues(execution, caseSnapshot, currentTestCaseId, iteration = {}) {
   if (!execution?.id) return {};
   const capturesByCaseId = {};
   for (const row of await getResultLogsForExecution.all(execution.id)) {
-    capturesByCaseId[row.test_case_id] = executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs);
+    if (!matchesParameterIteration(row, iteration)) continue;
+    capturesByCaseId[row.test_case_id] = normalizeFrozenCapturedValues(
+      executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs), execution.parameter_scope_default);
   }
   return collectPriorParameterCaptures(execution.case_snapshots || [], currentTestCaseId, capturesByCaseId);
 }
@@ -698,7 +702,7 @@ async function loadExecutionRuntimeContext(execution) {
   if (!stored) return execution;
   const storedCases = (execution.case_snapshots || []).some((snapshot) => snapshot.test_data_set_id || snapshot.test_data_set_snapshot)
     ? await getCaseSnapshotsForExecution.all(execution.id) : [];
-  return {
+  return preserveFrozenRunParameters({
     ...execution,
     test_environment: execution.test_environment ? { ...execution.test_environment, snapshot: parseJsonValue(stored.test_environment_snapshot, null) } : null,
     test_configuration: execution.test_configuration ? { ...execution.test_configuration, snapshot: parseJsonValue(stored.test_configuration_snapshot, null) } : null,
@@ -707,7 +711,7 @@ async function loadExecutionRuntimeContext(execution) {
       const raw = storedCases.find((item) => item.test_case_id === snapshot.test_case_id);
       return raw ? { ...snapshot, test_data_set_snapshot: parseJsonValue(raw.test_data_set_snapshot, null) } : snapshot;
     })
-  };
+  });
 }
 
 async function hydrateExecutionScopes(executions) {
@@ -754,6 +758,7 @@ async function hydrateExecutionScopes(executions) {
     return {
       ...execution,
       metrics: metrics.get(execution.id),
+      duration_ms: metrics.get(execution.id)?.total_cases ? metrics.get(execution.id).duration_ms : Number(execution.duration_ms) || 0,
       run_mode: execution.trigger === "manual" ? "manual" : execution.trigger === "local" || execution.execution_mode === "local" ? "local" : "remote",
       direct_test_case_ids: execution.direct_test_case_ids == null ? undefined : normalizeTextList(parseJsonValue(execution.direct_test_case_ids, [])),
       assigned_to: resolvedAssignedToIds[0] || null,
@@ -808,7 +813,7 @@ async function attachExecutionCaseAssignees(caseSnapshots) {
       test_data_set_id: normalizeText(snapshot.test_data_set_id),
       test_data_set_name: normalizeText(snapshot.test_data_set_name),
       test_data_set_snapshot: redactExecutionDataSetSnapshot(snapshot.test_data_set_snapshot),
-      data_set_source: snapshot.data_set_source === "run" || snapshot.data_set_source === "test_case"
+      data_set_source: snapshot.data_set_source === "run" || snapshot.data_set_source === "suite" || snapshot.data_set_source === "test_case"
         ? snapshot.data_set_source
         : null,
       assigned_to: resolvedIds[0] || null,
@@ -1047,10 +1052,16 @@ async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null
       data_set.columns,
       data_set.rows
     FROM test_case_data_sets AS mapping
+    JOIN test_cases AS linked_case ON linked_case.id = mapping.test_case_id
+    LEFT JOIN test_suites AS legacy_suite ON legacy_suite.id = linked_case.suite_id
+    JOIN app_types AS case_app ON case_app.id = COALESCE(linked_case.app_type_id, legacy_suite.app_type_id)
     JOIN test_data_sets AS data_set ON data_set.id = mapping.test_data_set_id
+      AND data_set.project_id = case_app.project_id
+      AND (data_set.app_type_id IS NULL OR data_set.app_type_id = case_app.id)
     WHERE mapping.test_case_id IN (${placeholdersFor(testCaseIds)})
     ORDER BY mapping.test_case_id ASC, mapping.sort_order ASC, mapping.test_data_set_id ASC
   `).all(...testCaseIds);
+  const suiteContexts = await loadSuiteContexts(caseSnapshots.map(snapshot => snapshot.suite_id));
   const linkByCaseId = new Map();
   const materializedByDataSetId = new Map();
 
@@ -1071,14 +1082,16 @@ async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null
   });
 
   return caseSnapshots.map((snapshot) => {
-    const linkedDataSet = linkByCaseId.get(snapshot.test_case_id);
+    const suiteData = suiteContexts.get(snapshot.suite_id)?.dataSet;
+    if (suiteData && !materializedByDataSetId.has(suiteData.id)) materializedByDataSetId.set(suiteData.id, buildExecutionDataSetSnapshot(suiteData));
+    const linkedDataSet = suiteData ? { id: suiteData.id, name: suiteData.name, snapshot: materializedByDataSetId.get(suiteData.id) } : linkByCaseId.get(snapshot.test_case_id);
     return linkedDataSet
       ? {
           ...snapshot,
           test_data_set_id: linkedDataSet.id,
           test_data_set_name: linkedDataSet.name,
           test_data_set_snapshot: linkedDataSet.snapshot,
-          data_set_source: "test_case"
+          data_set_source: suiteData ? "suite" : "test_case"
         }
       : {
           ...snapshot,
@@ -1095,6 +1108,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const caseSnapshots = [];
   const stepSnapshots = [];
   const materializedSuiteParameters = new Map();
+  const suiteContexts = await loadSuiteContexts([...suiteRows.map(row => row.suite_id), ...(options.directCases || []).map(row => row.suite_id)]);
   const resolvedAssignedTo = normalizeText(options.assignedTo) || null;
   const resolvedAssignedToIds = normalizeTextList(options.assignedToIds || (resolvedAssignedTo ? [resolvedAssignedTo] : []));
   let sortOrder = 0;
@@ -1110,7 +1124,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       seenCaseIds.add(suiteCase.test_case_id);
       sortOrder += 1;
       const parameterTemplateValues = normalizeParameterValues(suiteCase.parameter_values);
-      const suiteParameterTemplateValues = normalizeParameterValues(suiteCase.suite_parameter_values);
+      const suiteParameterTemplateValues = normalizeParameterValues(suiteContexts.get(suiteRow.suite_id)?.parameters || suiteCase.suite_parameter_values);
       const suiteParameterValues = materializedSuiteParameters.get(suiteRow.suite_id)
         || materializeParameterValues(suiteParameterTemplateValues);
       materializedSuiteParameters.set(suiteRow.suite_id, suiteParameterValues);
@@ -1173,7 +1187,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
       seenCaseIds.add(directCase.test_case_id);
       sortOrder += 1;
       const parameterTemplateValues = normalizeParameterValues(directCase.parameter_values);
-      const suiteParameterTemplateValues = normalizeParameterValues(directCase.suite_parameter_values);
+      const suiteParameterTemplateValues = normalizeParameterValues(suiteContexts.get(directCase.suite_id)?.parameters || directCase.suite_parameter_values);
 
       caseSnapshots.push({
         execution_id: executionId,
@@ -1516,7 +1530,7 @@ exports.createExecution = async ({
     snapshotBuilder: buildExecutionDataSetSnapshot
   });
 
-  const uniqueSuiteIds = [...new Set(suite_ids)];
+  const uniqueSuiteIds = await expandSuiteSelection(suite_ids, app_type_id);
   const uniqueTestCaseIds = [...new Set(test_case_ids)];
 
   if ((uniqueSuiteIds.length || uniqueTestCaseIds.length) && !app_type_id) {
@@ -1652,6 +1666,8 @@ exports.createExecution = async ({
       created_by
     );
 
+    await db.prepare("UPDATE executions SET parameter_scope_default = 'r' WHERE id = ?").run(id);
+
     for (const suiteRow of suiteRows) {
       await insertExecutionSuite.run(id, suiteRow.suite_id, suiteRow.suite_name);
     }
@@ -1768,7 +1784,7 @@ exports.getExecution = async (id, forceRefresh = false) => {
     try {
       const execution = await selectExecutionRecord.get(id);
       if (!execution) throw new Error("Execution not found");
-      const detailedExecution = await attachDetailedScope(execution);
+      const detailedExecution = preserveFrozenRunParameters(await attachDetailedScope(execution));
       executionCache.set(id, { timestamp: Date.now(), data: detailedExecution });
       return detailedExecution;
     } catch (err) {
@@ -1893,6 +1909,8 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       await insertExecutionSuite.run(nextExecutionId, suite.id, suite.name || "Deleted Suite");
     }
 
+    await db.prepare("UPDATE executions SET parameter_scope_default = ? WHERE id = ?").run(sourceExecution.parameter_scope_default || "r", nextExecutionId);
+
     for (const [index, snapshot] of filteredCaseSnapshots.entries()) {
       const parameterTemplateValues = normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values);
       const suiteParameterTemplateValues = normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values);
@@ -1901,14 +1919,14 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         || materializeParameterValues(suiteParameterTemplateValues);
       rerunSuiteParameters.set(suiteKey, suiteParameterValues);
       const sourceCaseDataSetSnapshot = parseJsonValue(snapshot.test_data_set_snapshot, null);
-      const rerunDataSetSource = snapshot.data_set_source === "test_case"
-        ? "test_case"
+      const rerunDataSetSource = ["test_case", "suite"].includes(snapshot.data_set_source)
+        ? snapshot.data_set_source
         : (rerunDataSetSnapshot || sourceCaseDataSetSnapshot) ? "run" : null;
       let rerunCaseDataSetSnapshot = rerunDataSetSource === "run"
         ? rerunDataSetSnapshot || materializeDataSetSnapshot(sourceCaseDataSetSnapshot)
         : null;
 
-      if (rerunDataSetSource === "test_case" && sourceCaseDataSetSnapshot) {
+      if (["test_case", "suite"].includes(rerunDataSetSource) && sourceCaseDataSetSnapshot) {
         const dataSetKey = snapshot.test_data_set_id || sourceCaseDataSetSnapshot.id || `case:${snapshot.test_case_id}`;
         rerunCaseDataSetSnapshot = rerunLinkedDataSetSnapshots.get(dataSetKey)
           || materializeDataSetSnapshot(sourceCaseDataSetSnapshot);
@@ -2275,9 +2293,10 @@ exports.runExecutionApiStep = async (
     throw runError("Start or resume this case before executing a step.", "CASE_NOT_STARTED", 409);
   }
   const existingLogs = executionStepRuntimeService.parseStructuredLogs(existingResult?.logs || null);
-  const currentCaseCapturedValues = executionStepRuntimeService.extractCapturedValuesFromLogs(existingLogs);
+  const currentCaseCapturedValues = normalizeFrozenCapturedValues(
+    executionStepRuntimeService.extractCapturedValuesFromLogs(existingLogs), execution.parameter_scope_default);
   const capturedValues = {
-    ...await collectSuiteScopedCapturedValues(execution, caseSnapshot, testCaseId),
+    ...await collectSuiteScopedCapturedValues(execution, caseSnapshot, testCaseId, dataSetIteration.result_metadata),
     ...currentCaseCapturedValues
   };
 
@@ -2528,7 +2547,7 @@ exports.updateExecution = async (id, input = {}) => {
     const existingDirectIds = execution.direct_test_case_ids == null
       ? existingCases.filter((row) => !oldSuiteIds.has(row.suite_id)).map((row) => row.test_case_id)
       : normalizeTextList(parseJsonValue(execution.direct_test_case_ids, []));
-    const suiteIds = has("suite_ids") ? normalizeTextList(input.suite_ids) : [...oldSuiteIds];
+    const suiteIds = has("suite_ids") ? await expandSuiteSelection(normalizeTextList(input.suite_ids), execution.app_type_id) : [...oldSuiteIds];
     const directIds = has("test_case_ids") ? normalizeTextList(input.test_case_ids)
       : existingDirectIds;
     setField("direct_test_case_ids", directIds);

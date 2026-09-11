@@ -1132,6 +1132,8 @@ export type DomainOption = {
   value: string;
   label: string;
   description?: string;
+  active?: boolean;
+  builtin?: boolean;
   icon?: string;
   defaults?: Record<string, unknown>;
   category_key?: string | null;
@@ -1143,6 +1145,15 @@ export type DomainOption = {
 };
 
 export type DomainMetadata = {
+  dropdowns?: {
+    revision: number | string;
+    fields: Record<string, {
+      options: DomainOption[];
+      default_value?: string | null;
+      label?: string;
+      description?: string;
+    }>;
+  };
   app_types: {
     default_type: string;
     types: DomainOption[];
@@ -1156,6 +1167,9 @@ export type DomainMetadata = {
     statuses: DomainOption[];
     workflow_source?: string;
     priority_scale: number[];
+    labels?: DomainOption[];
+    scrum_teams?: DomainOption[];
+    story_points?: DomainOption[];
   };
   test_cases: {
     default_status: string;
@@ -1163,7 +1177,10 @@ export type DomainMetadata = {
     statuses: DomainOption[];
     automated_options: DomainOption[];
     priority_scale: number[];
+    types?: DomainOption[];
+    labels?: DomainOption[];
   };
+  test_suites?: { labels?: DomainOption[] };
   test_steps: {
     group_kinds: DomainOption[];
     types?: DomainOption[];
@@ -1173,6 +1190,11 @@ export type DomainMetadata = {
     modes: DomainOption[];
   };
   test_environments: {
+    browsers: DomainOption[];
+    mobile_os: DomainOption[];
+  };
+  test_configurations?: {
+    operating_systems: DomainOption[];
     browsers: DomainOption[];
     mobile_os: DomainOption[];
   };
@@ -1186,6 +1208,10 @@ export type DomainMetadata = {
     default_status: string;
     statuses: DomainOption[];
     workflow_source?: string;
+    root_causes?: DomainOption[];
+    qa_root_causes?: DomainOption[];
+    bug_types?: DomainOption[];
+    labels?: DomainOption[];
   };
   feedback?: {
     default_status: string;
@@ -1979,6 +2005,7 @@ export type TestSuite = {
   test_case_ids?: string[];
   labels?: string[];
   parameter_values?: Record<string, string>;
+  test_data_set_id?: string | null;
   parallel_enabled?: boolean | null;
   parallel_count?: number | null;
   created_by?: string | null;
@@ -2008,7 +2035,7 @@ export type TestCase = {
   manual_test_case_id?: string | null;
   manual_test_case_ids?: string[];
   authoring_mode?: "structured" | "gherkin";
-  test_case_type?: "functional" | "regression" | "smoke" | "integration" | "acceptance" | "exploratory" | "performance" | "security" | "accessibility" | "ios";
+  test_case_type?: string;
   gherkin_document?: string | null;
   test_data_set_ids?: string[];
   test_data_sets?: Array<Pick<TestDataSet, "id" | "app_type_id" | "name" | "description" | "mode" | "columns" | "rows">>;
@@ -2507,6 +2534,7 @@ export type ExecutionScopeSnapshot = {
 };
 
 export type Execution = {
+  parameter_scope_default?: "t" | "r";
   id: string;
   revision?: number;
   run_mode?: "manual" | "remote" | "local";

@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
+import { resolveDomainSuggestionValue } from "../lib/domainOptions";
+import type { DomainOption } from "../types";
 import { TagIcon } from "./AppIcons";
 import { FormField } from "./FormField";
 
@@ -17,7 +19,7 @@ export function LabelsField({
   label?: string;
   placeholder?: string;
   value: string;
-  options?: string[];
+  options?: Array<string | Pick<DomainOption, "value" | "label">>;
   required?: boolean;
   onChange: (value: string) => void;
 }) {
@@ -27,6 +29,7 @@ export function LabelsField({
   const inputId = `labels-${useId().replace(/:/g, "")}`;
   const menuId = `${inputId}-options`;
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const suggestions = useMemo(() => options.map(option => typeof option === "string" ? { value: option, label: option } : option), [options]);
   const selectedLabels = useMemo(() => {
     const seen = new Set<string>();
     return parseReferenceList(value).filter((item) => {
@@ -39,16 +42,16 @@ export function LabelsField({
   const filteredLabels = useMemo(() => {
     const selected = new Set(selectedLabels.map((item) => item.toLowerCase()));
     const query = draftLabel.trim().toLowerCase();
-    return options
-      .filter((item) => !selected.has(item.toLowerCase()))
-      .filter((item) => !query || item.toLowerCase().includes(query));
-  }, [draftLabel, options, selectedLabels]);
+    return suggestions
+      .filter((item) => !selected.has(item.value.toLowerCase()))
+      .filter((item) => !query || `${item.label} ${item.value}`.toLowerCase().includes(query));
+  }, [draftLabel, suggestions, selectedLabels]);
   const normalizedDraftLabel = draftLabel.trim();
   const canAddDraftLabel = Boolean(
     normalizedDraftLabel
-    && !filteredLabels.some((item) => item.toLowerCase() === normalizedDraftLabel.toLowerCase())
+    && !filteredLabels.some((item) => [item.value, item.label].some(value => value.toLowerCase() === normalizedDraftLabel.toLowerCase()))
   );
-  const menuOptions = canAddDraftLabel ? [...filteredLabels, normalizedDraftLabel] : filteredLabels;
+  const menuOptions = canAddDraftLabel ? [...filteredLabels, { value: normalizedDraftLabel, label: normalizedDraftLabel }] : filteredLabels;
 
   useEffect(() => {
     setActiveLabelIndex((current) => Math.min(current, Math.max(0, menuOptions.length - 1)));
@@ -64,7 +67,7 @@ export function LabelsField({
   }, [isMenuOpen]);
 
   const commitLabel = (rawLabel: string) => {
-    const nextLabel = rawLabel.trim();
+    const nextLabel = resolveDomainSuggestionValue(rawLabel, suggestions);
     if (!nextLabel) return;
     if (!selectedLabels.some((item) => item.toLowerCase() === nextLabel.toLowerCase())) {
       onChange(formatReferenceList([...selectedLabels, nextLabel]));
@@ -121,7 +124,7 @@ export function LabelsField({
                 }
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  commitLabel((isMenuOpen && menuOptions[activeLabelIndex]) || normalizedDraftLabel);
+                  commitLabel((isMenuOpen && menuOptions[activeLabelIndex]?.value) || normalizedDraftLabel);
                 }
                 if (event.key === "Escape") setIsMenuOpen(false);
               }}
@@ -139,13 +142,13 @@ export function LabelsField({
                   aria-selected={activeLabelIndex === index}
                   className="requirement-label-menu-option"
                   id={`${menuId}-${index}`}
-                  key={item}
-                  onClick={() => commitLabel(item)}
+                  key={item.value}
+                  onClick={() => commitLabel(item.value)}
                   onMouseEnter={() => setActiveLabelIndex(index)}
                   role="option"
                   type="button"
                 >
-                  {item}
+                  {item.label}
                 </button>
               ))}
               {canAddDraftLabel ? (

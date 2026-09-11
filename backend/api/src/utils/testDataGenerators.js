@@ -155,7 +155,7 @@ const freezeReferencedParameterGenerators = (snapshot, steps = [], now = new Dat
   for (const source of sources) {
     for (const match of String(source || "").matchAll(new RegExp(GENERATOR_ALIAS_PATTERN.source, "gi"))) {
       const alias = match[1].toLowerCase();
-      const key = `t.${alias}`;
+      const key = `${/^@t\./i.test(match[0]) ? "t" : "r"}.${alias}`;
       if (!Object.hasOwn(existing, key)) templates[key] = GENERATOR_ALIAS_TEMPLATES[alias];
     }
   }

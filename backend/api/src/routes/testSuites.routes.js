@@ -26,6 +26,8 @@ module.exports = async function (fastify) {
       parent_id: { required: false, type: "string" },
       labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
+      description: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" },
       expected_revision: { required: false, type: "number" }
@@ -35,6 +37,8 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("suite.create", { projectId: appType.project_id })(req);
+
+    if (req.body.test_data_set_id) await fastify.requirePermission("data.view", { projectId: appType.project_id })(req);
 
     return service.createTestSuite({
       ...req.body,
@@ -77,12 +81,19 @@ module.exports = async function (fastify) {
       parent_id: { required: false, type: "string" },
       labels: { required: false, type: "array", items: "string" },
       parameter_values: { required: false, type: "object" },
+      description: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" }
     }, req.body);
 
     const suite = await ensureSuitePermission(fastify, req, "suite.update");
     await ensureSuiteCaseAssignmentPermission(fastify, req, suite, req.body.test_case_ids);
+
+    if (req.body.test_data_set_id) {
+      const app = await appTypeService.getAppType(suite.app_type_id);
+      await fastify.requirePermission("data.view", { projectId: app.project_id })(req);
+    }
 
     return service.updateTestSuite(req.params.id, {
       ...req.body,

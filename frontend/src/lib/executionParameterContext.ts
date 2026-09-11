@@ -64,7 +64,8 @@ export function resolveExecutionParameterContext({ execution, caseSnapshot, step
     action: isGherkinText(step.action) ? normalizeGherkinParameterReferences(step.action || "") : step.action,
     expected_result: isGherkinText(step.expected_result) ? normalizeGherkinParameterReferences(step.expected_result || "") : step.expected_result
   }));
-  const selectedRow = dataSetRow ?? snapshot?.rows?.[rowIndex ?? 0];
+  const sourceRow = dataSetRow ?? snapshot?.rows?.[rowIndex ?? 0];
+  const selectedRow = sourceRow && execution?.parameter_scope_default === "t" ? Object.fromEntries(Object.entries(sourceRow).map(([key, value]) => [normalizeStepParameterName(key, "t"), value])) : sourceRow;
   const dataSet = snapshot?.mode === "table" ? { ...snapshot, rows: selectedRow ? [selectedRow] : [] } as ExecutionDataSetSnapshot : snapshot;
   const definitions = mergeStepParameterDefinitions(
     collectStepParameters([...declarationSteps, { id: "case-title", action: isGherkinCase ? normalizeGherkinParameterReferences(title) : title, expected_result: null, automation_code: null, api_request: null }]),
@@ -75,13 +76,13 @@ export function resolveExecutionParameterContext({ execution, caseSnapshot, step
   const dataSetTemplates = snapshot?.template_rows
     ? buildDataSetParameterValues({ ...snapshot, rows: snapshot.mode === "table" ? [snapshot.template_rows[rowIndex ?? 0] || {}] : snapshot.template_rows }) : {};
   return resolveStepParameterContext([
-    { source: "case", sourceLabel: "Case default", scope: "t", values: caseSnapshot?.parameter_values || {}, templates: caseSnapshot?.parameter_template_values },
+    { source: "case", sourceLabel: "Case default", scope: "r", values: caseSnapshot?.parameter_values || {}, templates: caseSnapshot?.parameter_template_values },
     { source: "suite", sourceLabel: "Suite value", scope: "s", values: caseSnapshot?.suite_parameter_values || {}, templates: caseSnapshot?.suite_parameter_template_values },
     variableLayer("environment", "Run environment", execution?.test_environment?.snapshot),
     variableLayer("configuration", "Run configuration", execution?.test_configuration?.snapshot),
     { source: "run", sourceLabel: "Run value", scope: "r", values: (execution as (Execution & { parameter_values?: Record<string, string> }) | null)?.parameter_values || {} },
-    { source: "data_set", sourceLabel: snapshot ? `${snapshot.name || "Test data"}${snapshot.mode === "table" ? ` · Row ${(rowIndex ?? 0) + 1}` : ""}` : "Test data", scope: "t", values: buildDataSetParameterValues(dataSet), templates: dataSetTemplates, sensitiveNames: collectSensitiveDataSetParameterNames(snapshot) },
-    { source: "capture", sourceLabel: "Captured output", scope: "t", values: capturedValues }
+    { source: "data_set", sourceLabel: snapshot ? `${snapshot.name || "Test data"}${snapshot.mode === "table" ? ` · Row ${(rowIndex ?? 0) + 1}` : ""}` : "Test data", scope: "r", values: buildDataSetParameterValues(dataSet), templates: dataSetTemplates, sensitiveNames: collectSensitiveDataSetParameterNames(snapshot) },
+    { source: "capture", sourceLabel: "Captured output", scope: "r", values: execution?.parameter_scope_default === "t" ? normalizeStepParameterValues(capturedValues, "t") : capturedValues }
   ], definitions);
 }
 

@@ -26,12 +26,6 @@ const insertAutomaticMapping = db.prepare(`
   ON CONFLICT (requirement_id, issue_id) DO NOTHING
 `);
 
-const selectIssue = db.prepare(`
-  SELECT id
-  FROM feedback
-  WHERE id = ?
-`);
-
 exports.getDefectIdsForRequirement = async (requirementId) => {
   return (await listForRequirement.all(requirementId)).map((row) => row.issue_id);
 };
@@ -70,27 +64,21 @@ exports.listMappings = async ({ requirement_id, issue_id }) => {
 };
 
 exports.replaceMappingsForRequirement = async (requirementId, issueIds = []) => {
-  const requirement = await db.prepare(`
-    SELECT id
-    FROM requirements
-    WHERE id = ?
-  `).get(requirementId);
-
-  if (!requirement) {
-    throw new Error("Requirement not found");
-  }
-
   const uniqueIds = normalizeReferenceList(issueIds);
-
-  for (const issueId of uniqueIds) {
-    const issue = await selectIssue.get(issueId);
-
-    if (!issue) {
-      throw new Error(`Issue not found: ${issueId}`);
-    }
-  }
-
   const transaction = db.transaction(async () => {
+    const requirement = await db.prepare(`SELECT id, project_id FROM requirements WHERE id = ? FOR UPDATE`).get(requirementId);
+    if (!requirement) throw Object.assign(new Error("Story not found"), { statusCode: 404 });
+    if (uniqueIds.length) {
+      const issues = await db.prepare(`SELECT id, project_id FROM feedback WHERE id IN (${uniqueIds.map(() => "?").join(",")}) ORDER BY id FOR SHARE`).all(...uniqueIds);
+      const byId = new Map(issues.map((issue) => [issue.id, issue]));
+      for (const issueId of uniqueIds) {
+        const issue = byId.get(issueId);
+        if (!issue) throw Object.assign(new Error("Bug not found"), { statusCode: 404 });
+        if (issue.project_id !== requirement.project_id) {
+          throw Object.assign(new Error("Story and Bug must belong to the same project"), { statusCode: 403 });
+        }
+      }
+    }
     await deleteForRequirement.run(requirementId);
 
     for (const issueId of uniqueIds) {
@@ -150,6 +138,8 @@ exports.syncAutomaticDefectsForRequirement = async (requirementId) => {
       JOIN feedback ON feedback.id = defect_ref.value
       WHERE test_cases.requirement_id = ?
     ) AS derived
+    JOIN requirements scope ON scope.id = derived.requirement_id
+    JOIN feedback issue ON issue.id = derived.issue_id AND issue.project_id = scope.project_id
     ORDER BY derived.issue_id
   `).all(requirementId, requirementId);
   const issueIds = evidence.map((row) => row.issue_id);

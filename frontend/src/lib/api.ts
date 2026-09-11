@@ -1579,9 +1579,9 @@ export const api = {
   testSuites: {
     list: (query?: { app_type_id?: string; project_id?: string }) =>
       request<TestSuite[]>(`/test-suites${toQueryString(query)}`),
-    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; parallel_enabled?: boolean; parallel_count?: number }) =>
+    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_set_id?: string | null; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
       request<{ updated: boolean; revision: number }>(`/test-suites/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignTestCases: (id: string, test_case_ids: string[], expected_revision?: number, append = true) =>
       request<{ updated: boolean; assigned: number; revision: number }>(`/test-suites/${id}/assign-test-cases`, {
@@ -2048,6 +2048,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-data-sets/${id}`, { method: "DELETE" })
   },
   executions: {
+    parameterPlan: (input: { project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+      request<{ expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }) =>
       request<Execution[]>(`/executions${toQueryString(query)}`),
     history: (query: { project_id: string; app_type_id?: string; requirement_id?: string; test_case_id?: string; page_size?: number }) =>
@@ -2102,6 +2104,7 @@ export const api = {
       request<{ id: string }>(`/executions/${id}/rerun`, { method: "POST", body: JSON.stringify(input) }),
     start: (id: string, input?: { execution_mode?: "local" | "remote"; engine_base_url?: string; expected_revision?: number }) =>
       request<ExecutionStartResponse>(`/executions/${id}/start`, { method: "POST", body: JSON.stringify(input || {}) }),
+    downloadReportHtml: (id: string) => requestBlob(`/executions/${id}/report.html`),
     downloadReportPdf: (id: string) => requestBlob(`/executions/${id}/report.pdf`),
     downloadCaseReportPdf: (executionId: string, testCaseId: string) =>
       requestBlob(`/executions/${executionId}/cases/${testCaseId}/report.pdf`),

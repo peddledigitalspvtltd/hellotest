@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { useDomainOptions } from "../hooks/useDomainOptions";
 import { AddIcon, TrashIcon } from "./AppIcons";
 import { RichTextEditor } from "./RichTextEditor";
 import { GherkinStepTextField } from "./GherkinStepTextField";
@@ -38,10 +39,11 @@ export function AutomationCaseMetadata({ value, onChange, manualCases, requireme
   manualCases: LinkOption[]; requirements: LinkOption[]; modules: LinkOption[]; suites: LinkOption[]; dataSets: LinkOption[]; disabled?: boolean;
 }) {
   const id = useId();
+  const statuses = useDomainOptions("test_cases.statuses", ["active", "draft", "ready", "retired"].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), [value.status]);
   return <div className="automation-metadata-form">
     <div className="automation-metadata-primary">
       <label className="form-field"><span>Automation case name</span><input autoComplete="off" disabled={disabled} onChange={(event) => onChange({ title: event.target.value })} placeholder="e.g. Customer completes checkout" required value={value.title} /></label>
-      <label className="form-field"><span>Status</span><select disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{[...new Set(["active", "draft", "ready", "inactive", value.status].filter(Boolean))].map((status) => <option key={status} value={status}>{status[0].toUpperCase() + status.slice(1)}</option>)}</select></label>
+      <label className="form-field"><span>Status</span><select disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{statuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <label className="form-field"><span>Priority</span><select disabled={disabled} onChange={(event) => onChange({ priority: event.target.value })} value={value.priority}>{[1, 2, 3, 4, 5].map((priority) => <option key={priority} value={priority}>P{priority}</option>)}</select></label>
     </div>
     <div className="form-field"><label htmlFor={`${id}-description`}>Description</label><RichTextEditor aria-label="Automation case description" appearance="canonical" disabled={disabled} id={`${id}-description`} onChange={(description) => onChange({ description })} placeholder="What should this automation verify?" rows={2} value={value.description} /></div>

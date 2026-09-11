@@ -61,6 +61,34 @@ const requireMobileExecutionPermission = async (fastify, req, executionInput, pe
 };
 
 module.exports = async function (fastify) {
+  fastify.post("/executions/parameter-plan", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: true, type: "string" }, app_type_id: { required: true, type: "string" },
+      execution_id: { required: false, type: "string", maxLength: 255 },
+      suite_ids: { required: false, type: "array", items: "string", maxItems: 1000 },
+      test_case_ids: { required: false, type: "array", items: "string", maxItems: 5000 },
+      test_data_set_id: { required: false, type: "string" }, test_environment_id: { required: false, type: "string" },
+      test_configuration_id: { required: false, type: "string" }
+    }, req.body || {});
+    const projectId = req.body.project_id;
+    await projectService.getProject(projectId, req.user.id);
+    await fastify.requirePermission("testcase.view", { projectId })(req);
+    let frozenRun = null;
+    if (req.body.execution_id) {
+      await fastify.requirePermission("run.view", { projectId })(req);
+      frozenRun = await service.getExecution(req.body.execution_id, true);
+      if (frozenRun.project_id !== projectId || frozenRun.app_type_id !== req.body.app_type_id) {
+        throw createAccessError("The run is unavailable in this application.", 404);
+      }
+    }
+    if (req.body.suite_ids?.length) await fastify.requirePermission("suite.view", { projectId })(req);
+    if (req.body.test_environment_id && req.body.test_environment_id !== frozenRun?.test_environment_id) await fastify.requirePermission("environment.view", { projectId })(req);
+    if (req.body.test_configuration_id && req.body.test_configuration_id !== frozenRun?.test_configuration_id) await fastify.requirePermission("configuration.view", { projectId })(req);
+    if (req.body.test_data_set_id !== frozenRun?.test_data_set_id) await requireSelectedTestDataAccess(fastify, req, projectId, req.body.test_data_set_id);
+    return require("../services/runParameterPlan.service").buildRunParameterPlan(req.body);
+  });
+
 
   fastify.get("/executions/history", async (req) => {
     await fastify.authenticate(req);
@@ -614,8 +642,19 @@ module.exports = async function (fastify) {
     const execution = await service.getExecution(req.params.id);
     await ensureExecutionPermission(fastify, req, "run.report.export", execution);
 
-    const html = await executionReportService.renderReportHtml(req.params.id, { user_id: req.user.id });
+    let includeAttachments = true;
+    for (const permission of ["attachment.view", "result.view"]) {
+      try { await fastify.requirePermission(permission, { projectId: execution.project_id })(req); }
+      catch (error) { if (error.statusCode !== 403) throw error; includeAttachments = false; }
+    }
+    const html = await executionReportService.renderReportHtml(req.params.id, { user: req.user, include_attachments: includeAttachments });
+    const safeName = String(execution.name || "hellotest-run-report").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "hellotest-run-report";
     reply.header("Content-Type", "text/html; charset=utf-8");
+    reply.header("Content-Disposition", `attachment; filename="${safeName}.html"`);
+    reply.header("Cache-Control", "private, no-store");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("Content-Security-Policy", executionReportService.REPORT_CSP);
     return reply.send(html);
   });
 

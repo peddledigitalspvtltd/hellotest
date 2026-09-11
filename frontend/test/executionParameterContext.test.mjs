@@ -18,8 +18,8 @@ const { buildParameterCsvTemplate, resolveExecutionParameterContext } = load("ex
 
 test("case, suite, run and selected row share canonical namespaces and explicit empty precedence", () => {
   const input = {
-    caseSnapshot: { test_case_title: "Login @t.email and @t.declared", parameter_values: { email: "case", untouched: "case fallback" }, suite_parameter_values: { "@t.email": "suite override", email: "suite namespace" } },
-    execution: { test_environment: { snapshot: { variables: [{ key: "@t.email", value: "environment" }] } }, test_configuration: { snapshot: { variables: [{ key: "@t.email", value: "configuration" }] } }, parameter_values: { "t.email": "run" }, test_data_set: { snapshot: { name: "Accounts", mode: "table", columns: ["email", "untouched"], rows: [{ email: "first" }, { "@t.[email]": "", "s.email": "row suite", "r.email": "row run" }] } } }, rowIndex: 1
+    caseSnapshot: { test_case_title: "Login @t.email and @t.declared", parameter_values: { "t.email": "case", "t.untouched": "case fallback" }, suite_parameter_values: { "@t.email": "suite override", email: "suite namespace" } },
+    execution: { test_environment: { snapshot: { variables: [{ key: "@t.email", value: "environment" }] } }, test_configuration: { snapshot: { variables: [{ key: "@t.email", value: "configuration" }] } }, parameter_values: { "t.email": "run" }, test_data_set: { snapshot: { name: "Accounts", mode: "table", columns: ["email", "t.untouched"], rows: [{ email: "first" }, { "@t.[email]": "", "s.email": "row suite", "r.email": "row run" }] } } }, rowIndex: 1
   };
   const before = structuredClone(input);
   const result = resolveExecutionParameterContext(input);
@@ -37,26 +37,26 @@ test("hidden values and templates stay undisclosed even when a lower layer or ca
   }, capturedValues: { "r.token": "captured leak" } });
   assert.deepEqual(result.values, {});
   assert.equal(result.entries.every((entry) => entry.sensitive && entry.value === null && entry.template === null), true);
-  assert.equal(result.entries.find((entry) => entry.name === "t.secret").source, "data_set");
+  assert.equal(result.entries.find((entry) => entry.name === "r.secret").source, "data_set");
   assert.equal(result.entries.find((entry) => entry.name === "r.token").source, "capture");
   assert.doesNotMatch(buildParameterCsvTemplate(result.entries), /case leak|secret token|secret template|captured leak|hidden/);
 });
 
 test("CSV templates include declared title and step references, quoted headers, and no runtime values", () => {
   const declarations = collectStepParameters([{ id: "step", action: normalizeGherkinParameterReferences("Given <email> and <s.tenant> and @r.[Build, \"Name\"]"), expected_result: "@t.missing" }]);
-  assert.equal(buildParameterCsvTemplate(declarations), '\uFEFF"r.build, ""name""","s.tenant","t.email","t.missing"\r\n"","","",""\r\n');
+  assert.equal(buildParameterCsvTemplate(declarations), '\uFEFF"r.build, ""name""","r.email","s.tenant","t.missing"\r\n"","","",""\r\n');
   assert.equal(resolveGherkinParameterText("Given <email> <s.email>", { "s.email": "suite" }), "Given <email> suite");
-  assert.equal(resolveGherkinParameterText("Given <email>", { "t.email": "" }), "Given ");
+  assert.equal(resolveGherkinParameterText("Given <email>", { "r.email": "" }), "Given ");
 });
 
 test("frozen generated values and source templates are distinct, and overrides do not mutate either", () => {
   const result = resolveExecutionParameterContext({ execution: null, caseSnapshot: { parameter_values: { email: "fixed@example.test" }, parameter_template_values: { email: "{{yopmail}}" } } });
-  assert.equal(result.values["t.email"], "fixed@example.test");
+  assert.equal(result.values["r.email"], "fixed@example.test");
   assert.equal(result.entries[0].template, "{{yopmail}}");
   assert.equal(result.entries[0].source, "case");
 });
 
 test("known Gherkin behavior detects angle declarations while XML request content remains literal", () => {
   const context = resolveExecutionParameterContext({ execution: null, caseSnapshot: { test_case_title: "Checkout <customer>" }, steps: [{ id: "step", action: "Given <email> is supplied", expected_result: "Then <s.tenant> is used", api_request: { body: "<payload><message>literal</message></payload>" } }] });
-  assert.deepEqual(context.unresolved, ["s.tenant", "t.customer", "t.email"]);
+  assert.deepEqual(context.unresolved, ["r.customer", "r.email", "s.tenant"]);
 });

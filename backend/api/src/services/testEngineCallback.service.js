@@ -65,7 +65,7 @@ const resolveCaseDataSetContext = (execution, caseSnapshot) => {
       id: caseSnapshot?.test_data_set_id || caseSnapshotData?.id || null,
       name: caseSnapshot?.test_data_set_name || caseSnapshotData?.name || "Deleted data set",
       snapshot: caseSnapshotData,
-      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+      source: ["test_case", "suite"].includes(caseSnapshot?.data_set_source) ? caseSnapshot.data_set_source : "run"
     };
   }
 

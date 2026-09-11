@@ -47,6 +47,9 @@ const MAX_MANUAL_INGESTION_RETRIES = 5;
 const FAILED_INPUT_RETENTION_DAYS = 7;
 const LOCAL_EMBEDDING_MODEL = "hellotest-hash-v1";
 const RETRIEVAL_EMBEDDING_TIMEOUT_MS = 2_000;
+// Optional semantic enrichment shares one document budget, including every
+// provider batch and retry. Canonical lexical/local indexes do not wait on it.
+const INGESTION_EMBEDDING_TIMEOUT_MS = 8_000;
 const embeddingProviderCooldowns = new Map();
 const KNOWLEDGE_PROCESSING_VERSION = "2026.09-structure-v2";
 const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
@@ -370,10 +373,10 @@ const getVectorCapability = async () => {
   return vectorCapabilityCache;
 };
 
-const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}) => {
+const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId, signal, timeoutMs = 2_000 } = {}) => {
   let integration = null;
   try {
-    integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integration = await boundedRetrievalStage(() => aiLlmSelectionService.resolveLlmIntegrationForUsage({
       integrationId,
       userId,
       // Ingestion and retrieval share the governed Knowledge Assistant mapping so
@@ -382,13 +385,22 @@ const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}
       projectId,
       fallback: "project-then-global",
       allowMissing: true
-    });
+    }), { timeoutMs, signal, code: "EMBEDDING_CONFIGURATION_TIMEOUT" });
   } catch (error) {
+    assertRetrievalActive(signal);
     if (integrationId) throw error;
-    integration = null;
+    return { configured: false, integration: null, model: LOCAL_EMBEDDING_MODEL,
+      provider: "HelloTest local hash embedding", warning_code: "embedding_fallback",
+      warning_reason_code: error?.code || "EMBEDDING_CONFIGURATION_UNAVAILABLE",
+      warning: "Model configuration is temporarily unavailable. Searchable local indexes remain available." };
   }
+  assertRetrievalActive(signal);
   assertLlmIntegrationProjectScope(integration, projectId);
-  const model = normalizeText(asObject(integration?.config).embedding_model || integration?.model, 255);
+  // A chat model does not imply embedding support. The normal integration form
+  // configures answer generation; use local retrieval unless an existing
+  // explicit embedding capability is present, instead of repeatedly probing a
+  // chat-only model at /embeddings on every cold request.
+  const model = normalizeText(asObject(integration?.config).embedding_model, 255);
   const baseUrl = normalizeText(integration?.base_url, 2_000);
   if (!integration || !model || !baseUrl || !integration.api_key) {
     return { configured: false, integration: null, model: LOCAL_EMBEDDING_MODEL, provider: "HelloTest local hash embedding" };
@@ -396,12 +408,14 @@ const resolveEmbeddingRuntime = async ({ userId, projectId, integrationId } = {}
   return { configured: true, integration, model, baseUrl, provider: integration.name || "Configured LLM provider" };
 };
 
-const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
+const requestProviderEmbeddings = async (runtime, texts, { signal, timeoutMs = INGESTION_EMBEDDING_TIMEOUT_MS } = {}) => {
   const endpoint = `${runtime.baseUrl.replace(/\/+$/, "")}/embeddings`;
   validateModelEndpoint(endpoint);
   const vectors = [];
   let expectedDimensions = null;
+  const deadlineAt = Date.now() + timeoutMs;
   for (let start = 0; start < texts.length; start += EMBEDDING_BATCH_SIZE) {
+    assertRetrievalActive(signal);
     const batch = texts.slice(start, start + EMBEDDING_BATCH_SIZE);
     const payload = await retryKnowledgeModel(async ({ signal: attemptSignal, timeoutMs }) => {
       const response = await fetchLlmWithRetry(endpoint, {
@@ -418,7 +432,8 @@ const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
       });
       if (!response.ok) throw Object.assign(modelHttpError(response.status, await response.text(), readRetryAfterMs(response)), { statusCode: response.status });
       return readJsonResponseWithLimit(response);
-    }, { signal, stage: "HYBRID_SEARCH" });
+    }, { signal, timeoutMs: Math.max(0, deadlineAt - Date.now()),
+      attemptTimeoutMs: Math.min(3_000, timeoutMs), stage: "HYBRID_SEARCH" });
     const normalized = normalizeProviderEmbeddingBatch(payload, batch.length, expectedDimensions);
     expectedDimensions = normalized.dimensions;
     vectors.push(...normalized.vectors);
@@ -428,7 +443,7 @@ const requestProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
 
 const embeddingCacheKey = (runtime, value) => `knowledge:embedding:v1:${fingerprint(`${runtime.integration?.id || runtime.baseUrl}:${runtime.model}:${value}`)}`;
 
-const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) => {
+const requestCachedProviderEmbeddings = async (runtime, texts, { signal, timeoutMs } = {}) => {
   const keys = texts.map((value) => embeddingCacheKey(runtime, value));
   const cached = await Promise.all(keys.map((key) => boundedRetrievalStage(() => cacheService.getCache(key), {
     timeoutMs: 250, signal, code: "EMBEDDING_CACHE_TIMEOUT"
@@ -441,7 +456,7 @@ const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) 
     else missingIndexes.push(index);
   }
   if (missingIndexes.length) {
-    const generated = await requestProviderEmbeddings(runtime, missingIndexes.map((index) => texts[index]), { signal });
+    const generated = await requestProviderEmbeddings(runtime, missingIndexes.map((index) => texts[index]), { signal, timeoutMs });
     await Promise.all(missingIndexes.map(async (index, generatedIndex) => {
       vectors[index] = generated[generatedIndex];
       await boundedRetrievalStage(() => cacheService.setCache(keys[index], { vector: vectors[index] }, 15 * 60), {
@@ -454,10 +469,11 @@ const requestCachedProviderEmbeddings = async (runtime, texts, { signal } = {}) 
   return vectors;
 };
 
-const embedTexts = async (runtime, texts, { signal, cacheResults = false, timeoutMs } = {}) => {
+const embedTexts = async (runtime, texts, { signal, cacheResults = false, timeoutMs = INGESTION_EMBEDDING_TIMEOUT_MS } = {}) => {
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
   const fallback = texts.map(localEmbedding);
-  if (!runtime.configured) return { vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL, provider: runtime.provider, warning: null };
+  if (!runtime.configured) return { vectors: fallback, fallback, model: LOCAL_EMBEDDING_MODEL, provider: runtime.provider,
+    warning: runtime.warning || null, warning_code: runtime.warning_code, warning_reason_code: runtime.warning_reason_code };
   // A rejected model/embedding combination is stable across requests. Scope the
   // short circuit to its configuration (including credential changes), never to
   // project evidence or a user's query.
@@ -469,10 +485,9 @@ const embedTexts = async (runtime, texts, { signal, cacheResults = false, timeou
   }
   try {
     const requestVectors = (activeSignal) => cacheResults && texts.length <= 10
-      ? requestCachedProviderEmbeddings(runtime, texts, { signal: activeSignal })
-      : requestProviderEmbeddings(runtime, texts, { signal: activeSignal });
-    const vectors = timeoutMs === undefined ? await requestVectors(signal)
-      : await boundedRetrievalStage(requestVectors, { timeoutMs, signal, code: "EMBEDDING_TIMEOUT" });
+      ? requestCachedProviderEmbeddings(runtime, texts, { signal: activeSignal, timeoutMs })
+      : requestProviderEmbeddings(runtime, texts, { signal: activeSignal, timeoutMs });
+    const vectors = await boundedRetrievalStage(requestVectors, { timeoutMs, signal, code: "EMBEDDING_TIMEOUT" });
     embeddingProviderCooldowns.delete(runtimeKey);
     return { vectors, fallback, model: runtime.model, provider: runtime.provider, warning: null };
   } catch (error) {
@@ -1292,11 +1307,10 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
   const documentContext = buildDocumentContextProfile({ title: source.title, chunks });
   const pipeline = processingProfile(chunking);
   const retrievalTexts = chunks.map((chunk) => buildChunkRetrievalText({ title: source.title, chunk }));
-  const embeddingResult = await embedTexts(embeddingRuntime, retrievalTexts, { signal });
+  let embeddingResult = await embedTexts({ configured: false }, retrievalTexts, { signal });
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
 
   const persistedChunks = [];
-  const pendingVectorWrites = [];
   const commitDocumentVersion = db.transaction(async () => {
     const lockedSource = await db.prepare(`
       SELECT id, revision_token FROM ai_knowledge_sources
@@ -1344,10 +1358,6 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
         { fragment_key: `${(chunk.heading_path || []).join("/") || "body"}:${chunk.index}`,
           document_title: documentContext.title, section_heading: chunk.heading || null, section_path: chunk.heading_path || [], section_type: chunk.section_type || "body", section_level: chunk.section_level || null, hierarchy_strategy: documentContext.hierarchy_strategy, context_quality_grade: contextQuality.grade, context_quality_score: contextQuality.score, risk_flags: sanitized.risk_flags, redaction_count: sanitized.redaction_count }
       );
-      // Keep optional pgvector writes outside the core document transaction. A
-      // PostgreSQL vector-cast error aborts its transaction even when caught;
-      // JSONB/fallback indexing must remain fully usable in that case.
-      pendingVectorWrites.push({ id, vector: embeddingResult.vectors[index] });
       persistedChunks.push({ id, ...chunk, document_id: documentId, source_id: source.id });
     }
 
@@ -1376,13 +1386,11 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
         updated_at = CURRENT_TIMESTAMP
     `).run(
       documentId, projectId, source.id, version,
-      knowledgeVectorStore.isConfigured() ? "pending" : "ready",
-      knowledgeVectorStore.isConfigured() ? "qdrant" : "postgresql",
+      "ready", "postgresql",
       embeddingResult.model, embeddingResult.vectors[0]?.length || null, persistedChunks.length
     );
   });
   await commitDocumentVersion();
-  for (const pending of pendingVectorWrites) await persistEmbeddingVector(pending.id, pending.vector);
 
   const activateDocumentVersion = db.transaction(async () => {
     const current = await db.prepare(`SELECT id, revision_token FROM ai_knowledge_sources
@@ -1417,6 +1425,42 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       source._pending_checksum || null, sanitized.risk_flags, source.id
     );
   });
+  // Publish a complete canonical revision before contacting optional providers.
+  // PostgreSQL already contains FTS and deterministic local vectors, so readers
+  // can use the current source during enrichment or a provider outage.
+  await activateDocumentVersion();
+  const runtime = typeof embeddingRuntime === "function" ? await embeddingRuntime() : embeddingRuntime;
+  embeddingResult = await embedTexts(runtime || { configured: false }, retrievalTexts, { signal });
+  if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+
+  const assertCurrentEnrichment = async () => {
+    const current = await db.prepare(`SELECT sources.id, sources.revision_token
+      FROM ai_knowledge_sources sources JOIN ai_knowledge_documents documents ON documents.source_id = sources.id
+      WHERE sources.id = ? AND sources.project_id = ? AND sources.extraction_status = 'ready'
+        AND documents.id = ? AND documents.is_active = TRUE FOR UPDATE OF sources
+    `).get(source.id, projectId, documentId);
+    if (!current || current.revision_token !== source.revision_token || signal?.aborted || (activationGuard && !await activationGuard())) {
+      throw createError("Knowledge source changed during optional enrichment.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
+    }
+  };
+  await db.transaction(async () => {
+    await assertCurrentEnrichment();
+    if (embeddingResult.model !== LOCAL_EMBEDDING_MODEL) {
+      for (let index = 0; index < persistedChunks.length; index += 1) {
+        await db.prepare(`UPDATE ai_knowledge_chunks SET embedding = ?, embedding_model = ?
+          WHERE id = ? AND document_id = ?`).run(embeddingResult.vectors[index], embeddingResult.model, persistedChunks[index].id, documentId);
+      }
+      await db.prepare(`UPDATE ai_knowledge_index_states SET embedding_model = ?, embedding_dimensions = ?,
+        updated_at = CURRENT_TIMESTAMP WHERE document_id = ? AND is_current = TRUE
+      `).run(embeddingResult.model, embeddingResult.vectors[0]?.length || null, documentId);
+    }
+  })();
+  // Optional pgvector casts stay outside the document transaction; a provider
+  // dimension/extension error cannot roll back the canonical JSONB/FTS indexes.
+  for (let index = 0; index < persistedChunks.length; index += 1) {
+    if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
+    await persistEmbeddingVector(persistedChunks[index].id, embeddingResult.vectors[index]);
+  }
   let projectionWarning = null;
   if (knowledgeVectorStore.isConfigured()) {
     try {
@@ -1426,33 +1470,36 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
       const active = await db.prepare(`SELECT id, revision_token FROM ai_knowledge_sources
         WHERE id = ? AND project_id = ? AND extraction_status <> 'archived'`).get(source.id, projectId);
       if (active?.revision_token !== source.revision_token) throw createError("A newer Knowledge document superseded the vector projection.", 409, "KNOWLEDGE_VERSION_SUPERSEDED");
-      const projection = await knowledgeVectorStore.replaceDocument({
+      const projection = await boundedRetrievalStage((projectionSignal) => knowledgeVectorStore.replaceDocument({
         projectId,
         source,
         documentId,
         chunks: persistedChunks,
         vectors: embeddingResult.vectors,
         embeddingModel: embeddingResult.model,
-        signal
-      });
-      await db.prepare(`
-        UPDATE ai_knowledge_index_states
-        SET dense_state = 'ready', vector_provider = 'qdrant',
-          embedding_dimensions = ?, indexed_chunk_count = ?, error_fingerprint = NULL,
-          indexed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE document_id = ?
-      `).run(projection.dimensions, projection.indexed, documentId);
+        signal: projectionSignal
+      }), { timeoutMs: 8_000, signal, code: "VECTOR_PROJECTION_TIMEOUT" });
+      await db.transaction(async () => {
+        await assertCurrentEnrichment();
+        await db.prepare(`
+          UPDATE ai_knowledge_index_states
+          SET dense_state = 'ready', vector_provider = 'qdrant',
+            embedding_dimensions = ?, indexed_chunk_count = ?, error_fingerprint = NULL,
+            indexed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE document_id = ? AND is_current = TRUE
+        `).run(projection.dimensions, projection.indexed, documentId);
+      })();
     } catch (error) {
+      if (signal?.aborted || error?.code === "KNOWLEDGE_VERSION_SUPERSEDED") throw error;
       const errorReference = fingerprint(error instanceof Error ? error.message : "Qdrant projection failed");
       await db.prepare(`
         UPDATE ai_knowledge_index_states
-        SET dense_state = 'degraded', error_fingerprint = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE document_id = ?
+        SET vector_provider = 'postgresql', error_fingerprint = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE document_id = ? AND is_current = TRUE
       `).run(errorReference, documentId).catch(() => undefined);
-      projectionWarning = `This revision is retained but not searchable until its vector index is ready. The previous ready revision remains current (ref ${errorReference.slice(0, 12)}).`;
+      projectionWarning = `The current revision is searchable using PostgreSQL lexical and local indexes. The optional vector projection is unavailable (ref ${errorReference.slice(0, 12)}).`;
     }
   }
-  if (!projectionWarning) await activateDocumentVersion();
 
   const document = await db.prepare("SELECT * FROM ai_knowledge_documents WHERE id = ?").get(documentId);
   const warning = [embeddingResult.warning, projectionWarning, contextQuality.requires_review ? `Context quality ${contextQuality.score}/100 requires review before relying on this source.` : null].filter(Boolean).join(" ") || null;
@@ -1487,7 +1534,12 @@ const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selec
   if (rawInputs.length > MAX_INPUTS) throw createError(`A single ingestion can contain at most ${MAX_INPUTS} inputs.`);
   await assertRecordSourcePermissions(normalizedProjectId, rawInputs, user);
   const chunkingOptions = normalizeChunkingOptions(asObject(chunking));
-  const embeddingRuntime = await resolveEmbeddingRuntime({ userId: user?.id, projectId: normalizedProjectId, integrationId });
+  // Validate explicit selections before writes; discover the optional default
+  // only after the canonical document has become searchable.
+  let embeddingRuntimePromise;
+  const embeddingRuntime = integrationId
+    ? await resolveEmbeddingRuntime({ userId: user?.id, projectId: normalizedProjectId, integrationId, signal })
+    : () => (embeddingRuntimePromise ||= resolveEmbeddingRuntime({ userId: user?.id, projectId: normalizedProjectId, signal }));
   const job = existingJobId
     ? await getIngestionJob(existingJobId)
     : await createJob({
@@ -2227,7 +2279,7 @@ const processQueuedUpload = async ({ job, payload, user, leaseOwner, signal }) =
       extraction_strategy = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(source.id, extractionStrategy, source.id);
-  const embeddingRuntime = await resolveEmbeddingRuntime({ userId: user?.id, projectId: job.project_id });
+  const embeddingRuntime = () => resolveEmbeddingRuntime({ userId: user?.id, projectId: job.project_id, signal });
   const persisted = await persistDocument({
     projectId: job.project_id,
     source,
@@ -3316,7 +3368,7 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
   };
   const source = await createSource({ projectId, input, userId });
   if (source._reused) return { document: null, chunks: [], reused: true };
-  const runtime = await resolveEmbeddingRuntime({ userId, projectId });
+  const runtime = () => resolveEmbeddingRuntime({ userId, projectId, signal });
   const expectedHash = fingerprint(sanitizeKnowledgeText(input.content).text);
   return persistDocument({
     projectId,

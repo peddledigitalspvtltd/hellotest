@@ -114,6 +114,7 @@ test("run membership validates app scope and preserves cases with recorded histo
 
 test("adding a suite snapshots only new cases and retains existing case and step history", async (context) => {
   const writes = stubDatabase(context, (sql, values) => {
+    if (/WITH RECURSIVE selected/.test(sql)) return values.map(id => ({ id, app_type_id: "app-1" }));
     if (/SELECT \* FROM executions/.test(sql)) return [run];
     if (/FROM test_suites\s+WHERE id/.test(sql)) return [{ id: values[0], name: values[0], app_type_id: "app-1" }];
     if (/FROM execution_case_snapshots/.test(sql)) return [{ test_case_id: "case-1", suite_id: "suite-1", test_case_title: "Original title" }];

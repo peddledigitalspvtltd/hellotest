@@ -1,5 +1,5 @@
 // Scope identifies a namespace; the supplying layer decides precedence.
-const normalizeParameterKey = (key, fallbackScope = "t") => {
+const normalizeParameterKey = (key, fallbackScope = "r") => {
   const source = String(key ?? "").trim().replace(/^@+/, "");
   if (!source) return "";
   const scoped = source.match(/^([tsr])\.(.+)$/i);
@@ -7,7 +7,7 @@ const normalizeParameterKey = (key, fallbackScope = "t") => {
   return raw ? `${scoped ? scoped[1].toLowerCase() : fallbackScope}.${raw.toLowerCase()}` : "";
 };
 
-const normalizeParameterLayer = (values = {}, scope = "t") => Object.fromEntries(
+const normalizeParameterLayer = (values = {}, scope = "r") => Object.fromEntries(
   Object.entries(values || {}).flatMap(([key, value]) => {
     const name = normalizeParameterKey(key, scope);
     return name ? [[name, String(value ?? "")]] : [];
@@ -20,19 +20,19 @@ const dataSetParameterValues = (dataSet, rowIndex = 0) => {
   const rows = Array.isArray(dataSet?.rows) ? dataSet.rows : [];
   return normalizeParameterLayer(dataSet?.mode === "key_value"
     ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
-    : rows[rowIndex] || {}, "t");
+    : rows[rowIndex] || {}, "r");
 };
 
 // Frozen values are never re-generated here. An absent cell does not override;
 // a present empty cell does. The same order is used by frontend and Test Engine.
 const resolveParameterLayers = ({ caseValues, suiteValues, environmentVariables, configurationVariables, runValues, dataSet, rowIndex = 0, capturedValues } = {}) => ({
-  ...normalizeParameterLayer(caseValues, "t"),
+  ...normalizeParameterLayer(caseValues, "r"),
   ...normalizeParameterLayer(suiteValues, "s"),
   ...normalizeParameterLayer(variableValues(environmentVariables), "r"),
   ...normalizeParameterLayer(variableValues(configurationVariables), "r"),
   ...normalizeParameterLayer(runValues, "r"),
   ...dataSetParameterValues(dataSet, rowIndex),
-  ...normalizeParameterLayer(capturedValues, "t")
+  ...normalizeParameterLayer(capturedValues, "r")
 });
 
 const collectPriorParameterCaptures = (snapshots, currentCaseId, capturesByCaseId) => {
@@ -47,4 +47,10 @@ const collectPriorParameterCaptures = (snapshots, currentCaseId, capturesByCaseI
   return result;
 };
 
-module.exports = { normalizeParameterKey, normalizeParameterLayer, dataSetParameterValues, resolveParameterLayers, collectPriorParameterCaptures };
+const matchesParameterIteration = (row, iteration = {}) => {
+  const rowIndex = Number.isInteger(row?.data_set_iteration_index) ? row.data_set_iteration_index : null;
+  const selectedIndex = Number.isInteger(iteration.data_set_iteration_index) ? iteration.data_set_iteration_index : null;
+  return rowIndex === selectedIndex && (row?.test_data_set_id || null) === (iteration.test_data_set_id || null);
+};
+
+module.exports = { normalizeParameterKey, normalizeParameterLayer, dataSetParameterValues, resolveParameterLayers, collectPriorParameterCaptures, matchesParameterIteration };

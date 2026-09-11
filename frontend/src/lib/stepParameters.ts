@@ -40,7 +40,7 @@ const STEP_PARAMETER_SCOPE_LABELS: Record<StepParameterScope, string> = {
   r: "Run"
 };
 
-export function normalizeStepParameterScope(value?: string | null, fallback: StepParameterScope = "t"): StepParameterScope {
+export function normalizeStepParameterScope(value?: string | null, fallback: StepParameterScope = "r"): StepParameterScope {
   const normalized = String(value || "").trim().toLowerCase();
 
   if (normalized === "t" || normalized === "test" || normalized === "test_case") {
@@ -58,7 +58,7 @@ export function normalizeStepParameterScope(value?: string | null, fallback: Ste
   return fallback;
 }
 
-export function normalizeStepParameterName(value?: string | null, fallbackScope: StepParameterScope = "t") {
+export function normalizeStepParameterName(value?: string | null, fallbackScope: StepParameterScope = "r") {
   const trimmed = String(value || "").trim().replace(/^@+/, "");
 
   if (!trimmed) {
@@ -92,7 +92,7 @@ export function getStepParameterScopeLabel(scope: StepParameterScope) {
   return STEP_PARAMETER_SCOPE_LABELS[scope];
 }
 
-export function parseStepParameterName(value?: string | null, fallbackScope: StepParameterScope = "t") {
+export function parseStepParameterName(value?: string | null, fallbackScope: StepParameterScope = "r") {
   const normalized = normalizeStepParameterName(value, fallbackScope);
 
   if (!normalized) {
@@ -115,7 +115,7 @@ export function parseStepParameterName(value?: string | null, fallbackScope: Ste
 
 export function normalizeStepParameterValues(
   values: Record<string, string> = {},
-  fallbackScope: StepParameterScope = "t"
+  fallbackScope: StepParameterScope = "r"
 ) {
   return Object.entries(values).reduce<Record<string, string>>((next, [key, value]) => {
     const normalizedKey = normalizeStepParameterName(key, fallbackScope);
@@ -162,8 +162,8 @@ export function extractStepParameterMatches(text?: string | null) {
     token: match[0],
     label: decodeStepParameterRawName(match[2]),
     rawName: decodeStepParameterRawName(String(match[2] || "")).trim(),
-    scope: normalizeStepParameterScope(match[1], "t"),
-    name: normalizeStepParameterName(`${match[1] || "t"}.${match[2]}`),
+    scope: normalizeStepParameterScope(match[1], "r"),
+    name: normalizeStepParameterName(`${match[1] || "r"}.${match[2]}`),
     index: match.index || 0
   }));
 }
@@ -281,7 +281,7 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
   if (dataSet.mode === "key_value") {
     const sensitiveNames = new Set(collectSensitiveDataSetParameterNames(dataSet));
     (dataSet.rows || []).forEach((row) => {
-      const key = normalizeStepParameterName(String(row.key ?? ""), "t");
+      const key = normalizeStepParameterName(String(row.key ?? ""), "r");
 
       if (!key || sensitiveNames.has(key)) {
         return;
@@ -295,7 +295,7 @@ export function buildDataSetParameterValues(dataSet?: StepParameterDataSet | nul
 
   const firstRow = (dataSet.rows || []).find((row) => row && typeof row === "object") || {};
   Object.keys(firstRow).forEach((column) => {
-    const key = normalizeStepParameterName(column, "t");
+    const key = normalizeStepParameterName(column, "r");
 
     if (!key) {
       return;
@@ -319,7 +319,7 @@ export function collectSensitiveDataSetParameterNames(dataSet?: StepParameterDat
 
   return (dataSet.rows || []).flatMap((row) => {
     if (!isSensitiveDataSetRow(row)) return [];
-    const name = normalizeStepParameterName(String(row.key ?? ""), "t");
+    const name = normalizeStepParameterName(String(row.key ?? ""), "r");
     return name ? [name] : [];
   });
 }
@@ -343,13 +343,13 @@ export function buildDataSetParameterDefinitions(
   const dataSetNames = !dataSet
     ? []
     : dataSet.mode === "key_value"
-      ? (dataSet.rows || []).map((row) => normalizeStepParameterName(String(row.key ?? ""), "t"))
+      ? (dataSet.rows || []).map((row) => normalizeStepParameterName(String(row.key ?? ""), "r"))
       : [...(dataSet.columns || []), ...(dataSet.rows || []).flatMap((row) => Object.keys(row || {}))]
-        .map((column) => normalizeStepParameterName(column, "t"));
+        .map((column) => normalizeStepParameterName(column, "r"));
   const sensitiveNames = new Set(collectSensitiveDataSetParameterNames(dataSet));
 
   return [...new Set(dataSetNames.filter(Boolean))].flatMap((name) => {
-    const parsed = parseStepParameterName(name, "t");
+    const parsed = parseStepParameterName(name, "r");
 
     if (!parsed) {
       return [];

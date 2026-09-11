@@ -39,14 +39,14 @@ test("queued API and mobile blocks execute in plan order and exchange captured p
       assert.equal(body.parameter_values["s.tenant"], "team");
       if (ids[0] === "mobile-1") {
         assert.deepEqual(ids, ["mobile-1", "mobile-2"]);
-        assert.equal(body.parameter_values["t.session_token"], "api-session");
+        assert.equal(body.parameter_values["r.session_token"], "api-session");
         return json({ status: "passed", results: [
           { step_id: "mobile-1", status: "passed", captures: { "t.mobile_token": "mobile-result" } },
           { step_id: "mobile-2", status: "passed", captures: {} }
         ] });
       }
       assert.deepEqual(ids, ["mobile-3"]);
-      assert.equal(body.parameter_values["t.next_token"], "api-next");
+      assert.equal(body.parameter_values["r.next_token"], "api-next");
       assert.equal(body.parameter_values["t.mobile_token"], "mobile-result");
       return json({ status: "passed", results: [{ step_id: "mobile-3", status: "passed", captures: {} }] });
     }

@@ -8,6 +8,23 @@ const baseUrl = runtimeApiBase !== undefined
   : import.meta.env.VITE_API_BASE_URL || "/api";
 const STORAGE_KEY = "hellotest.admin.session";
 
+export function workspaceUrl(path = "/") {
+  const runtime = window.__HELLOTEST_CONFIG__ as { API_BASE_URL?: string; WORKSPACE_BASE_URL?: string } | undefined;
+  const configured = runtime?.WORKSPACE_BASE_URL || import.meta.env.VITE_WORKSPACE_BASE_URL;
+  let base = new URL(window.location.origin);
+  if (base.port === "8081") base.port = "8080";
+  else if (base.port === "5174") base.port = "5173";
+  if (configured) {
+    try {
+      const candidate = new URL(configured, window.location.origin);
+      if (["http:", "https:"].includes(candidate.protocol) && !candidate.username && !candidate.password) base = candidate;
+    } catch { /* Retain the known local/same-origin workspace location. */ }
+  }
+  base.search = ""; base.hash = "";
+  const target = path.startsWith("/") && !path.startsWith("//") ? path : "/";
+  return `${base.origin}${base.pathname.replace(/\/$/, "")}${target}`;
+}
+
 export type AdminSession = {
   token: string;
   user: {
@@ -37,7 +54,8 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && !path.includes("/auth/login")) sessionStore.clear();
-    throw new Error(body?.message || body?.error || `Request failed (${response.status})`);
+    throw Object.assign(new Error(body?.message || body?.error || `Request failed (${response.status})`),
+      { status: response.status, code: body?.code });
   }
   return body as T;
 }
@@ -54,6 +72,8 @@ export const adminApi = {
   applySchema: () => request<Overview["schema"]>("/admin-portal/setup/schema", { method: "POST" }),
   sampleCatalog: (options?: { signal?: AbortSignal }) => request<SampleCatalog>("/admin-portal/setup/sample-data", { signal: options?.signal, cache: "no-store" }),
   seedSamples: (modules: string[]) => request<SampleInstallResult>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
+  dropdownCatalog: (options?: { signal?: AbortSignal }) => request<DropdownCatalog>("/admin-portal/dropdowns", { signal: options?.signal, cache: "no-store" }),
+  updateDropdown: (key: string, input: DropdownUpdate) => request<DropdownCatalog>(`/admin-portal/dropdowns/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(input) }),
   flags: (options?: { signal?: AbortSignal }) => request<FlagSnapshot>("/feature-flags", { signal: options?.signal, cache: "no-store" }),
   updateFlags: (flags: Record<string, boolean>) => request<{ updated: boolean; flags: Record<string, boolean> }>("/admin-portal/feature-flags", { method: "PUT", body: JSON.stringify({ flags }) }),
   integrations: () => request<Integration[]>("/integrations"),
@@ -72,6 +92,16 @@ export type Overview = {
 };
 export type User = { id: string; name?: string; email: string; role: string; role_id?: string; role_name?: string; status?: string; created_at: string; last_login_at?: string };
 export type Role = { id: string; name: string };
+export type DropdownOption = { value: string; label: string; description: string; active: boolean; builtin: boolean };
+export type DropdownField = {
+  key: string; label: string; group: string; description: string;
+  kind: "configurable" | "suggestions" | "system" | "records";
+  value_format: "text" | "slug" | "integer"; can_add: boolean; can_edit: boolean; required: boolean;
+  supports_default?: boolean; usage: Array<{ label: string; path: string }>; options: DropdownOption[];
+  default_value: string | null; reason?: string; manage_path?: string;
+};
+export type DropdownCatalog = { revision: number; updated_at: string | null; fields: DropdownField[] };
+export type DropdownUpdate = { expected_revision: number; options: Array<{ value: string; label: string; description?: string; active: boolean }>; default_value?: string | null };
 export type SampleModule = { key: string; label: string; group: string; description: string; tables: string[]; features: string[]; depends_on: string[]; routes: string[]; feature_keys: string[]; available: boolean; record_count: number; expected_record_count: number; status: 'installed' | 'partial' | 'not_installed' };
 export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[] };
 export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string; administrator_memberships: number; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };

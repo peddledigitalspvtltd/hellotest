@@ -89,20 +89,22 @@ const request = async (path, { method = "GET", body, signal, allow = [] } = {}) 
   }
 };
 
-const createPayloadIndex = async (name, fieldName, fieldSchema) => {
+const createPayloadIndex = async (name, fieldName, fieldSchema, signal) => {
   try {
     await request(`/collections/${encodeURIComponent(name)}/index?wait=true`, {
       method: "PUT",
       body: { field_name: fieldName, field_schema: fieldSchema },
-      allow: [409]
+      allow: [409], signal
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     // Index creation is an optimization. Query filters remain mandatory and
     // correct while a rolling deployment finishes creating payload indexes.
   }
 };
 
-const ensureCollection = async (dimensions) => {
+const ensureCollection = async (dimensions, { signal } = {}) => {
+  if (signal?.aborted) throw signal.reason || new Error("Vector indexing cancelled");
   if (!isConfigured()) return null;
   const size = Number(dimensions);
   if (!Number.isInteger(size) || size < 8 || size > 8_192) throw new Error("Embedding dimensions are outside the supported Qdrant range");
@@ -110,7 +112,7 @@ const ensureCollection = async (dimensions) => {
   if (Date.now() - Number(ensuredCollections.get(name) || 0) < COLLECTION_CACHE_TTL_MS) return name;
   if (collectionPromises.has(name)) return collectionPromises.get(name);
   const operation = (async () => {
-    const current = await request(`/collections/${encodeURIComponent(name)}`, { allow: [404] });
+    const current = await request(`/collections/${encodeURIComponent(name)}`, { allow: [404], signal });
     if (current.status === 404) {
       await request(`/collections/${encodeURIComponent(name)}`, {
         method: "PUT",
@@ -118,18 +120,18 @@ const ensureCollection = async (dimensions) => {
           vectors: { size, distance: "Cosine", on_disk: true },
           on_disk_payload: true
         },
-        allow: [409]
+        allow: [409], signal
       });
     }
     await Promise.all([
-      createPayloadIndex(name, "project_id", "keyword"),
-      createPayloadIndex(name, "allowed_scope", "keyword"),
-      createPayloadIndex(name, "embedding_model", "keyword"),
-      createPayloadIndex(name, "source_id", "keyword"),
-      createPayloadIndex(name, "document_id", "keyword"),
-      createPayloadIndex(name, "source_kind", "keyword"),
-      createPayloadIndex(name, "app_type_id", "keyword"),
-      createPayloadIndex(name, "is_current", "bool")
+      createPayloadIndex(name, "project_id", "keyword", signal),
+      createPayloadIndex(name, "allowed_scope", "keyword", signal),
+      createPayloadIndex(name, "embedding_model", "keyword", signal),
+      createPayloadIndex(name, "source_id", "keyword", signal),
+      createPayloadIndex(name, "document_id", "keyword", signal),
+      createPayloadIndex(name, "source_kind", "keyword", signal),
+      createPayloadIndex(name, "app_type_id", "keyword", signal),
+      createPayloadIndex(name, "is_current", "bool", signal)
     ]);
     ensuredCollections.set(name, Date.now());
     return name;
@@ -156,7 +158,7 @@ const replaceDocument = async ({ projectId, source, documentId, chunks, vectors,
   if (!normalizedVectors.every((vector) => Array.isArray(vector) && vector.length === dimensions && vector.every(Number.isFinite))) {
     throw new Error("Qdrant projection received inconsistent embedding vectors");
   }
-  const name = await ensureCollection(dimensions);
+  const name = await ensureCollection(dimensions, { signal });
   const normalizedProjectId = text(projectId, 255);
   const normalizedSourceId = text(source?.id, 255);
   await deleteByFilter(name, {

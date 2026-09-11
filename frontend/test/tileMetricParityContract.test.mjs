@@ -95,7 +95,15 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
   }
   assert.match(page, /storyEvidenceById = useMemo/);
   assert.match(page, /releaseStoryCaseIdsByStoryId = useMemo/);
-  assert.match(page, /api\.executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 \}\)/);
+  const evidenceQuery = sliceBetween(page, "const releaseStoryExecutionResultsQuery = useQuery", "const createRelease = useMutation");
+  assert.match(evidenceQuery, /queryKey: \["release-story-execution-results", projectId, expandedRelease\?\.id, expandedRelease\?\.fix_version, readinessAccessKey\]/);
+  assert.match(evidenceQuery, /api\.executionResults\.releaseReadiness\(\{ project_id: projectId, release: expandedRelease!\.fix_version, run_limit: 50, result_limit: 1000 \}\)/);
+  assert.match(evidenceQuery, /enabled: Boolean\(projectId && expandedRelease\?\.fix_version && canReadReadiness\)/);
+  assert.match(page, /canReadReadiness = \["requirement_iteration\.view", "requirement\.view", "testcase\.view", "run\.view", "result\.view", "feedback\.view"\][\s\S]*?\.every\(\(permission\) => hasPermission\(session, permission, projectId\)\)/);
+  assert.match(page, /hasCompleteStoryRunEvidence = canReadReadiness && !releaseStoryExecutionResultsQuery\.isError && releaseStoryExecutionResultsQuery\.data\?\.complete === true/);
+  assert.doesNotMatch(page, /api\.executionResults\.list\(/);
+  assert.match(card, /value=\{hasCompleteStoryRunEvidence \? passPercent : null\}/);
+  assert.match(card, /value=\{hasCompleteStoryRunEvidence \? `\$\{readinessScore\}%` : "Unavailable"\}/);
   assert.match(card, /testCoveragePercent \* 0\.3/);
   assert.match(card, /passPercent \* 0\.5/);
   assert.match(card, /bugHealthPercent \* 0\.2/);

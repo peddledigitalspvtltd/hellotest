@@ -1,12 +1,10 @@
 const executionService = require("./execution.service");
 const executionResultService = require("./executionResult.service");
-const executionStepRuntimeService = require("./executionStepRuntime.service");
 const emailService = require("./email.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
-const { getExecutionResultDurationMs } = require("../utils/executionCaseLifecycle");
 
 const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || 12_000);
 const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
@@ -34,6 +32,8 @@ const normalizeTextArray = (value, fallback = []) => {
   const entries = Array.isArray(value) ? value : fallback;
   return entries.map((item) => normalizeText(item)).filter(Boolean).slice(0, 8);
 };
+
+const reportCaseTitle = (testCase) => `${testCase.title}${testCase.data_set_iteration_index !== null && testCase.data_set_iteration_index !== undefined ? ` · Data row ${testCase.data_set_iteration_index + 1}` : testCase.data_set_iteration_key ? ` · ${testCase.data_set_iteration_key}` : ""}`;
 
 const formatDate = (value) => {
   const normalized = normalizeText(value);
@@ -71,179 +71,13 @@ const formatDuration = (value) => {
   return `${hours}h ${remainingMinutes}m`;
 };
 
-const pickLatestResultsByCase = (results) => {
-  const byCaseId = new Map();
-
-  results.forEach((result) => {
-    const current = byCaseId.get(result.test_case_id);
-    const currentDate = current?.created_at ? new Date(current.created_at).getTime() : 0;
-    const nextDate = result.created_at ? new Date(result.created_at).getTime() : 0;
-
-    if (!current || nextDate >= currentDate) {
-      byCaseId.set(result.test_case_id, result);
-    }
-  });
-
-  return byCaseId;
-};
-
-const deriveStepRows = (steps, logs) =>
-  steps
-    .slice()
-    .sort((left, right) => Number(left.step_order || 0) - Number(right.step_order || 0))
-    .map((step) => {
-      const webDetail = logs.stepWebDetails?.[step.id] || null;
-
-      const evidence = logs.stepEvidence?.[step.id] || null;
-
-      return {
-        id: step.id,
-        order: step.step_order,
-        type: step.step_type || "web",
-        action: step.action || "",
-        expected_result: step.expected_result || "",
-        status: logs.stepStatuses?.[step.id] || "queued",
-        note: logs.stepNotes?.[step.id] || "",
-        evidence,
-        has_evidence: Boolean(evidence?.dataUrl),
-        captures: logs.stepCaptures?.[step.id] || logs.stepApiDetails?.[step.id]?.captures || {},
-        console_count: Array.isArray(webDetail?.console) ? webDetail.console.length : 0,
-        network_count: Array.isArray(webDetail?.network) ? webDetail.network.length : 0,
-        page_url: webDetail?.url || ""
-      };
-    });
-
-const deriveCaseStatus = (steps, result, logs) => {
-  const status = normalizeText(result?.status);
-
-  if (status) {
-    return status;
-  }
-  if (!Object.keys(logs.stepStatuses || {}).length) return "pending";
-
-  return executionStepRuntimeService.deriveCaseStatusFromStepStatuses(
-    steps.map((step) => step.id),
-    logs.stepStatuses || {}
-  );
-};
+const { buildExecutionReportModel } = require("./executionReportModel");
+const { renderDetailedExecutionHtml, REPORT_CSP } = require("./executionReportHtml");
 
 const buildReportModel = async (executionId) => {
   const execution = await executionService.getExecution(executionId);
   const results = await executionResultService.getExecutionResults({ execution_id: executionId });
-  const latestResultByCaseId = pickLatestResultsByCase(results);
-  const durationsByCase = new Map();
-  for (const result of results) durationsByCase.set(result.test_case_id, (durationsByCase.get(result.test_case_id) || 0) + getExecutionResultDurationMs(result));
-  const stepsByCaseId = new Map();
-
-  (execution.step_snapshots || []).forEach((snapshot) => {
-    const step = {
-      id: snapshot.snapshot_step_id,
-      step_order: snapshot.step_order,
-      step_type: snapshot.step_type,
-      action: snapshot.action,
-      expected_result: snapshot.expected_result
-    };
-    const current = stepsByCaseId.get(snapshot.test_case_id) || [];
-    current.push(step);
-    stepsByCaseId.set(snapshot.test_case_id, current);
-  });
-
-  const cases = (execution.case_snapshots || []).map((snapshot) => {
-    const result = latestResultByCaseId.get(snapshot.test_case_id) || null;
-    const logs = executionStepRuntimeService.parseStructuredLogs(result?.logs || null);
-    const steps = deriveStepRows(stepsByCaseId.get(snapshot.test_case_id) || [], logs);
-    const status = deriveCaseStatus(steps, result, logs);
-
-    return {
-      id: snapshot.test_case_id,
-      title: snapshot.test_case_title,
-      description: snapshot.test_case_description || "",
-      suite_id: snapshot.suite_id || null,
-      suite_name: snapshot.suite_name || null,
-      priority: snapshot.priority || null,
-      status,
-      duration_ms: durationsByCase.get(snapshot.test_case_id) || 0,
-      error: result?.error || "",
-      result_id: result?.id || null,
-      steps
-    };
-  });
-
-  const counts = cases.reduce(
-    (accumulator, item) => {
-      accumulator.total += 1;
-      if (item.status === "passed") {
-        accumulator.passed += 1;
-      } else if (item.status === "failed") {
-        accumulator.failed += 1;
-      } else if (item.status === "blocked") {
-        accumulator.blocked += 1;
-      } else if (item.status === "running") {
-        accumulator.running += 1;
-      } else {
-        const key = ["pending", "paused", "skipped", "aborted"].includes(item.status) ? item.status : "pending";
-        accumulator[key] += 1;
-      }
-      return accumulator;
-    },
-    { total: 0, passed: 0, failed: 0, blocked: 0, running: 0, pending: 0, paused: 0, skipped: 0, aborted: 0 }
-  );
-
-  const durationMs = cases.reduce((total, item) => total + Number(item.duration_ms || 0), 0);
-  const passRate = counts.total ? Math.round((counts.passed / counts.total) * 100) : 0;
-  const suitesByKey = new Map();
-
-  cases.forEach((testCase) => {
-    const suiteKey = testCase.suite_id || "__direct__";
-    const current = suitesByKey.get(suiteKey) || {
-      id: testCase.suite_id,
-      name: testCase.suite_name || "Direct run",
-      total: 0,
-      passed: 0,
-      failed: 0,
-      blocked: 0,
-      running: 0,
-      pending: 0,
-      paused: 0,
-      skipped: 0,
-      aborted: 0,
-      duration_ms: 0,
-      step_count: 0,
-      cases: []
-    };
-
-    current.total += 1;
-    current.duration_ms += Number(testCase.duration_ms || 0);
-    current.step_count += testCase.steps.length;
-    current.cases.push(testCase);
-
-    if (testCase.status === "passed") {
-      current.passed += 1;
-    } else if (testCase.status === "failed") {
-      current.failed += 1;
-    } else if (testCase.status === "blocked") {
-      current.blocked += 1;
-    } else if (testCase.status === "running") {
-      current.running += 1;
-    } else {
-      const key = ["pending", "paused", "skipped", "aborted"].includes(testCase.status) ? testCase.status : "pending";
-      current[key] += 1;
-    }
-
-    suitesByKey.set(suiteKey, current);
-  });
-
-  return {
-    execution,
-    generated_at: new Date().toISOString(),
-    summary: {
-      ...counts,
-      pass_rate: passRate,
-      duration_ms: durationMs
-    },
-    suites: [...suitesByKey.values()],
-    cases
-  };
+  return buildExecutionReportModel(execution, results);
 };
 
 const extractJsonPayload = (content) => {
@@ -295,7 +129,7 @@ const buildAiAnalysisPrompt = (report) => {
     .slice(0, AI_ANALYSIS_FAILED_CASE_LIMIT)
     .map((testCase) => ({
       suite: testCase.suite_name || "Direct run",
-      title: testCase.title,
+      title: reportCaseTitle(testCase),
       status: testCase.status,
       priority: testCase.priority || null,
       duration: formatDuration(testCase.duration_ms),
@@ -626,7 +460,7 @@ const renderSuiteCard = (report, suite, mode) => {
         ${suite.cases.map((testCase) => `
           <div style="padding:8px 0;border-bottom:1px solid #edf2f7;">
             <div style="display:flex;gap:10px;align-items:flex-start;justify-content:space-between;">
-              <div style="font-size:13px;color:#111827;font-weight:700;line-height:1.35;">${escapeHtml(testCase.title)}</div>
+              <div style="font-size:13px;color:#111827;font-weight:700;line-height:1.35;">${escapeHtml(reportCaseTitle(testCase))}</div>
               ${renderStatusPill(testCase.status)}
             </div>
             <div style="margin-top:3px;font-size:12px;color:#647084;">${escapeHtml(formatDuration(testCase.duration_ms))}${testCase.error ? ` · ${escapeHtml(testCase.error)}` : ""}</div>
@@ -785,7 +619,7 @@ const buildReportLines = (report, { detailed = false } = {}) => {
     const includeSteps = detailed || shouldShowCompactSteps(report, suite);
     lines.push(`${suite.name} (${formatDuration(suite.duration_ms)})`);
     suite.cases.forEach((testCase, index) => {
-      lines.push(`${index + 1}. ${testCase.title} [${testCase.status}]`);
+      lines.push(`${index + 1}. ${reportCaseTitle(testCase)} [${testCase.status}]`);
       if (testCase.error) {
         lines.push(`   Error: ${testCase.error}`);
       }
@@ -1122,11 +956,11 @@ const renderReportPdf = (report) => {
     sectionTitle(`${suite.name} | ${formatDuration(suite.duration_ms)} | ${suite.total} case${suite.total === 1 ? "" : "s"}`);
 
     suite.cases.forEach((testCase) => {
-      const titleLines = wrapPdfText(testCase.title, usableWidth - 120, 11);
+      const titleLines = wrapPdfText(reportCaseTitle(testCase), usableWidth - 120, 11);
       const caseHeaderHeight = Math.max(38, titleLines.length * 15 + 18);
       ensure(caseHeaderHeight);
       rect(margin, cursorY - 4, usableWidth, caseHeaderHeight, "#ffffff", "#dfe7f1");
-      wrappedText(testCase.title, margin + 12, cursorY + 14, usableWidth - 130, 11, {
+      wrappedText(reportCaseTitle(testCase), margin + 12, cursorY + 14, usableWidth - 130, 11, {
         bold: true,
         color: "#111827",
         lineHeight: 14
@@ -1276,36 +1110,28 @@ const normalizeRecipients = (value) => {
 
 exports.buildReport = buildReportModel;
 
-exports.renderReportHtml = async (executionId, { user_id } = {}) => renderReportHtml(await buildReportWithAiAnalysis(executionId, { userId: user_id }), { mode: "detailed" });
+exports.renderReportHtml = async (executionId, { user, include_attachments = false } = {}) => {
+  const report = await buildReportModel(executionId);
+  if (user && include_attachments) {
+    await require("./executionReportEvidence").attachReportEvidence(report, { user });
+  }
+  return renderDetailedExecutionHtml(report);
+};
+exports.REPORT_CSP = REPORT_CSP;
 
 exports.renderReportPdf = async (executionId, { user_id } = {}) => renderReportPdf(await buildReportWithAiAnalysis(executionId, { userId: user_id }));
 
 const scopeReportToCase = (report, testCaseId) => {
-  const testCase = report.cases.find((item) => String(item.id) === String(testCaseId));
-  if (!testCase) {
-    const error = new Error("The selected test case is not part of this run snapshot");
-    error.statusCode = 404;
-    throw error;
-  }
-  const summary = {
-    total: 1,
-    passed: testCase.status === "passed" ? 1 : 0,
-    failed: testCase.status === "failed" ? 1 : 0,
-    blocked: testCase.status === "blocked" ? 1 : 0,
-    running: testCase.status === "running" ? 1 : 0,
-    pending: testCase.status === "pending" ? 1 : 0,
-    paused: testCase.status === "paused" ? 1 : 0,
-    skipped: testCase.status === "skipped" ? 1 : 0,
-    aborted: testCase.status === "aborted" ? 1 : 0,
-    pass_rate: testCase.status === "passed" ? 100 : 0,
-    duration_ms: Number(testCase.duration_ms || 0)
-  };
+  const cases = report.cases.filter((item) => String(item.id) === String(testCaseId));
+  if (!cases.length) throw Object.assign(new Error("The selected test case is not part of this run snapshot"), { statusCode: 404 });
+  const scoped = buildExecutionReportModel(
+    { ...report.execution, case_snapshots: (report.execution.case_snapshots || []).filter(item => String(item.test_case_id) === String(testCaseId)) },
+    report.results.filter(item => String(item.test_case_id) === String(testCaseId)),
+    new Date(report.generated_at).getTime()
+  );
   return {
-    ...report,
-    execution: { ...report.execution, name: `${report.execution.name || "HelloTest run"} · ${testCase.title}` },
-    summary,
-    cases: [testCase],
-    suites: [{ id: testCase.suite_id || null, name: testCase.suite_name || "Direct run", ...summary, step_count: testCase.steps.length, cases: [testCase] }],
+    ...scoped,
+    execution: { ...report.execution, name: `${report.execution.name || "HelloTest run"} · ${cases[0].title}` },
     ai_analysis: createUnavailableAiAnalysis("AI summary is omitted from a single-case evidence export; review the recorded case and step evidence directly.")
   };
 };

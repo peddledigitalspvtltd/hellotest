@@ -75,6 +75,8 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
+import { useDomainOptions, useDomainSuggestions } from "../hooks/useDomainOptions";
+import { resolveDomainSuggestionValue } from "../lib/domainOptions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
@@ -6849,7 +6851,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       <div className="record-grid story-delivery-target-grid">
                         <FormField label="Dev Completion Target Date"><input type="date" value={draft.devCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
                         <FormField label="QA Completion Target Date"><input min={draft.devCompletionTargetDate || undefined} type="date" value={draft.qaCompletionTargetDate} onChange={(event) => setDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
-                        <FormField label="Scrum team"><input value={draft.scrumTeam} onChange={(event) => setDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
+                        <ScrumTeamField value={draft.scrumTeam} onChange={scrumTeam => setDraft(current => ({ ...current, scrumTeam }))} />
                       </div>
                       <StoryPlanningFields additionalFields={draft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("edit", field, value)} users={users} />
                       <section aria-labelledby="story-detail-specification-title" className={`story-specification-editor is-${draft.specificationFormat}`}>
@@ -7176,7 +7178,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   <div className="record-grid story-delivery-target-grid">
                     <FormField label="Dev Completion Target Date"><input type="date" value={createDraft.devCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, devCompletionTargetDate: event.target.value }))} /></FormField>
                     <FormField label="QA Completion Target Date"><input min={createDraft.devCompletionTargetDate || undefined} type="date" value={createDraft.qaCompletionTargetDate} onChange={(event) => setCreateDraft((current) => ({ ...current, qaCompletionTargetDate: event.target.value }))} /></FormField>
-                    <FormField label="Scrum team"><input placeholder="e.g. Checkout Phoenix" value={createDraft.scrumTeam} onChange={(event) => setCreateDraft((current) => ({ ...current, scrumTeam: event.target.value }))} /></FormField>
+                    <ScrumTeamField value={createDraft.scrumTeam} onChange={scrumTeam => setCreateDraft(current => ({ ...current, scrumTeam }))} />
                   </div>
                   <StoryPlanningFields additionalFields={createDraft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("create", field, value)} users={users} />
                   <StoryCreateRelatedPicker allStories={sprintStoryPickerRequirements} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
@@ -8941,6 +8943,12 @@ function StoryDetailSectionContext({
   );
 }
 
+function ScrumTeamField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const suggestions = useDomainSuggestions("requirements.scrum_teams");
+  const id = `scrum-teams-${useId().replace(/:/g, "")}`;
+  return <FormField label="Scrum team" inputId={`${id}-input`}><input id={`${id}-input`} list={id} placeholder="Select or enter a team" value={value} onChange={event => onChange(event.target.value)} /><datalist id={id}>{suggestions.map(team => <option key={team.value} value={team.value} label={team.label} />)}</datalist></FormField>;
+}
+
 function StoryPlanningFields({
   additionalFields,
   onChange,
@@ -8950,6 +8958,7 @@ function StoryPlanningFields({
   onChange: (field: string, value: unknown) => void;
   users: User[];
 }) {
+  const storyPointOptions = useDomainOptions("requirements.story_points", [1, 2, 3, 5, 8, 13, 21].map(points => ({ value: String(points), label: `${points} ${points === 1 ? "point" : "points"}` })), [String(additionalFields.effort_story_points ?? "")]).filter(option => Number.isFinite(Number(option.value)) && Number(option.value) > 0);
   const sortedUsers = [...users].sort((left, right) => (left.name || left.email).localeCompare(right.name || right.email));
   const renderUserOptions = () => sortedUsers.map((user) => (
     <option key={user.id} value={user.id}>{user.name || user.email}{user.name ? ` · ${user.email}` : ""}</option>
@@ -8970,7 +8979,7 @@ function StoryPlanningFields({
         <FormField label="Effort · Story points">
           <select value={String(additionalFields.effort_story_points || "")} onChange={(event) => onChange("effort_story_points", event.target.value ? Number(event.target.value) : null)}>
             <option value="">Not estimated</option>
-            {[1, 2, 3, 5, 8, 13, 21].map((points) => <option key={points} value={points}>{points} {points === 1 ? "point" : "points"}</option>)}
+            {storyPointOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
           </select>
         </FormField>
         <FormField label="Original Dev">
@@ -9249,6 +9258,7 @@ function RequirementLabelsField({
   required?: boolean;
   onChange: (value: string) => void;
 }) {
+  const suggestedLabels = useDomainSuggestions("requirements.labels", options);
   const [draftLabel, setDraftLabel] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeLabelIndex, setActiveLabelIndex] = useState(0);
@@ -9272,9 +9282,9 @@ function RequirementLabelsField({
   const selectableLabels = useMemo(
     () => {
       const selectedKeys = new Set(selectedLabels.map((label) => label.toLowerCase()));
-      return options.filter((option) => !selectedKeys.has(option.toLowerCase()));
+      return suggestedLabels.filter((option) => !selectedKeys.has(option.value.toLowerCase()));
     },
-    [options, selectedLabels]
+    [suggestedLabels, selectedLabels]
   );
   const filteredLabels = useMemo(() => {
     const query = draftLabel.trim().toLowerCase();
@@ -9283,14 +9293,14 @@ function RequirementLabelsField({
       return selectableLabels;
     }
 
-    return selectableLabels.filter((label) => label.toLowerCase().includes(query));
+    return selectableLabels.filter((label) => `${label.label} ${label.value}`.toLowerCase().includes(query));
   }, [draftLabel, selectableLabels]);
   const normalizedDraftLabel = draftLabel.trim();
   const canAddDraftLabel = Boolean(
     normalizedDraftLabel
-    && !filteredLabels.some((label) => label.toLowerCase() === normalizedDraftLabel.toLowerCase())
+    && !filteredLabels.some((label) => [label.value, label.label].some(value => value.toLowerCase() === normalizedDraftLabel.toLowerCase()))
   );
-  const labelMenuOptions = canAddDraftLabel ? [...filteredLabels, normalizedDraftLabel] : filteredLabels;
+  const labelMenuOptions = canAddDraftLabel ? [...filteredLabels, { value: normalizedDraftLabel, label: normalizedDraftLabel }] : filteredLabels;
   useEffect(() => {
     setActiveLabelIndex((current) => Math.min(current, Math.max(0, labelMenuOptions.length - 1)));
   }, [labelMenuOptions.length]);
@@ -9314,7 +9324,7 @@ function RequirementLabelsField({
   }, [isMenuOpen]);
 
   const commitLabel = (rawLabel: string) => {
-    const normalizedLabel = rawLabel.trim();
+    const normalizedLabel = resolveDomainSuggestionValue(rawLabel, suggestedLabels);
 
     if (!normalizedLabel) {
       return;
@@ -9372,7 +9382,7 @@ function RequirementLabelsField({
 
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  const activeOption = isMenuOpen ? labelMenuOptions[activeLabelIndex] : "";
+                  const activeOption = isMenuOpen ? labelMenuOptions[activeLabelIndex]?.value : "";
                   if (activeOption || normalizedDraftLabel) {
                     commitLabel(activeOption || normalizedDraftLabel);
                   }
@@ -9396,13 +9406,13 @@ function RequirementLabelsField({
                   aria-selected={activeLabelIndex === index}
                   className="requirement-label-menu-option"
                   id={`${menuId}-${index}`}
-                  key={label}
-                  onClick={() => commitLabel(label)}
+                  key={label.value}
+                  onClick={() => commitLabel(label.value)}
                   onMouseEnter={() => setActiveLabelIndex(index)}
                   role="option"
                   type="button"
                 >
-                  {label}
+                  {label.label}
                 </button>
               ))}
               {canAddDraftLabel ? (

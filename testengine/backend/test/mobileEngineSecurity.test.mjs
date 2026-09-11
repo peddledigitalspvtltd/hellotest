@@ -48,8 +48,8 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
     assert.equal(init.headers["content-type"], "application/json");
     const payload = JSON.parse(init.body);
     assert.equal(payload.parameter_values["s.tenant"], "suite");
-    assert.equal(payload.parameter_values["t.first name"], "row default");
-    assert.equal(payload.parameter_values["t.amount"], "12");
+    assert.equal(payload.parameter_values["r.first name"], "row default");
+    assert.equal(payload.parameter_values["r.amount"], "12");
     assert.equal(payload.parameter_values["r.token"], "resumed token");
     return new Response(JSON.stringify({ status: "passed", results: [] }), {
       status: 200,

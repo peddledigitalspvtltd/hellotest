@@ -368,7 +368,7 @@ export type EngineRunEnvelope = {
   data_set?: {
     id?: string | null;
     name: string;
-    source?: "run" | "test_case";
+    source?: "run" | "suite" | "test_case";
     mode: "key_value" | "table";
     columns: string[];
     rows: Array<Record<string, string>>;

@@ -22,7 +22,6 @@ const {
   isMobileRecorderTarget
 } = require("../utils/mobileFeature");
 const AUTOMATION_STATUS_VALUES = ["not_automated", "ready", "incomplete"];
-const TEST_CASE_TYPE_VALUES = ["functional", "regression", "smoke", "integration", "acceptance", "exploratory", "performance", "security", "accessibility", "ios"];
 const OBJECT_REPOSITORY_IMPORT_CHUNK_SIZE = 200;
 
 const resolveTestCaseListProjectId = testCaseScopeService.resolveListProjectId;
@@ -137,7 +136,7 @@ module.exports = async function (fastify) {
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       source_issue_id: { required: false, type: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
-      test_case_type: { required: false, type: "string", enum: TEST_CASE_TYPE_VALUES },
+      test_case_type: { required: false, type: "string", minLength: 1, maxLength: 120 },
       gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },
@@ -1238,7 +1237,7 @@ module.exports = async function (fastify) {
       manual_test_case_id: { required: false, type: "string" },
       manual_test_case_ids: { required: false, type: "array", items: "string" },
       authoring_mode: { required: false, type: "string", enum: ["structured", "gherkin"] },
-      test_case_type: { required: false, type: "string", enum: TEST_CASE_TYPE_VALUES },
+      test_case_type: { required: false, type: "string", minLength: 1, maxLength: 120 },
       gherkin_document: { required: false, type: "string" },
       priority: { required: false, type: "number" },
       status: { required: false, type: "string", enum: TEST_CASE_STATUS_VALUES },

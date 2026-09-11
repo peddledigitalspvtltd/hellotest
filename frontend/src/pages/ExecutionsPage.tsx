@@ -61,7 +61,8 @@ import { CaseRunAttachmentPanel } from "../components/CaseRunAttachmentPanel";
 import { uploadExecutionAttachment } from "../lib/executionAttachments";
 import { CaseRunParameterContext } from "../components/CaseRunParameterContext";
 import { resolveExecutionParameterContext } from "../lib/executionParameterContext";
-import { RunParameterTemplateButton } from "../components/RunParameterTemplateButton";
+import { RunDataSetup } from "../components/RunDataSetup";
+import { expandSelectedSuiteIds } from "../lib/runDataTemplate";
 import { RunContextLinks } from "../components/RunContextLinks";
 import { RunConfigurationDialog, type RunConfigurationResource } from "../components/RunConfigurationDialog";
 import { isRunFinished, normalizeRunCatalogView, runCatalogBucket, runStoryCounts } from "../lib/runCatalog";
@@ -3984,6 +3985,21 @@ export function ExecutionsPage() {
     }
   };
 
+  const htmlReportMutation = useMutation({ mutationFn: api.executions.downloadReportHtml });
+  const handleOpenHtmlReport = async () => {
+    if (!selectedExecution || !canExportRunReports || htmlReportMutation.isPending) return;
+    const reportName = selectedExecution.name || "Run report";
+    const tab = window.open("about:blank", "_blank");
+    if (tab) { tab.opener = null; tab.document.title = reportName; tab.document.body.textContent = "Preparing detailed run report…"; }
+    try {
+      const blob = await htmlReportMutation.mutateAsync(selectedExecution.id);
+      const url = URL.createObjectURL(new Blob([blob], { type: "text/html" }));
+      if (tab && !tab.closed) tab.location.replace(url);
+      else { const link = document.createElement("a"); link.href = url; link.download = `${reportName.replace(/[^A-Za-z0-9._-]+/g, "-")}.html`; link.click(); }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) { tab?.close(); showError(error, "Unable to prepare detailed run report"); }
+  };
+
   const handleDownloadExecutionReport = async () => {
     if (!selectedExecution) {
       return;
@@ -6659,6 +6675,7 @@ export function ExecutionsPage() {
         </header>
 
           <div className="execution-command-actions" aria-label="Execution actions">
+            <button className="execution-command-button" disabled={!canExportRunReports || htmlReportMutation.isPending} type="button" onClick={() => void handleOpenHtmlReport()}><IconExternalLink size={18} aria-hidden="true" /><span>{htmlReportMutation.isPending ? "Preparing report…" : "Detailed report"}</span></button>
             <button className="execution-command-button" disabled={!canUpdateRuns || isRunFinished(selectedExecution)} onClick={() => setEditingRunId(selectedExecution.id)} type="button"><IconPencil size={18} /><span>Edit run</span></button>
             <button
               className="execution-command-button is-primary"
@@ -6702,7 +6719,7 @@ export function ExecutionsPage() {
               type="button"
             >
               <ExportIcon />
-              <span>{downloadExecutionReport.isPending ? "Exporting…" : "Export"}</span>
+              <span>{downloadExecutionReport.isPending ? "Exporting…" : "PDF report"}</span>
             </button>
             <button
               className="execution-command-button"
@@ -11238,7 +11255,7 @@ function ExecutionSuiteCaseCard({
             <div className="execution-case-instance-list-header">
               <span>
                 <strong>{dataSetInstances[0].test_data_set_name || "Data Set"}</strong>
-                <small>{dataSetInstances[0].data_set_source === "test_case" ? "Linked to test case" : "Run Data Set"}</small>
+                <small>{dataSetInstances[0].data_set_source === "test_case" ? "Linked to test case" : dataSetInstances[0].data_set_source === "suite" ? "Inherited suite data" : "Run data set"}</small>
               </span>
               <span>{dataSetInstances.length} instance{dataSetInstances.length === 1 ? "" : "s"}</span>
             </div>
@@ -12537,7 +12554,7 @@ export function ExecutionCreateModal({
       : "Impacted Stories: none explicitly selected.",
     "Discuss risk signals, missing scope evidence, prioritization questions, and candidate coverage. Clearly separate delivery evidence from recommendations."
   ].filter(Boolean).join("\n").slice(0, 3_800);
-  const selectedSuiteIdSet = new Set(selectedSuiteIds);
+  const selectedSuiteIdSet = expandSelectedSuiteIds(scopeSuites, selectedSuiteIds);
   const selectedSuiteCaseIds = new Set(
     scopeSuites
       .filter((suite) => selectedSuiteIdSet.has(suite.id))
@@ -12711,13 +12728,15 @@ export function ExecutionCreateModal({
                   onConfigurationChange={onConfigurationChange}
                   onDataSetChange={onDataSetChange}
                   onEnvironmentChange={onEnvironmentChange}
-                  prefillFirstAvailable={true}
+                  prefillFirstAvailable={false}
                   projectId={projectId}
                   selectedConfigurationId={selectedConfigurationId}
                   selectedDataSetId={selectedDataSetId}
                   selectedEnvironmentId={selectedEnvironmentId}
                 />
-                <RunParameterTemplateButton
+                <RunDataSetup
+                  appTypeId={appTypeId}
+                  onDataSetChange={onDataSetChange}
                   cases={libraryCases.filter(testCase => isSmartMode ? selectedSmartExecutionCaseIds.includes(testCase.id) : selectedSuiteCaseIds.has(testCase.id) || (testCase.suite_ids || []).some(id => selectedSuiteIdSet.has(id)) || Boolean(testCase.suite_id && selectedSuiteIdSet.has(testCase.suite_id)))}
                   suites={scopeSuites.filter(suite => selectedSuiteIdSet.has(suite.id))}
                   projectId={projectId}
@@ -13561,7 +13580,7 @@ function CreateExecutionScheduleModal({
               onConfigurationChange={onConfigurationChange}
               onDataSetChange={onDataSetChange}
               onEnvironmentChange={onEnvironmentChange}
-              prefillFirstAvailable={true}
+              prefillFirstAvailable={false}
               projectId={projectId}
               selectedConfigurationId={selectedConfigurationId}
               selectedDataSetId={selectedDataSetId}

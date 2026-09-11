@@ -48,9 +48,9 @@ test("completion at the middle of a reference replaces its suffix without changi
 test("all linked columns and saved unused scope defaults are available before their first reference", () => {
   const dataSet = { mode: "table", columns: ["email", "region"], rows: [{ email: "first" }, { email: "second", undeclared: "late" }] };
   const parameters = mergeStepParameterDefinitions(buildDataSetParameterDefinitions(dataSet, "Customers"), buildStepParameterDefinitionsFromValues({ "s.tenant": "Acme", "r.build": "1" }));
-  assert.deepEqual(parameters.map((item) => item.name), ["r.build", "t.email", "t.region", "s.tenant", "t.undeclared"]);
-  assert.equal(parameters.find((item) => item.name === "t.email").sourceLabel, "Customers");
-  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.email": "first" });
+  assert.deepEqual(parameters.map((item) => item.name), ["r.build", "r.email", "r.region", "s.tenant", "r.undeclared"]);
+  assert.equal(parameters.find((item) => item.name === "r.email").sourceLabel, "Customers");
+  assert.deepEqual(buildDataSetParameterValues(dataSet), { "r.email": "first" });
 });
 
 test("incomplete scope prefixes never create phantom t, s, or r parameters", () => {
@@ -66,11 +66,11 @@ test("explicit test scope remains test scope when suite or run is the fallback",
 
 test("hidden data columns stay selectable while values and duplicate-key overrides remain undisclosed", () => {
   const dataSet = { mode: "key_value", columns: ["key", "value"], rows: [{ key: "password", value: "earlier value" }, { key: "password", value: "hidden", is_secret: true }, { key: "email", value: "visible" }] };
-  const definitions = mergeStepParameterDefinitions(buildStepParameterDefinitionsFromValues({ "t.password": "override" }), buildDataSetParameterDefinitions(dataSet));
+  const definitions = mergeStepParameterDefinitions(buildStepParameterDefinitionsFromValues({ "r.password": "override" }), buildDataSetParameterDefinitions(dataSet));
   const sensitive = definitions.filter((item) => item.sensitive).map((item) => item.name);
-  assert.equal(getStepParameterSuggestions(definitions, getStepParameterQuery("@t.pass", 7))[0].sensitive, true);
-  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.email": "visible" });
-  assert.equal(resolveStepParameterText("Use @t.password", excludeSensitiveStepParameterValues({ "t.password": "override" }, sensitive)), "Use @t.password");
+  assert.equal(getStepParameterSuggestions(definitions, getStepParameterQuery("@r.pass", 7))[0].sensitive, true);
+  assert.deepEqual(buildDataSetParameterValues(dataSet), { "r.email": "visible" });
+  assert.equal(resolveStepParameterText("Use @r.password", excludeSensitiveStepParameterValues({ "r.password": "override" }, sensitive)), "Use @r.password");
 });
 
 test("selected parameters resolve for display while their authored reference remains lossless", () => {
@@ -87,7 +87,7 @@ test("columns with spaces, dots, numeric names, brackets, and backslashes use lo
   const row = { "First Name": "Jay", "account.email": "jay@example.test", "2026": "current", "postal]code": "560001", "folder\\file": "document" };
   const dataSet = { mode: "table", columns: Object.keys(row), rows: [row] };
   const definitions = buildDataSetParameterDefinitions(dataSet);
-  assert.deepEqual(definitions.map((item) => item.token).sort(), ["@t.[first name]", "@t.[account.email]", "@t.[2026]", "@t.[postal\\]code]", "@t.[folder\\\\file]"].sort());
+  assert.deepEqual(definitions.map((item) => item.token).sort(), ["@r.[first name]", "@r.[account.email]", "@r.[2026]", "@r.[postal\\]code]", "@r.[folder\\\\file]"].sort());
   const values = buildDataSetParameterValues(dataSet);
   for (const definition of definitions) {
     assert.equal(normalizeStepParameterName(definition.token), definition.name);

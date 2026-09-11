@@ -904,7 +904,7 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_test_data_sets_catalog_order ON test_data_sets (project_id, (app_type_id IS NOT NULL), name ASC, created_at DESC)`,
   `ALTER TABLE test_cases ADD COLUMN IF NOT EXISTS test_case_type TEXT NOT NULL DEFAULT 'functional'`,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_test_case_type_check`,
-  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_test_case_type_check CHECK (test_case_type IN ('functional', 'regression', 'smoke', 'integration', 'acceptance', 'exploratory', 'performance', 'security', 'accessibility', 'ios'))`,
+  `ALTER TABLE test_cases ADD CONSTRAINT test_cases_test_case_type_check CHECK (test_case_type ~ '^[a-z][a-z0-9_-]{0,119}$')`,
   `
     CREATE TABLE IF NOT EXISTS test_case_data_sets (
       test_case_id TEXT NOT NULL,
@@ -969,6 +969,7 @@ const statements = [
     )
   `,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_case_data_sets_one_per_case ON test_case_data_sets (test_case_id)`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS parameter_scope_default TEXT NOT NULL DEFAULT 't' CHECK (parameter_scope_default IN ('t', 'r'))`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_id TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_name TEXT`,
   `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_environment_snapshot JSONB`,
@@ -1237,6 +1238,8 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_requirement_relations_reverse ON requirement_relations (related_requirement_id, requirement_id)`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS created_by TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS description TEXT`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS test_data_set_id TEXT REFERENCES test_data_sets(id) ON DELETE SET NULL`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS labels JSONB`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN`,
@@ -1366,9 +1369,9 @@ const statements = [
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_name TEXT`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_set_snapshot JSONB`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS data_set_source TEXT`,
-  `UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'test_case')`,
+  `UPDATE execution_case_snapshots SET data_set_source = NULL WHERE data_set_source IS NOT NULL AND data_set_source NOT IN ('run', 'suite', 'test_case')`,
   `ALTER TABLE execution_case_snapshots DROP CONSTRAINT IF EXISTS execution_case_snapshots_data_set_source_check`,
-  `ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'test_case'))`,
+  `ALTER TABLE execution_case_snapshots ADD CONSTRAINT execution_case_snapshots_data_set_source_check CHECK (data_set_source IS NULL OR data_set_source IN ('run', 'suite', 'test_case'))`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to TEXT`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assigned_to_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS assignment_source TEXT`,
@@ -2365,58 +2368,78 @@ const statements = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_test_suites_display_id_unique ON test_suites (display_id) WHERE display_id IS NOT NULL`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_step_groups_display_id_unique ON shared_step_groups (display_id) WHERE display_id IS NOT NULL`,
   `
-    WITH numbered AS (
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '[^0-9]', '', 'g'), '')::NUMERIC), 0) AS max_sequence
+      FROM projects
+      WHERE display_id IS NOT NULL
+    ), numbered AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS seq
       FROM projects
       WHERE display_id IS NULL
     )
     UPDATE projects
-    SET display_id = 'PROJ-' || numbered.seq
-    FROM numbered
+    SET display_id = 'PROJ-' || (existing.max_sequence + numbered.seq)
+    FROM numbered, existing
     WHERE projects.id = numbered.id
   `,
   `
-    WITH numbered AS (
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '[^0-9]', '', 'g'), '')::NUMERIC), 0) AS max_sequence
+      FROM requirements
+      WHERE display_id IS NOT NULL
+    ), numbered AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS seq
       FROM requirements
       WHERE display_id IS NULL
     )
     UPDATE requirements
-    SET display_id = 'RC_' || numbered.seq
-    FROM numbered
+    SET display_id = 'RC_' || (existing.max_sequence + numbered.seq)
+    FROM numbered, existing
     WHERE requirements.id = numbered.id
   `,
   `
-    WITH numbered AS (
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '[^0-9]', '', 'g'), '')::NUMERIC), 0) AS max_sequence
+      FROM test_cases
+      WHERE display_id IS NOT NULL
+    ), numbered AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS seq
       FROM test_cases
       WHERE display_id IS NULL
     )
     UPDATE test_cases
-    SET display_id = 'TC_' || numbered.seq
-    FROM numbered
+    SET display_id = 'TC_' || (existing.max_sequence + numbered.seq)
+    FROM numbered, existing
     WHERE test_cases.id = numbered.id
   `,
   `
-    WITH numbered AS (
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '[^0-9]', '', 'g'), '')::NUMERIC), 0) AS max_sequence
+      FROM test_suites
+      WHERE display_id IS NOT NULL
+    ), numbered AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS seq
       FROM test_suites
       WHERE display_id IS NULL
     )
     UPDATE test_suites
-    SET display_id = 'TS-' || numbered.seq
-    FROM numbered
+    SET display_id = 'TS-' || (existing.max_sequence + numbered.seq)
+    FROM numbered, existing
     WHERE test_suites.id = numbered.id
   `,
   `
-    WITH numbered AS (
+    WITH existing AS (
+      SELECT COALESCE(MAX(NULLIF(regexp_replace(display_id, '[^0-9]', '', 'g'), '')::NUMERIC), 0) AS max_sequence
+      FROM shared_step_groups
+      WHERE display_id IS NOT NULL
+    ), numbered AS (
       SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS seq
       FROM shared_step_groups
       WHERE display_id IS NULL
     )
     UPDATE shared_step_groups
-    SET display_id = 'SG-' || numbered.seq
-    FROM numbered
+    SET display_id = 'SG-' || (existing.max_sequence + numbered.seq)
+    FROM numbered, existing
     WHERE shared_step_groups.id = numbered.id
   `,
   `

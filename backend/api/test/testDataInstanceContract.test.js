@@ -99,9 +99,9 @@ test("selected data rows consistently override case defaults regardless of attac
     data_set: dataSet
   });
 
-  assert.equal(context.values["t.username"], "source-user");
-  assert.equal(context.values["t.password"], "source-password");
-  assert.equal(runtime.interpolateText("Login and enter @t.username", context), "Login and enter source-user");
+  assert.equal(context.values["r.username"], "source-user");
+  assert.equal(context.values["r.password"], "source-password");
+  assert.equal(runtime.interpolateText("Login and enter @username", context), "Login and enter source-user");
   assert.deepEqual(dataSet, original);
 
   const explicitRunContext = runtime.buildInitialContext({
@@ -112,7 +112,7 @@ test("selected data rows consistently override case defaults regardless of attac
     configuration: null,
     data_set: { ...dataSet, source: "run" }
   });
-  assert.equal(explicitRunContext.values["t.username"], "source-user");
+  assert.equal(explicitRunContext.values["r.username"], "source-user");
 });
 
 test("dispatch expands each Test Case by its own associated Data Set rows and snapshots each result row", async () => {
@@ -132,12 +132,12 @@ test("dispatch expands each Test Case by its own associated Data Set rows and sn
   assert.ok(caseLoopStart >= 0 && caseLoopEnd > caseLoopStart);
   assert.match(schema, /execution_case_snapshots[\s\S]*test_data_set_id/);
   assert.match(schema, /execution_case_snapshots[\s\S]*test_data_set_snapshot/);
-  assert.match(schema, /data_set_source TEXT CHECK\(data_set_source IS NULL OR data_set_source IN \('run','test_case'\)\)/);
+  assert.match(schema, /data_set_source TEXT CHECK\(data_set_source IS NULL OR data_set_source IN \('run','suite','test_case'\)\)/);
   assert.match(bootstrap, /execution_case_snapshots_data_set_source_check/);
   assert.match(execution, /test_case_data_sets/);
   assert.match(execution, /attachCaseDataSetSnapshots/);
   assert.match(execution, /if \(executionDataSet\?\.snapshot\)[\s\S]*data_set_source: "run"/);
-  assert.match(execution, /data_set_source: "test_case"/);
+  assert.match(execution, /data_set_source: suiteData \? "suite" : "test_case"/);
   assert.match(execution, /materializeDataSetSnapshot/);
   assert.match(caseLoop, /resolveExecutionDataSetIterations/);
   assert.match(caseLoop, /for \(const dataSetIteration of dataSetIterations\)/);
@@ -148,8 +148,8 @@ test("dispatch expands each Test Case by its own associated Data Set rows and sn
   assert.match(callback, /resolveCaseDataSetContext\(execution, caseSnapshot\)/);
   assert.match(callback, /requiredCases\.flatMap/);
   assert.match(callback, /test_data_set_id: caseDataSet\?\.id/);
-  assert.match(openapi, /data_set_source: \{ type: string, nullable: true, enum: \[run, test_case\] \}/);
-  assert.match(engineContract, /source\?: "run" \| "test_case"/);
+  assert.match(openapi, /data_set_source: \{ type: string, nullable: true, enum: \[run, suite, test_case\] \}/);
+  assert.match(engineContract, /source\?: "run" \| "suite" \| "test_case"/);
 });
 
 test("manual API-step execution selects and persists the requested frozen Data Set row", async () => {

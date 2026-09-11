@@ -2,6 +2,7 @@ const adminPortalService = require("../services/adminPortal.service");
 const userService = require("../services/user.service");
 const featureFlagService = require("../services/featureFlag.service");
 const integrationService = require("../services/integration.service");
+const dropdownCatalogService = require("../services/dropdownCatalog.service");
 const { INTEGRATION_TYPE_OPTIONS } = require("../domain/catalog");
 
 const clientIp = (req) => req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || null;
@@ -18,6 +19,17 @@ module.exports = async function (fastify) {
   });
 
   fastify.get("/admin-portal/overview", { preHandler: [fastify.requireAdmin] }, () => adminPortalService.getOverview());
+
+  fastify.get("/admin-portal/dropdowns", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return dropdownCatalogService.getCatalog();
+  });
+
+  fastify.put("/admin-portal/dropdowns/:key", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    fastify.validate({ expected_revision: { required: true, type: "number" }, options: { required: true, type: "array", maxItems: 200 } }, req.body || {});
+    reply.header("Cache-Control", "no-store");
+    return dropdownCatalogService.updateField(req.params.key, req.body, { actorId: req.user.id, ipAddress: clientIp(req) });
+  });
 
   fastify.post("/admin-portal/setup/schema", { preHandler: [fastify.requireAdmin] }, async (req) =>
     adminPortalService.applySchema({ actorId: req.user.id, ipAddress: clientIp(req) }));

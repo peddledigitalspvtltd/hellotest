@@ -58,7 +58,41 @@ const shapeSuite = (suite) => ({
   parallel_count: suite.parallel_count === null || suite.parallel_count === undefined ? null : normalizeParallelCount(suite.parallel_count)
 });
 
-exports.createTestSuite = async ({ app_type_id, name, parent_id, labels, parameter_values, parallel_enabled, parallel_count, created_by }) => {
+const assertParentHierarchy = async (suiteId, parentId, appTypeId) => {
+  const ancestors = await db.prepare(`
+    WITH RECURSIVE ancestors AS (
+      SELECT id, parent_id, app_type_id, ARRAY[id] AS path, FALSE AS cyclic
+      FROM test_suites WHERE id = ?
+      UNION ALL
+      SELECT parent.id, parent.parent_id, parent.app_type_id,
+        ancestors.path || parent.id, parent.id = ANY(ancestors.path)
+      FROM test_suites parent
+      JOIN ancestors ON parent.id = ancestors.parent_id
+      WHERE NOT ancestors.cyclic
+    )
+    SELECT id, app_type_id, cyclic FROM ancestors
+  `).all(parentId);
+  if (!ancestors.length) throw new Error("Parent test suite not found");
+  if (ancestors.some((ancestor) => ancestor.id === suiteId || ancestor.cyclic)) {
+    throw Object.assign(new Error("A test suite cannot be moved beneath itself or a descendant"), {
+      statusCode: 409, code: "SUITE_HIERARCHY_CYCLE"
+    });
+  }
+  if (ancestors.some((ancestor) => ancestor.app_type_id !== appTypeId)) {
+    throw new Error("Parent suite must belong to the same app type");
+  }
+};
+
+const validateSuiteDataSet = async (appTypeId, dataSetId) => {
+  if (!dataSetId) return null;
+  const data = await db.prepare(`SELECT data.id FROM test_data_sets data JOIN app_types app ON app.id = ?
+    WHERE data.id = ? AND data.project_id = app.project_id AND (data.app_type_id IS NULL OR data.app_type_id = app.id)`)
+    .get(appTypeId, dataSetId);
+  if (!data) throw Object.assign(new Error("Suite test data must belong to the same project and application, or be shared with the project."), { statusCode: 400 });
+  return data.id;
+};
+
+exports.createTestSuite = async ({ app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, parallel_enabled, parallel_count, created_by }) => {
   if (!app_type_id || !name) {
     throw new Error("Missing required fields");
   }
@@ -80,20 +114,23 @@ exports.createTestSuite = async ({ app_type_id, name, parent_id, labels, paramet
     }
   }
 
+  const dataSetId = await validateSuiteDataSet(app_type_id, test_data_set_id);
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("test_suite");
 
   await db.prepare(`
-    INSERT INTO test_suites (id, display_id, app_type_id, name, parent_id, labels, parameter_values, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO test_suites (id, display_id, app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     id,
     display_id,
     app_type_id,
     name,
+    description || null,
     parent_id || null,
     normalizeReferenceList(labels),
     normalizeParameterValues(parameter_values),
+    dataSetId,
     parallel_enabled === undefined ? null : normalizeBoolean(parallel_enabled),
     parallel_enabled === undefined ? null : normalizeParallelCount(parallel_count),
     created_by || null,
@@ -144,40 +181,40 @@ exports.getTestSuite = async (id) => {
 
 exports.updateTestSuite = async (id, data) => {
   const transaction = db.transaction(async () => {
+    if (data.parent_id !== undefined) {
+      // Serialize moves before locking individual suites. Otherwise concurrent
+      // A→B and B→A requests can each validate an outdated, acyclic hierarchy.
+      await db.prepare(`
+        SELECT pg_advisory_xact_lock(hashtextextended('test-suite-hierarchy:' || app_type_id, 0))
+        FROM test_suites WHERE id = ?
+      `).get(id);
+    }
     const existing = await db.prepare(`SELECT * FROM test_suites WHERE id = ? FOR UPDATE`).get(id);
     if (!existing) throw new Error("Test suite not found");
     const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Test suite");
 
+    const dataSetId = data.test_data_set_id !== undefined ? await validateSuiteDataSet(existing.app_type_id, data.test_data_set_id) : existing.test_data_set_id;
     let parentId = data.parent_id;
 
     if (parentId === undefined) {
       parentId = existing.parent_id;
     }
 
-    if (parentId === id) {
-      throw new Error("A test suite cannot be its own parent");
-    }
-
     if (parentId) {
-      const parentSuite = await db.prepare(`
-        SELECT id, app_type_id FROM test_suites WHERE id = ?
-      `).get(parentId);
-
-      if (!parentSuite) throw new Error("Parent test suite not found");
-      if (parentSuite.app_type_id !== existing.app_type_id) {
-        throw new Error("Parent suite must belong to the same app type");
-      }
+      await assertParentHierarchy(id, parentId, existing.app_type_id);
     }
 
     await db.prepare(`
       UPDATE test_suites
-      SET name = ?, parent_id = ?, labels = ?, parameter_values = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
+      SET name = ?, description = ?, parent_id = ?, labels = ?, parameter_values = ?, test_data_set_id = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
       WHERE id = ?
     `).run(
       data.name ?? existing.name,
+      data.description !== undefined ? data.description || null : existing.description,
       parentId || null,
       data.labels !== undefined ? normalizeReferenceList(data.labels) : normalizeStoredReferenceList(existing.labels),
       data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
+      dataSetId || null,
       data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
       data.parallel_enabled !== undefined || data.parallel_count !== undefined
         ? normalizeParallelCount(data.parallel_count, existing.parallel_count || 1)

@@ -5,6 +5,8 @@ export function useDomainMetadata() {
   return useQuery({
     queryKey: ["domain-metadata"],
     queryFn: api.metadata.domain,
-    staleTime: 10 * 60 * 1000
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: "always"
   });
 }

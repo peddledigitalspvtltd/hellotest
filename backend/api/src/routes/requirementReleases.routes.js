@@ -7,6 +7,14 @@ const ensureReleaseAccess = async (id, userId) => {
   return release;
 };
 
+const requireReadinessSources = async (fastify, req, projectId) => {
+  // A delivery role alone must not expose case, run or defect aggregates.
+  // Use the same guard as direct resource reads, including API-key and flags.
+  for (const permission of ["requirement_iteration.view", "requirement.view", "testcase.view", "run.view", "result.view", "feedback.view"]) {
+    await fastify.requirePermission(permission, { projectId })(req);
+  }
+};
+
 const releaseFields = {
   name: { required: false, type: "string", minLength: 2, maxLength: 255 },
   description: { required: false, type: "string", maxLength: 20000 },
@@ -48,6 +56,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" } }, req.query || {});
     await projectService.getProject(req.query.project_id, req.user.id);
+    await requireReadinessSources(fastify, req, req.query.project_id);
     return service.listReadiness({ project_id: req.query.project_id });
   });
 
@@ -61,14 +70,14 @@ module.exports = async function (fastify) {
   fastify.get("/requirement-releases/:id/readiness", async (req) => {
     await fastify.authenticate(req);
     const release = await ensureReleaseAccess(req.params.id, req.user.id);
-    await fastify.requirePermission("requirement_iteration.view", { projectId: release.project_id })(req);
+    await requireReadinessSources(fastify, req, release.project_id);
     return service.getReadiness(req.params.id);
   });
 
   fastify.post("/requirement-releases/:id/release-notes", async (req) => {
     await fastify.authenticate(req);
     const release = await ensureReleaseAccess(req.params.id, req.user.id);
-    await fastify.requirePermission("requirement_iteration.view", { projectId: release.project_id })(req);
+    await requireReadinessSources(fastify, req, release.project_id);
     let allowAi = false;
     try {
       await fastify.requirePermission("requirement.ai", { projectId: release.project_id })(req);

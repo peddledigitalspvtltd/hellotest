@@ -104,7 +104,7 @@ const hydrateDataSet = (row) => ({
 exports.redactTestDataSetRows = redactTestDataSetRows;
 
 const getStoredTestDataSet = async (id) => {
-  const row = await db.prepare("SELECT * FROM test_data_sets WHERE id = ?").get(id);
+  const row = await db.prepare("SELECT * FROM test_data_sets WHERE id = ? FOR UPDATE").get(id);
   if (!row) throw new Error("Test data set not found");
   return { ...row, mode: normalizeMode(row.mode), columns: parseJsonArray(row.columns), rows: parseJsonArray(row.rows) };
 };
@@ -190,12 +190,43 @@ exports.getTestDataSet = async (id) => {
   return hydrateDataSet(dataSet);
 };
 
-exports.updateTestDataSet = async (id, data) => {
+const assertLinkedScopeCompatibility = async (id, projectId, appTypeId) => {
+  const incompatible = await db.prepare(`
+    SELECT 1 AS incompatible FROM (
+      SELECT COALESCE(case_app.project_id, story.project_id) AS project_id,
+        COALESCE(linked_case.app_type_id, legacy_suite.app_type_id) AS app_type_id
+      FROM test_case_data_sets AS mapping
+      JOIN test_cases AS linked_case ON linked_case.id = mapping.test_case_id
+      LEFT JOIN test_suites AS legacy_suite ON legacy_suite.id = linked_case.suite_id
+      LEFT JOIN app_types AS case_app ON case_app.id = COALESCE(linked_case.app_type_id, legacy_suite.app_type_id)
+      LEFT JOIN requirements AS story ON story.id = linked_case.requirement_id
+      WHERE mapping.test_data_set_id = ?
+      UNION ALL
+      SELECT suite_app.project_id, suite.app_type_id
+      FROM test_suites AS suite
+      LEFT JOIN app_types AS suite_app ON suite_app.id = suite.app_type_id
+      WHERE suite.test_data_set_id = ?
+    ) AS linked_context
+    WHERE linked_context.project_id IS DISTINCT FROM ?
+      OR (?::text IS NOT NULL AND linked_context.app_type_id IS DISTINCT FROM ?)
+    LIMIT 1
+  `).get(id, id, projectId, appTypeId, appTypeId);
+  if (incompatible) {
+    throw Object.assign(new Error("This Test Data Set is linked to Test Cases or Suites outside the proposed scope. Remove or update those links before moving it."), {
+      statusCode: 409, code: "DATA_SET_SCOPE_CONFLICT"
+    });
+  }
+};
+
+exports.updateTestDataSet = async (id, data) => db.transaction(async () => {
   const existing = await getStoredTestDataSet(id);
   const projectId = data.project_id ?? existing.project_id;
   const appTypeId = data.app_type_id === undefined ? existing.app_type_id : data.app_type_id || null;
 
   await validateProjectAppTypeScope(projectId, appTypeId);
+  if (projectId !== existing.project_id || appTypeId !== (existing.app_type_id || null)) {
+    await assertLinkedScopeCompatibility(id, projectId, appTypeId);
+  }
 
   const nextMode = normalizeMode(data.mode ?? existing.mode);
   const nextColumns = normalizeColumns(
@@ -233,7 +264,7 @@ exports.updateTestDataSet = async (id, data) => {
   );
 
   return { updated: true };
-};
+})();
 
 exports.deleteTestDataSet = async (id) => {
   const deleted = await db.prepare(`

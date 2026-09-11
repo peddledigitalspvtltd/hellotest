@@ -19,9 +19,9 @@ test("API captures retain standard and quoted destinations while resolving paths
   const result = await executeApiStepInEngine(envelope, { api_request: {
     method: "POST", url: "https://example.test/token", body_mode: "text", body: "@r.token|@r.[Refresh Token]",
     captures: [
-      { path: "@t.token_path", parameter: "@r.token" },
-      { path: "@t.refresh_path", parameter: "@r.[Refresh Token]" },
-      { path: "@t.escaped_path", parameter: escapedDestination }
+      { path: "@token_path", parameter: "@r.token" },
+      { path: "@refresh_path", parameter: "@r.[Refresh Token]" },
+      { path: "@escaped_path", parameter: escapedDestination }
     ]
   } }, { "r.token": "previous-token", "r.refresh token": "previous-refresh", "r.token]path\\id": "previous-escaped" });
   assert.equal(sentRequests[0].body, "previous-token|previous-refresh");

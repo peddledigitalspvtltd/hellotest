@@ -12,7 +12,7 @@ import { hasPermission } from "../lib/permissions";
 import { FormField } from "./FormField";
 import { RunPlanningFields } from "./RunPlanningFields";
 import { ExecutionContextSelector } from "./ExecutionContextSelector";
-import { RunParameterTemplateButton } from "./RunParameterTemplateButton";
+import { RunDataSetup } from "./RunDataSetup";
 import { MultiAssigneePicker } from "./MultiAssigneePicker";
 import { SuiteCasePicker, SuiteScopePicker } from "./SuiteCasePicker";
 import "./suite-authoring-reference.css";
@@ -137,7 +137,7 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
                 <legend>Run configuration</legend>
                 {runtimeLocked ? <p>Environment, test data and execution settings are fixed after this run starts.</p> : null}
                 <ExecutionContextSelector projectId={execution.project_id} appTypeId={execution.app_type_id || ""} selectedEnvironmentId={draft.test_environment_id} selectedConfigurationId={draft.test_configuration_id} selectedDataSetId={draft.test_data_set_id} onEnvironmentChange={(value) => set("test_environment_id", value)} onConfigurationChange={(value) => set("test_configuration_id", value)} onDataSetChange={(value) => set("test_data_set_id", value)} preserveMissingSelection />
-                <RunParameterTemplateButton projectId={execution.project_id} cases={caseOptions.filter((item) => draft.test_case_ids.includes(item.id) || (item.suite_ids || [item.suite_id]).some((id) => id && draft.suite_ids.includes(id)) || suiteOptions.some((suite) => draft.suite_ids.includes(suite.id) && suite.test_case_ids?.includes(item.id)))} suites={suiteOptions.filter((suite) => draft.suite_ids.includes(suite.id))} environmentId={draft.test_environment_id} configurationId={draft.test_configuration_id} dataSetId={draft.test_data_set_id} disabled={fieldsDisabled || runtimeLocked} />
+                <RunDataSetup executionId={execution.id} appTypeId={execution.app_type_id || ""} onDataSetChange={value => set("test_data_set_id", value)} projectId={execution.project_id} cases={caseOptions.filter((item) => draft.test_case_ids.includes(item.id))} suites={suiteOptions.filter((suite) => draft.suite_ids.includes(suite.id))} environmentId={draft.test_environment_id} configurationId={draft.test_configuration_id} dataSetId={draft.test_data_set_id} disabled={fieldsDisabled || runtimeLocked} />
                 <label className="checkbox-field"><input type="checkbox" checked={draft.parallel_enabled} disabled={!canConfigureParallelAutomation} onChange={(event) => set("parallel_enabled", event.target.checked)} />Run automation in parallel</label>
                 {draft.parallel_enabled ? <FormField label="Parallel workers"><input type="number" min={1} max={100} disabled={!canConfigureParallelAutomation} value={draft.parallel_count} onChange={(event) => set("parallel_count", Math.max(1, Number(event.target.value) || 1))} /></FormField> : null}
               </fieldset>

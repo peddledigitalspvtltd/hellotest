@@ -12,7 +12,8 @@ const {
   normalizeTestStepType
 } = require("../utils/testStepAutomation");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
-const { resolveParameterLayers, normalizeParameterLayer, collectPriorParameterCaptures } = require("../utils/stepParameterResolution");
+const { resolveParameterLayers, normalizeParameterLayer, collectPriorParameterCaptures, matchesParameterIteration } = require("../utils/stepParameterResolution");
+const { preserveFrozenEngineEnvelope, normalizeFrozenCapturedValues } = require("../utils/frozenRunParameterCompatibility");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
 const { resolveTestEngineSecret } = require("../security/runtimeSecrets");
 const { readBoundedResponseJson } = require("../utils/boundedResponse");
@@ -102,10 +103,10 @@ const selectLatestJobStatusesForExecution = obsDb.prepare(`
 `);
 
 const selectLatestLogsForExecution = db.prepare(`
-  SELECT DISTINCT ON (test_case_id) test_case_id, logs
+  SELECT DISTINCT ON (test_case_id, COALESCE(data_set_iteration_index, -1)) test_case_id, logs, test_data_set_id, data_set_iteration_index
   FROM execution_results
   WHERE execution_id = ?
-  ORDER BY test_case_id ASC, created_at DESC, id DESC
+  ORDER BY test_case_id ASC, COALESCE(data_set_iteration_index, -1) ASC, created_at DESC, id DESC
 `);
 
 
@@ -145,9 +146,10 @@ const insertJob = obsDb.prepare(`
 `);
 
 const selectJob = obsDb.prepare(`
-  SELECT *
-  FROM test_engine_jobs
-  WHERE id = ?
+  SELECT jobs.*, executions.parameter_scope_default AS execution_parameter_scope_default
+  FROM test_engine_jobs jobs
+  LEFT JOIN executions ON executions.id = jobs.execution_id
+  WHERE jobs.id = ?
 `);
 
 const selectQueueStats = obsDb.prepare(`
@@ -949,7 +951,7 @@ const resolveCaseDataSetContext = (execution, caseSnapshot) => {
       id: caseSnapshot?.test_data_set_id || caseSnapshotData?.id || null,
       name: caseSnapshot?.test_data_set_name || caseSnapshotData?.name || "Deleted data set",
       snapshot: caseSnapshotData,
-      source: caseSnapshot?.data_set_source === "test_case" ? "test_case" : "run"
+      source: ["test_case", "suite"].includes(caseSnapshot?.data_set_source) ? caseSnapshot.data_set_source : "run"
     };
   }
 
@@ -1023,7 +1025,7 @@ const buildManualSpec = ({ caseSnapshot, steps, execution }) => {
     })),
     assertions: steps.map((step) => step.expected_result).filter(Boolean),
     test_data: {
-      ...normalizeParameterLayer(normalizeStringRecord(caseSnapshot.parameter_values), "t"),
+      ...normalizeParameterLayer(normalizeStringRecord(caseSnapshot.parameter_values), "r"),
       ...normalizeParameterLayer(normalizeStringRecord(caseSnapshot.suite_parameter_values), "s")
     },
     environment_notes: normalizeText(execution.test_environment?.snapshot?.notes)
@@ -1066,8 +1068,9 @@ const buildEngineEnvelope = async ({
   const executionPolicy = await resolveExecutionPolicy(execution, caseSnapshot);
   const caseDataSet = resolveCaseDataSetContext(execution, caseSnapshot);
 
-  return {
+  return preserveFrozenEngineEnvelope({
     engine_run_id: engineRunId,
+    parameter_scope_default: execution.parameter_scope_default || "r",
     hellotest_run_id: execution.id,
     hellotest_execution_id: execution.id,
     hellotest_test_case_id: caseSnapshot.test_case_id,
@@ -1207,7 +1210,7 @@ const buildEngineEnvelope = async ({
       max_video_attachment_mb: Math.max(1, normalizeInteger(integrationConfig.max_video_attachment_mb, 25) ?? 25)
     },
     callback: null
-  };
+  }, execution.parameter_scope_default);
 };
 
 const summarizeWarnings = (warnings) => {
@@ -1285,10 +1288,13 @@ const hydrateJob = (row) => {
     return null;
   }
 
+  const payload = normalizeJsonValue(row.payload, {});
+  const scope = row.execution_parameter_scope_default || payload.parameter_scope_default || "r";
+  const runtime = parseRuntimeState(row.runtime_state);
   return {
     ...row,
-    payload: normalizeJsonValue(row.payload, {}),
-    runtime_state: parseRuntimeState(row.runtime_state)
+    payload: preserveFrozenEngineEnvelope(payload, scope),
+    runtime_state: { ...runtime, captured_values: normalizeFrozenCapturedValues(runtime.captured_values, scope) }
   };
 };
 
@@ -1299,7 +1305,7 @@ const buildRuntimeParameterValues = (envelope, capturedValues = {}) => resolvePa
   configurationVariables: envelope.configuration?.variables,
   runValues: envelope.run_parameters,
   dataSet: envelope.data_set,
-  capturedValues
+  capturedValues: normalizeFrozenCapturedValues(capturedValues, envelope.parameter_scope_default)
 });
 
 const resultStatusToJobStatus = (status) => {
@@ -1903,7 +1909,7 @@ async function queueSingleStepDispatch({
   });
   const jobId = uuid();
   const runtimeLogs = parseStructuredLogs(existingLogs);
-  const runtimeCapturedValues = normalizeCapturedValuesRecord(capturedValues);
+  const runtimeCapturedValues = normalizeFrozenCapturedValues(capturedValues, execution.parameter_scope_default);
   delete runtimeLogs.stepStatuses[step.id];
 
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {
@@ -1969,7 +1975,7 @@ async function getQueuedJob(id) {
 const isFinalResultStatus = (status) => ["passed", "failed", "blocked"].includes(normalizeText(status));
 const isFinalJobStatus = (status) => ["completed", "failed", "aborted"].includes(normalizeText(status));
 
-const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, suiteScoped) => {
+const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, suiteScoped, iteration = {}, defaultScope = "r") => {
   const orderRows = toRowArray(await selectExecutionCaseOrder.all(executionId));
   const current = orderRows.find((row) => row.test_case_id === testCaseId);
 
@@ -1992,11 +1998,12 @@ const collectPriorExecutionCaptures = async (executionId, testCaseId, suiteId, s
 
   const capturesByCaseId = {};
   for (const row of toRowArray(await selectLatestLogsForExecution.all(executionId))) {
-    if (!priorIds.has(row.test_case_id) || Object.hasOwn(capturesByCaseId, row.test_case_id)) {
+    if (!matchesParameterIteration(row, iteration) || !priorIds.has(row.test_case_id) || Object.hasOwn(capturesByCaseId, row.test_case_id)) {
       continue;
     }
 
-    capturesByCaseId[row.test_case_id] = executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs);
+    capturesByCaseId[row.test_case_id] = normalizeFrozenCapturedValues(
+      executionStepRuntimeService.extractCapturedValuesFromLogs(row.logs), defaultScope);
   }
 
   return collectPriorParameterCaptures(orderRows, testCaseId, capturesByCaseId);
@@ -2099,7 +2106,8 @@ const isQueuedJobLeaseEligible = async (candidate) => {
 const attachPriorCapturesForLease = async (job) => {
   const policy = job.payload?.execution_policy || {};
   const suiteScoped = Boolean(policy.suite_parallel_override && policy.suite_id);
-  const priorCaptures = await collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped);
+  const priorCaptures = await collectPriorExecutionCaptures(job.execution_id, job.test_case_id, policy.suite_id || null, suiteScoped,
+    { test_data_set_id: job.payload?.data_set?.id, data_set_iteration_index: job.payload?.data_set?.iteration?.index }, job.payload?.parameter_scope_default);
 
   if (!Object.keys(priorCaptures).length) {
     return job;
@@ -2384,7 +2392,7 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     api_request: step.api_request,
     parameter_values: parameterValues
   });
-  const normalizedStepCaptures = normalizeCapturedValuesRecord(stepResult.captures);
+  const normalizedStepCaptures = normalizeFrozenCapturedValues(stepResult.captures, job.payload?.parameter_scope_default);
   const formattedStepNote = executionStepRuntimeService.formatApiStepEvidenceNote(stepResult);
   const mergedLogs = {
     ...existingLogs,
@@ -2542,7 +2550,7 @@ exports.reportQueuedStep = async ({
   const normalizedApiDetail = normalizeApiDetail(api_detail);
   const normalizedWebDetail = normalizeWebDetail(web_detail);
   const normalizedAutomationDetail = normalizeAutomationDetail(automation_detail);
-  const normalizedCaptures = normalizeCapturedValuesRecord(captures);
+  const normalizedCaptures = normalizeFrozenCapturedValues(captures, job.payload?.parameter_scope_default);
   const recoveryAttempted = Boolean(recovery_attempted);
   const recoverySucceeded = Boolean(recovery_succeeded);
   const mergedLogs = {

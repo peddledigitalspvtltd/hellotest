@@ -25,10 +25,11 @@ test("reference workspaces use bounded cursor pagination", () => {
   assert.throws(() => paginate([], { cursor: "not-a-valid-cursor" }), /cursor is invalid/);
 });
 
-test("native Story and Bug metadata preserves the reference UI field contract", () => {
+test("native Story and Bug metadata preserves the reference UI field contract", async (t) => {
+  t.mock.method(require("../src/services/dropdownCatalog.service"), "getOptions", async () => []);
   const project = { id: "project-1", display_id: "QA" };
   const story = requirementMetadata({ project, mode: "edit", currentValues: { status: "open" } });
-  const bug = issueMetadata({ project });
+  const bug = await issueMetadata({ project });
 
   assert.equal(story.issue_type_name, "Story");
   assert.equal(story.project_key, "QA");
@@ -37,6 +38,29 @@ test("native Story and Bug metadata preserves the reference UI field contract", 
   assert.equal(bug.issue_type_name, "Bug");
   assert.equal(bug.core_fields.some((item) => item.id === "assignee"), true);
   assert.match(story.strategy.requirements_source, /PostgreSQL/);
+});
+
+test("Bug classification metadata includes active custom choices and only the saved retired value", async (t) => {
+  t.mock.method(require("../src/services/dropdownCatalog.service"), "getOptions", async (key, options) => {
+    assert.deepEqual(options, { includeInactive: true });
+    return [
+      { value: `${key}-active`, label: "Custom active classification", active: true },
+      { value: `${key}-retired`, label: "Retired classification", active: false },
+      { value: `${key}-other-retired`, label: "Other retired classification", active: false }
+    ];
+  });
+  const project = { id: "project" };
+  const created = await issueMetadata({ project });
+  for (const field of created.core_fields.filter(field => ["root_cause", "qa_root_cause", "bug_type"].includes(field.id))) {
+    assert.equal(field.allowed_values.length, 1);
+    assert.equal(field.allowed_values[0].label, "Custom active classification");
+  }
+  const edited = await issueMetadata({ project, mode: "edit", currentValues: { root_cause: "issues.root_causes-retired", qa_root_cause: "Legacy cause" } });
+  assert.deepEqual(edited.core_fields.find(field => field.id === "root_cause").allowed_values.map(option => option.value), ["issues.root_causes-active", "issues.root_causes-retired"]);
+  assert.equal(edited.core_fields.find(field => field.id === "root_cause").allowed_values[1].inactive, true);
+  const legacy = edited.core_fields.find(field => field.id === "qa_root_cause").allowed_values.find(option => option.value === "Legacy cause");
+  assert.equal(legacy.current, true);
+  assert.equal(legacy.inactive, true);
 });
 
 test("revision contracts reject stale writes with a conflict response", () => {

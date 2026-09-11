@@ -444,7 +444,7 @@ export function replaceGherkinExamples(sections: GherkinDocumentSections, value:
   return { ...sections, scenarios };
 }
 
-function normalizeGherkinParameterName(value: string, fallbackScope = "t") {
+function normalizeGherkinParameterName(value: string, fallbackScope = "r") {
   const trimmed = value.trim().replace(/^@+/, "");
   const scopedMatch = trimmed.match(/^([tsr])\.(.+)$/i);
   const scope = String(scopedMatch?.[1] || fallbackScope).toLowerCase();
@@ -547,7 +547,7 @@ export function resolveGherkinParameterText(text: string, parameterValues: Recor
         return resolvedValue === null ? token : resolvedValue;
       }
       if (!scope && /^[tsr]$/i.test(name) && source[offset + token.length] === ".") return token;
-      const key = normalizeGherkinParameterName(`${scope || "t"}.${name}`);
+      const key = normalizeGherkinParameterName(`${scope || "r"}.${name}`);
       return Object.prototype.hasOwnProperty.call(normalizedValues, key) ? normalizedValues[key] : token;
     });
   }).join("\n");

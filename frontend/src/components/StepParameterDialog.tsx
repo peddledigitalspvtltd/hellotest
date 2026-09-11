@@ -9,7 +9,6 @@ import { DialogCloseButton } from "./DialogCloseButton";
 import { FormField } from "./FormField";
 import { TestDataIcon } from "./AppIcons";
 import type { StepParameterDefinition } from "../lib/stepParameters";
-import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate, TEST_DATA_GENERATOR_TEMPLATES } from "../lib/testDataGenerators";
 import "./StepParameterDialog.css";
 
@@ -39,7 +38,7 @@ export function StepParameterDialog({
   title,
   subtitle,
   parameters,
-  templateParameters = parameters,
+  templateParameters: _templateParameters = parameters,
   values,
   onChange,
   onClose,
@@ -77,8 +76,8 @@ export function StepParameterDialog({
   const dialogId = useId();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
     t: false,
-    s: true,
-    r: true
+    s: false,
+    r: false
   });
   const groupedParameters = [
     {
@@ -246,7 +245,6 @@ export function StepParameterDialog({
             {subtitle ? <span>{subtitle}</span> : null}
           </div>
           <div className="step-parameter-dialog-head-meta">
-            <button className="ghost-button compact" disabled={!templateParameters.length} onClick={() => downloadParameterCsvTemplate(templateParameters)} type="button">Download parameter template</button>
             {dynamicParameterCount && onRefreshPreviews ? (
               <button className="ghost-button compact" onClick={onRefreshPreviews} type="button">
                 Refresh previews

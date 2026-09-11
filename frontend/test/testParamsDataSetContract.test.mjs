@@ -36,14 +36,14 @@ test("linked table Data Sets expose every declared first-row column as immutable
   const original = structuredClone(dataSet);
 
   assert.deepEqual(buildDataSetParameterValues(dataSet), {
-    "t.username": "Jay",
-    "t.password": "secret",
-    "t.role": "admin",
-    "t.tenant": "QAIra"
+    "r.username": "Jay",
+    "r.password": "secret",
+    "r.role": "admin",
+    "r.tenant": "QAIra"
   });
   assert.deepEqual(
     buildDataSetParameterDefinitions(dataSet, dataSet.name).map((parameter) => parameter.name),
-    ["t.username", "t.password", "t.role", "t.tenant", "t.region"]
+    ["r.username", "r.password", "r.role", "r.tenant", "r.region"]
   );
   assert.deepEqual(dataSet, original, "building case-level Test Params must not mutate reusable Data Set rows");
 });
@@ -60,12 +60,12 @@ test("case Test Param overrides resolve saved step references without changing D
   const original = structuredClone(source);
   const instanceValues = combineStepParameterValues(
     buildDataSetParameterValues(source),
-    { "t.username": "Jay" }
+    { "r.username": "Jay" }
   );
 
-  assert.equal(instanceValues["t.username"], "Jay");
-  assert.equal(instanceValues["t.password"], "source-password");
-  assert.equal(resolveStepParameterText("Login and enter @t.username", instanceValues), "Login and enter Jay");
+  assert.equal(instanceValues["r.username"], "Jay");
+  assert.equal(instanceValues["r.password"], "source-password");
+  assert.equal(resolveStepParameterText("Login and enter @r.username", instanceValues), "Login and enter Jay");
   assert.deepEqual(source, original);
 });
 
@@ -77,21 +77,21 @@ test("linked Data Set definitions are unioned with authored Test Params without 
   }, "Login users");
   const definitions = mergeStepParameterDefinitions([
     {
-      name: "t.username",
+      name: "r.username",
       rawName: "username",
       label: "username",
-      token: "@t.username",
-      scope: "t",
-      scopeLabel: "Test case",
+      token: "@r.username",
+      scope: "r",
+      scopeLabel: "Run",
       stepIds: ["step-1"],
       occurrenceCount: 1,
       source: "authoring"
     }
   ], dataSetDefinitions);
 
-  assert.deepEqual(definitions.map((definition) => definition.name), ["t.role", "t.username"]);
-  assert.equal(definitions.find((definition) => definition.name === "t.username")?.occurrenceCount, 1);
-  assert.equal(definitions.find((definition) => definition.name === "t.username")?.sourceLabel, "Login users");
+  assert.deepEqual(definitions.map((definition) => definition.name), ["r.role", "r.username"]);
+  assert.equal(definitions.find((definition) => definition.name === "r.username")?.occurrenceCount, 1);
+  assert.equal(definitions.find((definition) => definition.name === "r.username")?.sourceLabel, "Login users");
 });
 
 test("Test Case authoring names case-level values Test Params and merges linked Data Set defaults before overrides", async () => {

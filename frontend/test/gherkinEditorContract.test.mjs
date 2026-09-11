@@ -58,7 +58,7 @@ test("Gherkin display resolves scoped and outline parameters without changing un
 
   const resolved = resolveGherkinParameterText(source, {
     "s.tenant": "HelloTest Demo",
-    "t.role": "buyer",
+    "r.role": "buyer",
     "t.card": "Visa 4242",
     "r.build": "2026.08.20"
   });
@@ -103,16 +103,16 @@ test("sensitive linked Test Data remains a named unresolved parameter", () => {
     ]
   };
 
-  assert.deepEqual(buildDataSetParameterValues(dataSet), { "t.username": "jay" });
-  assert.deepEqual(collectSensitiveDataSetParameterNames(dataSet), ["t.password"]);
-  assert.equal(buildDataSetParameterDefinitions(dataSet).find((item) => item.name === "t.password")?.sensitive, true);
+  assert.deepEqual(buildDataSetParameterValues(dataSet), { "r.username": "jay" });
+  assert.deepEqual(collectSensitiveDataSetParameterNames(dataSet), ["r.password"]);
+  assert.equal(buildDataSetParameterDefinitions(dataSet).find((item) => item.name === "r.password")?.sensitive, true);
   assert.deepEqual(
-    excludeSensitiveStepParameterValues({ "t.username": "override", "t.password": "leaked override" }, ["t.password"]),
-    { "t.username": "override" }
+    excludeSensitiveStepParameterValues({ "r.username": "override", "r.password": "leaked override" }, ["r.password"]),
+    { "r.username": "override" }
   );
   assert.equal(
-    resolveGherkinParameterText("Given @t.username enters @t.password", buildDataSetParameterValues(dataSet)),
-    "Given jay enters @t.password"
+    resolveGherkinParameterText("Given @r.username enters @r.password", buildDataSetParameterValues(dataSet)),
+    "Given jay enters @r.password"
   );
 });
 

@@ -39,6 +39,10 @@ const requestsSensitiveDisclosure = (value) => {
   return true;
 };
 const EXPLICITLY_OUTSIDE_DOMAIN = /\b(?:weather forecast|sports score|stock price|crypto price|investment advice|medical diagnosis|write malware|phishing email|celebrity gossip|recipe for|dating advice)\b/i;
+const ASSISTANT_TURN_TIMEOUT_MS = 90_000;
+const ANSWER_FINALIZATION_RESERVE_MS = 10_000;
+const answerModelTimeout = () => Math.max(0, Math.min(45_000,
+  (execution.current()?.turn?.deadlineAt ?? (Date.now() + 55_000)) - Date.now() - ANSWER_FINALIZATION_RESERVE_MS));
 
 const createError = (message, statusCode = 400, code) => {
   const error = new Error(message);
@@ -213,6 +217,7 @@ const assertSessionAccess = async (id, user) => {
 };
 
 const insertMessage = async ({ sessionId, projectId, role, content, status, citations = [], retrieval = {}, safety = {}, provider, model, clientTurnId, contentFingerprint, ignoreConflict = false }) => {
+  execution.assertActive();
   const id = uuid();
   const safeContent = sanitizeKnowledgeText(normalizeText(content, 16_000));
   const row = await db.prepare(`
@@ -615,7 +620,7 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
   const candidate = await requestJsonCompletion({
     integration,
     operation: "knowledge.assistant.synthesize",
-    timeoutMs: 45_000,
+    timeoutMs: answerModelTimeout(),
     outputSchema: modelRequest.output_schema,
     messages: [
       { role: "system", content: [
@@ -1309,7 +1314,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     }
   }
 
-  execution.current().pendingMessageId = userMessage.id;
+  execution.current().turn.pendingMessageId = userMessage.id;
   let outcome;
   let provider = null;
   let model = null;
@@ -1463,7 +1468,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     SELECT * FROM ai_knowledge_assistant_messages
     WHERE session_id = ? AND client_turn_id = ? AND role = 'assistant'
   `).get(sessionId, normalizedClientTurnId);
-  execution.current().pendingMessageId = null;
+  execution.current().turn.pendingMessageId = null;
   await db.prepare("UPDATE ai_knowledge_assistant_messages SET status = 'answered', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(userMessage.id);
   await db.prepare("UPDATE ai_knowledge_assistant_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(sessionId);
   execution.emit("COMPLETED", "completed");
@@ -1478,11 +1483,15 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
   });
 };
 
-const respond = (input) => execution.run({ signal: input.signal, onProgress: input.onProgress }, async () => {
-  try { return await respondInternal(input); }
+const respond = (input) => execution.run({ signal: input.signal, onProgress: input.onProgress,
+  turn: { deadlineAt: Date.now() + ASSISTANT_TURN_TIMEOUT_MS, pendingMessageId: null } }, async () => {
+  try { return await execution.bounded(() => respondInternal(input), { timeoutMs: ASSISTANT_TURN_TIMEOUT_MS }); }
   catch (error) {
-    const pendingId = execution.current().pendingMessageId;
-    if (pendingId) await db.prepare("UPDATE ai_knowledge_assistant_messages SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(pendingId);
+    const pendingId = execution.current().turn.pendingMessageId;
+    // Cleanup has a separate short deadline so a cancelled request can be
+    // resumed with its existing turn ID, even when its main signal is aborted.
+    if (pendingId) await execution.bounded(() => db.prepare("UPDATE ai_knowledge_assistant_messages SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(pendingId),
+      { timeoutMs: 2_000, signal: new AbortController().signal }).catch(() => undefined);
     throw error;
   }
 });
@@ -1510,6 +1519,7 @@ module.exports = {
   retrieve,
   respond,
   _internals: {
+    answerModelTimeout,
     assistantRead,
     readConversationHistory,
     insertMessage,

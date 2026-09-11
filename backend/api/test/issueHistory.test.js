@@ -36,6 +36,7 @@ const installDatabase = (t) => {
       }
       if (/FROM users/.test(sql)) return users[params[0]];
       if (/FROM projects/.test(sql)) return { id: "project-1", name: "Payments" };
+      if (/FROM app_settings/.test(sql)) return undefined;
       if (/FROM feedback/.test(sql)) return state.issue && { ...structuredClone(state.issue), user_name: users[state.issue.user_id]?.name };
       throw new Error(`Unexpected get: ${sql}`);
     },
@@ -125,7 +126,7 @@ test("No-op saves and reordered label sets do not manufacture history entries", 
 test("An invalid QA cause or failed history write cannot partially save a Bug", async (t) => {
   const state = installDatabase(t);
   const { id } = await issues.createIssue(createPayload);
-  await assert.rejects(issues.updateIssue(id, { qa_root_cause: "Unlisted cause" }, { actorId: "editor" }), /Invalid QA Root Cause/);
+  await assert.rejects(issues.updateIssue(id, { qa_root_cause: "Unlisted cause" }, { actorId: "editor" }), { statusCode: 400 });
   state.failHistory = true;
   await assert.rejects(issues.updateIssue(id, { title: "Changed title" }, { actorId: "editor" }), /History write failed/);
   assert.equal(state.issue.title, createPayload.title);

@@ -201,8 +201,12 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
   const startDate = normalizeDate(start_date);
   const endDate = normalizeDate(end_date);
   validateDateRange(startDate, endDate);
+  const nextState = normalizeState(state);
 
   const transaction = db.transaction(async () => {
+    if (nextState === "closed") {
+      await ensureSprintStoriesComplete({ id, name: normalizedName }, requirementIds);
+    }
     await db.prepare(`
       INSERT INTO requirement_iterations (id, display_id, project_id, name, description, goal, labels, external_references, state, start_date, end_date, assignee_id, effort_points, original_dev_id, original_qa_id, created_by, updated_by, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -215,7 +219,7 @@ exports.createIteration = async ({ project_id, name, description, goal, labels, 
       normalizeText(goal) || normalizeText(description),
       JSON.stringify(normalizeTextList(labels)),
       JSON.stringify(normalizeTextList(external_references)),
-      normalizeState(state),
+      nextState,
       startDate,
       endDate,
       normalizeText(assignee_id),
