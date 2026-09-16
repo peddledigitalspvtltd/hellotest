@@ -6,7 +6,7 @@ const { ISSUE_STATUS_VALUES } = require("../domain/catalog");
 const projectService = require("../services/project.service");
 const workspace = require("../services/issueWorkspace.service");
 const { issueMetadata } = require("../utils/nativeIssueMetadata");
-const { paginate, shouldPaginate } = require("../utils/pagination");
+const { shouldPaginate } = require("../utils/pagination");
 
 function registerFeedbackRoutes(fastify, basePath) {
   fastify.get(`${basePath}/create-metadata`, async (req) => {
@@ -92,6 +92,18 @@ function registerFeedbackRoutes(fastify, basePath) {
       error.statusCode = 403;
       throw error;
     }
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.create", { projectId: req.body.project_id })(req);
+    // Drafting may read linked evidence; creating Bugs alone must not expose
+    // test results, cases, or Stories that this role cannot view.
+    const evidencePermissions = [
+      ...(req.body.linked_test_run_id ? ["run.view", "result.view"] : []),
+      ...(req.body.linked_test_case_ids?.length ? ["testcase.view"] : []),
+      ...(req.body.linked_requirement_ids?.length ? ["requirement.view"] : [])
+    ];
+    for (const permission of evidencePermissions) {
+      await fastify.requirePermission(permission, { projectId: req.body.project_id })(req);
+    }
     return aiBugDraftService.preview({ ...req.body, user: req.user });
   });
 
@@ -127,36 +139,37 @@ function registerFeedbackRoutes(fastify, basePath) {
 
     if (req.body.project_id) {
       await projectService.getProject(req.body.project_id, req.user.id);
-      await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+      await fastify.requirePermission("feedback.create", { projectId: req.body.project_id })(req);
     }
     return service.createIssue({ ...req.body, user_id: req.user.id });
   });
 
-  fastify.get(basePath, async (req) => {
+  const catalogFilters = async (req) => {
     await fastify.authenticate(req);
-    const { project_id, user_id, status } = req.query;
+    const { project_id } = req.query;
     if (project_id) {
       await projectService.getProject(project_id, req.user.id);
       await fastify.requirePermission("feedback.view", { projectId: project_id })(req);
-    } else if (req.user.role !== "admin") {
-      const error = new Error("project_id is required when listing Bugs");
-      error.statusCode = 400;
-      throw error;
+    } else if (req.user.role !== "admin" && !req.user.is_workspace_admin) {
+      throw Object.assign(new Error("project_id is required when listing Bugs"), { statusCode: 400 });
     }
-    const items = await service.getIssues({
-      project_id,
-      user_id,
-      status,
+    return {
+      ...req.query,
       viewer_id: req.user.id,
       viewer_is_admin: req.user.role === "admin" || req.user.is_workspace_admin
-    });
-    const searched = req.query.q ? items.filter((item) => `${item.display_id || ""} ${item.title || ""} ${item.message || ""} ${item.jira_bug_key || ""}`.toLowerCase().includes(String(req.query.q).toLowerCase())) : items;
-    return shouldPaginate(req.query) ? paginate(searched, req.query) : searched;
+    };
+  };
+
+  fastify.get(`${basePath}/metrics`, async (req) => service.getIssueMetrics(await catalogFilters(req)));
+
+  fastify.get(basePath, async (req) => {
+    const filters = await catalogFilters(req);
+    return shouldPaginate(req.query) ? service.getIssuePage(filters) : service.getIssues(filters);
   });
 
   fastify.get(`${basePath}/:id`, async (req) => {
     await fastify.authenticate(req);
-    const item = await service.getIssueItem(req.params.id);
+    const item = await service.getIssueItem(req.params.id, { project_id: req.query.project_id, resolveReference: true });
     await fastify.requirePermission("feedback.view", { projectId: item.project_id })(req);
     return item;
   });

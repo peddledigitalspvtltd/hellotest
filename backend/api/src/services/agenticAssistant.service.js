@@ -316,18 +316,24 @@ const buildEvidenceReadiness = ({ context, contextRoute, limitations = [] }) => 
     ["authoritative_live_object_repository_snapshot", "automation"]
   ]);
   const live = parseLiveAgentEvidence(context).filter(({ snapshot }) => evidenceScopes.has(snapshot.evidence_type));
+  const unavailableEvidence = live.flatMap(({ snapshot }) => [
+    ...(snapshot.coverage_available === false ? ["Test Case coverage is unavailable with current access."] : []),
+    ...(snapshot.story_traceability_available === false ? ["Story traceability is unavailable with current access."] : []),
+    ...(snapshot.results_available === false ? ["Run result counts are unavailable with current access."] : [])
+  ]);
   const available = new Set(live.map(({ snapshot }) => evidenceScopes.get(snapshot.evidence_type)));
   const knowledgeCount = (context.knowledge || []).length;
   if (knowledgeCount) available.add("knowledge");
   const missingScopes = (contextRoute?.priority_scopes || []).filter((scope) => scope !== "knowledge" && !available.has(scope));
   const taskEvidenceCount = live.length + knowledgeCount;
   return {
-    status: !taskEvidenceCount ? "insufficient_evidence" : missingScopes.length || limitations.length ? "limited_evidence" : "ready_for_review",
+    status: !taskEvidenceCount ? "insufficient_evidence" : missingScopes.length || limitations.length || unavailableEvidence.length ? "limited_evidence" : "ready_for_review",
     evidence_count: buildCitations(context).length,
     task_evidence_count: taskEvidenceCount,
     missing_scopes: missingScopes,
     limitations: [...new Set([
       ...limitations,
+      ...unavailableEvidence,
       ...(!taskEvidenceCount ? ["No task-specific evidence was available; project metadata alone does not support this review."] : []),
       ...(missingScopes.length ? [`Current evidence was unavailable for: ${missingScopes.join(", ")}.`] : [])
     ])]
@@ -360,16 +366,18 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
         return count(snapshot.without_steps) || count(snapshot.without_story_traceability) ? [{
           scope: "test-cases",
           title: "Test Case authoring or traceability is incomplete",
-          detail: `${count(snapshot.without_steps)} of ${count(snapshot.total_records)} Test Cases have no steps and ${count(snapshot.without_story_traceability)} have no Story link.`,
+          detail: `${count(snapshot.without_steps)} of ${count(snapshot.total_records)} Test Cases have no steps${snapshot.story_traceability_available === false ? "; Story traceability is unavailable with current access" : ` and ${count(snapshot.without_story_traceability)} have no Story link`}.`,
           priority: count(snapshot.without_steps) ? "high" : "medium",
-          action: "Complete executable steps and restore Story traceability before treating the affected cases as release evidence.",
+          action: snapshot.story_traceability_available === false ? "Complete executable steps; Story traceability cannot be assessed with current access." : "Complete executable steps and restore Story traceability before treating the affected cases as release evidence.",
           citation_ids
         }] : [];
       case "authoritative_live_execution_snapshot":
         return count(snapshot.failed_runs) || count(snapshot.failed_results) || count(snapshot.blocked_results) ? [{
           scope: "runs",
           title: "Execution evidence contains failures or blocks",
-          detail: `${count(snapshot.failed_runs)} failed Runs, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results are present in the current snapshot.`,
+          detail: snapshot.results_available === false
+            ? `${count(snapshot.failed_runs)} failed Runs are present in the current snapshot; result counts are unavailable with current access.`
+            : `${count(snapshot.failed_runs)} failed Runs, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results are present in the current snapshot.`,
           priority: count(snapshot.failed_results) ? "high" : "medium",
           action: "Separate observed failure clusters from environment hypotheses and verify the newest affected build first.",
           citation_ids

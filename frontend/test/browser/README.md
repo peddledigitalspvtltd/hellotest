@@ -2,6 +2,26 @@ These optional browser regressions use an existing Playwright installation and
 Chrome/Chromium. They do not require a backend or signed-in account. Component
 tests create isolated Vite fixtures and remove them after each test.
 
+`testCaseDisplayId.test.mjs` checks readable Test Case IDs while details and
+steps load, empty steps, legacy display IDs, and missing display IDs.
+
+`splitActionMenus.test.mjs` compares rendered dropdown colors, typography,
+corners, spacing, and item bounds with their parent split buttons across Test
+Cases, Stories, Run, and Report Bug actions. It checks light/dark themes at
+1440, 390, and 320px, import/AI actions, disabled controls, and menu dismissal.
+Screenshots are saved in `/tmp/qaira-split-action-menus`.
+
+Create-screen regressions (`createPickerForms.test.mjs`,
+`createRunPicker.test.mjs`, and `testCasePicker.test.mjs`) check editable forms
+while picker requests are delayed, 25-record paging, search beyond the first
+page, retained selections and ordering, linked context, and local retries.
+Run browser fixtures sequentially to avoid Vite reloads from another fixture.
+
+The project tile regression (`projectTileNavigation.test.mjs`) mounts the actual
+Projects page inside AppShell. It checks first-click opening, uninterrupted page
+state across project changes, keyboard and mobile opening, and enforcement of
+workspace feature updates after a background refresh.
+
 The workspace switcher regressions (`workspaceProjectSwitcher.test.mjs` and
 `workspaceSwitcherShell.test.mjs`) use the repository's Playwright installation
 and default to Vite on port 5179 (`BROWSER_TEST_BASE_URL` overrides it). They
@@ -17,11 +37,39 @@ Start the frontend with `npm run dev`, then run from `frontend`:
 ```sh
 PLAYWRIGHT_MODULE=/path/to/playwright-core \
 CHROME_EXECUTABLE=/path/to/chrome \
-node --test test/browser/*.test.mjs
+node --test --test-concurrency=1 test/browser/*.test.mjs
 ```
 
 Omit those environment variables when Playwright and its bundled browser are
 already available. `VITE_TEST_URL` defaults to `http://127.0.0.1:5173`.
+
+The shared loader test (`loadingState.test.mjs`) checks viewport centering in
+scrolled and transformed containers at desktop and mobile sizes, concurrent
+request handoff, cleanup, click-through controls, and reduced motion. It also
+checks the admin stylesheet and captures light/dark screenshots in
+`BROWSER_SCREENSHOT_DIR` (default `/tmp/qaira-loading-state`).
+Browser clock checks verify the 160ms no-flash delay, two-second minimum visible
+time, 180ms fade, and cancellation of dismissal when another request starts.
+Ready content remains interactive while the compact indicator finishes.
+
+The catalog regressions (`catalogScroll.test.mjs`, `catalogPages.test.mjs`,
+`storyCatalogPages.test.mjs`, and `testCaseCatalogPage.test.mjs`)
+verify 25-record pages, independent metrics, cached re-entry, server search,
+off-page detail links, nested scroll detection, retained rows and scroll position,
+and retry behavior without a blocking loader or automatic page draining. The Bugs,
+Stories, Backlog, and Test Cases page tests mount the actual pages with isolated
+APIs. Test Cases also verifies lazy Run options preserve delivery prefill.
+Screenshots are saved in `/tmp/qaira-catalog-pages` and
+`/tmp/qaira-test-case-catalog`. Run Vite browser tests sequentially so fixture cleanup
+does not reload another test’s page.
+
+The Product Management metrics test (`productMetricCards.test.mjs`) checks
+Stories, Backlog, and Sprints against complete aggregate and per-record evidence
+while only 25 rows are loaded. It verifies denominators, readiness rounding,
+pending metrics, and missing execution evidence. The Release readiness test
+(`legacyReleaseReadiness.test.mjs`) also checks shared-Story deduplication and
+expanded Story metrics. Screenshots are saved in `/tmp/qaira-product-metrics`
+and `/tmp/qaira-release-readiness-legacy`.
 
 The workspace tests check the actual shared detail component with production
 CSS across four viewport widths and both sidebar preferences. The Gherkin test
@@ -46,6 +94,21 @@ The run editor test verifies queued date and scope changes, retained direct case
 selections and unavailable attachments, running/finished locks, permission-aware
 mode choices, conflict reload, retryable failures, and responsive editing down
 to 320px.
+
+The run step views test (`runStepViews.test.mjs`) verifies Structured as the
+default, switching to Gherkin or Coded without changing saved outcomes or
+parameters, live permission and feature revocation, and layout at 320px and
+390px. It also checks that switching formats makes no execution mutations.
+The feature availability test (`featureAvailability.test.mjs`) verifies direct
+links to administrator feature details, permission and dependency mappings,
+browser history, and independent detail and toggle controls.
+
+The admin setup test (`adminSampleData.test.mjs`) checks all seven role presets,
+current versus default permissions, Reporter Bug creation access, and retention
+of a customized role with no grants. It also covers missing-role installation,
+repeat setup, sample dependencies, failed-request retries, and 320–1440px layouts.
+Start `npm run dev:admin -- --port 5180`, or set `ADMIN_TEST_URL` for another port.
+Screenshots are saved in `/tmp/qaira-admin-samples`; APIs are isolated fixtures.
 
 The assistant test uses isolated API fixtures to verify reported progress,
 automatic model retries through the real SSE consumer with one final answer,
@@ -86,3 +149,22 @@ Screenshots cover desktop and 390px dark layouts, including the mobile context
 menu; the selected review mode has a measured text contrast check. Workflow
 preview persistence uses isolated API fixtures and does not execute tools.
 It defaults to Vite on port 5178.
+
+The Reporter permissions test opens the production Bugs page with a create-only
+project role. It verifies creation, project-scoped assignees without a global
+users request, read-only saved fields, blocked updates/deletes, and independent
+comment/evidence controls. It uses isolated API fixtures and defaults to Vite
+on port 5186.
+
+The workspace capability test exercises shared optional catalogs with partial
+project grants, disabled features, cached records, live enable/disable changes,
+in-flight cancellation and session refresh failures. It also checks that losing
+Knowledge access releases Smart Context without erasing the host form's draft.
+The AppShell switcher test keeps Projects management disabled while verifying
+membership-scoped project/application selection and mobile keyboard behavior.
+
+`sharedStepOptionalFeatures.test.mjs` verifies Shared Step Group editing with
+disabled optional features and partial project grants, retained application
+scope, cancellation of pending Run history without losing the draft, and linked
+Test Case previews without Run access. It uses isolated APIs on port 5186 by
+default (`VITE_TEST_URL` overrides it).

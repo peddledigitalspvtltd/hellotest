@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
+import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
 import { IconBug as BugIcon, IconChevronDown } from "@tabler/icons-react";
 import "./report-bug-split-action.css";
 
@@ -17,8 +18,6 @@ export function ReportBugSplitActionButton({
   onReportBugWithAi?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPlacement, setMenuPlacement] = useState<"above" | "below">("below");
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const menuId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
@@ -26,69 +25,11 @@ export function ReportBugSplitActionButton({
   const menuItemRef = useRef<HTMLButtonElement | null>(null);
   const showAiAction = canUseAi && Boolean(onReportBugWithAi);
   const canOpenMenu = showAiAction && !disabled;
+  const { menuStyle, menuPlacement } = useSplitActionMenu(isOpen && canOpenMenu, rootRef, menuRef);
 
   useEffect(() => {
     if (canOpenMenu || !isOpen) return;
     setIsOpen(false);
-  }, [canOpenMenu, isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !canOpenMenu) {
-      setMenuStyle(null);
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const trigger = rootRef.current;
-      const menu = menuRef.current;
-      if (!trigger || !menu) return;
-
-      const viewportPadding = 12;
-      const triggerRect = trigger.getBoundingClientRect();
-      const availableWidth = Math.max(1, window.innerWidth - viewportPadding * 2);
-      const preferredWidth = Math.max(triggerRect.width, menu.scrollWidth);
-      const menuWidth = Math.min(preferredWidth, availableWidth);
-      const menuHeight = menu.offsetHeight;
-      const spaceBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
-      const spaceAbove = triggerRect.top - viewportPadding;
-      const shouldOpenAbove = menuHeight > spaceBelow && spaceAbove > spaceBelow;
-      const left = Math.min(
-        Math.max(viewportPadding, triggerRect.right - menuWidth),
-        Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
-      );
-      const top = shouldOpenAbove
-        ? Math.max(viewportPadding, triggerRect.top - menuHeight - 8)
-        : Math.min(
-            triggerRect.bottom + 8,
-            Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding)
-          );
-
-      setMenuPlacement(shouldOpenAbove ? "above" : "below");
-      setMenuStyle({
-        left,
-        maxWidth: "calc(100vw - 24px)",
-        opacity: 1,
-        top,
-        width: menuWidth
-      });
-    };
-
-    updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(updateMenuPosition);
-    if (rootRef.current) resizeObserver?.observe(rootRef.current);
-    if (menuRef.current) resizeObserver?.observe(menuRef.current);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
   }, [canOpenMenu, isOpen]);
 
   useEffect(() => {
@@ -134,11 +75,12 @@ export function ReportBugSplitActionButton({
   const menu = isOpen && canOpenMenu ? (
     <div
       className="issue-report-split-menu report-bug-split-menu"
+      data-split-action-menu
       data-placement={menuPlacement}
       id={menuId}
       ref={menuRef}
       role="menu"
-      style={menuStyle || { opacity: 0, pointerEvents: "none" }}
+      style={menuStyle}
     >
       <button
         aria-label="Report Bug using AI"

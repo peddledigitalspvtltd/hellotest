@@ -2,7 +2,7 @@ export const queryKeys = {
   appTypesAll: () => ["app-types"] as const,
   executionResults: (projectId = "") => ["execution-results", projectId] as const,
   executions: (projectId = "") => ["executions", projectId] as const,
-  featureFlags: (projectId = "") => ["feature-flags", projectId] as const,
+  featureFlags: () => ["feature-flags"] as const,
   integrations: {
     all: () => ["integrations"] as const,
     scoped: (...scope: string[]) => ["integrations", ...scope] as const

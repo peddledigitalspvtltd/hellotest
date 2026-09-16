@@ -63,14 +63,20 @@ test("Create Module resolves the complete deduplicated linked-case scope for sel
   assert.match(resolverRoute, /await fastify\.authenticate\(req\)/);
   assert.match(resolverRoute, /requirement_ids: \{ required: true, type: "array", items: "string", minItems: 1, maxItems: 100 \}/);
   assert.match(resolverRoute, /projectService\.getProject\(appType\.project_id, req\.user\.id\)/);
-  assert.match(resolverRoute, /resolveScopedRequirements\(req\.body\.requirement_ids, appType\.project_id\)/);
+  assert.match(resolverRoute, /resolveRequirementScopes\(selectedRequirementIds\)/);
+  assert.match(resolverRoute, /byId\.get\(id\)\.project_id !== appType\.project_id/);
+  assert.doesNotMatch(resolverRoute, /getRequirement\(/);
   assert.match(resolverRoute, /service\.getTestCasesForRequirements/);
 
   assert.match(testCaseService, /exports\.getTestCasesForRequirements = async/);
   assert.match(testCaseService, /WHERE test_cases\.app_type_id = \?/);
   assert.match(testCaseService, /EXISTS \([\s\S]*FROM requirement_test_cases[\s\S]*requirement_test_cases\.test_case_id = test_cases\.id/);
   assert.match(testCaseService, /requirement_test_cases\.requirement_id IN \(\$\{placeholders\}\)/);
-  assert.match(testCaseService, /return hydrateTestCases\(rows\)/);
+  const resolverService = testCaseService.slice(testCaseService.indexOf('exports.getTestCasesForRequirements = async'), testCaseService.indexOf('exports.getTestCase = async'));
+  assert.match(resolverService, /test_cases\.requirement_id IN \(\$\{placeholders\}\) OR EXISTS/);
+  assert.match(resolverService, /AS requirement_ids/);
+  assert.match(resolverService, /detail_complete: false, summary_complete: false/);
+  assert.doesNotMatch(resolverService, /hydrateTestCases|SELECT test_cases\.\*|execution_results|test_steps/);
   assert.match(moduleService, /ensureCasesMatchAppType\(caseIds, module\.app_type_id\)/);
   assert.match(openapi, /\/test-cases\/resolve-requirements:[\s\S]*summary: Resolve all app-scoped Test Cases linked to selected Requirements/);
 });

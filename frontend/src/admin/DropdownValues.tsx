@@ -1,6 +1,7 @@
+import { LoadingState } from "../components/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconAlertCircle, IconArrowDown, IconArrowUp, IconCheck, IconChevronRight, IconExternalLink, IconListDetails,
-  IconLock, IconPlus, IconRefresh, IconSearch, IconX } from "@tabler/icons-react";
+  IconLock, IconPlus, IconSearch, IconX } from "@tabler/icons-react";
 import { adminApi, workspaceUrl, type DropdownCatalog, type DropdownField, type DropdownOption } from "./api";
 import "./dropdown-values.css";
 
@@ -124,7 +125,7 @@ export function DropdownValues({ onDirtyChange }: { onDirtyChange?: (dirty: bool
   const editable = Boolean(selected?.can_edit || selected?.can_add);
 
   if (!catalog) return <section className="surface dropdown-initial" aria-busy={loading}>
-    {loading ? <><IconRefresh className="spin" aria-hidden="true" /><p role="status">Loading dropdown fields…</p></>
+    {loading ? <LoadingState label="Loading dropdown fields" />
       : <><IconAlertCircle aria-hidden="true" /><h2>Dropdown values are unavailable</h2><p role="alert">{loadError}</p><button className="secondary-button" type="button" onClick={() => void load()}>Try again</button></>}
   </section>;
   return <div className="dropdown-workspace">

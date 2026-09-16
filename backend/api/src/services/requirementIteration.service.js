@@ -146,7 +146,13 @@ exports.listIterations = async ({ project_id } = {}) => {
   `;
 
   const rows = await db.prepare(query).all(...params);
-  return Promise.all(rows.map((row) => hydrateIteration(row)));
+  return rows;
+};
+
+exports.getIterationSummary = async (id) => {
+  const iteration = await selectIteration.get(id);
+  if (!iteration) throw new Error("Iteration not found");
+  return iteration;
 };
 
 exports.getIteration = async (id) => {

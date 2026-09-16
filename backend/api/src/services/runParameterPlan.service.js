@@ -56,7 +56,13 @@ async function buildRunParameterPlan(input) {
   ]) : [[], [], []];
   const existingById = new Map(existingCases.map(item => [item.test_case_id, item]));
   const oldSuiteIds = new Set(existingSuites.map(item => item.suite_id));
-  const suiteIds = execution && !has("suite_ids") ? [...oldSuiteIds] : await expandSuiteSelection(input.suite_ids || [], app_type_id);
+  const requestedSuites = [...new Set(input.suite_ids || [])];
+  const suiteIds = execution
+    ? !has("suite_ids") ? [...oldSuiteIds] : [...new Set([
+      ...requestedSuites.filter(id => oldSuiteIds.has(id)),
+      ...await expandSuiteSelection(requestedSuites.filter(id => !oldSuiteIds.has(id)), app_type_id)
+    ])]
+    : await expandSuiteSelection(requestedSuites, app_type_id);
   const direct = [...new Set(has("test_case_ids") ? input.test_case_ids || [] : execution
     ? execution.direct_test_case_ids == null ? existingCases.filter(item => !oldSuiteIds.has(item.suite_id)).map(item => item.test_case_id) : parsed(execution.direct_test_case_ids, []) : [])];
   const addedSuiteIds = execution ? suiteIds.filter(id => !oldSuiteIds.has(id)) : suiteIds;
@@ -98,7 +104,7 @@ async function buildRunParameterPlan(input) {
     const saved = existingById.get(id);
     desired.set(id, { ...saved, suite_id: suiteIds.includes(saved.suite_id) ? saved.suite_id : item.suite_id });
   }
-  const contexts = await loadSuiteContexts([...addedSuiteIds, ...[...desired.values()].map(item => item.suite_id)]);
+  const contexts = await loadSuiteContexts([...addedSuiteIds, ...[...desired.values()].filter(item => !existingById.has(item.test_case_id)).map(item => item.suite_id)]);
   const dataChanged = Boolean(execution && has("test_data_set_id") && (input.test_data_set_id || null) !== (execution.test_data_set_id || null));
   const selectedResources = {};
   for (const [table, field] of [["test_environments", "test_environment_id"], ["test_configurations", "test_configuration_id"], ["test_data_sets", "test_data_set_id"]]) {

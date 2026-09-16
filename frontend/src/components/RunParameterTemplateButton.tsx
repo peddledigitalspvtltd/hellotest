@@ -1,17 +1,19 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { IconDownload } from "@tabler/icons-react";
-import { useAuth } from "../auth/AuthContext";
 import { api } from "../lib/api";
-import { hasPermission } from "../lib/permissions";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { normalizeGherkinParameterReferences } from "../lib/gherkin";
 import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { buildDataSetParameterDefinitions, buildStepParameterDefinitionsFromValues, collectStepParameters, mergeStepParameterDefinitions, normalizeStepParameterValues } from "../lib/stepParameters";
 import type { TestCase, TestSuite, TestStep } from "../types";
 
-export function RunParameterTemplateButton({ cases, suites = [], projectId, appTypeId = "", executionId, onPlan, fileName = "run-parameter-template.csv", environmentId = "", configurationId = "", dataSetId = "", disabled = false }: {
+export function RunParameterTemplateButton({ cases, suites = [], projectId, appTypeId = "", executionId, onPlan, fileName = "run-parameter-template.csv", environmentId: requestedEnvironmentId = "", configurationId: requestedConfigurationId = "", dataSetId: requestedDataSetId = "", disabled = false }: {
   cases: Array<TestCase & { steps?: TestStep[] }>; suites?: TestSuite[]; projectId: string; appTypeId?: string; executionId?: string; fileName?: string; onPlan?: (plan: { case_count: number; suite_count: number; parameter_count: number }) => void; environmentId?: string; configurationId?: string; dataSetId?: string; disabled?: boolean;
 }) {
-  const { session } = useAuth();
+  const { can } = useCapabilityAccess(projectId);
+  const environmentId = can("environment.view") ? requestedEnvironmentId : "";
+  const configurationId = can("configuration.view") ? requestedConfigurationId : "";
+  const dataSetId = can("data.view") ? requestedDataSetId : "";
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [failed, setFailed] = useState(false);
@@ -32,7 +34,8 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
     };
   }, [selectionKey]);
   const download = async () => {
-    if (active.current) return;
+    if (active.current || disabled) return;
+    if (executionId ? !can("run.view") : !can("testcase.view") || (suites.length && !can("suite.view"))) return;
     const request = { cancelled: false };
     active.current = request;
     const isCurrent = () => active.current === request && !request.cancelled;
@@ -41,7 +44,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
       if (appTypeId) {
         const plan = await api.executions.parameterPlan({ project_id: projectId, app_type_id: appTypeId, execution_id: executionId,
           suite_ids: suites.map(suite => suite.id), test_case_ids: cases.map(item => item.id),
-          test_environment_id: environmentId || (executionId ? "" : undefined), test_configuration_id: configurationId || (executionId ? "" : undefined), test_data_set_id: dataSetId || (executionId ? "" : undefined) });
+          test_environment_id: can("environment.view") ? environmentId || (executionId ? "" : undefined) : undefined, test_configuration_id: can("configuration.view") ? configurationId || (executionId ? "" : undefined) : undefined, test_data_set_id: can("data.view") ? dataSetId || (executionId ? "" : undefined) : undefined });
         if (!isCurrent()) return;
         onPlan?.({ case_count: plan.case_count, suite_count: plan.suite_count, parameter_count: plan.parameters.length });
         if (!plan.parameters.length) { setFeedback("No parameters are declared in the selected scope yet."); return; }
@@ -50,7 +53,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
         return;
       }
       for (const [needed, permission] of [[cases.some((item) => !Array.isArray(item.steps)), "testcase.view"], [environmentId, "environment.view"], [configurationId, "configuration.view"], [dataSetId, "data.view"]] as const) {
-        if (needed && !hasPermission(session, permission, projectId)) throw new Error(`Permission required to include this source: ${permission}.`);
+        if (needed && !can(permission)) throw new Error(`Permission required to include this source: ${permission}.`);
       }
       const uniqueCases = [...new Map(cases.map((item) => [item.id, item])).values()];
       const missing = uniqueCases.filter((item) => !Array.isArray(item.steps));

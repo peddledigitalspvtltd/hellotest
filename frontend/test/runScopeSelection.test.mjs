@@ -19,18 +19,23 @@ test("suite toolbar selection respects filtered visibility, existing order, and 
   let cursor = 0;
   const CatalogSearchFilter = () => null;
   const { SuiteScopePicker } = compile("../src/components/SuiteCasePicker.tsx", (path) => {
+    if (path === "../hooks/useCapabilityAccess") return { useCapabilityAccess: () => ({ can: () => true }) };
+    if (path === "../lib/optionalQueryView") return { optionalQueryView: (query) => query };
     if (path === "react") return { useMemo: (factory) => factory(), useState: (initial) => { const key = cursor++; if (!(key in state)) state[key] = initial; return [state[key], (value) => { state[key] = value; }]; } };
     if (path === "./CatalogSearchFilter") return { CatalogSearchFilter };
     if (path === "./RichTextEditor") return { richTextToPlainText: (value) => value || "" };
     if (path === "./AppIcons") return { SelectionToggleIcon: () => null, TestCaseIcon: () => null };
+    if (path === "../lib/api") return { api: {} };
+    if (path === "@tanstack/react-query") return { useQuery: () => { throw new Error("Unscoped suite selection must not fetch catalogs"); } };
     if (path.endsWith(".css")) return {};
     return require(path);
   });
   let selected = ["suite-b"];
   const render = () => {
     cursor = 0;
-    const component = SuiteScopePicker({ suites: [{ id: "suite-a", name: "Alpha", test_case_ids: ["case-1"] }, { id: "suite-b", name: "Beta", test_case_ids: ["case-2"] }], selectedSuiteIds: selected, onChange: (next) => { selected = next; }, emptyMessage: "No suites" });
-    return component.type(component.props);
+    let component = SuiteScopePicker({ suites: [{ id: "suite-a", name: "Alpha", test_case_ids: ["case-1"] }, { id: "suite-b", name: "Beta", test_case_ids: ["case-2"] }], selectedSuiteIds: selected, onChange: (next) => { selected = next; }, emptyMessage: "No suites" });
+    while (typeof component.type === "function") component = component.type(component.props);
+    return component;
   };
   let tree = render();
   nodes(tree).find((node) => node.type === CatalogSearchFilter).props.onChange("Alpha");
@@ -54,6 +59,8 @@ test("run context retains the selected dynamic data set without generating a sam
   let changedDataSet;
   const dataSet = { id: "data-1", name: "Dynamic accounts", app_type_id: "web", rows: [{ email: "{{random.email}}" }] };
   const { ExecutionContextSelector } = compile("../src/components/ExecutionContextSelector.tsx", (path) => {
+    if (path === "../hooks/useCapabilityAccess") return { useCapabilityAccess: () => ({ can: () => true }) };
+    if (path === "../lib/optionalQueryView") return { optionalQueryView: (query) => query };
     if (path === "react") return { useMemo: (factory) => factory(), useEffect() {}, useRef: (current) => ({ current }) };
     if (path === "@tanstack/react-query") return { useQuery: ({ queryKey }) => ({ data: queryKey[0] === "test-data-sets" ? [dataSet] : [], isLoading: false }) };
     if (path === "../auth/AuthContext") return { useAuth: () => ({ session: {} }) };
@@ -101,6 +108,8 @@ test("catalog filter owns initial focus, Tab boundaries, and Escape before its c
     removeEventListener: (name) => listeners.delete(name)
   };
   const { CatalogSearchFilter } = compile("../src/components/CatalogSearchFilter.tsx", (path) => {
+    if (path === "../hooks/useCapabilityAccess") return { useCapabilityAccess: () => ({ can: () => true }) };
+    if (path === "../lib/optionalQueryView") return { optionalQueryView: (query) => query };
     if (path === "react") return {
       useState: () => stateIndex++ === 0 ? [true, (value) => openStates.push(value)] : [{}, () => {}],
       useRef: (current) => { const ref = { current }; refs.push(ref); return ref; },

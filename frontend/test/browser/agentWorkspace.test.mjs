@@ -18,7 +18,7 @@ import { AgenticWorkflowsPage } from '/src/pages/AgenticWorkflowsPage';
 import '/src/styles.css'; import '/src/dark-theme.css'; import '/src/modal-system.css'; import '/src/workspace-layout.css';
 const params = new URLSearchParams(window.location.search);
 const readOnly = params.get('readonly') === 'true';
-const session = { token: 'specialist-fixture', user: { id: 'specialist-reviewer', role: readOnly ? 'member' : 'admin', name: 'Reviewer', email: 'reviewer@example.test', permissions: ['workspace.view', 'agentic_workflow.view'] } };
+const session = { token: 'specialist-fixture', user: { id: 'specialist-reviewer', role: readOnly ? 'member' : 'admin', name: 'Reviewer', email: 'reviewer@example.test', permissions: ['workspace.view', 'agentic_workflow.view'], project_permissions: { project: ['agentic_workflow.view'], other: ['agentic_workflow.view'] } } };
 sessionStorage.write(session); setCurrentScope('project', 'app');
 const realAsk = api.agenticWorkflows.ask; const realGetSession = api.agenticWorkflows.getSession;
 window.realWorkspaceTransactions = { ...api.workspaceTransactions };

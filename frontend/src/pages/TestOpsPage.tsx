@@ -48,20 +48,6 @@ const BATCH_PROCESS_CATEGORIES = new Set([
   "reporting"
 ]);
 
-function buildLocalServiceUrl(port: string, path = "/") {
-  if (typeof window === "undefined") {
-    return path;
-  }
-
-  const isLocalHost = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
-
-  if (!isLocalHost) {
-    return new URL(path, window.location.origin).toString();
-  }
-
-  return new URL(path, `${window.location.protocol}//${window.location.hostname}:${port}`).toString();
-}
-
 function isBatchProcessTransaction(transaction: WorkspaceTransaction) {
   return BATCH_PROCESS_CATEGORIES.has(transaction.category)
     || transaction.action === "testengine_run"
@@ -572,7 +558,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       event.test_case?.title
     ].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch));
   }, [opsTelemetryQuery.data?.events.items, opsTelemetrySearch]);
-  const jaegerUrl = buildLocalServiceUrl("16686", "/");
+  const jaegerUrl = "/jaeger/";
   const runningCount = batchTransactions.filter((transaction) => transaction.status === "queued" || transaction.status === "running").length;
   const failedCount = batchTransactions.filter((transaction) => transaction.status === "failed").length;
   const activeCase = testCases.find((testCase) => testCase.id === selectedCaseId) || manualCases[0] || null;
@@ -1474,7 +1460,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         <Panel
           className="testops-panel testops-telemetry-panel"
           title="Distributed Traces"
-          subtitle="View full OpenTelemetry traces from HelloTest and TestEngine via local Jaeger instance."
+          subtitle="View full OpenTelemetry traces from HelloTest and TestEngine in Jaeger."
           actions={
             <a className="ghost-button" href={jaegerUrl} rel="noreferrer" target="_blank">
               <OpenIcon />

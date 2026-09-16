@@ -40,7 +40,7 @@ test("Module requirement resolution requires target-project Story and Test Case 
   );
   assert.match(resolver, /requirePermission\("testcase\.view", \{ projectId: appType\.project_id \}\)/);
   assert.match(resolver, /requirePermission\("requirement\.view", \{ projectId: appType\.project_id \}\)/);
-  assert.match(moduleRoutes, /const ensureModulePermission = async \(fastify, req, permissionCode\)/);
+  assert.match(moduleRoutes, /const ensureModulePermission = async \(fastify, req, permissionCode, options\)/);
   assert.match(moduleRoutes, /req\.body\.test_case_ids\?\.length \|\| req\.body\.requirement_ids\?\.length/);
   assert.match(moduleRoutes, /requirePermission\("requirement\.view", \{ projectId: appType\.project_id \}\)/);
   assert.match(accessControl, /SELECT project_id FROM app_types WHERE id = \?/);
@@ -84,7 +84,9 @@ test("core project lookups and batch transactions use the correct feature bounda
 
   assert.doesNotMatch(features, /"app_type\.view":/);
   assert.match(features, /"app_type\.manage": \["hellotest\.ops\.projects"\]/);
-  assert.match(features, /"transaction\.view": \["hellotest\.ops\.background_jobs", "hellotest\.automation\.batch_process"\]/);
+  assert.match(features, /"transaction\.view": \["hellotest\.ops\.background_jobs"\]/);
+  assert.match(features, /"transaction\.artifact\.download": \["hellotest\.ops\.background_jobs"\]/);
+  assert.match(features, /"transaction\.manage": \["hellotest\.ops\.background_jobs", "hellotest\.automation\.batch_process"\]/);
   assert.doesNotMatch(features, /"project_member\.view":/);
   assert.match(adminSpace, /settings: \["hellotest\.ops\.settings"\]/);
   assert.match(permissions, /\["DELETE", "\/settings\/api-keys\/:id\/permanent", "api_key\.manage"\]/);

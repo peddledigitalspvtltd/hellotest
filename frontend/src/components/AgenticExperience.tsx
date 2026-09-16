@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -417,7 +418,7 @@ export function AgenticCommandComposer({
           ) : <span className="agent-command-auto"><IconRobot size={15} stroke={1.9} />Auto</span>}
           <span className="agent-command-divider" aria-hidden="true" />
           <button aria-label={running ? "Review in progress" : mode === "chat" ? "Ask specialist" : "Start review"} className="agent-command-send" disabled={disabled || running || !prompt.trim()} type="submit">
-            {running ? <IconActivity className="agent-command-spin" size={19} stroke={1.9} /> : <IconSend size={19} stroke={1.9} />}
+            {running ? <LoadingState label="Processing your request" /> : <IconSend size={19} stroke={1.9} />}
             <span>{running ? "Reviewing…" : mode === "chat" ? "Ask specialist" : "Start review"}</span>
           </button>
         </div>
@@ -635,7 +636,7 @@ export function AiFeatureComposer({
             onClick={embedded ? () => onSubmit() : undefined}
             type={embedded ? "button" : "submit"}
           >
-            {running ? <IconActivity className="agent-command-spin" size={18} stroke={1.9} /> : <IconSend size={18} stroke={1.9} />}
+            {running ? <LoadingState label="Processing your request" /> : <IconSend size={18} stroke={1.9} />}
             <span aria-live="polite">{running ? "Working" : effectiveSubmitLabel}</span>
           </button>
         </div>
@@ -866,17 +867,19 @@ export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Age
         <span><IconActivity size={16} stroke={1.9} /><strong>{orientation === "vertical" ? profileDefinition.heading : agentName}</strong></span>
         <em>{orientation === "vertical" ? `${agentName} · ` : ""}{processing?.status_label || (status === "running" ? "Request in progress" : status === "completed" ? "Ready for review" : status === "failed" ? "Needs attention" : "Run plan")}</em>
       </div>
-      <div
-        aria-label={isIndeterminate ? "Backend processing is in progress; phase completion has not been reported yet" : `${completeCount} of ${totalCount} workflow phases complete`}
-        className={isIndeterminate ? "agent-process-rail__progress is-indeterminate" : "agent-process-rail__progress"}
-        role="progressbar"
-        aria-valuemax={isIndeterminate ? undefined : totalCount}
-        aria-valuemin={isIndeterminate ? undefined : 0}
-        aria-valuenow={isIndeterminate ? undefined : completeCount}
-      >
-        <span><b style={isIndeterminate ? undefined : { width: `${progressValue}%` }} /></span>
-        <em>{isIndeterminate ? "Processing request" : `${completeCount}/${totalCount} complete`}</em>
-      </div>
+      {isIndeterminate ? <LoadingState label="Processing request" /> : (
+        <div
+          aria-label={`${completeCount} of ${totalCount} workflow phases complete`}
+          className="agent-process-rail__progress"
+          role="progressbar"
+          aria-valuemax={totalCount}
+          aria-valuemin={0}
+          aria-valuenow={completeCount}
+        >
+          <span><b style={{ width: `${progressValue}%` }} /></span>
+          <em>{`${completeCount}/${totalCount} complete`}</em>
+        </div>
+      )}
       <div className="agent-process-rail__stages">
         {computedStages.map((stage, index) => {
           const stageStatus = isIndeterminate ? "queued" : stage.stageStatus;
@@ -895,7 +898,7 @@ export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Age
               }}
               type="button"
             >
-              <span>{stageStatus === "complete" ? <IconCheck size={14} stroke={2.2} /> : stageStatus === "running" ? <IconActivity size={14} stroke={2} /> : <IconCircle size={11} stroke={2} />}</span>
+              {stageStatus === "running" ? <LoadingState label={stage.label} /> : <span>{stageStatus === "complete" ? <IconCheck size={14} stroke={2.2} /> : <IconCircle size={11} stroke={2} />}</span>}
               <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
             </button>
           );
@@ -997,7 +1000,7 @@ export function AgentActivityTimeline({ events = [], running = false, activeAgen
           const details = toDetailsList(item.details);
           return (
             <article className="agent-activity-event" data-status={item.status} key={item.id}>
-              <span className="agent-activity-event__marker">{item.status === "complete" ? <IconCheck size={14} stroke={2.2} /> : item.status === "running" ? <IconActivity size={14} stroke={2} /> : item.status === "failed" ? <IconCircle size={12} /> : <IconClock size={13} stroke={1.9} />}</span>
+              {item.status === "running" ? <LoadingState label={item.message} /> : <span className="agent-activity-event__marker">{item.status === "complete" ? <IconCheck size={14} stroke={2.2} /> : item.status === "failed" ? <IconCircle size={12} /> : <IconClock size={13} stroke={1.9} />}</span>}
               <div>
                 <header><strong>{phaseLabels[item.phase] || item.phase.replace(/_/g, " ")}</strong>{item.createdAt ? <time>{formatActivityTime(item.createdAt)}</time> : null}</header>
                 <p>{item.message}</p>

@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { LoadingState } from "../components/LoadingState";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
@@ -340,7 +341,7 @@ export function KnowledgeRepoPage() {
               <DialogCloseButton label="Close knowledge document" onClick={closeLinkedKnowledge} />
             </div>
             <div className="requirement-create-modal-body" style={{ minWidth: 0 }}>
-              {knowledgeQuery.isPending ? <p role="status">Loading knowledge document…</p>
+              {knowledgeQuery.isPending ? <LoadingState label="Loading knowledge document" />
                 : knowledgeQuery.isError ? <p role="alert">The document could not be loaded. Close this dialog and try again.</p>
                 : !linkedItem ? <p role="status">This document is unavailable in the selected project.</p>
                 : <>

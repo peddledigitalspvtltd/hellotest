@@ -2,7 +2,7 @@ import type { ChangeEvent } from "react";
 import type { Project } from "../types";
 
 type ProjectDropdownProps = {
-  projects: Project[];
+  projects: Pick<Project, "id" | "name">[];
   value: string;
   onChange: (value: string) => void;
   ariaLabel: string;

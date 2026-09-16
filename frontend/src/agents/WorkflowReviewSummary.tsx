@@ -1,4 +1,5 @@
-import { IconArrowRight, IconCheck, IconClock, IconLoader2, IconPlayerStop, IconShieldCheck } from "@tabler/icons-react";
+import { LoadingState } from "../components/LoadingState";
+import { IconArrowRight, IconCheck, IconClock, IconPlayerStop, IconShieldCheck } from "@tabler/icons-react";
 import type { AgenticWorkflowRun } from "../types";
 
 const stateLabels: Record<string, string> = {
@@ -23,7 +24,7 @@ export function WorkflowReviewSummary({ run, canStop, stopping, onStop, onOpenRe
     <progress max={Math.max(total, 1)} value={completed} aria-label="Completed review steps" />
     <ol className="workflow-review-steps">{run.node_results.map(step => <li key={String(step.node_id)} data-status={String(step.status)}>
       <button type="button" onClick={() => onSelectStep(String(step.node_id))}>
-        <span className="workflow-review-step-icon">{step.status === "completed" ? <IconCheck size={18} /> : step.status === "running" ? <IconLoader2 size={18} className="spin" /> : <IconClock size={18} />}</span>
+        <span className="workflow-review-step-icon">{step.status === "completed" ? <IconCheck size={18} /> : step.status === "running" ? <LoadingState label={`Running ${String(step.node_name)}`} /> : <IconClock size={18} />}</span>
         <span><strong>{String(step.node_name)}</strong><small>{stateLabels[String(step.status)] || String(step.status)}{Number(step.attempts) > 1 ? ` · ${step.attempts} attempts` : ""}</small></span>
       </button>
     </li>)}</ol>

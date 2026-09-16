@@ -742,31 +742,228 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /requirements/metrics:
+    get:
+      tags:
+        - Requirements
+      summary: Get complete Story, Backlog and Sprint catalog metrics
+      description: Aggregates the matching project scope independently of loaded record pages. Requires requirement.view.
+        include_sprints=true additionally requires requirement_iteration.view and includes Sprint health; otherwise
+        sprint_health is empty. include_execution=true requires run.view and result.view; unavailable execution counts
+        and rates remain null. Coverage includes distinct direct and mapped Test Case links; Release scope includes membership records. Filter choices cover the project rather than only the loaded page.
+      parameters:
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
+        - name: project_id
+          in: query
+          required: true
+          description: Project whose metrics are requested.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/StatusQuery"
+        - $ref: "#/components/parameters/PriorityQuery"
+        - name: sprint_id
+          in: query
+          description: Native Sprint identifier.
+          schema:
+            type: string
+        - name: unassigned
+          in: query
+          description: Only Stories with neither a native Sprint nor a nonempty imported Sprint name.
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Literal case-insensitive search across all matching Stories and their linked metadata, applied before pagination.
+          schema:
+            type: string
+        - name: sprint
+          in: query
+          description: Imported Sprint value or native Sprint name.
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            type: string
+        - name: fix_version
+          in: query
+          schema:
+            type: string
+        - name: release
+          in: query
+          schema:
+            type: string
+        - name: coverage
+          in: query
+          description: Filter by the presence of linked Test Cases.
+          schema:
+            type: string
+            enum:
+              - linked
+              - unlinked
+        - name: include_sprints
+          in: query
+          description: Include Sprint health. Execution aggregates additionally require include_execution=true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Complete filtered catalog metrics and project filter choices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequirementCatalogMetricsResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /test-cases/metrics:
+    get:
+      tags:
+        - Test Cases
+      summary: Get complete Test Case catalog and module metrics
+      description: One request returns complete catalog coverage, quality metrics, and health for every module and unassigned
+        cases. Requires testcase.view for the resolved project; project_id or app_type_id is required for non-admin callers.
+        include_execution=true additionally requires run.view and result.view. Execution aggregates use the latest ten
+        results per Test Case and the latest finalized outcome per case; when omitted, execution-derived values are zero or
+        null.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - $ref: "#/components/parameters/AppTypeIdQuery"
+        - name: exclude_automated
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
+      responses:
+        "200":
+          description: Catalog metrics independent of record pagination.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCaseCatalogMetricsResponse"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /feedback/metrics:
+    get:
+      tags:
+        - Issues
+      summary: Get complete Bug catalog metrics
+      description: Aggregates every Bug matching the project, visibility and search filters without loading individual
+        records. Requires feedback.view for project-scoped requests. Non-admin callers must supply project_id.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: user_id
+          in: query
+          description: Reporter identifier.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/StatusQuery"
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: assignee_id
+          in: query
+          description: Assignee identifier, or __unassigned__ for Bugs without an assignee.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Literal case-insensitive search across Bug details, people, delivery context and linked run metadata.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Complete matching Bug metrics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueCatalogMetrics"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+  /issues/metrics:
+    $ref: "#/paths/~1feedback~1metrics"
   /requirements:
     get:
-      tags: [Requirements]
-      summary: List requirements
+      tags:
+        - Requirements
+      summary: List Stories with bounded catalog pagination
+      description: Set include_page=true for the first page and reuse next_cursor to continue. The catalog default is 25
+        records. Filters are evaluated before the database limit; changing filters requires starting without a cursor. Use
+        include_total=false with the separate metrics endpoint to avoid a full-scope count for each page. Legacy requests
+        without include_page or cursor return an array.
       parameters:
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
         - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/StatusQuery"
         - $ref: "#/components/parameters/PriorityQuery"
         - name: sprint_id
           in: query
-          description: Filter Stories assigned to the native Sprint identifier.
-          schema: { type: string }
+          description: Native Sprint identifier.
+          schema:
+            type: string
         - name: unassigned
           in: query
-          description: When true, return only Stories that are not assigned to a native Sprint.
-          schema: { type: boolean }
+          description: Only Stories with neither a native Sprint nor a nonempty imported Sprint name.
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          description: Literal case-insensitive search across all matching Stories and their linked metadata, applied before pagination.
+          schema:
+            type: string
+        - name: sprint
+          in: query
+          description: Imported Sprint value or native Sprint name.
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            type: string
+        - name: fix_version
+          in: query
+          schema:
+            type: string
+        - name: release
+          in: query
+          schema:
+            type: string
+        - name: coverage
+          in: query
+          description: Filter by the presence of linked Test Cases.
+          schema:
+            type: string
+            enum:
+              - linked
+              - unlinked
+        - $ref: "#/components/parameters/CatalogPageSizeQuery"
+        - $ref: "#/components/parameters/CatalogCursorQuery"
+        - $ref: "#/components/parameters/CatalogIncludePageQuery"
+        - $ref: "#/components/parameters/CatalogIncludeTotalQuery"
+        - $ref: "#/components/parameters/CatalogProjectionQuery"
       responses:
         "200":
-          description: List of requirements
+          description: Stories or a bounded catalog page.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Requirement"
+                oneOf:
+                  - type: array
+                    items:
+                      $ref: "#/components/schemas/Requirement"
+                  - $ref: "#/components/schemas/RequirementPage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
     post:
       tags: [Requirements]
       summary: Create requirement
@@ -840,6 +1037,8 @@ paths:
     get:
       tags: [Requirements]
       summary: Get requirement by ID
+      parameters:
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
       responses:
         "200":
           description: Requirement record
@@ -926,7 +1125,27 @@ paths:
     get:
       tags: [Test Suites]
       summary: List test suites
+      description: Picker returns compact Suite choices with test_case_count. Summary preserves all editable Suite metadata and adds complete test_case_count, automated_case_count, total_step_count (also step_count), and story_linked_case_count. Case filters require testcase.view in addition to suite.view and search the full scoped catalog.
       parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: projection
+          in: query
+          schema: { type: string, enum: [detail, summary, picker] }
+        - name: case_search
+          in: query
+          schema: { type: string }
+        - name: module_id
+          in: query
+          schema: { type: string }
+        - name: requirement_id
+          in: query
+          schema: { type: string }
+        - name: label
+          in: query
+          schema: { type: string }
+        - name: shared_step_group_id
+          in: query
+          schema: { type: string }
         - $ref: "#/components/parameters/AppTypeIdQuery"
         - $ref: "#/components/parameters/ParentIdQuery"
       responses:
@@ -996,35 +1215,100 @@ paths:
 
   /test-cases:
     get:
-      tags: [Test Cases]
-      summary: List test cases
+      tags:
+        - Test Cases
+      summary: List Test Cases with bounded catalog pagination
+      description: Set include_page=true for the first 25 records, then use next_cursor. The main catalog uses a stable
+        activity/id cursor; module and Suite scopes retain their membership order. Cursors are scoped to the filters.
+        Summary projection omits large authoring JSON. Use include_total=false when metrics are fetched separately. Legacy
+        requests without include_page or cursor return an array. Picker projection always returns at most 25 compact choices with a stable keyset cursor, including Suite/module scopes. It omits authoring bodies, step/execution counts, and execution history; total is omitted unless include_total=true. Membership display metadata is resolved only for the returned page.
       parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/SuiteIdQuery"
         - $ref: "#/components/parameters/RequirementIdQuery"
         - $ref: "#/components/parameters/AppTypeIdQuery"
-        - $ref: "#/components/parameters/StatusQuery"
         - name: module_id
           in: query
-          schema: { type: string }
+          schema:
+            type: string
         - name: unassigned_module
           in: query
-          schema: { type: boolean }
-        - name: page_size
+          description: Only Test Cases outside modules; ignored when module_id is supplied.
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/StatusQuery"
+        - $ref: "#/components/parameters/PriorityQuery"
+        - name: search
           in: query
-          schema: { type: integer, minimum: 1, maximum: 200 }
-        - name: cursor
+          description: Literal case-insensitive search across the full scoped catalog, including module, Story, Suite and reviewer
+            metadata.
+          schema:
+            type: string
+        - name: workflow_status
           in: query
-          schema: { type: string }
-        - name: include_page
+          description: Derived library status. Execution-derived states require include_execution=true.
+          schema:
+            type: string
+            enum:
+              - ai-generated
+              - draft
+              - pending-review
+              - active
+              - ready
+              - automated
+              - retired
+              - passed
+              - failed
+        - name: step_filter
           in: query
-          description: Return the paged envelope used by hierarchy and infinite-list screens.
-          schema: { type: boolean }
+          schema:
+            type: string
+            enum:
+              - with-steps
+              - no-steps
+        - name: run_filter
+          in: query
+          description: Applied only with include_execution=true.
+          schema:
+            type: string
+            enum:
+              - with-runs
+              - no-runs
+        - name: exclude_automated
+          in: query
+          description: Omit independent automated cases from the manual library.
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
+        - $ref: "#/components/parameters/CatalogPageSizeQuery"
+        - $ref: "#/components/parameters/CatalogCursorQuery"
+        - $ref: "#/components/parameters/CatalogIncludePageQuery"
+        - $ref: "#/components/parameters/CatalogIncludeTotalQuery"
         - name: projection
           in: query
-          schema: { type: string, enum: [summary, detail] }
+          schema: { type: string, enum: [summary, detail, picker] }
+          description: Picker automatically pages and caps page_size at 25. Execution and step evidence filters are ignored for this projection.
+        - name: ids
+          in: query
+          schema: { type: string }
+          description: Up to 200 comma-separated exact IDs for preselected labels. Intersects project/app and other filters; an empty list matches nothing. Results remain paginated.
+        - name: suite_ids
+          in: query
+          schema: { type: string }
+          description: Up to 200 comma-separated Suite IDs. Matches any current or legacy membership without expanding descendants.
+        - name: automated
+          in: query
+          schema: { type: string, enum: ['yes', 'no'] }
+        - name: label
+          in: query
+          schema: { type: string }
+        - name: shared_step_group_id
+          in: query
+          schema: { type: string }
       responses:
         "200":
-          description: List of test cases
+          description: Test Cases or a bounded catalog page.
           content:
             application/json:
               schema:
@@ -1032,16 +1316,11 @@ paths:
                   - type: array
                     items:
                       $ref: "#/components/schemas/TestCase"
-                  - type: object
-                    required: [items, total, next_cursor, is_last]
-                    properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/TestCase"
-                      total: { type: integer, minimum: 0 }
-                      next_cursor: { type: string, nullable: true }
-                      is_last: { type: boolean }
+                  - $ref: "#/components/schemas/TestCasePage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
     post:
       tags: [Test Cases]
       summary: Create test case
@@ -1062,6 +1341,7 @@ paths:
     post:
       tags: [Test Cases]
       summary: Resolve all app-scoped Test Cases linked to selected Requirements
+      description: Returns every matched ID for the explicit selection, including legacy direct Story links, with compact identity and requirement_ids fields. Validates all Story references in one scoped lookup and omits authoring, step, and execution hydration.
       requestBody:
         required: true
         content:
@@ -2245,37 +2525,55 @@ paths:
         "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /feedback:
     get:
-      tags: [Issues]
+      tags:
+        - Issues
       summary: List Bugs visible to the current user
+      description: Project-scoped access requires feedback.view. Set include_page=true for a bounded database page of 25
+        records by default. Cursors preserve creation-time precision and are tied to the current filters. Use
+        include_total=false with the metrics endpoint to omit a repeated full-scope count. Without include_page or cursor,
+        the legacy array response remains available.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - name: user_id
           in: query
-          schema: { type: string }
+          description: Reporter identifier.
+          schema:
+            type: string
         - $ref: "#/components/parameters/StatusQuery"
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: assignee_id
+          in: query
+          description: Assignee identifier, or __unassigned__ for Bugs without an assignee.
+          schema:
+            type: string
         - name: q
           in: query
-          description: Case-insensitive search over Bug ID, title, description, and Jira key.
-          schema: { type: string }
-        - name: include_page
-          in: query
-          schema: { type: boolean }
-        - name: page_size
-          in: query
-          schema: { type: integer, minimum: 1, maximum: 200 }
-        - name: cursor
-          in: query
-          schema: { type: string }
+          description: Literal case-insensitive search across Bug details, people, delivery context and linked run metadata.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CatalogPageSizeQuery"
+        - $ref: "#/components/parameters/CatalogCursorQuery"
+        - $ref: "#/components/parameters/CatalogIncludePageQuery"
+        - $ref: "#/components/parameters/CatalogIncludeTotalQuery"
+        - $ref: "#/components/parameters/CatalogProjectionQuery"
       responses:
         "200":
-          description: Bugs, optionally wrapped in a cursor-paged response
+          description: Bugs or a bounded catalog page.
           content:
             application/json:
               schema:
                 oneOf:
                   - type: array
-                    items: { $ref: "#/components/schemas/Issue" }
+                    items:
+                      $ref: "#/components/schemas/Issue"
                   - $ref: "#/components/schemas/IssuePage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
     post:
       tags: [Issues]
       summary: Create a Bug with optional delivery and traceability context
@@ -2816,6 +3114,8 @@ paths:
     get:
       tags: [Requirements]
       summary: List Stories assigned to a Sprint using cursor pagination
+      parameters:
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
       responses:
         "200": { description: Paginated Story assignment records }
     put:
@@ -2959,10 +3259,73 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     get:
-      tags: [Test Case Modules]
-      summary: List module Test Cases using cursor pagination
+      tags:
+        - Test Case Modules
+      summary: List module Test Cases using bounded cursor pagination
+      description: Fetch children only when a module is expanded. Returns 25 records by default in module membership order.
+        Module access requires testcase.view; execution summaries additionally require run.view and result.view. Large
+        authoring fields are omitted with projection=summary.
+      parameters:
+        - $ref: "#/components/parameters/StatusQuery"
+        - $ref: "#/components/parameters/PriorityQuery"
+        - name: search
+          in: query
+          description: Literal case-insensitive search across the full scoped catalog, including module, Story, Suite and reviewer
+            metadata.
+          schema:
+            type: string
+        - name: workflow_status
+          in: query
+          description: Derived library status. Execution-derived states require include_execution=true.
+          schema:
+            type: string
+            enum:
+              - ai-generated
+              - draft
+              - pending-review
+              - active
+              - ready
+              - automated
+              - retired
+              - passed
+              - failed
+        - name: step_filter
+          in: query
+          schema:
+            type: string
+            enum:
+              - with-steps
+              - no-steps
+        - name: run_filter
+          in: query
+          description: Applied only with include_execution=true.
+          schema:
+            type: string
+            enum:
+              - with-runs
+              - no-runs
+        - name: exclude_automated
+          in: query
+          description: Omit independent automated cases from the manual library.
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/CatalogIncludeExecutionQuery"
+        - $ref: "#/components/parameters/CatalogPageSizeQuery"
+        - $ref: "#/components/parameters/CatalogCursorQuery"
+        - $ref: "#/components/parameters/CatalogIncludeTotalQuery"
+        - $ref: "#/components/parameters/CatalogProjectionQuery"
       responses:
-        "200": { description: Paginated Test Case records }
+        "200":
+          description: A bounded module child page; total is omitted when include_total=false.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestCasePage"
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
     post:
       tags: [Test Case Modules]
       summary: Append Test Cases to a module
@@ -4138,16 +4501,16 @@ paths:
     get:
       tags: [Admin Portal]
       summary: Read module sample coverage and installation state
-      description: Returns the versioned sample catalog with feature examples, dependencies, feature availability, and exact installed/expected record counts. Requires a workspace administrator.
+      description: Returns the versioned sample catalog with feature examples, dependencies, feature availability, and exact installed/expected record counts. Includes role presets with canonical permission_codes, current_permission_codes, role_id, and installed/customized/not_installed status. Requires a workspace administrator.
       security:
         - bearerAuth: []
       responses:
-        "200": { description: "Catalog containing version, project_id, modules, and connected-service notes." }
+        "200": { description: "Catalog containing version, project_id, modules, roles, and connected-service notes." }
         "403": { description: Workspace administrator access required. }
     post:
       tags: [Admin Portal]
       summary: Install connected sample modules
-      description: Adds required dependencies and missing versioned sample records in one audited transaction. Existing records and feature settings are retained. Omit modules to install all modules; an explicit empty selection is rejected. No background jobs or external services are started.
+      description: Adds required dependencies, missing role presets and missing versioned sample records in one audited transaction. Existing records, customized role grants, user assignments and feature settings are retained. Omit modules to install all modules; an explicit empty selection is rejected. No background jobs or external services are started.
       security:
         - bearerAuth: []
       requestBody:
@@ -4165,7 +4528,7 @@ paths:
                     type: string
                     enum: [workspace, planning, design, environments, issues, execution, knowledge, automation, agents, dashboards, integrations, testops]
       responses:
-        "200": { description: "Installation results including requested/installed modules, dependencies_added, inserted_records, existing_records, and per-module counts." }
+        "200": { description: "Installation results including requested/installed modules, dependencies_added, inserted_records, existing_records, per-module counts, and roles.created/roles.retained arrays of role IDs and names." }
         "400": { description: Invalid or empty module selection. }
         "403": { description: Workspace administrator access required. }
         "409": { description: Sample identifiers conflict with existing records; the transaction is rolled back. }
@@ -4301,6 +4664,37 @@ paths:
       summary: Read metadata domain
       responses:
         "200": { description: Successful response }
+  /metadata/workspace-scopes:
+    get:
+      tags: [Settings]
+      summary: Read authorized workspace project scopes
+      description: >-
+        Requires workspace.view. Returns only project identifiers and names for
+        the authenticated member's projects, or all projects for a verified
+        workspace administrator. Available independently of the Projects
+        management feature; excludes metrics and management configuration.
+      responses:
+        "200":
+          description: Authorized project names for workspace navigation.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [projects]
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name]
+                      properties:
+                        id: { type: string }
+                        display_id: { type: string, nullable: true }
+                        name: { type: string }
+        "401":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
   /permissions:
     get:
       tags: [Roles]
@@ -4554,11 +4948,12 @@ paths:
   /admin-portal/setup/schema:
     post:
       tags: [Admin Portal]
-      summary: Execute setup schema
+      summary: Validate schema and create missing workspace role presets
+      description: Applies the runtime schema and creates missing role presets with their default permissions. Existing custom role grants and user assignments are retained.
       security:
         - bearerAuth: []
       responses:
-        "200": { description: Successful response }
+        "200": { description: "Schema readiness, table counts, and roles.created/roles.retained arrays of role IDs and names." }
   /admin-portal/users:
     post:
       tags: [Admin Portal]
@@ -5213,6 +5608,55 @@ components:
       name: x-testengine-signature
       description: HMAC SHA-256 signature of the raw Test Engine callback payload.
   parameters:
+    CatalogPageSizeQuery:
+      name: page_size
+      in: query
+      description: Maximum records returned by a bounded catalog page. Continue with the same page size for smooth scrolling.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 25
+    CatalogCursorQuery:
+      name: cursor
+      in: query
+      description: Opaque next_cursor from the previous response. Omit for the first page and reset whenever filters or
+        project/app scope change. Invalid or mismatched cursors return 400.
+      schema:
+        type: string
+    CatalogIncludePageQuery:
+      name: include_page
+      in: query
+      description: Set true to request the first paged envelope. Supplying cursor also requests a paged response.
+      schema:
+        type: boolean
+        default: false
+    CatalogIncludeTotalQuery:
+      name: include_total
+      in: query
+      description: Set false when metrics are requested separately. Skips the full-scope count and omits total; next_cursor
+        and is_last still describe continuation.
+      schema:
+        type: boolean
+        default: true
+    CatalogProjectionQuery:
+      name: projection
+      in: query
+      description: Use summary for list rows. Story and Test Case summaries omit or shorten large authoring fields; fetch the
+        item detail before editing.
+      schema:
+        type: string
+        enum:
+          - summary
+          - detail
+    CatalogIncludeExecutionQuery:
+      name: include_execution
+      in: query
+      description: Include execution summaries and execution-derived filters/metrics. Requires run.view and result.view for
+        the resolved project.
+      schema:
+        type: boolean
+        default: false
     IdParam:
       name: id
       in: path
@@ -5324,6 +5768,629 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    RequirementPage:
+      type: object
+      description: A bounded record page. total is optional and omitted when include_total=false.
+      required:
+        - items
+        - next_cursor
+        - is_last
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Requirement"
+        total:
+          type: integer
+          minimum: 0
+          description: Complete matching count, present only when include_total is not false.
+        next_cursor:
+          type: string
+          nullable: true
+        is_last:
+          type: boolean
+    TestCasePage:
+      type: object
+      description: A bounded record page. total is optional and omitted when include_total=false.
+      required:
+        - items
+        - next_cursor
+        - is_last
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestCase"
+        total:
+          type: integer
+          minimum: 0
+          description: Complete matching count, present only when include_total is not false.
+        next_cursor:
+          type: string
+          nullable: true
+        is_last:
+          type: boolean
+    RequirementRecordMetrics:
+      type: object
+      description: Complete project-scoped evidence for one Story. Computed only for the requested records, independent of suggestion pages. Latest finalized case outcomes account for planned Data Set iterations; execution fields are null without execution access.
+      required: [linked_cases, automated_cases, executed_cases, passed_cases, total_bugs, open_bugs, closed_bugs, described, specified, groomed, slipped, completed, execution_complete]
+      properties:
+        linked_cases: { type: integer, minimum: 0 }
+        automated_cases: { type: integer, minimum: 0 }
+        executed_cases: { type: integer, minimum: 0, nullable: true }
+        passed_cases: { type: integer, minimum: 0, nullable: true }
+        total_bugs: { type: integer, minimum: 0 }
+        open_bugs: { type: integer, minimum: 0 }
+        closed_bugs: { type: integer, minimum: 0 }
+        described: { type: boolean }
+        specified: { type: boolean }
+        groomed: { type: boolean }
+        slipped: { type: boolean }
+        completed: { type: boolean }
+        execution_complete: { type: boolean }
+        automation_complete: { type: boolean }
+    RequirementReleaseStoryMetrics:
+      type: object
+      description: Distinct case and Bug evidence for one Story, using finalized execution outcomes from this Release. Pass rate is passed divided by finalized cases; unknown rates and readiness remain null. Readiness uses 30% Story coverage, 50% pass rate and 20% open-Bug health, rounding only the final score.
+      properties:
+        linked_cases: { type: integer, minimum: 0 }
+        automated_cases: { type: integer, minimum: 0 }
+        executed_cases: { type: integer, minimum: 0 }
+        passed_cases: { type: integer, minimum: 0 }
+        pass_rate_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        automation_coverage_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
+        total_bugs: { type: integer, minimum: 0 }
+        open_bugs: { type: integer, minimum: 0 }
+        readiness_score: { type: integer, minimum: 0, maximum: 100, nullable: true }
+    RequirementCatalogMetrics:
+      type: object
+      required:
+        - total
+        - mapped
+        - highPriority
+        - open
+        - completed
+        - qaTotal
+        - totalDefects
+        - groomed
+        - notGroomed
+        - described
+        - specified
+        - teamAssigned
+        - slipped
+        - onCourse
+        - sprintCommitted
+        - releaseScoped
+        - backlog
+        - completionPercent
+        - coveragePercent
+        - defectDensity
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        mapped:
+          type: integer
+          minimum: 0
+        highPriority:
+          type: integer
+          minimum: 0
+        open:
+          type: integer
+          minimum: 0
+        completed:
+          type: integer
+          minimum: 0
+        qaTotal:
+          type: integer
+          minimum: 0
+        totalDefects:
+          type: integer
+          minimum: 0
+        groomed:
+          type: integer
+          minimum: 0
+        notGroomed:
+          type: integer
+          minimum: 0
+        described:
+          type: integer
+          minimum: 0
+        specified:
+          type: integer
+          minimum: 0
+        teamAssigned:
+          type: integer
+          minimum: 0
+        slipped:
+          type: integer
+          minimum: 0
+        onCourse:
+          type: integer
+          minimum: 0
+        sprintCommitted:
+          type: integer
+          minimum: 0
+        releaseScoped:
+          type: integer
+          minimum: 0
+        backlog:
+          type: integer
+          minimum: 0
+        completionPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        coveragePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        defectDensity:
+          type: number
+          minimum: 0
+        at_risk:
+          type: integer
+          minimum: 0
+          description: Matching Stories with slippage, blocked status or high priority and no coverage; may be absent for an empty
+            scope.
+    RequirementCatalogSprintHealth:
+      type: object
+      required:
+        - iteration_id
+        - jira_sprint_id
+        - name
+        - state
+        - total_stories
+        - completed_stories
+        - covered_stories
+        - linked_cases
+        - executed_linked_cases
+        - passed_cases
+        - at_risk_stories
+        - slippage_stories
+        - on_course_stories
+        - open_p1_p2_bugs
+        - total_bugs
+        - completed_percent
+        - coverage_percent
+        - pass_percent
+        - observed
+        - exact_fields
+        - completeness
+      properties:
+        blocked_stories: { type: integer, minimum: 0, nullable: true }
+        comment_count: { type: integer, minimum: 0, nullable: true }
+        iteration_id:
+          type: string
+        jira_sprint_id:
+          type: string
+          nullable: true
+        name:
+          type: string
+        state:
+          type: string
+          nullable: true
+        total_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        completed_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        covered_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        linked_cases:
+          type: integer
+          minimum: 0
+          nullable: true
+        executed_linked_cases:
+          type: integer
+          minimum: 0
+          nullable: true
+        passed_cases:
+          type: integer
+          minimum: 0
+          nullable: true
+        at_risk_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        slippage_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        on_course_stories:
+          type: integer
+          minimum: 0
+          nullable: true
+        open_p1_p2_bugs:
+          type: integer
+          minimum: 0
+          nullable: true
+        total_bugs:
+          type: integer
+          minimum: 0
+          nullable: true
+        completed_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        coverage_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        pass_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        observed:
+          type: object
+          description: Observed counts and scope metadata used in the complete aggregate.
+          additionalProperties: true
+        exact_fields:
+          type: array
+          items:
+            type: string
+        completeness:
+          type: object
+          required:
+            - complete
+            - partial
+            - reasons
+            - exact_fields
+            - stories
+            - executions
+            - bugs
+          properties:
+            complete:
+              type: boolean
+            partial:
+              type: boolean
+            reasons:
+              type: array
+              items:
+                type: string
+            exact_fields:
+              type: array
+              items:
+                type: string
+            stories:
+              type: object
+              required:
+                - state
+                - scanned
+                - limit
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    - not_needed
+                scanned:
+                  type: integer
+                  minimum: 0
+                limit:
+                  type: integer
+                  minimum: 0
+            executions:
+              type: object
+              required:
+                - state
+                - linked_cases_scoped
+                - runs_scanned
+                - results_scanned
+                - case_limit
+                - run_limit
+                - result_limit
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    - not_needed
+                linked_cases_scoped:
+                  type: integer
+                  minimum: 0
+                runs_scanned:
+                  type: integer
+                  minimum: 0
+                results_scanned:
+                  type: integer
+                  minimum: 0
+                case_limit:
+                  type: integer
+                  minimum: 0
+                run_limit:
+                  type: integer
+                  minimum: 0
+                result_limit:
+                  type: integer
+                  minimum: 0
+            bugs:
+              type: object
+              required:
+                - state
+                - bugs_scanned
+                - limit
+              properties:
+                state:
+                  type: string
+                  enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    - not_needed
+                bugs_scanned:
+                  type: integer
+                  minimum: 0
+                limit:
+                  type: integer
+                  minimum: 0
+    RequirementCatalogMetricsResponse:
+      type: object
+      required:
+        - all
+        - backlog
+        - sprints
+        - sprint_health
+        - filter_options
+        - generated_at
+      properties:
+        all:
+          $ref: "#/components/schemas/RequirementCatalogMetrics"
+        backlog:
+          $ref: "#/components/schemas/RequirementCatalogMetrics"
+        sprints:
+          $ref: "#/components/schemas/RequirementCatalogMetrics"
+        sprint_health:
+          type: array
+          items:
+            $ref: "#/components/schemas/RequirementCatalogSprintHealth"
+        filter_options:
+          type: object
+          required:
+            - statuses
+            - labels
+            - sprints
+            - fix_versions
+            - releases
+          properties:
+            statuses:
+              type: array
+              items:
+                type: string
+            labels:
+              type: array
+              items:
+                type: string
+            sprints:
+              type: array
+              items:
+                type: string
+            fix_versions:
+              type: array
+              items:
+                type: string
+            releases:
+              type: array
+              items:
+                type: string
+        generated_at:
+          type: string
+          format: date-time
+    TestCaseModuleHealth:
+      type: object
+      required:
+        - count
+        - unknownSummaryCount
+        - executionDurationSampleCount
+        - pendingReviewCount
+        - defectCount
+        - riskCount
+        - traceabilityPercent
+        - executablePercent
+        - automationPercent
+        - executionPercent
+        - passRatePercent
+        - latestPassRatePercent
+        - stabilityPercent
+        - summaryComplete
+        - averageExecutionMs
+        - defectDensity
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        unknownSummaryCount:
+          type: integer
+          minimum: 0
+        executionDurationSampleCount:
+          type: integer
+          minimum: 0
+        pendingReviewCount:
+          type: integer
+          minimum: 0
+        defectCount:
+          type: integer
+          minimum: 0
+        riskCount:
+          type: integer
+          minimum: 0
+        traceabilityPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        executablePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        automationPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        executionPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+        passRatePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        latestPassRatePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        stabilityPercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          nullable: true
+        summaryComplete:
+          type: boolean
+        averageExecutionMs:
+          type: integer
+          minimum: 0
+          nullable: true
+        defectDensity:
+          type: number
+          minimum: 0
+    TestCaseCatalogMetricsResponse:
+      type: object
+      required:
+        - coverage
+        - catalog
+        - modules
+        - unassigned
+      properties:
+        coverage:
+          type: object
+          required:
+            - total
+            - covered
+            - automated
+            - automationKnown
+            - withHistory
+            - withSuites
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            covered:
+              type: integer
+              minimum: 0
+            automated:
+              type: integer
+              minimum: 0
+            automationKnown:
+              type: integer
+              minimum: 0
+            withHistory:
+              type: integer
+              minimum: 0
+            withSuites:
+              type: integer
+              minimum: 0
+        catalog:
+          type: object
+          required:
+            - total
+            - automationPercent
+            - blocked
+            - failed
+            - critical
+            - averageExecutionMs
+            - executionDurationSampleCount
+            - finalizedResults
+            - passedResults
+            - recentPassRate
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            automationPercent:
+              type: number
+              minimum: 0
+              maximum: 100
+            blocked:
+              type: integer
+              minimum: 0
+            failed:
+              type: integer
+              minimum: 0
+            critical:
+              type: integer
+              minimum: 0
+            averageExecutionMs:
+              type: integer
+              minimum: 0
+              nullable: true
+            executionDurationSampleCount:
+              type: integer
+              minimum: 0
+            finalizedResults:
+              type: integer
+              minimum: 0
+            passedResults:
+              type: integer
+              minimum: 0
+            recentPassRate:
+              type: number
+              minimum: 0
+              maximum: 100
+              nullable: true
+        modules:
+          type: object
+          description: Health keyed by module identifier. Empty modules may be absent.
+          additionalProperties:
+            $ref: "#/components/schemas/TestCaseModuleHealth"
+        unassigned:
+          $ref: "#/components/schemas/TestCaseModuleHealth"
+    IssueCatalogMetrics:
+      type: object
+      required:
+        - total
+        - open
+        - priority_risks
+        - unassigned
+        - converted
+        - statuses
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        open:
+          type: integer
+          minimum: 0
+          description: Bugs outside closed, resolved, done and accepted statuses.
+        priority_risks:
+          type: integer
+          minimum: 0
+          description: Open Bugs with high or highest priority.
+        unassigned:
+          type: integer
+          minimum: 0
+          description: Open Bugs without an assignee.
+        converted:
+          type: integer
+          minimum: 0
+          description: Bugs converted to Test Cases within the same project.
+        statuses:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
     DropdownOptionInput:
       type: object
       required: [value, label, active]
@@ -6524,6 +7591,11 @@ components:
       type: object
       required: [release_id, total_stories, readiness_score, readiness_state]
       properties:
+        story_metrics:
+          type: object
+          description: Complete per-Story evidence within this Release; independent of expanded or loaded rows.
+          additionalProperties:
+            $ref: "#/components/schemas/RequirementReleaseStoryMetrics"
         release_id: { type: string }
         total_stories: { type: integer, minimum: 0 }
         covered_stories: { type: integer, minimum: 0 }
@@ -6537,7 +7609,7 @@ components:
         bug_density: { type: number, minimum: 0, nullable: true }
         automated_cases: { type: integer, minimum: 0 }
         automation_coverage_percent: { type: number, minimum: 0, maximum: 100, nullable: true }
-        readiness_score: { type: integer, minimum: 0, maximum: 100 }
+        readiness_score: { type: integer, minimum: 0, maximum: 100, nullable: true, description: "Unavailable until linked Test Cases have finalized execution evidence." }
         readiness_state: { type: string, enum: [ready, at_risk, not_ready] }
         methodology:
           type: object
@@ -6626,6 +7698,8 @@ components:
     Requirement:
       type: object
       properties:
+        catalog_metrics:
+          $ref: "#/components/schemas/RequirementRecordMetrics"
         id: { type: string }
         display_id: { type: string, nullable: true }
         project_id: { type: string }
@@ -6840,14 +7914,25 @@ components:
         display_id: { type: string }
     IssuePage:
       type: object
-      required: [items, total, next_cursor, is_last]
+      description: A bounded record page. total is optional and omitted when include_total=false.
+      required:
+        - items
+        - next_cursor
+        - is_last
       properties:
         items:
           type: array
-          items: { $ref: "#/components/schemas/Issue" }
-        total: { type: integer, minimum: 0 }
-        next_cursor: { type: string, nullable: true }
-        is_last: { type: boolean }
+          items:
+            $ref: "#/components/schemas/Issue"
+        total:
+          type: integer
+          minimum: 0
+          description: Complete matching count, present only when include_total is not false.
+        next_cursor:
+          type: string
+          nullable: true
+        is_last:
+          type: boolean
     ReplaceRequirementDefectsRequest:
       type: object
       required: [requirement_id, issue_ids]
@@ -6904,6 +7989,12 @@ components:
     TestSuite:
       type: object
       properties:
+        test_case_count: { type: integer, minimum: 0, description: "Distinct member cases; picker and summary projections." }
+        automated_case_count: { type: integer, minimum: 0, description: "Summary projection; member cases marked automated=yes." }
+        total_step_count: { type: integer, minimum: 0, description: "Summary projection; total stored steps across distinct member cases." }
+        step_count: { type: integer, minimum: 0, description: "Alias of total_step_count." }
+        story_linked_case_count: { type: integer, minimum: 0, description: "Summary projection; distinct member cases with a current or legacy Story link in the same project." }
+        detail_complete: { type: boolean, description: "False for compact picker choices." }
         description: { type: string, nullable: true }
         parameter_values: { type: object, additionalProperties: { type: string } }
         test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
@@ -7033,6 +8124,59 @@ components:
         created_by: { type: string, nullable: true, description: Immutable user who created the Test Case. }
         updated_by: { type: string, nullable: true, description: User who most recently changed the Test Case. }
         created_at: { type: string }
+        detail_complete:
+          type: boolean
+          description: False for lightweight catalog summaries; fetch the detail endpoint before editing.
+        summary_complete:
+          type: boolean
+        module_ids:
+          type: array
+          items:
+            type: string
+        defect_ids:
+          type: array
+          items:
+            type: string
+        step_count:
+          type: integer
+          minimum: 0
+        run_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: Available with include_execution=true.
+        recent_results:
+          type: array
+          maxItems: 10
+          description: Latest compact execution summaries, populated only when include_execution=true.
+          items:
+            type: object
+            required:
+              - id
+              - execution_id
+              - test_case_id
+              - app_type_id
+              - status
+              - duration_ms
+              - created_at
+            properties:
+              id:
+                type: string
+              execution_id:
+                type: string
+              test_case_id:
+                type: string
+              app_type_id:
+                type: string
+              status:
+                type: string
+              duration_ms:
+                type: integer
+                nullable: true
+              created_at:
+                type: string
+                format: date-time
+                nullable: true
     CreateTestCaseRequest:
       type: object
       required: [title]

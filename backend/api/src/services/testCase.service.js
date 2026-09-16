@@ -1750,19 +1750,31 @@ exports.getTestCasesForRequirements = async ({ app_type_id, requirement_ids = []
 
   const placeholders = placeholdersFor(requirementIds);
   const rows = await db.prepare(`
-    SELECT test_cases.*
+    SELECT test_cases.id, test_cases.display_id, test_cases.app_type_id, test_cases.title,
+      test_cases.automated, test_cases.priority, test_cases.status, test_cases.requirement_id,
+      COALESCE((SELECT jsonb_agg(linked.id ORDER BY linked.id) FROM (
+        SELECT requirements.id FROM requirements JOIN app_types ON app_types.project_id = requirements.project_id
+        WHERE requirements.id = test_cases.requirement_id AND app_types.id = test_cases.app_type_id
+        UNION
+        SELECT requirements.id FROM requirement_test_cases
+        JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
+        JOIN app_types ON app_types.project_id = requirements.project_id
+        WHERE requirement_test_cases.test_case_id = test_cases.id AND app_types.id = test_cases.app_type_id
+      ) linked), '[]'::jsonb) AS requirement_ids
     FROM test_cases
     WHERE test_cases.app_type_id = ?
-      AND EXISTS (
+      AND (test_cases.requirement_id IN (${placeholders}) OR EXISTS (
         SELECT 1
         FROM requirement_test_cases
         WHERE requirement_test_cases.test_case_id = test_cases.id
           AND requirement_test_cases.requirement_id IN (${placeholders})
-      )
-    ORDER BY COALESCE(test_cases.updated_at, test_cases.created_at) DESC, test_cases.created_at DESC
-  `).all(appTypeId, ...requirementIds);
+      ))
+    ORDER BY COALESCE(test_cases.updated_at, test_cases.created_at) DESC NULLS LAST, test_cases.id DESC
+  `).all(appTypeId, ...requirementIds, ...requirementIds);
 
-  return hydrateTestCases(rows);
+  // This explicit selection operation needs every linked ID, not full authoring
+  // or execution details for every case in the selected Requirements.
+  return rows.map((row) => ({ ...row, detail_complete: false, summary_complete: false }));
 };
 
 exports.getTestCase = async (id) => {

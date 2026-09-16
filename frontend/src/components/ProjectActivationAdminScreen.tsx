@@ -7,7 +7,6 @@ import {
   IconDatabase,
   IconExternalLink,
   IconLayoutDashboard,
-  IconLoader2,
   IconRefresh,
   IconSearch,
   IconShieldCheck,
@@ -508,9 +507,7 @@ export function ProjectActivationAdminScreen({
               </div>
             ) : isPreparing && !siteInProgress ? (
               <div className="activation-site-state is-requesting" aria-live="polite" role="status">
-                <span className="project-activation-state-icon is-spinning" aria-hidden="true">
-                  <IconLoader2 size={22} stroke={1.9} />
-                </span>
+                <LoadingState label="Starting schema reconciliation" />
                 <div>
                   <h3>Starting safe schema reconciliation</h3>
                   <p>HelloTest is asking connected workspace to verify existing resources before background preparation begins.</p>
@@ -519,9 +516,7 @@ export function ProjectActivationAdminScreen({
             ) : siteInProgress ? (
               <div className="activation-site-state is-progress" aria-live="polite" role="status">
                 <div className="activation-site-progress-title">
-                  <span className="project-activation-state-icon is-spinning" aria-hidden="true">
-                    <IconLoader2 size={22} stroke={1.9} />
-                  </span>
+                  <LoadingState label="Preparing the shared HelloTest schema" />
                   <div>
                     <h3>Preparing the shared HelloTest schema</h3>
                     <p>
@@ -681,7 +676,7 @@ export function ProjectActivationAdminScreen({
                     type="button"
                   >
                     {isPreparing
-                      ? <IconLoader2 aria-hidden="true" className="is-spinning" size={17} />
+                      ? <LoadingState label="Applying schema selections" />
                       : <IconCheck aria-hidden="true" size={17} />}
                     {isPreparing ? "Applying selections…" : "Apply selections & continue"}
                   </button>
@@ -789,7 +784,7 @@ export function ProjectActivationAdminScreen({
                   type="button"
                 >
                   {isBulkSubmitting
-                    ? <IconLoader2 aria-hidden="true" className="is-spinning" size={17} />
+                    ? <LoadingState label={enrollmentPendingLabel} />
                     : <IconShieldCheck aria-hidden="true" size={17} />}
                   {isBulkSubmitting
                     ? enrollmentPendingLabel
@@ -880,7 +875,7 @@ export function ProjectActivationAdminScreen({
                           <td data-label="HelloTest status">
                             <span className={`activation-row-status is-${status}`}>
                               {status === "ready" ? <IconCheck aria-hidden="true" size={14} /> : null}
-                              {status === "queued" || status === "provisioning" ? <IconLoader2 aria-hidden="true" className="is-spinning" size={14} /> : null}
+                              {status === "queued" || status === "provisioning" ? <LoadingState label={`Enabling ${project.name}`} /> : null}
                               {statusCopy.label}
                             </span>
                           </td>

@@ -67,7 +67,7 @@ test("admin frontend has a dedicated entry point, port, and production listener"
   assert.match(packageJson, /"dev:admin": "vite --config vite\.admin\.config\.ts"/);
   assert.match(viteConfig, /base: "\.\/"/);
   assert.match(viteConfig, /port: 5174/);
-  assert.match(viteConfig, /request\.url = "\/admin\.html"/);
+  assert.match(viteConfig, /request\.url = `\/admin\.html\$\{url\.search\}`/);
   assert.match(nginx, /location = \/admin/);
   assert.match(nginx, /listen 81;/);
   assert.match(nginx, /root \/usr\/share\/nginx\/admin;/);

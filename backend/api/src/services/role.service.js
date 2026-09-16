@@ -1,6 +1,7 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSION_GROUPS } = require("../security/permissions.catalog");
+const { findDefaultRolePreset } = require("../security/rolePresets.catalog");
 const featureFlagService = require("./featureFlag.service");
 
 const normalizeRoleName = (name) => String(name || "").trim();
@@ -10,7 +11,9 @@ const resolveDefaultPermissionCodes = (name, explicitCodes) => {
     return explicitCodes;
   }
 
-  return DEFAULT_ROLE_PERMISSIONS[normalizeRoleName(name).toLowerCase()] || DEFAULT_ROLE_PERMISSIONS.member || [];
+  return findDefaultRolePreset(name)?.permission_codes
+    || DEFAULT_ROLE_PERMISSIONS[normalizeRoleName(name).toLowerCase()]
+    || DEFAULT_ROLE_PERMISSIONS.member || [];
 };
 
 const resolvePermissionsByCode = async (permissionCodes = []) => {
@@ -33,13 +36,22 @@ const resolvePermissionsByCode = async (permissionCodes = []) => {
     throw new Error(`Unknown permissions: ${missingCodes.join(", ")}`);
   }
 
-  const disabledCodes = await featureFlagService.getDisabledPermissionCodes(normalizedCodes);
-
-  if (disabledCodes.length) {
-    throw new Error(`Permissions disabled by feature availability: ${disabledCodes.join(", ")}`);
-  }
-
+  // Role grants are configuration. Availability is enforced at request time,
+  // so pausing a feature must not erase grants or prevent preparing a role.
   return permissions;
+};
+
+const annotateAvailability = async (permissions) => {
+  const snapshot = await featureFlagService.getSnapshot();
+  const definitions = new Map(snapshot.groups.flatMap(group => group.features.map(feature => [feature.key, {
+    key: feature.key, label: feature.label, group: group.key, group_label: group.label
+  }])));
+  return permissions.map(permission => ({
+    ...permission,
+    features: featureFlagService.getFeatureKeysForPermission(permission.code).map(key => ({
+      ...definitions.get(key), key, enabled: snapshot.flags[key] === true
+    }))
+  }));
 };
 
 const assignRolePermissions = async (id, permissions) => {
@@ -109,7 +121,7 @@ exports.getRolePermissions = async (id) => {
     ORDER BY permissions.code ASC
   `).all(id);
 
-  return featureFlagService.filterPermissionsByEnabledFeatures(permissions);
+  return annotateAvailability(permissions);
 };
 
 exports.listPermissions = async () => {
@@ -121,9 +133,10 @@ exports.listPermissions = async () => {
 
   const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission]));
 
-  const availablePermissionGroups = await featureFlagService.filterPermissionGroupsByEnabledFeatures(PERMISSION_GROUPS);
+  const annotated = await annotateAvailability(permissions);
+  annotated.forEach(permission => permissionByCode.set(permission.code, permission));
 
-  return availablePermissionGroups.map((group) => ({
+  return PERMISSION_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
     permissions: group.permissions

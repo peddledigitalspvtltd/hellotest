@@ -1883,3 +1883,28 @@
 :root[data-theme="dark"] .execution-case-run-workspace .execution-case-run-footer .execution-case-run-button:disabled { background: #1c2a3f; border-color: #33445e; color: #8695ae; }
 :root[data-theme="dark"] .execution-case-run-workspace .execution-case-lifecycle[data-status="paused"] .execution-case-clock > .status-badge { background: #463321; border-color: #695034; color: #f0c894; }
 :root[data-theme="dark"] .execution-case-run-workspace .case-run-parameter-gap { background: #463321; color: #f0c894; }
+
+.execution-structured-step-field {
+  display: grid;
+  gap: 3px;
+  margin-block: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.execution-structured-step-field > strong {
+  color: var(--case-run-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.execution-step-feature-links {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+}
+.execution-step-feature-links a { display: inline-flex; align-items: center; gap: 4px; }
+.execution-case-run-step-workspace .execution-step-view-header-actions { flex-wrap: wrap; }
+.execution-case-run-step-workspace .execution-step-view-toggle { flex-wrap: wrap; }

@@ -6,7 +6,7 @@ const Fastify = require('fastify');
 const flags = require('../src/services/featureFlag.service');
 const permissionService = require('../src/services/permission.service');
 const db = require('../src/db');
-const { ROUTE_PERMISSIONS } = require('../src/security/permissions.catalog');
+const { ROUTE_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require('../src/security/permissions.catalog');
 
 const SOURCE_FLAG = 'hellotest.automation.object_repository';
 const WORKSPACE_FLAG = 'hellotest.automation.workspace';
@@ -48,6 +48,37 @@ test('one snapshot is internally consistent and exposes effective dependency dec
   assert.equal(snapshot.flags[SOURCE_FLAG], false);
   assert.deepEqual(snapshot.dependencies[SOURCE_FLAG], [WORKSPACE_FLAG]);
   assert.equal(snapshot.flags['hellotest.ai.agentic_workflows'], true);
+});
+
+test('Run view metadata links Gherkin and Coded to their separate permissions', async (t) => {
+  stored(t);
+  const snapshot = await flags.getSnapshot();
+  const byKey = new Map(snapshot.groups.flatMap(group => group.features.map(feature => [feature.key, feature])));
+  const gherkin = byKey.get('hellotest.manual.run_gherkin');
+  const coded = byKey.get('hellotest.automation.step_code');
+  assert.deepEqual(gherkin.routes, ['/executions']);
+  assert.deepEqual(gherkin.permissions, ['run.gherkin.view']);
+  assert.match(gherkin.description, /default Structured view/);
+  assert.ok(coded.permissions.includes('automation.code.view'));
+  assert.match(coded.description, /Coded view/);
+  assert.equal(PERMISSIONS.find(permission => permission.code === 'run.gherkin.view').group, 'execution');
+  for (const role of ['admin', 'member']) assert.ok(DEFAULT_ROLE_PERMISSIONS[role].includes('run.gherkin.view'));
+});
+
+test('disabling Gherkin preserves Structured Run access and independent Coded access', async (t) => {
+  stored(t, { 'hellotest.manual.run_gherkin': false });
+  assert.deepEqual(await flags.getDisabledPermissionCodes(['run.view', 'run.gherkin.view', 'automation.code.view']), ['run.gherkin.view']);
+  assert.equal(await flags.isEnabled('hellotest.manual.runs'), true);
+  assert.equal(await flags.isEnabled('hellotest.automation.step_code'), true);
+});
+
+test('Gherkin Run view follows the parent Run feature and retains its deliberate local toggle', async (t) => {
+  stored(t, { 'hellotest.manual.runs': false, 'hellotest.manual.run_gherkin': true });
+  const snapshot = await flags.getSnapshot();
+  assert.equal(snapshot.local_flags['hellotest.manual.run_gherkin'], true);
+  assert.equal(snapshot.flags['hellotest.manual.run_gherkin'], false);
+  assert.deepEqual(snapshot.dependencies['hellotest.manual.run_gherkin'], ['hellotest.manual.runs']);
+  assert.deepEqual(await flags.getDisabledPermissionCodes(['run.view', 'run.gherkin.view']), ['run.view', 'run.gherkin.view']);
 });
 
 test('permission group filtering reads one snapshot for all groups', async (t) => {

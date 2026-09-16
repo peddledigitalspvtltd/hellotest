@@ -3,6 +3,7 @@ const {
   INTEGRATION_TYPE_VALUES
 } = require("../domain/catalog");
 const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require("../security/permissions.catalog");
+const { ensureSetupRoles } = require("../services/rolePreset.service");
 
 let bootstrapPromise = null;
 const SCHEMA_LOCK_KEY = "hellotest:main-runtime-schema:v1";
@@ -2568,6 +2569,12 @@ const statements = [
   `ALTER TABLE execution_results ALTER COLUMN case_defects SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE execution_results ALTER COLUMN case_defects SET NOT NULL`,
   `ALTER TABLE execution_results ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1`,
+  `CREATE INDEX IF NOT EXISTS idx_requirements_catalog_cursor ON requirements (project_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, created_at DESC NULLS LAST, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_requirements_iteration_cursor ON requirements (project_id, iteration_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, created_at DESC NULLS LAST, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_cases_catalog_cursor ON test_cases (app_type_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_catalog_cursor ON feedback (project_id, created_at DESC NULLS LAST, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_cursor ON test_case_module_cases (module_id, sort_order, test_case_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_results_case_latest ON execution_results (test_case_id, created_at DESC, id DESC) INCLUDE (status, duration_ms)`,
   rebrandJsonColumn("integrations", "config"),
   rebrandJsonColumn("app_settings", "value"),
   rebrandJsonColumn("quality_dashboards", "gadgets")
@@ -2582,6 +2589,7 @@ const executeStatements = () => db.transaction(async () => {
   for (const statement of statements) {
     await db.query(statement);
   }
+  return ensureSetupRoles();
 })();
 
 const ensureRuntimeSchema = async () => {

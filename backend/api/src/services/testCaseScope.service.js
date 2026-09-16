@@ -23,6 +23,12 @@ const getRequirementScope = (id) => db.prepare(`
   WHERE id = ?
 `).get(id);
 
+const resolveRequirementScopes = async (requirementIds) => {
+  const ids = uniqueIds(requirementIds);
+  if (!ids.length) return [];
+  return db.prepare(`SELECT id, project_id FROM requirements WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+};
+
 const getModuleScope = (id) => db.prepare(`
   SELECT test_case_modules.id, test_case_modules.app_type_id, app_types.project_id
   FROM test_case_modules
@@ -130,6 +136,7 @@ module.exports = {
   getRequirementScope,
   getSuiteScope,
   resolveListProjectId,
+  resolveRequirementScopes,
   resolveSuiteScopes,
   resolveTestCaseScopes,
   resolveTestCaseProjectIds,

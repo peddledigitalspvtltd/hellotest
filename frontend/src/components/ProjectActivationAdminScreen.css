@@ -119,6 +119,10 @@
   background: var(--ds-background-information, #e9f2ff);
 }
 
+.activation-site-state.is-requesting {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .activation-site-state.is-requesting > span,
 .activation-site-state.is-recovery > svg {
   color: var(--ds-icon-information, #0c66e4);
@@ -145,7 +149,7 @@
 
 .activation-site-progress-title {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 0.7rem;
 }
@@ -824,11 +828,11 @@
   }
 
   .activation-site-progress-title {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .activation-site-progress-title > strong {
-    grid-column: 2;
+    grid-column: 1;
   }
 
   .activation-resource-strip {

@@ -73,7 +73,6 @@ module.exports = async function (fastify) {
     }, req.body || {});
     const projectId = req.body.project_id;
     await projectService.getProject(projectId, req.user.id);
-    await fastify.requirePermission("testcase.view", { projectId })(req);
     let frozenRun = null;
     if (req.body.execution_id) {
       await fastify.requirePermission("run.view", { projectId })(req);
@@ -82,7 +81,14 @@ module.exports = async function (fastify) {
         throw createAccessError("The run is unavailable in this application.", 404);
       }
     }
-    if (req.body.suite_ids?.length) await fastify.requirePermission("suite.view", { projectId })(req);
+    // A saved Run owns its frozen cases and parameters. Authoring access is
+    // needed only when a preview introduces live cases or suites.
+    const savedCases = new Set(frozenRun?.test_case_ids || []);
+    const savedSuites = new Set(frozenRun?.suite_ids || []);
+    const addsCases = (req.body.test_case_ids || []).some(id => !savedCases.has(id));
+    const addsSuites = (req.body.suite_ids || []).some(id => !savedSuites.has(id));
+    if (!frozenRun || addsCases || addsSuites) await fastify.requirePermission("testcase.view", { projectId })(req);
+    if (addsSuites) await fastify.requirePermission("suite.view", { projectId })(req);
     if (req.body.test_environment_id && req.body.test_environment_id !== frozenRun?.test_environment_id) await fastify.requirePermission("environment.view", { projectId })(req);
     if (req.body.test_configuration_id && req.body.test_configuration_id !== frozenRun?.test_configuration_id) await fastify.requirePermission("configuration.view", { projectId })(req);
     if (req.body.test_data_set_id !== frozenRun?.test_data_set_id) await requireSelectedTestDataAccess(fastify, req, projectId, req.body.test_data_set_id);

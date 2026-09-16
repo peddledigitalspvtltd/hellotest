@@ -1,0 +1,143 @@
+// Production TestCasesPage with isolated API responses; no backend reads or writes.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = new URL('../../', import.meta.url);
+
+const fixture = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from '/src/auth/AuthContext';
+import { LocalizationProvider } from '/src/context/LocalizationContext';
+import { TestCasesPage } from '/src/pages/TestCasesPage';
+import { api, sessionStorage } from '/src/lib/api';
+import { setCurrentScope } from '/src/hooks/useCurrentProject';
+import '/src/styles.css';
+import '/src/dark-theme.css';
+import '/src/modal-system.css';
+import '/src/workspace-layout.css';
+import '/src/catalog-list.css';
+import '/src/execution-run-builder.css';
+const session={token:'test-case-catalog-browser',user:{id:'reviewer',name:'QA Reviewer',email:'reviewer@example.test',role:'admin'}};
+sessionStorage.write(session);setCurrentScope('case-project','case-app');
+localStorage.setItem('hellotest.default_catalog_view_mode','tile');
+window.calls={all:[],catalog:[],metrics:[],headers:[],moduleChildren:[],authoring:[]};
+window.pauseContinuation=true;window.pauseAuthoring=true;
+function stub(object,prefix=''){
+ for(const [key,value] of Object.entries(object)){
+  const path=prefix?prefix+'.'+key:key;
+  if(typeof value==='function')object[key]=async(...args)=>{window.calls.all.push({path,args});return []};
+  else if(value&&typeof value==='object')stub(value,path);
+ }
+}
+stub(api);
+api.auth.session=async()=>session;
+api.settings.getLocalization=async()=>({strings:{}});
+api.settings.getWorkspacePreferences=async()=>({preferences:{}});
+const flags={flags:new Proxy({},{get:()=>true})};
+api.featureFlags.snapshot=async()=>flags;
+api.metadata.domain=async()=>({test_cases:{default_status:'active',default_automated:'no',statuses:[{value:'active',label:'Active'}]},jira:{sprints:[],versions:[]}});
+api.projects.list=async()=>[{id:'case-project',name:'Catalog project'}];
+api.appTypes.list=async()=>[{id:'case-app',project_id:'case-project',name:'Web application',type:'web'}];
+const cases=Array.from({length:95},(_,index)=>{
+ const n=index+1;
+ return {id:'case-'+n,display_id:'TC-'+n,app_type_id:'case-app',title:n===60?'Distant boundary coverage':'Checkout coverage '+String(n).padStart(2,'0'),description:'Fixture case description '+n,
+  suite_id:null,suite_ids:[],requirement_id:n===60?'story-run':null,requirement_ids:n===60?['story-run']:[],module_ids:n>60?['case-module']:[],defect_ids:[],labels:[],external_references:[],
+  automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'not_requested',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,
+  created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
+});
+function matching(input){return cases.filter(item=>(!input.unassigned_module||!item.module_ids.length)&&(!input.search||[item.title,item.description,item.display_id].join(' ').toLowerCase().includes(input.search.toLowerCase())))}
+function paginate(items,input){const offset=Number(input.cursor||0),page=items.slice(offset,offset+input.page_size),next=offset+page.length;return {items:page,next_cursor:next<items.length?String(next):null,is_last:next>=items.length}}
+api.testCases.listPage=async(input)=>{
+ window.calls.catalog.push(structuredClone(input));
+ if(input.cursor&&window.pauseContinuation)await new Promise(resolve=>{window.releaseContinuation=resolve});
+ else await new Promise(resolve=>setTimeout(resolve,35));
+ return paginate(matching(input),input);
+};
+const health=count=>({count,traceabilityPercent:0,executablePercent:100,automationPercent:0,summaryComplete:true,unknownSummaryCount:0,executionPercent:0,passRatePercent:null,latestPassRatePercent:null,stabilityPercent:null,averageExecutionMs:null,executionDurationSampleCount:0,pendingReviewCount:0,defectCount:0,defectDensity:0,riskCount:0});
+api.testCases.metrics=async(input)=>{window.calls.metrics.push(structuredClone(input));return {coverage:{total:95,covered:1,automated:0,automationKnown:95,withHistory:0,withSuites:0},catalog:{total:95,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'case-module':health(35)},unassigned:health(60)}};
+api.testCaseModules.list=async(input)=>{window.calls.headers.push(structuredClone(input));return [{id:'case-module',app_type_id:'case-app',name:'Payments module',test_case_count:35,test_case_ids:[],requirement_ids:[]}]};
+api.testCaseModules.listCases=async(id,input)=>{window.calls.moduleChildren.push({id,...structuredClone(input)});return paginate(cases.filter(item=>item.module_ids.includes(id)),input)};
+api.requirements.list=async(input)=>{window.calls.authoring.push({path:'requirements.list',input});if(window.pauseAuthoring)await new Promise(resolve=>{window.releaseAuthoring=resolve});return [{id:'story-run',project_id:'case-project',title:'Checkout Story',priority:3,status:'active',iteration_id:'sprint-run',sprint:'Sprint Alpha',fix_version:'Release Alpha',labels:[],gherkin_scenarios:[],test_case_ids:['case-60']}]};
+api.requirementReleases.list=async(input)=>{window.calls.authoring.push({path:'requirementReleases.list',input});return [{id:'release-run',project_id:'case-project',name:'Release Alpha',fix_version:'Release Alpha',requirement_ids:['story-run'],sprint_ids:['sprint-run']}]};
+api.requirementIterations.list=async(input)=>{window.calls.authoring.push({path:'requirementIterations.list',input});return [{id:'sprint-run',project_id:'case-project',name:'Sprint Alpha',requirement_ids:['story-run']}]};
+const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+// AppShell resolves workspace features before opening a catalog route.
+client.setQueryData(['feature-flags'],flags);
+const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>},{path:'/away',element:<h1>Away from Test Cases</h1>}],{initialEntries:['/test-cases']});
+window.fixtureNavigate=to=>router.navigate(to);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId="reviewer"><main style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></LocalizationProvider></AuthProvider></QueryClientProvider>);
+`;
+
+test('Test Cases load 25 independently from metrics, fetch expanded modules, scroll and lazily prepare run scopes', { timeout:90000 }, async()=>{
+ const name='test-case-catalog-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
+ const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalog';
+ let browser;
+ try{
+  await writeFile(html,`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>.test-case-library-scroll{height:560px!important;max-height:560px!important;flex:none!important}.test-case-library-scroll>.tile-browser-pane-scroll{height:100%;overflow-y:auto}</style></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
+  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+  const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});
+  const unexpectedRequests=[];await context.route('**/api/**',route=>{unexpectedRequests.push(route.request().method()+' '+new URL(route.request().url()).pathname);return route.fulfill({status:500,contentType:'application/json',body:'{"message":"Unexpected fixture request"}'})});
+  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(10000);
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
+  const cards=page.locator('.test-case-library-scroll .test-case-catalog-card'),scroll=page.locator('.test-case-library-scroll>.tile-browser-pane-scroll');
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===25);
+  const total=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Total cases'}).locator('strong');
+  assert.equal(await total.innerText(),'95');await page.waitForTimeout(180);
+  let calls=await page.evaluate(()=>window.calls);
+  assert.equal(calls.catalog.length,1);assert.equal(calls.catalog[0].page_size,25);assert.equal(calls.catalog[0].include_total,false);assert.equal(calls.catalog[0].unassigned_module,true);
+  assert.equal(calls.metrics.length,1);assert.equal(calls.headers.length,1);assert.equal(calls.moduleChildren.length,0,'Collapsed modules never fetch their children');
+  assert.deepEqual(calls.authoring,[],'Library entry does not load all Stories or delivery catalogs');
+  assert.equal(calls.all.some(call=>/^(requirements|requirementIterations|requirementReleases|executionResults|testSuites|testDataSets|testCases)\.list$/.test(call.path)),false);
+  assert.equal(await page.getByRole('button',{name:/load more/i}).count(),0);
+  await page.screenshot({path:artifacts+'/test-cases-first-25.png'});
+
+  await scroll.evaluate(node=>node.scrollTop=node.scrollHeight-node.clientHeight);
+  await page.waitForFunction(()=>window.calls.catalog.length===2&&typeof window.releaseContinuation==='function');
+  assert.equal(await cards.count(),25);assert.equal(await page.locator('.screen-loading-overlay').count(),0);
+  const before=await scroll.evaluate(node=>node.scrollTop);
+  await page.screenshot({path:artifacts+'/test-cases-next-page-pending.png'});
+  await page.evaluate(()=>{window.pauseContinuation=false;window.releaseContinuation()});
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===50);
+  assert.ok(Math.abs((await scroll.evaluate(node=>node.scrollTop))-before)<=1,'Scroll position is stable while appending');
+  await page.waitForTimeout(150);calls=await page.evaluate(()=>window.calls);assert.equal(calls.catalog.length,2);assert.equal(calls.metrics.length,1);assert.equal(calls.catalog[1].cursor,'25');assert.equal(calls.catalog[1].page_size,25);
+
+  await scroll.evaluate(node=>node.scrollTop=0);
+  const moduleHeader=page.locator('.test-case-module-header').filter({hasText:'Payments module'});
+  await moduleHeader.getByRole('button',{name:'Expand module',exact:true}).click();
+  await page.waitForFunction(()=>window.calls.moduleChildren.length===1&&document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===75);
+  calls=await page.evaluate(()=>window.calls);assert.equal(calls.moduleChildren[0].page_size,25);assert.equal(calls.moduleChildren[0].include_total,false);assert.equal(calls.metrics.length,1);
+  await moduleHeader.getByRole('button',{name:'Collapse module',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===50);
+
+  await page.getByRole('textbox',{name:'Search test cases'}).fill('distant boundary');
+  await page.waitForFunction(()=>window.calls.catalog.some(call=>call.search==='distant boundary')&&document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===1);
+  assert.match(await cards.innerText(),/Distant boundary coverage/);calls=await page.evaluate(()=>window.calls);
+  assert.equal(calls.catalog.at(-1).search,'distant boundary');assert.equal(calls.catalog.at(-1).cursor,undefined);assert.equal(calls.catalog.at(-1).unassigned_module,false,'Search covers every module through one bounded catalog query');assert.equal(calls.moduleChildren.length,1,'Search does not fan out across modules');assert.equal(calls.metrics.length,1,'Complete metrics stay stable while searching');assert.deepEqual(calls.authoring,[]);
+  await page.screenshot({path:artifacts+'/test-cases-server-search.png'});
+
+  await cards.getByRole('checkbox').check();
+  await page.getByRole('button',{name:'Run manually',exact:true}).click();
+  await page.waitForFunction(()=>typeof window.releaseAuthoring==='function');
+  const run=page.getByRole('dialog',{name:'Create run'});
+  await run.waitFor();
+  assert.equal(await run.getByText('Preparing Release and Sprint options… You can continue configuring this run.',{exact:true}).isVisible(),true);
+  await run.getByLabel('Run name',{exact:true}).fill('Edited while options load');
+  assert.equal(await run.getByRole('button',{name:'Create Manual Run',exact:true}).isDisabled(),true);
+  await run.locator('form').evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  assert.equal((await page.evaluate(()=>window.calls.all)).some(call=>call.path==='executions.create'),false);
+  calls=await page.evaluate(()=>window.calls);assert.equal(calls.authoring.filter(call=>call.path==='requirements.list').length,1);assert.equal(calls.authoring.filter(call=>call.path==='requirementReleases.list').length,1);assert.equal(calls.authoring.filter(call=>call.path==='requirementIterations.list').length,1);
+  await page.evaluate(()=>{window.pauseAuthoring=false;window.releaseAuthoring()});
+  await page.waitForFunction(()=>document.querySelector('.execution-create-modal select') && !document.body.innerText.includes('Preparing Release and Sprint options…'));
+  assert.equal(await run.getByLabel('Run name',{exact:true}).inputValue(),'Edited while options load');assert.equal(await run.getByLabel('Release',{exact:true}).inputValue(),'Release Alpha');assert.equal(await run.getByLabel('Sprint',{exact:true}).inputValue(),'Sprint Alpha');
+  await page.screenshot({path:artifacts+'/test-cases-lazy-run-prefill.png'});
+  assert.deepEqual(errors,[]);assert.deepEqual(unexpectedRequests,[]);
+ }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
+});

@@ -1,5 +1,6 @@
 import { ChangeEvent, CSSProperties, Dispatch, DragEvent as ReactDragEvent, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
 import {
   IconBug as InsightBugIcon,
   IconBraces,
@@ -49,6 +50,8 @@ import { FormField } from "../components/FormField";
 import { GherkinEditor } from "../components/GherkinEditor";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
+import { deriveStoryMetrics, formatStoryPassRate } from "../lib/storyMetrics";
+import type { RequirementCatalogMetrics } from "../lib/requirementCatalog";
 import { HierarchyLoadMoreButton } from "../components/HierarchyLoadMoreButton";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { LinkedDefectsPanel } from "../components/LinkedDefectsPanel";
@@ -60,7 +63,7 @@ import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
-import { QualityMetricStrip } from "../components/QualityMetricStrip";
+import { QualityMetricStrip, type QualityMetric } from "../components/QualityMetricStrip";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { SpecKitEditor } from "../components/SpecKitEditor";
 import { RovoProviderStatus } from "../components/RovoProviderStatus";
@@ -93,7 +96,8 @@ import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib
 import { downloadCsvRecords } from "../lib/csvExport";
 import { loadAllCursorPages } from "../lib/cursorPagination";
 import { isDeliveryStatusComplete } from "../lib/deliveryStatus";
-import { hasPermission } from "../lib/permissions";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { getJiraBrowseUrl } from "../lib/jiraBrowseUrl";
 import { chunkHierarchyMoveIds, readHierarchyDragPayload, resolveHierarchyDragIds, writeHierarchyDragPayload } from "../lib/hierarchyDrag";
 import { getHierarchyPageSize, getUnassignedPageSize } from "../lib/hierarchyPagination";
@@ -205,9 +209,6 @@ type RequirementAiMode = "create" | "improve";
 type SprintDurationPreset = "1-week" | "2-weeks" | "3-weeks" | "4-weeks" | "custom";
 
 const RECOVERABLE_REQUIREMENT_AI_JOB_WINDOW_MS = 30 * 60_000;
-const SPRINT_HEALTH_REQUEST_BATCH_SIZE = 12;
-const SPRINT_HEALTH_CONCURRENT_BATCHES = 2;
-const SPRINT_STORY_PICKER_MAX_PAGES = 100;
 const STORY_AI_CONTEXT_PANE_STORAGE_KEY = "hellotest:story-ai-context-pane-width:v1";
 const STORY_AI_CONTEXT_PANE_MIN_WIDTH = 280;
 const STORY_AI_CONTEXT_PANE_MAX_WIDTH = 480;
@@ -276,16 +277,19 @@ const STORY_STATUS_RANK: Record<string, number> = {
   done: 7
 };
 
-const storyStatusRank = (value?: string | null) => STORY_STATUS_RANK[String(value || "").trim().toLowerCase()] ?? 0;
+const storyStatusRank = (value?: string | null) => (isDeliveryStatusComplete(value) ? 7 : STORY_STATUS_RANK[String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_")] ?? 0);
 const isStoryAssignedToSprint = (story?: Requirement | null) => Boolean(
   story?.iteration_id || story?.sprint_id || String(story?.sprint || "").trim()
 );
 const deriveStoryDeliveryRisk = (story: Requirement, now = Date.now()) => {
-  const devTarget = story.dev_completion_target_date ? Date.parse(story.dev_completion_target_date) : Number.NaN;
-  const qaTarget = story.qa_completion_target_date ? Date.parse(story.qa_completion_target_date) : Number.NaN;
-  const devSlipped = Number.isFinite(devTarget) && devTarget < now && storyStatusRank(story.status) < storyStatusRank("dev_done");
-  const qaSlipped = Number.isFinite(qaTarget) && qaTarget < now && storyStatusRank(story.status) < storyStatusRank("qa_done");
-  return { isRisk: devSlipped || qaSlipped, devSlipped, qaSlipped };
+  const today = new Date(now).toISOString().slice(0, 10);
+  const missed = (value?: string | null) => {
+    const time = value ? Date.parse(value) : Number.NaN;
+    return Number.isFinite(time) && new Date(time).toISOString().slice(0, 10) < today;
+  };
+  const devSlipped = missed(story.dev_completion_target_date) && storyStatusRank(story.status) < storyStatusRank("dev_done");
+  const qaSlipped = missed(story.qa_completion_target_date) && storyStatusRank(story.status) < storyStatusRank("qa_done");
+  return { isRisk: story.catalog_metrics?.slipped ?? (devSlipped || qaSlipped), devSlipped, qaSlipped };
 };
 
 const toDateInputValue = (date: Date) => {
@@ -441,15 +445,18 @@ function RequirementProgressBar({
 }) {
   const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
   const isComplete = metric.complete !== false;
+  const isNoRuns = isComplete && label === "Pass rate" && !metric.total;
+  const hasDenominator = metric.total > 0;
   const tone = isComplete ? getRequirementCoverageTone(metric.covered, metric.total) : "neutral";
+  const accessibleLabel = isNoRuns ? `${label}: no finalized runs` : isComplete && hasDenominator ? `${label} ${safeValue}%` : `${label} unavailable`;
 
   return (
-    <div className="requirement-progress-meter" aria-label={isComplete ? `${label} ${safeValue}%` : `${label} unavailable until linked cases are loaded`} title={detail}>
+    <div className="requirement-progress-meter" aria-label={accessibleLabel} title={detail}>
       <div className="requirement-progress-meter-header">
         <span>{label}</span>
-        <strong>{isComplete ? `${safeValue}%` : "—"}</strong>
+        <strong>{isNoRuns ? "No runs" : isComplete && hasDenominator ? `${safeValue}%` : "—"}</strong>
       </div>
-      <ProgressMeter hideCopy tone={tone} value={isComplete ? safeValue : 0} />
+      <ProgressMeter hideCopy label={accessibleLabel} tone={tone} value={isComplete && hasDenominator ? safeValue : 0} />
     </div>
   );
 }
@@ -482,57 +489,17 @@ function RequirementSplitActionButton({
   actions: RequirementSplitAction[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const menuInitialFocusRef = useRef<"first" | "last">("first");
   const canOpenMenu = actions.length > 0;
+  const { menuStyle } = useSplitActionMenu(isOpen && canOpenMenu, triggerRef, menuRef);
   const openMenu = (initialFocus: "first" | "last" = "first") => {
     if (!canOpenMenu) return;
     menuInitialFocusRef.current = initialFocus;
     setIsOpen(true);
   };
-
-  useEffect(() => {
-    if (!isOpen) {
-      setMenuStyle(null);
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const trigger = triggerRef.current;
-      if (!trigger) return;
-
-      const rect = trigger.getBoundingClientRect();
-      const menuWidth = Math.max(menuRef.current?.offsetWidth || 292, 292);
-      const menuHeight = menuRef.current?.offsetHeight || 190;
-      const viewportPadding = 10;
-      const left = Math.min(Math.max(viewportPadding, rect.right - menuWidth), window.innerWidth - menuWidth - viewportPadding);
-      const top = rect.bottom + 8 + menuHeight > window.innerHeight - viewportPadding
-        ? Math.max(viewportPadding, rect.top - menuHeight - 8)
-        : rect.bottom + 8;
-
-      setMenuStyle({
-        left,
-        top,
-        minWidth: "18.25rem",
-        maxWidth: "min(calc(100vw - 1.25rem), 23rem)",
-        opacity: 1
-      });
-    };
-
-    updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -577,6 +544,7 @@ function RequirementSplitActionButton({
   const menu = isOpen && canOpenMenu ? (
     <div
       className={`run-action-dropdown requirement-action-dropdown tone-${tone}`}
+      data-split-action-menu
       onKeyDown={(event) => {
         const enabledItems = Array.from(
           menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') || []
@@ -612,7 +580,7 @@ function RequirementSplitActionButton({
       }}
       ref={menuRef}
       role="menu"
-      style={menuStyle || { opacity: 0, pointerEvents: "none" }}
+      style={menuStyle}
       tabIndex={-1}
     >
       {actions.map((action) => (
@@ -699,25 +667,33 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
-  const canCreateRequirements = hasPermission(session, "requirement.create", projectId);
-  const canImportRequirements = hasPermission(session, "requirement.import", projectId);
-  const canExportRequirements = hasPermission(session, "requirement.export", projectId);
-  const canUpdateRequirements = hasPermission(session, "requirement.update", projectId);
-  const canDeleteRequirements = hasPermission(session, "requirement.delete", projectId);
-  const canViewAttachments = hasPermission(session, "attachment.view", projectId);
-  const canCreateAttachments = hasPermission(session, "attachment.create", projectId);
-  const canDeleteAttachments = hasPermission(session, "attachment.delete", projectId);
-  const canUseRequirementAi = hasPermission(session, "requirement.ai", projectId)
+  const { can } = useCapabilityAccess(projectId);
+  const canViewTestCases = can("testcase.view");
+  const canEditCaseLinks = can("testcase.update") && canViewTestCases;
+  const canViewBugs = can("feedback.view");
+  const canEditBugLinks = can("feedback.manage") && canViewBugs;
+  const canViewRuns = can("run.view");
+  const canViewRequirements = can("requirement.view");
+  const canCreateRequirements = can("requirement.create");
+  const canImportRequirements = can("requirement.import");
+  const canExportRequirements = can("requirement.export");
+  const canUpdateRequirements = can("requirement.update");
+  const canDeleteRequirements = can("requirement.delete");
+  const canViewAttachments = can("attachment.view");
+  const canCreateAttachments = can("attachment.create");
+  const canDeleteAttachments = can("attachment.delete");
+  const canUseRequirementAi = can("requirement.ai")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.requirement_design"]);
-  const canUseAiBugCreation = hasPermission(session, "feedback.manage", projectId)
+  const canUseAiBugCreation = can("feedback.create")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const canViewRequirementIterations = hasPermission(session, "requirement_iteration.view", projectId)
+  const canViewRequirementIterations = can("requirement_iteration.view")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
-  const canCreateRequirementIterations = hasPermission(session, "requirement_iteration.create", projectId);
-  const canUpdateRequirementIterations = hasPermission(session, "requirement_iteration.update", projectId);
-  const canDeleteRequirementIterations = hasPermission(session, "requirement_iteration.delete", projectId);
-  const canCreateTestCases = hasPermission(session, "testcase.create", projectId);
+  const canCreateRequirementIterations = can("requirement_iteration.create");
+  const canUpdateRequirementIterations = can("requirement_iteration.update");
+  const canDeleteRequirementIterations = can("requirement_iteration.delete");
+  const canCreateTestCases = can("testcase.create");
+  const canViewRequirementResults = can("result.view") && canViewRuns;
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const [selectedRequirementId, setSelectedRequirementId] = useState("");
@@ -801,10 +777,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [isCatalogViewPending, startCatalogViewTransition] = useTransition();
   const [activeTraceabilityTab, setActiveTraceabilityTab] = useState<RequirementTraceabilityTab>("details");
+  useEffect(() => {
+    if ((activeTraceabilityTab === "cases" && !canViewTestCases)
+      || (activeTraceabilityTab === "defects" && !canViewBugs)
+      || (activeTraceabilityTab === "history" && !canViewRequirementResults)) setActiveTraceabilityTab("details");
+  }, [activeTraceabilityTab, canViewTestCases, canViewBugs, canViewRequirementResults]);
   const [storyGroomingByRequirementId, setStoryGroomingByRequirementId] = useState<Record<string, StoryGroomingPreviewResponse>>({});
   const [storyGroomingContextChangedByRequirementId, setStoryGroomingContextChangedByRequirementId] = useState<Record<string, boolean>>({});
   const [detailTestCaseSearchTerm, setDetailTestCaseSearchTerm] = useState("");
   const [isDetailTestCaseSearchActive, setIsDetailTestCaseSearchActive] = useState(false);
+  const [detailTestCaseStatusFilter, setDetailTestCaseStatusFilter] = useState("all");
+  const [detailTestCasePriorityFilter, setDetailTestCasePriorityFilter] = useState("all");
   const [defectSearchTerm, setDefectSearchTerm] = useState("");
   const [isDefectSearchLoaded, setIsDefectSearchLoaded] = useState(false);
   const [message, setMessage] = useState("");
@@ -885,92 +868,76 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
   }, [requirementAiSidebarWidth]);
 
-  const projectsQuery = useQuery({
+  const projectsQuery = optionalQueryView(useQuery({
     queryKey: ["projects"],
+    enabled: can("project.view"),
     queryFn: async () => asArray(await api.projects.list())
-  });
-  const appTypesQuery = useQuery({
+  }), can("project.view"));
+  const appTypesQuery = optionalQueryView(useQuery({
     queryKey: ["app-types", projectId],
     queryFn: async () => asArray(await api.appTypes.list({ project_id: projectId })),
-    enabled: Boolean(projectId)
-  });
-  const requirementsQuery = useInfiniteQuery({
-    queryKey: queryKeys.requirementsPages(projectId),
-    queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
-      await api.requirements.listPage({
-        project_id: projectId,
-        unassigned: true,
-        page_size: getUnassignedPageSize(Boolean(pageParam)),
-        cursor: pageParam,
-        projection: "summary"
-      })
-    ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage, _allPages, _lastPageParam, allPageParams) => {
-      const nextCursor = getVerifiedNextPageCursor(lastPage);
-      return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
-    },
-    enabled: Boolean(projectId && workspaceMode !== "stories")
-  });
-  const allStoriesQuery = useQuery({
-    queryKey: ["requirements-all-stories", projectId],
-    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId, projection: "summary" })),
-    enabled: Boolean(projectId && workspaceMode === "stories"),
-    staleTime: 30_000
-  });
-  const sprintStoryPickerQuery = useInfiniteQuery({
-    queryKey: ["story-related-picker", projectId],
-    queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
-      await api.requirements.listPage({
-        project_id: projectId,
-        page_size: getUnassignedPageSize(Boolean(pageParam)),
-        cursor: pageParam,
-        projection: "summary"
-      })
-    ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage, _allPages, _lastPageParam, allPageParams) => {
-      const nextCursor = getVerifiedNextPageCursor(lastPage);
-      return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
-    },
-    enabled: Boolean(projectId && isCreateModalOpen),
-    staleTime: 30_000
-  });
-  const sprintStoryPickerPageCount = sprintStoryPickerQuery.data?.pages?.length || 0;
-  const hasReachedSprintStoryPickerPageLimit = sprintStoryPickerPageCount >= SPRINT_STORY_PICKER_MAX_PAGES;
-  const isSprintStoryPickerAutoLoading = Boolean(
-    sprintStoryPickerQuery.hasNextPage
-    && !sprintStoryPickerQuery.isError
-    && !hasReachedSprintStoryPickerPageLimit
-  );
-
+    enabled: can("app_type.view") && Boolean(projectId)
+  }), can("app_type.view"));
+  const [catalogSearch, setCatalogSearch] = useState("");
   useEffect(() => {
-    if (
-      !isCreateModalOpen
-      || !sprintStoryPickerQuery.hasNextPage
-      || sprintStoryPickerQuery.isFetchingNextPage
-      || sprintStoryPickerQuery.isError
-      || hasReachedSprintStoryPickerPageLimit
-    ) {
-      return;
-    }
-
-    void sprintStoryPickerQuery.fetchNextPage();
-  }, [
-    hasReachedSprintStoryPickerPageLimit,
-    isCreateModalOpen,
-    sprintStoryPickerPageCount,
-    sprintStoryPickerQuery.fetchNextPage,
-    sprintStoryPickerQuery.hasNextPage,
-    sprintStoryPickerQuery.isError,
-    sprintStoryPickerQuery.isFetchingNextPage
-  ]);
+    const timer = window.setTimeout(() => setCatalogSearch(deferredRequirementSearchTerm.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [deferredRequirementSearchTerm]);
+  const requirementCatalogFilters = useMemo(() => ({
+    include_execution: canViewRequirementResults,
+    search: catalogSearch || undefined,
+    status: requirementStatusFilter === "all" ? undefined : requirementStatusFilter,
+    priority: requirementPriorityFilter === "all" ? undefined : Number(requirementPriorityFilter),
+    label: requirementLabelFilter === "all" ? undefined : requirementLabelFilter,
+    sprint: requirementSprintFilter === "all" ? undefined : requirementSprintFilter,
+    fix_version: workspaceMode === "backlog" || requirementFixVersionFilter === "all" ? undefined : requirementFixVersionFilter,
+    release: workspaceMode === "backlog" || requirementReleaseFilter === "all" ? undefined : requirementReleaseFilter,
+    coverage: workspaceMode === "backlog" || requirementCoverageFilter === "all" ? undefined : requirementCoverageFilter
+  }), [canViewRequirementResults, catalogSearch, requirementStatusFilter, requirementPriorityFilter, requirementLabelFilter, requirementSprintFilter, requirementFixVersionFilter, requirementReleaseFilter, requirementCoverageFilter, workspaceMode]);
+  const requirementCatalogScopeKey = JSON.stringify([projectId, workspaceMode, requirementCatalogFilters]);
+  const [sprintCursorScopeKey, setSprintCursorScopeKey] = useState(requirementCatalogScopeKey);
+  const scopedSprintPageCursorsById = useMemo(
+    () => sprintCursorScopeKey === requirementCatalogScopeKey ? sprintPageCursorsById : {},
+    [sprintCursorScopeKey, requirementCatalogScopeKey, sprintPageCursorsById]
+  );
+  const requirementsQuery = useInfiniteQuery({
+    queryKey: [...queryKeys.requirementsPages(projectId), workspaceMode === "stories" ? "all" : "backlog", requirementCatalogFilters],
+    queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
+      await api.requirements.listPage({
+        project_id: projectId,
+        ...requirementCatalogFilters,
+        unassigned: workspaceMode !== "stories",
+        include_total: false,
+        page_size: 25,
+        cursor: pageParam,
+        projection: "summary"
+      })
+    ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _allPages, _lastPageParam, allPageParams) => {
+      const nextCursor = getVerifiedNextPageCursor(lastPage);
+      return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
+    },
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === projectId && previousQuery.queryKey[3] === (workspaceMode === "stories" ? "all" : "backlog") ? previous : undefined,
+    enabled: canViewRequirements && Boolean(projectId && workspaceMode !== "sprints"),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
+  });
+  const requirementMetricsQuery = useQuery({
+    queryKey: ["requirements", projectId, "metrics", requirementCatalogFilters, canViewRequirementIterations && workspaceMode === "sprints"],
+    queryFn: () => api.requirements.metrics({ project_id: projectId, ...requirementCatalogFilters, include_sprints: canViewRequirementIterations && workspaceMode === "sprints" }),
+    enabled: canViewRequirements && Boolean(projectId && (workspaceMode !== "sprints" || !featureFlagsQuery.isPending)),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
+  });
   const sprintBacklogPickerQuery = useInfiniteQuery({
-    queryKey: ["sprint-backlog-picker", projectId],
+    queryKey: ["sprint-backlog-picker", projectId, iterationRequirementSearch.trim(), iterationRequirementStatusFilter],
     queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
       await api.requirements.listPage({
         project_id: projectId,
         unassigned: true,
+        search: iterationRequirementSearch.trim() || undefined,
+        status: iterationRequirementStatusFilter === "all" ? undefined : iterationRequirementStatusFilter,
         page_size: getUnassignedPageSize(Boolean(pageParam)),
         cursor: pageParam,
         projection: "summary"
@@ -981,75 +948,48 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       const nextCursor = getVerifiedNextPageCursor(lastPage);
       return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
     },
-    enabled: Boolean(projectId && isCreateIterationModalOpen && !editingIteration),
+    enabled: canViewRequirements && Boolean(projectId && isCreateIterationModalOpen && !editingIteration),
     staleTime: 15_000
   });
-  const sprintBacklogPickerPageCount = sprintBacklogPickerQuery.data?.pages?.length || 0;
-  const hasReachedSprintBacklogPickerPageLimit = sprintBacklogPickerPageCount >= SPRINT_STORY_PICKER_MAX_PAGES;
-  const isSprintBacklogPickerAutoLoading = Boolean(
-    sprintBacklogPickerQuery.hasNextPage
-    && !sprintBacklogPickerQuery.isError
-    && !hasReachedSprintBacklogPickerPageLimit
-  );
-
-  useEffect(() => {
-    if (
-      !isCreateIterationModalOpen
-      || editingIteration
-      || !sprintBacklogPickerQuery.hasNextPage
-      || sprintBacklogPickerQuery.isFetchingNextPage
-      || sprintBacklogPickerQuery.isError
-      || hasReachedSprintBacklogPickerPageLimit
-    ) return;
-
-    void sprintBacklogPickerQuery.fetchNextPage();
-  }, [
-    editingIteration,
-    hasReachedSprintBacklogPickerPageLimit,
-    isCreateIterationModalOpen,
-    sprintBacklogPickerPageCount,
-    sprintBacklogPickerQuery.fetchNextPage,
-    sprintBacklogPickerQuery.hasNextPage,
-    sprintBacklogPickerQuery.isError,
-    sprintBacklogPickerQuery.isFetchingNextPage
-  ]);
   const requirementDetailQuery = useQuery({
-    queryKey: ["requirement-detail", projectId, selectedRequirementId],
-    queryFn: () => api.requirements.get(selectedRequirementId, { project_id: projectId }),
-    enabled: Boolean(projectId && selectedRequirementId),
+    queryKey: ["requirement-detail", projectId, selectedRequirementId, canViewRequirementResults],
+    queryFn: () => api.requirements.get(selectedRequirementId, { project_id: projectId, include_execution: canViewRequirementResults }),
+    enabled: canViewRequirements && Boolean(projectId && selectedRequirementId),
     staleTime: 30_000
   });
   const aiCompleteRequirementId = requirementAiMode === "improve" ? optimizeRequirementIds[0] || "" : "";
   const aiCompleteRequirementDetailQuery = useQuery({
-    queryKey: ["requirement-ai-complete-detail", projectId, aiCompleteRequirementId],
-    queryFn: () => api.requirements.get(aiCompleteRequirementId, { project_id: projectId }),
-    enabled: Boolean(projectId && isOptimizeModalOpen && requirementAiMode === "improve" && aiCompleteRequirementId),
+    queryKey: ["requirement-ai-complete-detail", projectId, aiCompleteRequirementId, canViewRequirementResults],
+    queryFn: () => api.requirements.get(aiCompleteRequirementId, { project_id: projectId, include_execution: canViewRequirementResults }),
+    enabled: canViewRequirements && Boolean(projectId && isOptimizeModalOpen && requirementAiMode === "improve" && aiCompleteRequirementId),
     staleTime: 30_000
   });
   const requestedRequirementRouteId = searchParams.get("requirement") || "";
   const requestedRequirementQuery = useQuery({
-    queryKey: ["requirement-route-detail", projectId, requestedRequirementRouteId],
-    queryFn: () => api.requirements.get(requestedRequirementRouteId, { project_id: projectId }),
-    enabled: Boolean(projectId && requestedRequirementRouteId),
+    queryKey: ["requirement-route-detail", projectId, requestedRequirementRouteId, canViewRequirementResults],
+    queryFn: () => api.requirements.get(requestedRequirementRouteId, { project_id: projectId, include_execution: canViewRequirementResults }),
+    enabled: canViewRequirements && Boolean(projectId && requestedRequirementRouteId),
     staleTime: 30_000,
     retry: false
   });
   const requirementCreateMetadataQuery = useQuery({
     queryKey: ["requirement-create-metadata", projectId],
     queryFn: () => api.requirements.createMetadata({ project_id: projectId }),
-    enabled: Boolean(projectId && (isCreateModalOpen || (isOptimizeModalOpen && requirementAiMode === "create"))),
+    enabled: canViewRequirements && Boolean(projectId && (isCreateModalOpen || (isOptimizeModalOpen && requirementAiMode === "create"))),
     staleTime: 5 * 60_000
   });
   const requirementEditMetadataQuery = useQuery({
     queryKey: ["requirement-edit-metadata", projectId, selectedRequirementId],
     queryFn: () => api.requirements.editMetadata(selectedRequirementId, { project_id: projectId }),
-    enabled: Boolean(projectId && selectedRequirementId && canUpdateRequirements),
+    enabled: canViewRequirements && Boolean(projectId && selectedRequirementId && canUpdateRequirements),
     staleTime: 60_000
   });
   const requirementIterationsQuery = useQuery({
     queryKey: ["requirement-iterations", projectId],
     queryFn: async () => asArray(await api.requirementIterations.list({ project_id: projectId })),
-    enabled: Boolean(projectId && canViewRequirementIterations)
+    enabled: Boolean(projectId && canViewRequirementIterations),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
   });
   const requirementReleasesQuery = useQuery({
     queryKey: ["requirement-releases", projectId],
@@ -1104,104 +1044,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => mergeRequirementSprintCatalog(discoveredRequirementIterations, requirementSprintHeaderEvidence),
     [discoveredRequirementIterations, requirementSprintHeaderEvidence]
   );
-  const requirementSprintHealthBatches = useMemo(() => {
-    const iterationIds = requirementSprintHeaderCatalog
-      .map((iteration) => iteration.id)
-      .filter((iterationId) => !iterationId.startsWith("observed-sprint-"));
-    const batches: string[][] = [];
-    for (let index = 0; index < iterationIds.length; index += SPRINT_HEALTH_REQUEST_BATCH_SIZE) {
-      batches.push(iterationIds.slice(index, index + SPRINT_HEALTH_REQUEST_BATCH_SIZE));
-    }
-    // The first request owns Backlog/No Sprint health. Keep a Backlog-only
-    // request when the project has no Sprint headers so both hierarchy scopes
-    // always use the same Jira-backed evidence contract.
-    return batches.length ? batches : [[]];
-  }, [requirementSprintHeaderCatalog]);
-  const requirementSprintHealthBatchSignature = useMemo(
-    () => `${projectId}:${requirementSprintHealthBatches.map((batch) => batch.join(",")).join("|")}`,
-    [projectId, requirementSprintHealthBatches]
-  );
-  const [requirementSprintHealthBatchWindow, setRequirementSprintHealthBatchWindow] = useState({
-    signature: "",
-    count: SPRINT_HEALTH_CONCURRENT_BATCHES
-  });
-  const enabledRequirementSprintHealthBatchCount =
-    requirementSprintHealthBatchWindow.signature === requirementSprintHealthBatchSignature
-      ? requirementSprintHealthBatchWindow.count
-      : SPRINT_HEALTH_CONCURRENT_BATCHES;
-  const requirementSprintHealthQueries = useQueries({
-    queries: requirementSprintHealthBatches.map((iterationIds, index) => ({
-      queryKey: ["requirement-sprint-health", projectId, index === 0 ? "with-backlog" : "sprints-only", ...iterationIds],
-      queryFn: () => api.requirementIterations.health(iterationIds, {
-        project_id: projectId,
-        include_backlog: index === 0
-      }),
-      enabled: Boolean(
-        projectId
-        && canViewRequirementIterations
-        && (iterationIds.length || index === 0)
-        && index < enabledRequirementSprintHealthBatchCount
-      ),
-      staleTime: 30_000
-    }))
-  });
-  useEffect(() => {
-    if (requirementSprintHealthBatchWindow.signature === requirementSprintHealthBatchSignature) return;
-    setRequirementSprintHealthBatchWindow({
-      signature: requirementSprintHealthBatchSignature,
-      count: SPRINT_HEALTH_CONCURRENT_BATCHES
-    });
-  }, [requirementSprintHealthBatchSignature, requirementSprintHealthBatchWindow.signature]);
-  useEffect(() => {
-    if (requirementSprintHealthBatchWindow.signature !== requirementSprintHealthBatchSignature) return;
-    const enabledCount = Math.min(
-      requirementSprintHealthBatchWindow.count,
-      requirementSprintHealthBatches.length
-    );
-    if (!enabledCount || enabledCount >= requirementSprintHealthBatches.length) return;
-    const enabledBatchesSettled = requirementSprintHealthQueries
-      .slice(0, enabledCount)
-      .every((query) => query.isSuccess || query.isError);
-    if (!enabledBatchesSettled) return;
-    setRequirementSprintHealthBatchWindow((current) => ({
-      ...current,
-      count: Math.min(
-        requirementSprintHealthBatches.length,
-        current.count + SPRINT_HEALTH_CONCURRENT_BATCHES
-      )
-    }));
-  }, [
-    requirementSprintHealthBatchSignature,
-    requirementSprintHealthBatchWindow,
-    requirementSprintHealthBatches.length,
-    requirementSprintHealthQueries
-  ]);
-  const requirementSprintHealthById = useMemo(() => {
-    const byId = new Map<string, RequirementIterationHealth>();
-    requirementSprintHealthQueries.forEach((query) => {
-      asArray(query.data?.items).forEach((health) => byId.set(health.iteration_id, health));
-    });
-    return byId;
-  }, [requirementSprintHealthQueries]);
-  const pendingRequirementSprintHealthIds = useMemo(() => {
-    const pending = new Set<string>();
-    requirementSprintHealthQueries.forEach((query, index) => {
-      if (!query.isPending && !query.isFetching) return;
-      requirementSprintHealthBatches[index]?.forEach((iterationId) => pending.add(iterationId));
-    });
-    return pending;
-  }, [requirementSprintHealthBatches, requirementSprintHealthQueries]);
-  const unavailableRequirementSprintHealthIds = useMemo(() => {
-    const unavailable = new Set<string>();
-    requirementSprintHealthQueries.forEach((query, index) => {
-      if (query.isError) {
-        requirementSprintHealthBatches[index]?.forEach((iterationId) => unavailable.add(iterationId));
-      }
-      asArray(query.data?.unavailable_ids).forEach((iterationId) => unavailable.add(String(iterationId)));
-      asArray(query.data?.skipped_ids).forEach((iterationId) => unavailable.add(String(iterationId)));
-    });
-    return unavailable;
-  }, [requirementSprintHealthBatches, requirementSprintHealthQueries]);
+  const requirementSprintHealthById = useMemo(() => new Map(
+    asArray(requirementMetricsQuery.data?.sprint_health).map((health) => [health.iteration_id, health])
+  ), [requirementMetricsQuery.data]);
+  const pendingRequirementSprintHealthIds = useMemo(() => new Set(
+    requirementMetricsQuery.isLoading ? requirementSprintHeaderCatalog.map((iteration) => iteration.id) : []
+  ), [requirementMetricsQuery.isLoading, requirementSprintHeaderCatalog]);
+  const unavailableRequirementSprintHealthIds = useMemo(() => new Set(
+    requirementMetricsQuery.isError ? requirementSprintHeaderCatalog.map((iteration) => iteration.id) : []
+  ), [requirementMetricsQuery.isError, requirementSprintHeaderCatalog]);
   useEffect(() => {
     requirementMoveScopeRef.current = projectId;
     requirementMoveRevalidationTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -1281,20 +1132,22 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setExpandedIterationIds((current) => [...new Set([...current, ...targetIterationIds])]);
   }, [confirmedSprintMoveScope, confirmedSprintMoveState]);
   const expandedSprintHeaders = useMemo(
-    () => requirementSprintHeaderCatalog.filter((iteration) => expandedIterationIds.includes(iteration.id)),
-    [expandedIterationIds, requirementSprintHeaderCatalog]
+    () => workspaceMode === "sprints" ? requirementSprintHeaderCatalog.filter((iteration) => expandedIterationIds.includes(iteration.id)) : [],
+    [expandedIterationIds, requirementSprintHeaderCatalog, workspaceMode]
   );
   const sprintPageRequests = useMemo(
     () => expandedSprintHeaders.flatMap((iteration) =>
-      (sprintPageCursorsById[iteration.id] || [null]).map((cursor, pageIndex) => ({ iteration, cursor, pageIndex }))
+      (scopedSprintPageCursorsById[iteration.id] || [null]).map((cursor, pageIndex) => ({ iteration, cursor, pageIndex }))
     ),
-    [expandedSprintHeaders, sprintPageCursorsById]
+    [expandedSprintHeaders, scopedSprintPageCursorsById]
   );
   const sprintRequirementQueries = useQueries({
     queries: sprintPageRequests.map(({ iteration, cursor, pageIndex }) => ({
-      queryKey: ["sprint-requirement-children", projectId, iteration.id, pageIndex, cursor || "first"],
+      queryKey: ["sprint-requirement-children", projectId, iteration.id, pageIndex, cursor || "first", requirementCatalogFilters],
       queryFn: async () => normalizePagedResult<Requirement>(
         await api.requirementIterations.listRequirements(iteration.id, {
+          ...requirementCatalogFilters,
+          include_total: false,
           page_size: getHierarchyPageSize(iteration.requirement_count, pageIndex),
           cursor: cursor || undefined,
           projection: "summary" as const
@@ -1326,7 +1179,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     current.total = Math.max(current.total, response.data?.total ?? 0, current.loaded);
     if (response.data) {
       const nextCursor = getVerifiedNextPageCursor(response.data);
-      const requestedCursors = sprintPageCursorsById[request.iteration.id] || [null];
+      const requestedCursors = scopedSprintPageCursorsById[request.iteration.id] || [null];
       current.nextCursor = nextCursor && !requestedCursors.includes(nextCursor) ? nextCursor : null;
     }
     current.isInitialLoading = current.isInitialLoading || (request.pageIndex === 0 && response.isFetching && !response.data);
@@ -1335,7 +1188,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     if (response.isError) current.failedPageIndex = request.pageIndex;
     state[request.iteration.id] = current;
     return state;
-  }, {}), [sprintPageCursorsById, sprintPageRequests, sprintRequirementQueries]);
+  }, {}), [scopedSprintPageCursorsById, sprintPageRequests, sprintRequirementQueries]);
   const retrySprintPage = (iterationId: string, pageIndex: number) => {
     const queryIndex = sprintPageRequests.findIndex((request) => request.iteration.id === iterationId && request.pageIndex === pageIndex);
     if (queryIndex >= 0) void sprintRequirementQueries[queryIndex]?.refetch();
@@ -1356,20 +1209,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }));
   };
   const toggleSprintExpansion = (iterationId: string) => {
-    const isExpanding = !expandedIterationIds.includes(iterationId);
-    if (isExpanding) {
-      // Keep every cached page visible while Jira revalidates it. Invalidating
-      // before the observers remount makes each preserved continuation refetch
-      // without replacing its last confirmed rows with a blank loading state.
-      void queryClient.invalidateQueries({
-        queryKey: ["sprint-requirement-children", projectId, iterationId],
-        refetchType: "none"
-      });
-    }
     setExpandedIterationIds((current) => current.includes(iterationId)
       ? current.filter((id) => id !== iterationId)
       : [...current, iterationId]);
   };
+  useEffect(() => {
+    setSprintCursorScopeKey(requirementCatalogScopeKey);
+    setSprintPageCursorsById({});
+  }, [requirementCatalogScopeKey]);
   useEffect(() => {
     // Discard only continuations that are no longer represented by the retained
     // cursor chain. Collapsing a Sprint intentionally leaves its loaded pages
@@ -1385,48 +1232,74 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       }
     });
   }, [projectId, queryClient, sprintPageCursorsById]);
-  const testCasesQuery = useQuery({
-    queryKey: ["requirements-test-cases", projectId, appTypeId],
-    // This is a bounded suggestion page, not a project-wide source of truth.
-    // Selected records hydrate in their own workspaces; list rows stay compact.
-    queryFn: async () => asArray(await api.testCases.list({ app_type_id: appTypeId, page_size: 25, projection: "summary" })),
-    enabled: Boolean(appTypeId)
+  const detailCaseFilters = {
+    search: isDetailTestCaseSearchActive ? detailTestCaseSearchTerm.trim() || undefined : undefined,
+    status: detailTestCaseStatusFilter === "all" ? undefined : detailTestCaseStatusFilter,
+    priority: detailTestCasePriorityFilter === "all" ? undefined : Number(detailTestCasePriorityFilter)
+  };
+  const detailCaseScopeKey = JSON.stringify([projectId, appTypeId, detailCaseFilters]);
+  const testCasesQuery = useInfiniteQuery({
+    queryKey: ["requirements-test-cases", projectId, appTypeId, detailCaseFilters],
+    queryFn: async ({ pageParam }) => normalizePagedResult<TestCase>(await api.testCases.listPage({
+      project_id: projectId,
+      app_type_id: appTypeId,
+      ...detailCaseFilters,
+      page_size: 25,
+      include_total: false,
+      cursor: pageParam,
+      projection: "summary"
+    })),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _pages, _param, params) => {
+      const cursor = getVerifiedNextPageCursor(lastPage);
+      return cursor && !params.includes(cursor) ? cursor : undefined;
+    },
+    enabled: Boolean(appTypeId && (selectedRequirementId || isAiStudioOpen) && can("testcase.view")),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
   });
-  const executionResultsQuery = useQuery({
+  const executionResultsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements-execution-results", projectId, appTypeId],
     queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 })),
-    enabled: Boolean(appTypeId)
-  });
-  const executionsQuery = useQuery({
+    enabled: canViewRequirementResults && Boolean(appTypeId && (selectedRequirementId || isAiStudioOpen) && can("run.view") && can("result.view")),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
+  }), canViewRequirementResults);
+  const executionsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements-executions", projectId, appTypeId],
     queryFn: async () => asArray(await api.executions.list({ project_id: projectId, app_type_id: appTypeId || undefined })),
-    enabled: Boolean(projectId)
-  });
-  const issuesQuery = useQuery({
+    enabled: canViewRuns && Boolean(projectId && selectedRequirementId),
+    staleTime: 60_000
+  }), canViewRuns);
+  const issuesQuery = optionalQueryView(useQuery({
     queryKey: ["requirements-issues", projectId],
     queryFn: async () => asArray(await api.issues.list({ project_id: projectId, page_size: 25, projection: "summary" })),
-    enabled: Boolean(session && projectId && isDefectSearchLoaded)
-  });
-  const sharedGroupsQuery = useQuery({
+    enabled: canViewBugs && Boolean(session && projectId && isDefectSearchLoaded)
+  }), canViewBugs);
+  const sharedGroupsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements-shared-step-groups", projectId, appTypeId],
     queryFn: async () => asArray(await api.sharedStepGroups.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId)
-  });
-  const suitesQuery = useQuery({
+    enabled: can("shared_step.view") && Boolean(appTypeId && (selectedRequirementId || isAiStudioOpen)),
+    staleTime: 60_000
+  }), can("shared_step.view"));
+  const suitesQuery = optionalQueryView(useQuery({
     queryKey: ["requirements-test-suites", projectId, appTypeId],
     queryFn: async () => asArray(await api.testSuites.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId)
-  });
-  const integrationsQuery = useQuery({
+    enabled: can("suite.view") && Boolean(appTypeId && (selectedRequirementId || isAiStudioOpen)),
+    staleTime: 60_000
+  }), can("suite.view"));
+  const integrationsQuery = optionalQueryView(useQuery({
     queryKey: ["integrations", projectId, "llm"],
     queryFn: async () => asArray(await api.integrations.list({ type: "llm", is_active: true })),
-    enabled: Boolean(session)
-  });
-  const usersQuery = useQuery({
-    queryKey: ["users", projectId],
-    queryFn: async () => asArray(await api.users.list()),
-    enabled: Boolean(session)
-  });
+    enabled: can("integration.view") && Boolean(session && (isAiStudioOpen || isOptimizeModalOpen || isCreateModalOpen || selectedRequirementId)),
+    staleTime: 60_000
+  }), can("integration.view"));
+  const usersQuery = optionalQueryView(useQuery({
+    queryKey: ["requirement-project-members", projectId],
+    queryFn: async () => asArray(await api.projectMembers.list({ project_id: projectId })).map(member => ({ id: member.user_id, name: member.user_name, email: member.user_email })),
+    enabled: can("project_member.view") && Boolean(session && (selectedRequirementId || isCreateModalOpen || isCreateIterationModalOpen)),
+    staleTime: 60_000
+  }), can("project_member.view"));
 
   const createRequirement = useMutation({ mutationFn: api.requirements.create });
   const createRequirementIteration = useMutation({ mutationFn: api.requirementIterations.create });
@@ -1491,17 +1364,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const requirementCreationJobQuery = useQuery({
     queryKey: ["ai-requirement-generation-job", projectId, requirementCreationJobId],
     queryFn: () => api.requirements.getGenerationJob(requirementCreationJobId, { project_id: projectId }),
-    enabled: Boolean(projectId && requirementCreationJobId && isOptimizeModalOpen && requirementAiMode === "create"),
+    enabled: Boolean(canUseRequirementAi && projectId && requirementCreationJobId && isOptimizeModalOpen && requirementAiMode === "create"),
     refetchInterval: (query) => {
       const status = String(query.state.data?.status || "").toLowerCase();
-      return ["queued", "running"].includes(status) ? 3_000 : false;
+      return canUseRequirementAi && ["queued", "running"].includes(status) ? 3_000 : false;
     }
   });
   const recentRequirementCreationJobsQuery = useQuery({
     queryKey: ["ai-requirement-generation-jobs", projectId, "recent"],
     queryFn: async () => asArray(await api.requirements.listGenerationJobs({ project_id: projectId, limit: 5 })),
-    enabled: Boolean(projectId && !requirementCreationJobId && isOptimizeModalOpen && requirementAiMode === "create"),
-    refetchInterval: (query) => asArray(query.state.data).some((job) => ["queued", "running"].includes(String(job.status || "").toLowerCase())) ? 3_000 : false
+    enabled: Boolean(canUseRequirementAi && projectId && !requirementCreationJobId && isOptimizeModalOpen && requirementAiMode === "create"),
+    refetchInterval: (query) => canUseRequirementAi && asArray(query.state.data).some((job) => ["queued", "running"].includes(String(job.status || "").toLowerCase())) ? 3_000 : false
   });
   const recoveredRequirementCreationJob = useMemo(
     () => (!requirementCreationJobId && !requirementCreationDrafts.length
@@ -1514,26 +1387,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     ? createRequirementGenerationJob.data
     : null;
   const requirementCreationJob = requirementCreationJobQuery.data || submittedRequirementCreationJob || recoveredRequirementCreationJob || null;
-  const isRequirementCreationJobRunning = ["queued", "running"].includes(String(requirementCreationJob?.status || "").toLowerCase());
+  const isRequirementCreationJobRunning = canUseRequirementAi && ["queued", "running"].includes(String(requirementCreationJob?.status || "").toLowerCase());
 
   const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const loadedRequirementEvidence = useMemo(() => {
-    const evidence = workspaceMode === "stories"
-      ? [...asArray(allStoriesQuery.data)]
-      : asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
+    const evidence = asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
     for (const query of sprintRequirementQueries) evidence.push(...asArray(query.data?.items));
     if (requestedRequirementQuery.data) evidence.push(requestedRequirementQuery.data);
     if (requirementDetailQuery.data) evidence.push(requirementDetailQuery.data);
     return evidence;
-  }, [allStoriesQuery.data, requirementDetailQuery.data, requestedRequirementQuery.data, requirementsQuery.data, sprintRequirementQueries, workspaceMode]);
-  const sprintStoryPickerRequirements = useMemo(() => {
-    const byId = new Map<string, Requirement>();
-    asArray(sprintStoryPickerQuery.data?.pages).forEach((page) => {
-      asArray(page.items).forEach((requirement) => byId.set(String(requirement.id), requirement));
-    });
-    return [...byId.values()];
-  }, [sprintStoryPickerQuery.data]);
+  }, [requirementDetailQuery.data, requestedRequirementQuery.data, requirementsQuery.data, sprintRequirementQueries, workspaceMode]);
   const sprintBacklogPickerRequirements = useMemo(() => {
     const byId = new Map<string, Requirement>();
     asArray(sprintBacklogPickerQuery.data?.pages).forEach((page) => {
@@ -1542,9 +1406,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     return [...byId.values()];
   }, [sprintBacklogPickerQuery.data]);
   const loadedRequirementSettlementEvidence = useMemo(() => {
-    const evidence = workspaceMode === "stories"
-      ? [...asArray(allStoriesQuery.data)]
-      : asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
+    const evidence = asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items));
     sprintRequirementQueries.forEach((query, queryIndex) => {
       const scopedIteration = sprintPageRequests[queryIndex]?.iteration;
       asArray(query.data?.items).forEach((requirement) => {
@@ -1557,7 +1419,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     if (requirementDetailQuery.data) evidence.push(requirementDetailQuery.data);
     return evidence;
   }, [
-    allStoriesQuery.data,
     requirementDetailQuery.data,
     requestedRequirementQuery.data,
     requirementsQuery.data,
@@ -1627,7 +1488,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => requirementReleases.filter((release) => release.persisted_state !== "released"),
     [requirementReleases]
   );
-  const testCases = asArray(testCasesQuery.data);
+  const testCases = useMemo(() => {
+    if (!canViewTestCases) return [];
+    const byId = new Map<string, TestCase>();
+    for (const page of asArray(testCasesQuery.data?.pages)) for (const testCase of asArray(page.items)) byId.set(testCase.id, testCase);
+    return [...byId.values()];
+  }, [testCasesQuery.data, canViewTestCases]);
   const executionResults = asArray(executionResultsQuery.data);
   const executions = asArray<Execution>(executionsQuery.data);
   const issues = asArray<Issue>(issuesQuery.data);
@@ -1674,7 +1540,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   );
   const isRequirementCatalogLoading =
     projectsQuery.isLoading ||
-    (Boolean(projectId) && (workspaceMode === "stories" ? allStoriesQuery.isLoading : requirementsQuery.isLoading));
+    (Boolean(projectId) && (workspaceMode === "sprints" ? requirementIterationsQuery.isLoading : requirementsQuery.isLoading));
 
   const showSuccess = (text: string) => {
     setMessageTone("success");
@@ -1752,7 +1618,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         gherkinGenerationKeyRef.current = generationKey;
         setPreviewTone(requirementCreationJob.fallback_used ? "error" : "success");
         setPreviewMessage("Story drafts are ready for review. Gherkin was not generated because no evidence-backed acceptance criteria were available.");
-      } else if (includeGherkin && evidencedDraftsForGherkin.length && gherkinGenerationKeyRef.current !== generationKey) {
+      } else if (canUseRequirementAi && includeGherkin && evidencedDraftsForGherkin.length && gherkinGenerationKeyRef.current !== generationKey) {
         gherkinGenerationKeyRef.current = generationKey;
         setIsGeneratingGherkin(true);
         setPreviewMessage("Story drafts are ready. Generating focused Gherkin scenarios from those exact drafts…");
@@ -2002,22 +1868,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     return Array.from(byId.values()).sort((left, right) => left.title.localeCompare(right.title));
   }, [requirements, selectedRequirement]);
 
-  const latestResultByCaseId = useMemo(() => {
-    const map: Record<string, ExecutionResult> = {};
-
-    executionResults.forEach((result) => {
-      const current = map[result.test_case_id];
-      const currentTime = current?.created_at ? new Date(current.created_at).getTime() || 0 : 0;
-      const nextTime = result.created_at ? new Date(result.created_at).getTime() || 0 : 0;
-
-      if (!current || nextTime >= currentTime) {
-        map[result.test_case_id] = result;
-      }
-    });
-
-    return map;
-  }, [executionResults]);
-
   const linkedCaseIdsByRequirementId = useMemo(() => {
     const map: Record<string, string[]> = {};
     const requirementIds = new Set(requirements.map((requirement) => requirement.id));
@@ -2086,51 +1936,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     return map;
   }, [confirmedSprintMovesByRequirementId, requirementIterations, requirements, sprintPageRequests, sprintRequirementQueries]);
 
-  const passCoverageByRequirementId = useMemo(() => {
-    const coverage: Record<string, RequirementCoverageMetric> = {};
-
-    requirements.forEach((requirement) => {
-      const linkedCaseIds = linkedCaseIdsByRequirementId[requirement.id] || [];
-      const covered = linkedCaseIds.filter((testCaseId) => latestResultByCaseId[testCaseId]?.status === "passed").length;
-      const total = linkedCaseIds.length;
-
-      coverage[requirement.id] = {
-        total,
-        covered,
-        percent: total ? Math.round((covered / total) * 100) : 0
-      };
-    });
-
-    return coverage;
-  }, [latestResultByCaseId, linkedCaseIdsByRequirementId, requirements]);
-
-  const automationCoverageByRequirementId = useMemo(() => {
-    const coverage: Record<string, RequirementCoverageMetric> = {};
-    const testCaseById = new Map(testCases.map((testCase) => [testCase.id, testCase]));
-
-    requirements.forEach((requirement) => {
-      const linkedCaseIds = linkedCaseIdsByRequirementId[requirement.id] || [];
-      const knownCases = linkedCaseIds.map((testCaseId) => testCaseById.get(testCaseId)).filter(Boolean) as TestCase[];
-      const covered = knownCases.filter((testCase) => testCase.automated === "yes").length;
-      const total = linkedCaseIds.length;
-      const known = knownCases.length;
-      const complete = known === total;
-
-      coverage[requirement.id] = {
-        total,
-        covered,
-        // A partial suggestion page cannot support a project-wide automation
-        // percentage. Retain the loaded ratio for diagnostics, and let callers
-        // render it only when `complete` is true.
-        percent: known ? Math.round((covered / known) * 100) : 0,
-        known,
-        complete
-      };
-    });
-
-    return coverage;
-  }, [linkedCaseIdsByRequirementId, requirements, testCases]);
-
+  const storyMetricsById = useMemo(() => Object.fromEntries(
+    requirements.map((story) => [story.id, deriveStoryMetrics(story)])
+  ), [requirements]);
+  const passCoverageByRequirementId = useMemo(() => Object.fromEntries(
+    Object.entries(storyMetricsById).map(([id, metric]) => [id, metric.passRate])
+  ), [storyMetricsById]);
+  const automationCoverageByRequirementId = useMemo(() => Object.fromEntries(
+    Object.entries(storyMetricsById).map(([id, metric]) => [id, metric.automation])
+  ), [storyMetricsById]);
   const issueById = useMemo(() => {
     const map = new Map<string, Issue | RequirementDefectLink>();
 
@@ -2179,33 +1993,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     return map;
   }, [issueById, requirements]);
 
-  const bugResolutionByRequirementId = useMemo(() => {
-    const coverage: Record<string, RequirementCoverageMetric> = {};
-    const statusCategoryByName = new Map(
-      (domainMetadataQuery.data?.issues?.statuses || []).map((status) => [
-        status.value.toLowerCase(),
-        String(status.category_key || status.category_name || "").toLowerCase()
-      ])
-    );
-
-    requirements.forEach((requirement) => {
-      const defects = defectsByRequirementId[requirement.id] || [];
-      const total = defects.length;
-      const covered = defects.filter((defect) => {
-        const category = String(defect.status_category || statusCategoryByName.get(String(defect.status || "").toLowerCase()) || "").toLowerCase();
-        return category === "done";
-      }).length;
-
-      coverage[requirement.id] = {
-        total,
-        covered,
-        percent: total ? Math.round((covered / total) * 100) : 0
-      };
-    });
-
-    return coverage;
-  }, [defectsByRequirementId, domainMetadataQuery.data?.issues?.statuses, requirements]);
-
+  const bugResolutionByRequirementId = useMemo(() => Object.fromEntries(
+    Object.entries(storyMetricsById).map(([id, metric]) => [id, metric.bugResolution])
+  ), [storyMetricsById]);
   const executionById = useMemo(
     () => new Map(executions.map((execution) => [execution.id, execution])),
     [executions]
@@ -2265,9 +2055,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () =>
       Array.from(new Set([
         ...predefinedRequirementStatuses.map((option) => option.value),
+        ...asArray(requirementMetricsQuery.data?.filter_options.statuses),
         ...requirements.map((item) => item.status || defaultRequirementStatus)
       ])).sort((left, right) => left.localeCompare(right)),
-    [defaultRequirementStatus, predefinedRequirementStatuses, requirements]
+    [defaultRequirementStatus, predefinedRequirementStatuses, requirements, requirementMetricsQuery.data]
   );
   const createRequirementStatusOptions = useMemo(() => {
     const workflowOptions = requirementCreateMetadataQuery.data?.workflow_statuses?.statuses || [];
@@ -2283,14 +2074,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   }, [draft.status, predefinedRequirementStatuses, requirementEditMetadataQuery.data?.workflow_statuses?.statuses]);
   const requirementPriorityOptions = useMemo(
     () =>
-      Array.from(new Set(requirements.map((item) => String(item.priority ?? 3)))).sort((left, right) => Number(left) - Number(right)),
+      Array.from(new Set(["1", "2", "3", "4", "5", ...requirements.map((item) => String(item.priority ?? 3))])).sort((left, right) => Number(left) - Number(right)),
     [requirements]
   );
   const requirementLabelOptions = useMemo(
     () => {
       const labels = new Map<string, string>();
 
-      requirements.flatMap((item) => item.labels || []).forEach((label) => {
+      [...asArray(requirementMetricsQuery.data?.filter_options.labels), ...requirements.flatMap((item) => item.labels || [])].forEach((label) => {
         const normalizedLabel = label.trim();
         if (normalizedLabel && !labels.has(normalizedLabel.toLowerCase())) {
           labels.set(normalizedLabel.toLowerCase(), normalizedLabel);
@@ -2299,14 +2090,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
       return Array.from(labels.values()).sort((left, right) => left.localeCompare(right));
     },
-    [requirements]
+    [requirements, requirementMetricsQuery.data]
   );
   const requirementSprintOptions = useMemo(
     () => Array.from(new Set([
       ...requirementIterations.map((iteration) => iteration.jira_sprint_name || iteration.name),
+      ...asArray(requirementMetricsQuery.data?.filter_options.sprints),
       ...requirements.map((item) => item.sprint || "")
     ].filter(Boolean))).sort((left, right) => left.localeCompare(right)),
-    [requirementIterations, requirements]
+    [requirementIterations, requirements, requirementMetricsQuery.data]
   );
   useEffect(() => {
     const filterKey = `${projectId}:${requirementSprintFilter}`;
@@ -2324,86 +2116,21 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     }
   }, [projectId, requirementIterations, requirementSprintFilter]);
   const requirementFixVersionOptions = useMemo(
-    () => Array.from(new Set(requirements.map((item) => item.fix_version || "").filter(Boolean))).sort((left, right) => left.localeCompare(right)),
-    [requirements]
+    () => Array.from(new Set([...asArray(requirementMetricsQuery.data?.filter_options.fix_versions), ...requirements.map((item) => item.fix_version || "").filter(Boolean)])).sort((left, right) => left.localeCompare(right)),
+    [requirements, requirementMetricsQuery.data]
   );
   const requirementReleaseOptions = useMemo(
-    () => Array.from(new Set(requirements.map((item) => item.release || "").filter(Boolean))).sort((left, right) => left.localeCompare(right)),
-    [requirements]
+    () => Array.from(new Set([...asArray(requirementMetricsQuery.data?.filter_options.releases), ...requirements.map((item) => item.release || "").filter(Boolean)])).sort((left, right) => left.localeCompare(right)),
+    [requirements, requirementMetricsQuery.data]
   );
 
   const filteredRequirements = useMemo(() => {
-    const normalizedSearch = deferredRequirementSearchTerm.trim().toLowerCase();
-
-    return requirements.filter((item) => {
-      const linkedCaseCount = (linkedCaseIdsByRequirementId[item.id] || []).length;
-      const matchesSearch =
-        !normalizedSearch ||
-        [
-          item.display_id || "",
-          item.id,
-          item.title,
-          item.description || "",
-          ...(item.external_references || []),
-          ...(item.labels || []),
-          item.sprint || "",
-          item.fix_version || "",
-          item.release || "",
-          requirementIterationById.get(item.id)?.name || "",
-          ...(item.test_case_ids || []),
-          ...(item.defects || []).flatMap((defect) => [defect.id, defect.title, defect.status || ""]),
-          item.status || defaultRequirementStatus,
-          `p${item.priority ?? 3}`,
-          `priority ${item.priority ?? 3}`
-        ].some((value) => value.toLowerCase().includes(normalizedSearch));
-
-      if (!matchesSearch) {
-        return false;
-      }
-
-      if (requirementStatusFilter !== "all" && (item.status || defaultRequirementStatus) !== requirementStatusFilter) {
-        return false;
-      }
-
-      if (requirementPriorityFilter !== "all" && String(item.priority ?? 3) !== requirementPriorityFilter) {
-        return false;
-      }
-
-      if (requirementLabelFilter !== "all" && !(item.labels || []).includes(requirementLabelFilter)) {
-        return false;
-      }
-
-      if (requirementSprintFilter !== "all") {
-        const resolvedIteration = requirementIterationById.get(item.id);
-        const sprintAliases = new Set([
-          item.sprint || "",
-          resolvedIteration?.name || "",
-          resolvedIteration?.jira_sprint_name || ""
-        ].filter(Boolean));
-        if (!sprintAliases.has(requirementSprintFilter)) {
-          return false;
-        }
-      }
-
-      if (requirementFixVersionFilter !== "all" && (item.fix_version || "") !== requirementFixVersionFilter) {
-        return false;
-      }
-
-      if (requirementReleaseFilter !== "all" && (item.release || "") !== requirementReleaseFilter) {
-        return false;
-      }
-
-      if (requirementCoverageFilter === "linked" && !linkedCaseCount) {
-        return false;
-      }
-
-      if (requirementCoverageFilter === "unlinked" && linkedCaseCount) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [defaultRequirementStatus, deferredRequirementSearchTerm, linkedCaseIdsByRequirementId, requirementCoverageFilter, requirementFixVersionFilter, requirementIterationById, requirementLabelFilter, requirementPriorityFilter, requirementReleaseFilter, requirementSprintFilter, requirementStatusFilter, requirements]);
+    // The API searches the complete project before pagination. Do not re-filter
+    // truncated summary descriptions and accidentally discard a server match.
+    const visibleIds = new Set(asArray(requirementsQuery.data?.pages).flatMap((page) => asArray(page.items).map((item) => item.id)));
+    for (const query of sprintRequirementQueries) for (const item of asArray(query.data?.items)) visibleIds.add(item.id);
+    return requirements.filter((item) => visibleIds.has(item.id));
+  }, [requirements, requirementsQuery.data, sprintRequirementQueries]);
   const hasActiveRequirementCatalogFilter = Boolean(deferredRequirementSearchTerm.trim())
     || requirementStatusFilter !== "all"
     || requirementPriorityFilter !== "all"
@@ -2413,33 +2140,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     || requirementReleaseFilter !== "all"
     || requirementCoverageFilter !== "all";
 
-  const iterationRequirementOptions = useMemo(() => {
-    const normalizedSearch = iterationRequirementSearch.trim().toLowerCase();
-
-    return sprintBacklogPickerRequirements
-      .filter((item) => {
-        const resolvedIteration = resolveRequirementSprintIteration(item, requirementIterations);
-        if (resolvedIteration || item.iteration_id || item.sprint_id || String(item.sprint || "").trim()) return false;
-        if (iterationRequirementStatusFilter !== "all" && String(item.status || defaultRequirementStatus) !== iterationRequirementStatusFilter) return false;
-        if (!normalizedSearch) {
-          return true;
-        }
-
-        return [
-          item.display_id || "",
-          item.id,
-          item.title,
-          item.description || "",
-          ...(item.external_references || []),
-          ...(item.labels || []),
-          item.status || defaultRequirementStatus
-        ].some((value) => value.toLowerCase().includes(normalizedSearch));
-      })
-      .sort((left, right) => left.title.localeCompare(right.title));
-  }, [defaultRequirementStatus, iterationRequirementSearch, iterationRequirementStatusFilter, requirementIterations, sprintBacklogPickerRequirements]);
+  const iterationRequirementOptions = sprintBacklogPickerRequirements;
   const iterationRequirementStatusOptions = useMemo(() => Array.from(new Set(
-    sprintBacklogPickerRequirements.map((item) => String(item.status || defaultRequirementStatus)).filter(Boolean)
-  )).sort((left, right) => left.localeCompare(right)), [defaultRequirementStatus, sprintBacklogPickerRequirements]);
+    [...asArray(requirementMetricsQuery.data?.filter_options.statuses), ...sprintBacklogPickerRequirements.map((item) => String(item.status || defaultRequirementStatus))].filter(Boolean)
+  )).sort((left, right) => left.localeCompare(right)), [defaultRequirementStatus, sprintBacklogPickerRequirements, requirementMetricsQuery.data]);
   const sprintBacklogPickerLoadedCount = sprintBacklogPickerRequirements.length;
   const sprintBacklogPickerTotal = useMemo(
     () => Math.max(
@@ -2476,6 +2180,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       return { iteration, requirements: groupRequirements };
     }).filter(({ iteration, requirements: groupRequirements }) => {
       if (groupRequirements.length || !hasActiveRequirementCatalogFilter) return true;
+      const authoritativeHealth = requirementSprintHealthById.get(iteration.id);
+      if (authoritativeHealth) return Number(authoritativeHealth.total_stories) > 0;
 
       const isExpanded = expandedIterationIds.includes(iteration.id);
       const pageState = sprintPageStateById[iteration.id];
@@ -2498,7 +2204,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     );
 
     return { groups, unassignedRequirements };
-  }, [expandedIterationIds, filteredRequirements, hasActiveRequirementCatalogFilter, requirementIterationById, requirementIterations, sprintPageStateById]);
+  }, [expandedIterationIds, filteredRequirements, hasActiveRequirementCatalogFilter, requirementIterationById, requirementIterations, sprintPageStateById, requirementSprintHealthById]);
 
   const renderAuthoritativeSprintMetrics = (
     health: RequirementIterationHealth,
@@ -2643,27 +2349,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     return renderDeferredSprintMetrics({ isLoading, reason, scopeLabel: `Sprint “${iteration.name}”` });
   };
   const renderBacklogMetrics = () => {
-    const backlogStories = requirementIterationGroups.unassignedRequirements;
-    const groomed = backlogStories.filter((item) => Boolean(
-      richTextToPlainText(item.description).trim()
-      && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
-      && item.priority
-      && item.status
-    )).length;
-    const specified = backlogStories.filter((item) => Boolean(
-      asArray(item.gherkin_scenarios).length || item.specification_content?.trim()
-    )).length;
-    const highPriority = backlogStories.filter((item) => (item.priority || 3) <= 2).length;
-    const teamAssigned = backlogStories.filter((item) => Boolean(String(item.scrum_team || "").trim())).length;
+    const backlog = requirementMetricsQuery.data?.backlog;
+    if (!backlog) return renderDeferredSprintMetrics({ isLoading: requirementMetricsQuery.isLoading, reason: "Backlog metrics could not be loaded.", scopeLabel: "Backlog" });
+    const { groomed, specified, highPriority, teamAssigned, total } = backlog;
     return (
       <HierarchyQuickInsights
-        count={backlogStories.length}
-        countLabel={backlogStories.length === 1 ? "Story" : "Stories"}
+        count={total}
+        countLabel={total === 1 ? "Story" : "Stories"}
         metrics={[
-          { icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />, label: "Groomed", value: String(groomed), tone: groomed === backlogStories.length ? "success" : "warning", title: `${groomed}/${backlogStories.length} Stories have description, priority, status, and a reviewable specification.` },
-          { icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />, label: "Specification ready", value: String(specified), tone: specified === backlogStories.length ? "success" : "warning", title: `${specified}/${backlogStories.length} Stories have Gherkin or Spec Kit acceptance intent.` },
+          { icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />, label: "Groomed", value: String(groomed), tone: groomed === total ? "success" : "warning", title: `${groomed}/${total} Stories have description, priority, status, and a reviewable specification.` },
+          { icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />, label: "Specification ready", value: String(specified), tone: specified === total ? "success" : "warning", title: `${specified}/${total} Stories have Gherkin or Spec Kit acceptance intent.` },
           { icon: <ActivityIcon aria-hidden="true" size={13} strokeWidth={1.8} />, label: "P1 / P2", value: String(highPriority), tone: highPriority ? "warning" : "neutral", title: `${highPriority} high-priority Stories need Product Owner sequencing.` },
-          { icon: <SprintIcon size={13} />, label: "Team assigned", value: String(teamAssigned), tone: teamAssigned === backlogStories.length ? "success" : "neutral", title: `${teamAssigned}/${backlogStories.length} Stories have Scrum team ownership before Sprint planning.` }
+          { icon: <SprintIcon size={13} />, label: "Team assigned", value: String(teamAssigned), tone: teamAssigned === total ? "success" : "neutral", title: `${teamAssigned}/${total} Stories have Scrum team ownership before Sprint planning.` }
         ]}
       />
     );
@@ -2689,9 +2386,24 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     );
   };
 
+  const renderSprintPageSentinel = (iteration: RequirementIteration) => {
+    const state = sprintPageStateById[iteration.id];
+    if (sprintCursorScopeKey !== requirementCatalogScopeKey || !state || state.isInitialLoading || !(state.nextCursor || state.isLoadingMore || Number(state.failedPageIndex) > 0)) return null;
+    return <HierarchyLoadMoreButton
+      isLoading={state.isLoadingMore}
+      onLoad={() => loadNextSprintPage(iteration.id)}
+      error={Number(state.failedPageIndex) > 0 ? true : undefined}
+      onRetry={() => loadNextSprintPage(iteration.id)}
+      progressKey={`${requirementCatalogScopeKey}:${iteration.id}:${state.loaded}`}
+      placement="footer"
+      scopeLabel={`Stories in ${iteration.name}`}
+    />;
+  };
+
   const iterationTileEntries = useMemo(() => {
     const entries: Array<
       | { kind: "iteration"; iteration: RequirementIteration; count: number }
+      | { kind: "continuation"; iteration: RequirementIteration }
       | { kind: "unassigned"; count: number }
       | { kind: "requirement"; requirement: Requirement }
     > = [];
@@ -2701,6 +2413,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         entries.push({ kind: "iteration", iteration, count: groupRequirements.length });
         if (expandedIterationIds.includes(iteration.id)) {
           groupRequirements.forEach((requirement) => entries.push({ kind: "requirement", requirement }));
+          entries.push({ kind: "continuation", iteration });
         }
       });
     } else if (workspaceMode === "backlog") {
@@ -2711,26 +2424,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
     return entries;
   }, [expandedIterationIds, filteredRequirements, requirementIterationGroups, workspaceMode]);
-
-  const hasIncompleteRequirementReferenceSearch = Boolean(deferredRequirementSearchTerm.trim())
-    && requirements.some((requirement) => requirement.detail_complete === false);
-  const hasIncompleteRequirementFilterScope = hasActiveRequirementCatalogFilter && (
-    hasIncompleteRequirementReferenceSearch
-    || Boolean(requirementsQuery.hasNextPage)
-    || requirementIterations.some((iteration) => {
-      const isExpanded = expandedIterationIds.includes(iteration.id);
-      const pageState = sprintPageStateById[iteration.id];
-      if (!isExpanded) {
-        const knownCount = getKnownSprintRequirementCount(iteration);
-        return knownCount === undefined || knownCount > 0;
-      }
-      return !pageState
-        || pageState.isInitialLoading
-        || pageState.isLoadingMore
-        || pageState.failedPageIndex !== null
-        || Boolean(pageState.nextCursor);
-    })
-  );
 
   const activeRequirementFilterCount =
     Number(requirementStatusFilter !== "all") +
@@ -2944,15 +2637,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       key: "linkedCases",
       label: "Linked cases",
       defaultVisible: false,
-      sortValue: (item) => (linkedCaseIdsByRequirementId[item.id] || []).length,
-      render: (item) => (linkedCaseIdsByRequirementId[item.id] || []).length
+      sortValue: (item) => storyMetricsById[item.id]?.linkedCases || 0,
+      render: (item) => storyMetricsById[item.id]?.linkedCases || 0
     },
     {
       key: "linkedDefects",
       label: "Linked bugs",
       defaultVisible: false,
-      sortValue: (item) => (defectsByRequirementId[item.id] || []).length,
-      render: (item) => (defectsByRequirementId[item.id] || []).length
+      sortValue: (item) => storyMetricsById[item.id]?.totalBugs || 0,
+      render: (item) => storyMetricsById[item.id]?.totalBugs || 0
     },
     {
       key: "passRate",
@@ -2960,11 +2653,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       defaultVisible: true,
       width: 96,
       minWidth: 84,
-      sortValue: (item) => passCoverageByRequirementId[item.id]?.percent || 0,
+      sortValue: (item) => passCoverageByRequirementId[item.id]?.complete === false ? undefined : passCoverageByRequirementId[item.id]?.percent || 0,
       render: (item) => {
         const metric = passCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
-        const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
-        return `${safeValue}%`;
+        return formatStoryPassRate(metric);
       }
     },
     ...(canUseAutomationWorkspace ? [{
@@ -2977,7 +2669,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       },
       render: (item: Requirement) => {
         const metric = automationCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
-        if (metric.complete === false) return "—";
+        if (metric.complete === false || !metric.total) return "—";
         const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
         return `${safeValue}%`;
       }
@@ -2986,10 +2678,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       key: "bugResolution",
       label: "Bug resolution",
       defaultVisible: false,
-      sortValue: (item) => bugResolutionByRequirementId[item.id]?.percent || 0,
+      sortValue: (item) => {
+        const metric = bugResolutionByRequirementId[item.id];
+        return metric?.complete && metric.total ? metric.percent : undefined;
+      },
       render: (item) => {
         const metric = bugResolutionByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
-        return metric.total ? `${metric.percent}%` : "—";
+        return metric.complete && metric.total ? `${metric.percent}%` : "—";
       }
     },
     {
@@ -3031,6 +2726,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     defectsByRequirementId,
     linkedCaseIdsByRequirementId,
     passCoverageByRequirementId,
+    storyMetricsById,
     userById
   ]);
   const workspaceRequirementListColumns = useMemo(
@@ -3087,24 +2783,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     </div>
   );
 
-  const selectedRequirementPassCoverage = selectedRequirement
-    ? passCoverageByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
-    : { total: 0, covered: 0, percent: 0 };
-  const selectedRequirementAutomationCoverage = selectedRequirement
-    ? automationCoverageByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0, known: 0, complete: true }
-    : { total: 0, covered: 0, percent: 0, known: 0, complete: true };
-  const selectedRequirementBugResolution = selectedRequirement
-    ? bugResolutionByRequirementId[selectedRequirement.id] || { total: 0, covered: 0, percent: 0 }
-    : { total: 0, covered: 0, percent: 0 };
-  const selectedRequirementTestCoverage = selectedRequirement && selectedTestCaseIds.length ? 100 : 0;
-  const selectedRequirementBugHealth = selectedRequirementBugResolution.total
-    ? selectedRequirementBugResolution.percent
-    : 100;
-  const selectedRequirementReadiness = Math.round(
-    selectedRequirementTestCoverage * 0.3
-    + selectedRequirementPassCoverage.percent * 0.5
-    + selectedRequirementBugHealth * 0.2
-  );
+  const selectedStoryMetrics = deriveStoryMetrics(selectedRequirement);
+  const selectedRequirementPassCoverage = selectedStoryMetrics.passRate;
+  const selectedRequirementAutomationCoverage = selectedStoryMetrics.automation;
+  const selectedRequirementBugResolution = selectedStoryMetrics.bugResolution;
+  const selectedRequirementTestCoverage = selectedStoryMetrics.testCoverage;
+  const selectedRequirementReadiness = selectedStoryMetrics.readiness;
   const selectedRequirementRunHistory = selectedRequirement
     ? runHistoryByRequirementId[selectedRequirement.id] || []
     : [];
@@ -3296,6 +2980,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   useEffect(() => {
     setDetailTestCaseSearchTerm("");
     setIsDetailTestCaseSearchActive(false);
+    setDetailTestCaseStatusFilter("all");
+    setDetailTestCasePriorityFilter("all");
     setDefectSearchTerm("");
     setIsDefectSearchLoaded(false);
     setActiveTraceabilityTab("details");
@@ -3345,8 +3031,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       queryClient.invalidateQueries({ queryKey: ["requirement-route-detail", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirement-iterations", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["requirement-releases", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-release-readiness", "project", projectId] }),
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) => queryKey[2] === projectId && [
+        "release-review-context", "release-review-stories", "release-review-cases", "release-review-bugs",
+        "global-test-cases", "test-case-metrics"
+      ].includes(String(queryKey[0])) }),
       queryClient.invalidateQueries({ queryKey: ["requirement-sprint-health", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["create-sprint-story-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["story-related-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["sprint-backlog-picker", projectId] }),
       queryClient.invalidateQueries({
         refetchType: "none",
         predicate: (candidate) => {
@@ -4381,8 +4074,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	        }
       }
 
-      await replaceMappings.mutateAsync({ requirementId: selectedRequirement.id, testCaseIds: selectedTestCaseIds });
-      await replaceDefectMappings.mutateAsync({ requirementId: selectedRequirement.id, issueIds: selectedDefectIds });
+      if (canEditCaseLinks) await replaceMappings.mutateAsync({ requirementId: selectedRequirement.id, testCaseIds: selectedTestCaseIds });
+      if (canEditBugLinks) await replaceDefectMappings.mutateAsync({ requirementId: selectedRequirement.id, issueIds: selectedDefectIds });
       setStoryGroomingContextChangedByRequirementId((current) => ({ ...current, [selectedRequirement.id]: true }));
       showSuccess("Story updated.");
       await refresh();
@@ -5555,72 +5248,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const retrospectiveStories = useMemo(() => retrospectiveIteration
     ? requirements.filter((story) => requirementIterationById.get(story.id)?.id === retrospectiveIteration.id || story.iteration_id === retrospectiveIteration.id)
     : [], [requirementIterationById, requirements, retrospectiveIteration]);
-  const retrospectiveCommentQueries = useQueries({
-    queries: retrospectiveStories.slice(0, 50).map((story) => ({
-      queryKey: ["comments", projectId, "requirement", story.id],
-      queryFn: () => api.comments.list({ project_id: projectId, entity_type: "requirement", entity_id: story.id }),
-      enabled: Boolean(projectId && retrospectiveIteration),
-      staleTime: 30_000
-    }))
-  });
-  const retrospectiveCommentCount = retrospectiveCommentQueries.reduce((sum, query) => sum + asArray(query.data).length, 0);
-
-  const metrics = useMemo(() => {
-    const scopedStories = workspaceMode === "backlog"
-      ? requirementIterationGroups.unassignedRequirements
-      : workspaceMode === "stories"
-        ? filteredRequirements
-        : requirementIterationGroups.groups.flatMap((group) => group.requirements);
-    const mapped = scopedStories.filter((item) => (item.test_case_ids || []).length).length;
-    const highPriority = scopedStories.filter((item) => (item.priority || 3) <= 2).length;
-    const open = scopedStories.filter((item) => storyStatusRank(item.status) < storyStatusRank("qa_done")).length;
-    const qaScopedStories = workspaceMode === "stories"
-      ? scopedStories.filter(isStoryAssignedToSprint)
-      : scopedStories;
-    const completed = qaScopedStories.filter((item) => storyStatusRank(item.status) >= storyStatusRank("qa_done")).length;
-    const totalDefects = scopedStories.reduce((sum, requirement) => sum + (defectsByRequirementId[requirement.id] || []).length, 0);
-    const completionPercent = qaScopedStories.length ? Math.round((completed / qaScopedStories.length) * 100) : 0;
-    const coveragePercent = scopedStories.length ? Math.round((mapped / scopedStories.length) * 100) : 0;
-    const defectDensity = scopedStories.length ? totalDefects / scopedStories.length : 0;
-    const groomed = scopedStories.filter((item) => Boolean(
-      richTextToPlainText(item.description).trim()
-      && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
-      && item.priority
-      && item.status
-    )).length;
-    const described = scopedStories.filter((item) => Boolean(richTextToPlainText(item.description).trim())).length;
-    const specified = scopedStories.filter((item) => Boolean(
-      asArray(item.gherkin_scenarios).length || item.specification_content?.trim()
-    )).length;
-    const teamAssigned = scopedStories.filter((item) => Boolean(String(item.scrum_team || "").trim())).length;
-    const slipped = scopedStories.filter((item) => deriveStoryDeliveryRisk(item).isRisk).length;
-    const sprintCommitted = scopedStories.filter(isStoryAssignedToSprint).length;
-    const releaseScoped = scopedStories.filter((item) => Boolean(String(item.fix_version || item.release || "").trim())).length;
-    const backlog = scopedStories.filter((item) => !isStoryAssignedToSprint(item)).length;
-
-    return {
-      total: scopedStories.length,
-      mapped,
-      highPriority,
-      open,
-      completed,
-      qaTotal: qaScopedStories.length,
-      totalDefects,
-      completionPercent,
-      coveragePercent,
-      defectDensity,
-      groomed,
-      notGroomed: Math.max(scopedStories.length - groomed, 0),
-      described,
-      specified,
-      teamAssigned,
-      slipped,
-      onCourse: Math.max(scopedStories.length - slipped, 0),
-      sprintCommitted,
-      releaseScoped,
-      backlog
-    };
-  }, [defectsByRequirementId, filteredRequirements, requirementIterationGroups, workspaceMode]);
+  const emptyMetrics: RequirementCatalogMetrics = { total: 0, mapped: 0, highPriority: 0, open: 0, completed: 0, qaTotal: 0, totalDefects: 0, completionPercent: 0, coveragePercent: 0, defectDensity: 0, groomed: 0, notGroomed: 0, described: 0, specified: 0, teamAssigned: 0, slipped: 0, onCourse: 0, sprintCommitted: 0, releaseScoped: 0, backlog: 0 };
+  const metrics = requirementMetricsQuery.data?.[workspaceMode === "stories" ? "all" : workspaceMode] || emptyMetrics;
   const selectedRequirementAssuranceProposedChange = useMemo(() => ({
     title: draft.title,
     description: richTextToPlainText(draft.description),
@@ -5867,20 +5496,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               </button>
             </div>
             {renderBestSprintMetrics(iteration)}
-            {!isCollapsed
-            && !isInitialLoading
-            && (sprintPageState?.nextCursor || sprintPageState?.isLoadingMore || Number(sprintPageState?.failedPageIndex) > 0) ? (
-              <HierarchyLoadMoreButton
-                actionLabel={Number(sprintPageState?.failedPageIndex) > 0 ? "Retry loading" : undefined}
-                isLoading={Boolean(sprintPageState?.isLoadingMore)}
-                loaded={sprintPageState?.loaded}
-                onLoad={() => loadNextSprintPage(iteration.id)}
-                scopeLabel={`Stories in ${iteration.name}`}
-                total={sprintPageState?.total}
-              />
-            ) : null}
           </div>
         ),
+        footer: !isCollapsed ? renderSprintPageSentinel(iteration) : null,
         content: !isCollapsed && isInitialLoading ? (
           <div className="hierarchy-children-state hierarchy-children-state--list">
             <LoadingState
@@ -5930,11 +5548,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           {renderBacklogMetrics()}
         </div>
       ),
-      footer: isBacklogExpanded && requirementsQuery.hasNextPage ? (
+      footer: isBacklogExpanded && !requirementsQuery.isPlaceholderData && (requirementsQuery.hasNextPage || requirementsQuery.isFetchNextPageError) ? (
         <div className="hierarchy-load-more-footer">
           <HierarchyLoadMoreButton
             isLoading={requirementsQuery.isFetchingNextPage}
             onLoad={() => requirementsQuery.fetchNextPage()}
+            error={requirementsQuery.isFetchNextPageError ? requirementsQuery.error : undefined}
+            onRetry={() => requirementsQuery.fetchNextPage()}
+            progressKey={`${requirementCatalogScopeKey}:${requirementsQuery.data?.pages.length}`}
             placement="footer"
             scopeLabel="backlog Stories"
           />
@@ -5956,17 +5577,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
             ? "Refine unscheduled Stories into groomed, testable delivery scope without Sprint noise."
             : "Plan delivery windows, monitor slippage and quality, and create Stories directly in Sprint context."}
         meta={workspaceMode === "stories" ? [
-          { label: "All Stories", value: metrics.total },
-          { label: "Sprint committed", value: metrics.sprintCommitted },
-          { label: "Release scoped", value: metrics.releaseScoped }
+          { label: "All Stories", value: requirementMetricsQuery.data ? metrics.total : "—" },
+          { label: "Sprint committed", value: requirementMetricsQuery.data ? metrics.sprintCommitted : "—" },
+          { label: "Release scoped", value: requirementMetricsQuery.data ? metrics.releaseScoped : "—" }
         ] : workspaceMode === "backlog" ? [
-            { label: "Backlog", value: metrics.total },
-            { label: "Groomed", value: metrics.groomed },
-            { label: "Not groomed", value: metrics.notGroomed }
+            { label: "Backlog", value: requirementMetricsQuery.data ? metrics.total : "—" },
+            { label: "Groomed", value: requirementMetricsQuery.data ? metrics.groomed : "—" },
+            { label: "Not groomed", value: requirementMetricsQuery.data ? metrics.notGroomed : "—" }
           ] : [
-            { label: "Sprint Stories", value: metrics.total },
-            { label: "Slipped", value: metrics.slipped },
-            { label: "On course", value: metrics.onCourse }
+            { label: "Sprint Stories", value: requirementMetricsQuery.data ? metrics.total : "—" },
+            { label: "Slipped", value: requirementMetricsQuery.data ? metrics.slipped : "—" },
+            { label: "On course", value: requirementMetricsQuery.data ? metrics.onCourse : "—" }
           ]}
       />
       {!isRequirementWorkspaceOpen ? (
@@ -5974,25 +5595,28 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           <QualityMetricStrip
             ariaLabel="Story health metrics"
             className={`requirements-health-strip is-${workspaceMode}`}
-            metrics={workspaceMode === "backlog" ? [
-              { label: "Grooming readiness", value: `${metrics.total ? Math.round((metrics.groomed / metrics.total) * 100) : 0}%`, progress: metrics.total ? (metrics.groomed / metrics.total) * 100 : 0, detail: `${metrics.groomed} of ${metrics.total} Stories have description, priority, status, and reviewable specification.`, tone: "info" },
-              { label: "Specification ready", value: metrics.specified, progress: metrics.total ? (metrics.specified / metrics.total) * 100 : 0, detail: `${metrics.specified} of ${metrics.total} Stories have Gherkin or Spec Kit acceptance intent ready for refinement.`, tone: "success" },
-              { label: "High-priority demand", value: metrics.highPriority, progress: metrics.total ? (metrics.highPriority / metrics.total) * 100 : 0, detail: "P1 and P2 Stories requiring Product Owner sequencing before Sprint commitment.", tone: metrics.highPriority ? "danger" : "success" },
-              { label: "Team ownership", value: metrics.teamAssigned, progress: metrics.total ? (metrics.teamAssigned / metrics.total) * 100 : 0, detail: `${Math.max(metrics.total - metrics.teamAssigned, 0)} Stories still need a Scrum team before planning.`, tone: "info" }
+            metrics={((workspaceMode === "backlog" ? [
+              { label: "Grooming readiness", value: metrics.total ? `${Math.round((metrics.groomed / metrics.total) * 100)}%` : "—", progress: metrics.total ? (metrics.groomed / metrics.total) * 100 : null, detail: `${metrics.groomed} of ${metrics.total} Stories have description, priority, status, and reviewable specification.`, tone: "info" },
+              { label: "Specification ready", value: metrics.specified, progress: metrics.total ? (metrics.specified / metrics.total) * 100 : null, detail: `${metrics.specified} of ${metrics.total} Stories have Gherkin or Spec Kit acceptance intent ready for refinement.`, tone: "success" },
+              { label: "High-priority demand", value: metrics.highPriority, progress: metrics.total ? (metrics.highPriority / metrics.total) * 100 : null, detail: "P1 and P2 Stories requiring Product Owner sequencing before Sprint commitment.", tone: metrics.highPriority ? "danger" : "success" },
+              { label: "Team ownership", value: metrics.teamAssigned, progress: metrics.total ? (metrics.teamAssigned / metrics.total) * 100 : null, detail: `${Math.max(metrics.total - metrics.teamAssigned, 0)} Stories still need a Scrum team before planning.`, tone: "info" }
             ] : workspaceMode === "stories" ? [
-              { label: "Backlog inventory", value: metrics.backlog, progress: metrics.total ? (metrics.backlog / metrics.total) * 100 : 0, detail: `${metrics.backlog} of ${metrics.total} Stories remain available for Product Owner refinement and Sprint planning.`, tone: "info" },
-              { label: "Sprint commitment", value: metrics.sprintCommitted, progress: metrics.total ? (metrics.sprintCommitted / metrics.total) * 100 : 0, detail: `${metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.`, tone: "success" },
-              { label: "Release scope", value: metrics.releaseScoped, progress: metrics.total ? (metrics.releaseScoped / metrics.total) * 100 : 0, detail: `${metrics.releaseScoped} Stories carry a Release or Fix Version for versioned delivery governance.`, tone: "info" },
-              { label: "QA completion", value: `${metrics.completionPercent}%`, progress: metrics.completionPercent, detail: `${metrics.completed} of ${metrics.qaTotal} Sprint ${metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.`, tone: "success" }
+              { label: "Backlog inventory", value: metrics.backlog, progress: metrics.total ? (metrics.backlog / metrics.total) * 100 : null, detail: `${metrics.backlog} of ${metrics.total} Stories remain available for Product Owner refinement and Sprint planning.`, tone: "info" },
+              { label: "Sprint commitment", value: metrics.sprintCommitted, progress: metrics.total ? (metrics.sprintCommitted / metrics.total) * 100 : null, detail: `${metrics.sprintCommitted} Stories have active delivery context across planned, active, or completed Sprints.`, tone: "success" },
+              { label: "Release scope", value: metrics.releaseScoped, progress: metrics.total ? (metrics.releaseScoped / metrics.total) * 100 : null, detail: `${metrics.releaseScoped} Stories carry a Release or Fix Version for versioned delivery governance.`, tone: "info" },
+              { label: "QA completion", methodology: "Completed Sprint Stories ÷ all Sprint Stories × 100; Backlog is excluded.", value: metrics.qaTotal ? `${metrics.completionPercent}%` : "—", progress: metrics.qaTotal ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.qaTotal} Sprint ${metrics.qaTotal === 1 ? "Story has" : "Stories have"} reached QA Done. Backlog Stories are excluded.`, tone: "success" }
             ] : [
-              { label: "Completion Status", value: `${metrics.completionPercent}%`, progress: metrics.completionPercent, detail: `${metrics.completed} of ${metrics.total} ${metrics.total === 1 ? "Story" : "Stories"} reached QA Done.`, tone: "info" },
-              { label: "Test Coverage", value: `${metrics.coveragePercent}%`, progress: metrics.coveragePercent, detail: `${metrics.mapped} ${metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.`, tone: "success" },
-              { label: "Bug Density", value: metrics.defectDensity.toFixed(1), progress: Math.min(100, metrics.defectDensity * 25), detail: `${metrics.totalDefects} linked bug${metrics.totalDefects === 1 ? "" : "s"} across ${metrics.total || 0} ${metrics.total === 1 ? "Story" : "Stories"}.`, tone: metrics.totalDefects ? "danger" : "success" },
-              { label: "Slippage", value: metrics.slipped, progress: metrics.total ? (metrics.slipped / metrics.total) * 100 : 0, detail: `${metrics.onCourse} of ${metrics.total} Sprint Stories are on course or complete.`, tone: metrics.slipped ? "danger" : "success" }
-            ]}
+              { label: "Completion Status", value: metrics.total ? `${metrics.completionPercent}%` : "—", progress: metrics.total ? metrics.completionPercent : null, detail: `${metrics.completed} of ${metrics.total} ${metrics.total === 1 ? "Story" : "Stories"} reached QA Done.`, tone: "info" },
+              { label: "Test Coverage", value: metrics.total ? `${metrics.coveragePercent}%` : "—", progress: metrics.total ? metrics.coveragePercent : null, detail: `${metrics.mapped} ${metrics.mapped === 1 ? "Story" : "Stories"} linked to at least one test case.`, tone: "success" },
+              { label: "Bug Density", methodology: "Distinct linked Bugs ÷ all matching Sprint Stories.", value: metrics.total ? metrics.defectDensity.toFixed(2) : "—", progress: metrics.total ? Math.min(100, metrics.defectDensity * 25) : null, detail: `${metrics.totalDefects} linked bug${metrics.totalDefects === 1 ? "" : "s"} across ${metrics.total || 0} ${metrics.total === 1 ? "Story" : "Stories"}.`, tone: metrics.totalDefects ? "danger" : "success" },
+              { label: "Slippage", value: metrics.slipped, progress: metrics.total ? (metrics.slipped / metrics.total) * 100 : null, detail: `${metrics.onCourse} of ${metrics.total} Sprint Stories are on course or complete.`, tone: metrics.slipped ? "danger" : "success" }
+            ]) as QualityMetric[]).map((metric): QualityMetric => requirementMetricsQuery.data ? metric : { ...metric, value: "—", progress: null, tone: "neutral", detail: requirementMetricsQuery.isPending ? "Calculating metrics for the current Story scope." : "Metrics are unavailable for the current Story scope." })}
           />
+          {requirementMetricsQuery.isPending ? <span role="status" className="hierarchy-filter-scope-note">Calculating Story metrics…</span> : null}
         </>
       ) : null}
+
+      {!isRequirementWorkspaceOpen && requirementMetricsQuery.isError ? <div role="status" className="hierarchy-filter-scope-note">Story metrics could not be refreshed. <button className="ghost-button compact" onClick={() => void requirementMetricsQuery.refetch()} type="button">Retry metrics</button></div> : null}
 
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
@@ -6260,17 +5884,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               </div>
             </div>
 
-            {hasIncompleteRequirementFilterScope ? (
-              <div className="hierarchy-filter-scope-note" role="status">
-                Search and filters cover loaded summary fields. External references load only when a Story is opened; expand Sprint headers or use a verified Load more control to check remaining Stories.
-              </div>
-            ) : null}
-
             <div aria-live="polite" className="sr-only">
               {draggingRequirementIds.length
                 ? `Moving ${draggingRequirementIds.length} selected ${draggingRequirementIds.length === 1 ? "Story" : "Stories"}. Choose an available Sprint.`
                 : ""}
             </div>
+            <span className="sr-only" role="status">{requirementsQuery.isPlaceholderData ? "Updating matching Stories…" : ""}</span>
             <TileBrowserPane className="requirement-card-list" scrollKey={`requirements:${projectId}:${workspaceMode}:${catalogViewMode}`}>
               {isRequirementCatalogLoading ? <TileCardSkeletonGrid /> : null}
 
@@ -6347,18 +5966,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             </button>
                           </div>
                           {renderBestSprintMetrics(entry.iteration)}
-                          {!isCollapsed
-                          && !sprintPageState?.isInitialLoading
-                          && (sprintPageState?.nextCursor || sprintPageState?.isLoadingMore || Number(sprintPageState?.failedPageIndex) > 0) ? (
-                            <HierarchyLoadMoreButton
-                              actionLabel={Number(sprintPageState?.failedPageIndex) > 0 ? "Retry loading" : undefined}
-                              isLoading={Boolean(sprintPageState?.isLoadingMore)}
-                              loaded={sprintPageState?.loaded}
-                              onLoad={() => loadNextSprintPage(entry.iteration.id)}
-                              scopeLabel={`Stories in ${entry.iteration.name}`}
-                              total={sprintPageState?.total}
-                            />
-                          ) : null}
                         </div>
                         {!isCollapsed && sprintPageState?.isInitialLoading ? (
                           <div className="hierarchy-children-state hierarchy-children-state--tile">
@@ -6376,6 +5983,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         ) : null}
                         </Fragment>
                       );
+                    }
+
+                    if (entry.kind === "continuation") {
+                      return <div className="hierarchy-load-more-footer" key={`continuation-${entry.iteration.id}`}>{renderSprintPageSentinel(entry.iteration)}</div>;
                     }
 
                     if (entry.kind === "unassigned") {
@@ -6415,25 +6026,26 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     const item = entry.requirement;
                     const isSelectedForDelete = deleteSelectedRequirementIds.includes(item.id);
                     const isActive = selectedRequirement?.id === item.id;
-                    const linkedCaseCount = (linkedCaseIdsByRequirementId[item.id] || []).length;
-                    const passCoverage = passCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
-                    const automationCoverage = automationCoverageByRequirementId[item.id] || { total: 0, covered: 0, percent: 0 };
+                    const recordMetrics = storyMetricsById[item.id] || deriveStoryMetrics(item);
+                    const linkedCaseCount = recordMetrics.linkedCases;
+                    const passCoverage = recordMetrics.passRate;
+                    const automationCoverage = recordMetrics.automation;
                     const hasCompleteAutomationCoverage = automationCoverage.complete !== false;
-                    const linkedBugCount = (defectsByRequirementId[item.id] || []).length;
-                    const testCoveragePercent = linkedCaseCount ? 100 : 0;
-                    const bugHealthPercent = Math.max(0, 100 - linkedBugCount * 25);
-                    const readinessScore = Math.round((testCoveragePercent * 0.3) + (passCoverage.percent * 0.5) + (bugHealthPercent * 0.2));
+                    const linkedBugCount = recordMetrics.totalBugs;
+                    const readinessScore = recordMetrics.readiness;
                     const deliveryRisk = deriveStoryDeliveryRisk(item);
-                    const isCoverageRisk = deliveryRisk.isRisk || !linkedCaseCount || (item.priority ?? 3) <= 2 && readinessScore < 70;
-                    const passCoverageTitle = passCoverage.total
-                      ? `${passCoverage.covered}/${passCoverage.total} linked test cases passed`
-                      : "No linked test cases to measure pass coverage";
+                    const isCoverageRisk = deliveryRisk.isRisk || !linkedCaseCount || (item.priority ?? 3) <= 2 && readinessScore !== null && readinessScore < 70;
+                    const passCoverageTitle = passCoverage.complete === false
+                      ? "Execution evidence is not available for every linked test case."
+                      : passCoverage.total
+                      ? `${passCoverage.covered}/${passCoverage.total} linked test cases with a finalized outcome passed`
+                      : "No linked test cases have a finalized execution outcome.";
                     const automationCoverageTitle = !hasCompleteAutomationCoverage
-                      ? `${automationCoverage.known || 0}/${automationCoverage.total} linked test case summaries loaded; open the Story for complete automation details`
+                      ? "Complete automation evidence is unavailable for this Story."
                       : automationCoverage.total
                         ? `${automationCoverage.covered}/${automationCoverage.total} linked test cases automated`
                         : "No linked test cases to measure automation coverage";
-                    const isGroomedStory = Boolean(
+                    const isGroomedStory = recordMetrics.groomed ?? Boolean(
                       richTextToPlainText(item.description).trim()
                       && (asArray(item.gherkin_scenarios).length || item.specification_content?.trim())
                       && item.priority
@@ -6550,28 +6162,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             <StoryMetricFact
                               label="Defect density"
                               tone={linkedBugCount ? "danger" : "success"}
-                              value={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"}
+                              value={recordMetrics.defectDensity === null ? "—" : recordMetrics.defectDensity.toFixed(2)}
                             />
                             <StoryMetricFact
                               label="Release readiness"
-                              tone={readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
-                              value={`${readinessScore}%`}
+                              tone={readinessScore === null ? "neutral" : readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"}
+                              value={readinessScore === null ? "—" : `${readinessScore}%`}
                             />
                           </div>
                         </div>
                       </article>
                     );
                   })}
-                </div>
-              ) : null}
-              {!isRequirementCatalogLoading && catalogViewMode === "tile" && isBacklogExpanded && requirementsQuery.hasNextPage ? (
-                <div className="hierarchy-load-more-footer">
-                  <HierarchyLoadMoreButton
-                    isLoading={requirementsQuery.isFetchingNextPage}
-                    onLoad={() => requirementsQuery.fetchNextPage()}
-                    placement="footer"
-                    scopeLabel="backlog Stories"
-                  />
                 </div>
               ) : null}
               {!isRequirementCatalogLoading && (
@@ -6598,9 +6200,23 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   storageKey="hellotest:requirements:list-columns:v2"
                 />
               ) : null}
-              {!isRequirementCatalogLoading && !iterationTileEntries.length && !requirementsQuery.hasNextPage ? (
+              {!isRequirementCatalogLoading && !requirementsQuery.isPlaceholderData && workspaceMode !== "sprints" && (requirementsQuery.hasNextPage || requirementsQuery.isFetchNextPageError) ? (
+                <HierarchyLoadMoreButton
+                  isLoading={requirementsQuery.isFetchingNextPage}
+                  onLoad={() => requirementsQuery.fetchNextPage()}
+                  error={requirementsQuery.isFetchNextPageError ? requirementsQuery.error : undefined}
+                  onRetry={() => requirementsQuery.fetchNextPage()}
+                  progressKey={`${requirementCatalogScopeKey}:${requirementsQuery.data?.pages.length}`}
+                  placement="footer"
+                  scopeLabel={workspaceMode === "stories" ? "Stories" : "backlog Stories"}
+                />
+              ) : null}
+              {requirementsQuery.isError && !requirementsQuery.data && workspaceMode !== "sprints" ? (
+                <div className="empty-state compact" role="alert">Stories could not be loaded. <button className="ghost-button compact" onClick={() => void requirementsQuery.refetch()} type="button">Retry</button></div>
+              ) : null}
+              {!isRequirementCatalogLoading && !iterationTileEntries.length && !requirementsQuery.hasNextPage && !requirementsQuery.isError ? (
                 <div className="empty-state compact">
-                  <div>{workspaceMode === "stories" ? "No Stories exist in this project yet." : workspaceMode === "backlog" ? "No Stories are waiting in the Backlog." : "No Sprints yet for this project."}</div>
+                  <div>{hasActiveRequirementCatalogFilter ? "No Stories match the current search and filters." : workspaceMode === "stories" ? "No Stories exist in this project yet." : workspaceMode === "backlog" ? "No Stories are waiting in the Backlog." : "No Sprints yet for this project."}</div>
 	                  <button className="primary-button" disabled={!canUseRequirementAi || !canCreateRequirements || !projectId} onClick={openAiRequirementCreation} type="button">
                       <SparkIcon size={16} />
                       <span>Create Stories using AI</span>
@@ -6690,11 +6306,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     ...(storyGroomingRequestMatchesSelection
                       ? [{ value: "grooming" as const, label: "AI Grooming", description: "Readiness review", icon: <SparkIcon /> }]
                       : []),
-                    ...(selectedRequirementHasSprint ? [
-                      { value: "cases" as const, label: "Linked test cases", description: "Coverage links", icon: <LayersIcon />, count: selectedTestCaseIds.length },
-                      { value: "defects" as const, label: "Linked bugs", description: "Quality findings", icon: <BugIcon />, count: selectedDefectIds.length },
-                      { value: "history" as const, label: "Historical runs", description: "Health over time", icon: <ActivityIcon /> }
-                    ] : []),
+                    ...(selectedRequirementHasSprint && canViewTestCases ? [{ value: "cases" as const, label: "Linked test cases", description: "Coverage links", icon: <LayersIcon />, count: selectedTestCaseIds.length }] : []),
+                    ...(selectedRequirementHasSprint && canViewBugs ? [{ value: "defects" as const, label: "Linked bugs", description: "Quality findings", icon: <BugIcon />, count: selectedDefectIds.length }] : []),
+                    ...(selectedRequirementHasSprint && canViewRequirementResults ? [{ value: "history" as const, label: "Historical runs", description: "Health over time", icon: <ActivityIcon /> }] : []),
                     { value: "evidence", label: "Attachments", description: "Supporting evidence", icon: <IconPaperclip /> }
                   ]}
                   onChange={setActiveTraceabilityTab}
@@ -6715,26 +6329,30 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       label: "Test coverage",
                       value: `${selectedRequirementTestCoverage}%`,
                       progress: selectedRequirementTestCoverage,
-                      detail: selectedTestCaseIds.length
-                        ? `${selectedTestCaseIds.length} test case${selectedTestCaseIds.length === 1 ? " is" : "s are"} linked to this Story.`
+                      detail: selectedStoryMetrics.linkedCases
+                        ? `${selectedStoryMetrics.linkedCases} test case${selectedStoryMetrics.linkedCases === 1 ? " is" : "s are"} linked to this Story.`
                         : "No test cases are linked to this Story.",
                       tone: "success"
                     },
                     {
                       label: "Pass rate",
-                      value: selectedRequirementPassCoverage.total ? `${selectedRequirementPassCoverage.percent}%` : "—",
-                      progress: selectedRequirementPassCoverage.total ? selectedRequirementPassCoverage.percent : null,
-                      detail: selectedRequirementPassCoverage.total
-                        ? `${selectedRequirementPassCoverage.covered} of ${selectedRequirementPassCoverage.total} linked test cases passed.`
-                        : "No linked test cases have a pass result yet.",
+                      methodology: "Passed linked Test Cases ÷ linked Test Cases with a latest finalized outcome × 100.",
+                      value: formatStoryPassRate(selectedRequirementPassCoverage),
+                      progress: selectedRequirementPassCoverage.complete !== false && selectedRequirementPassCoverage.total ? selectedRequirementPassCoverage.percent : null,
+                      detail: selectedRequirementPassCoverage.complete === false
+                        ? "Execution evidence is not available for every linked test case."
+                        : selectedRequirementPassCoverage.total
+                        ? `${selectedRequirementPassCoverage.covered} of ${selectedRequirementPassCoverage.total} linked test cases with a finalized outcome passed.`
+                        : "No linked test cases have a finalized execution outcome.",
                       tone: "info"
                     },
                     {
                       label: "Automation progress",
-                      value: selectedRequirementAutomationCoverage.complete === false ? "—" : `${selectedRequirementAutomationCoverage.percent}%`,
-                      progress: selectedRequirementAutomationCoverage.complete === false ? null : selectedRequirementAutomationCoverage.percent,
+                      methodology: "Automated linked Test Cases ÷ all linked Test Cases × 100.",
+                      value: selectedRequirementAutomationCoverage.complete === false || !selectedRequirementAutomationCoverage.total ? "—" : `${selectedRequirementAutomationCoverage.percent}%`,
+                      progress: selectedRequirementAutomationCoverage.complete === false || !selectedRequirementAutomationCoverage.total ? null : selectedRequirementAutomationCoverage.percent,
                       detail: `${selectedRequirementAutomationCoverage.complete === false
-                        ? `${selectedRequirementAutomationCoverage.known || 0} of ${selectedRequirementAutomationCoverage.total} linked case summaries are available.`
+                        ? "Complete automation evidence is unavailable for this Story."
                         : selectedRequirementAutomationCoverage.total
                           ? `${selectedRequirementAutomationCoverage.covered} of ${selectedRequirementAutomationCoverage.total} linked test cases are automated.`
                           : "No linked test cases to measure automation."} Automation is informational and is not part of readiness.`,
@@ -6742,19 +6360,23 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     },
                     {
                       label: "Bug resolution",
-                      value: selectedRequirementBugResolution.total ? `${selectedRequirementBugResolution.percent}%` : "—",
-                      progress: selectedRequirementBugResolution.total ? selectedRequirementBugResolution.percent : null,
-                      detail: selectedRequirementBugResolution.total
+                      methodology: "Resolved or closed linked Bugs ÷ all linked Bugs × 100.",
+                      value: selectedRequirementBugResolution.complete && selectedRequirementBugResolution.total ? `${selectedRequirementBugResolution.percent}%` : "—",
+                      progress: selectedRequirementBugResolution.complete && selectedRequirementBugResolution.total ? selectedRequirementBugResolution.percent : null,
+                      detail: !selectedRequirementBugResolution.complete
+                        ? "Complete linked Bug evidence is unavailable for this Story."
+                        : selectedRequirementBugResolution.total
                         ? `${selectedRequirementBugResolution.covered} of ${selectedRequirementBugResolution.total} linked bugs resolved.`
                         : "No linked bugs are recorded for this Story.",
-                      tone: selectedRequirementBugResolution.total && selectedRequirementBugResolution.percent < 100 ? "warning" : "success"
+                      tone: !selectedRequirementBugResolution.complete || !selectedRequirementBugResolution.total ? "neutral" : selectedRequirementBugResolution.percent < 100 ? "warning" : "success"
                     },
                     {
                       label: "Release readiness",
-                      value: `${selectedRequirementReadiness}%`,
+                      methodology: "30% linked test coverage + 50% latest finalized pass rate + 20% open-Bug health; a finalized execution is required.",
+                      value: selectedRequirementReadiness === null ? "—" : `${selectedRequirementReadiness}%`,
                       progress: selectedRequirementReadiness,
-                      detail: "30% test coverage + 50% latest pass rate + 20% open-Bug health.",
-                      tone: selectedRequirementReadiness >= 80 ? "success" : selectedRequirementReadiness >= 60 ? "warning" : "danger"
+                      detail: "30% linked test coverage + 50% latest finalized pass rate + 20% open-Bug health (100 minus 25 per open Bug, bounded at zero).",
+                      tone: selectedRequirementReadiness === null ? "neutral" : selectedRequirementReadiness >= 80 ? "success" : selectedRequirementReadiness >= 60 ? "warning" : "danger"
                     }
                   ]}
                 /> : null}
@@ -6977,12 +6599,19 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     />
                   </div>
                 ) : null}
-                {selectedRequirementHasSprint && activeTraceabilityTab === "cases" ? (
+                {selectedRequirementHasSprint && canViewTestCases && activeTraceabilityTab === "cases" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <RequirementTestCasePicker
                       compactTitlesOnly
                       emptyText={appTypeId ? "No reusable test cases are available for this app type." : "Select an app type first to link reusable test cases."}
                       isSearchActive={isDetailTestCaseSearchActive}
+                      isLoading={testCasesQuery.isLoading}
+                      availableStatuses={asArray(domainMetadataQuery.data?.test_cases?.statuses).map((option) => option.value)}
+                      statusFilter={detailTestCaseStatusFilter}
+                      priorityFilter={detailTestCasePriorityFilter}
+                      onStatusFilterChange={setDetailTestCaseStatusFilter}
+                      onPriorityFilterChange={setDetailTestCasePriorityFilter}
+                      pagination={isDetailTestCaseSearchActive && (testCasesQuery.hasNextPage || testCasesQuery.isError) ? <HierarchyLoadMoreButton isLoading={testCasesQuery.isFetching} error={testCasesQuery.isError ? testCasesQuery.error : undefined} onLoad={() => testCasesQuery.fetchNextPage()} onRetry={() => testCasesQuery.isFetchNextPageError ? testCasesQuery.fetchNextPage() : testCasesQuery.refetch()} progressKey={`${detailCaseScopeKey}:${testCasesQuery.data?.pages.length}`} scopeLabel="matching test cases" /> : null}
                       onClearSearch={() => setIsDetailTestCaseSearchActive(false)}
                       onSearch={() => setIsDetailTestCaseSearchActive(true)}
                       runHistoryByTestCaseId={selectedRunHistoryByTestCaseId}
@@ -6994,14 +6623,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       selectedFallbackLabels={selectedTestCaseFallbackLabels}
                       sortLinkedFirst
                       testCases={testCases}
-                      onToggle={(testCaseId, checked) => toggleSelectedTestCase(setSelectedTestCaseIds, testCaseId, checked)}
+                      onToggle={(testCaseId, checked) => { if (canEditCaseLinks) toggleSelectedTestCase(setSelectedTestCaseIds, testCaseId, checked); }}
                     />
                   </div>
                 ) : null}
-                {selectedRequirementHasSprint && activeTraceabilityTab === "defects" ? (
+                {selectedRequirementHasSprint && canViewBugs && activeTraceabilityTab === "defects" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <LinkedDefectsPanel
-                      canUpdate={canUpdateRequirements}
+                      canUpdate={canUpdateRequirements && canEditBugLinks}
                       initialDefects={selectedRequirementDefects}
                       itemId={selectedRequirement.id}
                       onSaved={setSelectedDefectIds}
@@ -7010,7 +6639,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     />
                   </div>
                 ) : null}
-                {selectedRequirementHasSprint && activeTraceabilityTab === "history" ? (
+                {selectedRequirementHasSprint && canViewRequirementResults && activeTraceabilityTab === "history" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <TraceabilityRunHistory
                       appTypeId={appTypeId || undefined}
@@ -7181,7 +6810,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     <ScrumTeamField value={createDraft.scrumTeam} onChange={scrumTeam => setCreateDraft(current => ({ ...current, scrumTeam }))} />
                   </div>
                   <StoryPlanningFields additionalFields={createDraft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("create", field, value)} users={users} />
-                  <StoryCreateRelatedPicker allStories={sprintStoryPickerRequirements} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
+                  <StoryCreateRelatedPicker projectId={projectId} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
                   <section aria-labelledby="story-create-specification-title" className={`story-specification-editor is-${createDraft.specificationFormat}`}>
                     <div className="story-specification-head">
                       <div className="story-specification-copy">
@@ -7474,11 +7103,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             aria-label={`Select all ${sprintStorySelectionState.candidateCount} ${sprintBacklogPickerQuery.hasNextPage ? "loaded " : ""}matching backlog Stories`}
                             aria-pressed={areAllIterationRequirementsSelected}
                             className="sprint-story-selection-action"
-                            disabled={!visibleSprintStoryIds.length || areAllIterationRequirementsSelected || createRequirementIteration.isPending || isSprintBacklogPickerAutoLoading}
+                            disabled={!visibleSprintStoryIds.length || areAllIterationRequirementsSelected || createRequirementIteration.isPending}
                             onClick={() => setSprintStoriesSelected(visibleSprintStoryIds, true)}
-                            title={isSprintBacklogPickerAutoLoading
-                              ? "All backlog Stories are loading before selection"
-                              : sprintBacklogPickerQuery.hasNextPage
+                            title={sprintBacklogPickerQuery.hasNextPage
                                 ? "Select every loaded backlog Story matching this search"
                                 : "Select every backlog Story matching this search"}
                             type="button"
@@ -7486,7 +7113,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             <SelectionToggleIcon checked />
                             {areAllIterationRequirementsSelected
                               ? "All selected"
-                              : isSprintBacklogPickerAutoLoading ? "Loading Stories…" : sprintBacklogPickerQuery.hasNextPage ? "Select Loaded" : "Select All"}
+                              : sprintBacklogPickerQuery.hasNextPage ? "Select Loaded" : "Select All"}
                           </button>
                           <span aria-hidden="true" className="sprint-story-picker-divider" />
                           <button
@@ -7512,7 +7139,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         aria-label="Stories for this Sprint"
                       >
                         {sprintBacklogPickerQuery.isLoading && !sprintBacklogPickerLoadedCount ? (
-                          <div className="empty-state compact">Loading backlog Stories…</div>
+                          <LoadingState label="Loading backlog Stories" />
                         ) : null}
                         {iterationRequirementOptions.map((requirement) => {
                           const requirementId = String(requirement.id);
@@ -7571,32 +7198,16 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             <button className="ghost-button compact" onClick={() => void sprintBacklogPickerQuery.refetch()} type="button">Retry</button>
                           </div>
                         ) : null}
+                        {sprintBacklogPickerQuery.hasNextPage || sprintBacklogPickerQuery.isFetchNextPageError ? (
+                          <HierarchyLoadMoreButton isLoading={sprintBacklogPickerQuery.isFetchingNextPage} onLoad={() => sprintBacklogPickerQuery.fetchNextPage()} error={sprintBacklogPickerQuery.isFetchNextPageError ? sprintBacklogPickerQuery.error : undefined} onRetry={() => sprintBacklogPickerQuery.fetchNextPage()} progressKey={`${projectId}:${iterationRequirementSearch}:${iterationRequirementStatusFilter}:${sprintBacklogPickerQuery.data?.pages.length}`} scopeLabel="backlog Stories" />
+                        ) : null}
                       </div>
-                      {sprintBacklogPickerQuery.hasNextPage && !sprintBacklogPickerQuery.isError && !hasReachedSprintBacklogPickerPageLimit ? (
-                        <div aria-live="polite" className="sprint-story-picker-pagination-status" role="status">
-                          <span className="sprint-story-picker-loading-dot" />
-                          Loading all backlog Stories… {sprintBacklogPickerLoadedCount} of {sprintBacklogPickerTotal}
-                        </div>
-                      ) : null}
-                      {sprintBacklogPickerQuery.isError && sprintBacklogPickerLoadedCount ? (
-                        <div className="sprint-story-picker-pagination-status is-error" role="alert">
-                          <span>The remaining project Stories could not be loaded.</span>
-                          <button className="ghost-button compact" onClick={() => void sprintBacklogPickerQuery.fetchNextPage()} type="button">Retry</button>
-                        </div>
-                      ) : null}
-                      {sprintBacklogPickerQuery.hasNextPage && hasReachedSprintBacklogPickerPageLimit ? (
-                        <div className="sprint-story-picker-pagination-status is-warning" role="alert">
-                          The safe loading limit was reached. Refine the project Story set before creating this Sprint.
-                        </div>
-                      ) : null}
                       <p aria-live="polite" className="sprint-story-selection-summary">
                         {sprintDraftRequirementIds.length} {sprintDraftRequirementIds.length === 1 ? "Story" : "Stories"} selected for this Sprint.{" "}
                         {sprintBacklogPickerQuery.hasNextPage
                           ? sprintBacklogPickerQuery.isError
                             ? `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories remain available while loading is retried.`
-                            : hasReachedSprintBacklogPickerPageLimit
-                              ? `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories loaded before the safety limit.`
-                              : `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories loaded; the remaining Stories are loading automatically.`
+                            : `${sprintBacklogPickerLoadedCount} of ${sprintBacklogPickerTotal} backlog Stories shown. Scroll for more.`
                           : `${sprintBacklogPickerLoadedCount} backlog ${sprintBacklogPickerLoadedCount === 1 ? "Story" : "Stories"} loaded.`}
                         {sprintBacklogPickerQuery.isError && sprintBacklogPickerLoadedCount
                           ? " Loaded Stories remain selectable, but the latest HelloTest refresh failed."
@@ -7962,7 +7573,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   statusContent={aiCompleteRequirementDetailQuery.isError && requirementAiMode === "improve" ? (
                     <div className="story-studio-state-message is-error" role="alert">HelloTest could not load this Story’s full connected-workspace context. Refresh before completing or applying changes.</div>
                   ) : aiCompleteRequirementDetailQuery.isLoading && requirementAiMode === "improve" ? (
-                    <div className="story-studio-state-message" role="status">Loading the selected Story’s full connected-workspace context…</div>
+                    <LoadingState label="Loading the selected Story’s full connected-workspace context" />
                   ) : previewMessage ? (
                     <div className={previewTone === "error" ? "story-studio-state-message is-error" : "story-studio-state-message"} role={previewTone === "error" ? "alert" : "status"}>
                       <ToastMessage message={previewMessage} onDismiss={() => setPreviewMessage("")} tone={previewTone} />
@@ -8833,29 +8444,33 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       {retrospectiveIteration ? (() => {
         const health = requirementSprintHealthById.get(retrospectiveIteration.id);
         const slipped = retrospectiveStories.filter((story) => deriveStoryDeliveryRisk(story).isRisk);
-        const covered = retrospectiveStories.filter((story) => (linkedCaseIdsByRequirementId[story.id] || []).length);
-        const totalBugs = retrospectiveStories.reduce((sum, story) => sum + (defectsByRequirementId[story.id] || []).length, 0);
-        const completed = retrospectiveStories.filter((story) => storyStatusRank(story.status) >= storyStatusRank("qa_done")).length;
-        const blocked = retrospectiveStories.filter((story) => String(story.status || "").toLowerCase().includes("blocked")).length;
-        const coveragePercent = retrospectiveStories.length ? Math.round((covered.length / retrospectiveStories.length) * 100) : 0;
-        const maturityPercent = retrospectiveStories.length ? Math.round((completed / retrospectiveStories.length) * 100) : 0;
-        const bugDensity = retrospectiveStories.length ? totalBugs / retrospectiveStories.length : 0;
+        const totalStories = health?.total_stories ?? null;
+        const coveredCount = health?.covered_stories ?? null;
+        const totalBugs = health?.total_bugs ?? null;
+        const completed = health?.completed_stories ?? null;
+        const slippedCount = health?.slippage_stories ?? null;
+        const blocked = health?.blocked_stories ?? null;
+        const coveragePercent = totalStories ? health?.coverage_percent ?? null : null;
+        const maturityPercent = totalStories ? health?.completed_percent ?? null : null;
+        const bugDensity = totalStories && totalBugs !== null ? totalBugs / totalStories : null;
+        const passRate = !health?.exact_fields.includes("executed_linked_cases") ? "—" : !health.executed_linked_cases ? "No runs" : health.pass_percent === null ? "—" : `${health.pass_percent}%`;
         const improvementActions = [
           ...slipped.slice(0, 3).map((story) => ({
             id: story.id,
             title: `${story.display_id || story.id} · ${story.title}`,
             outcome: "Re-plan the missed delivery target and confirm the accountable owner before the next Sprint starts."
           })),
+          ...(slippedCount && !slipped.length ? [{ id: "slipped", title: `Replan ${slippedCount} slipped ${slippedCount === 1 ? "Story" : "Stories"}`, outcome: "Review missed delivery targets across the Sprint and confirm an accountable owner for each." }] : []),
           ...(blocked ? [{ id: "blocked", title: `Resolve ${blocked} blocked ${blocked === 1 ? "Story" : "Stories"}`, outcome: "Name the dependency owner and unblock date during Sprint planning." }] : []),
-          ...(coveragePercent < 100 ? [{ id: "coverage", title: `Close ${retrospectiveStories.length - covered.length} Story coverage ${retrospectiveStories.length - covered.length === 1 ? "gap" : "gaps"}`, outcome: "Link reviewable Test Cases before work enters QA." }] : []),
-          ...(totalBugs ? [{ id: "bugs", title: `Reduce the ${bugDensity.toFixed(2)} Bug density`, outcome: "Review escaped defect themes and add the highest-value prevention check to the next Sprint." }] : [])
+          ...(totalStories !== null && coveredCount !== null && totalStories > coveredCount ? [{ id: "coverage", title: `Close ${totalStories! - coveredCount!} Story coverage ${totalStories! - coveredCount! === 1 ? "gap" : "gaps"}`, outcome: "Link reviewable Test Cases before work enters QA." }] : []),
+          ...(totalBugs ? [{ id: "bugs", title: `Reduce the ${(bugDensity === null ? "—" : bugDensity.toFixed(2))} Bug density`, outcome: "Review escaped defect themes and add the highest-value prevention check to the next Sprint." }] : [])
         ].slice(0, 5);
         const canCloseFromRetrospective = ["active", "overdue"].includes(deriveSprintLifecycleState(retrospectiveIteration));
         return (
           <div className="modal-backdrop" onClick={() => setRetrospectiveIteration(null)} role="presentation">
             <div aria-modal="true" className="modal-card sprint-retrospective-dialog" onClick={(event) => event.stopPropagation()} role="dialog">
               <header className="sprint-retrospective-header">
-                <div><span className="eyebrow">Inspect · adapt · improve</span><h2>{retrospectiveIteration.name}</h2><p>Turn delivery and quality evidence into a small set of owned improvements for the next Sprint.</p><div className="sprint-retrospective-context"><span className={`requirement-sprint-status is-${deriveSprintLifecycleState(retrospectiveIteration)}`}>{sprintStateLabel(retrospectiveIteration.state)}</span><span>{sprintDateRangeLabel(retrospectiveIteration.start_date, retrospectiveIteration.end_date)}</span><span>{retrospectiveStories.length} scoped Stories</span></div></div>
+                <div><span className="eyebrow">Inspect · adapt · improve</span><h2>{retrospectiveIteration.name}</h2><p>Turn delivery and quality evidence into a small set of owned improvements for the next Sprint.</p><div className="sprint-retrospective-context"><span className={`requirement-sprint-status is-${deriveSprintLifecycleState(retrospectiveIteration)}`}>{sprintStateLabel(retrospectiveIteration.state)}</span><span>{sprintDateRangeLabel(retrospectiveIteration.start_date, retrospectiveIteration.end_date)}</span><span>{totalStories ?? "—"} scoped Stories</span></div></div>
                 <div className="sprint-retrospective-header-actions">
                   {canCloseFromRetrospective ? <button className="primary-button sprint-retrospective-close-sprint" disabled={!canUpdateRequirementIterations || updateRequirementIteration.isPending || completionCheckSprintId === retrospectiveIteration.id} onClick={() => { const iteration = retrospectiveIteration; setRetrospectiveIteration(null); void changeSprintLifecycle(iteration, "closed"); }} type="button"><IconFlagCheck size={16} /><span>Close Sprint</span></button> : null}
                   <DialogCloseButton label="Close Sprint retrospective" onClick={() => setRetrospectiveIteration(null)} />
@@ -8863,18 +8478,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               </header>
               <section className="sprint-retrospective-intent"><div><strong>Retrospective outcome</strong><span>Choose the most helpful changes, assign ownership during planning, and carry the highest-impact item into the next Sprint.</span></div><span>{improvementActions.length} suggested {improvementActions.length === 1 ? "action" : "actions"}</span></section>
               <div className="sprint-retrospective-score-grid">
-                <article><span>On course</span><strong>{Math.max(retrospectiveStories.length - slipped.length, 0)}/{retrospectiveStories.length}</strong><small>Stories without missed Dev/QA targets</small></article>
-                <article><span>Completion maturity</span><strong>{maturityPercent}%</strong><small>{completed} reached QA Done</small></article>
-                <article><span>Test coverage</span><strong>{health?.coverage_percent ?? coveragePercent}%</strong><small>{covered.length} Stories have linked tests</small></article>
-                <article><span>Pass rate</span><strong>{health?.pass_percent ?? 0}%</strong><small>Latest terminal outcomes</small></article>
-                <article><span>Bug density</span><strong>{bugDensity.toFixed(2)}</strong><small>{totalBugs} Bugs / {retrospectiveStories.length} Stories</small></article>
-                <article><span>Collaboration</span><strong>{retrospectiveCommentCount}</strong><small>Comments across loaded Sprint Stories</small></article>
+                <article><span>On course</span><strong>{health?.on_course_stories ?? "—"}/{totalStories ?? "—"}</strong><small>Stories without missed Dev/QA targets</small></article>
+                <article><span>Completion maturity</span><strong>{maturityPercent === null ? "—" : `${maturityPercent}%`}</strong><small>{completed ?? "—"} reached a completed state</small></article>
+                <article><span>Test coverage</span><strong>{coveragePercent === null ? "—" : `${coveragePercent}%`}</strong><small>{coveredCount ?? "—"} Stories have linked tests</small></article>
+                <article><span>Pass rate</span><strong>{passRate}</strong><small>Latest terminal outcomes</small></article>
+                <article><span>Bug density</span><strong>{(bugDensity === null ? "—" : bugDensity.toFixed(2))}</strong><small>{totalBugs ?? "—"} distinct Bugs / {totalStories ?? "—"} Stories</small></article>
+                <article><span>Collaboration</span><strong>{health?.comment_count ?? "—"}</strong><small>Comments across all Sprint Stories</small></article>
               </div>
               <div className="sprint-retrospective-columns">
-                <section className="tone-positive"><div className="sprint-retrospective-section-title"><span>01</span><div><h3>Signals to sustain</h3><p>Practices that helped quality and flow.</p></div></div><ul><li>{Math.max(retrospectiveStories.length - slipped.length, 0)} Stories stayed on course.</li><li>{covered.length} Stories had traceable Test Case coverage.</li><li>{completed} Stories reached QA Done; {retrospectiveCommentCount} comments recorded collaborative review.</li></ul></section>
-                <section className="tone-improve"><div className="sprint-retrospective-section-title"><span>02</span><div><h3>Friction to address</h3><p>Evidence that should change the next plan.</p></div></div><ul>{slipped.length ? <li>{slipped.length} Stories missed a Dev or QA target.</li> : <li>No target-date slippage is visible.</li>}{blocked ? <li>{blocked} Stories are blocked and need explicit owners or dependencies.</li> : <li>No Stories are currently blocked.</li>}{totalBugs ? <li>{totalBugs} linked Bugs produced a density of {bugDensity.toFixed(2)} per Story.</li> : <li>No linked Bugs are visible in this Sprint scope.</li>}{coveragePercent < 100 ? <li>{retrospectiveStories.length - covered.length} Stories need test coverage before delivery review.</li> : null}</ul></section>
+                <section className="tone-positive"><div className="sprint-retrospective-section-title"><span>01</span><div><h3>Signals to sustain</h3><p>Practices that helped quality and flow.</p></div></div><ul><li>{health?.on_course_stories ?? "—"} Stories stayed on course.</li><li>{coveredCount ?? "—"} Stories had traceable Test Case coverage.</li><li>{completed ?? "—"} Stories reached a completed state; {health?.comment_count ?? "—"} comments recorded collaborative review.</li></ul></section>
+                <section className="tone-improve"><div className="sprint-retrospective-section-title"><span>02</span><div><h3>Friction to address</h3><p>Evidence that should change the next plan.</p></div></div><ul>{slippedCount === null ? <li>Slippage metrics are unavailable.</li> : slippedCount ? <li>{slippedCount} Stories missed a Dev or QA target.</li> : <li>No Story missed a delivery target.</li>}{blocked === null ? <li>Blocked Story metrics are unavailable.</li> : blocked ? <li>{blocked} Stories are blocked and need explicit owners or dependencies.</li> : <li>No Stories are currently blocked.</li>}{totalBugs === null ? <li>Linked Bug metrics are unavailable.</li> : totalBugs ? <li>{totalBugs} linked Bugs produced a density of {(bugDensity === null ? "—" : bugDensity.toFixed(2))} per Story.</li> : <li>No linked Bugs are visible in this Sprint scope.</li>}{totalStories !== null && coveredCount !== null && totalStories > coveredCount ? <li>{totalStories! - coveredCount!} Stories need test coverage before delivery review.</li> : null}</ul></section>
               </div>
-              <section className="sprint-retrospective-actions"><div className="sprint-retrospective-section-title"><span>03</span><div><h3>Commit to next-Sprint actions</h3><p>Confirm an owner and due date when these actions enter planning.</p></div></div><ol>{improvementActions.map((action) => <li key={action.id}><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div>{slipped.some((story) => story.id === action.id) ? <button className="link-button" onClick={() => { setRetrospectiveIteration(null); openRequirementWorkspace(action.id); }} type="button">{action.title}</button> : <strong>{action.title}</strong>}<p>{action.outcome}</p><small>Owner · assign in planning&nbsp;&nbsp; Due · next Sprint</small></div></li>)}{!improvementActions.length ? <li className="is-success"><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div><strong>Preserve the current delivery cadence</strong><p>Carry the effective planning and review practices into the next Sprint.</p><small>Owner · Sprint team&nbsp;&nbsp; Review · next retrospective</small></div></li> : null}</ol></section>
+              <section className="sprint-retrospective-actions"><div className="sprint-retrospective-section-title"><span>03</span><div><h3>Commit to next-Sprint actions</h3><p>Confirm an owner and due date when these actions enter planning.</p></div></div><ol>{improvementActions.map((action) => <li key={action.id}><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div>{slipped.some((story) => story.id === action.id) ? <button className="link-button" onClick={() => { setRetrospectiveIteration(null); openRequirementWorkspace(action.id); }} type="button">{action.title}</button> : <strong>{action.title}</strong>}<p>{action.outcome}</p><small>Owner · assign in planning&nbsp;&nbsp; Due · next Sprint</small></div></li>)}{!improvementActions.length && health && totalStories !== null ? <li className="is-success"><span className="sprint-retrospective-action-marker"><IconFlagCheck size={15} /></span><div><strong>Preserve the current delivery cadence</strong><p>Carry the effective planning and review practices into the next Sprint.</p><small>Owner · Sprint team&nbsp;&nbsp; Review · next retrospective</small></div></li> : !improvementActions.length ? <li>Load Sprint metrics before choosing improvement actions.</li> : null}</ol></section>
             </div>
           </div>
         );
@@ -9063,21 +8678,30 @@ function StorySpecificationFormatSwitch({
 }
 
 function StoryCreateRelatedPicker({
-  allStories,
+  projectId,
   selectedIds,
   onChange
 }: {
-  allStories: Requirement[];
+  projectId: string;
   selectedIds: string[];
   onChange: (ids: string[]) => void;
 }) {
   const [search, setSearch] = useState("");
-  const normalizedSearch = search.trim().toLowerCase();
-  const storyById = new Map(allStories.map((story) => [story.id, story]));
+  const deferredSearch = useDeferredValue(search.trim());
+  const query = useInfiniteQuery({
+    queryKey: ["story-related-picker", projectId, deferredSearch],
+    queryFn: ({ pageParam }) => api.requirements.listPage({ project_id: projectId, search: deferredSearch || undefined, page_size: 25, cursor: pageParam, projection: "summary" }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage, _pages, _param, params) => { const cursor = getVerifiedNextPageCursor(lastPage); return cursor && !params.includes(cursor) ? cursor : undefined; },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false
+  });
+  const visibleStories = asArray(query.data?.pages).flatMap((page) => asArray(page.items));
+  const storySnapshots = useRef(new Map<string, Requirement>());
+  visibleStories.forEach((story) => storySnapshots.current.set(story.id, story));
+  const storyById = storySnapshots.current;
   const selectedIdSet = new Set(selectedIds);
-  const visibleStories = allStories
-    .filter((story) => !normalizedSearch || [story.display_id || story.id, story.title, story.status || "", story.sprint || ""].join(" ").toLowerCase().includes(normalizedSearch))
-    .slice(0, 60);
   const toggle = (storyId: string, checked: boolean) => onChange(checked
     ? [...new Set([...selectedIds, storyId])]
     : selectedIds.filter((id) => id !== storyId));
@@ -9102,9 +8726,9 @@ function StoryCreateRelatedPicker({
                     </label>
                   );
                 })}
-                {!visibleStories.length ? <div className="empty-state compact">No Stories match this search.</div> : null}
+                {!query.isLoading && !query.isError && !visibleStories.length ? <div className="empty-state compact">No Stories match this search.</div> : null}
+                {query.hasNextPage || query.isError ? <HierarchyLoadMoreButton isLoading={query.isFetching} error={query.isError ? query.error : undefined} onLoad={() => query.fetchNextPage()} onRetry={() => query.isFetchNextPageError ? query.fetchNextPage() : query.refetch()} progressKey={`${projectId}:${deferredSearch}:${query.data?.pages.length}`} scopeLabel="related Stories" /> : null}
               </div>
-              {allStories.length > visibleStories.length ? <p>Showing the first 60 matches. Refine the search to find another Story.</p> : null}
             </div>
           </details>
         </div>
@@ -9468,7 +9092,14 @@ function RequirementTestCasePicker({
   onSearchTermChange,
   isSearchActive,
   onSearch,
-  onClearSearch
+  onClearSearch,
+  availableStatuses,
+  statusFilter,
+  priorityFilter,
+  onStatusFilterChange,
+  onPriorityFilterChange,
+  pagination,
+  isLoading = false
 }: {
   testCases: TestCase[];
   selectedIds: string[];
@@ -9485,33 +9116,23 @@ function RequirementTestCasePicker({
   isSearchActive: boolean;
   onSearch: () => void;
   onClearSearch?: () => void;
+  availableStatuses: string[];
+  statusFilter: string;
+  priorityFilter: string;
+  onStatusFilterChange: (value: string) => void;
+  onPriorityFilterChange: (value: string) => void;
+  pagination?: ReactNode;
+  isLoading?: boolean;
 }) {
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [priorityFilter, setPriorityFilter] = useState("all");
   const selectedSet = new Set(selectedIds);
   const loadedTestCaseIds = new Set(testCases.map((testCase) => testCase.id));
   const unresolvedSelectedIds = selectedIds.filter((testCaseId) => !loadedTestCaseIds.has(testCaseId));
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  const statusOptions = Array.from(new Set(testCases.map((testCase) => testCase.status || "draft").filter(Boolean))).sort((left, right) => left.localeCompare(right));
-  const priorityOptions = Array.from(new Set(testCases.map((testCase) => String(testCase.priority ?? 3)))).sort((left, right) => Number(left) - Number(right));
+  const statusOptions = Array.from(new Set([...availableStatuses, ...testCases.map((testCase) => testCase.status || "draft")].filter(Boolean))).sort((left, right) => left.localeCompare(right));
+  const priorityOptions = Array.from(new Set(["1", "2", "3", "4", "5", ...testCases.map((testCase) => String(testCase.priority ?? 3))])).sort((left, right) => Number(left) - Number(right));
   const matchesStatusFilter = (testCase: TestCase) => statusFilter === "all" || String(testCase.status || "draft") === statusFilter;
   const matchesPriorityFilter = (testCase: TestCase) => priorityFilter === "all" || String(testCase.priority ?? 3) === priorityFilter;
   const linkedTestCases = testCases.filter((testCase) => selectedSet.has(testCase.id) && matchesStatusFilter(testCase) && matchesPriorityFilter(testCase));
-  const searchedTestCases = isSearchActive
-    ? testCases.filter((testCase) =>
-        matchesStatusFilter(testCase) && matchesPriorityFilter(testCase) && (
-          !normalizedSearch ||
-          [
-            testCase.display_id || "",
-            testCase.id,
-            testCase.title,
-            richTextToPlainText(testCase.description),
-            testCase.status || "",
-            `p${testCase.priority ?? 3}`
-          ].some((value) => value.toLowerCase().includes(normalizedSearch))
-        )
-      )
-    : [];
+  const searchedTestCases = isSearchActive ? testCases : [];
   const optionMap = new Map<string, TestCase>();
   const linkedFirst = [...linkedTestCases].sort((left, right) => left.title.localeCompare(right.title));
   const searchedOrdered = [...searchedTestCases].sort((left, right) => {
@@ -9558,7 +9179,7 @@ function RequirementTestCasePicker({
           <select
             aria-label="Filter linked test cases by status"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
+            onChange={(event) => onStatusFilterChange(event.target.value)}
           >
             <option value="all">All statuses</option>
             {statusOptions.map((status) => (
@@ -9573,7 +9194,7 @@ function RequirementTestCasePicker({
           <select
             aria-label="Filter linked test cases by priority"
             value={priorityFilter}
-            onChange={(event) => setPriorityFilter(event.target.value)}
+            onChange={(event) => onPriorityFilterChange(event.target.value)}
           >
             <option value="all">All priorities</option>
             {priorityOptions.map((priority) => (
@@ -9611,8 +9232,8 @@ function RequirementTestCasePicker({
           className="ghost-button"
           disabled={!hasActiveFilters}
           onClick={() => {
-            setStatusFilter("all");
-            setPriorityFilter("all");
+            onStatusFilterChange("all");
+            onPriorityFilterChange("all");
             onSearchTermChange("");
             onClearSearch?.();
           }}
@@ -9626,7 +9247,7 @@ function RequirementTestCasePicker({
         <div className="empty-state compact">Search to load reusable test cases.</div>
       ) : null}
 
-      {shouldShowEmpty && isSearchActive ? <div className="empty-state compact">{testCases.length ? "No test cases match this search." : emptyText}</div> : null}
+      {shouldShowEmpty && isSearchActive && !isLoading ? <div className="empty-state compact">{testCases.length ? "No test cases match this search." : emptyText}</div> : null}
 
       {unresolvedSelectedIds.length ? (
         <div className="modal-case-picker requirement-link-picker">
@@ -9738,8 +9359,10 @@ function RequirementTestCasePicker({
           </div>
         );
           })}
+          {pagination}
         </div>
-      ) : null}
+      ) : pagination}
+      {isLoading ? <span role="status">Loading test cases…</span> : null}
     </div>
   );
 }

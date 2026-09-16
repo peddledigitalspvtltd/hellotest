@@ -34,7 +34,8 @@ import {
 } from "../components/TileCardPrimitives";
 import { RunHooksBuilder, type RunHookSelection } from "../components/RunHooksBuilder";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
-import { SuiteCasePicker, SuiteScopePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
+import { SuiteScopePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
+import { TestCasePicker } from "../components/TestCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -48,12 +49,14 @@ import { useDomainSuggestions } from "../hooks/useDomainOptions";
 import { resolveDomainSuggestionValue } from "../lib/domainOptions";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { api } from "../lib/api";
+import { resolveTestCasePickerScope } from "../lib/testCasePickerPages";
 import { buildDeliveryScopeOptions, type DeliveryScopeOption } from "../lib/deliveryScopeOptions";
 import { canViewAutomationCode as resolveCanViewAutomationCode } from "../lib/automationAccess";
 import { asArray } from "../lib/collectionGuards";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
-import { hasPermission } from "../lib/permissions";
 import { normalizeGherkinParameterReferences } from "../lib/gherkin";
 import {
   collectStepParameters,
@@ -259,23 +262,24 @@ export function DesignPage() {
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const { can } = useCapabilityAccess(projectId);
   const canUseManualSuites = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
   const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
-  const canCreateSuites = hasPermission(session, "suite.create", projectId) && canUseManualSuites;
-  const canUpdateSuites = hasPermission(session, "suite.update", projectId) && canUseManualSuites;
-  const canDeleteSuites = hasPermission(session, "suite.delete", projectId) && canUseManualSuites;
-  const canCreateManualRuns = hasPermission(session, "run.create", projectId)
+  const canCreateSuites = can("suite.create") && canUseManualSuites;
+  const canUpdateSuites = can("suite.update") && canUseManualSuites;
+  const canDeleteSuites = can("suite.delete") && canUseManualSuites;
+  const canCreateManualRuns = can("run.create")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", projectId)
+  const canViewDeliveryScopes = can("requirement_iteration.view")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-  const canRunLocalAutomation = hasPermission(session, "automation.run.local", projectId)
+  const canRunLocalAutomation = can("automation.run.local")
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
-  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote", projectId)
+  const canRunRemoteAutomation = can("automation.run.remote")
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
-  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel", projectId)
+  const canConfigureParallelAutomation = can("automation.run.parallel")
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
@@ -304,6 +308,7 @@ export function DesignPage() {
   const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
   const [executionRelease, setExecutionRelease] = useState("");
   const [executionSprint, setExecutionSprint] = useState("");
+  const [executionDeliveryTouched, setExecutionDeliveryTouched] = useState({ release: false, sprint: false });
   const [executionBuild, setExecutionBuild] = useState("");
   const [executionStartMode, setExecutionStartMode] = useState<ExecutionStartMode>("manual");
   const [executionParallelEnabled, setExecutionParallelEnabled] = useState(false);
@@ -340,57 +345,118 @@ export function DesignPage() {
   );
 
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.projects.list
+    queryKey: ["projects", "workspace-scopes", JSON.stringify([session?.user.id, session?.user.role, session?.user.role_id, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions])],
+    queryFn: ({ signal }) => api.metadata.workspaceScopes({ signal }),
+    select: (data) => data.projects,
+    enabled: can("workspace.view")
   });
-  const projectMembersQuery = useQuery({
+  const projectMembersQuery = optionalQueryView(useQuery({
     queryKey: ["project-members", projectId],
     queryFn: () => api.projectMembers.list({ project_id: projectId }),
-    enabled: Boolean(projectId && session)
-  });
+    enabled: (can("project_member.view")) && Boolean(projectId && session && isCreateExecutionModalOpen)
+  }), can("project_member.view"));
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
     queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(projectId)
+    enabled: (can("app_type.view")) && Boolean(projectId)
   });
-  const requirementsQuery = useQuery({
+  const requirementsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements", projectId],
     queryFn: () => api.requirements.list({ project_id: projectId }),
-    enabled: Boolean(projectId)
-  });
-  const deliveryReleasesQuery = useQuery({
+    enabled: (can("requirement.view")) && Boolean(projectId && selectedSuiteId && !isSuiteModalOpen && !isCreateExecutionModalOpen)
+  }), can("requirement.view"));
+  const deliveryReleasesQuery = optionalQueryView(useQuery({
     queryKey: ["requirement-releases", projectId],
     queryFn: () => api.requirementReleases.list({ project_id: projectId }),
-    enabled: Boolean(projectId && canViewDeliveryScopes),
+    enabled: (canViewDeliveryScopes) && Boolean(projectId && canViewDeliveryScopes && isCreateExecutionModalOpen),
     staleTime: 30_000
-  });
-  const deliveryIterationsQuery = useQuery({
+  }), canViewDeliveryScopes);
+  const deliveryIterationsQuery = optionalQueryView(useQuery({
     queryKey: ["requirement-iterations", projectId],
     queryFn: () => api.requirementIterations.list({ project_id: projectId }),
-    enabled: Boolean(projectId && canViewDeliveryScopes),
+    enabled: (canViewDeliveryScopes) && Boolean(projectId && canViewDeliveryScopes && isCreateExecutionModalOpen),
     staleTime: 30_000
-  });
-  const suitesQuery = useQuery({
+  }), canViewDeliveryScopes);
+  const runSuiteScopeKey = [...new Set(selectedSuiteActionIds)].sort().join(",");
+  const needsSuiteDeliveryPrefill = Boolean(isCreateExecutionModalOpen && can("testcase.view") && canViewDeliveryScopes
+    && runSuiteScopeKey && (!executionDeliveryTouched.release || !executionDeliveryTouched.sprint));
+  const runScopeCasesQuery = optionalQueryView(useQuery({
+    queryKey: ["design-run-scope-cases", projectId, appTypeId, runSuiteScopeKey],
+    queryFn: async ({ signal }) => {
+      const suiteIds = runSuiteScopeKey.split(",").filter(Boolean);
+      const cases = new Map<string, TestCase>();
+      for (let offset = 0; offset < suiteIds.length; offset += 200) {
+        const resolved = await resolveTestCasePickerScope({ project_id: projectId, app_type_id: appTypeId, suite_ids: suiteIds.slice(offset, offset + 200).join(",") }, signal);
+        resolved.forEach(item => cases.set(item.id, item));
+      }
+      return [...cases.values()];
+    },
+    enabled: (can("testcase.view")) && Boolean(projectId && appTypeId && needsSuiteDeliveryPrefill), staleTime: 30_000, retry: false
+  }), can("testcase.view"));
+  const runScopeStoryIds = useMemo(() => [...new Set((runScopeCasesQuery.data || []).flatMap(item => [
+    ...(item.requirement_ids || []), ...(item.requirement_id ? [item.requirement_id] : [])
+  ]))].sort(), [runScopeCasesQuery.data]);
+  const canReadRunStories = can("requirement.view");
+  const runScopeStoriesQuery = optionalQueryView(useQuery({
+    queryKey: ["design-run-scope-stories", projectId, runScopeStoryIds.join(",")],
+    queryFn: async () => {
+      const known = new Map(asArray(requirementsQuery.data).map(item => [item.id, item]));
+      const rows: Requirement[] = [];
+      for (let offset = 0; offset < runScopeStoryIds.length; offset += 8) {
+        rows.push(...await Promise.all(runScopeStoryIds.slice(offset, offset + 8).map(id => known.get(id) || api.requirements.get(id, { project_id: projectId }))));
+      }
+      return rows;
+    },
+    enabled: (canReadRunStories) && Boolean(needsSuiteDeliveryPrefill && canReadRunStories && runScopeCasesQuery.isSuccess && runScopeStoryIds.length),
+    staleTime: 30_000, retry: false
+  }), canReadRunStories);
+  const suiteDeliveryPrefillError = Boolean(needsSuiteDeliveryPrefill && (
+    runScopeCasesQuery.isError || (canReadRunStories && runScopeStoryIds.length && runScopeStoriesQuery.isError)
+    || deliveryReleasesQuery.isError || deliveryIterationsQuery.isError));
+  const suiteDeliveryPrefillPending = Boolean(needsSuiteDeliveryPrefill && !suiteDeliveryPrefillError && (
+    !runScopeCasesQuery.isSuccess || (canReadRunStories && runScopeStoryIds.length && !runScopeStoriesQuery.isSuccess)
+    || !deliveryReleasesQuery.isSuccess || !deliveryIterationsQuery.isSuccess));
+  const retrySuiteDeliveryPrefill = () => {
+    void runScopeCasesQuery.refetch();
+    if (runScopeStoryIds.length && canReadRunStories) void runScopeStoriesQuery.refetch();
+    void deliveryReleasesQuery.refetch();
+    void deliveryIterationsQuery.refetch();
+  };
+  const suitesQuery = optionalQueryView(useQuery({
     queryKey: ["design-suites", appTypeId],
-    queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId)
-  });
+    queryFn: ({ signal }) => api.testSuites.list({ app_type_id: appTypeId, projection: "summary" }, { signal }),
+    enabled: (can("suite.view")) && Boolean(appTypeId)
+  }), can("suite.view"));
   const requestedSuiteRouteId = searchParams.get("suite") || "";
-  const deepLinkSuitesQuery = useQuery({
+  const deepLinkSuitesQuery = optionalQueryView(useQuery({
     queryKey: ["design-suites", "deep-link", projectId, requestedSuiteRouteId],
     // Dashboard evidence spans the project, while the catalog uses one app.
     // Resolve within the authorized project before switching application scope.
-    queryFn: () => api.testSuites.list({ project_id: projectId }),
-    enabled: Boolean(session && projectId && requestedSuiteRouteId && !suitesQuery.isLoading && !suitesQuery.isFetching
+    queryFn: ({ signal }) => api.testSuites.list({ project_id: projectId, projection: "summary" }, { signal }),
+    enabled: (can("suite.view")) && Boolean(session && projectId && requestedSuiteRouteId && !suitesQuery.isLoading && !suitesQuery.isFetching
       && !findByRoutableId(asArray(suitesQuery.data), requestedSuiteRouteId)),
     staleTime: 60_000,
     retry: false
-  });
-  const testCasesQuery = useQuery({
-    queryKey: ["design-test-cases", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "detail", page_size: 100 }),
-    enabled: Boolean(appTypeId)
-  });
+  }), can("suite.view"));
+  const testCasesQuery = optionalQueryView(useQuery({
+    queryKey: ["design-test-cases", appTypeId, selectedSuiteId],
+    queryFn: async ({ signal }) => {
+      const cases: TestCase[] = [];
+      let cursor: string | undefined;
+      const seen = new Set<string>();
+      do {
+        const page = await api.testCases.listPage({ app_type_id: appTypeId, suite_id: selectedSuiteId, projection: "detail", page_size: 25, include_total: false, cursor }, { signal });
+        cases.push(...page.items);
+        const next = !page.is_last ? page.next_cursor : undefined;
+        if (!page.is_last && (!next || seen.has(next))) throw new Error("The complete suite case list could not be loaded. Retry the suite.");
+        cursor = next || undefined;
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+      return cases;
+    },
+    enabled: (can("testcase.view")) && Boolean(appTypeId && selectedSuiteId && !isSuiteModalOpen),
+    staleTime: 30_000
+  }), can("testcase.view"));
   const selectedSuiteCaseIds = useMemo(
     () => asArray(testCasesQuery.data)
       .filter((testCase) => selectedSuiteId && (testCase.suite_ids || []).includes(selectedSuiteId))
@@ -398,36 +464,36 @@ export function DesignPage() {
       .sort(),
     [selectedSuiteId, testCasesQuery.data]
   );
-  const testCaseModulesQuery = useQuery({
+  const testCaseModulesQuery = optionalQueryView(useQuery({
     queryKey: ["design-test-case-modules", appTypeId],
     queryFn: () => api.testCaseModules.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId)
-  });
-  const executionResultsQuery = useQuery({
+    enabled: (can("testcase.view")) && Boolean(appTypeId && selectedSuiteId && !isSuiteModalOpen)
+  }), can("testcase.view"));
+  const executionResultsQuery = optionalQueryView(useQuery({
     queryKey: ["design-case-results", appTypeId],
     queryFn: () => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 }),
-    enabled: Boolean(appTypeId)
-  });
-  const selectedSuiteStepsQuery = useQuery({
+    enabled: (can("result.view")) && Boolean(appTypeId)
+  }), can("result.view"));
+  const selectedSuiteStepsQuery = optionalQueryView(useQuery({
     queryKey: ["design-suite-test-steps", selectedSuiteId, selectedSuiteCaseIds.join(",")],
     queryFn: () => api.testSteps.list({ test_case_ids: selectedSuiteCaseIds.join(",") }),
-    enabled: Boolean(selectedSuiteId && selectedSuiteCaseIds.length),
+    enabled: (can("testcase.view")) && Boolean(selectedSuiteId && selectedSuiteCaseIds.length && !isSuiteModalOpen),
     staleTime: 30_000
-  });
-  const sharedGroupsQuery = useQuery({
+  }), can("testcase.view"));
+  const sharedGroupsQuery = optionalQueryView(useQuery({
     queryKey: ["design-shared-step-groups", appTypeId],
     queryFn: () => api.sharedStepGroups.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId)
-  });
-  const suiteMappingsQuery = useQuery({
+    enabled: (can("shared_step.view")) && Boolean(appTypeId && selectedSuiteId && !isSuiteModalOpen)
+  }), can("shared_step.view"));
+  const suiteMappingsQuery = optionalQueryView(useQuery({
     queryKey: ["suite-test-case-mappings", selectedSuiteId],
     queryFn: () => api.suiteTestCases.list({ suite_id: selectedSuiteId }),
-    enabled: Boolean(selectedSuiteId)
-  });
+    enabled: (can("suite.view")) && Boolean(selectedSuiteId)
+  }), can("suite.view"));
   const stepsQuery = useQuery({
     queryKey: ["design-test-steps", selectedTestCaseId],
     queryFn: () => api.testSteps.list({ test_case_id: selectedTestCaseId }),
-    enabled: Boolean(selectedTestCaseId) && !isCreatingCase
+    enabled: (can("testcase.view")) && Boolean(selectedTestCaseId) && !isCreatingCase
   });
 
   const createSuiteMutation = useMutation({ mutationFn: api.testSuites.create });
@@ -493,7 +559,10 @@ export function DesignPage() {
         .filter(Boolean)
         .forEach((value) => iterationByReference.set(normalizeDeliveryScopeValue(value), iteration));
     });
-    requirements.forEach((requirement: Requirement) => {
+    const scopeStories = new Map([...requirements, ...(runScopeStoriesQuery.data || [])].map(item => [item.id, item]));
+    // Release/sprint membership can resolve scope even without Story-read access.
+    runScopeStoryIds.forEach(id => { if (!scopeStories.has(id)) scopeStories.set(id, { id } as Requirement); });
+    scopeStories.forEach((requirement: Requirement) => {
       const iteration = [requirement.iteration_id, requirement.sprint_id, requirement.sprint]
         .map((value) => iterationByReference.get(normalizeDeliveryScopeValue(value)))
         .find(Boolean)
@@ -505,7 +574,7 @@ export function DesignPage() {
       });
     });
     return result;
-  }, [deliveryIterations, deliveryReleases, requirements]);
+  }, [deliveryIterations, deliveryReleases, requirements, runScopeStoriesQuery.data, runScopeStoryIds]);
   const suites = asArray(suitesQuery.data);
   const allTestCases = asArray(testCasesQuery.data);
   const testCaseModules = asArray(testCaseModulesQuery.data);
@@ -530,6 +599,8 @@ export function DesignPage() {
 
   const openCreateSuiteModal = () => {
     if (!canCreateSuites) return;
+    void queryClient.cancelQueries({ queryKey: ["design-test-cases", appTypeId] });
+    void queryClient.cancelQueries({ queryKey: ["design-suite-test-steps"] });
     setSuiteModalMode("create");
     setIsSuiteModalOpen(true);
   };
@@ -634,16 +705,8 @@ export function DesignPage() {
   }, [allTestCases, testCaseModules]);
 
   const suiteCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-
-    appTypeCases.forEach((testCase) => {
-      (testCase.suite_ids || []).forEach((suiteId) => {
-        counts[suiteId] = (counts[suiteId] || 0) + 1;
-      });
-    });
-
-    return counts;
-  }, [appTypeCases]);
+    return Object.fromEntries(suites.map(suite => [suite.id, Number(suite.test_case_count ?? suite.test_case_ids?.length ?? 0)]));
+  }, [suites]);
   const requirementTitleById = useMemo(
     () =>
       requirements.reduce<Record<string, string>>((map, requirement) => {
@@ -995,23 +1058,21 @@ export function DesignPage() {
     [selectedSuiteActionIds]
   );
   const openSuiteRunBuilder = (mode: ExecutionStartMode) => {
-    const selectedSuiteSet = new Set(selectedSuiteActionIds);
-    const scopes = appTypeCases
-      .filter((testCase) => (testCase.suite_ids || []).some((suiteId) => selectedSuiteSet.has(suiteId)))
-      .flatMap((testCase) => [...new Set([
-        ...(testCase.requirement_ids || []),
-        ...(testCase.requirement_id ? [testCase.requirement_id] : [])
-      ].filter(Boolean))])
-      .map((requirementId) => deliveryScopeByRequirementId.get(requirementId))
-      .filter((scope): scope is { release: string; sprint: string } => Boolean(scope));
-    const releases = [...new Set(scopes.map((scope) => scope.release).filter(Boolean))];
-    const sprints = [...new Set(scopes.map((scope) => scope.sprint).filter(Boolean))];
-
-    setExecutionRelease(releases.length === 1 ? releases[0] : "");
-    setExecutionSprint(sprints.length === 1 ? sprints[0] : "");
+    setExecutionDeliveryTouched({ release: false, sprint: false });
+    setExecutionRelease("");
+    setExecutionSprint("");
     setExecutionStartMode(mode);
     setIsCreateExecutionModalOpen(true);
   };
+  useEffect(() => {
+    if (!needsSuiteDeliveryPrefill || suiteDeliveryPrefillPending || suiteDeliveryPrefillError) return;
+    const scopes = runScopeStoryIds.map(id => deliveryScopeByRequirementId.get(id))
+      .filter((scope): scope is { release: string; sprint: string } => Boolean(scope));
+    const releases = [...new Set(scopes.map((scope) => scope.release).filter(Boolean))];
+    const sprints = [...new Set(scopes.map((scope) => scope.sprint).filter(Boolean))];
+    if (!executionDeliveryTouched.release) setExecutionRelease(releases.length === 1 ? releases[0] : "");
+    if (!executionDeliveryTouched.sprint) setExecutionSprint(sprints.length === 1 ? sprints[0] : "");
+  }, [needsSuiteDeliveryPrefill, suiteDeliveryPrefillPending, suiteDeliveryPrefillError, runScopeStoryIds, deliveryScopeByRequirementId, executionDeliveryTouched]);
   const areAllFilteredSuitesSelected = Boolean(filteredSuites.length) && filteredSuites.every((suite) => selectedSuiteActionIds.includes(suite.id));
   const activeSuiteFilterCount = Number(suiteMappedCasesFilter !== "all");
   const activeCaseFilterCount =
@@ -1232,7 +1293,7 @@ export function DesignPage() {
   }, [selectedSuite, suiteParameterValues, updateSuiteMutation, updateSuiteMutation.isPending]);
 
   const updateCasesCache = (updater: (current: TestCase[]) => TestCase[]) => {
-    queryClient.setQueryData<TestCase[]>(["design-test-cases", appTypeId], (current = []) => updater(current));
+    queryClient.setQueryData<TestCase[]>(["design-test-cases", appTypeId, selectedSuiteId], (current = []) => updater(current));
     queryClient.setQueryData<TestCase[]>(["global-test-cases", appTypeId], (current = []) => updater(current));
     queryClient.setQueryData<TestCase[]>(["test-cases"], (current = []) => updater(current));
   };
@@ -1259,7 +1320,12 @@ export function DesignPage() {
       queryClient.invalidateQueries({ queryKey: ["global-test-cases", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["global-test-case-results", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["design-case-results", appTypeId] }),
-      queryClient.invalidateQueries({ queryKey: ["design-suite-test-steps"] })
+      queryClient.invalidateQueries({ queryKey: ["design-suite-test-steps"] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-picker-selected", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["suite-scope-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["design-run-scope-cases", projectId, appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["design-run-scope-stories", projectId] })
     ]);
   };
 
@@ -1334,7 +1400,7 @@ export function DesignPage() {
           name: input.name,
           description: input.description,
           labels: input.labels,
-          test_data_set_id: input.test_data_set_id || "",
+          ...(can("data.view") ? { test_data_set_id: input.test_data_set_id || "" } : {}),
           parallel_enabled: canConfigureParallelAutomation ? input.parallel_enabled : false,
           parallel_count: canConfigureParallelAutomation && input.parallel_enabled ? input.parallel_count : 1
         });
@@ -1346,7 +1412,7 @@ export function DesignPage() {
             name: input.name,
             description: input.description,
             labels: input.labels,
-            test_data_set_id: input.test_data_set_id || "",
+            ...(can("data.view") ? { test_data_set_id: input.test_data_set_id || "" } : {}),
             ...(canConfigureParallelAutomation ? {
               parallel_enabled: input.parallel_enabled,
               parallel_count: input.parallel_enabled ? input.parallel_count : 1
@@ -1356,7 +1422,7 @@ export function DesignPage() {
         membershipExpectedRevision = response.revision;
       }
 
-      if (suiteId && (suiteModalMode === "edit" || input.selectedIds.length)) {
+      if (can("testcase.view") && suiteId && (suiteModalMode === "edit" || input.selectedIds.length)) {
         await assignSuiteCasesMutation.mutateAsync({
           id: suiteId,
           testCaseIds: input.selectedIds,
@@ -1378,6 +1444,7 @@ export function DesignPage() {
   };
 
   const handleSaveTestCase = async () => {
+    if (!can(isCreatingCase || !selectedTestCase ? "testcase.create" : "testcase.update")) return;
     const suiteId = caseDraft.suite_id || selectedSuiteId;
 
     if (!suiteId) {
@@ -1396,8 +1463,7 @@ export function DesignPage() {
           automated: caseDraft.automated,
           priority: Number(caseDraft.priority || 3),
           status: caseDraft.status || defaultCaseStatus,
-          requirement_id: caseDraft.requirement_id || undefined,
-          requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : [],
+          ...(can("requirement.view") ? { requirement_id: caseDraft.requirement_id || undefined, requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : [] } : {}),
           steps: normalizeDraftSteps(draftSteps)
         });
 
@@ -1433,7 +1499,7 @@ export function DesignPage() {
             automated: caseDraft.automated,
             priority: Number(caseDraft.priority || 3),
             status: caseDraft.status,
-            requirement_id: caseDraft.requirement_id || undefined
+            ...(can("requirement.view") ? { requirement_id: caseDraft.requirement_id || undefined } : {})
           }
         });
 
@@ -1451,7 +1517,7 @@ export function DesignPage() {
                   automated: caseDraft.automated,
                   priority: Number(caseDraft.priority || 3),
                   status: caseDraft.status,
-                  requirement_id: caseDraft.requirement_id || null
+                  requirement_id: can("requirement.view") ? caseDraft.requirement_id || null : testCase.requirement_id
                 }
               : testCase
           )
@@ -1539,6 +1605,10 @@ export function DesignPage() {
 
   const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (suiteDeliveryPrefillPending || suiteDeliveryPrefillError) {
+      showError(new Error(suiteDeliveryPrefillPending ? "Wait for the selected suite delivery defaults to finish loading." : "Retry the selected suite delivery defaults before creating the run."), "Unable to create run");
+      return;
+    }
     if (executionStartDate && executionEndDate && executionEndDate < executionStartDate) {
       showError(new Error("End date must be on or after start date."), "Unable to create run");
       return;
@@ -1561,9 +1631,9 @@ export function DesignPage() {
         project_id: projectId,
         app_type_id: appTypeId,
         suite_ids: executionTargetSuiteIds,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         execution_mode: executionStartMode === "local" && canRunLocalAutomation
           ? "local"
           : executionStartMode === "remote" && canRunRemoteAutomation ? "remote" : "manual",
@@ -1572,8 +1642,8 @@ export function DesignPage() {
         parallel_count: canConfigureParallelAutomation && executionParallelEnabled ? executionParallelCount : undefined,
         execution_hooks: executionHookDraft.length ? executionHookDraft : undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
-        release: executionRelease.trim() || undefined,
-        sprint: executionSprint.trim() || undefined,
+        release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
+        sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
         build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
         start_date: executionStartDate || undefined,
@@ -1593,6 +1663,7 @@ export function DesignPage() {
   };
 
   const handleDeleteTestCase = async () => {
+    if (!can("testcase.delete")) return;
     if (!selectedTestCase || !(await confirmDelete({ message: `Delete test case "${selectedTestCase.title}"? This will remove its steps and mappings.` }))) {
       return;
     }
@@ -1614,6 +1685,7 @@ export function DesignPage() {
   };
 
   const handleCreateStep = async () => {
+    if (!can("step.manage")) return;
     const normalizedDraft = {
       action: newStepDraft.action.trim(),
       expected_result: newStepDraft.expected_result.trim()
@@ -1731,6 +1803,7 @@ export function DesignPage() {
   };
 
   const handleDeleteStep = async (stepId: string) => {
+    if (!can("step.manage")) return;
     if (isCreatingCase) {
       setDraftSteps((current) => current.filter((step) => step.id !== stepId));
       setExpandedStepIds((current) => current.filter((id) => id !== stepId));
@@ -1973,8 +2046,10 @@ export function DesignPage() {
         description="Organize executable coverage into reusable Suites, manage linked Test Cases, and keep run handoff governed and ready."
         meta={[
           { label: "Suites", value: designMetrics.totalSuites },
-          { label: "Cases", value: designMetrics.totalCases },
-          { label: "Steps", value: designMetrics.totalSteps }
+          ...(selectedSuite ? [
+            { label: "Suite cases", value: Number(selectedSuite.test_case_count || 0) },
+            { label: "Suite steps", value: Number(selectedSuite.total_step_count || 0) }
+          ] : [])
         ]}
       />
 
@@ -2028,6 +2103,13 @@ export function DesignPage() {
             actions={<WorkspaceBackButton label="Back to suite tiles" onClick={closeSuiteWorkspace} />}
             toolbarActions={
               <>
+                {testCasesQuery.isError || suiteMappingsQuery.isError ? <div role="alert">
+                  Suite cases couldn't be loaded completely.
+                  <button className="ghost-button" type="button" onClick={() => {
+                    void testCasesQuery.refetch();
+                    void suiteMappingsQuery.refetch();
+                  }}>Retry suite cases</button>
+                </div> : null}
                 <button
                   className="ghost-button"
                   disabled={!selectedSuite || !canUpdateSuites}
@@ -2039,7 +2121,7 @@ export function DesignPage() {
                 </button>
                 <button
                   className="ghost-button"
-                  disabled={!selectedSuite}
+                  disabled={!selectedSuite || !canUpdateSuites || !testCasesQuery.isSuccess || !suiteMappingsQuery.isSuccess}
                   onClick={() => {
                     setSuiteModalMode("edit");
                     setIsSuiteModalOpen(true);
@@ -2079,7 +2161,7 @@ export function DesignPage() {
             }}
             onCreateCase={beginCreateCase}
             onOpenCaseEditor={openSelectedCaseEditor}
-            canOpenCaseEditor={Boolean(selectedTestCaseId)}
+            canOpenCaseEditor={can("testcase.view") && Boolean(selectedTestCaseId)}
             canUnlinkCases={canUpdateSuites}
             isUnlinkingCases={assignSuiteCasesMutation.isPending}
             onReorderCases={handleReorderCases}
@@ -2132,6 +2214,8 @@ export function DesignPage() {
             projectId
             && appTypeId
             && executionTargetSuiteIds.length
+            && !suiteDeliveryPrefillPending
+            && !suiteDeliveryPrefillError
             && session?.user.id
             && (executionStartMode === "local"
               ? canRunLocalAutomation
@@ -2155,6 +2239,9 @@ export function DesignPage() {
           executionParallelEnabled={executionParallelEnabled}
           executionStartMode={executionStartMode}
           isSubmitting={createExecutionMutation.isPending}
+          deliveryPrefillPending={suiteDeliveryPrefillPending}
+          deliveryPrefillError={suiteDeliveryPrefillError}
+          onRetryDeliveryPrefill={retrySuiteDeliveryPrefill}
           onAssigneeChange={setSelectedExecutionAssigneeIds}
           onClose={closeCreateExecutionModal}
           onConfigurationChange={setSelectedExecutionConfigurationId}
@@ -2162,8 +2249,8 @@ export function DesignPage() {
           onEnvironmentChange={setSelectedExecutionEnvironmentId}
           onExecutionHookDraftChange={setExecutionHookDraft}
           onExecutionNameChange={setExecutionName}
-          onExecutionReleaseChange={setExecutionRelease}
-          onExecutionSprintChange={setExecutionSprint}
+          onExecutionReleaseChange={value => { setExecutionDeliveryTouched(current => ({ ...current, release: true })); setExecutionRelease(value); }}
+          onExecutionSprintChange={value => { setExecutionDeliveryTouched(current => ({ ...current, sprint: true })); setExecutionSprint(value); }}
           onExecutionBuildChange={setExecutionBuild}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
@@ -2198,8 +2285,6 @@ export function DesignPage() {
           appTypeCases={allTestCases}
           availableLabels={existingSuiteLabels}
           canConfigureParallelAutomation={canConfigureParallelAutomation}
-          moduleLabelByCaseId={suitePickerModuleLabelByCaseId}
-          metadataByCaseId={suitePickerMetadataByCaseId}
           selectedCaseIds={suiteModalMode === "edit" ? orderedSuiteCases.map((testCase) => testCase.id) : []}
           onClose={() => setIsSuiteModalOpen(false)}
           onSubmit={handleSuiteSave}
@@ -2505,9 +2590,9 @@ function SuiteSidebar({
                 const failedRunCount = finalizedHistory.filter((result) => ["failed", "blocked"].includes(String(result.status || "").toLowerCase())).length;
                 const passedRuns = finalizedHistory.filter((result) => result.status === "passed").length;
                 const stabilityScore = finalizedHistory.length ? Math.round((passedRuns / finalizedHistory.length) * 100) : 0;
-                const suiteStepCount = suiteCases.reduce((total, testCase) => total + (stepCountByCaseId[testCase.id] || 0), 0);
-                const automatedCount = suiteCases.filter((testCase) => testCase.automated === "yes").length;
-                const linkedRequirementCount = suiteCases.filter((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).some(Boolean)).length;
+                const suiteStepCount = suite.total_step_count ?? suiteCases.reduce((total, testCase) => total + (stepCountByCaseId[testCase.id] || 0), 0);
+                const automatedCount = suite.automated_case_count ?? suiteCases.filter((testCase) => testCase.automated === "yes").length;
+                const linkedRequirementCount = suite.story_linked_case_count ?? suiteCases.filter((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).some(Boolean)).length;
                 const coverageScore = mappedCaseCount ? Math.round((linkedRequirementCount / mappedCaseCount) * 100) : 0;
                 const automationScore = mappedCaseCount ? Math.round((automatedCount / mappedCaseCount) * 100) : 0;
                 const suiteTone = failedRunCount ? "is-risk" : !mappedCaseCount || coverageScore < 70 || !finalizedHistory.length ? "is-warning" : "is-healthy";
@@ -2720,6 +2805,8 @@ function TestCaseList({
   viewMode: "tile" | "list";
   onViewModeChange: (value: "tile" | "list") => void;
 }) {
+
+  const { can } = useCapabilityAccess();
   const [draggedCaseId, setDraggedCaseId] = useState("");
   const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [expandedModuleNames, setExpandedModuleNames] = useState<string[]>([]);
@@ -2801,7 +2888,7 @@ function TestCaseList({
         </span>
         {selectedSuite ? (
           <span className="suite-module-group-actions" role="group" aria-label={`Actions for ${module.name}`}>
-            {moduleId ? (
+            {moduleId && can("testcase.create") ? (
               <button className="ghost-button compact" onClick={(event) => { event.stopPropagation(); onCreateCase(moduleId); }} title={`Create test case in ${module.name}`} type="button">
                 <AddIcon size={14} /><span>Create test case</span>
               </button>
@@ -3112,7 +3199,7 @@ function TestCaseList({
           </div>
           <div className="catalog-toolbar-actions" aria-label="Suite case actions">
             {toolbarActions}
-            <button className="primary-button" onClick={() => onCreateCase()} type="button"><AddIcon />New Test Case</button>
+            {can("testcase.create") ? <button className="primary-button" onClick={() => onCreateCase()} type="button"><AddIcon />New Test Case</button> : null}
             {selectedSuite && canUnlinkCases ? (
               <button
                 className="ghost-button danger catalog-selection-button"
@@ -3141,7 +3228,7 @@ function TestCaseList({
             ) : (
               <div className="empty-state compact">
                 <div>No reusable test cases exist in this scope yet.</div>
-                <button className="primary-button" onClick={() => onCreateCase()} type="button">Create first case</button>
+                {can("testcase.create") ? <button className="primary-button" onClick={() => onCreateCase()} type="button">Create first case</button> : null}
               </div>
             )
           ) : null}
@@ -3360,7 +3447,7 @@ function SuiteCaseEditorModal({
   onToggleSection,
   onToggleStep
 }: {
-  project: Project | null;
+  project: Pick<Project, "id" | "display_id" | "name"> | null;
   appType: AppType | null;
   suites: TestSuite[];
   selectedSuite: TestSuite | null;
@@ -3401,6 +3488,7 @@ function SuiteCaseEditorModal({
   onToggleSection: (section: SuiteCaseEditorSectionKey) => void;
   onToggleStep: (stepId: string) => void;
 }) {
+  const { can } = useCapabilityAccess();
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const caseSectionSummary = isCreatingCase
     ? caseDraft.title.trim() || "Start the reusable case definition before saving it into the suite workspace."
@@ -3451,7 +3539,7 @@ function SuiteCaseEditorModal({
               <div>
                 <span className="suite-case-id-with-icon">
                   <TestCaseIcon size={15} strokeWidth={1.8} />
-                  <DisplayIdBadge value={selectedTestCase?.display_id || selectedTestCase?.id || "New"} />
+                  <DisplayIdBadge value={isCreatingCase ? "New" : selectedTestCase?.display_id?.trim() || "Unavailable"} />
                 </span>
                 <strong>{selectedTestCase?.title || (isCreatingCase ? "New test case" : "No test case selected")}</strong>
                 <span>{project?.name || "No project"} · {appType?.name || "No app type"}</span>
@@ -3513,14 +3601,14 @@ function SuiteCaseEditorModal({
                       onChange={(event) => onCaseDraftChange({ ...caseDraft, priority: event.target.value || "3" })}
                     />
                   </FormField>
-                  <FormField label="Story">
+                  {can("requirement.view") ? <FormField label="Story">
                     <select value={caseDraft.requirement_id} onChange={(event) => onCaseDraftChange({ ...caseDraft, requirement_id: event.target.value })}>
                       <option value="">No story</option>
                       {requirements.map((requirement) => (
                         <option key={requirement.id} value={requirement.id}>{requirement.title}</option>
                       ))}
                     </select>
-                  </FormField>
+                  </FormField> : null}
                 </div>
 
                 <FormField label="Description">
@@ -3542,7 +3630,7 @@ function SuiteCaseEditorModal({
                     {isCreatingCase ? (createPending ? "Creating…" : "Create test case") : (updatePending ? "Saving…" : "Save test case")}
                   </button>
                   {!isCreatingCase && selectedTestCase ? (
-                    <button className="ghost-button danger" disabled={deletePending} onClick={onDeleteTestCase} type="button">Delete test case</button>
+                    <button className="ghost-button danger" disabled={deletePending || !can("testcase.delete")} onClick={onDeleteTestCase} type="button">Delete test case</button>
                   ) : null}
                 </div>
               </form>
@@ -3940,6 +4028,9 @@ function SuiteExecutionModal({
   metadataByCaseId,
   canCreateExecution,
   isSubmitting,
+  deliveryPrefillPending,
+  deliveryPrefillError,
+  onRetryDeliveryPrefill,
   onAssigneeChange,
   onEnvironmentChange,
   onConfigurationChange,
@@ -3988,6 +4079,9 @@ function SuiteExecutionModal({
   metadataByCaseId: SuitePickerMetadataByCaseId;
   canCreateExecution: boolean;
   isSubmitting: boolean;
+  deliveryPrefillPending: boolean;
+  deliveryPrefillError: boolean;
+  onRetryDeliveryPrefill: () => void;
   onAssigneeChange: (value: string[]) => void;
   onEnvironmentChange: (value: string) => void;
   onConfigurationChange: (value: string) => void;
@@ -4004,6 +4098,7 @@ function SuiteExecutionModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { can } = useCapabilityAccess(projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSubmitting, onClose });
   return (
     <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && onClose()} role="presentation">
@@ -4052,7 +4147,7 @@ function SuiteExecutionModal({
             </div>
 
             <div className="execution-create-grid execution-create-grid--metadata">
-              <FormField label="Release">
+              {can("requirement_iteration.view") ? <FormField label="Release">
                 <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
                   <option value="">No release</option>
                   {releaseOptions.map((option) => (
@@ -4061,8 +4156,8 @@ function SuiteExecutionModal({
                     </option>
                   ))}
                 </select>
-              </FormField>
-              <FormField label="Sprint">
+              </FormField> : null}
+              {can("requirement_iteration.view") ? <FormField label="Sprint">
                 <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
                   <option value="">No sprint</option>
                   {sprintOptions.map((option) => (
@@ -4071,13 +4166,15 @@ function SuiteExecutionModal({
                     </option>
                   ))}
                 </select>
-              </FormField>
+              </FormField> : null}
               <FormField label="Build">
                 <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
             </div>
 
             <div className="execution-create-grid">
+              {deliveryPrefillPending ? <p role="status">Resolving release and sprint from selected suites…</p> : null}
+              {deliveryPrefillError ? <p role="alert">Suite delivery defaults couldn't be loaded. <button className="ghost-button" type="button" onClick={onRetryDeliveryPrefill}>Retry delivery defaults</button></p> : null}
               <RunPlanningFields
                 canRunLocalAutomation={canRunLocalAutomation}
                 canRunRemoteAutomation={canRunRemoteAutomation}
@@ -4144,6 +4241,8 @@ function SuiteExecutionModal({
             <FormField label="Suites" required>
               <div className="suite-modal-picker-shell suite-modal-picker-shell--scope">
                 <SuiteScopePicker
+                  projectId={projectId}
+                  appTypeId={appTypeId}
                   emptyMessage="No suites available for this app type yet."
                   onChange={onSuiteSelectionChange}
                   selectedSuiteIds={selectedSuiteIds}
@@ -4304,8 +4403,6 @@ function SuiteModal({
   appTypeCases,
   availableLabels,
   canConfigureParallelAutomation,
-  moduleLabelByCaseId,
-  metadataByCaseId,
   selectedCaseIds,
   onClose,
   onSubmit,
@@ -4319,22 +4416,12 @@ function SuiteModal({
   appTypeCases: TestCase[];
   availableLabels: string[];
   canConfigureParallelAutomation: boolean;
-  moduleLabelByCaseId: Record<string, string>;
-  metadataByCaseId: SuitePickerMetadataByCaseId;
   selectedCaseIds: string[];
   onClose: () => void;
   onSubmit: (input: { name: string; description: string; labels: string[]; selectedIds: string[]; test_data_set_id?: string; parallel_enabled?: boolean; parallel_count?: number }) => void;
   isSaving: boolean;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
-  const availableCaseIdSet = useMemo(
-    () => new Set(appTypeCases.map((testCase) => testCase.id)),
-    [appTypeCases]
-  );
-  const initialSelectedIds = useMemo(
-    () => selectedCaseIds.filter((testCaseId) => availableCaseIdSet.has(testCaseId)),
-    [availableCaseIdSet, selectedCaseIds]
-  );
 
   const [dataSetId, setDataSetId] = useState(suite?.test_data_set_id || "");
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
@@ -4342,22 +4429,12 @@ function SuiteModal({
   const [labelsText, setLabelsText] = useState(() => (mode === "edit" && suite ? formatReferenceList(suite.labels) : ""));
   const [parallelEnabled, setParallelEnabled] = useState(() => canConfigureParallelAutomation && Boolean(mode === "edit" && suite?.parallel_enabled));
   const [parallelCount, setParallelCount] = useState(() => Math.max(1, Number(mode === "edit" ? suite?.parallel_count || 1 : 1)));
-  const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => initialSelectedIds);
-  const initialSelectedIdsKey = initialSelectedIds.join("::");
-
-  useEffect(() => {
-    if (mode === "edit" && suite) {
-      setName(suite.name);
-      setDescription(suite.description || "");
-      setLabelsText(formatReferenceList(suite.labels));
-      setParallelEnabled(canConfigureParallelAutomation && Boolean(suite.parallel_enabled));
-      setParallelCount(Math.max(1, Number(suite.parallel_count || 1)));
-      setLocalSelectedIds(initialSelectedIds);
-      return;
-    }
-
-    setLocalSelectedIds((current) => current.filter((testCaseId) => availableCaseIdSet.has(testCaseId)));
-  }, [availableCaseIdSet, canConfigureParallelAutomation, initialSelectedIdsKey, mode, suite?.description, suite?.id, suite?.labels, suite?.name, suite?.parallel_enabled, suite?.parallel_count]);
+  const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => [...new Set(selectedCaseIds)]);
+  const [resolvedSelectedItems, setResolvedSelectedItems] = useState<TestCase[]>([]);
+  const selectedCases = useMemo(() => {
+    const byId = new Map([...appTypeCases, ...resolvedSelectedItems].map(item => [item.id, item]));
+    return localSelectedIds.map(id => byId.get(id) || ({ id, title: id } as TestCase));
+  }, [appTypeCases, localSelectedIds, resolvedSelectedItems]);
 
   return (
     <div className="modal-backdrop suite-authoring-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
@@ -4432,7 +4509,7 @@ function SuiteModal({
                 />
               </FormField>
               {/* Expand children, while the unsaved selection supplies this suite's own cases. */}
-              <RunDataSetup suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={appTypeCases.filter(item => localSelectedIds.includes(item.id))} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
+              <RunDataSetup suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={selectedCases} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
               <SuiteLabelsField
                 availableLabels={availableLabels}
                 value={labelsText}
@@ -4473,16 +4550,17 @@ function SuiteModal({
             </section>
 
             <div className="suite-modal-picker-shell">
-              <SuiteCasePicker
-                cases={appTypeCases}
-                description="Use bulk selection when needed, then set the saved suite order before creating it."
+              <TestCasePicker
+                projectId={projectId}
+                appTypeId={appTypeId}
+                initialItems={appTypeCases}
+                allowReorder
                 disabled={isSaving}
                 emptyMessage="No test cases available in this app type yet."
                 heading="Reusable test cases"
-                moduleLabelByCaseId={moduleLabelByCaseId}
-                metadataByCaseId={metadataByCaseId}
                 onChange={setLocalSelectedIds}
-                selectedCaseIds={localSelectedIds}
+                onItemsResolved={setResolvedSelectedItems}
+                selectedIds={localSelectedIds}
               />
             </div>
           </div>

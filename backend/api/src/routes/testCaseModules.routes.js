@@ -1,7 +1,7 @@
 const service = require("../services/testCaseModule.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
-const { paginate } = require("../utils/pagination");
+const catalogService = require("../services/testCaseCatalog.service");
 
 const ensureAppTypeAccess = async (appTypeId, userId) => {
   if (!appTypeId) {
@@ -13,14 +13,14 @@ const ensureAppTypeAccess = async (appTypeId, userId) => {
   return appType;
 };
 
-const ensureModuleAccess = async (moduleId, userId) => {
-  const module = await service.getModule(moduleId);
+const ensureModuleAccess = async (moduleId, userId, options) => {
+  const module = await service.getModule(moduleId, options);
   await ensureAppTypeAccess(module.app_type_id, userId);
   return module;
 };
 
-const ensureModulePermission = async (fastify, req, permissionCode) => {
-  const module = await ensureModuleAccess(req.params.id, req.user.id);
+const ensureModulePermission = async (fastify, req, permissionCode, options) => {
+  const module = await ensureModuleAccess(req.params.id, req.user.id, options);
   const appType = await appTypeService.getAppType(module.app_type_id);
   await fastify.requirePermission(permissionCode, { projectId: appType.project_id })(req);
   return module;
@@ -46,7 +46,7 @@ module.exports = async function (fastify) {
       throw error;
     }
 
-    return service.listModules({ app_type_id, project_id: scopedProjectId });
+    return service.listModules({ app_type_id, project_id: scopedProjectId, projection: req.query.projection });
   });
 
   fastify.post("/test-case-modules", async (req) => {
@@ -82,8 +82,13 @@ module.exports = async function (fastify) {
 
   fastify.get("/test-case-modules/:id/test-cases", async (req) => {
     await fastify.authenticate(req);
-    await ensureModulePermission(fastify, req, "testcase.view");
-    return paginate(await service.getModuleCases(req.params.id), req.query);
+    const module = await ensureModulePermission(fastify, req, "testcase.view", { summary: true });
+    if (req.query.include_execution === true || req.query.include_execution === "true") {
+      const appType = await appTypeService.getAppType(module.app_type_id);
+      await fastify.requirePermission("run.view", { projectId: appType.project_id })(req);
+      await fastify.requirePermission("result.view", { projectId: appType.project_id })(req);
+    }
+    return catalogService.listPage({ ...req.query, module_id: module.id, app_type_id: module.app_type_id });
   });
 
   fastify.put("/test-case-modules/:id", async (req) => {

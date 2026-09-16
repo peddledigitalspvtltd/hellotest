@@ -125,7 +125,8 @@ test("Bug conversion creation persists all links and links the created Test Case
   );
   assert.match(testCases, /test_case_type: "regression"/);
   assert.match(testCases, /source_issue_id: activeBugConversion\?\.bugId/);
-  assert.match(issues, /countConvertedBugs\(filteredItems\)/);
+  assert.match(issues, /convertedBugCount = issueMetricsQuery\.data\?\.converted/);
+  assert.doesNotMatch(issues, /countConvertedBugs\(filteredItems\)/);
   assert.match(issues, /label: "Converted to Test Cases"/);
   assert.match(testCases, /requirement_ids: requirementIds/);
   assert.match(testCases, /suite_ids: suiteIds/);

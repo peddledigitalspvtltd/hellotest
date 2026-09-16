@@ -1,5 +1,6 @@
-import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { IconBug as InsightBugIcon, IconChartBar, IconClipboardCheck, IconClock, IconFilter, IconInfoCircle } from "@tabler/icons-react";
@@ -27,7 +28,7 @@ import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetada
 import { annotateGherkinStepGroups, collectBehaviorRowGroups } from "../lib/gherkinBehavior";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
-import { HierarchyAutoLoadSentinel, HierarchyLoadMoreButton } from "../components/HierarchyLoadMoreButton";
+import { HierarchyAutoLoadSentinel } from "../components/HierarchyLoadMoreButton";
 import { JiraAttachmentIcon, JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
 import { LinkedDefectsPanel } from "../components/LinkedDefectsPanel";
@@ -61,7 +62,7 @@ import {
   TileCardStepsIcon,
   formatTileCardLabel
 } from "../components/TileCardPrimitives";
-import { SuiteCasePicker, type SuitePickerMetadataByCaseId } from "../components/SuiteCasePicker";
+import { TestCasePicker } from "../components/TestCasePicker";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -88,6 +89,8 @@ import { getDomainOptions, getDomainDefault, resolveDomainSuggestionValue } from
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import {
   countImportedGroups,
@@ -105,6 +108,7 @@ import {
   type TestCaseImportSourceSelection
 } from "../lib/testCaseSourceImport";
 import { api } from "../lib/api";
+import type { TestCaseCatalogRow } from "../lib/testCaseCatalog";
 import {
   BUG_TO_TEST_CASE_STORAGE_KEY,
   buildConvertedBugSteps,
@@ -131,7 +135,6 @@ import { formatReferenceList, parseReferenceList } from "../lib/externalReferenc
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { downloadCsvRecords } from "../lib/csvExport";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
-import { hasPermission } from "../lib/permissions";
 import { deriveModuleHealth } from "../lib/hierarchyHealth";
 import { chunkHierarchyMoveIds, readHierarchyDragPayload, resolveHierarchyDragIds, writeHierarchyDragPayload } from "../lib/hierarchyDrag";
 import { getHierarchyPageSize, getUnassignedPageSize } from "../lib/hierarchyPagination";
@@ -1151,50 +1154,10 @@ function TestCaseSplitActionButton({
   actions: TestCaseSplitAction[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canOpenMenu = actions.some((action) => !action.disabled);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setMenuStyle(null);
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const trigger = triggerRef.current;
-      if (!trigger) return;
-
-      const rect = trigger.getBoundingClientRect();
-      const menuWidth = Math.max(menuRef.current?.offsetWidth || 292, 292);
-      const menuHeight = menuRef.current?.offsetHeight || 190;
-      const viewportPadding = 10;
-      const left = Math.min(Math.max(viewportPadding, rect.right - menuWidth), window.innerWidth - menuWidth - viewportPadding);
-      const top = rect.bottom + 8 + menuHeight > window.innerHeight - viewportPadding
-        ? Math.max(viewportPadding, rect.top - menuHeight - 8)
-        : rect.bottom + 8;
-
-      setMenuStyle({
-        left,
-        top,
-        minWidth: "18.25rem",
-        maxWidth: "min(calc(100vw - 1.25rem), 23rem)",
-        opacity: 1
-      });
-    };
-
-    updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isOpen]);
+  const { menuStyle } = useSplitActionMenu(isOpen && canOpenMenu, triggerRef, menuRef);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1218,7 +1181,7 @@ function TestCaseSplitActionButton({
   }, [isOpen]);
 
   const menu = isOpen && canOpenMenu ? (
-    <div className={["run-action-dropdown test-case-action-dropdown", tone === "green" ? "test-case-run-action-dropdown" : ""].filter(Boolean).join(" ")} ref={menuRef} role="menu" style={menuStyle || { opacity: 0, pointerEvents: "none" }}>
+    <div data-split-action-menu className={["run-action-dropdown test-case-action-dropdown", tone === "green" ? "test-case-run-action-dropdown" : ""].filter(Boolean).join(" ")} ref={menuRef} role="menu" style={menuStyle}>
       {actions.map((action) => (
         <button
           disabled={action.disabled}
@@ -1426,7 +1389,7 @@ function ModuleRequirementPicker({
   isLoadingRequirements: boolean;
   isLocked: boolean;
   isSaving: boolean;
-  onLoadMoreRequirements: () => void;
+  onLoadMoreRequirements: () => void | Promise<unknown>;
   onSelectionChange: (ids: string[]) => void;
   selectedIds: string[];
 }) {
@@ -1686,7 +1649,7 @@ function ModuleRequirementPicker({
                 ? "Requirement access is not available."
                 : search.trim() || statusFilter || priorityFilter
                   ? hasMoreRequirements
-                    ? "No loaded Requirements match these filters. Load more to continue searching."
+                    ? "Searching additional Requirements…"
                     : "No Requirements match these filters."
                   : "No Requirements are available in this project."}
             </div>
@@ -1694,14 +1657,12 @@ function ModuleRequirementPicker({
           {hasMoreRequirements ? (
             <div className="test-case-create-module-load-more" role="row">
               <span role="cell">
-                <button
-                  className="ghost-button"
-                  disabled={isDisabled || isLoadingMoreRequirements}
-                  onClick={onLoadMoreRequirements}
-                  type="button"
-                >
-                  {isLoadingMoreRequirements ? "Loading more Requirements…" : "Load more Requirements"}
-                </button>
+                <HierarchyAutoLoadSentinel
+                  isLoading={isDisabled || isLoadingMoreRequirements}
+                  onLoad={onLoadMoreRequirements}
+                  progressKey={candidateRequirements.length}
+                  scopeLabel="Requirements"
+                />
               </span>
             </div>
           ) : null}
@@ -1717,43 +1678,39 @@ function ModuleRequirementPicker({
 }
 
 function TestCaseCreateModuleModal({
+  projectId,
+  appTypeId,
   assignmentRetryName,
   canAssignCases,
   canSelectRequirements,
   candidateRequirements,
   candidateTestCases,
-  hasMoreCases,
   hasMoreRequirements,
-  isLoadingMoreCases,
   isLoadingMoreRequirements,
-  isLoadingCases,
   isLoadingRequirements,
   isSaving,
   moduleNameByCaseId,
   initialSelectedIds,
   onClose,
-  onLoadMoreCases,
   onLoadMoreRequirements,
   onResolveRequirementCases,
   onSubmit
 }: {
+  projectId: string;
+  appTypeId: string;
   assignmentRetryName?: string;
   canAssignCases: boolean;
   canSelectRequirements: boolean;
   candidateRequirements: Requirement[];
   candidateTestCases: TestCase[];
-  hasMoreCases: boolean;
   hasMoreRequirements: boolean;
-  isLoadingMoreCases: boolean;
   isLoadingMoreRequirements: boolean;
-  isLoadingCases: boolean;
   isLoadingRequirements: boolean;
   isSaving: boolean;
   moduleNameByCaseId: ReadonlyMap<string, string>;
   initialSelectedIds: string[];
   onClose: () => void;
-  onLoadMoreCases: () => void;
-  onLoadMoreRequirements: () => void;
+  onLoadMoreRequirements: () => void | Promise<unknown>;
   onResolveRequirementCases: (requirementIds: string[]) => Promise<TestCase[]>;
   onSubmit: (draft: CreateModuleDraft) => void;
 }) {
@@ -1768,13 +1725,6 @@ function TestCaseCreateModuleModal({
   const [linkedCasesByRequirement, setLinkedCasesByRequirement] = useState<Record<string, TestCase[]>>({});
   const [resolvingRequirementIds, setResolvingRequirementIds] = useState<string[]>([]);
   const [failedRequirementIds, setFailedRequirementIds] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [moduleFilter, setModuleFilter] = useState("");
-  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
-  const filterMenuRef = useRef<HTMLDivElement | null>(null);
-  const filterTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const selectAllVisibleRef = useRef<HTMLInputElement | null>(null);
   const candidateCasesWithLinkedCases = useMemo(() => {
     const byId = new Map(candidateTestCases.map((testCase) => [testCase.id, testCase]));
     Object.values(linkedCasesByRequirement)
@@ -1787,7 +1737,6 @@ function TestCaseCreateModuleModal({
       linkedCasesByRequirement[requirementId] || []
     ).map((testCase) => testCase.id))
   )], [linkedCasesByRequirement, selectedRequirementIds]);
-  const activeAutoLinkedCaseIdSet = useMemo(() => new Set(activeAutoLinkedCaseIds), [activeAutoLinkedCaseIds]);
   const excludedAutoCaseIdSet = useMemo(() => new Set(excludedAutoCaseIds), [excludedAutoCaseIds]);
   const selectedIds = useMemo(() => [...new Set([
     ...manualSelectedCaseIds,
@@ -1802,74 +1751,13 @@ function TestCaseCreateModuleModal({
   const closeModal = () => {
     if (!isSaving) onClose();
   };
-  const handleDialogCloseRequest = () => {
-    if (isFilterMenuOpen) {
-      setIsFilterMenuOpen(false);
-      window.requestAnimationFrame(() => filterTriggerRef.current?.focus());
-      return;
-    }
-    closeModal();
-  };
   const dialogRef = useDialogFocus<HTMLFormElement>({
     active: true,
     closeDisabled: isSaving,
-    onClose: handleDialogCloseRequest
+    onClose: closeModal
   });
-  const visibleOptions = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return candidateCasesWithLinkedCases
-      .filter((testCase) => {
-        const currentModule = moduleNameByCaseId.get(testCase.id) || "";
-        if (statusFilter && String(testCase.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
-        if (moduleFilter === "__unassigned__" && currentModule) return false;
-        if (moduleFilter && moduleFilter !== "__unassigned__" && currentModule !== moduleFilter) return false;
-        if (!normalizedSearch) return true;
-        return [
-          testCase.display_id || "",
-          testCase.id,
-          testCase.title,
-          testCase.status || "",
-          currentModule || "Unassigned"
-        ].some((value) => value.toLowerCase().includes(normalizedSearch));
-      })
-      .sort((left, right) => (
-        left.title.localeCompare(right.title)
-        || String(left.display_id || left.id).localeCompare(String(right.display_id || right.id))
-      ));
-  }, [candidateCasesWithLinkedCases, moduleFilter, moduleNameByCaseId, search, statusFilter]);
-  const statusOptions = useMemo(
-    () => [...new Set(candidateCasesWithLinkedCases.map((testCase) => String(testCase.status || "").trim()).filter(Boolean))].sort(),
-    [candidateCasesWithLinkedCases]
-  );
-  const moduleOptions = useMemo(
-    () => [...new Set(candidateCasesWithLinkedCases.map((testCase) => moduleNameByCaseId.get(testCase.id) || "").filter(Boolean))].sort(),
-    [candidateCasesWithLinkedCases, moduleNameByCaseId]
-  );
-  const visibleIds = visibleOptions.map((testCase) => testCase.id);
-  const visibleSelectedCount = visibleIds.filter((testCaseId) => selectedIdSet.has(testCaseId)).length;
-  const areAllVisibleSelected = Boolean(visibleIds.length)
-    && visibleSelectedCount === visibleIds.length;
-  const areSomeVisibleSelected = visibleSelectedCount > 0 && !areAllVisibleSelected;
   const selectedAssignedCaseCount = selectedIds.filter((testCaseId) => moduleNameByCaseId.has(testCaseId)).length;
   const isRequirementSelectionOverLimit = selectedRequirementIds.length > MAX_CREATE_MODULE_REQUIREMENTS;
-  useEffect(() => {
-    if (selectAllVisibleRef.current) {
-      selectAllVisibleRef.current.indeterminate = areSomeVisibleSelected;
-    }
-  }, [areSomeVisibleSelected]);
-  useEffect(() => {
-    if (!isFilterMenuOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!filterMenuRef.current?.contains(event.target as Node)) {
-        setIsFilterMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [isFilterMenuOpen]);
-
   const resolveLinkedRequirementCases = async (requirementIds: string[]) => {
     const ids = [...new Set(requirementIds.filter(Boolean))];
     if (!canAssignCases || !ids.length) return;
@@ -1921,32 +1809,18 @@ function TestCaseCreateModuleModal({
     }
   };
 
-  const setManualCaseSelection = (testCaseId: string, checked: boolean) => {
-    setManualSelectedCaseIds((current) => checked
-      ? [...new Set([...current, testCaseId])]
-      : current.filter((currentId) => currentId !== testCaseId));
-    setExcludedAutoCaseIds((current) => checked
-      ? current.filter((currentId) => currentId !== testCaseId)
-      : activeAutoLinkedCaseIdSet.has(testCaseId)
-        ? [...new Set([...current, testCaseId])]
-        : current);
-  };
-
-  const setVisibleSelection = (checked: boolean) => {
-    setManualSelectedCaseIds((current) => checked
-      ? [...new Set([...current, ...visibleIds])]
-      : current.filter((testCaseId) => !visibleIds.includes(testCaseId)));
-    setExcludedAutoCaseIds((current) => checked
-      ? current.filter((testCaseId) => !visibleIds.includes(testCaseId))
-      : [...new Set([
-          ...current,
-          ...visibleIds.filter((testCaseId) => activeAutoLinkedCaseIdSet.has(testCaseId))
-        ])]);
-  };
-
-  const clearCaseSelection = () => {
-    setManualSelectedCaseIds([]);
-    setExcludedAutoCaseIds((current) => [...new Set([...current, ...activeAutoLinkedCaseIds])]);
+  const updateCaseSelection = (nextIds: string[]) => {
+    const nextIdSet = new Set(nextIds);
+    // Existing automatic selections stay tied to their Requirements. Only an
+    // explicit addition becomes manual; exclusions survive search and paging.
+    setManualSelectedCaseIds((current) => [...new Set([
+      ...current.filter((id) => nextIdSet.has(id)),
+      ...nextIds.filter((id) => !selectedIdSet.has(id))
+    ])]);
+    setExcludedAutoCaseIds((current) => [...new Set([
+      ...current.filter((id) => !nextIdSet.has(id)),
+      ...activeAutoLinkedCaseIds.filter((id) => !nextIdSet.has(id))
+    ])]);
   };
 
   return (
@@ -2058,14 +1932,11 @@ function TestCaseCreateModuleModal({
               onSelectionChange={handleRequirementSelectionChange}
               selectedIds={selectedRequirementIds}
             />
-            <div className="test-case-create-module-section-heading test-case-create-module-picker-heading">
+            <div className={canAssignCases ? "sr-only" : "test-case-create-module-section-heading test-case-create-module-picker-heading"}>
               <div>
                 <h3 id="module-test-cases-heading">Test Case Selection</h3>
                 {!canAssignCases ? <p>Assigning Test Cases requires update permission.</p> : null}
               </div>
-              <span className="test-case-create-module-selection-count" aria-live="polite">
-                {selectedIds.length} selected
-              </span>
             </div>
 
             {canAssignCases && selectedRequirementIds.length ? (
@@ -2102,190 +1973,18 @@ function TestCaseCreateModuleModal({
               </div>
             ) : null}
 
-            <div className="test-case-create-module-picker-panel">
-              <div className="test-case-create-module-picker-toolbar">
-                <label className="test-case-create-module-search">
-                  <SearchIcon size={16} />
-                  <span className="sr-only">Search Test Cases</span>
-                  <input
-                    aria-label="Search Test Cases by ID, title, or module"
-                    disabled={!canAssignCases || isSaving}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.preventDefault();
-                    }}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search by ID, Title or Module..."
-                    type="search"
-                    value={search}
-                  />
-                </label>
-                <div className="test-case-create-module-filter-wrap" ref={filterMenuRef}>
-                  <button
-                    aria-controls="create-module-filter-menu"
-                    aria-expanded={isFilterMenuOpen}
-                    aria-haspopup="dialog"
-                    className={statusFilter || moduleFilter ? "ghost-button is-active" : "ghost-button"}
-                    disabled={!canAssignCases || isSaving}
-                    onClick={() => setIsFilterMenuOpen((current) => !current)}
-                    ref={filterTriggerRef}
-                    type="button"
-                  >
-                    <IconFilter aria-hidden="true" size={15} stroke={1.8} />
-                    <span>Filters</span>
-                  </button>
-                  {isFilterMenuOpen ? (
-                    <div
-                      aria-label="Filter Test Cases"
-                      className="test-case-create-module-filter-menu"
-                      id="create-module-filter-menu"
-                      role="dialog"
-                    >
-                      <FormField label="Status">
-                        <select disabled={isSaving} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                          <option value="">All statuses</option>
-                          {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
-                        </select>
-                      </FormField>
-                      <FormField label="Current module">
-                        <select disabled={isSaving} value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)}>
-                          <option value="">All modules</option>
-                          <option value="__unassigned__">Unassigned</option>
-                          {moduleOptions.map((moduleName) => <option key={moduleName} value={moduleName}>{moduleName}</option>)}
-                        </select>
-                      </FormField>
-                      <button
-                        className="ghost-button test-case-create-module-clear-filters"
-                        disabled={!statusFilter && !moduleFilter}
-                        onClick={() => {
-                          setStatusFilter("");
-                          setModuleFilter("");
-                        }}
-                        type="button"
-                      >
-                        Clear filters
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="test-case-create-module-selection-actions" aria-label="Test Case selection actions">
-                  <button
-                    className="ghost-button"
-                    disabled={!canAssignCases || !visibleIds.length || areAllVisibleSelected || isSaving || isResolvingRequirementCases}
-                    onClick={() => setVisibleSelection(true)}
-                    type="button"
-                  >
-                    <SelectionToggleIcon checked />
-                    <span>Select all visible</span>
-                  </button>
-                  <span aria-hidden="true" className="test-case-create-module-action-divider" />
-                  <button
-                    className="ghost-button"
-                    disabled={!canAssignCases || !selectedIds.length || isSaving || isResolvingRequirementCases}
-                    onClick={clearCaseSelection}
-                    type="button"
-                  >
-                    <SelectionToggleIcon checked={false} />
-                    <span>Clear</span>
-                  </button>
-                </div>
-              </div>
-
-              <div
-                className="test-case-create-module-options"
-                role="table"
-                aria-label="Test Cases available for this module"
-                aria-busy={isLoadingCases || isLoadingMoreCases || isResolvingRequirementCases}
-              >
-                <div className="test-case-create-module-table-head" role="row">
-                  <span className="test-case-create-module-table-select" role="columnheader">
-                    <input
-                      aria-label="Select all visible Test Cases"
-                      checked={areAllVisibleSelected}
-                      disabled={!canAssignCases || !visibleIds.length || isSaving || isResolvingRequirementCases}
-                      onChange={(event) => setVisibleSelection(event.target.checked)}
-                      ref={selectAllVisibleRef}
-                      type="checkbox"
-                    />
-                  </span>
-                  <span role="columnheader">ID</span>
-                  <span role="columnheader">Title</span>
-                  <span role="columnheader">Status</span>
-                  <span role="columnheader">Current module</span>
-                  <span role="columnheader">Last updated</span>
-                </div>
-                {visibleOptions.map((testCase) => {
-                  const isChecked = selectedIdSet.has(testCase.id);
-                  const isAutoLinked = activeAutoLinkedCaseIdSet.has(testCase.id);
-                  const currentModuleName = moduleNameByCaseId.get(testCase.id);
-                  return (
-                    <div
-                      className={isChecked ? "test-case-create-module-option is-selected" : "test-case-create-module-option"}
-                      key={testCase.id}
-                      onClick={() => {
-                        if (!canAssignCases || isSaving || isResolvingRequirementCases) return;
-                        setManualCaseSelection(testCase.id, !isChecked);
-                      }}
-                      role="row"
-                    >
-                      <span className="test-case-create-module-option-select" role="cell">
-                        <input
-                          aria-label={`${isChecked ? "Remove" : "Add"} ${testCase.display_id || testCase.id} ${isChecked ? "from" : "to"} the new module`}
-                          checked={isChecked}
-                          disabled={!canAssignCases || isSaving || isResolvingRequirementCases}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => setManualCaseSelection(testCase.id, event.target.checked)}
-                          type="checkbox"
-                        />
-                      </span>
-                      <span className="test-case-create-module-option-id" role="cell">
-                        <TestCaseIcon size={15} strokeWidth={1.8} />
-                        <strong>{testCase.display_id || testCase.id}</strong>
-                      </span>
-                      <span className="test-case-create-module-option-title" role="cell" title={testCase.title}>
-                        {testCase.title}
-                        {isAutoLinked ? <span className="sr-only"> Linked to a selected Requirement.</span> : null}
-                      </span>
-                      <span className="test-case-create-module-option-status" role="cell">
-                        <span aria-hidden="true" className="test-case-create-module-cell-label">Status</span>
-                        <StatusBadge value={testCase.status || "Unassigned"} />
-                      </span>
-                      <span className="test-case-create-module-option-module" role="cell" title={currentModuleName || "Unassigned"}>
-                        <span aria-hidden="true" className="test-case-create-module-cell-label">Module</span>
-                        <span>{currentModuleName || "Unassigned"}</span>
-                      </span>
-                      <span className="test-case-create-module-option-updated" role="cell" title={formatModuleCaseUpdatedAt(testCase.updated_at)}>
-                        <span aria-hidden="true" className="test-case-create-module-cell-label">Updated</span>
-                        <span>{formatModuleCaseUpdatedAt(testCase.updated_at)}</span>
-                      </span>
-                    </div>
-                  );
-                })}
-                {isLoadingCases && !visibleOptions.length ? <LoadingState label="Loading Test Cases" /> : null}
-                {!isLoadingCases && !visibleOptions.length ? (
-                  <div className="empty-state compact">
-                    {search.trim() || statusFilter || moduleFilter
-                      ? hasMoreCases
-                        ? "No loaded Test Cases match these filters. Load more to continue searching."
-                        : "No Test Cases match these filters."
-                      : "No Test Cases are available in this application."}
-                  </div>
-                ) : null}
-                {hasMoreCases ? (
-                  <div className="test-case-create-module-load-more" role="row">
-                    <span role="cell">
-                      <button
-                        className="ghost-button"
-                        disabled={isLoadingMoreCases || isSaving}
-                        onClick={onLoadMoreCases}
-                        type="button"
-                      >
-                        {isLoadingMoreCases ? "Loading more Test Cases…" : "Load more Test Cases"}
-                      </button>
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            {canAssignCases ? (
+              <TestCasePicker
+                projectId={projectId}
+                appTypeId={appTypeId}
+                selectedIds={selectedIds}
+                initialItems={candidateCasesWithLinkedCases}
+                onChange={updateCaseSelection}
+                disabled={isSaving || isResolvingRequirementCases}
+                heading="Test Cases"
+                emptyMessage="No Test Cases match this search."
+              />
+            ) : null}
           </section>
         </div>
 
@@ -2342,34 +2041,35 @@ export function TestCasesPage() {
 	  const [projectId, setProjectId] = useCurrentProject();
 	  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
 	  const featureFlagsQuery = useFeatureFlags(Boolean(session));
-	  const canCreateTestCases = hasPermission(session, "testcase.create", projectId);
-	  const canImportTestCases = hasPermission(session, "testcase.import", projectId);
-	  const canUpdateTestCases = hasPermission(session, "testcase.update", projectId);
-	  const canViewRequirements = hasPermission(session, "requirement.view", projectId);
-	  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", projectId)
+  const { can } = useCapabilityAccess(projectId);
+	  const canCreateTestCases = can("testcase.create");
+	  const canImportTestCases = can("testcase.import");
+	  const canUpdateTestCases = can("testcase.update");
+	  const canViewRequirements = can("requirement.view");
+	  const canViewDeliveryScopes = can("requirement_iteration.view")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.requirements"]);
-	  const canViewProjectMembers = hasPermission(session, "project_member.view", projectId);
+	  const canViewProjectMembers = can("project_member.view");
 	  const canUseTestData = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.test_data"]);
-	  const canViewTestData = hasPermission(session, "data.view", projectId) && canUseTestData;
-	  const canManageTestData = hasPermission(session, "data.manage", projectId) && canUseTestData;
-	  const canDeleteTestCases = hasPermission(session, "testcase.delete", projectId);
-	  const canViewAttachments = hasPermission(session, "attachment.view", projectId);
-	  const canCreateAttachments = hasPermission(session, "attachment.create", projectId);
-	  const canDeleteAttachments = hasPermission(session, "attachment.delete", projectId);
-	  const canExportTestCases = hasPermission(session, "testcase.export", projectId);
-	  const canUseTestCaseAi = hasPermission(session, "testcase.ai", projectId)
+	  const canViewTestData = can("data.view") && canUseTestData;
+	  const canManageTestData = can("data.manage") && canUseTestData;
+	  const canDeleteTestCases = can("testcase.delete");
+	  const canViewAttachments = can("attachment.view");
+	  const canCreateAttachments = can("attachment.create");
+	  const canDeleteAttachments = can("attachment.delete");
+	  const canExportTestCases = can("testcase.export");
+	  const canUseTestCaseAi = can("testcase.ai")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.test_authoring"]);
-	  const canCreateSuites = hasPermission(session, "suite.create", projectId)
+	  const canCreateSuites = can("suite.create")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
-	  const canUpdateSuites = hasPermission(session, "suite.update", projectId)
+	  const canUpdateSuites = can("suite.update")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
-	  const canCreateRuns = hasPermission(session, "run.create", projectId)
+	  const canCreateRuns = can("run.create")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-	  const canViewExecutionInsights = hasPermission(session, "run.view", projectId)
-	    && hasPermission(session, "result.view", projectId)
+	  const canViewExecutionInsights = can("run.view")
+	    && can("result.view")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath("/executions"));
 	  const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
-	  const canViewAutomationInsights = hasPermission(session, "automation.view", projectId)
+	  const canViewAutomationInsights = can("automation.view")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, requiredFeatureFlagsForPath("/automation"));
 	  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
 	  const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
@@ -2377,16 +2077,16 @@ export function TestCasesPage() {
 	  const canBuildAutomation = canEditAutomationCode;
 	  const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
 	  const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data, projectId);
-	  const canRunLocalAutomation = hasPermission(session, "automation.run.local", projectId)
+	  const canRunLocalAutomation = can("automation.run.local")
 	    && canUseAutomationWorkspace
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.local_execution"]);
-	  const canRunRemoteAutomation = hasPermission(session, "automation.run.remote", projectId)
+	  const canRunRemoteAutomation = can("automation.run.remote")
 	    && canUseAutomationWorkspace
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.remote_execution"]);
-	  const canConfigureParallelAutomation = hasPermission(session, "automation.run.parallel", projectId)
+	  const canConfigureParallelAutomation = can("automation.run.parallel")
 	    && canUseAutomationWorkspace
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.parallel_execution"]);
-	  const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
+	  const canUseMobileAppium = can("mobile.manage")
 	    && canUseAutomationWorkspace
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
 	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
@@ -2441,6 +2141,8 @@ export function TestCasesPage() {
   const [suiteTransferAppTypeId, setSuiteTransferAppTypeId] = useState("");
   const [suiteTransferSuiteIds, setSuiteTransferSuiteIds] = useState<string[]>([]);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
+  const runDeliveryFieldsEditedRef = useRef({ release: false, sprint: false });
+  const [pendingRunBuilder, setPendingRunBuilder] = useState<{ testCaseIds: string[]; mode: ExecutionStartMode; projectId: string; appTypeId: string } | null>(null);
   const [executionName, setExecutionName] = useState("");
   const [executionStartDate, setExecutionStartDate] = useState("");
   const [executionEndDate, setExecutionEndDate] = useState("");
@@ -2583,61 +2285,98 @@ export function TestCasesPage() {
   }, [canEditAutomationCode, canPreviewAutomationCode, canViewAutomationCode]);
 
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.projects.list
+    queryKey: ["projects", "workspace-scopes", JSON.stringify([session?.user.id, session?.user.role, session?.user.role_id, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions])],
+    queryFn: ({ signal }) => api.metadata.workspaceScopes({ signal }),
+    select: (data) => data.projects,
+    enabled: can("workspace.view")
   });
-  const projectMembersQuery = useQuery({
+  const projectMembersQuery = optionalQueryView(useQuery({
     queryKey: ["project-members", projectId],
     queryFn: () => api.projectMembers.list({ project_id: projectId }),
-    enabled: Boolean(projectId && session && canViewProjectMembers)
-  });
+    enabled: (canViewProjectMembers) && Boolean(projectId && session && canViewProjectMembers)
+  }), canViewProjectMembers);
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
     queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(projectId)
+    enabled: (can("app_type.view")) && Boolean(projectId)
   });
   const allAppTypesQuery = useQuery({
     queryKey: ["app-types", "all", projectId],
     queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(session && projectId)
+    enabled: (can("app_type.view")) && Boolean(session && projectId)
   });
-  const requirementsQuery = useQuery({
+  // These complete selector catalogs are needed only while authoring or planning a run.
+  // A normal library visit reads metrics, module headers and a bounded case page.
+  const needsAuthoringCatalog = Boolean(selectedTestCaseId || isCreating || isCreateExecutionModalOpen
+    || pendingRunBuilder || isAiStudioOpen || isAiCaseAuthoringOpen
+    || isImportModalOpen || searchParams.get("create") === "1" || searchParams.get("case"));
+  const requirementsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements", projectId],
-    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId, page_size: 25, projection: "summary" })),
-    enabled: Boolean(projectId && canViewRequirements),
-    staleTime: 30_000
-  });
-  const deliveryReleasesQuery = useQuery({
+    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId })),
+    enabled: (canViewRequirements) && Boolean(projectId && canViewRequirements && needsAuthoringCatalog),
+    staleTime: 120_000
+  }), canViewRequirements);
+  const deliveryReleasesQuery = optionalQueryView(useQuery({
     queryKey: ["requirement-releases", projectId],
     queryFn: () => api.requirementReleases.list({ project_id: projectId }),
-    enabled: Boolean(projectId && canViewDeliveryScopes),
-    staleTime: 30_000
-  });
-  const deliveryIterationsQuery = useQuery({
+    enabled: (canViewDeliveryScopes) && Boolean(projectId && canViewDeliveryScopes && needsAuthoringCatalog),
+    staleTime: 120_000
+  }), canViewDeliveryScopes);
+  const deliveryIterationsQuery = optionalQueryView(useQuery({
     queryKey: ["requirement-iterations", projectId],
     queryFn: () => api.requirementIterations.list({ project_id: projectId }),
-    enabled: Boolean(projectId && canViewDeliveryScopes),
-    staleTime: 30_000
-  });
-  const suitesQuery = useQuery({
+    enabled: (canViewDeliveryScopes) && Boolean(projectId && canViewDeliveryScopes && needsAuthoringCatalog),
+    staleTime: 120_000
+  }), canViewDeliveryScopes);
+  const suitesQuery = optionalQueryView(useQuery({
     queryKey: ["test-case-suites", appTypeId, projectId],
     queryFn: async () => asArray(await api.testSuites.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId),
-    staleTime: 30_000
-  });
-  const testDataSetsQuery = useQuery({
+    enabled: (can("suite.view")) && Boolean(appTypeId && needsAuthoringCatalog),
+    staleTime: 120_000
+  }), can("suite.view"));
+  const testDataSetsQuery = optionalQueryView(useQuery({
     queryKey: ["test-data-sets", projectId, appTypeId],
     queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
-    enabled: Boolean(projectId && canViewTestData),
-    staleTime: 30_000
-  });
+    enabled: (canViewTestData) && Boolean(projectId && canViewTestData && needsAuthoringCatalog),
+    staleTime: 120_000
+  }), canViewTestData);
   const requestedCaseRouteId = searchParams.get("case") || "";
+  const catalogFilters = useMemo(() => ({
+    search: deferredSearchTerm.trim() || undefined,
+    workflow_status: caseStatusFilter === "all" ? undefined : caseStatusFilter,
+    priority: casePriorityFilter === "all" ? undefined : Number(casePriorityFilter),
+    step_filter: caseStepFilter === "all" ? undefined : caseStepFilter,
+    run_filter: caseRunFilter === "all" ? undefined : caseRunFilter,
+    exclude_automated: true,
+    include_total: false,
+    include_execution: canViewExecutionInsights
+  }), [deferredSearchTerm, caseStatusFilter, casePriorityFilter, caseStepFilter, caseRunFilter, canViewExecutionInsights]);
+  const catalogFilterKey = JSON.stringify(catalogFilters);
+  const [modulePageFilterKey, setModulePageFilterKey] = useState(catalogFilterKey);
+  const scopedModulePageCursors = useMemo(() => modulePageFilterKey === catalogFilterKey ? modulePageCursorsById : {}, [modulePageFilterKey, catalogFilterKey, modulePageCursorsById]);
+  const isCatalogFiltered = Boolean(catalogFilters.search || catalogFilters.workflow_status || catalogFilters.priority || catalogFilters.step_filter || catalogFilters.run_filter);
+  const [collapsedFilteredModuleIds, setCollapsedFilteredModuleIds] = useState<string[]>([]);
+  const isModuleExpanded = (moduleId: string) => isCatalogFiltered ? !collapsedFilteredModuleIds.includes(moduleId) : expandedModuleIds.includes(moduleId);
+  useEffect(() => {
+    setCollapsedFilteredModuleIds([]);
+    setModulePageFilterKey(catalogFilterKey);
+    setModulePageCursorsById({});
+  }, [catalogFilterKey]);
+  const testCaseMetricsQuery = useQuery({
+    queryKey: ["test-case-metrics", appTypeId, projectId, canViewExecutionInsights],
+    queryFn: () => api.testCases.metrics({ app_type_id: appTypeId, project_id: projectId, exclude_automated: true, include_execution: canViewExecutionInsights }),
+    enabled: Boolean(appTypeId && projectId),
+    staleTime: 120_000,
+    gcTime: 600_000
+  });
   const testCasesQuery = useInfiniteQuery({
-    queryKey: ["global-test-cases", appTypeId, projectId],
+    queryKey: ["global-test-cases", appTypeId, projectId, catalogFilters],
     queryFn: async ({ pageParam }) => normalizePagedResult<TestCase>(
       await api.testCases.listPage({
+        ...catalogFilters,
+        project_id: projectId,
         app_type_id: appTypeId,
-        unassigned_module: true,
+        unassigned_module: !isCatalogFiltered,
         page_size: getUnassignedPageSize(Boolean(pageParam)),
         cursor: pageParam,
         projection: "summary"
@@ -2648,39 +2387,25 @@ export function TestCasesPage() {
       const nextCursor = getVerifiedNextPageCursor(lastPage);
       return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
     },
-    enabled: Boolean(appTypeId),
-    staleTime: 30_000
+    enabled: (can("testcase.view")) && Boolean(appTypeId),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === appTypeId && previousQuery?.queryKey[2] === projectId ? previous : undefined,
+    staleTime: 120_000,
+    gcTime: 600_000
   });
-  const testCaseModulesQuery = useQuery({
+  const testCaseModulesQuery = optionalQueryView(useQuery({
     queryKey: ["test-case-modules", appTypeId, projectId],
-    queryFn: async () => asArray(await api.testCaseModules.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId),
-    staleTime: 30_000
-  });
-  const modulePickerCasesQuery = useInfiniteQuery({
-    queryKey: ["test-case-module-picker", appTypeId, projectId],
-    queryFn: async ({ pageParam }) => normalizePagedResult<TestCase>(
-      await api.testCases.listPage({
-        app_type_id: appTypeId,
-        page_size: 100,
-        cursor: pageParam,
-        projection: "summary"
-      })
-    ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage, _allPages, _lastPageParam, allPageParams) => {
-      const nextCursor = getVerifiedNextPageCursor(lastPage);
-      return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
-    },
-    enabled: Boolean(appTypeId && isCreateModuleModalOpen && canUpdateTestCases),
-    staleTime: 30_000
-  });
+    queryFn: async () => asArray(await api.testCaseModules.list({ app_type_id: appTypeId, projection: "summary" })),
+    enabled: (can("testcase.view")) && Boolean(appTypeId),
+    staleTime: 120_000,
+    gcTime: 600_000
+  }), can("testcase.view"));
   const modulePickerRequirementsQuery = useInfiniteQuery({
     queryKey: ["test-case-module-requirement-picker", projectId],
     queryFn: async ({ pageParam }) => normalizePagedResult<Requirement>(
       await api.requirements.listPage({
         project_id: projectId,
-        page_size: 100,
+        page_size: 25,
+        include_total: false,
         cursor: pageParam,
         projection: "summary"
       })
@@ -2690,7 +2415,7 @@ export function TestCasesPage() {
       const nextCursor = getVerifiedNextPageCursor(lastPage);
       return nextCursor && !allPageParams.includes(nextCursor) ? nextCursor : undefined;
     },
-    enabled: Boolean(projectId && isCreateModuleModalOpen && canViewRequirements),
+    enabled: (canViewRequirements) && Boolean(projectId && isCreateModuleModalOpen && canViewRequirements),
     staleTime: 30_000
   });
   useEffect(() => {
@@ -2717,23 +2442,25 @@ export function TestCasesPage() {
     [testCaseModulesQuery.data]
   );
   const modulePageRequests = useMemo(
-    () => moduleMetricHeaders.flatMap((module) => {
-      const cursors = modulePageCursorsById[module.id] || [null];
+    () => moduleMetricHeaders.filter((module) => !isCatalogFiltered && expandedModuleIds.includes(module.id)).flatMap((module) => {
+      const cursors = scopedModulePageCursors[module.id] || [null];
       return cursors.map((cursor, pageIndex) => ({ module, cursor, pageIndex }));
     }),
-    [moduleMetricHeaders, modulePageCursorsById]
+    [moduleMetricHeaders, scopedModulePageCursors, expandedModuleIds, isCatalogFiltered]
   );
   const moduleCaseQueries = useQueries({
     queries: modulePageRequests.map(({ module, cursor, pageIndex }) => ({
-      queryKey: ["test-case-module-children", projectId, appTypeId, module.id, pageIndex, cursor || "first"],
+      queryKey: ["test-case-module-children", projectId, appTypeId, module.id, pageIndex, cursor || "first", catalogFilters],
       queryFn: async () => normalizePagedResult<TestCase>(
         await api.testCaseModules.listCases(module.id, {
+          ...catalogFilters,
           page_size: getHierarchyPageSize(module.test_case_count, pageIndex),
           cursor: cursor || undefined,
           projection: "summary" as const
         })
       ),
-      staleTime: 30_000
+      staleTime: 120_000,
+      gcTime: 600_000
     }))
   });
   const modulePageStateById = useMemo(() => modulePageRequests.reduce<Record<string, {
@@ -2757,7 +2484,7 @@ export function TestCasesPage() {
     current.total = Math.max(current.total, response.data?.total ?? 0, current.loaded);
     if (response.data) {
       const nextCursor = getVerifiedNextPageCursor(response.data);
-      const requestedCursors = modulePageCursorsById[request.module.id] || [null];
+      const requestedCursors = scopedModulePageCursors[request.module.id] || [null];
       current.nextCursor = nextCursor && !requestedCursors.includes(nextCursor) ? nextCursor : null;
     }
     current.isInitialLoading = current.isInitialLoading || (request.pageIndex === 0 && response.isFetching && !response.data);
@@ -2765,7 +2492,7 @@ export function TestCasesPage() {
     if (response.isError) current.failedPageIndex = request.pageIndex;
     state[request.module.id] = current;
     return state;
-  }, {}), [moduleCaseQueries, modulePageCursorsById, modulePageRequests]);
+  }, {}), [moduleCaseQueries, scopedModulePageCursors, modulePageRequests]);
   const retryModulePage = (moduleId: string, pageIndex: number) => {
     const queryIndex = modulePageRequests.findIndex((request) => request.module.id === moduleId && request.pageIndex === pageIndex);
     if (queryIndex >= 0) void moduleCaseQueries[queryIndex]?.refetch();
@@ -2784,20 +2511,11 @@ export function TestCasesPage() {
       return { ...current, [moduleId]: [...cursors, nextCursor] };
     });
   };
-  useEffect(() => {
-    moduleMetricHeaders.forEach((module) => {
-      const pageState = modulePageStateById[module.id];
-      if (pageState?.nextCursor && !pageState.isInitialLoading && !pageState.isLoadingMore && pageState.failedPageIndex === null) {
-        loadNextModulePage(module.id);
-      }
-    });
-  }, [moduleMetricHeaders, modulePageStateById]);
-
-  useEffect(() => {
-    if ((selectedTestCaseId || isCreating) || !isUnassignedModuleExpanded || !testCasesQuery.hasNextPage || testCasesQuery.isFetchingNextPage) return;
-    void testCasesQuery.fetchNextPage();
-  }, [isCreating, isUnassignedModuleExpanded, selectedTestCaseId, testCasesQuery.fetchNextPage, testCasesQuery.hasNextPage, testCasesQuery.isFetchingNextPage]);
   const toggleModuleExpansion = (moduleId: string) => {
+    if (isCatalogFiltered) {
+      setCollapsedFilteredModuleIds((current) => current.includes(moduleId) ? current.filter((id) => id !== moduleId) : [...current, moduleId]);
+      return;
+    }
     setExpandedModuleIds((current) => current.includes(moduleId)
       ? current.filter((id) => id !== moduleId)
       : [...current, moduleId]);
@@ -2805,7 +2523,7 @@ export function TestCasesPage() {
   const deepLinkTestCasesQuery = useQuery({
     queryKey: ["global-test-cases", "deep-link", requestedCaseRouteId, projectId],
     queryFn: () => api.testCases.get(requestedCaseRouteId, { project_id: projectId }),
-    enabled: Boolean(
+    enabled: (can("testcase.view")) && Boolean(
       session
       && projectId
       && requestedCaseRouteId
@@ -2817,51 +2535,42 @@ export function TestCasesPage() {
   const selectedTestCaseDetailQuery = useQuery({
     queryKey: testCaseDetailQueryKey(projectId, selectedTestCaseId),
     queryFn: () => api.testCases.get(selectedTestCaseId, { project_id: projectId }),
-    enabled: Boolean(projectId && selectedTestCaseId),
+    enabled: (can("testcase.view")) && Boolean(projectId && selectedTestCaseId),
     initialData: () => {
       const deepLinkedCase = deepLinkTestCasesQuery.data;
       return deepLinkedCase?.id === selectedTestCaseId ? deepLinkedCase : undefined;
     },
     staleTime: TEST_CASE_DETAIL_STALE_TIME_MS
   });
-  const automationCaseLinksQuery = useQuery({
+  const automationCaseLinksQuery = optionalQueryView(useQuery({
     queryKey: ["test-cases", "manual-automation-links", appTypeId, selectedTestCaseId],
     queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
-    enabled: Boolean(appTypeId && selectedTestCaseId && canViewAutomationInsights),
+    enabled: (canViewAutomationInsights) && Boolean(appTypeId && selectedTestCaseId && canViewAutomationInsights),
     staleTime: 30_000
-  });
-  const generationJobsQuery = useQuery({
+  }), canViewAutomationInsights);
+  const generationJobsQuery = optionalQueryView(useQuery({
     queryKey: ["ai-test-case-generation-jobs", appTypeId, projectId],
     queryFn: () => api.testCases.listGenerationJobs({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId),
+    enabled: (canUseTestCaseAi && can("transaction.view")) && Boolean(appTypeId),
     refetchInterval: (query) => (query.state.data as AiTestCaseGenerationJob[] | undefined)
       ?.some((job) => ["queued", "running"].includes(String(job.status).toLowerCase())) ? 5_000 : false
-  });
-  const executionsQuery = useQuery({
+  }), canUseTestCaseAi && can("transaction.view"));
+  const executionsQuery = optionalQueryView(useQuery({
     queryKey: ["executions", projectId],
     queryFn: () => api.executions.list(projectId ? { project_id: projectId } : undefined),
-    enabled: Boolean(projectId),
+    enabled: (can("run.view")) && Boolean(projectId),
     refetchInterval: (query) => (query.state.data as Execution[] | undefined)
       ?.some((execution) => ["queued", "running"].includes(String(execution.status).toLowerCase()))
       ? TEST_CASE_RUN_POLL_INTERVAL_MS
       : false
-  });
-  const sharedStepGroupsQuery = useQuery({
+  }), can("run.view"));
+  const sharedStepGroupsQuery = optionalQueryView(useQuery({
     queryKey: ["shared-step-groups", appTypeId, projectId],
     queryFn: () => api.sharedStepGroups.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId && (selectedTestCaseId || isCreating || isSharedGroupPickerOpen)),
+    enabled: (can("shared_step.view")) && Boolean(appTypeId && (selectedTestCaseId || isCreating || isSharedGroupPickerOpen)),
     staleTime: 30_000
-  });
-  const executionResultsQuery = useQuery({
-    queryKey: ["global-test-case-results", appTypeId, projectId],
-    queryFn: () => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, run_limit: 10, limit: 100 }),
-    enabled: Boolean(appTypeId && canViewExecutionInsights),
-    refetchInterval: (query) => (query.state.data as ExecutionResult[] | undefined)
-      ?.some((result) => String(result.status).toLowerCase() === "running")
-      ? TEST_CASE_RUN_POLL_INTERVAL_MS
-      : false
-  });
-  const selectedTestCaseResultsQuery = useQuery({
+  }), can("shared_step.view"));
+  const selectedTestCaseResultsQuery = optionalQueryView(useQuery({
     queryKey: ["test-case-assurance-results", appTypeId, projectId, selectedTestCaseId],
     queryFn: () => api.executionResults.list({
       project_id: projectId,
@@ -2869,35 +2578,36 @@ export function TestCasesPage() {
       test_case_id: selectedTestCaseId,
       run_limit: 25
     }),
-    enabled: Boolean(appTypeId && selectedTestCaseId && canViewExecutionInsights),
+    enabled: (canViewExecutionInsights) && Boolean(appTypeId && selectedTestCaseId && canViewExecutionInsights),
     staleTime: 30_000,
     refetchInterval: (query) => (query.state.data as ExecutionResult[] | undefined)
       ?.some((result) => String(result.status).toLowerCase() === "running")
       ? TEST_CASE_RUN_POLL_INTERVAL_MS
       : false
-  });
-  const integrationsQuery = useQuery({
+  }), canViewExecutionInsights);
+  const integrationsQuery = optionalQueryView(useQuery({
     queryKey: ["integrations", "llm", projectId],
-    queryFn: () => api.integrations.list({ type: "llm", is_active: true })
-  });
-  const testEngineIntegrationsQuery = useQuery({
+    queryFn: () => api.integrations.list({ type: "llm", is_active: true }),
+    enabled: can("integration.view") && (canUseTestCaseAi || canUseAutomationAi)
+  }), can("integration.view") && (canUseTestCaseAi || canUseAutomationAi));
+  const testEngineIntegrationsQuery = optionalQueryView(useQuery({
     queryKey: ["integrations", "testengine", projectId],
     queryFn: () => api.integrations.list({ type: "testengine", is_active: true }),
-    enabled: Boolean(projectId && session)
-  });
-  const automationLearningCacheQuery = useQuery({
+    enabled: (can("integration.view") && (canRunLocalAutomation || canRunRemoteAutomation)) && Boolean(projectId && session)
+  }), can("integration.view") && (canRunLocalAutomation || canRunRemoteAutomation));
+  const automationLearningCacheQuery = optionalQueryView(useQuery({
     queryKey: ["automation-learning-cache", projectId, appTypeId],
     queryFn: () => api.testCases.learningCache({
       project_id: projectId || undefined,
       app_type_id: appTypeId || undefined,
       limit: 12
     }),
-    enabled: Boolean(canUseAutomationWorkspace && (projectId || appTypeId) && session)
-  });
+    enabled: (can("automation.view")) && Boolean(canUseAutomationWorkspace && (projectId || appTypeId) && session)
+  }), can("automation.view"));
   const stepsQuery = useQuery({
     queryKey: ["test-case-steps", selectedTestCaseId, projectId],
     queryFn: () => api.testSteps.list({ test_case_id: selectedTestCaseId }),
-    enabled: Boolean(selectedTestCaseId)
+    enabled: (can("testcase.view")) && Boolean(selectedTestCaseId)
   });
 
   const createTestCase = useMutation({ mutationFn: api.testCases.create });
@@ -2958,9 +2668,9 @@ export function TestCasesPage() {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: automationContext.trim() || undefined,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined
       })
   });
   const buildBatchAutomation = useMutation({
@@ -2971,9 +2681,9 @@ export function TestCasesPage() {
         integration_id: integrationId || undefined,
         start_url: automationStartUrl.trim() || undefined,
         additional_context: automationContext.trim() || undefined,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         failure_threshold: automationFailureThreshold,
         ai_requested: aiRequested
       })
@@ -2987,9 +2697,9 @@ export function TestCasesPage() {
         engine_base_url: options.engine_base_url,
         recorder_public_base_url: options.recorder_public_base_url,
         reuse_existing: options.recorder_mode === "local" && options.recorder_target === "web",
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         target_step_id: targetStepId || undefined
       })
   });
@@ -3002,9 +2712,9 @@ export function TestCasesPage() {
         recorder_mode: recorderStartOptions?.recorder_mode,
         recorder_target: recorderStartOptions?.recorder_target,
         engine_base_url: recorderStartOptions?.engine_base_url,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         target_step_id: targetStepId || undefined
       })
   });
@@ -3165,7 +2875,7 @@ export function TestCasesPage() {
   const generationJobs = asArray(generationJobsQuery.data);
   const executions = asArray(executionsQuery.data);
   const sharedStepGroups = asArray(sharedStepGroupsQuery.data);
-  const executionResults = asArray(executionResultsQuery.data);
+  const executionResults = useMemo(() => canViewExecutionInsights ? testCases.flatMap((testCase) => (testCase as TestCaseCatalogRow).recent_results || []) : [], [testCases, canViewExecutionInsights]);
   const integrations = useMemo(
     () => asArray(integrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id)),
     [integrationsQuery.data]
@@ -3268,6 +2978,7 @@ export function TestCasesPage() {
 
   const closeCreateExecutionModal = () => {
     setIsCreateExecutionModalOpen(false);
+    setPendingRunBuilder(null);
     setExecutionName("");
     setExecutionStartDate("");
     setExecutionEndDate("");
@@ -3643,8 +3354,8 @@ export function TestCasesPage() {
 
   const caseStatusOptions = TEST_CASE_WORKFLOW_STATUS_OPTIONS;
   const casePriorityOptions = useMemo(
-    () => Array.from(new Set(testCases.map((testCase) => String(testCase.priority || 3)))).sort((left, right) => Number(left) - Number(right)),
-    [testCases]
+    () => ["1", "2", "3", "4", "5"],
+    []
   );
   const existingCaseLabels = useMemo(() => {
     const labels = new Map<string, string>();
@@ -3674,6 +3385,11 @@ export function TestCasesPage() {
       });
     });
 
+    testCases.forEach((testCase) => {
+      const module = testCaseModules.find((candidate) => (testCase.module_ids || []).includes(candidate.id));
+      if (module) map.set(testCase.id, module);
+    });
+
     // Treat the scoped child response as authoritative for the module being
     // expanded. This keeps expansion reliable even while a module header from
     // an older Forge deployment has a missing or stale test_case_ids array.
@@ -3683,19 +3399,16 @@ export function TestCasesPage() {
       });
     });
     return map;
-  }, [moduleCaseQueries, modulePageRequests, testCaseModules]);
+  }, [moduleCaseQueries, modulePageRequests, testCaseModules, testCases]);
   const modulePickerTestCases = useMemo(() => {
     const byId = new Map<string, TestCase>();
-    asArray(modulePickerCasesQuery.data?.pages)
-      .flatMap((page) => asArray(page.items))
-      .forEach((testCase) => byId.set(testCase.id, testCase));
     testCases.forEach((testCase) => byId.set(testCase.id, testCase));
     moduleDraftInitialCaseIds.forEach((testCaseId) => {
       const snapshot = selectedActionCaseSnapshotsRef.current.get(testCaseId);
       if (snapshot) byId.set(testCaseId, snapshot);
     });
     return [...byId.values()];
-  }, [moduleDraftInitialCaseIds, modulePickerCasesQuery.data?.pages, testCases]);
+  }, [moduleDraftInitialCaseIds, testCases]);
   const modulePickerRequirements = useMemo(() => {
     const byId = new Map<string, Requirement>();
     asArray(modulePickerRequirementsQuery.data?.pages)
@@ -3707,89 +3420,18 @@ export function TestCasesPage() {
   const moduleNameByPickerCaseId = useMemo(() => {
     const map = new Map<string, string>();
     modulePickerTestCases.forEach((testCase) => {
-      const moduleName = caseModuleById.get(testCase.id)?.name;
+      const moduleName = caseModuleById.get(testCase.id)?.name || testCaseModules.find((module) => testCase.module_ids?.includes(module.id))?.name;
       if (moduleName) map.set(testCase.id, moduleName);
     });
     return map;
-  }, [caseModuleById, modulePickerTestCases]);
+  }, [caseModuleById, modulePickerTestCases, testCaseModules]);
 
-  const filteredCases = useMemo(() => {
-    const search = deferredSearchTerm.trim().toLowerCase();
-
-    return testCases.filter((testCase) => {
-      const requirementTitle =
-        (testCase.requirement_ids || [testCase.requirement_id]).map((id) => (id ? requirementTitleById[id] || "" : "")).find(Boolean) || "";
-      const history = historyByCaseId[testCase.id] || [];
-      const latest = history[0];
-      const derivedStatus = getTestCaseWorkflowStatus(testCase, latest?.status, defaultTestCaseStatus);
-      const derivedStatusLabel = formatTestCaseWorkflowStatus(derivedStatus);
-      const stepCount = stepCountByCaseId[testCase.id];
-      const isStepCountKnown = Number.isFinite(stepCount);
-      const runCount = history.length;
-
-      const matchesSearch =
-        !search ||
-        [
-          testCase.display_id || "",
-          testCase.id,
-          testCase.title,
-          testCase.description || "",
-          derivedStatusLabel,
-          ...(testCase.labels || []),
-          testCase.detail_complete !== false || testCase.summary_complete
-            ? TEST_CASE_REVIEW_STATUS_LABELS[testCase.review_status || "not_requested"]
-            : "",
-          testCase.reviewer_id ? resolveAuditUserLabel(testCase.reviewer_id, userById) : "",
-          caseModuleById.get(testCase.id)?.name || "",
-          ...(testCase.external_references || []),
-          ...(testCase.requirement_ids || []),
-          testCase.requirement_id || "",
-          ...(testCase.suite_ids || []),
-          testCase.suite_id || "",
-          requirementTitle
-        ].some((value) => value.toLowerCase().includes(search));
-
-      if (!matchesSearch) {
-        return false;
-      }
-
-      if (caseStatusFilter !== "all" && derivedStatus !== caseStatusFilter) {
-        return false;
-      }
-
-      if (casePriorityFilter !== "all" && String(testCase.priority || 3) !== casePriorityFilter) {
-        return false;
-      }
-
-      if (caseStepFilter === "with-steps" && isStepCountKnown && !stepCount) {
-        return false;
-      }
-
-      if (caseStepFilter === "no-steps" && isStepCountKnown && Boolean(stepCount)) {
-        return false;
-      }
-
-      if (caseRunFilter === "with-runs" && !runCount) {
-        return false;
-      }
-
-      if (caseRunFilter === "no-runs" && runCount) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [caseModuleById, casePriorityFilter, caseRunFilter, caseStatusFilter, caseStepFilter, deferredSearchTerm, historyByCaseId, requirementTitleById, stepCountByCaseId, testCases, userById]);
+  const filteredCases = testCases;
   const hasActiveCaseCatalogFilter = Boolean(deferredSearchTerm.trim())
     || caseStatusFilter !== "all"
     || casePriorityFilter !== "all"
     || caseStepFilter !== "all"
     || caseRunFilter !== "all";
-  const hasUnknownCaseSummaryFilterValues = testCases.some((testCase) =>
-    (testCase.detail_complete === false && testCase.summary_complete !== true)
-    || (Boolean(deferredSearchTerm.trim()) && testCase.external_references_truncated === true)
-  );
-
   const moduleCaseGroups = useMemo(() => {
     const casesByModuleId = new Map<string, TestCase[]>();
     const unassignedCases: TestCase[] = [];
@@ -3810,56 +3452,13 @@ export function TestCasesPage() {
 
     return { groups, unassignedCases };
   }, [caseModuleById, filteredCases, testCaseModules]);
-  const visibleModuleCaseGroups = useMemo(() => moduleCaseGroups.groups.filter(({ module, cases }) => {
-    if (!hasActiveCaseCatalogFilter || cases.length) return true;
-
-    const isExpanded = expandedModuleIds.includes(module.id);
-    const pageState = modulePageStateById[module.id];
-    if (!isExpanded) {
-      return !Number.isFinite(module.test_case_count) || Number(module.test_case_count) > 0;
-    }
-    return !pageState
-      || pageState.isInitialLoading
-      || pageState.isLoadingMore
-      || pageState.failedPageIndex !== null
-      || Boolean(pageState.nextCursor);
-  }), [expandedModuleIds, hasActiveCaseCatalogFilter, moduleCaseGroups.groups, modulePageStateById]);
-  const moduleHealth = useMemo(() => {
-    const derive = (items: TestCase[]) => deriveModuleHealth(items.map((testCase) => {
-      const hasReliableSummary = testCase.detail_complete !== false || testCase.summary_complete === true;
-      const recentResults = (historyByCaseId[testCase.id] || []).slice(0, 10);
-      return {
-        priority: testCase.priority,
-        linkedRequirement: hasReliableSummary
-          ? Boolean((testCase.requirement_ids || [testCase.requirement_id]).find((id) => Boolean(id)))
-          : undefined,
-        stepCount: hasReliableSummary ? stepCountByCaseId[testCase.id] : undefined,
-        automated: hasReliableSummary ? testCase.automated === "yes" : undefined,
-        recentStatuses: recentResults.map((result) => result.status),
-        recentDurationsMs: recentResults
-          .filter((result) => ["passed", "failed"].includes(String(result.status || "").toLowerCase()))
-          .map((result) => result.duration_ms),
-        pendingReview: (testCase.review_status || "not_requested") === "pending"
-          || (testCase.ai_generation_source === "scheduler" && testCase.ai_generation_review_status === "pending"),
-        defectIds: hasReliableSummary ? testCase.defect_ids || [] : []
-      };
-    }));
-    const casesByModuleId = new Map<string, TestCase[]>();
-    const unassignedCases: TestCase[] = [];
-    testCases.forEach((testCase) => {
-      const moduleId = caseModuleById.get(testCase.id)?.id;
-      if (!moduleId) {
-        unassignedCases.push(testCase);
-        return;
-      }
-      casesByModuleId.set(moduleId, [...(casesByModuleId.get(moduleId) || []), testCase]);
-    });
-
-    return {
-      byId: new Map(testCaseModules.map((module) => [module.id, derive(casesByModuleId.get(module.id) || [])])),
-      unassigned: derive(unassignedCases)
-    };
-  }, [caseModuleById, historyByCaseId, stepCountByCaseId, testCaseModules, testCases]);
+  const visibleModuleCaseGroups = useMemo(() => moduleCaseGroups.groups.filter(({ cases }) =>
+    !hasActiveCaseCatalogFilter || cases.length > 0
+  ), [hasActiveCaseCatalogFilter, moduleCaseGroups.groups]);
+  const moduleHealth = useMemo(() => ({
+    byId: new Map(testCaseModules.map((module) => [module.id, testCaseMetricsQuery.data?.modules[module.id] || deriveModuleHealth([])])),
+    unassigned: testCaseMetricsQuery.data?.unassigned || deriveModuleHealth([])
+  }), [testCaseMetricsQuery.data, testCaseModules]);
   const renderModuleMetrics = (health: ReturnType<typeof deriveModuleHealth>) => (
     <HierarchyQuickInsights
       count={health.count}
@@ -3902,14 +3501,12 @@ export function TestCasesPage() {
     <div className="module-deferred-summary">
       <strong>{Number.isFinite(count) ? Number(count) : "—"}</strong>
       <span>{Number(count) === 1 ? "Test case" : "Test cases"}</span>
-      <small>Calculating all cases</small>
+      <small>{testCaseMetricsQuery.isError ? "Metrics unavailable" : "Loading metrics"}</small>
     </div>
   );
-  const hasCompleteModuleMetrics = (moduleId: string) => {
-    const state = modulePageStateById[moduleId];
-    return Boolean(state && !state.isInitialLoading && !state.isLoadingMore && !state.nextCursor && state.failedPageIndex === null && state.loaded >= state.total);
-  };
+  const hasCompleteModuleMetrics = (_moduleId: string) => Boolean(testCaseMetricsQuery.data);
   const renderModuleLoadMoreFooter = (moduleId: string, moduleName: string) => {
+    if (isCatalogFiltered) return null;
     const pageState = modulePageStateById[moduleId];
     if (
       !pageState
@@ -3919,21 +3516,12 @@ export function TestCasesPage() {
       return null;
     }
 
-    if (Number(pageState.failedPageIndex) > 0) return (
-      <div className="hierarchy-load-more-footer hierarchy-load-more-footer--module">
-        <HierarchyLoadMoreButton
-          actionLabel="Retry loading"
-          isLoading={pageState.isLoadingMore}
-          loaded={pageState.loaded}
-          onLoad={() => loadNextModulePage(moduleId)}
-          scopeLabel={`test cases in ${moduleName}`}
-          total={pageState.total}
-        />
-      </div>
-    );
     return (
       <HierarchyAutoLoadSentinel
         isLoading={pageState.isLoadingMore}
+        error={pageState.failedPageIndex !== null ? "Unable to load more test cases" : undefined}
+        onRetry={() => loadNextModulePage(moduleId)}
+        progressKey={`${catalogFilterKey}:${pageState.loaded}`}
         onLoad={() => loadNextModulePage(moduleId)}
         scopeLabel={`test cases in ${moduleName}`}
       />
@@ -3949,12 +3537,12 @@ export function TestCasesPage() {
     visibleModuleCaseGroups.forEach(({ module, cases }) => {
       entries.push({ kind: "module", module, count: cases.length });
 
-      if (expandedModuleIds.includes(module.id)) {
+      if (isModuleExpanded(module.id)) {
         cases.forEach((testCase) => entries.push({ kind: "case", testCase }));
       }
     });
 
-    if (moduleCaseGroups.unassignedCases.length || testCasesQuery.hasNextPage) {
+    if (moduleCaseGroups.unassignedCases.length || (!isCatalogFiltered && testCasesQuery.hasNextPage)) {
       entries.push({ kind: "unassigned", count: moduleCaseGroups.unassignedCases.length });
       if (isUnassignedModuleExpanded) {
         moduleCaseGroups.unassignedCases.forEach((testCase) => entries.push({ kind: "case", testCase }));
@@ -3962,7 +3550,7 @@ export function TestCasesPage() {
     }
 
 	    return entries;
-	  }, [expandedModuleIds, isUnassignedModuleExpanded, moduleCaseGroups.unassignedCases, testCasesQuery.hasNextPage, visibleModuleCaseGroups]);
+	  }, [expandedModuleIds, collapsedFilteredModuleIds, isCatalogFiltered, isUnassignedModuleExpanded, moduleCaseGroups.unassignedCases, testCasesQuery.hasNextPage, visibleModuleCaseGroups]);
   const visibleModuleTileEntries = useMemo(
     () => moduleTileEntries.slice(0, visibleTestCaseCount),
     [moduleTileEntries, visibleTestCaseCount]
@@ -3982,22 +3570,7 @@ export function TestCasesPage() {
     Number(casePriorityFilter !== "all") +
     Number(caseStepFilter !== "all") +
     Number(caseRunFilter !== "all");
-  const hasIncompleteCaseFilterScope = hasActiveCaseCatalogFilter && (
-    hasUnknownCaseSummaryFilterValues
-    || Boolean(testCasesQuery.hasNextPage)
-    || testCaseModules.some((module) => {
-      const isExpanded = expandedModuleIds.includes(module.id);
-      const pageState = modulePageStateById[module.id];
-      if (!isExpanded) {
-        return !Number.isFinite(module.test_case_count) || Number(module.test_case_count) > 0;
-      }
-      return !pageState
-        || pageState.isInitialLoading
-        || pageState.isLoadingMore
-        || pageState.failedPageIndex !== null
-        || Boolean(pageState.nextCursor);
-    })
-  );
+  const hasIncompleteCaseFilterScope = hasActiveCaseCatalogFilter && testCasesQuery.isFetching && !testCasesQuery.isFetchingNextPage;
 
   const selectableFilteredCases = useMemo(
     () => filteredCases,
@@ -4104,7 +3677,7 @@ export function TestCasesPage() {
     },
     [selectedActionTestCaseIds, testCases]
   );
-  const openRunBuilder = (testCaseIds: string[], mode: ExecutionStartMode = "manual") => {
+  const getRunDeliveryPrefill = (testCaseIds: string[]) => {
     const normalizedIds = [...new Set(testCaseIds.filter(Boolean))];
     const loadedById = new Map(testCases.map((testCase) => [testCase.id, testCase]));
     if (selectedTestCase) loadedById.set(selectedTestCase.id, selectedTestCase);
@@ -4121,12 +3694,44 @@ export function TestCasesPage() {
     const releases = [...new Set(scopes.map((scope) => scope.release).filter(Boolean))];
     const sprints = [...new Set(scopes.map((scope) => scope.sprint).filter(Boolean))];
 
+    return { release: releases.length === 1 ? releases[0] : "", sprint: sprints.length === 1 ? sprints[0] : "" };
+  };
+  const openRunBuilder = (testCaseIds: string[], mode: ExecutionStartMode = "manual") => {
+    const normalizedIds = [...new Set(testCaseIds.filter(Boolean))];
+    const prefill = getRunDeliveryPrefill(normalizedIds);
+    runDeliveryFieldsEditedRef.current = { release: false, sprint: false };
     setSelectedActionTestCaseIds(normalizedIds);
-    setExecutionRelease(releases.length === 1 ? releases[0] : "");
-    setExecutionSprint(sprints.length === 1 ? sprints[0] : "");
+    setExecutionRelease(prefill.release);
+    setExecutionSprint(prefill.sprint);
     setExecutionStartMode(mode);
     setIsCreateExecutionModalOpen(true);
+    setPendingRunBuilder((canViewRequirements && !requirementsQuery.data)
+      || (canViewDeliveryScopes && (!deliveryReleasesQuery.data || !deliveryIterationsQuery.data))
+      ? { testCaseIds: normalizedIds, mode, projectId, appTypeId } : null);
   };
+  useEffect(() => {
+    if (!pendingRunBuilder) return;
+    if (!isCreateExecutionModalOpen || pendingRunBuilder.projectId !== projectId || pendingRunBuilder.appTypeId !== appTypeId) {
+      setPendingRunBuilder(null);
+      return;
+    }
+    const requiredQueries = [
+      ...(canViewRequirements ? [requirementsQuery] : []),
+      ...(canViewDeliveryScopes ? [deliveryReleasesQuery, deliveryIterationsQuery] : [])
+    ];
+    const failed = requiredQueries.find((query) => query.isError && !query.data);
+    if (failed) {
+      setPendingRunBuilder(null);
+      showError(failed.error, "Some run options could not be filled automatically. You can continue configuring this run.");
+      return;
+    }
+    if (requiredQueries.some((query) => !query.data)) return;
+    const prefill = getRunDeliveryPrefill(selectedActionTestCaseIds);
+    if (!runDeliveryFieldsEditedRef.current.release) setExecutionRelease(prefill.release);
+    if (!runDeliveryFieldsEditedRef.current.sprint) setExecutionSprint(prefill.sprint);
+    setPendingRunBuilder(null);
+  }, [isCreateExecutionModalOpen, pendingRunBuilder, selectedActionTestCaseIds, projectId, appTypeId, canViewRequirements, canViewDeliveryScopes, requirementsQuery.data, requirementsQuery.isError,
+    deliveryReleasesQuery.data, deliveryReleasesQuery.isError, deliveryIterationsQuery.data, deliveryIterationsQuery.isError, requirementDeliveryScopeById]);
   const selectedPendingGeneratedCases = useMemo(
     () => selectedActionCases.filter((item) => item.ai_generation_source === "scheduler" && item.ai_generation_review_status === "pending"),
     [selectedActionCases]
@@ -4135,6 +3740,10 @@ export function TestCasesPage() {
   const selectedTestCase = selectedTestCaseDetailQuery.data?.id === selectedTestCaseId
     ? selectedTestCaseDetailQuery.data
     : null;
+  const selectedCaseDisplayId = selectedTestCase?.display_id?.trim()
+    || testCases.find((testCase) => testCase.id === selectedTestCaseId)?.display_id?.trim()
+    || deepLinkTestCases.find((testCase) => testCase.id === selectedTestCaseId)?.display_id?.trim()
+    || (/^TC[_-][a-z0-9_-]+$/i.test(requestedCaseRouteId) ? requestedCaseRouteId : "");
   const canLinkTestDataToCurrentCase = canViewTestData
     && (isCreating ? canCreateTestCases : canUpdateTestCases);
   const canCreateAndLinkTestData = canManageTestData && canLinkTestDataToCurrentCase;
@@ -4935,6 +4544,7 @@ export function TestCasesPage() {
     setModulePageCursorsById({});
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["global-test-cases", appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-metrics", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["test-case-detail", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["global-test-case-results", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["ai-test-case-generation-jobs", appTypeId] }),
@@ -4953,9 +4563,21 @@ export function TestCasesPage() {
       queryClient.invalidateQueries({ queryKey: ["test-suites"] }),
       queryClient.invalidateQueries({ queryKey: ["test-case-steps", selectedTestCaseId] }),
       queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-release-readiness", "project", projectId] }),
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) =>
+        queryKey[1] === projectId && ["requirement-detail", "requirement-route-detail", "requirement-sprint-health", "sprint-requirement-children"].includes(String(queryKey[0]))
+        || queryKey[2] === projectId && ["release-review-context", "release-review-stories", "release-review-cases", "release-review-bugs"].includes(String(queryKey[0]))
+      }),
       queryClient.invalidateQueries({ queryKey: ["design-test-cases", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["design-suites", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["test-cases"] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-picker-selected", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["test-case-picker-modules", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["suite-scope-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["bug-suite-picker", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["design-run-scope-cases", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["design-run-scope-stories", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] }),
       queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
     ]);
@@ -5011,7 +4633,13 @@ export function TestCasesPage() {
 
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: ["global-test-cases", appTypeId] }),
-      queryClient.invalidateQueries({ queryKey: ["requirements", projectId] })
+      queryClient.invalidateQueries({ queryKey: ["test-case-metrics", appTypeId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-release-readiness", "project", projectId] }),
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) =>
+        queryKey[1] === projectId && ["requirement-detail", "requirement-route-detail", "requirement-sprint-health", "sprint-requirement-children"].includes(String(queryKey[0]))
+        || queryKey[2] === projectId && ["release-review-context", "release-review-stories", "release-review-cases"].includes(String(queryKey[0]))
+      })
     ]);
   }, [appTypeId, generationJobSyncToken, projectId, queryClient]);
 
@@ -5397,18 +5025,18 @@ export function TestCasesPage() {
 
       if (isCreating) {
         lastCaseSaveNoticeRef.current = "";
-        const requirementIds = [...new Set([
+        const requirementIds = canViewRequirements ? [...new Set([
           ...(caseDraft.requirement_id ? [caseDraft.requirement_id] : []),
           ...(activeBugConversion?.requirementIds || [])
-        ])];
+        ])] : [];
         const moduleIds = [...new Set([
           ...(caseDraft.module_id ? [caseDraft.module_id] : []),
           ...(activeBugConversion?.moduleIds || [])
         ])];
-        const suiteIds = [...new Set([
+        const suiteIds = can("suite.view") ? [...new Set([
           ...(createSuiteContextId ? [createSuiteContextId] : []),
           ...(activeBugConversion?.suiteIds || [])
-        ])];
+        ])] : [];
         const response = await createTestCase.mutateAsync({
           app_type_id: appTypeId,
           source_issue_id: activeBugConversion?.bugId,
@@ -5513,7 +5141,7 @@ export function TestCasesPage() {
               : "not_automated",
             priority: Number(caseDraft.priority),
             status: caseDraft.status,
-            requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : [],
+            ...(canViewRequirements ? { requirement_ids: caseDraft.requirement_id ? [caseDraft.requirement_id] : [] } : {}),
             author_id: caseDraft.author_id,
             reviewer_id: caseDraft.reviewer_id || null,
             ai_quality_score: resolvedAiQualityScore,
@@ -6276,6 +5904,7 @@ export function TestCasesPage() {
 
 	  const handleCreateExecution = async (event: FormEvent<HTMLFormElement>) => {
 	    event.preventDefault();
+      if (pendingRunBuilder) return;
     if (executionStartDate && executionEndDate && executionEndDate < executionStartDate) {
       showError(new Error("End date must be on or after start date."), "Unable to create run");
       return;
@@ -6318,9 +5947,9 @@ export function TestCasesPage() {
         project_id: projectId,
         app_type_id: appTypeId,
         test_case_ids: selectedActionTestCaseIds,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
+        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         parallel_enabled: canConfigureParallelAutomation && executionParallelEnabled,
         parallel_count: canConfigureParallelAutomation && executionParallelEnabled ? executionParallelCount : 1,
         execution_mode: executionStartMode === "local" && canRunLocalAutomation
@@ -6328,8 +5957,8 @@ export function TestCasesPage() {
           : executionStartMode === "remote" && canRunRemoteAutomation ? "remote" : "manual",
         engine_base_url: executionStartMode === "local" && canRunLocalAutomation ? "http://host.docker.internal:4301" : undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
-        release: executionRelease.trim() || undefined,
-        sprint: executionSprint.trim() || undefined,
+        release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
+        sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
         build: executionBuild.trim() || undefined,
         name: executionName.trim() || undefined,
         start_date: executionStartDate || undefined,
@@ -7498,7 +7127,7 @@ export function TestCasesPage() {
           return canViewAutomationCode ? exportStep : stripAutomationStepFields(exportStep);
         });
         const sharedGroupIds = new Set(steps.map((step) => step.reusable_group_id).filter(Boolean));
-        const moduleRecords = testCaseModules.filter((module) => module.test_case_ids?.includes(testCase.id));
+        const moduleRecords = testCaseModules.filter((module) => testCase.module_ids?.includes(module.id) || module.test_case_ids?.includes(testCase.id));
         const dataSetIds = (testCase as TestCase & { test_data_set_ids?: string[]; test_data_set_id?: string | null }).test_data_set_ids
           || ((testCase as TestCase & { test_data_set_id?: string | null }).test_data_set_id ? [(testCase as TestCase & { test_data_set_id?: string }).test_data_set_id as string] : []);
 
@@ -8093,13 +7722,13 @@ export function TestCasesPage() {
           app_type_id: appTypeId,
           test_case_ids: [testCaseId],
           assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
-          release: executionRelease.trim() || undefined,
-          sprint: executionSprint.trim() || undefined,
+          release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
+          sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
           build: executionBuild.trim() || undefined,
           name: `${testCase.title} ${isApiOnlyLocalRun ? "Local API Run" : "Local Run"}`,
 	          created_by: session.user.id,
-	          test_environment_id: selectedExecutionEnvironmentId || undefined,
-          test_configuration_id: selectedExecutionConfigurationId || undefined,
+	          test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+          test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
           test_data_set_id: resolvedRunDataSetId,
           engine_base_url: isApiOnlyLocalRun ? "http://localhost:4301" : "http://localhost:4311"
         });
@@ -8120,14 +7749,14 @@ export function TestCasesPage() {
         app_type_id: appTypeId,
         test_case_ids: [testCaseId],
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
-        release: executionRelease.trim() || undefined,
-        sprint: executionSprint.trim() || undefined,
+        release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
+        sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
 	        build: executionBuild.trim() || undefined,
 	        name: `${testCase.title} Run`,
 	        created_by: session.user.id,
 	        execution_mode: mode === "remote" ? "remote" : undefined,
-	        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
+	        test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
+        test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
         test_data_set_id: resolvedRunDataSetId
       });
 
@@ -8253,68 +7882,13 @@ export function TestCasesPage() {
     }
   };
 
-  const coverageMetrics = useMemo(() => {
-    const covered = testCases.filter((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).filter(Boolean).length).length;
-    const automated = testCases.filter((testCase) => testCase.automated === "yes").length;
-    const automationKnown = testCases.filter((testCase) => ["yes", "no"].includes(String(testCase.automated || ""))).length;
-    const withHistory = testCases.filter((testCase) => (historyByCaseId[testCase.id] || []).length).length;
-    const withSuites = testCases.filter((testCase) => (testCase.suite_ids || []).length).length;
-
-    return {
-      total: testCases.length,
-      covered,
-      automated,
-      automationKnown,
-      withHistory,
-      withSuites
-    };
-  }, [historyByCaseId, testCases]);
-  const testCaseCatalogMetrics = useMemo(() => {
-    const unassignedTotal = testCasesQuery.data?.pages[0]?.total
-      ?? asArray(testCasesQuery.data?.pages).flatMap((page) => asArray(page.items)).length;
-    const total = unassignedTotal
-      + testCaseModules.reduce(
-        (sum, module) => sum + Math.max(0, Number(module.test_case_count ?? module.test_case_ids?.length ?? 0) || 0),
-        0
-      );
-    const automationPercent = coverageMetrics.automationKnown
-      ? Math.round((coverageMetrics.automated / coverageMetrics.automationKnown) * 100)
-      : 0;
-    const finalizedResults = executionResults.filter((result) =>
-      ["passed", "failed", "blocked"].includes(String(result.status || "").toLowerCase())
-    );
-    const passedResults = finalizedResults.filter((result) => String(result.status || "").toLowerCase() === "passed").length;
-    const recentPassRate = finalizedResults.length
-      ? Math.round((passedResults / finalizedResults.length) * 100)
-      : null;
-    const timedResults = finalizedResults
-      .filter((result) => ["passed", "failed"].includes(String(result.status || "").toLowerCase()))
-      .map((result) => result.duration_ms)
-      .filter((duration): duration is number =>
-        typeof duration === "number" && Number.isFinite(duration) && duration >= 0
-      );
-    const averageExecutionMs = timedResults.length
-      ? Math.round(timedResults.reduce((sum, duration) => sum + duration, 0) / timedResults.length)
-      : null;
-    const latestResults = Object.values(historyByCaseId)
-      .map((results) => results[0])
-      .filter(Boolean);
-    const blocked = latestResults.filter((result) => String(result.status || "").toLowerCase() === "blocked").length;
-    const failed = latestResults.filter((result) => String(result.status || "").toLowerCase() === "failed").length;
-
-    return {
-      automationPercent,
-      blocked,
-      critical: blocked + failed,
-      averageExecutionMs,
-      executionDurationSampleCount: timedResults.length,
-      failed,
-      finalizedResults: finalizedResults.length,
-      passedResults,
-      recentPassRate,
-      total
-    };
-  }, [coverageMetrics.automated, coverageMetrics.automationKnown, executionResults, historyByCaseId, testCaseModules, testCasesQuery.data]);
+  const coverageMetrics = testCaseMetricsQuery.data?.coverage || {
+    total: 0, covered: 0, automated: 0, automationKnown: 0, withHistory: 0, withSuites: 0
+  };
+  const testCaseCatalogMetrics = testCaseMetricsQuery.data?.catalog || {
+    total: 0, automationPercent: 0, blocked: 0, critical: 0, failed: 0, averageExecutionMs: null,
+    executionDurationSampleCount: 0, finalizedResults: 0, passedResults: 0, recentPassRate: null
+  };
   const importRows = useMemo(
     () => importBatches.flatMap((batch) => batch.rows),
     [importBatches]
@@ -8366,7 +7940,7 @@ export function TestCasesPage() {
     return "Mixed sources";
   }, [importBatches]);
   const isLibraryLoading = testCasesQuery.isLoading;
-  const isTestCaseCatalogMetricLoading = testCasesQuery.isLoading || testCaseModulesQuery.isLoading;
+  const isTestCaseCatalogMetricLoading = !testCaseMetricsQuery.data;
 
   const selectedRequirement = requirements.find((item) => item.id === caseDraft.requirement_id) || null;
   const caseDraftLabels = useMemo(() => parseReferenceList(caseDraft.labelsText), [caseDraft.labelsText]);
@@ -9064,17 +8638,12 @@ export function TestCasesPage() {
     <div className="panel-head-actions-row test-case-workspace-commandbar">
         <div className="test-case-workspace-identity">
           <WorkspaceBackButton disabled={isTestCaseWorkspaceMutationPending} label="Back to test case tiles" onClick={handleWorkspaceBack} />
-        {selectedTestCase && mainSteps.length ? (
-          <span className="test-case-workspace-record-id test-case-identity">
-            <TestCaseIcon size={15} strokeWidth={1.8} />
-            <DisplayIdBadge value={selectedTestCase.display_id || selectedTestCase.id} />
-          </span>
-        ) : isCreating ? (
+        {isCreating ? (
           <span className="test-case-workspace-draft-badge">New</span>
-        ) : selectedTestCaseId ? (
+        ) : selectedCaseDisplayId ? (
           <span className="test-case-workspace-record-id test-case-identity">
             <TestCaseIcon size={15} strokeWidth={1.8} />
-            <DisplayIdBadge value={selectedTestCaseId} />
+            <DisplayIdBadge value={selectedCaseDisplayId} />
           </span>
         ) : null}
         <h1 className="test-case-workspace-title" title={(isCreating ? caseDraft.title : readableCaseTitle).trim() || undefined}>
@@ -9689,7 +9258,7 @@ export function TestCasesPage() {
 
   const testCaseListRowGroups = [
     ...visibleModuleCaseGroups.map(({ module, cases }) => {
-      const isCollapsed = !expandedModuleIds.includes(module.id);
+      const isCollapsed = !isModuleExpanded(module.id);
       const modulePageState = modulePageStateById[module.id];
       const isSelected = selectedModuleIds.includes(module.id);
       const moduleCaseIds = cases.map((testCase) => testCase.id);
@@ -9828,7 +9397,7 @@ export function TestCasesPage() {
         footer: !isCollapsed ? renderModuleLoadMoreFooter(module.id, module.name) : null
       };
     }),
-    ...(moduleCaseGroups.unassignedCases.length || testCasesQuery.hasNextPage ? [{
+    ...(moduleCaseGroups.unassignedCases.length || (!isCatalogFiltered && testCasesQuery.hasNextPage) ? [{
       key: "unassigned",
       isCollapsed: !isUnassignedModuleExpanded,
       rows: isUnassignedModuleExpanded ? moduleCaseGroups.unassignedCases : [],
@@ -9868,7 +9437,7 @@ export function TestCasesPage() {
               <span className="sr-only">{areAllUnassignedCasesSelected ? "Clear all selected test cases" : "Select all test cases"}</span>
             </button>
           ) : null}
-          {testCasesQuery.hasNextPage || testCasesQuery.isFetchingNextPage
+          {!testCaseMetricsQuery.data
             ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
             : renderModuleMetrics(moduleHealth.unassigned)}
         </div>
@@ -9876,8 +9445,8 @@ export function TestCasesPage() {
       content: isUnassignedModuleExpanded && !moduleCaseGroups.unassignedCases.length ? (
         <div className="empty-state compact">No Ungrouped test cases are loaded yet.</div>
       ) : null,
-      footer: isUnassignedModuleExpanded && testCasesQuery.hasNextPage ? (
-        <HierarchyAutoLoadSentinel isLoading={testCasesQuery.isFetchingNextPage} onLoad={() => testCasesQuery.fetchNextPage()} scopeLabel="Ungrouped test cases" />
+      footer: !isCatalogFiltered && isUnassignedModuleExpanded && testCasesQuery.hasNextPage ? (
+        <HierarchyAutoLoadSentinel isLoading={testCasesQuery.isFetchingNextPage} error={testCasesQuery.isFetchNextPageError ? testCasesQuery.error : undefined} onRetry={() => testCasesQuery.fetchNextPage()} progressKey={`${catalogFilterKey}:${testCasesQuery.isPlaceholderData}:${testCasesQuery.data?.pages.length}`} onLoad={() => { if (!testCasesQuery.isPlaceholderData) return testCasesQuery.fetchNextPage(); }} scopeLabel="Ungrouped test cases" />
       ) : null
     }] : [])
   ];
@@ -10226,6 +9795,11 @@ export function TestCasesPage() {
       />
       {!isCaseWorkspaceOpen ? (
         <>
+          {testCaseMetricsQuery.isError ? (
+            <div className="inline-message error-message" role="alert">Metrics could not be refreshed.
+              <button className="ghost-button compact" onClick={() => void testCaseMetricsQuery.refetch()} type="button">Retry</button>
+            </div>
+          ) : null}
           <QualityMetricStrip
             ariaLabel="Test case library quality metrics"
             metrics={[
@@ -10247,10 +9821,10 @@ export function TestCasesPage() {
               }] : []),
               {
                 label: "Avg execution",
-                value: !canViewExecutionInsights || executionResultsQuery.isLoading ? "—" : formatCompactDuration(testCaseCatalogMetrics.averageExecutionMs),
+                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : formatCompactDuration(testCaseCatalogMetrics.averageExecutionMs),
                 detail: !canViewExecutionInsights
                   ? "Run result access required"
-                  : executionResultsQuery.isLoading
+                  : isTestCaseCatalogMetricLoading
                   ? "Loading execution time"
                   : testCaseCatalogMetrics.executionDurationSampleCount
                     ? `${testCaseCatalogMetrics.executionDurationSampleCount} recent finalized result${testCaseCatalogMetrics.executionDurationSampleCount === 1 ? "" : "s"}`
@@ -10259,10 +9833,10 @@ export function TestCasesPage() {
               },
               {
                 label: "Recent pass rate",
-                value: !canViewExecutionInsights || executionResultsQuery.isLoading || testCaseCatalogMetrics.recentPassRate === null ? "—" : `${testCaseCatalogMetrics.recentPassRate}%`,
+                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading || testCaseCatalogMetrics.recentPassRate === null ? "—" : `${testCaseCatalogMetrics.recentPassRate}%`,
                 detail: !canViewExecutionInsights
                   ? "Run result access required"
-                  : executionResultsQuery.isLoading
+                  : isTestCaseCatalogMetricLoading
                   ? "Loading recent results"
                   : testCaseCatalogMetrics.finalizedResults
                   ? `${testCaseCatalogMetrics.passedResults} of ${testCaseCatalogMetrics.finalizedResults} passed`
@@ -10271,13 +9845,13 @@ export function TestCasesPage() {
               },
               {
                 label: "Critical issues",
-                value: !canViewExecutionInsights || executionResultsQuery.isLoading ? "—" : testCaseCatalogMetrics.critical,
+                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : testCaseCatalogMetrics.critical,
                 detail: !canViewExecutionInsights
                   ? "Run result access required"
-                  : executionResultsQuery.isLoading
+                  : isTestCaseCatalogMetricLoading
                   ? "Loading recent results"
                   : `${testCaseCatalogMetrics.blocked} blocked · ${testCaseCatalogMetrics.failed} failed`,
-                tone: !canViewExecutionInsights || executionResultsQuery.isLoading ? "neutral" : "danger"
+                tone: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "neutral" : "danger"
               }
             ]}
           />
@@ -10478,7 +10052,7 @@ export function TestCasesPage() {
                     label: "AI Test Cases Generation",
                     description: "Generate draft test cases from linked stories with AI assistance.",
                     icon: <TestCaseSparkIcon />,
-                    disabled: !canUseTestCaseAi || !canCreateTestCases || !requirements.length || !appTypeId,
+                    disabled: !canUseTestCaseAi || !canCreateTestCases || !canViewRequirements || !appTypeId,
                     onClick: openAiStudio
                   }
                 ]}
@@ -10570,7 +10144,7 @@ export function TestCasesPage() {
 
             {hasIncompleteCaseFilterScope ? (
               <div className="hierarchy-filter-scope-note" role="status">
-                Search and filters are still indexing the remaining test cases. Results update automatically as background pages arrive.
+                Updating filtered test cases…
               </div>
             ) : null}
 
@@ -10581,12 +10155,21 @@ export function TestCasesPage() {
             </div>
             <TileBrowserPane className="test-case-library-scroll" scrollKey={`test-cases:${projectId}:${appTypeId}`}>
               {isLibraryLoading ? <TileCardSkeletonGrid /> : null}
+              {testCasesQuery.isFetching && !testCasesQuery.isFetchingNextPage && !isLibraryLoading ? (
+                <div className="hierarchy-pagination-status" role="status" aria-live="polite">Updating test cases…</div>
+              ) : null}
+              {testCasesQuery.isError && !testCasesQuery.data ? (
+                <div className="inline-message error-message" role="alert">
+                  Test cases could not be loaded.
+                  <button className="ghost-button compact" onClick={() => void testCasesQuery.refetch()} type="button">Retry</button>
+                </div>
+              ) : null}
 
               {!isLibraryLoading && (filteredCases.length || visibleModuleCaseGroups.length || testCasesQuery.hasNextPage) && catalogViewMode === "tile" ? (
                 <div className="tile-browser-grid">
 	                  {visibleModuleTileEntries.map((entry, entryIndex) => {
                     if (entry.kind === "module") {
-                      const isCollapsed = !expandedModuleIds.includes(entry.module.id);
+                      const isCollapsed = !isModuleExpanded(entry.module.id);
                       const modulePageState = modulePageStateById[entry.module.id];
                       const isSelected = selectedModuleIds.includes(entry.module.id);
                       const moduleCases = moduleCaseGroups.groups.find(({ module }) => module.id === entry.module.id)?.cases || [];
@@ -10758,7 +10341,7 @@ export function TestCasesPage() {
                               <span className="sr-only">{areAllUnassignedCasesSelected ? "Clear all selected test cases" : "Select all test cases"}</span>
                             </button>
                           ) : null}
-                          {testCasesQuery.hasNextPage || testCasesQuery.isFetchingNextPage
+                          {!testCaseMetricsQuery.data
                             ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
                             : renderModuleMetrics(moduleHealth.unassigned)}
                         </div>
@@ -11070,11 +10653,14 @@ export function TestCasesPage() {
                   })}
                 </div>
               ) : null}
-              {!isLibraryLoading && catalogViewMode === "tile" && isUnassignedModuleExpanded && isUnassignedModuleTileVisible && testCasesQuery.hasNextPage ? (
+              {!isLibraryLoading && catalogViewMode === "tile" && !hasMoreVisibleTestCases && (isCatalogFiltered || (isUnassignedModuleExpanded && isUnassignedModuleTileVisible)) && testCasesQuery.hasNextPage ? (
                 <HierarchyAutoLoadSentinel
                   isLoading={testCasesQuery.isFetchingNextPage}
-                  onLoad={() => testCasesQuery.fetchNextPage()}
-                  scopeLabel="unassigned test cases"
+                  error={testCasesQuery.isFetchNextPageError ? testCasesQuery.error : undefined}
+                  onRetry={() => testCasesQuery.fetchNextPage()}
+                  progressKey={`${catalogFilterKey}:${testCasesQuery.isPlaceholderData}:${testCasesQuery.data?.pages.length}`}
+                  onLoad={() => { if (!testCasesQuery.isPlaceholderData) return testCasesQuery.fetchNextPage(); }}
+                  scopeLabel={isCatalogFiltered ? "matching test cases" : "unassigned test cases"}
                 />
               ) : null}
               {!isLibraryLoading && (filteredCases.length || visibleModuleCaseGroups.length || testCasesQuery.hasNextPage) && catalogViewMode === "list" ? (
@@ -11095,22 +10681,31 @@ export function TestCasesPage() {
                   storageKey="hellotest:test-cases:list-columns:v2"
                 />
               ) : null}
+              {!isLibraryLoading && catalogViewMode === "list" && isCatalogFiltered && testCasesQuery.hasNextPage ? (
+                <HierarchyAutoLoadSentinel
+                  isLoading={testCasesQuery.isFetchingNextPage || testCasesQuery.isPlaceholderData}
+                  error={testCasesQuery.isFetchNextPageError ? testCasesQuery.error : undefined}
+                  onRetry={() => testCasesQuery.fetchNextPage()}
+                  progressKey={`${catalogFilterKey}:${testCasesQuery.data?.pages.length}`}
+                  onLoad={() => { if (!testCasesQuery.isPlaceholderData) return testCasesQuery.fetchNextPage(); }}
+                  scopeLabel="matching test cases"
+                />
+              ) : null}
 	              {!isLibraryLoading && hasMoreVisibleTestCases ? (
 	                <div className="catalog-progressive-load">
 	                  <span>
 	                    Showing {visibleTileCaseCount} of {totalTileCaseCount} matching test cases.
 	                  </span>
-	                  <button
-	                    className="primary-button"
-	                    onClick={() => setVisibleTestCaseCount((current) => current + TEST_CASE_RENDER_BATCH_SIZE)}
-	                    type="button"
-	                  >
-	                    Show more on this page
-	                  </button>
+                  <HierarchyAutoLoadSentinel
+                    isLoading={false}
+                    onLoad={() => setVisibleTestCaseCount((current) => current + TEST_CASE_RENDER_BATCH_SIZE)}
+                    progressKey={visibleTestCaseCount}
+                    scopeLabel="test cases"
+                  />
 	                </div>
 	              ) : null}
-	              {!isLibraryLoading && !filteredCases.length && !visibleModuleCaseGroups.length && !testCasesQuery.hasNextPage ? (
-                testCases.length ? (
+	              {!isLibraryLoading && !testCasesQuery.isError && !filteredCases.length && !visibleModuleCaseGroups.length && !testCasesQuery.hasNextPage ? (
+                hasActiveCaseCatalogFilter || testCases.length ? (
                   <div className="empty-state compact">No test cases match the current search.</div>
                 ) : (
                   <div className="empty-state compact">
@@ -11283,7 +10878,7 @@ export function TestCasesPage() {
                             <span>Test case ID</span>
                             <span className="test-case-detail-record-id test-case-identity">
                               <TestCaseIcon size={15} strokeWidth={1.8} />
-                              <DisplayIdBadge value={selectedTestCase.display_id || selectedTestCase.id} />
+                              <DisplayIdBadge value={selectedCaseDisplayId || "Unavailable"} />
                             </span>
                           </div>
                         ) : null}
@@ -11482,7 +11077,7 @@ export function TestCasesPage() {
                               ))}
                             </select>
                           </FormField>
-                          {isCreating ? (
+                          {isCreating && canViewDeliveryScopes ? (
                             <FormField label="Release" hint="Filters the Story choices without storing duplicate release data on the test case.">
                               <select
                                 aria-label="Test case release scope"
@@ -11498,7 +11093,7 @@ export function TestCasesPage() {
                               </select>
                             </FormField>
                           ) : null}
-                          {isCreating ? (
+                          {isCreating && canViewDeliveryScopes ? (
                             <FormField label="Sprint" hint="Filters Story choices to the selected sprint.">
                               <select
                                 aria-label="Test case sprint scope"
@@ -11514,7 +11109,7 @@ export function TestCasesPage() {
                               </select>
                             </FormField>
                           ) : null}
-                          <FormField
+                          {canViewRequirements ? <FormField
                             label="Story"
                             hint={isCreating && (caseDeliveryRelease || caseDeliverySprint)
                               ? `${creationRequirementOptions.length} matching ${creationRequirementOptions.length === 1 ? "story" : "stories"}`
@@ -11531,7 +11126,7 @@ export function TestCasesPage() {
                                 </option>
                               ))}
                             </select>
-                          </FormField>
+                          </FormField> : null}
                           <FormField label="Module">
                             <select
                               value={caseDraft.module_id}
@@ -12382,7 +11977,7 @@ export function TestCasesPage() {
                             >
                               <div className="tile-card-main">
                                 <div className="tile-card-select-row test-case-card-header">
-                                  <DisplayIdBadge value={automationCase.display_id || automationCase.id} />
+                                  <DisplayIdBadge value={automationCase.display_id?.trim() || "Unavailable"} />
                                   <div className="catalog-inline-actions test-case-top-actions">
                                     <StatusBadge value="automated" />
                                     <StatusBadge value={automationCase.automation_status || "incomplete"} />
@@ -12501,7 +12096,7 @@ export function TestCasesPage() {
                       canView={canViewAttachments}
                       entityId={selectedTestCase.id}
                       entityType="test_case"
-                      issueKey={selectedTestCase.display_id || selectedTestCase.id}
+                      issueKey={selectedCaseDisplayId || "this Test Case"}
                       projectId={projectId}
                     />
                   </div>
@@ -12769,13 +12364,12 @@ export function TestCasesPage() {
 
       {isCreateSuiteModalOpen ? (
         <TestCaseSuiteModal
+          projectId={projectId}
+          appTypeId={appTypeId}
           appTypeCases={testCases}
           availableLabels={existingSuiteLabels}
           canConfigureParallelAutomation={canConfigureParallelAutomation}
           isSaving={createSuite.isPending || assignSuiteCases.isPending}
-          modules={testCaseModules}
-          requirements={requirements}
-          sharedStepGroups={sharedStepGroups}
           onClose={() => setIsCreateSuiteModalOpen(false)}
           onSubmit={handleCreateSuite}
           selectedCaseIds={selectedActionTestCaseIds}
@@ -12784,17 +12378,16 @@ export function TestCasesPage() {
 
       {isCreateModuleModalOpen ? (
         <TestCaseCreateModuleModal
+          projectId={projectId}
+          appTypeId={appTypeId}
           assignmentRetryName={moduleAssignmentRetry?.name}
           canAssignCases={canUpdateTestCases}
           canSelectRequirements={canViewRequirements}
           candidateRequirements={modulePickerRequirements}
           candidateTestCases={modulePickerTestCases}
-          hasMoreCases={Boolean(modulePickerCasesQuery.hasNextPage)}
           hasMoreRequirements={Boolean(modulePickerRequirementsQuery.hasNextPage)}
           initialSelectedIds={moduleDraftInitialCaseIds}
-          isLoadingCases={modulePickerCasesQuery.isPending}
           isLoadingRequirements={modulePickerRequirementsQuery.isPending}
-          isLoadingMoreCases={modulePickerCasesQuery.isFetchingNextPage}
           isLoadingMoreRequirements={modulePickerRequirementsQuery.isFetchingNextPage}
           isSaving={isCreatingModuleWorkflow || createTestCaseModule.isPending || assignCasesToModule.isPending}
           moduleNameByCaseId={moduleNameByPickerCaseId}
@@ -12803,8 +12396,7 @@ export function TestCasesPage() {
             setModuleDraftInitialCaseIds([]);
             setModuleAssignmentRetry(null);
           }}
-          onLoadMoreCases={() => void modulePickerCasesQuery.fetchNextPage()}
-          onLoadMoreRequirements={() => void modulePickerRequirementsQuery.fetchNextPage()}
+          onLoadMoreRequirements={() => modulePickerRequirementsQuery.fetchNextPage()}
           onResolveRequirementCases={(requirementIds) => api.testCases.resolveRequirementCases({
             app_type_id: appTypeId,
             requirement_ids: requirementIds
@@ -12928,6 +12520,7 @@ export function TestCasesPage() {
 
       {isCreateExecutionModalOpen ? (
         <TestCaseExecutionModal
+          isPreparingOptions={Boolean(pendingRunBuilder)}
           appTypeId={appTypeId}
           assigneeOptions={assigneeOptions}
 	          canCreateExecution={Boolean(
@@ -12967,8 +12560,8 @@ export function TestCasesPage() {
           onExecutionNameChange={setExecutionName}
           onExecutionParallelCountChange={setExecutionParallelCount}
           onExecutionParallelEnabledChange={setExecutionParallelEnabled}
-          onExecutionReleaseChange={setExecutionRelease}
-          onExecutionSprintChange={setExecutionSprint}
+          onExecutionReleaseChange={(value) => { runDeliveryFieldsEditedRef.current.release = true; setExecutionRelease(value); }}
+          onExecutionSprintChange={(value) => { runDeliveryFieldsEditedRef.current.sprint = true; setExecutionSprint(value); }}
           onExecutionStartModeChange={setExecutionStartMode}
           onRemoveTestCase={(testCaseId) =>
             setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCaseId))
@@ -13599,7 +13192,7 @@ function TestCaseSuiteTransferModal({
 }: {
   action: SuiteTransferAction;
   caseCount: number;
-  projects: Project[];
+  projects: Pick<Project, "id" | "display_id" | "name">[];
   appTypes: AppType[];
   currentAppTypeId: string;
   targetProjectId: string;
@@ -13614,12 +13207,13 @@ function TestCaseSuiteTransferModal({
   onSubmit: () => void;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
+  const { can } = useCapabilityAccess(targetProjectId);
   const targetAppType = appTypes.find((item) => item.id === targetAppTypeId) || null;
-  const targetSuitesQuery = useQuery({
+  const targetSuitesQuery = optionalQueryView(useQuery({
     queryKey: ["test-case-suites", targetAppTypeId],
     queryFn: () => api.testSuites.list({ app_type_id: targetAppTypeId }),
-    enabled: Boolean(targetAppTypeId)
-  });
+    enabled: can("suite.view") && Boolean(targetAppTypeId)
+  }), can("suite.view"));
   const targetSuites = asArray(targetSuitesQuery.data);
   const selectedSuiteSet = useMemo(() => new Set(selectedSuiteIds), [selectedSuiteIds]);
   const scopedAppTypes = useMemo(
@@ -13811,76 +13405,33 @@ function TestCaseSuiteTransferModal({
 }
 
 function TestCaseSuiteModal({
+  projectId,
+  appTypeId,
   appTypeCases,
   availableLabels,
   canConfigureParallelAutomation,
-  modules,
-  requirements,
-  sharedStepGroups,
   selectedCaseIds,
   onClose,
   onSubmit,
   isSaving
 }: {
+  projectId: string;
+  appTypeId: string;
   appTypeCases: TestCase[];
   availableLabels: string[];
   canConfigureParallelAutomation: boolean;
-  modules: TestCaseModule[];
-  requirements: Requirement[];
-  sharedStepGroups: SharedStepGroup[];
   selectedCaseIds: string[];
   onClose: () => void;
   onSubmit: (input: { name: string; description: string; labels: string[]; selectedIds: string[]; parallel_enabled: boolean; parallel_count: number }) => void;
   isSaving: boolean;
 }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
-  const initialSelectedIds = useMemo(
-    () => selectedCaseIds.filter((testCaseId) => appTypeCases.some((testCase) => testCase.id === testCaseId)),
-    [appTypeCases, selectedCaseIds]
-  );
-  const moduleLabelByCaseId = useMemo(() => {
-    const map: Record<string, string> = {};
-    modules.forEach((module) => {
-      (module.test_case_ids || []).forEach((testCaseId) => {
-        map[testCaseId] = module.name;
-      });
-    });
-    return map;
-  }, [modules]);
-  const metadataByCaseId = useMemo<SuitePickerMetadataByCaseId>(() => {
-    const metadata: SuitePickerMetadataByCaseId = {};
-    const ensure = (testCaseId: string) => (metadata[testCaseId] ||= { modules: [], requirements: [], sharedStepGroups: [] });
-    const moduleById = new Map(modules.map((module) => [module.id, module]));
-    const addModuleMetadata = (testCaseId: string, moduleId: string) => {
-      const module = moduleById.get(moduleId);
-      if (module) ensure(testCaseId).modules?.push(module.display_id ? `${module.display_id} · ${module.name}` : module.name);
-    };
-    modules.forEach((module) => (module.test_case_ids || []).forEach((testCaseId) => addModuleMetadata(testCaseId, module.id)));
-    appTypeCases.forEach((testCase) => (testCase.module_ids || []).forEach((moduleId) => addModuleMetadata(testCase.id, moduleId)));
-    requirements.forEach((requirement) => (requirement.test_case_ids || []).forEach((testCaseId) => ensure(testCaseId).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title)));
-    appTypeCases.forEach((testCase) => (testCase.requirement_ids || [testCase.requirement_id]).filter(Boolean).forEach((requirementId) => {
-      const requirement = requirements.find((item) => item.id === requirementId);
-      if (requirement) ensure(testCase.id).requirements?.push(requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title);
-    }));
-    sharedStepGroups.forEach((group) => (group.used_test_cases || []).forEach((testCase) => ensure(testCase.id).sharedStepGroups?.push(group.display_id ? `${group.display_id} · ${group.name}` : group.name)));
-    Object.values(metadata).forEach((entry) => {
-      entry.modules = Array.from(new Set(entry.modules));
-      entry.requirements = Array.from(new Set(entry.requirements));
-      entry.sharedStepGroups = Array.from(new Set(entry.sharedStepGroups));
-    });
-    return metadata;
-  }, [appTypeCases, modules, requirements, sharedStepGroups]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [labelsText, setLabelsText] = useState("");
   const [parallelEnabled, setParallelEnabled] = useState(false);
   const [parallelCount, setParallelCount] = useState(1);
-  const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => initialSelectedIds);
-  const initialSelectedIdsKey = initialSelectedIds.join("::");
-
-  useEffect(() => {
-    setLocalSelectedIds(initialSelectedIds);
-  }, [initialSelectedIdsKey]);
+  const [localSelectedIds, setLocalSelectedIds] = useState<string[]>(() => [...new Set(selectedCaseIds)]);
 
   return (
     <div className="modal-backdrop suite-authoring-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
@@ -13993,16 +13544,15 @@ function TestCaseSuiteModal({
             </section>
 
             <div className="suite-modal-picker-shell">
-              <SuiteCasePicker
-                cases={appTypeCases}
-                description="Use bulk selection when needed, then set the saved suite order before creating it."
+              <TestCasePicker
+                projectId={projectId}
+                appTypeId={appTypeId}
+                initialItems={appTypeCases}
+                allowReorder
                 disabled={isSaving}
-                emptyMessage="No test cases available in this app type yet."
                 heading="Reusable test cases"
-                moduleLabelByCaseId={moduleLabelByCaseId}
-                metadataByCaseId={metadataByCaseId}
                 onChange={setLocalSelectedIds}
-                selectedCaseIds={localSelectedIds}
+                selectedIds={localSelectedIds}
               />
             </div>
           </div>
@@ -14196,6 +13746,7 @@ function TestCaseSuiteLinkModal({
 }
 
 function TestCaseExecutionModal({
+  isPreparingOptions,
   testCases,
   selectedProject,
   selectedAppType,
@@ -14239,6 +13790,7 @@ function TestCaseExecutionModal({
   onClose,
   onSubmit
 }: {
+  isPreparingOptions: boolean;
   testCases: TestCase[];
   selectedProject: string;
   selectedAppType: string;
@@ -14282,6 +13834,7 @@ function TestCaseExecutionModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { can } = useCapabilityAccess(projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSubmitting, onClose });
   return (
     <div className="modal-backdrop" onClick={() => !isSubmitting && onClose()} role="presentation">
@@ -14304,6 +13857,7 @@ function TestCaseExecutionModal({
           </div>
 
           <div className="execution-create-body">
+            {isPreparingOptions ? <p className="inline-message" role="status">Preparing Release and Sprint options… You can continue configuring this run.</p> : null}
             <div className="execution-create-grid">
               <FormField label="Run name">
                 <input
@@ -14324,7 +13878,7 @@ function TestCaseExecutionModal({
             </div>
 
             <div className="execution-create-grid execution-create-grid--metadata">
-              <FormField label="Release">
+              {can("requirement_iteration.view") ? <FormField label="Release">
                 <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
                   <option value="">No release</option>
                   {releaseOptions.map((option) => (
@@ -14333,8 +13887,8 @@ function TestCaseExecutionModal({
                     </option>
                   ))}
                 </select>
-              </FormField>
-              <FormField label="Sprint">
+              </FormField> : null}
+              {can("requirement_iteration.view") ? <FormField label="Sprint">
                 <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
                   <option value="">No sprint</option>
                   {sprintOptions.map((option) => (
@@ -14343,7 +13897,7 @@ function TestCaseExecutionModal({
                     </option>
                   ))}
                 </select>
-              </FormField>
+              </FormField> : null}
               <FormField label="Build">
                 <input placeholder="Build 2026.07.02" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
               </FormField>
@@ -14430,7 +13984,7 @@ function TestCaseExecutionModal({
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel
             </button>
-            <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
+            <button className="primary-button" disabled={!canCreateExecution || isSubmitting || isPreparingOptions} type="submit">
               {isSubmitting
                 ? "Creating…"
                 : executionStartMode === "local"
@@ -15421,12 +14975,12 @@ function EditableStepCard({
           </InlineStepToolButton> : null}
           <InlineStepToolButton
             ariaLabel={`Rephrase step ${step.step_order} with AI`}
-            className={isRephrasing ? "is-active is-loading" : ""}
+            className={isRephrasing ? "is-active" : ""}
             disabled={isRephrasing}
             onClick={onRephrase}
             title={isRephrasing ? "AI is rephrasing this step" : "Rephrase step with AI"}
           >
-            <StepAiIcon />
+            {isRephrasing ? <LoadingState label={`Rephrasing step ${step.step_order}`} /> : <StepAiIcon />}
           </InlineStepToolButton>
           {showAutomationTools ? <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
@@ -15656,12 +15210,12 @@ function DraftStepCard({
           </InlineStepToolButton> : null}
           <InlineStepToolButton
             ariaLabel={`Rephrase step ${step.step_order} with AI`}
-            className={isRephrasing ? "is-active is-loading" : ""}
+            className={isRephrasing ? "is-active" : ""}
             disabled={isRephrasing}
             onClick={onRephrase}
             title={isRephrasing ? "AI is rephrasing this step" : "Rephrase step with AI"}
           >
-            <StepAiIcon />
+            {isRephrasing ? <LoadingState label={`Rephrasing step ${step.step_order}`} /> : <StepAiIcon />}
           </InlineStepToolButton>
           {showAutomationTools ? <InlineStepToolButton
             ariaLabel={`Edit automation for step ${step.step_order}`}
@@ -15810,7 +15364,7 @@ function TestDataSetPickerDialog({
               </label>
             );
           })}
-          {isLoading ? <div className="empty-state compact">Loading data sets…</div> : null}
+          {isLoading ? <LoadingState label="Loading data sets" /> : null}
           {!isLoading && !dataSets.length ? (
             <div className="empty-state compact test-data-set-picker-empty">
               <strong>No reusable data sets exist yet.</strong>

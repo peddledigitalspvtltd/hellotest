@@ -1,5 +1,4 @@
 const db = require("../db");
-const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
 const { APP_TYPE_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
@@ -36,7 +35,13 @@ const selectUserById = db.prepare(`
   WHERE id = ?
 `);
 
-const deleteProjectTransactionEvents = obsDb.prepare(`
+const selectProjectForDeletion = db.prepare(`
+  SELECT id FROM projects WHERE id = ? FOR UPDATE
+`);
+
+// Execution activity lives in the same database as project records. Use the
+// same adapter so a later constraint failure also rolls this cleanup back.
+const deleteProjectTransactionEvents = db.prepare(`
   DELETE FROM workspace_transaction_events
   WHERE transaction_id IN (
     SELECT id
@@ -199,6 +204,36 @@ const deleteProjectAiGenerationJobs = db.prepare(`
   WHERE project_id = ?
 `);
 
+const deleteProjectKnowledge = db.prepare(`
+  DELETE FROM ai_knowledge_repo WHERE project_id = ?
+`);
+
+const deleteProjectPromptTemplates = db.prepare(`
+  DELETE FROM ai_prompt_templates WHERE project_id = ?
+`);
+
+const deleteProjectWorkflowRuns = db.prepare(`
+  DELETE FROM agentic_workflow_runs WHERE project_id = ?
+`);
+
+const deleteProjectWorkflows = db.prepare(`
+  DELETE FROM agentic_workflows WHERE project_id = ?
+`);
+
+const deleteProjectAutomationJobs = db.prepare(`
+  DELETE FROM automation_generator_jobs
+  WHERE project_id = ?
+    OR (project_id IS NULL AND (
+      transaction_id IN (SELECT id FROM workspace_transactions WHERE project_id = ?)
+      OR app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)
+      OR test_case_id IN (
+        SELECT test_cases.id FROM test_cases
+        JOIN app_types ON app_types.id = test_cases.app_type_id
+        WHERE app_types.project_id = ?
+      )
+    ))
+`);
+
 const clearDeletedProjectIntegrationScope = db.prepare(`
   UPDATE integrations
   SET
@@ -215,7 +250,7 @@ const clearDeletedProjectIntegrationScope = db.prepare(`
      OR project_key = ?
 `);
 
-const deleteProjectWorkspaceTransactions = obsDb.prepare(`
+const deleteProjectWorkspaceTransactions = db.prepare(`
   DELETE FROM workspace_transactions
   WHERE project_id = ?
 `);
@@ -506,10 +541,12 @@ exports.updateProject = async (id, data) => {
 };
 
 exports.deleteProject = async (id) => {
-  await exports.getProject(id);
-  const projectAttachmentObjects = await attachmentService.listProjectObjects(id);
-
   const executeDelete = db.transaction(async () => {
+    if (!await selectProjectForDeletion.get(id)) throw new Error("Project not found");
+    const projectAttachmentObjects = await attachmentService.listProjectObjects(id);
+    await deleteProjectAutomationJobs.run(id, id, id, id);
+    await deleteProjectTransactionEvents.run(id);
+    await deleteProjectWorkspaceTransactions.run(id);
     await deleteProjectExecutionResults.run(id, id);
     await deleteProjectExecutionStepSnapshots.run(id);
     await deleteProjectExecutionCaseSnapshots.run(id);
@@ -528,19 +565,18 @@ exports.deleteProject = async (id) => {
     await deleteProjectTestConfigurations.run(id);
     await deleteProjectTestDataSets.run(id);
     await deleteProjectAiGenerationJobs.run(id);
+    await deleteProjectKnowledge.run(id);
+    await deleteProjectPromptTemplates.run(id);
+    await deleteProjectWorkflowRuns.run(id);
+    await deleteProjectWorkflows.run(id);
     await clearDeletedProjectIntegrationScope.run(id, id, id, id);
     await deleteProjectAppTypes.run(id);
     await deleteProjectMembers.run(id);
     await deleteProjectRecord.run(id);
+    return projectAttachmentObjects;
   });
 
-  const executeObsDelete = obsDb.transaction(async () => {
-    await deleteProjectTransactionEvents.run(id);
-    await deleteProjectWorkspaceTransactions.run(id);
-  });
-
-  await executeObsDelete();
-  await executeDelete();
+  const projectAttachmentObjects = await executeDelete();
   const attachmentCleanup = await attachmentService.purgeProjectObjects(id, projectAttachmentObjects);
   return { deleted: true, attachment_cleanup: attachmentCleanup };
 };

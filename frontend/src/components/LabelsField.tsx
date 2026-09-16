@@ -13,6 +13,7 @@ export function LabelsField({
   value,
   options = [],
   required = false,
+  disabled = false,
   onChange
 }: {
   className?: string;
@@ -21,6 +22,7 @@ export function LabelsField({
   value: string;
   options?: Array<string | Pick<DomainOption, "value" | "label">>;
   required?: boolean;
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   const [draftLabel, setDraftLabel] = useState("");
@@ -67,6 +69,7 @@ export function LabelsField({
   }, [isMenuOpen]);
 
   const commitLabel = (rawLabel: string) => {
+    if (disabled) return;
     const nextLabel = resolveDomainSuggestionValue(rawLabel, suggestions);
     if (!nextLabel) return;
     if (!selectedLabels.some((item) => item.toLowerCase() === nextLabel.toLowerCase())) {
@@ -77,6 +80,7 @@ export function LabelsField({
   };
 
   const removeLabel = (labelToRemove: string) => {
+    if (disabled) return;
     onChange(formatReferenceList(selectedLabels.filter((item) => item.toLowerCase() !== labelToRemove.toLowerCase())));
   };
 
@@ -93,6 +97,7 @@ export function LabelsField({
         <div className="requirement-label-combobox">
           <div className="requirement-label-entry">
             <input
+              disabled={disabled}
               aria-activedescendant={isMenuOpen && menuOptions.length ? `${menuId}-${activeLabelIndex}` : undefined}
               aria-autocomplete="list"
               aria-controls={menuId}
@@ -130,12 +135,12 @@ export function LabelsField({
               }}
             />
             {normalizedDraftLabel ? (
-              <button className="ghost-button requirement-label-add-button" onClick={() => commitLabel(normalizedDraftLabel)} type="button">
+              <button className="ghost-button requirement-label-add-button" disabled={disabled} onClick={() => commitLabel(normalizedDraftLabel)} type="button">
                 Add
               </button>
             ) : null}
           </div>
-          {isMenuOpen && menuOptions.length ? (
+          {!disabled && isMenuOpen && menuOptions.length ? (
             <div aria-label={`Available ${label.toLowerCase()}`} className="requirement-label-menu" id={menuId} role="listbox">
               {filteredLabels.map((item, index) => (
                 <button
@@ -172,6 +177,7 @@ export function LabelsField({
             {selectedLabels.map((item) => (
               <button
                 aria-label={`Remove label ${item}`}
+                disabled={disabled}
                 className="requirement-label-chip"
                 key={item}
                 onClick={() => removeLabel(item)}

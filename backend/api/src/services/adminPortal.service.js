@@ -220,8 +220,8 @@ exports.getOverview = async () => {
 };
 
 exports.applySchema = async ({ actorId, ipAddress }) => {
-  await reapplyRuntimeSchema();
-  const schema = await getSchemaState();
+  const roles = await reapplyRuntimeSchema();
+  const schema = { ...await getSchemaState(), roles };
   await db.prepare(`
     INSERT INTO app_settings (key, value, updated_at)
     VALUES ('admin_schema_setup', ?, CURRENT_TIMESTAMP)

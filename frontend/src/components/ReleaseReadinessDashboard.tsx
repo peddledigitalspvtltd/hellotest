@@ -33,6 +33,7 @@ import {
   type AiPreviewFinding,
 } from "./AiInsightPreviewDialog";
 import { LoadingState } from "./LoadingState";
+import { HierarchyAutoLoadSentinel } from "./HierarchyLoadMoreButton";
 import { StatusBadge } from "./StatusBadge";
 import "./ReleaseReadinessDashboard.css";
 
@@ -575,7 +576,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             onClick={() => void refresh()}
             disabled={refreshing || loading}
           >
-            <IconRefresh size={17} className={refreshing ? "rr-spin" : ""} />
+            {refreshing ? <LoadingState label="Refreshing release readiness" /> : <IconRefresh size={17} />}
             {text(refreshing ? "refreshing" : "refresh")}
           </button>
           {canAi && release && contextReady && (
@@ -873,16 +874,12 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                           })}
                         </span>
                         {actions.length > actionLimit && (
-                          <button
-                            className="rr-link-button"
-                            type="button"
-                            onClick={() =>
-                              setActionLimit((value) => value + 10)
-                            }
-                          >
-                            {text("moreActions")}
-                            <IconChevronDown size={15} />
-                          </button>
+                          <HierarchyAutoLoadSentinel
+                            isLoading={false}
+                            onLoad={() => setActionLimit((value) => value + 10)}
+                            progressKey={actionLimit}
+                            scopeLabel="actions"
+                          />
                         )}
                       </div>
                     )}
@@ -1136,18 +1133,13 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                   </div>
                 </dl>
                 {sources.some((source) => source.enabled && source.more) && (
-                  <button
-                    className="rr-button"
-                    type="button"
-                    disabled={sources.some((source) => source.fetching)}
-                    onClick={() => void loadMore()}
-                  >
-                    {text(
-                      sources.some((source) => source.fetching)
-                        ? "loadingMore"
-                        : "loadMore",
-                    )}
-                  </button>
+                  <HierarchyAutoLoadSentinel
+                    error={sources.some((source) => source.enabled && source.more && source.error)}
+                    isLoading={sources.some((source) => source.fetching)}
+                    onLoad={loadMore}
+                    progressKey={sources.map((source) => `${source.id}:${source.loaded}`).join(":")}
+                    scopeLabel="evidence"
+                  />
                 )}
                 <ul className="rr-boundary-notes">
                   {!release && !sprint && <li>{text("scopeNeeded")}</li>}

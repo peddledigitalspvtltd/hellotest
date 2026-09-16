@@ -52575,6 +52575,7 @@ button:active:not(:disabled) .explorer-toggle-glyph {
   align-items: center;
   display: inline-flex;
   gap: 0.48rem;
+  min-width: 3rem;
   min-height: 2.62rem;
   padding: 0.55rem 0.82rem;
   font-weight: 800;
@@ -53619,6 +53620,9 @@ button:active:not(:disabled) .explorer-toggle-glyph {
   gap: .5rem;
   color: var(--muted);
   font-size: .75rem;
+  flex-wrap: wrap;
+  overflow-anchor: none;
+  text-align: center;
 }
 
 .test-cases-page,
@@ -58999,6 +59003,7 @@ html body .speckit-code-shell textarea { z-index: 1; resize: none; padding: 14px
   padding: 6px 14px !important;
 }
 .test-case-workspace-shell .test-case-workspace-identity { gap: 7px; }
+.test-case-workspace-shell .test-case-workspace-record-id { flex-shrink: 0; }
 .test-case-workspace-shell .test-case-workspace-identity .workspace-back-button {
   min-width: 0;
   height: 32px;

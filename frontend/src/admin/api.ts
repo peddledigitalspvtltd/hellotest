@@ -103,8 +103,10 @@ export type DropdownField = {
 export type DropdownCatalog = { revision: number; updated_at: string | null; fields: DropdownField[] };
 export type DropdownUpdate = { expected_revision: number; options: Array<{ value: string; label: string; description?: string; active: boolean }>; default_value?: string | null };
 export type SampleModule = { key: string; label: string; group: string; description: string; tables: string[]; features: string[]; depends_on: string[]; routes: string[]; feature_keys: string[]; available: boolean; record_count: number; expected_record_count: number; status: 'installed' | 'partial' | 'not_installed' };
-export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[] };
-export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string; administrator_memberships: number; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };
+export type SetupRole = { key: string; name: string; description: string; permission_codes: string[]; current_permission_codes: string[]; role_id: string | null; status: 'not_installed' | 'installed' | 'customized' };
+export type SetupRoleResult = { created: Array<{ id: string; name: string }>; retained: Array<{ id: string; name: string }> };
+export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[]; roles?: SetupRole[] };
+export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string; administrator_memberships: number; roles?: SetupRoleResult; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };
 
 export type FlagSnapshot = {
   groups: Array<{
@@ -123,6 +125,8 @@ export type FlagSnapshot = {
   flags: Record<string, boolean>;
   local_flags?: Record<string, boolean>;
   dependencies?: Record<string, string[]>;
+  optional_dependencies?: Record<string, string[]>;
+  permission_features?: Record<string, string[]>;
 };
 export type Integration = { id: string; type: string; name: string; base_url?: string; model?: string; is_active: boolean; updated_at: string };
 export type IntegrationType = { value: string; label: string; description: string; defaults?: Record<string, unknown> };

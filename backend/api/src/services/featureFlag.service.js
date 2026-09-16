@@ -1,4 +1,5 @@
 const db = require("../db");
+const { PERMISSIONS } = require("../security/permissions.catalog");
 
 const FEATURE_FLAGS_SETTINGS_KEY = "feature_flags";
 
@@ -79,6 +80,7 @@ const PERMISSION_FEATURES = {
   "agentic_workflow.manage": ["hellotest.ai.agentic_workflows"],
   "agentic_workflow.run": ["hellotest.ai.agentic_workflows"],
   "run.view": ["hellotest.manual.runs"],
+  "run.gherkin.view": ["hellotest.manual.run_gherkin"],
   "run.create": ["hellotest.manual.runs"],
   "run.update": ["hellotest.manual.runs"],
   "run.execute": ["hellotest.manual.runs"],
@@ -115,12 +117,13 @@ const PERMISSION_FEATURES = {
   "knowledge.manage": ["hellotest.ai.knowledge"],
   "prompt_template.view": ["hellotest.ai.test_authoring"],
   "prompt_template.manage": ["hellotest.ai.test_authoring"],
-  "transaction.view": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
+  "transaction.view": ["hellotest.ops.background_jobs"],
   "transaction.manage": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
-  "transaction.artifact.download": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
+  "transaction.artifact.download": ["hellotest.ops.background_jobs"],
   "notification.view": ["hellotest.ops.notifications"],
   "notification.manage": ["hellotest.ops.notifications"],
   "feedback.view": ["hellotest.manual.bugs"],
+  "feedback.create": ["hellotest.manual.bugs"],
   "feedback.manage": ["hellotest.manual.bugs"],
   "ops.view": ["hellotest.ops.telemetry"],
   "ops.manage": ["hellotest.ops.telemetry"]
@@ -169,6 +172,13 @@ const FEATURE_GROUPS = [
         routes: ["/executions"]
       },
       {
+        key: "hellotest.manual.run_gherkin",
+        label: "Gherkin Run step view",
+        description: "Let permitted users switch saved Run steps from the default Structured view to a Given/When/Then presentation. Execution outcomes and controls stay attached to the same saved steps.",
+        routes: ["/executions"],
+        permissions: ["run.gherkin.view"]
+      },
+      {
         key: "hellotest.manual.bugs",
         label: "Bugs",
         description: "Create and triage Bugs, with populated and editable Release/Sprint context when delivery planning is available.",
@@ -198,7 +208,7 @@ const FEATURE_GROUPS = [
     label: "Automation",
     description: "Automation authoring, object repository, recorder capture, step code, local/remote execution, and batch process operations.",
     features: [
-      { key: "hellotest.automation.workspace", label: "Automation workspace", routes: ["/automation"] },
+      { key: "hellotest.automation.workspace", label: "Automation workspace and execution", description: "Master availability for the Automation workspace, assets, object repository, builder and local/remote runners. API previews and saved step-code views have independent controls.", routes: ["/automation"] },
       {
         key: "hellotest.automation.preview",
         label: "API request validation previews",
@@ -211,7 +221,12 @@ const FEATURE_GROUPS = [
       { key: "hellotest.automation.assets", label: "Automation assets", routes: ["/automation-assets"] },
       { key: "hellotest.automation.object_repository", label: "Object repository", routes: ["/object-repository"] },
       { key: "hellotest.automation.builder", label: "Automation builder", routes: ["/test-cases", "/automation"] },
-      { key: "hellotest.automation.step_code", label: "Auto test and step-level code", routes: ["/test-cases", "/automation", "/executions"] },
+      {
+        key: "hellotest.automation.step_code",
+        label: "Auto test and step-level code",
+        description: "Let users with automation code access inspect step scripts and switch Run steps to the Coded view. Structured and Gherkin presentations keep their own visibility rules.",
+        routes: ["/test-cases", "/automation", "/executions"]
+      },
       { key: "hellotest.automation.step_recording", label: "Step-level recording", routes: ["/test-cases", "/automation", "/object-repository"] },
       { key: "hellotest.automation.local_execution", label: "Local Playwright and local runs", routes: ["/test-cases", "/automation", "/executions"] },
       { key: "hellotest.automation.remote_execution", label: "Remote automation runs", routes: ["/test-cases", "/automation", "/executions"] },
@@ -233,7 +248,7 @@ const FEATURE_GROUPS = [
       { key: "hellotest.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
       { key: "hellotest.ai.test_data_generation", label: "Synthetic test data generation", routes: ["/test-data"] },
       { key: "hellotest.ai.content_rephrase", label: "Rich-text AI rephrase", routes: ["/projects", "/requirements", "/test-cases", "/design", "/issues", "/automation", "/shared-steps", "/test-environments", "/test-data"] },
-      { key: "hellotest.ai.bug_triage", label: "AI-assisted Bug drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.manage"] },
+      { key: "hellotest.ai.bug_triage", label: "AI-assisted Bug drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.create", "feedback.manage"] },
       { key: "hellotest.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
       { key: "hellotest.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "hellotest.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },
@@ -274,7 +289,7 @@ const FEATURE_GROUPS = [
     label: "Operations",
     description: "Background jobs, local agents, OPS telemetry, traces, notifications, and audit controls.",
     features: [
-      { key: "hellotest.ops.background_jobs", label: "Background jobs", routes: ["/testops"] },
+      { key: "hellotest.ops.background_jobs", label: "Background jobs", description: "Read background progress and downloadable evidence from imports, AI and automation work. Batch processing adds separate management controls.", routes: ["/testops"] },
       { key: "hellotest.ops.telemetry", label: "OPS telemetry", routes: ["/ops-telemetry", "/traces"] },
       { key: "hellotest.ops.notifications", label: "Notifications", routes: ["/notifications"] },
       { key: "hellotest.ops.projects", label: "Projects and application types", routes: ["/projects"] },
@@ -318,6 +333,7 @@ const DEFAULT_FEATURE_FLAGS = Object.fromEntries(FEATURE_DEFINITIONS.map((featur
 // Preview and step-code are intentionally independent: manual editors use them
 // without requiring the Automation workspace.
 const FEATURE_DEPENDENCIES = {
+  "hellotest.manual.run_gherkin": ["hellotest.manual.runs"],
   "hellotest.automation.assets": ["hellotest.automation.workspace"],
   "hellotest.automation.object_repository": ["hellotest.automation.workspace"],
   "hellotest.automation.builder": ["hellotest.automation.workspace"],
@@ -325,6 +341,24 @@ const FEATURE_DEPENDENCIES = {
   "hellotest.automation.remote_execution": ["hellotest.automation.workspace"],
   "hellotest.automation.parallel_execution": ["hellotest.automation.workspace"]
 };
+
+// These features contribute links, context or extra controls. They do not
+// determine whether the host feature can be used on its own.
+const OPTIONAL_FEATURE_DEPENDENCIES = {
+  "hellotest.manual.requirements": ["hellotest.manual.test_cases", "hellotest.manual.bugs", "hellotest.manual.runs"],
+  "hellotest.manual.test_cases": ["hellotest.manual.requirements", "hellotest.manual.suites", "hellotest.manual.test_data", "hellotest.manual.environments", "hellotest.manual.bugs", "hellotest.automation.builder", "hellotest.automation.step_code"],
+  "hellotest.manual.suites": ["hellotest.manual.test_cases", "hellotest.manual.requirements", "hellotest.manual.runs"],
+  "hellotest.manual.runs": ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.suites", "hellotest.manual.test_data", "hellotest.manual.environments", "hellotest.manual.bugs", "hellotest.manual.run_gherkin", "hellotest.automation.step_code", "hellotest.automation.local_execution", "hellotest.automation.remote_execution"],
+  "hellotest.manual.bugs": ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.runs", "hellotest.manual.environments", "hellotest.ai.bug_triage"],
+  "hellotest.manual.plans": ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.suites", "hellotest.manual.runs"],
+  "hellotest.manual.quality_gates": ["hellotest.manual.requirements", "hellotest.manual.bugs", "hellotest.manual.runs", "hellotest.ai.quality_insights"],
+  "hellotest.automation.workspace": ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.suites", "hellotest.manual.environments", "hellotest.manual.test_data"],
+  "hellotest.automation.object_repository": ["hellotest.manual.test_cases", "hellotest.ai.knowledge", "hellotest.ai.automation"],
+  "hellotest.ai.agentic_workflows": ["hellotest.manual.requirements", "hellotest.manual.test_cases", "hellotest.manual.bugs", "hellotest.manual.runs", "hellotest.ai.knowledge"],
+  "hellotest.ops.background_jobs": ["hellotest.automation.batch_process"]
+};
+
+const PERMISSION_FEATURE_MAP = Object.fromEntries(PERMISSIONS.map(permission => [permission.code, PERMISSION_FEATURES[permission.code] || []]));
 
 const ROUTE_FEATURES = new Map([
   ["GET /test-cases/automation/learning-cache", ["hellotest.automation.object_repository"]],
@@ -389,17 +423,31 @@ const saveStoredFlags = async (flags) => {
   return normalizeBooleanFlagMap(normalizeObject(row?.value));
 };
 
-const evaluateLocalFlags = (localFlags) => Object.fromEntries(
-  FEATURE_DEFINITIONS.map((feature) => [feature.key,
-    localFlags[feature.key] === true
-    && (FEATURE_DEPENDENCIES[feature.key] || []).every((key) => localFlags[key] === true)
-  ])
-);
+const evaluateFeatureFlags = (localFlags, dependencies = {}) => {
+  const resolved = new Map(), visiting = new Set();
+  const available = (key) => {
+    if (typeof key !== "string" || !Object.hasOwn(localFlags, key) || localFlags[key] !== true) return false;
+    if (resolved.has(key)) return resolved.get(key);
+    if (visiting.has(key)) return false;
+    const parents = Object.hasOwn(dependencies, key) ? dependencies[key] : [];
+    if (!Array.isArray(parents)) return false;
+    visiting.add(key);
+    const enabled = parents.every(available);
+    visiting.delete(key);
+    resolved.set(key, enabled);
+    return enabled;
+  };
+  return Object.fromEntries(Object.keys(localFlags).map(key => [key, available(key)]));
+};
+const evaluateLocalFlags = (localFlags) => evaluateFeatureFlags(localFlags, FEATURE_DEPENDENCIES);
 const evaluateFlags = async () => evaluateLocalFlags(await getStoredFlags());
 
 exports.FEATURE_GROUPS = FEATURE_GROUPS_WITH_PERMISSIONS;
 exports.FEATURE_DEFINITIONS = FEATURE_DEFINITIONS;
 exports.FEATURE_DEPENDENCIES = FEATURE_DEPENDENCIES;
+exports.OPTIONAL_FEATURE_DEPENDENCIES = OPTIONAL_FEATURE_DEPENDENCIES;
+exports.PERMISSION_FEATURES = PERMISSION_FEATURE_MAP;
+exports.evaluateFeatureFlags = evaluateFeatureFlags;
 exports.getFeatureKeysForRoute = (method, routeUrl) => ROUTE_FEATURES.get(`${String(method).toUpperCase() === "HEAD" ? "GET" : String(method).toUpperCase()} ${routeUrl}`) || [];
 
 exports.getSnapshot = async () => {
@@ -409,6 +457,8 @@ exports.getSnapshot = async () => {
     flags: evaluateLocalFlags(localFlags),
     local_flags: localFlags,
     dependencies: FEATURE_DEPENDENCIES,
+    optional_dependencies: OPTIONAL_FEATURE_DEPENDENCIES,
+    permission_features: PERMISSION_FEATURE_MAP,
     provider: { type: "local", configured: true, connected: true }
   };
 };
@@ -437,7 +487,8 @@ exports.areEnabled = async (featureKeys = [], { user } = {}) => {
   return keys.every((featureKey) => typeof featureKey === "string" && Object.hasOwn(flags, featureKey) && flags[featureKey] === true);
 };
 
-exports.getFeatureKeysForPermission = (permissionCode) => PERMISSION_FEATURES[permissionCode] || [];
+exports.getFeatureKeysForPermission = (permissionCode) => Object.hasOwn(PERMISSION_FEATURE_MAP, permissionCode)
+  ? PERMISSION_FEATURE_MAP[permissionCode] : [];
 
 exports.getDisabledPermissionCodes = async (permissionCodes = []) => {
   const codes = Array.isArray(permissionCodes) ? [...new Set(permissionCodes.filter(Boolean))] : [];
@@ -449,6 +500,7 @@ exports.getDisabledPermissionCodes = async (permissionCodes = []) => {
   const flags = await evaluateFlags();
 
   return codes.filter((permissionCode) => {
+    if (!Object.hasOwn(PERMISSION_FEATURE_MAP, permissionCode)) return true;
     const featureKeys = exports.getFeatureKeysForPermission(permissionCode);
     return featureKeys.some((featureKey) => flags[featureKey] !== true);
   });

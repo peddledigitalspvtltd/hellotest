@@ -63,7 +63,7 @@ test("Shared Step Group terminology leaves stable routes and API contracts intac
 test("Shared Step Groups expose review-before-save AI improvement without automation code", async () => {
   const page = await readSource("../src/pages/SharedStepsPage.tsx");
 
-  assert.match(page, /hasPermission\(session, "testcase\.ai", projectId\)/);
+  assert.match(page, /canManageSharedStepGroups && can\("testcase\.ai"\)/);
   assert.match(page, /AI Improve Steps/);
   assert.match(page, /api\.testCases\.rephraseStep/);
   assert.match(page, /Review the changes, then save the group/);

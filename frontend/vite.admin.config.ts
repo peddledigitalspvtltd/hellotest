@@ -11,9 +11,9 @@ export default defineConfig({
       name: "hellotest-admin-root",
       configureServer(server) {
         server.middlewares.use((request, _response, next) => {
-          if (request.url === "/") request.url = "/admin/";
-          if (request.url === "/admin/") request.url = "/admin.html";
-          if (request.url === "/admin/runtime-config.js") request.url = "/runtime-config.js";
+          const url = new URL(request.url || "/", "http://admin.local");
+          if (url.pathname === "/" || url.pathname === "/admin/") request.url = `/admin.html${url.search}`;
+          if (url.pathname === "/admin/runtime-config.js") request.url = `/runtime-config.js${url.search}`;
           next();
         });
       }

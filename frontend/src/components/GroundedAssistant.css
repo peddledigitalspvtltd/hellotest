@@ -892,7 +892,7 @@
 .grounded-assistant-evidence-notice span { font-size: .79rem; color: var(--text-secondary, #526179); }
 .grounded-assistant-model-error { font-size: .73rem; color: var(--text-secondary, #526179); }
 .grounded-assistant-turn-progress { display: grid; flex-shrink: 0; gap: .65rem; min-width: 0; margin: 0 0 1rem; padding: 1rem; border: 1px solid color-mix(in srgb, #6366f1 22%, var(--border-subtle, #d8e1ed)); border-radius: 14px; background: linear-gradient(135deg, color-mix(in srgb, #6366f1 5%, var(--surface, #fff)), var(--surface, #fff)); }
-.grounded-assistant-progress-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; min-width: 0; }
+.grounded-assistant-progress-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .65rem; min-width: 0; }
 .grounded-assistant-progress-heading > div { display: grid; gap: .15rem; min-width: 0; }
 .grounded-assistant-progress-heading > div > span { color: var(--text-secondary, #526179); font-size: .65rem; }
 .grounded-assistant-progress-heading strong { font-size: .83rem; line-height: 1.4; overflow-wrap: anywhere; }

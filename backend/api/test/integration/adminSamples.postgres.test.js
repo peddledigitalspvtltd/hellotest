@@ -15,13 +15,32 @@ test('sample packs install connected records atomically and preserve edits acros
     await db.prepare("INSERT INTO users(id,email,password_hash,name,is_workspace_admin,status) VALUES ('sample-test-admin','sample-validation@example.test','not-a-login','Sample validation',TRUE,'active')").run();
     const service = require('../../src/services/adminPortal.service');
     const input = { actorId: 'sample-test-admin', modules: undefined };
+    // Setup must fill missing roles without replacing deliberate custom grants.
+    const owner = await db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'product owner'").get();
+    assert.ok(owner?.id, 'Runtime setup creates the Product Owner preset');
+    await db.prepare("UPDATE roles SET name = 'pRoDuCt OwNeR' WHERE id = ?").run(owner.id);
+    await db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(owner.id);
+    await db.prepare("DELETE FROM roles WHERE LOWER(name) = 'reporter'").run();
     for (const modules of [[], ['unknown'], 'workspace', [null], Array(65).fill('workspace')]) await assert.rejects(service.seedSampleData({ ...input, modules }), error => error.statusCode === 400);
     assert.equal((await service.getSampleCatalog()).project_id, null);
     await db.query("ALTER TABLE admin_audit_log ADD CONSTRAINT reject_sample_audit CHECK (action <> 'sample_data.seed')");
     await assert.rejects(service.seedSampleData({ ...input, modules: ['workspace'] }));
     assert.equal((await service.getSampleCatalog()).project_id, null, 'Audit failure rolls back the entire installation');
+    assert.equal(await db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'reporter'").get(), undefined, 'Audit failure also rolls back role creation');
     await db.query('ALTER TABLE admin_audit_log DROP CONSTRAINT reject_sample_audit');
     const subset = await service.seedSampleData({ ...input, modules: ['dashboards'] });
+    assert.deepEqual(subset.roles.created.map(role => role.name), ['Reporter']);
+    assert.ok(subset.roles.retained.some(role => role.id === owner.id));
+    const setupRoles = (await service.getSampleCatalog()).roles;
+    for (const name of ['Product Owner', 'Automation Engineer', 'AI Engineer', 'Reporter', 'QA Lead', 'QA Member', 'Viewer']) {
+      assert.ok(setupRoles.some(role => role.name === name && role.role_id), `${name} is ready after setup`);
+    }
+    const customizedOwner = setupRoles.find(role => role.name === 'Product Owner');
+    assert.equal(customizedOwner.status, 'customized');
+    assert.deepEqual(customizedOwner.current_permission_codes, [], 'An intentionally empty role stays empty');
+    const reporter = setupRoles.find(role => role.name === 'Reporter');
+    assert.ok(reporter.current_permission_codes.includes('feedback.create'));
+    assert.ok(!reporter.current_permission_codes.includes('feedback.manage'));
     assert.ok(subset.dependencies_added.includes('execution'));
     assert.ok(subset.dependencies_added.includes('planning'));
     assert.ok(!subset.installed.includes('agents'));
@@ -46,6 +65,9 @@ test('sample packs install connected records atomically and preserve edits acros
     await db.prepare("UPDATE feedback SET message = 'My investigation notes' WHERE id = 'sample-v2-issue-checkout'").run();
     const repeat = await service.seedSampleData(input);
     assert.equal(repeat.inserted_records, 0);
+    assert.equal(repeat.roles.created.length, 0, 'Repeat setup does not duplicate roles');
+    assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM roles WHERE LOWER(BTRIM(name)) = 'product owner'").get()).count, 1, 'Role names are matched without case sensitivity');
+    assert.equal((await db.prepare('SELECT COUNT(*)::INT AS count FROM role_permissions WHERE role_id = ?').get(owner.id)).count, 0);
     assert.equal((await db.prepare("SELECT title FROM test_cases WHERE id='sample-case-login'").get()).title, 'Edited original demo');
     assert.equal((await db.prepare("SELECT duration_ms FROM executions WHERE id='sample-run-smoke'").get()).duration_ms, 1840);
     assert.equal((await db.prepare("SELECT COUNT(*)::INT AS count FROM execution_results WHERE execution_id='sample-run-smoke'").get()).count, 1);
@@ -89,6 +111,16 @@ test('sample packs install connected records atomically and preserve edits acros
     await db.prepare("UPDATE test_cases SET app_type_id='sample-app-api' WHERE id='sample-v2-case-login'").run();
     await assert.rejects(service.seedSampleData({ ...input, modules: ['design'] }), error => error.statusCode === 409);
     assert.equal((await db.prepare("SELECT app_type_id FROM test_cases WHERE id='sample-v2-case-login'").get()).app_type_id, 'sample-app-api', 'Moved records remain untouched');
+    await db.prepare("UPDATE test_cases SET app_type_id='sample-app-web' WHERE id='sample-v2-case-login'").run();
+    const roleSnapshot = (await service.getSampleCatalog()).roles;
+    const deleted = await require('../../src/services/project.service').deleteProject('sample-project');
+    assert.equal(deleted.deleted, true, 'A complete instance-setup project can be deleted');
+    assert.equal((await service.getSampleCatalog()).project_id, null);
+    assert.deepEqual((await service.getSampleCatalog()).roles, roleSnapshot, 'Deleting sample content preserves workspace roles');
+    const recreated = await service.seedSampleData(input);
+    assert.ok(recreated.inserted_records > 0, 'Setup recreates the deleted sample workspace');
+    assert.equal(recreated.roles.created.length, 0);
+    assert.ok((await service.getSampleCatalog()).modules.every(module => module.status === 'installed'), 'All sample relationships can be recreated after deletion');
     console.log(JSON.stringify({ modules: catalog.modules.length, records: recordCount, repeated_install_new_records: repeat.inserted_records, repaired_records: repaired.inserted_records }));
   } finally { await db.close(); }
 });

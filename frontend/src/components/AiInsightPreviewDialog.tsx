@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import type { AiAssistedPreviewBase, AiEvidenceSource, AiProcessingSnapshot } from "../types";
@@ -215,13 +216,7 @@ export function AiInsightPreviewDialog({
 
             <div className="ai-insight-preview-body">
           {loading ? (
-            <div className="ai-insight-preview-state" role="status">
-              <span className="ai-insight-preview-state-icon" aria-hidden="true"><SparkIcon /></span>
-              <div>
-                <strong>Reviewing connected workspace evidence…</strong>
-                <span>HelloTest is assessing bounded evidence. Nothing is being changed.</span>
-              </div>
-            </div>
+            <LoadingState label="Reviewing connected workspace evidence" description="HelloTest is assessing bounded evidence. Nothing is being changed." />
           ) : error ? (
             <div className="ai-insight-preview-state is-error" role="alert">
               <div>

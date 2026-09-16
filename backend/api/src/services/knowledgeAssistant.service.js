@@ -797,11 +797,13 @@ const summarizeLiveEvidence = (hit) => {
     case "authoritative_live_project_record":
       return `${snapshot.project?.name || "The selected project"} has ${asArray(snapshot.applications).length} application workspace${asArray(snapshot.applications).length === 1 ? "" : "s"}.`;
     case "authoritative_live_story_snapshot":
-      return `${count(snapshot.total_records)} Stories; ${count(snapshot.covered_records)} linked to Test Cases and ${count(snapshot.uncovered_records)} without linked coverage.`;
+      return snapshot.coverage_available === false
+        ? `${count(snapshot.total_records)} Stories; Test Case coverage is unavailable with current access.`
+        : `${count(snapshot.total_records)} Stories; ${count(snapshot.covered_records)} linked to Test Cases and ${count(snapshot.uncovered_records)} without linked coverage.`;
     case "authoritative_live_test_case_snapshot":
-      return `${count(snapshot.total_records)} Test Cases; ${count(snapshot.automated_or_ready)} automated or automation-ready, ${count(snapshot.without_story_traceability)} without Story traceability, and ${count(snapshot.without_steps)} without steps.`;
+      return `${count(snapshot.total_records)} Test Cases; ${count(snapshot.automated_or_ready)} automated or automation-ready, ${snapshot.story_traceability_available === false ? "Story traceability unavailable with current access" : `${count(snapshot.without_story_traceability)} without Story traceability`}, and ${count(snapshot.without_steps)} without steps.`;
     case "authoritative_live_execution_snapshot":
-      return `${count(snapshot.total_records)} Test Runs; ${count(snapshot.failed_runs)} failed runs, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results.`;
+      return `${count(snapshot.total_records)} Test Runs; ${count(snapshot.failed_runs)} failed runs${snapshot.results_available === false ? "; result counts are unavailable with current access" : `, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results`}.`;
     case "authoritative_live_execution_context":
       return `${count(snapshot.total_environments)} test environments and ${count(snapshot.total_configurations)} test configurations were available; the evidence contains the most relevant bounded records.`;
     case "authoritative_live_object_repository_snapshot":
@@ -867,7 +869,9 @@ const createDeterministicLiveAnswer = ({ question, hits, reason, contextRoute } 
     const snapshot = storyEntry.snapshot;
     const uncovered = count(snapshot.uncovered_records);
     const thin = count(snapshot.thin_coverage_records);
-    lines.push(`Story coverage: ${count(snapshot.total_records)} total; ${uncovered} have no linked Test Cases and ${thin} have exactly one linked Test Case. Zero links is uncovered; one link is a review signal, not proof of sufficient acceptance-boundary coverage. ${use(storyEntry)}`);
+    lines.push(snapshot.coverage_available === false
+      ? `${count(snapshot.total_records)} Stories are available. Test Case coverage is unavailable with current access; coverage gaps cannot be assessed. ${use(storyEntry)}`
+      : `Story coverage: ${count(snapshot.total_records)} total; ${uncovered} have no linked Test Cases and ${thin} have exactly one linked Test Case. Zero links is uncovered; one link is a review signal, not proof of sufficient acceptance-boundary coverage. ${use(storyEntry)}`);
     if (uncovered) {
       lines.push("", "Stories with no linked Test Cases");
       appendRecords(snapshot.coverage_gaps, uncovered, storyEntry, (record) => `${record.status || "status not set"}; priority ${record.priority || "not set"}`);
@@ -880,11 +884,11 @@ const createDeterministicLiveAnswer = ({ question, hits, reason, contextRoute } 
 
   if (asksCaseQuality && caseEntry) {
     const snapshot = caseEntry.snapshot;
-    lines.push(`Test Case quality: ${count(snapshot.total_records)} total; ${count(snapshot.without_steps)} have no steps and ${count(snapshot.without_story_traceability)} have no Story traceability. ${use(caseEntry)}`);
+    lines.push(`Test Case quality: ${count(snapshot.total_records)} total; ${count(snapshot.without_steps)} have no steps${snapshot.story_traceability_available === false ? "; Story traceability is unavailable with current access" : ` and ${count(snapshot.without_story_traceability)} have no Story traceability`}. ${use(caseEntry)}`);
     const withoutSteps = snapshot.quality_gaps?.without_steps;
     if (asArray(withoutSteps).length) {
       lines.push("", "Cases without steps");
-      appendRecords(withoutSteps, snapshot.without_steps, caseEntry, (record) => `${record.status || "status not set"}; ${count(record.linked_story_count)} linked Stories`);
+      appendRecords(withoutSteps, snapshot.without_steps, caseEntry, (record) => `${record.status || "status not set"}${snapshot.story_traceability_available === false ? "" : `; ${count(record.linked_story_count)} linked Stories`}`);
     }
     const withoutTraceability = snapshot.quality_gaps?.without_story_traceability;
     if (asArray(withoutTraceability).length) {
@@ -895,10 +899,10 @@ const createDeterministicLiveAnswer = ({ question, hits, reason, contextRoute } 
 
   if (asksFailures && runEntry) {
     const snapshot = runEntry.snapshot;
-    lines.push(`Execution evidence: ${count(snapshot.total_records)} Test Runs; ${count(snapshot.failed_runs)} failed runs, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results. ${use(runEntry)}`);
+    lines.push(`Execution evidence: ${count(snapshot.total_records)} Test Runs; ${count(snapshot.failed_runs)} failed runs${snapshot.results_available === false ? "; result counts are unavailable with current access" : `, ${count(snapshot.failed_results)} failed results, and ${count(snapshot.blocked_results)} blocked results`}. ${use(runEntry)}`);
     if (asArray(snapshot.failed_or_blocked_run_evidence).length) {
       lines.push("", "Failed or blocked run evidence");
-      appendRecords(snapshot.failed_or_blocked_run_evidence, snapshot.failed_or_blocked_run_evidence.length, runEntry, (record) => `${record.status || "status not set"}; ${count(record.failed_count)} failed; ${count(record.blocked_count)} blocked${record.build ? `; build ${record.build}` : ""}${record.created_at ? `; created ${record.created_at}` : ""}`);
+      appendRecords(snapshot.failed_or_blocked_run_evidence, snapshot.failed_or_blocked_run_evidence.length, runEntry, (record) => `${record.status || "status not set"}${snapshot.results_available === false ? "; result counts unavailable" : `; ${count(record.failed_count)} failed; ${count(record.blocked_count)} blocked`}${record.build ? `; build ${record.build}` : ""}${record.created_at ? `; created ${record.created_at}` : ""}`);
     }
   }
 
@@ -940,9 +944,9 @@ const createDeterministicLiveAnswer = ({ question, hits, reason, contextRoute } 
       const project = projectEntry.snapshot.project || {};
       lines.push(`${project.name || "Current project"}: ${project.description || "No project description is recorded."} ${use(projectEntry)}`);
     }
-    if (storyEntry && !asksStoryCoverage) lines.push(`- Stories: ${count(storyEntry.snapshot.total_records)} total; ${count(storyEntry.snapshot.uncovered_records)} without linked Test Cases. ${use(storyEntry)}`);
-    if (caseEntry && !asksCaseQuality) lines.push(`- Test Cases: ${count(caseEntry.snapshot.total_records)} total; ${count(caseEntry.snapshot.without_steps)} without steps; ${count(caseEntry.snapshot.without_story_traceability)} without Story traceability. ${use(caseEntry)}`);
-    if (runEntry && !asksFailures) lines.push(`- Test Runs: ${count(runEntry.snapshot.total_records)} total; ${count(runEntry.snapshot.failed_runs)} failed; ${count(runEntry.snapshot.blocked_results)} blocked results. ${use(runEntry)}`);
+    if (storyEntry && !asksStoryCoverage) lines.push(`- Stories: ${count(storyEntry.snapshot.total_records)} total; ${storyEntry.snapshot.coverage_available === false ? "Test Case coverage unavailable with current access" : `${count(storyEntry.snapshot.uncovered_records)} without linked Test Cases`}. ${use(storyEntry)}`);
+    if (caseEntry && !asksCaseQuality) lines.push(`- Test Cases: ${count(caseEntry.snapshot.total_records)} total; ${count(caseEntry.snapshot.without_steps)} without steps; ${caseEntry.snapshot.story_traceability_available === false ? "Story traceability unavailable with current access" : `${count(caseEntry.snapshot.without_story_traceability)} without Story traceability`}. ${use(caseEntry)}`);
+    if (runEntry && !asksFailures) lines.push(`- Test Runs: ${count(runEntry.snapshot.total_records)} total; ${count(runEntry.snapshot.failed_runs)} failed; ${runEntry.snapshot.results_available === false ? "result counts unavailable with current access" : `${count(runEntry.snapshot.blocked_results)} blocked results`}. ${use(runEntry)}`);
     if (bugEntry && !asksBugs) lines.push(`- Bugs: ${count(bugEntry.snapshot.total_records)} total; ${count(bugEntry.snapshot.open_records)} open; ${count(bugEntry.snapshot.critical_or_high)} critical/high. ${use(bugEntry)}`);
     if (automationEntry && !asksAutomation) lines.push(`- Automation repository: ${count(automationEntry.snapshot.total_records)} objects; ${count(automationEntry.snapshot.low_confidence_records)} low-confidence bindings. ${use(automationEntry)}`);
   }
@@ -1089,21 +1093,32 @@ const authorizeFreshEvidence = async ({ projectId, user, hits, asOf, signal = ex
   const result = await knowledgeAuthorization.getEvidenceAccess({ projectId, user, evidence: indexed, asOf, signal });
   checkActive();
   if (!live.length) return result;
-  const allowedPermissions = new Set(await knowledgeRagService.resolveAllowedSourcePermissions(user, projectId));
-  checkActive();
+  const { getOptionalEvidenceAccess } = require("./optionalEvidenceAccess.service");
   const livePermissions = {
     "project-overview": [], stories: ["requirement.view", "testcase.view"],
-    "test-cases": ["testcase.view", "shared_step.view"], runs: ["run.view"],
+    "test-cases": ["testcase.view", "requirement.view", "suite.view", "shared_step.view"], runs: ["run.view", "result.view"],
     "execution-context": ["environment.view", "configuration.view"],
     "object-repository": ["automation.view"], bugs: ["feedback.view"]
   };
+  const corePermissions = { stories: ["requirement.view"], "test-cases": ["testcase.view"], runs: ["run.view"], "execution-context": [] };
+  const permissionAccess = await getOptionalEvidenceAccess(user, projectId, [...new Set(Object.values(livePermissions).flat())]);
+  checkActive();
   for (const hit of live) {
     const sourceId = hit.source_id || hit.citation?.source_id || "";
     const prefix = `live-project-${projectId}-`;
     const scope = sourceId.startsWith(prefix) ? sourceId.slice(prefix.length) : null;
-    const requirements = livePermissions[scope];
-    const permitted = requirements && (await Promise.all(requirements.map((permission) => allowedPermissions.has(permission)
-      || permissionService.hasPermission(user, permission, projectId)))).every(Boolean);
+    let requirements = Object.hasOwn(livePermissions, scope) ? livePermissions[scope] : null;
+    // Current server snapshots declare the collaborators they actually include.
+    // Old or truncated snapshots retain the conservative combined requirements.
+    if (requirements && Object.hasOwn(corePermissions, scope)) {
+      let snapshot;
+      try { snapshot = JSON.parse(String(hit.content || "")); } catch { /* Legacy citation. */ }
+      const declared = snapshot?.evidence_permissions;
+      if (Array.isArray(declared) && declared.length && declared.every(permission => requirements.includes(permission))) {
+        requirements = [...new Set([...corePermissions[scope], ...declared])];
+      }
+    }
+    const permitted = requirements && requirements.every(permission => permissionAccess[permission]);
     checkActive();
     if (permitted && !asOf) result.allowed.push(hit);
     else result.denied_ids.push(hit.evidence_id || hit.citation?.id || hit.chunk_id);

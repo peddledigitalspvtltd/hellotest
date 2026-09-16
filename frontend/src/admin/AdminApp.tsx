@@ -1,3 +1,4 @@
+import { LoadingState } from "../components/LoadingState";
 import { SampleDataSetup as SetupPage } from './SampleDataSetup';
 import { DropdownValues } from "./DropdownValues";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -40,6 +41,21 @@ const title: Record<Section, { eyebrow: string; heading: string; copy: string }>
   integrations: { eyebrow: "Connected services", heading: "Backend integrations", copy: "Create and govern server-side connections without exposing credentials to the product UI." },
   audit: { eyebrow: "Governance trail", heading: "Audit activity", copy: "Review recent administrator actions across setup, people, flags, and integrations." },
   security: { eyebrow: "Account protection", heading: "Security", copy: "Replace bootstrap credentials and review the runtime boundary for this control plane." }
+};
+
+const readAdminLocation = () => {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("section");
+  const section = nav.some((item) => item.id === requested) ? requested as Section : "overview";
+  return { section, feature: section === "features" ? params.get("feature") || "" : "" };
+};
+
+const writeAdminLocation = (section: Section, feature = "") => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("section", section);
+  if (section === "features" && feature) url.searchParams.set("feature", feature);
+  else url.searchParams.delete("feature");
+  if (url.toString() !== window.location.href) window.history.pushState(null, "", url);
 };
 
 const formatDate = (value?: string) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Never";
@@ -133,7 +149,11 @@ function PeoplePage({ session, notify }: { session: AdminSession; notify: (messa
   </section>;
 }
 
-function FeaturesPage({ notify }: { notify: (message: string, tone?: "success" | "error") => void }) {
+function FeaturesPage({ notify, selectedFeatureKey, onSelectFeature }: {
+  notify: (message: string, tone?: "success" | "error") => void;
+  selectedFeatureKey: string;
+  onSelectFeature: (key: string) => void;
+}) {
   const [snapshot, setSnapshot] = useState<FlagSnapshot | null>(null);
   const [draft, setDraft] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
@@ -159,12 +179,17 @@ function FeaturesPage({ notify }: { notify: (message: string, tone?: "success" |
     return () => controller.abort();
   }, [reload]);
 
+  useEffect(() => {
+    if (loadState === "ready" && selectedFeatureKey) document.getElementById("feature-detail-heading")?.focus();
+  }, [loadState, selectedFeatureKey]);
+
   const patch = snapshot ? createFeatureFlagPatch(snapshot.local_flags || snapshot.flags, draft) : {};
   const changes = Object.keys(patch).length;
   const effective = effectiveFeatureFlags(draft, snapshot?.dependencies);
+  const selectedFeature = snapshot?.groups.flatMap((group) => group.features).find((feature) => feature.key === selectedFeatureKey);
   const labels = new Map(snapshot?.groups.flatMap((group) => group.features.map((feature) => [feature.key, feature.label] as const)) || []);
   const filteredGroups = snapshot?.groups.map((group) => ({ ...group, features: group.features.filter((feature) =>
-    `${feature.label} ${feature.description || ""} ${feature.key} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase())
+    `${feature.label} ${feature.description || ""} ${feature.key} ${(feature.permissions || []).join(" ")} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase())
   ) })).filter((group) => group.features.length) || [];
 
   const save = async () => {
@@ -182,7 +207,7 @@ function FeaturesPage({ notify }: { notify: (message: string, tone?: "success" |
     }
   };
 
-  if (loadState === "loading") return <section className="surface loading" role="status"><RefreshCw className="spin" aria-hidden="true" /><span>Loading feature availability…</span></section>;
+  if (loadState === "loading") return <LoadingState label="Loading feature availability" />;
   if (loadState === "error") return <section className="surface empty-state" role="alert"><CircleAlert aria-hidden="true" /><h3>Feature availability is unavailable</h3><p>{error}</p><button className="secondary-button" onClick={() => setReload((value) => value + 1)} type="button">Try again</button></section>;
 
   return <>
@@ -193,16 +218,30 @@ function FeaturesPage({ notify }: { notify: (message: string, tone?: "success" |
         <button className="primary-button" disabled={!changes || busy} onClick={() => void save()} type="button">{busy ? "Publishing…" : "Publish changes"}</button>
       </div>
     </div>
+    {selectedFeatureKey ? <section aria-labelledby="feature-detail-heading" className="surface feature-detail" id="feature-detail">
+      <header className="feature-detail-header"><div><p className="kicker">Feature details</p><h3 id="feature-detail-heading" tabIndex={-1}>{selectedFeature?.label || "Feature not found"}</h3></div><button aria-label="Close feature details" className="icon-button" onClick={() => onSelectFeature("")} type="button"><X size={18} /></button></header>
+      {selectedFeature ? <>
+        <p className="feature-detail-description">{selectedFeature.description || "Review this capability's availability, access permissions and workspace pages."}</p>
+        <code className="feature-detail-key">{selectedFeature.key}</code>
+        <div className="feature-detail-availability"><dl><div><dt>Published availability</dt><dd>{snapshot?.flags[selectedFeature.key] ? "Available" : "Unavailable"}</dd></div><div><dt>Availability after publishing</dt><dd>{effective[selectedFeature.key] ? "Available" : "Unavailable"}</dd></div></dl>
+          <button aria-pressed={Boolean(draft[selectedFeature.key])} className="secondary-button" disabled={busy} onClick={() => setDraft((current) => ({ ...current, [selectedFeature.key]: !current[selectedFeature.key] }))} type="button">{draft[selectedFeature.key] ? "Disable this feature" : "Enable this feature"}</button>
+        </div>
+        {(snapshot?.dependencies?.[selectedFeature.key] || []).length ? <div className="feature-detail-dependencies"><h4>Required features</h4><p>These controls must also be available. Your choice for this feature is retained while a required feature is disabled.</p><ul>{snapshot!.dependencies![selectedFeature.key].map((key) => <li key={key}><button className="text-button" onClick={() => onSelectFeature(key)} type="button">{labels.get(key) || key}</button><span>{effective[key] ? "Available" : "Unavailable"}</span></li>)}</ul></div> : null}
+        {(snapshot?.optional_dependencies?.[selectedFeature.key] || []).length ? <div className="feature-detail-dependencies feature-detail-optional"><h4>Optional connections</h4><p>These features add linked fields, context or extra actions. Disabling them does not disable this feature; their own permissions and controls still apply.</p><ul>{snapshot!.optional_dependencies![selectedFeature.key].map((key) => <li key={key}><button className="text-button" onClick={() => onSelectFeature(key)} type="button">{labels.get(key) || key}</button><span>{effective[key] ? "Available" : "Unavailable"}</span></li>)}</ul></div> : null}
+        <div className="feature-detail-columns"><div><h4>Mapped permissions</h4><p>Each action also requires its own role permission. Feature changes do not change saved role permissions.</p>{selectedFeature.permissions?.length ? <ul className="feature-permission-list">{selectedFeature.permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul> : <p>No individual permission mapping is published for this feature.</p>}</div>
+          <div><h4>Workspace pages</h4>{selectedFeature.routes?.length ? <ul className="feature-route-list">{selectedFeature.routes.map((route) => <li key={route}><a href={workspaceUrl(route)} rel="noreferrer" target="_blank">{route}<ExternalLink aria-hidden="true" size={14} /></a></li>)}</ul> : <p>No workspace page mapping is published for this feature.</p>}</div></div>
+      </> : <p>The feature key <code>{selectedFeatureKey}</code> is not present in this instance's feature catalog.</p>}
+    </section> : null}
     <div className="flag-groups">{filteredGroups.map((group) => <section className="surface flag-group" key={group.key}>
       <div className="flag-group-head"><div><h3>{group.label}</h3><p>{group.description}</p></div><span>{group.features.filter((feature) => effective[feature.key]).length}/{group.features.length} available</span></div>
       <div>{group.features.map((feature) => {
-        const missingDependencies = (snapshot?.dependencies?.[feature.key] || []).filter((key) => !draft[key]);
-        return <button aria-pressed={Boolean(draft[feature.key])} className="flag-row" disabled={busy} key={feature.key} onClick={() => setDraft((current) => ({ ...current, [feature.key]: !current[feature.key] }))} type="button">
+        const missingDependencies = (snapshot?.dependencies?.[feature.key] || []).filter((key) => !effective[key]);
+        return <div className="flag-entry" key={feature.key}><button aria-pressed={Boolean(draft[feature.key])} className="flag-row" disabled={busy} onClick={() => setDraft((current) => ({ ...current, [feature.key]: !current[feature.key] }))} type="button">
           <div><strong>{feature.label}</strong>{feature.description ? <span>{feature.description}</span> : null}
             {draft[feature.key] && missingDependencies.length ? <span className="flag-dependency">Unavailable until {missingDependencies.map((key) => labels.get(key) || key).join(", ")} is enabled.</span> : null}
             <small>{feature.key}</small>
           </div><span aria-hidden="true" className={`toggle ${draft[feature.key] ? "on" : ""}`}>{draft[feature.key] ? <ToggleRight /> : <ToggleLeft />}</span>
-        </button>;
+        </button><button aria-controls="feature-detail" aria-expanded={selectedFeatureKey === feature.key} aria-label={`View details for ${feature.label}`} className="flag-details-button" onClick={() => onSelectFeature(selectedFeatureKey === feature.key ? "" : feature.key)} type="button">Details<ChevronRight aria-hidden="true" size={16} /></button></div>;
       })}</div>
     </section>)}</div>
     {!filteredGroups.length ? <section className="surface empty-state"><Search aria-hidden="true" /><h3>No matching capabilities</h3><p>Try a feature name, task or page.</p><button className="secondary-button" onClick={() => setSearch("")} type="button">Clear search</button></section> : null}
@@ -254,19 +293,36 @@ function SecurityPage({ session, notify, onRefresh }: { session: AdminSession; n
 }
 
 export function AdminApp() {
-  const [session, setSession] = useState<AdminSession | null>(() => sessionStore.read()); const [section, setSection] = useState<Section>("overview"); const [overview, setOverview] = useState<Overview | null>(null); const [state, setState] = useState<LoadState>("idle"); const [sidebarOpen, setSidebarOpen] = useState(false); const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [session, setSession] = useState<AdminSession | null>(() => sessionStore.read()); const [section, setSection] = useState<Section>(() => readAdminLocation().section); const [overview, setOverview] = useState<Overview | null>(null); const [state, setState] = useState<LoadState>("idle"); const [sidebarOpen, setSidebarOpen] = useState(false); const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
+  const [selectedFeatureKey, setSelectedFeatureKey] = useState(() => readAdminLocation().feature);
   const [dropdownDirty, setDropdownDirty] = useState(false);
   const navigate = useCallback((next: Section) => {
     if (next === section) return;
     if (section === "dropdowns" && dropdownDirty && !window.confirm("Leave Dropdown values and discard unsaved changes?")) return;
-    setDropdownDirty(false); setSection(next);
+    setDropdownDirty(false); setSection(next); setSelectedFeatureKey(""); writeAdminLocation(next);
   }, [section, dropdownDirty]);
+  const selectFeature = useCallback((key: string) => {
+    setSelectedFeatureKey(key);
+    writeAdminLocation("features", key);
+  }, []);
+  useEffect(() => {
+    const onPopState = () => {
+      const next = readAdminLocation();
+      if (next.section !== section && section === "dropdowns" && dropdownDirty && !window.confirm("Leave Dropdown values and discard unsaved changes?")) {
+        writeAdminLocation(section, selectedFeatureKey);
+        return;
+      }
+      setDropdownDirty(false); setSection(next.section); setSelectedFeatureKey(next.feature);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [section, dropdownDirty, selectedFeatureKey]);
   const notify = (message: string, tone: "success" | "error" = "success") => { setToast({ message, tone }); window.setTimeout(() => setToast(null), 4200); };
   const loadOverview = useCallback(async () => { if (!sessionStore.read()) return; setState("loading"); try { setOverview(await adminApi.overview()); setState("ready"); } catch { setState("error"); } }, []);
   useEffect(() => { if (session) void loadOverview(); }, [session, loadOverview]);
   const refreshSession = async () => { try { const next = await adminApi.session(); sessionStore.write(next); setSession(next); } catch { /* current page already explains any failure */ } };
   const activeMeta = title[section];
-  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={navigate} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} />; if (section === "dropdowns") return <DropdownValues onDirtyChange={setDropdownDirty} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview, navigate]);
+  const content = useMemo(() => { if (!overview) return null; if (section === "overview") return <OverviewPage data={overview} onNavigate={navigate} />; if (section === "people" && session) return <PeoplePage session={session} notify={notify} />; if (section === "setup") return <SetupPage schema={overview.schema} notify={notify} refresh={() => void loadOverview()} />; if (section === "features") return <FeaturesPage notify={notify} selectedFeatureKey={selectedFeatureKey} onSelectFeature={selectFeature} />; if (section === "dropdowns") return <DropdownValues onDirtyChange={setDropdownDirty} />; if (section === "integrations") return <IntegrationsPage notify={notify} />; if (section === "audit") return <AuditPage />; if (section === "security" && session) return <SecurityPage session={session} notify={notify} onRefresh={refreshSession} />; return null; }, [overview, section, session, loadOverview, navigate, selectedFeatureKey, selectFeature]);
   if (!session) return <Login onAuthenticated={setSession} />;
   const logout = () => { if (dropdownDirty && !window.confirm("Sign out and discard unsaved dropdown changes?")) return; setDropdownDirty(false); sessionStore.clear(); setSession(null); };
   return <div className="admin-shell">
@@ -275,7 +331,7 @@ export function AdminApp() {
     <main className="admin-main"><header className="topbar"><button aria-label="Open administration navigation" aria-expanded={sidebarOpen} className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></button><div className="breadcrumb"><span>Administration</span><ChevronRight size={15} /><strong>{activeMeta.heading}</strong></div><div className="top-actions"><button className="icon-button" onClick={() => void loadOverview()} title="Refresh"><RefreshCw size={18} /></button><button className="profile-button" onClick={() => navigate("security")}><span>{initials(session.user.name, session.user.email)}</span><div><strong>{session.user.name || "Administrator"}</strong><small>Workspace admin</small></div></button></div></header>
       {session.user.must_change_password ? <button className="security-banner" onClick={() => navigate("security")}><CircleAlert size={18} /><span><strong>Bootstrap password in use.</strong> Replace it now to secure this instance.</span><ArrowRight size={18} /></button> : null}
       <div className="page"><header className="page-heading"><div><p className="kicker">{activeMeta.eyebrow}</p><h1>{activeMeta.heading}</h1><p>{activeMeta.copy}</p></div>{section === "overview" ? <span className={`health-badge ${overview?.status === "operational" ? "good" : "warn"}`}><i />{overview?.status || "Checking"}</span> : null}</header>
-        {state === "loading" && !overview ? <div className="loading"><RefreshCw className="spin" />Loading control plane…</div> : state === "error" && !overview ? <div className="empty-state"><CircleAlert /><h3>Control plane unavailable</h3><p>Confirm the backend and PostgreSQL are running, then retry.</p><button className="primary-button" onClick={() => void loadOverview()}>Retry</button></div> : content}
+        {state === "loading" && !overview ? <LoadingState label="Loading control plane" /> : state === "error" && !overview ? <div className="empty-state"><CircleAlert /><h3>Control plane unavailable</h3><p>Confirm the backend and PostgreSQL are running, then retry.</p><button className="primary-button" onClick={() => void loadOverview()}>Retry</button></div> : content}
       </div>
     </main>{toast ? <Toast {...toast} onClose={() => setToast(null)} /> : null}
   </div>;

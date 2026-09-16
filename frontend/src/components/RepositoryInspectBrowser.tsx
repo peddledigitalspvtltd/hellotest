@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { RefreshIcon } from "./AppIcons";
 import { readRepositoryBrowserState, repositoryInspectFrameUrl, type RepositoryBrowserState } from "../lib/repositoryBrowserBridge";
@@ -133,7 +134,7 @@ export function RepositoryInspectBrowser({ tabs, selectedTabId, onSelectTab, onR
           tabIndex={selectedTabId === tab.id || (!selectedTabId && index === 0) ? 0 : -1}
           title={tab.url || "about:blank"}
           type="button"
-        ><strong>{tab.title || "Untitled tab"}</strong>{selectedTabId === tab.id && browserState.width && browserState.height ? <span className="repository-browser-resolution" aria-label={`Viewport ${browserState.width} by ${browserState.height}`}>{browserState.width} × {browserState.height}</span> : null}</button>) : <span className="repository-browser-empty-tabs">{sessionId ? "Loading browser tabs…" : "Browser closed"}</span>}
+        ><strong>{tab.title || "Untitled tab"}</strong>{selectedTabId === tab.id && browserState.width && browserState.height ? <span className="repository-browser-resolution" aria-label={`Viewport ${browserState.width} by ${browserState.height}`}>{browserState.width} × {browserState.height}</span> : null}</button>) : sessionId && isRefreshingTabs ? <LoadingState label="Loading browser tabs" /> : <span className="repository-browser-empty-tabs">{sessionId ? "No browser tabs available" : "Browser closed"}</span>}
       </div>
       <div className="repository-browser-commands" aria-label="Browser controls">
         <button aria-label="Refresh tabs and selected page content" className="ghost-button compact repository-browser-refresh" disabled={!sessionId || isRefreshingTabs} onClick={onRefreshTabs} title="Refresh tabs and selected page content" type="button"><RefreshIcon size={15} /></button>

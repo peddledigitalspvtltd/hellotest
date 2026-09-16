@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { IconChevronRight, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconLanguage, IconSearch } from "@tabler/icons-react";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { WorkspaceProjectSwitcher } from "./WorkspaceProjectSwitcher";
@@ -21,6 +22,7 @@ import "./workspace-experience.css";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { useWorkspaceScrollRestoration } from "../hooks/useWorkspaceScrollRestoration";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
@@ -30,6 +32,7 @@ import { getUnreadNotificationCount, NOTIFICATIONS_UPDATED_EVENT } from "../lib/
 import { readNotificationPreferences } from "../lib/notificationPreferences";
 import { canAccessPath, hasAnyPermission } from "../lib/permissions";
 import { queryKeys } from "../lib/queryKeys";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { availableWorkspaceProjects } from "../lib/workspaceSwitcher";
 import { preloadWorkspaceRoute } from "../lib/routePrefetch";
 import {
@@ -205,20 +208,22 @@ function ReadyAppShell() {
     session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions
   ]);
   const projectsQuery = useQuery({
-    queryKey: [...queryKeys.projects(), projectAccessKey],
-    queryFn: api.projects.list,
+    queryKey: [...queryKeys.projects(), "workspace-scopes", projectAccessKey],
+    queryFn: api.metadata.workspaceScopes,
     retry: 1,
     staleTime: 60 * 1000
   });
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [sidebarProjectId, setSidebarProjectId] = useCurrentProject();
-  const serverUnreadNotificationCountQuery = useQuery({
+  const { can } = useCapabilityAccess(sidebarProjectId);
+  const canViewNotifications = can("notification.view");
+  const serverUnreadNotificationCountQuery = optionalQueryView(useQuery({
     queryKey: ["notifications", "unread", sidebarProjectId || "workspace"],
     queryFn: api.notifications.unreadCount,
-    enabled: Boolean(session),
+    enabled: canViewNotifications,
     refetchInterval: 300_000,
     staleTime: 240_000
-  });
+  }), canViewNotifications, { count: 0, by_preference: {} });
   const [theme, setTheme] = useState(readWorkspaceTheme);
   const [isCollapsed, setIsCollapsed] = useState(() => readSidebarMode() === "collapsed");
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.matchMedia(MOBILE_SIDEBAR_BREAKPOINT).matches);
@@ -237,7 +242,7 @@ function ReadyAppShell() {
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(() => getUnreadNotificationCount());
 
-  const projects = useMemo(() => availableWorkspaceProjects(asArray(projectsQuery.data)), [projectsQuery.data]);
+  const projects = useMemo(() => availableWorkspaceProjects(asArray(projectsQuery.data?.projects)), [projectsQuery.data]);
   const hasNoProjects = projectsQuery.isSuccess && projects.length === 0;
   const currentProjectName =
     projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
@@ -519,6 +524,7 @@ function ReadyAppShell() {
           </div>
 
           <WorkspaceProjectSwitcher
+            canViewApplications={can("app_type.view")}
             accessKey={projectAccessKey}
             isCollapsed={shouldCollapseSidebar}
             isLoadingProjects={projectsQuery.isPending}
@@ -681,10 +687,7 @@ function ReadyAppShell() {
           </div>
         </header>
         {isRouteTransitioning ? (
-          <div aria-live="polite" className="route-loading-indicator" role="status">
-            <span aria-hidden="true" className="loading-state-spinner" />
-            Loading {nextSection}…
-          </div>
+          <LoadingState label={`Loading ${nextSection}`} />
         ) : null}
         {featureFlagsQuery.isError && featureFlagsQuery.data ? <div className="workspace-policy-refresh" role="status"><span>{t("access.refreshHelp", "Availability couldn’t be refreshed. Your current work is still here.")}</span><button className="ghost-button" type="button" disabled={featureFlagsQuery.isFetching} onClick={() => void featureFlagsQuery.refetch()}>{t("common.retry", "Retry")}</button></div> : null}
         {!featureFlagsQuery.data && featureFlagsQuery.isFetching && currentFeatureKeys.length ? (

@@ -7,20 +7,21 @@ const require = createRequire(new URL('../../../testengine/backend/package.json'
 const { chromium } = require('playwright');
 const { modules, resolveModules } = createRequire(import.meta.url)('../../../backend/api/src/services/sampleData/catalog.js');
 const { buildRecords } = createRequire(import.meta.url)('../../../backend/api/src/services/sampleData/records.js');
+const { DEFAULT_ROLE_PRESETS } = createRequire(import.meta.url)('../../../backend/api/src/security/rolePresets.catalog.js');
 const records = buildRecords('browser-admin');
-const catalog = { version: 2, project_id: null, project_name: 'HelloTest Launchpad', description: 'Connected sample records', notes: [], modules: modules.map(module => ({ ...module, tables: [...new Set(records[module.key].map(record => record.table))], record_count: 0, expected_record_count: records[module.key].length, status: 'not_installed', available: module.key !== 'agents' })) };
+const catalog = { version: 2, project_id: null, project_name: 'HelloTest Launchpad', description: 'Connected sample records', notes: [], roles: DEFAULT_ROLE_PRESETS.map(role => ({ ...role, role_id: role.key === 'product-owner' ? 'custom-product-owner' : null, current_permission_codes: [], status: role.key === 'product-owner' ? 'customized' : 'not_installed' })), modules: modules.map(module => ({ ...module, tables: [...new Set(records[module.key].map(record => record.table))], record_count: 0, expected_record_count: records[module.key].length, status: 'not_installed', available: module.key !== 'agents' })) };
 const root = new URL('../../', import.meta.url);
-test('admin sample coverage supports dependency selection, retries, installation results and responsive navigation', { timeout: 90000 }, async () => {
+test('admin setup preserves custom roles, installs missing presets and supports responsive sample selection and retries', { timeout: 90000 }, async () => {
   const name = `admin-samples-${randomUUID()}`;
   const html = new URL(`${name}.html`, root), tsx = new URL(`${name}.tsx`, root);
   let browser;
   try {
     await mkdir('/tmp/qaira-admin-samples', { recursive: true });
     const fixture = `import React from 'react';import {createRoot} from 'react-dom/client';import {AdminApp} from '/src/admin/AdminApp';import {adminApi,sessionStore} from '/src/admin/api';import '/src/admin/admin.css';import '@fontsource/inter/400.css';import '@fontsource/inter/500.css';import '@fontsource/inter/600.css';import '@fontsource/hanken-grotesk/600.css';
-const catalog=${JSON.stringify(catalog)};const state={failRead:true,failInstall:true,calls:[]};window.sampleFixture=state;sessionStore.write({token:'isolated-admin-samples',user:{id:'browser-admin',name:'QA Administrator',email:'admin@example.test',role:'admin'}});
+const catalog=${JSON.stringify(catalog)};const state={failRead:true,failInstall:true,calls:[],roleResults:[],catalog};window.sampleFixture=state;sessionStore.write({token:'isolated-admin-samples',user:{id:'browser-admin',name:'QA Administrator',email:'admin@example.test',role:'admin'}});
 adminApi.overview=async()=>({status:'operational',schema:{status:'ready',required_tables:16,available_tables:16,missing_tables:[]},metrics:{users:2,administrators:2,projects:1,integrations:0,active_integrations:0,enabled_features:45,total_features:46},runtime:{api_port:3000,admin_port:8081}});
 adminApi.sampleCatalog=async()=>{if(state.failRead){state.failRead=false;throw new Error('Temporary catalog connection failure');}return structuredClone(catalog)};
-adminApi.seedSamples=async selected=>{state.calls.push(selected);if(state.failInstall){state.failInstall=false;throw new Error('Installation could not finish. No sample records were saved.');}const included=new Set();const visit=key=>{if(included.has(key))return;included.add(key);catalog.modules.find(module=>module.key===key).depends_on.forEach(visit)};selected.forEach(visit);let inserted=0,existing=0;for(const module of catalog.modules)if(included.has(module.key)){inserted+=module.expected_record_count-module.record_count;existing+=module.record_count;module.record_count=module.expected_record_count;module.status='installed';}catalog.project_id='sample-project';return {version:2,requested:selected,installed:[...included],dependencies_added:[...included].filter(key=>!selected.includes(key)),project_id:'sample-project',administrator_memberships:2,idempotent:true,inserted_records:inserted,existing_records:existing,module_results:[]}};
+adminApi.seedSamples=async selected=>{state.calls.push(selected);if(state.failInstall){state.failInstall=false;throw new Error('Installation could not finish. No sample records were saved.');}const roles={created:[],retained:[]};for(const role of catalog.roles){if(role.role_id){roles.retained.push({id:role.role_id,name:role.name});continue;}role.role_id='created-'+role.key;role.current_permission_codes=[...role.permission_codes];role.status='installed';roles.created.push({id:role.role_id,name:role.name});}state.roleResults.push(structuredClone(roles));const included=new Set();const visit=key=>{if(included.has(key))return;included.add(key);catalog.modules.find(module=>module.key===key).depends_on.forEach(visit)};selected.forEach(visit);let inserted=0,existing=0;for(const module of catalog.modules)if(included.has(module.key)){inserted+=module.expected_record_count-module.record_count;existing+=module.record_count;module.record_count=module.expected_record_count;module.status='installed';}catalog.project_id='sample-project';return {version:2,requested:selected,installed:[...included],dependencies_added:[...included].filter(key=>!selected.includes(key)),project_id:'sample-project',administrator_memberships:2,roles,idempotent:true,inserted_records:inserted,existing_records:existing,module_results:[]}};
 createRoot(document.getElementById('root')).render(<AdminApp/>);`;
     await writeFile(tsx, fixture);
     await writeFile(html, `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
@@ -34,7 +35,25 @@ createRoot(document.getElementById('root')).render(<AdminApp/>);`;
     await page.getByText('Temporary catalog connection failure', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Reload catalog' }).click();
     await page.locator('.sample-choice').last().waitFor();
-    assert.equal(await page.locator('.sample-choice').count(), 12);
+    assert.equal(await page.locator('.sample-choice').count(), modules.length);
+    assert.equal(await page.locator('.sample-role-card').count(), 7);
+    const roleCard = name => page.locator('.sample-role-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    await page.locator('.sample-roles').getByText('1/7 available', { exact: true }).waitFor();
+    for (const preset of DEFAULT_ROLE_PRESETS) {
+      const card = roleCard(preset.name);
+      assert.equal(await card.getByText(preset.description, { exact: true }).count(), 1);
+      assert.equal(await card.locator('summary').innerText(), preset.key === 'product-owner' ? 'Current permissions (0)' : `Default permissions (${preset.permission_codes.length})`);
+      assert.equal(await card.getByText(preset.key === 'product-owner' ? 'Customized · retained' : 'Created during setup', { exact: true }).count(), 1);
+    }
+    const productOwner = roleCard('Product Owner');
+    await productOwner.locator('summary').click();
+    await productOwner.getByText('This role currently has no permissions.', { exact: true }).waitFor();
+    const reporter = roleCard('Reporter');
+    await reporter.locator('summary').click();
+    assert.deepEqual(await reporter.locator('li code').allTextContents(), DEFAULT_ROLE_PRESETS.find(role => role.key === 'reporter').permission_codes);
+    assert.equal(await reporter.getByText('feedback.create', { exact: true }).isVisible(), true);
+    assert.equal(await reporter.getByText('feedback.manage', { exact: true }).count(), 0);
+    await page.locator('.sample-roles').screenshot({ path: '/tmp/qaira-admin-samples/roles-before-1440.png' });
     await page.getByRole('textbox', { name: 'Search sample modules and features' }).fill('history');
     assert.ok(await page.locator('.sample-choice').count() >= 3);
     await page.getByRole('textbox', { name: 'Search sample modules and features' }).fill('not-a-feature');
@@ -50,10 +69,27 @@ createRoot(document.getElementById('root')).render(<AdminApp/>);`;
     await page.getByRole('button', { name: 'Install selected samples' }).click();
     await page.getByText('Installation could not finish. No sample records were saved.', { exact: true }).waitFor();
     assert.equal(await page.getByRole('checkbox', { checked: true }).count(), expected.installed.length);
+    await page.locator('.sample-roles').getByText('1/7 available', { exact: true }).waitFor();
+    assert.deepEqual(await page.evaluate(() => window.sampleFixture.roleResults), [], 'Failed installation does not create roles');
     await page.getByRole('button', { name: 'Install selected samples' }).click();
     await page.getByText('Your sample workspace is ready', { exact: true }).waitFor();
     await page.waitForFunction(() => !document.querySelector('.sample-catalog').getAttribute('aria-busy') || document.querySelector('.sample-catalog').getAttribute('aria-busy') === 'false');
     assert.deepEqual(await page.evaluate(() => window.sampleFixture.calls), [['agents'], ['agents']]);
+    await page.locator('.sample-message.is-success').getByText(/6 roles created · 1 existing roles retained/).waitFor();
+    await page.locator('.sample-roles').getByText('7/7 available', { exact: true }).waitFor();
+    for (const preset of DEFAULT_ROLE_PRESETS) {
+      const card = roleCard(preset.name);
+      assert.equal(await card.locator('summary').innerText(), `Current permissions (${preset.key === 'product-owner' ? 0 : preset.permission_codes.length})`);
+      assert.equal(await card.getByText(preset.key === 'product-owner' ? 'Customized · retained' : 'Available', { exact: true }).count(), 1);
+    }
+    assert.deepEqual(await page.evaluate(() => window.sampleFixture.catalog.roles.find(role => role.key === 'product-owner')), catalog.roles.find(role => role.key === 'product-owner'), 'Setup retains the exact customized empty role');
+    assert.equal(await reporter.getByText('feedback.create', { exact: true }).isVisible(), true);
+    assert.equal(await reporter.getByText('feedback.manage', { exact: true }).count(), 0);
+    await page.getByRole('button', { name: 'Install selected samples' }).click();
+    await page.getByText('Your samples are already up to date', { exact: true }).waitFor();
+    await page.locator('.sample-message.is-success').getByText(/0 roles created · 7 existing roles retained/).waitFor();
+    assert.deepEqual(await page.evaluate(() => window.sampleFixture.roleResults.map(result => ({ created: result.created.length, retained: result.retained.length }))), [{ created: 6, retained: 1 }, { created: 0, retained: 7 }]);
+    assert.deepEqual(await page.evaluate(() => window.sampleFixture.catalog.roles.find(role => role.key === 'product-owner').current_permission_codes), []);
     await page.getByRole('button', { name: 'Full product', exact: true }).click();
     await page.getByRole('checkbox', { name: /Schedules & activity/ }).focus();
     await page.keyboard.press('Space');
@@ -63,6 +99,9 @@ createRoot(document.getElementById('root')).render(<AdminApp/>);`;
       await page.setViewportSize({ width, height: 1000 });
       await page.evaluate(() => document.fonts.ready);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `Overflow at ${width}px`);
+      assert.equal(await page.locator('.sample-role-card').count(), 7);
+      assert.equal(await page.locator('.sample-role-card').evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1)), true, `Role card overflow at ${width}px`);
+      await page.locator('.sample-roles').screenshot({ path: `/tmp/qaira-admin-samples/roles-${width}.png` });
       await page.screenshot({ path: `/tmp/qaira-admin-samples/setup-${width}.png`, fullPage: true });
     }
     assert.deepEqual(errors, []);

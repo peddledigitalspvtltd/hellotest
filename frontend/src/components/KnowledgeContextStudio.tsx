@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { DragEvent, FormEvent, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,7 +15,6 @@ import {
   IconFileText,
   IconFolders,
   IconInfoCircle,
-  IconLoader2,
   IconMessageCircle,
   IconPlayerPlay,
   IconRefresh,
@@ -568,7 +568,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           </div>
         </div>
         <div className="knowledge-studio-health" aria-label="Source indexing status">
-          {overviewQuery.isPending ? <span className="is-neutral"><i /> Checking indexing status</span> : overviewQuery.isError ? <span className="is-warning"><i /> Indexing status unavailable</span> : <>
+          {overviewQuery.isLoading ? <LoadingState label="Checking indexing status" /> : overviewQuery.isError ? <span className="is-warning"><i /> Indexing status unavailable</span> : <>
             <span className={indexedSourceCount ? "is-ready" : "is-neutral"} title="Successfully processed sources available for project retrieval.">
               <i /> {indexedSourceCount.toLocaleString()} source{indexedSourceCount === 1 ? "" : "s"} indexed
             </span>
@@ -855,7 +855,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 ))}
               </div>
               <button className="primary-button knowledge-build-submit" disabled={!canManage || !sourceCount || buildMutation.isPending} onClick={() => buildMutation.mutate()} type="button">
-                {buildMutation.isPending ? <IconLoader2 aria-hidden="true" className="knowledge-processing-spinner" size={16} stroke={2.1} /> : <IconSparkles size={17} />}
+                {buildMutation.isPending ? <LoadingState label="Starting context processing" /> : <IconSparkles size={17} />}
                 {buildMutation.isPending ? "Starting processing…" : "Process context"}
               </button>
               {!sourceCount ? <small className="knowledge-build-empty-note">Select at least one record, valid pasted input, or file with an extraction path.</small> : null}
@@ -1018,7 +1018,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               const errorMessages = (job.errors || []).map(processingNoticeText);
               return (
                 <article className={`knowledge-job-card is-${status}`} key={job.id}>
-                  <div className="knowledge-job-status-icon">{status === "completed" ? <IconCheck size={18} /> : status === "completed_with_warnings" || status === "failed" ? <IconAlertTriangle size={18} /> : <IconLoader2 aria-hidden="true" className="knowledge-processing-spinner" size={15} stroke={2.1} />}</div>
+                  {status === "completed" || status === "completed_with_warnings" || status === "failed" ? <div className="knowledge-job-status-icon">{status === "completed" ? <IconCheck size={18} /> : <IconAlertTriangle size={18} />}</div> : <LoadingState label="Processing project context" />}
                   <div className="knowledge-job-body">
                     <div className="knowledge-job-head"><div><span>{submittedHere ? "Just submitted" : humanize(status)}</span><h4>{job.config?.title || `Context build ${job.id.slice(0, 8)}`}</h4></div><code>{job.id.slice(0, 12)}</code></div>
                     <div className="knowledge-job-progress" aria-label={`${progress}% complete`} role="progressbar" aria-valuemax={100} aria-valuemin={0} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div>
@@ -1033,7 +1033,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                           onClick={() => retryIngestionMutation.mutate(job.id)}
                           type="button"
                         >
-                          <IconRefresh className={retryIngestionMutation.isPending && retryIngestionMutation.variables === job.id ? "spin" : undefined} size={14} />
+                          {retryIngestionMutation.isPending && retryIngestionMutation.variables === job.id ? <LoadingState label="Retrying context ingestion" /> : <IconRefresh size={14} />}
                           Retry retained source
                         </button>
                       </div>

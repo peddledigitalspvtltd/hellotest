@@ -1,8 +1,8 @@
-import type { AppType, Project } from "../types";
+import type { AppType, WorkspaceProjectScope } from "../types";
 
 export type WorkspaceScopeSelection = { projectId: string; appTypeId?: string };
 
-export function availableWorkspaceProjects(projects: readonly Project[]) {
+export function availableWorkspaceProjects<T extends WorkspaceProjectScope>(projects: readonly T[]) {
   const ids = new Set<string>();
   return projects.filter((project) => {
     const id = String(project.id || "");

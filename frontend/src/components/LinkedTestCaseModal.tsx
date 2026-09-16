@@ -3,6 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { useWorkspaceResource } from "../hooks/useWorkspaceData";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import {
@@ -79,9 +82,12 @@ export function LinkedTestCaseModal({
   onClose: () => void;
 }) {
   const { session } = useAuth();
+  const [projectId] = useCurrentProject();
+  const { can } = useCapabilityAccess(projectId);
+  const canViewRunHistory = can("result.view");
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data);
-  const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data);
+  const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data, projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [expandedSections, setExpandedSections] = useState({
     details: false,
@@ -114,11 +120,11 @@ export function LinkedTestCaseModal({
     queryFn: () => api.testSteps.list({ test_case_id: testCase.id }),
     enabled: Boolean(testCase.id)
   });
-  const historyQuery = useQuery({
-    queryKey: ["linked-test-case-modal-history", testCase.id, resolvedTestCase.app_type_id || ""],
-    queryFn: () => api.executionResults.list({ test_case_id: testCase.id, app_type_id: resolvedTestCase.app_type_id || undefined }),
-    enabled: Boolean(testCase.id)
-  });
+  const historyQuery = useWorkspaceResource(
+    ["linked-test-case-modal-history", testCase.id, resolvedTestCase.app_type_id || ""],
+    signal => api.executionResults.list({ project_id: projectId, test_case_id: testCase.id, app_type_id: resolvedTestCase.app_type_id || undefined }, { signal }),
+    canViewRunHistory, Boolean(testCase.id)
+  );
 
   const linkedRequirementTitles = useMemo(
     () =>
@@ -478,7 +484,7 @@ export function LinkedTestCaseModal({
                         </div>}
                       </LinkedTestCaseSection>
 
-                      <LinkedTestCaseSection
+                      {canViewRunHistory ? <LinkedTestCaseSection
                         countLabel={`${history.length} record${history.length === 1 ? "" : "s"}`}
                         isExpanded={expandedSections.history}
                         onToggle={() => setExpandedSections((current) => ({ ...current, history: !current.history }))}
@@ -508,7 +514,7 @@ export function LinkedTestCaseModal({
                           })}
                           {!historyQuery.isLoading && !history.length ? <div className="empty-state compact">No run history yet for this test case.</div> : null}
                         </div>
-                      </LinkedTestCaseSection>
+                      </LinkedTestCaseSection> : null}
                     </div>
                   </div>
                 </Panel>

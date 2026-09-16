@@ -155,7 +155,7 @@ test("AI Grooming provenance fingerprints the bounded evidence snapshot, not onl
   assert.match(serviceSource, /requirement: \{ \.\.\.groomingStoryMetadata\(boundedRequirement\), description \}/);
   assert.match(serviceSource, /project: \{ id: project\.id, key: project\.display_id \|\| project\.id \}/);
   assert.match(serviceSource, /evidence: groomingSourceSnapshot\(sources\)/);
-  assert.match(serviceSource, /evidence_boundary: \{ totals, omitted \}/);
+  assert.match(serviceSource, /evidence_boundary: \{ totals, omitted, unavailable_sources: restrictedSources \}/);
   assert.match(serviceSource, /type: item\.type,[\s\S]*title: item\.title,[\s\S]*excerpt: item\.excerpt/);
   assert.match(serviceSource, /input_fingerprint: hash\(input\)/);
   assert.match(serviceSource, /fallbackReason = "No active LLM integration is configured; a conservative evidence-only review is shown\."/);

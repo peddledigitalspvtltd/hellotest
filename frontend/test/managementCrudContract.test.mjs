@@ -125,7 +125,7 @@ test("Backlog uses the approved gear and dual-workflow-arrow artwork", async () 
 });
 
 test("Product Management workspaces expose delivery governance without using automation as readiness", async () => {
-  const [app, stories, releases, readiness, icons, issues, completionGuard, projects, api, types] = await Promise.all([
+  const [app, stories, releases, readiness, icons, issues, completionGuard, projects, api, types, storyMetrics] = await Promise.all([
     readSource("../src/App.tsx"),
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/pages/ReleasesPage.tsx"),
@@ -135,7 +135,8 @@ test("Product Management workspaces expose delivery governance without using aut
     readSource("../src/components/DeliveryCompletionGuardDialog.tsx"),
     readSource("../src/pages/ProjectsPage.tsx"),
     readSource("../src/lib/api.ts"),
-    readSource("../src/types.ts")
+    readSource("../src/types.ts"),
+    readSource("../src/lib/storyMetrics.ts")
   ]);
 
   assert.match(app, /workspaceMode="backlog"/);
@@ -147,16 +148,17 @@ test("Product Management workspaces expose delivery governance without using aut
     "Test coverage", "Release readiness", "Automation progress", "Retrospective",
     "Slipped", "On course", "Groomed", "Not groomed", "Link Story"
   ]) assert.match(stories, new RegExp(capability, "i"));
-  assert.match(stories, /selectedRequirementTestCoverage \* 0\.3/);
-  assert.match(stories, /selectedRequirementPassCoverage\.percent \* 0\.5/);
-  assert.match(stories, /selectedRequirementBugHealth \* 0\.2/);
+  assert.match(storyMetrics, /testCoverage \* 0\.3/);
+  assert.match(stories, /selectedStoryMetrics\.readiness/);
+  assert.match(storyMetrics, /passed \/ executed \* 100 : 0\) \* 0\.5/);
+  assert.match(storyMetrics, /openBugHealth \* 0\.2/);
   assert.match(stories, /Automation is informational and is not part of readiness/);
   for (const productMetric of ["Grooming readiness", "Specification ready", "High-priority demand", "Team ownership"]) {
     assert.match(stories, new RegExp(productMetric, "i"));
   }
   assert.match(stories, /isStoryAssignedToSprint/);
   assert.match(stories, /selectedRequirementHasSprint \? <button[\s\S]*AI Test Cases Generation/);
-  assert.match(stories, /selectedRequirementHasSprint \? \[[\s\S]*Linked test cases[\s\S]*Linked bugs[\s\S]*Historical runs/);
+  assert.match(stories, /selectedRequirementHasSprint && canViewTestCases \? \[[\s\S]*Linked test cases[\s\S]*Linked bugs[\s\S]*Historical runs/);
   assert.match(stories, /workspaceMode === "backlog"[\s\S]*<StoryIcon size=\{16\}/);
   assert.match(stories, /IconPlayerPlay[\s\S]*IconFlagCheck[\s\S]*IconNotes/);
   assert.match(stories, /listRequirements\(iteration\.id, \{ page_size: 200, cursor, projection: "summary" \}\)/);
@@ -211,7 +213,7 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(api, /requirementReleases:/);
   assert.match(api, /generateNotes/);
   assert.match(api, /replaceRelatedRequirements/);
-  assert.match(stories, /qaScopedStories = workspaceMode === "stories"/);
+  assert.match(stories, /requirementMetricsQuery\.data\?\.\[workspaceMode === "stories" \? "all" : workspaceMode\]/);
   assert.match(stories, /Backlog Stories are excluded/);
   assert.match(stories, /StoryMetricFact/);
   assert.match(stories, /\/testops\?process=/);
@@ -426,7 +428,7 @@ test("planning dates, simplified Sprint creation, and rich-text links retain the
   assert.match(stories, /label="Dev Completion Target Date"><input type="date"/);
   assert.match(stories, /label="QA Completion Target Date"><input[^>]*type="date"/);
   assert.match(stories, /label="Start date">[\s\S]*type="date"/);
-  assert.match(stories, /queryKey: \["sprint-backlog-picker", projectId\][\s\S]*unassigned: true/);
+  assert.match(stories, /queryKey: \["sprint-backlog-picker", projectId, iterationRequirementSearch\.trim\(\), iterationRequirementStatusFilter\][\s\S]*unassigned: true/);
   assert.match(stories, /const selectedStoryIds = \[\.\.\.new Set\(sprintDraftRequirementIds/);
   assert.match(stories, /aria-label="Filter backlog Stories by status"/);
   assert.match(stories, /<GherkinEditor featureTitle=\{createDraft\.title/);
@@ -476,9 +478,11 @@ test("test data authoring uses an iteration grid and module health loads before 
   assert.match(testData, /function DataTableEditor/);
   assert.match(testData, /function KeyValueEditor/);
   assert.match(testCases, /const moduleMetricHeaders = useMemo/);
-  assert.match(testCases, /moduleMetricHeaders\.flatMap/);
+  assert.match(testCases, /api\.testCases\.metrics\(/);
+  assert.match(testCases, /moduleMetricHeaders\.filter\(\(module\) => !isCatalogFiltered && expandedModuleIds\.includes\(module\.id\)\)/);
+  assert.doesNotMatch(testCases, /moduleMetricHeaders\.forEach\(\(module\) =>[\s\S]{0,250}loadNextModulePage/);
   assert.doesNotMatch(testCases, /isCollapsed \|\| !modulePageState \|\| isInitialLoading/);
-  assert.match(testCases, /const hasCompleteModuleMetrics = \(moduleId: string\)/);
+  assert.match(testCases, /const hasCompleteModuleMetrics = \(_moduleId: string\) => Boolean\(testCaseMetricsQuery\.data\)/);
   assert.equal((testCases.match(/\? renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)\s*: renderModuleMetrics\(moduleHealth\.unassigned\)/g) || []).length, 2);
   assert.doesNotMatch(testCases, /isUnassignedModuleExpanded[\s\S]{0,120}renderDeferredModuleMetrics\(moduleHealth\.unassigned\.count\)/);
   assert.match(styles, /\.resource-sheet/);

@@ -4,6 +4,24 @@ Administration → Instance setup provides 12 selectable groups, 283 versioned s
 
 Choose Full product, QA essentials or AI & automation, or search and select individual modules. The preview includes dependencies and missing-record counts. Installation requires a workspace administrator. Disabled feature flags remain disabled.
 
+## Workspace roles
+
+Schema validation and every sample installation automatically create missing role presets. The setup page shows their permissions and marks existing customized roles. Repeating setup preserves existing grants, including intentionally empty roles, and does not change user assignments.
+
+| Role | Responsibility |
+| --- | --- |
+| Product Owner | Stories, Backlog, Sprints and Releases; delivery insights and evidence |
+| QA Lead | Test design, plans, quality gates, execution, schedules and reporting |
+| QA Member | Manual test authoring, suites, execution, results and Bug collaboration |
+| Automation Engineer | Automation assets, repositories, code, local/remote runs and execution resources |
+| AI Engineer | Project AI workflows, knowledge, prompt templates and generated test/automation drafts |
+| Reporter | Create Bugs, add comments and attachments, and read linked project evidence |
+| Viewer | Read project planning, coverage, runs and evidence |
+
+These presets grant no workspace administration or access-management permissions. Feature availability continues to apply to every grant. Reporter uses `feedback.create`; it cannot edit or delete existing Bugs. Existing roles with `feedback.manage` retain their reporting capability.
+
+Canonical permission lists live in `backend/api/src/security/rolePresets.catalog.js` and are reused by role creation, schema setup and sample installation.
+
 | Module | Records | Feature coverage |
 | --- | ---: | --- |
 | Projects & applications | 4 | Project scope, Application selection, Administrator access |
@@ -28,11 +46,12 @@ Choose Full product, QA essentials or AI & automation, or search and select indi
 - Sample execution evidence is labeled as illustrative. No browser, device, job or external service is invoked by installation.
 - Knowledge chunks have real PostgreSQL lexical indexes and project-scoped read bindings; no generated embeddings or fabricated model responses are stored.
 - All ten integration examples are inactive and credential-free. Schedules are disabled; agent workflows are manual drafts. External services need the administrator's own configuration.
+- Sample projects can be deleted and recreated through the normal project/setup flows. Project deletion removes scoped Knowledge, AI jobs and workflows together with product records and activity in one database transaction. Workspace roles and unrelated projects are retained; attachment objects are removed after the database commit.
 
 ## Implementation and validation
 
 The catalog, deterministic record definitions and transactional installer live in backend/api/src/services/sampleData. The admin UI is frontend/src/admin/SampleDataSetup.tsx.
 
-The opt-in PostgreSQL integration test backend/api/test/integration/adminSamples.postgres.test.js requires ADMIN_SAMPLES_POSTGRES=1 and an empty DATABASE_URL whose database name starts with agent_verify_admin_samples_. It initializes the application schema and verifies rollback, full/partial/concurrent installation, preservation of legacy and edited records, case/run associations, timing, step logs, native knowledge retrieval, feature flags and inactive services. Never point it at an existing workspace database.
+The opt-in PostgreSQL integration test backend/api/test/integration/adminSamples.postgres.test.js requires ADMIN_SAMPLES_POSTGRES=1 and an empty DATABASE_URL whose database name starts with agent_verify_admin_samples_. It initializes the application schema and verifies rollback, full/partial/concurrent installation, preservation of legacy and edited records, role creation and customization, deletion/reinstallation, case/run associations, timing, step logs, native knowledge retrieval, feature flags and inactive services. Never point it at an existing workspace database.
 
 The browser test frontend/test/browser/adminSampleData.test.mjs runs against ADMIN_TEST_URL (default http://127.0.0.1:5180), using isolated API fixtures. It covers load/install retries, dependency selection, search, keyboard controls and responsive layouts from 320px to 1440px.

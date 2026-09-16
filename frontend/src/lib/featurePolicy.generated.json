@@ -1,0 +1,444 @@
+{
+  "feature_keys": [
+    "hellotest.manual.requirements",
+    "hellotest.manual.test_cases",
+    "hellotest.manual.suites",
+    "hellotest.manual.runs",
+    "hellotest.manual.run_gherkin",
+    "hellotest.manual.bugs",
+    "hellotest.manual.plans",
+    "hellotest.manual.quality_gates",
+    "hellotest.manual.environments",
+    "hellotest.manual.test_data",
+    "hellotest.analytics.dashboards",
+    "hellotest.automation.workspace",
+    "hellotest.automation.preview",
+    "hellotest.automation.analytics",
+    "hellotest.automation.assets",
+    "hellotest.automation.object_repository",
+    "hellotest.automation.builder",
+    "hellotest.automation.step_code",
+    "hellotest.automation.step_recording",
+    "hellotest.automation.local_execution",
+    "hellotest.automation.remote_execution",
+    "hellotest.automation.parallel_execution",
+    "hellotest.automation.batch_process",
+    "hellotest.ai.requirement_design",
+    "hellotest.ai.test_authoring",
+    "hellotest.ai.test_data_generation",
+    "hellotest.ai.content_rephrase",
+    "hellotest.ai.bug_triage",
+    "hellotest.ai.quality_insights",
+    "hellotest.ai.automation",
+    "hellotest.ai.execution_analysis",
+    "hellotest.ai.knowledge",
+    "hellotest.ai.agentic_workflows",
+    "hellotest.ai.prompt_mapping",
+    "hellotest.api.keys",
+    "hellotest.api.integrations",
+    "hellotest.mobile.appium",
+    "hellotest.ops.background_jobs",
+    "hellotest.ops.telemetry",
+    "hellotest.ops.notifications",
+    "hellotest.ops.projects",
+    "hellotest.ops.settings",
+    "hellotest.ops.admin"
+  ],
+  "dependencies": {
+    "hellotest.manual.run_gherkin": [
+      "hellotest.manual.runs"
+    ],
+    "hellotest.automation.assets": [
+      "hellotest.automation.workspace"
+    ],
+    "hellotest.automation.object_repository": [
+      "hellotest.automation.workspace"
+    ],
+    "hellotest.automation.builder": [
+      "hellotest.automation.workspace"
+    ],
+    "hellotest.automation.local_execution": [
+      "hellotest.automation.workspace"
+    ],
+    "hellotest.automation.remote_execution": [
+      "hellotest.automation.workspace"
+    ],
+    "hellotest.automation.parallel_execution": [
+      "hellotest.automation.workspace"
+    ]
+  },
+  "permission_features": {
+    "workspace.view": [],
+    "project.view": [
+      "hellotest.ops.projects"
+    ],
+    "project.create": [
+      "hellotest.ops.projects"
+    ],
+    "project.update": [
+      "hellotest.ops.projects"
+    ],
+    "project.delete": [
+      "hellotest.ops.projects"
+    ],
+    "project.sync": [
+      "hellotest.ops.projects"
+    ],
+    "settings.view": [
+      "hellotest.ops.settings"
+    ],
+    "settings.manage": [
+      "hellotest.ops.settings",
+      "hellotest.ops.admin"
+    ],
+    "workspace_preferences.manage": [
+      "hellotest.ops.settings",
+      "hellotest.ops.admin"
+    ],
+    "api_key.manage": [
+      "hellotest.api.keys"
+    ],
+    "localization.manage": [
+      "hellotest.ops.settings",
+      "hellotest.ops.admin"
+    ],
+    "ai_prompt.manage": [
+      "hellotest.ai.prompt_mapping"
+    ],
+    "feature_flag.manage": [
+      "hellotest.ops.admin"
+    ],
+    "dashboard.view": [
+      "hellotest.analytics.dashboards"
+    ],
+    "dashboard.manage": [
+      "hellotest.analytics.dashboards"
+    ],
+    "quality_insight.view": [
+      "hellotest.ai.quality_insights"
+    ],
+    "user.view": [
+      "hellotest.ops.admin"
+    ],
+    "user.manage": [
+      "hellotest.ops.admin"
+    ],
+    "user.import": [
+      "hellotest.ops.admin"
+    ],
+    "role.view": [
+      "hellotest.ops.admin"
+    ],
+    "role.manage": [
+      "hellotest.ops.admin"
+    ],
+    "project_member.view": [],
+    "project_member.manage": [
+      "hellotest.ops.admin"
+    ],
+    "requirement.view": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.create": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.import": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.export": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.update": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.delete": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement.ai": [
+      "hellotest.ai.requirement_design"
+    ],
+    "requirement_iteration.view": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement_iteration.create": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement_iteration.update": [
+      "hellotest.manual.requirements"
+    ],
+    "requirement_iteration.delete": [
+      "hellotest.manual.requirements"
+    ],
+    "testcase.view": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.create": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.import": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.update": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.delete": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.export": [
+      "hellotest.manual.test_cases"
+    ],
+    "testcase.ai": [
+      "hellotest.ai.test_authoring"
+    ],
+    "step.manage": [
+      "hellotest.manual.test_cases"
+    ],
+    "shared_step.view": [
+      "hellotest.manual.suites"
+    ],
+    "shared_step.manage": [
+      "hellotest.manual.suites"
+    ],
+    "suite.view": [
+      "hellotest.manual.suites"
+    ],
+    "suite.create": [
+      "hellotest.manual.suites"
+    ],
+    "suite.update": [
+      "hellotest.manual.suites"
+    ],
+    "suite.delete": [
+      "hellotest.manual.suites"
+    ],
+    "plan.view": [
+      "hellotest.manual.plans"
+    ],
+    "plan.create": [
+      "hellotest.manual.plans"
+    ],
+    "plan.update": [
+      "hellotest.manual.plans"
+    ],
+    "plan.delete": [
+      "hellotest.manual.plans"
+    ],
+    "quality_gate.view": [
+      "hellotest.manual.quality_gates"
+    ],
+    "quality_gate.create": [
+      "hellotest.manual.quality_gates"
+    ],
+    "quality_gate.update": [
+      "hellotest.manual.quality_gates"
+    ],
+    "quality_gate.delete": [
+      "hellotest.manual.quality_gates"
+    ],
+    "quality_gate.ai": [
+      "hellotest.ai.quality_insights"
+    ],
+    "automation.view": [
+      "hellotest.automation.workspace"
+    ],
+    "automation.asset.create": [
+      "hellotest.automation.assets"
+    ],
+    "automation.asset.update": [
+      "hellotest.automation.assets"
+    ],
+    "automation.asset.delete": [
+      "hellotest.automation.assets"
+    ],
+    "automation.repository.manage": [
+      "hellotest.automation.object_repository"
+    ],
+    "automation.repository.import": [
+      "hellotest.automation.object_repository"
+    ],
+    "automation.repository.export": [
+      "hellotest.automation.object_repository"
+    ],
+    "automation.build": [
+      "hellotest.automation.builder"
+    ],
+    "automation.ai": [
+      "hellotest.ai.automation"
+    ],
+    "content.ai": [
+      "hellotest.ai.content_rephrase"
+    ],
+    "automation.recorder": [
+      "hellotest.automation.step_recording"
+    ],
+    "automation.code.view": [
+      "hellotest.automation.step_code"
+    ],
+    "automation.run.local": [
+      "hellotest.automation.local_execution"
+    ],
+    "automation.run.remote": [
+      "hellotest.automation.remote_execution"
+    ],
+    "automation.run.parallel": [
+      "hellotest.automation.parallel_execution"
+    ],
+    "automation.preview": [
+      "hellotest.automation.preview"
+    ],
+    "automation.analytics.view": [
+      "hellotest.automation.analytics"
+    ],
+    "agentic_workflow.view": [
+      "hellotest.ai.agentic_workflows"
+    ],
+    "agentic_workflow.manage": [
+      "hellotest.ai.agentic_workflows"
+    ],
+    "agentic_workflow.run": [
+      "hellotest.ai.agentic_workflows"
+    ],
+    "run.view": [
+      "hellotest.manual.runs"
+    ],
+    "run.gherkin.view": [
+      "hellotest.manual.run_gherkin"
+    ],
+    "run.create": [
+      "hellotest.manual.runs"
+    ],
+    "run.update": [
+      "hellotest.manual.runs"
+    ],
+    "run.execute": [
+      "hellotest.manual.runs"
+    ],
+    "run.delete": [
+      "hellotest.manual.runs"
+    ],
+    "run.ai": [
+      "hellotest.ai.execution_analysis"
+    ],
+    "run.report.export": [
+      "hellotest.manual.runs"
+    ],
+    "run.report.share": [
+      "hellotest.manual.runs"
+    ],
+    "result.view": [
+      "hellotest.manual.runs"
+    ],
+    "result.manage": [
+      "hellotest.manual.runs"
+    ],
+    "attachment.view": [],
+    "attachment.create": [],
+    "attachment.delete": [],
+    "comment.view": [],
+    "comment.create": [],
+    "schedule.view": [
+      "hellotest.manual.runs"
+    ],
+    "schedule.create": [
+      "hellotest.manual.runs"
+    ],
+    "schedule.update": [
+      "hellotest.manual.runs"
+    ],
+    "schedule.run": [
+      "hellotest.manual.runs"
+    ],
+    "schedule.delete": [
+      "hellotest.manual.runs"
+    ],
+    "environment.view": [
+      "hellotest.manual.environments"
+    ],
+    "environment.manage": [
+      "hellotest.manual.environments"
+    ],
+    "configuration.view": [
+      "hellotest.manual.environments"
+    ],
+    "configuration.manage": [
+      "hellotest.manual.environments"
+    ],
+    "data.view": [
+      "hellotest.manual.test_data"
+    ],
+    "data.manage": [
+      "hellotest.manual.test_data"
+    ],
+    "data.import": [
+      "hellotest.manual.test_data"
+    ],
+    "data.export": [
+      "hellotest.manual.test_data"
+    ],
+    "data.ai": [
+      "hellotest.ai.test_data_generation"
+    ],
+    "mobile.view": [
+      "hellotest.mobile.appium"
+    ],
+    "mobile.manage": [
+      "hellotest.mobile.appium"
+    ],
+    "app_type.view": [],
+    "app_type.manage": [
+      "hellotest.ops.projects"
+    ],
+    "integration.view": [
+      "hellotest.api.integrations"
+    ],
+    "integration.manage": [
+      "hellotest.api.integrations"
+    ],
+    "integration.import_export": [
+      "hellotest.api.integrations"
+    ],
+    "knowledge.view": [
+      "hellotest.ai.knowledge"
+    ],
+    "knowledge.manage": [
+      "hellotest.ai.knowledge"
+    ],
+    "prompt_template.view": [
+      "hellotest.ai.test_authoring"
+    ],
+    "prompt_template.manage": [
+      "hellotest.ai.test_authoring"
+    ],
+    "transaction.view": [
+      "hellotest.ops.background_jobs"
+    ],
+    "transaction.manage": [
+      "hellotest.ops.background_jobs",
+      "hellotest.automation.batch_process"
+    ],
+    "transaction.artifact.download": [
+      "hellotest.ops.background_jobs"
+    ],
+    "notification.view": [
+      "hellotest.ops.notifications"
+    ],
+    "notification.manage": [
+      "hellotest.ops.notifications"
+    ],
+    "feedback.view": [
+      "hellotest.manual.bugs"
+    ],
+    "feedback.create": [
+      "hellotest.manual.bugs"
+    ],
+    "feedback.manage": [
+      "hellotest.manual.bugs"
+    ],
+    "ops.view": [
+      "hellotest.ops.telemetry"
+    ],
+    "ops.manage": [
+      "hellotest.ops.telemetry"
+    ]
+  }
+}

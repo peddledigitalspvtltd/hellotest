@@ -12,8 +12,8 @@ const fixture=`import React from 'react';import {createRoot} from 'react-dom/cli
 import '/src/styles.css';import '/src/dark-theme.css';import '/src/modal-system.css';import '/src/workspace-layout.css';import '@fontsource/inter/400.css';import '@fontsource/inter/500.css';import '@fontsource/inter/600.css';
 const session={token:'isolated-switcher',user:{id:'switcher-reviewer',name:'QA Lead',role:'admin',email:'qa@example.test'}};sessionStorage.write(session);setCurrentScope('commerce','web');
 function stub(value){for(const [key,entry] of Object.entries(value)){if(typeof entry==='function')value[key]=async()=>[];else if(entry&&typeof entry==='object')stub(entry)}}stub(api);
-api.auth.session=async()=>session;api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});api.metadata.domain=async()=>({});api.notifications.unreadCount=async()=>({total:0,by_preference:{}});
-api.projects.list=async()=>[{id:'commerce',name:'Commerce platform'},{id:'payments',name:'Payments experience'}];api.appTypes.list=async({project_id})=>project_id==='commerce'?[{id:'web',project_id:'commerce',name:'Web storefront',type:'web'},{id:'api',project_id:'commerce',name:'Checkout API',type:'api'}]:[{id:'merchant',project_id:'payments',name:'Merchant services',type:'api'}];
+api.auth.session=async()=>session;api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({'hellotest.ops.projects':false},{get:(target,key)=>key in target?target[key]:true})});api.metadata.domain=async()=>({});api.notifications.unreadCount=async()=>({total:0,by_preference:{}});
+api.metadata.workspaceScopes=async()=>({projects:[{id:'commerce',name:'Commerce platform'},{id:'payments',name:'Payments experience'}]});window.managementProjectCalls=0;api.projects.list=async()=>{window.managementProjectCalls++;throw new Error('Project management disabled')};api.appTypes.list=async({project_id})=>project_id==='commerce'?[{id:'web',project_id:'commerce',name:'Web storefront',type:'web'},{id:'api',project_id:'commerce',name:'Checkout API',type:'api'}]:[{id:'merchant',project_id:'payments',name:'Merchant services',type:'api'}];
 const router=createMemoryRouter([{path:'/',element:<AppShell/>,children:[{index:true,element:<section className='page'><h1>Workspace overview</h1><p>Project and application selection remain available across the workspace.</p><button type='button'>Page action</button></section>}]}]);
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><AuthProvider><LocalizationProvider userId={session.user.id}><RouterProvider router={router}/></LocalizationProvider></AuthProvider></QueryClientProvider>);`;
 let browser;
@@ -27,6 +27,8 @@ try {
   await page.route('**/api/**',route=>{errors.push('Unexpected API request: '+route.request().url());return route.abort();});
   await page.goto(`${process.env.BROWSER_TEST_BASE_URL||'http://127.0.0.1:5179'}/${name}.html`);
   await page.getByRole('button',{name:'Application: Web storefront',exact:true}).waitFor();
+  assert.equal(await page.locator('.sidebar a[href="/projects"]').count(),0,'disabled Projects management is not a prerequisite for choosing a workspace');
+  assert.equal(await page.evaluate(()=>window.managementProjectCalls),0,'scope selection never requests project management records');
   const projectTrigger=page.getByRole('button',{name:'Project: Commerce platform',exact:true});
   const appTrigger=page.getByRole('button',{name:/^Application:/});
   const ensureBounds=async(width,height)=>{

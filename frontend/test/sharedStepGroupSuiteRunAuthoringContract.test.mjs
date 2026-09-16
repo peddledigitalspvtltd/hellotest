@@ -88,9 +88,13 @@ test("suite and run creation filter against the selected metadata dimension", as
   assert.match(design, /module\.display_id/);
   assert.match(design, /ensure\(testCaseId\)\.suites/);
   assert.match(executions, /executionPickerMetadataByCaseId/);
-  assert.match(executions, /testCase\.module_ids/);
-  assert.match(executions, /module\.display_id/);
-  assert.match(executions, /ensure\(testCaseId\)\.suites/);
+  assert.match(picker, /api\.testSuites\.list\(\{ project_id: projectId, app_type_id: appTypeId/);
+  assert.match(picker, /projection: "picker", case_search: debouncedSearch/);
+  assert.match(picker, /module_id: moduleId/);
+  assert.match(picker, /label: label\.trim\(\)/);
+  assert.match(picker, /suite\.test_case_count \?\?/);
+  assert.match(picker, /selectedIds\.length/);
+  assert.match(executions, /<SuiteScopePicker[\s\S]*?projectId=\{projectId\}[\s\S]*?appTypeId=\{appTypeId\}/);
   assert.doesNotMatch(executions, /Available run scope|Filter the run scope by test case, module, requirement, label, suite, or Shared Step Group metadata/);
   assert.match(styles, /\.suite-reference-picker-filter-footer/);
 });

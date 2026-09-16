@@ -1,5 +1,5 @@
 const db = require("../db");
-const { randomUUID: uuid } = require("crypto");
+const { randomUUID: uuid, createHash } = require("crypto");
 const displayIdService = require("./displayId.service");
 const { ISSUE_STATUS_VALUES, DOMAIN_METADATA } = require("../domain/catalog");
 const { normalizeReferenceList } = require("../utils/externalReferences");
@@ -273,45 +273,128 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
   return { id, display_id };
 };
 
-exports.getIssues = async ({ project_id, user_id, status, viewer_id, viewer_is_admin = false } = {}) => {
-  let query = `
-	    SELECT
-	      ${ISSUE_SELECT_COLUMNS},
-	      reporter.name AS user_name,
-	      reporter.email AS user_email,
-      assignee.name AS assignee_name,
-      assignee.email AS assignee_email
-    FROM feedback
+const issueCatalogScope = (filters = {}) => {
+  const clauses = ["1 = 1"];
+  const params = [];
+  if (filters.project_id) {
+    clauses.push("feedback.project_id = ?");
+    params.push(filters.project_id);
+  } else if (!filters.viewer_is_admin) {
+    clauses.push("feedback.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)");
+    params.push(filters.viewer_id);
+  }
+  for (const field of ["user_id", "status", "priority", "assignee_id"]) {
+    const value = normalizeText(filters[field]);
+    if (!value) continue;
+    if (field === "assignee_id" && value === "__unassigned__") {
+      clauses.push("NULLIF(TRIM(feedback.assignee_id), '') IS NULL");
+    } else {
+      clauses.push(`feedback.${field} = ?`);
+      params.push(value);
+    }
+  }
+  const search = String(filters.q || "").trim().toLowerCase();
+  if (search) {
+    // Literal substring search keeps %, _ and quotes in user text as text.
+    clauses.push(`POSITION(? IN LOWER(CONCAT_WS(' ',
+      feedback.id, feedback.display_id, feedback.title, feedback.message,
+      feedback.status, feedback.severity, feedback.priority, feedback.environment,
+      feedback.build, feedback.jira_bug_key, feedback.linked_test_run_id,
+      linked_run.name, linked_run.status, linked_run.release, linked_run.build,
+      feedback.assignee_id, assignee.name, assignee.email,
+      feedback.steps_to_reproduce, feedback.expected_result, feedback.actual_result,
+      feedback.root_cause, feedback.qa_root_cause, feedback.bug_type,
+      reporter.name, reporter.email, feedback.user_id, feedback.labels::text,
+      feedback.sprint, feedback.fix_version, feedback.release
+    ))) > 0`);
+    params.push(search);
+  }
+  const joins = `FROM feedback
     JOIN users reporter ON reporter.id = feedback.user_id
     LEFT JOIN users assignee ON assignee.id = feedback.assignee_id
-    WHERE 1 = 1
-  `;
-  const params = [];
-
-  if (project_id) {
-    query += ` AND feedback.project_id = ?`;
-    params.push(project_id);
-  } else if (!viewer_is_admin) {
-    query += ` AND feedback.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)`;
-    params.push(viewer_id);
-  }
-
-  if (user_id) {
-    query += ` AND feedback.user_id = ?`;
-    params.push(user_id);
-  }
-
-  if (status) {
-    query += ` AND feedback.status = ?`;
-    params.push(status);
-  }
-
-  query += ` ORDER BY feedback.created_at DESC`;
-
-  return db.prepare(query).all(...params);
+    ${search ? "LEFT JOIN executions linked_run ON linked_run.id = feedback.linked_test_run_id AND linked_run.project_id = feedback.project_id" : ""}`;
+  const where = clauses.join(" AND ");
+  const scope = createHash("sha256").update(JSON.stringify([where, params])).digest("base64url");
+  return { joins, where, params, scope };
 };
 
-exports.getIssueItem = async (id) => {
+const issueCatalogColumns = `${ISSUE_SELECT_COLUMNS},
+  reporter.name AS user_name, reporter.email AS user_email,
+  assignee.name AS assignee_name, assignee.email AS assignee_email`;
+
+exports.getIssues = async (filters = {}) => {
+  const { joins, where, params } = issueCatalogScope(filters);
+  return db.prepare(`SELECT ${issueCatalogColumns} ${joins} WHERE ${where}
+    ORDER BY feedback.created_at DESC NULLS LAST, feedback.id DESC`).all(...params);
+};
+
+exports.getIssuePage = async (filters = {}) => {
+  const { joins, where, params, scope } = issueCatalogScope(filters);
+  const requestedSize = Number.parseInt(filters.page_size ?? filters.limit, 10);
+  const pageSize = Number.isFinite(requestedSize) && requestedSize > 0 ? Math.min(requestedSize, 200) : 25;
+  let continuation = "";
+  const pageParams = [...params];
+  if (filters.cursor) {
+    let cursor;
+    try {
+      cursor = JSON.parse(Buffer.from(String(filters.cursor), "base64url").toString("utf8"));
+      if (cursor.scope !== scope || typeof cursor.id !== "string" || !cursor.id
+        || !(cursor.created_at === null || (typeof cursor.created_at === "string" && Number.isFinite(Date.parse(cursor.created_at))))) throw new Error();
+    } catch {
+      throw Object.assign(new Error("The pagination cursor is invalid for this Bug catalog. Start from the first page."), { statusCode: 400 });
+    }
+    if (cursor.created_at === null) {
+      continuation = " AND feedback.created_at IS NULL AND feedback.id < ?";
+      pageParams.push(cursor.id);
+    } else {
+      continuation = " AND (feedback.created_at < ? OR (feedback.created_at = ? AND feedback.id < ?) OR feedback.created_at IS NULL)";
+      pageParams.push(cursor.created_at, cursor.created_at, cursor.id);
+    }
+  }
+  // Read one extra row to find continuation, without a full-catalog count.
+  // Preserve PostgreSQL timestamp microseconds in cursors rather than Date's milliseconds.
+  const rows = await db.prepare(`SELECT ${issueCatalogColumns},
+    TO_CHAR(feedback.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS _cursor_created_at
+    ${joins} WHERE ${where}${continuation}
+    ORDER BY feedback.created_at DESC NULLS LAST, feedback.id DESC LIMIT ?`).all(...pageParams, pageSize + 1);
+  const isLast = rows.length <= pageSize;
+  const pageRows = rows.slice(0, pageSize);
+  const last = pageRows[pageRows.length - 1];
+  const result = {
+    items: pageRows.map(({ _cursor_created_at, ...item }) => item),
+    next_cursor: isLast || !last ? null : Buffer.from(JSON.stringify({ scope, id: last.id, created_at: last._cursor_created_at ?? null })).toString("base64url"),
+    is_last: isLast
+  };
+  // Existing API consumers may request totals; the Bugs catalog obtains its
+  // complete metrics separately and skips this query for every record page.
+  if (filters.include_total !== false && filters.include_total !== "false") {
+    const count = await db.prepare(`SELECT COUNT(*) AS total ${joins} WHERE ${where}`).get(...params);
+    result.total = Number(count?.total || 0);
+  }
+  return result;
+};
+
+exports.getIssueMetrics = async (filters = {}) => {
+  const { joins, where, params } = issueCatalogScope(filters);
+  const open = "LOWER(TRIM(COALESCE(feedback.status, 'open'))) NOT IN ('closed', 'resolved', 'done', 'accepted')";
+  const rows = await db.prepare(`SELECT COALESCE(feedback.status, 'open') AS status,
+    COUNT(*)::INTEGER AS total,
+    COUNT(*) FILTER (WHERE ${open})::INTEGER AS open,
+    COUNT(*) FILTER (WHERE ${open} AND LOWER(TRIM(COALESCE(feedback.priority, ''))) IN ('highest', 'high'))::INTEGER AS priority_risks,
+    COUNT(*) FILTER (WHERE ${open} AND NULLIF(TRIM(feedback.assignee_id), '') IS NULL)::INTEGER AS unassigned,
+    COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM test_cases converted_case
+      JOIN app_types converted_app ON converted_app.id = converted_case.app_type_id
+      WHERE converted_case.source_issue_id = feedback.id AND converted_app.project_id = feedback.project_id))::INTEGER AS converted
+    ${joins} WHERE ${where} GROUP BY feedback.status ORDER BY status`).all(...params);
+  const metrics = { total: 0, open: 0, priority_risks: 0, unassigned: 0, converted: 0, statuses: {} };
+  for (const row of rows) {
+    for (const key of ["total", "open", "priority_risks", "unassigned", "converted"]) metrics[key] += Number(row[key] || 0);
+    metrics.statuses[row.status] = (metrics.statuses[row.status] || 0) + Number(row.total || 0);
+  }
+  return metrics;
+};
+
+exports.getIssueItem = async (id, { project_id, resolveReference = false } = {}) => {
   const item = await db.prepare(`
 	    SELECT
 	      ${ISSUE_SELECT_COLUMNS},
@@ -322,8 +405,9 @@ exports.getIssueItem = async (id) => {
     FROM feedback
     JOIN users reporter ON reporter.id = feedback.user_id
     LEFT JOIN users assignee ON assignee.id = feedback.assignee_id
-    WHERE feedback.id = ?
-  `).get(id);
+    WHERE ${resolveReference ? "(feedback.id = ? OR feedback.display_id = ? OR feedback.jira_bug_key = ?)" : "feedback.id = ?"}
+      ${project_id ? "AND feedback.project_id = ?" : ""}
+  `).get(...(resolveReference ? [id, id, id] : [id]), ...(project_id ? [project_id] : []));
 
   if (!item) {
     throw new Error("Issue not found");

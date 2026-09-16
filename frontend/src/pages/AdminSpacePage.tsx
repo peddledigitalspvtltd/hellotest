@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { AppErrorState } from "../components/AppErrorBoundary";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { LoadingState } from "../components/LoadingState";
 import { SubnavTabs } from "../components/SubnavTabs";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useCurrentProject } from "../hooks/useCurrentProject";
@@ -267,7 +268,7 @@ export function AdminSpacePage() {
         {activeSection === "health" ? (
           healthQuery.isLoading ? (
             <Panel title="System health" subtitle="Checking the live HelloTest platform configuration.">
-              <div className="empty-state compact" role="status">Running system checks…</div>
+              <LoadingState label="Running system checks" />
             </Panel>
           ) : healthQuery.error ? (
             <AppErrorState

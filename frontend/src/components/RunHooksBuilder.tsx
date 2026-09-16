@@ -1,8 +1,11 @@
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import type { TestCase, TestSuite } from "../types";
 import { DialogCloseButton } from "./DialogCloseButton";
+import { TestCasePicker } from "./TestCasePicker";
+import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 
 export type RunHookType = "BEFORE_ALL" | "AFTER_ALL" | "BEFORE_SUITE" | "AFTER_SUITE" | "BEFORE_TEST" | "AFTER_TEST";
 export type RunHookItemType = "suite" | "test";
@@ -42,13 +45,25 @@ export function RunHooksBuilder({
   value,
   onChange,
   suites,
-  testCases
+  testCases,
+  projectId: requestedProjectId,
+  appTypeId: requestedAppTypeId
 }: {
   value: RunHookSelection[];
   onChange: (nextHooks: RunHookSelection[]) => void;
   suites: TestSuite[];
   testCases: TestCase[];
+  projectId?: string;
+  appTypeId?: string;
 }) {
+  const [currentProjectId] = useCurrentProject();
+  const projectId = requestedProjectId || currentProjectId;
+  const [currentAppTypeId] = useCurrentAppType(projectId);
+  const appTypeId = requestedAppTypeId || currentAppTypeId;
+  const { can } = useCapabilityAccess(projectId);
+  const canSelectCases = can("testcase.view");
+  const canSelectSuites = can("suite.view");
+  const [pickerResolvedCases, setPickerResolvedCases] = useState<TestCase[]>([]);
   const [activeHookType, setActiveHookType] = useState<RunHookType>("BEFORE_ALL");
   const [pickerHookType, setPickerHookType] = useState<RunHookType | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
@@ -60,18 +75,19 @@ export function RunHooksBuilder({
   const normalizedSearch = pickerSearch.trim().toLowerCase();
 
   const filteredSuites = useMemo(
-    () => suites.filter((suite) => !normalizedSearch || suite.name.toLowerCase().includes(normalizedSearch)),
-    [normalizedSearch, suites]
+    () => (canSelectSuites ? suites : []).filter((suite) => !normalizedSearch || suite.name.toLowerCase().includes(normalizedSearch)),
+    [canSelectSuites, normalizedSearch, suites]
   );
   const filteredTestCases = useMemo(
-    () => testCases.filter((testCase) => !normalizedSearch || testCase.title.toLowerCase().includes(normalizedSearch)),
-    [normalizedSearch, testCases]
+    () => (canSelectCases ? testCases : []).filter((testCase) => !normalizedSearch || testCase.title.toLowerCase().includes(normalizedSearch)),
+    [canSelectCases, normalizedSearch, testCases]
   );
 
   const openPicker = (hookType: RunHookType) => {
     setPickerHookType(hookType);
     setPickerSearch("");
     setPickerSelectedIds([]);
+    setPickerResolvedCases([]);
   };
 
   const openSuggestions = () => {
@@ -116,6 +132,7 @@ export function RunHooksBuilder({
     setPickerHookType(null);
     setPickerSearch("");
     setPickerSelectedIds([]);
+    setPickerResolvedCases([]);
   };
   const closeSuggestions = () => setShowSuggestions(false);
   const suggestionsDialogRef = useDialogFocus<HTMLDivElement>({
@@ -152,13 +169,13 @@ export function RunHooksBuilder({
     }
 
     const suiteById = new Map(suites.map((suite) => [suite.id, suite]));
-    const caseById = new Map(testCases.map((testCase) => [testCase.id, testCase]));
+    const caseById = new Map([...testCases, ...pickerResolvedCases].map((testCase) => [testCase.id, testCase]));
     const additions = pickerSelectedIds
       .map((itemKey) => {
         const [itemType, itemId] = itemKey.split(":") as [RunHookItemType, string];
         const item = itemType === "suite" ? suiteById.get(itemId) : caseById.get(itemId);
 
-        if (!item) {
+        if (!item || (itemType === "suite" ? !canSelectSuites : !canSelectCases)) {
           return null;
         }
 
@@ -268,7 +285,7 @@ export function RunHooksBuilder({
           className="hook-picker-search"
           data-autofocus="true"
           onChange={(event) => setPickerSearch(event.target.value)}
-          placeholder="Search suites or test cases..."
+          placeholder={projectId && appTypeId ? "Search suites..." : "Search suites or test cases..."}
           value={pickerSearch}
         />
         <div className="hook-picker-list">
@@ -294,7 +311,22 @@ export function RunHooksBuilder({
             })}
             {!filteredSuites.length ? <p>No suites match this search.</p> : null}
           </section>
-          <section>
+          {projectId && appTypeId ? <TestCasePicker
+            projectId={projectId}
+            appTypeId={appTypeId}
+            heading="Test Cases"
+            emptyMessage="No test cases match this search."
+            initialItems={testCases}
+            selectedIds={[...new Set([...selectedIdsForPickerType, ...pickerSelectedIds].filter(key => key.startsWith("test:")).map(key => key.slice(5)))]}
+            onChange={(ids, selectedItems) => {
+              setPickerResolvedCases(current => [...new Map([...current, ...selectedItems].map(item => [item.id, item])).values()]);
+              setPickerSelectedIds(current => [
+                ...current.filter(key => key.startsWith("suite:")),
+                ...ids.filter(id => !selectedIdsForPickerType.has(`test:${id}`)).map(id => `test:${id}`)
+              ]);
+            }}
+            onItemsResolved={setPickerResolvedCases}
+          /> : <section>
             <h5>Test Cases</h5>
             {filteredTestCases.map((testCase) => {
               const key = `test:${testCase.id}`;
@@ -315,7 +347,7 @@ export function RunHooksBuilder({
               );
             })}
             {!filteredTestCases.length ? <p>No test cases match this search.</p> : null}
-          </section>
+          </section>}
         </div>
         <div className="hook-picker-footer">
           <button className="ghost-button" onClick={closePicker} type="button">Cancel</button>
@@ -357,8 +389,8 @@ export function RunHooksBuilder({
             <span>{activeDefinition.description}</span>
           </div>
           <div style={{display: 'flex', gap: '0.5rem'}}>
-            <button className="ghost-button" onClick={() => openSuggestions()} type="button">Suggest</button>
-            <button className="ghost-button" onClick={() => openPicker(activeDefinition.type)} type="button">+ Add hook</button>
+            {can("run.ai") && (canSelectSuites || canSelectCases) ? <button className="ghost-button" onClick={() => openSuggestions()} type="button">Suggest</button> : null}
+            <button className="ghost-button" disabled={!canSelectSuites && !canSelectCases} onClick={() => openPicker(activeDefinition.type)} type="button">+ Add hook</button>
           </div>
         </div>
         {activeHooks.length ? (

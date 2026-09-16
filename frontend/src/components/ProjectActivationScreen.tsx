@@ -6,7 +6,6 @@ import {
   IconDatabase,
   IconLayoutDashboard,
   IconLink,
-  IconLoader2,
   IconRefresh,
   IconShieldCheck,
   IconSparkles
@@ -431,9 +430,7 @@ export function ProjectActivationScreen({
             </div>
           ) : isSubmitting && !isInProgress ? (
             <div className="project-activation-state is-requesting" aria-live="polite" role="status">
-              <span className="project-activation-state-icon is-spinning" aria-hidden="true">
-                <IconLoader2 size={22} stroke={1.9} />
-              </span>
+              <LoadingState label="Sending your enable request" />
               <div>
                 <h3>Sending your enable request</h3>
                 <p>HelloTest is checking connected workspace access. Keep this page open until the setup request is accepted.</p>
@@ -442,9 +439,7 @@ export function ProjectActivationScreen({
           ) : isInProgress ? (
             <div className="project-activation-state is-progress" aria-live="polite" role="status">
               <div className="project-activation-state-title">
-                <span className="project-activation-state-icon is-spinning" aria-hidden="true">
-                  <IconLoader2 size={22} stroke={1.9} />
-                </span>
+                <LoadingState label="Setting up the project" />
                 <div>
                   <h3>{isAutomaticallyRetrying ? `Retrying setup for ${selectedProject?.name}` : "Setup accepted"}</h3>
                   <p>
@@ -469,10 +464,10 @@ export function ProjectActivationScreen({
                 {activationSteps.map((step, index) => {
                   const isComplete = stepStates[index] === "complete";
                   const isCurrent = stepStates[index] === "current";
-                  const StepIcon = isComplete ? IconCircleCheck : isCurrent ? IconLoader2 : IconCircle;
+                  const StepIcon = isComplete ? IconCircleCheck : IconCircle;
                   return (
                     <li className={isComplete ? "is-complete" : isCurrent ? "is-current" : ""} key={step.label}>
-                      <StepIcon aria-hidden="true" size={17} stroke={1.9} />
+                      {isCurrent ? <LoadingState label={step.label} /> : <StepIcon aria-hidden="true" size={17} stroke={1.9} />}
                       <span>{step.label}</span>
                       <em>{isComplete ? "Complete" : isCurrent ? "In progress" : "Waiting"}</em>
                     </li>

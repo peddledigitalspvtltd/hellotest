@@ -24,13 +24,14 @@ import { StatusBadge } from "../components/StatusBadge";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardFact, TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { ToastMessage } from "../components/ToastMessage";
-import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
-import { isDeliveryStatusComplete, summarizeDeliveryCompletion } from "../lib/deliveryStatus";
+import { isDeliveryStatusComplete } from "../lib/deliveryStatus";
+import { releasePortfolioCompletion, releaseStoryCompletion as storyCompletionFor, type ReleaseCatalogReadiness } from "../lib/releaseCatalogMetrics";
 import { hasPermission } from "../lib/permissions";
-import type { ExecutionResult, Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes, RequirementReleaseReadiness, TestCase } from "../types";
+import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes } from "../types";
 import "./ReleasesPage.css";
 
 type ReleaseDraft = {
@@ -79,16 +80,10 @@ const dateOnlyToMidnightIso = (value: string) => {
   return date ? `${date}T00:00:00.000Z` : undefined;
 };
 
-const storyCompletionFor = (release: RequirementRelease) => {
-  const scopedStories = asArray(release.requirements);
-  const total = Math.max(release.requirement_count || 0, scopedStories.length);
-  const completed = summarizeDeliveryCompletion(scopedStories).completed;
-  return { completed, total, percent: total ? Math.round((completed / total) * 100) : 0 };
-};
-
-const readinessLabel = (readiness?: RequirementReleaseReadiness) => {
+const readinessLabel = (readiness?: ReleaseCatalogReadiness) => {
   if (!readiness) return "Evidence loading";
   if (!readiness.total_stories) return "Scope needed";
+  if (readiness.readiness_score === null) return "No finalized runs";
   if (readiness.readiness_state === "ready") return "Release ready";
   if (readiness.readiness_state === "at_risk") return "At risk";
   return "Not ready";
@@ -105,7 +100,6 @@ function ReleaseHierarchyToggle({ isExpanded }: { isExpanded: boolean }) {
 export function ReleasesPage() {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
-  const [appTypeId] = useCurrentAppType(projectId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,7 +134,7 @@ export function ReleasesPage() {
   const expandedRelease = releases.find((release) => release.id === selectedReleaseId);
   const releaseReadinessQuery = useQuery({
     queryKey: ["requirement-release-readiness", "project", projectId, readinessAccessKey],
-    queryFn: () => api.requirementReleases.listReadiness({ project_id: projectId }),
+    queryFn: async () => await api.requirementReleases.listReadiness({ project_id: projectId }) as ReleaseCatalogReadiness[],
     enabled: Boolean(projectId && canReadReadiness),
     staleTime: 30_000,
     retry: 1
@@ -153,18 +147,7 @@ export function ReleasesPage() {
   const storiesQuery = useQuery({
     queryKey: ["release-story-picker", projectId],
     queryFn: () => api.requirements.list({ project_id: projectId, limit: 5000, projection: "summary" }),
-    enabled: Boolean(projectId)
-  });
-  const releaseStoryTestCasesQuery = useQuery({
-    queryKey: ["release-story-test-cases", projectId, appTypeId],
-    queryFn: async () => asArray(await api.testCases.list({ app_type_id: appTypeId, projection: "summary" })),
-    enabled: Boolean(projectId && appTypeId)
-  });
-  const releaseStoryExecutionResultsQuery = useQuery({
-    queryKey: ["release-story-execution-results", projectId, expandedRelease?.id, expandedRelease?.fix_version, readinessAccessKey],
-    queryFn: () => api.executionResults.releaseReadiness({ project_id: projectId, release: expandedRelease!.fix_version, run_limit: 50, result_limit: 1000 }),
-    enabled: Boolean(projectId && expandedRelease?.fix_version && canReadReadiness),
-    retry: 1
+    enabled: Boolean(projectId && isCreateOpen)
   });
   const createRelease = useMutation({ mutationFn: api.requirementReleases.create });
   const updateRelease = useMutation({ mutationFn: ({ id, state }: { id: string; state: "in_progress" | "released" }) => api.requirementReleases.update(id, { state }) });
@@ -180,40 +163,7 @@ export function ReleasesPage() {
 
   const sprints = asArray(sprintsQuery.data);
   const stories = asArray(storiesQuery.data);
-  const releaseStoryTestCases = asArray(releaseStoryTestCasesQuery.data);
-  const releaseStoryExecutionResults = canReadReadiness && !releaseStoryExecutionResultsQuery.isError ? asArray(releaseStoryExecutionResultsQuery.data?.results) : [];
-  const hasCompleteStoryRunEvidence = canReadReadiness && !releaseStoryExecutionResultsQuery.isError && releaseStoryExecutionResultsQuery.data?.complete === true;
-  const storyEvidenceById = useMemo(
-    () => new Map(stories.map((story) => [story.id, story])),
-    [stories]
-  );
-  const releaseStoryCaseIdsByStoryId = useMemo(() => {
-    const linkedCaseIds = new Map<string, string[]>();
-    stories.forEach((story) => linkedCaseIds.set(story.id, [...new Set(asArray(story.test_case_ids).map(String))]));
-    releaseStoryTestCases.forEach((testCase) => {
-      const requirementIds = [...asArray(testCase.requirement_ids), testCase.requirement_id].filter(Boolean) as string[];
-      requirementIds.forEach((requirementId) => {
-        if (!storyEvidenceById.has(requirementId)) return;
-        linkedCaseIds.set(requirementId, [...new Set([...(linkedCaseIds.get(requirementId) || []), testCase.id])]);
-      });
-    });
-    return linkedCaseIds;
-  }, [releaseStoryTestCases, stories, storyEvidenceById]);
-  const latestReleaseStoryResultByCaseId = useMemo(() => {
-    const latest = new Map<string, ExecutionResult>();
-    releaseStoryExecutionResults.forEach((result) => {
-      const current = latest.get(result.test_case_id);
-      const currentTime = current?.created_at ? new Date(current.created_at).getTime() || 0 : 0;
-      const nextTime = result.created_at ? new Date(result.created_at).getTime() || 0 : 0;
-      if (!current || nextTime >= currentTime) latest.set(result.test_case_id, result);
-    });
-    return latest;
-  }, [releaseStoryExecutionResults]);
-  const releaseStoryTestCaseById = useMemo(
-    () => new Map<string, TestCase>(releaseStoryTestCases.map((testCase) => [testCase.id, testCase])),
-    [releaseStoryTestCases]
-  );
-  const readinessByReleaseId = useMemo(() => new Map<string, RequirementReleaseReadiness>(
+  const readinessByReleaseId = useMemo(() => new Map<string, ReleaseCatalogReadiness>(
     (canReadReadiness && !releaseReadinessQuery.isError ? asArray(releaseReadinessQuery.data) : []).map((readiness) => [readiness.release_id, readiness])
   ), [canReadReadiness, releaseReadinessQuery.data, releaseReadinessQuery.isError]);
   const normalizedStorySearch = storySearch.trim().toLowerCase();
@@ -232,25 +182,21 @@ export function ReleasesPage() {
   }, [releases]);
   const sprintStoryIds = useMemo(() => new Set(stories.filter((story) => draft.sprintIds.includes(String(story.iteration_id || ""))).map((story) => story.id)), [draft.sprintIds, stories]);
   const selectedStoryCount = new Set([...draft.requirementIds, ...sprintStoryIds]).size;
-  const portfolioReadiness = [...readinessByReleaseId.values()];
-  const isReadinessLoading = canReadReadiness && releaseReadinessQuery.isPending;
-  const isReadinessUnavailable = !canReadReadiness || releaseReadinessQuery.isError;
+  const portfolioReadiness = releases.map((release) => readinessByReleaseId.get(release.id)).filter((readiness): readiness is ReleaseCatalogReadiness => Boolean(readiness));
+  const isReadinessLoading = canReadReadiness && releaseReadinessQuery.isLoading;
+  const hasMissingReleaseEvidence = releaseReadinessQuery.isSuccess && releases.some((release) => !readinessByReleaseId.has(release.id));
+  const isReadinessUnavailable = !canReadReadiness || releaseReadinessQuery.isError || hasMissingReleaseEvidence;
   const readinessUnavailableReason = !canReadReadiness
     ? "Release evidence requires access to Stories, Test Cases, Runs, Results and Bugs in this project."
-    : releaseReadinessQuery.error instanceof Error ? releaseReadinessQuery.error.message : "Release evidence could not be loaded.";
+    : releaseReadinessQuery.error instanceof Error ? releaseReadinessQuery.error.message : hasMissingReleaseEvidence ? "Evidence is missing for one or more Releases. Retry to refresh the complete portfolio." : "Release evidence could not be loaded.";
   const releaseReadyCount = portfolioReadiness.filter((item) => item.total_stories > 0 && item.readiness_state === "ready").length;
   const atRiskCount = releases.filter((release) => {
     if (release.persisted_state === "released") return false;
     const readiness = readinessByReleaseId.get(release.id);
     return release.state === "overdue" || Boolean(readiness?.total_stories && readiness.readiness_state !== "ready");
   }).length;
-  const releaseStoryCompletion = releases.reduce((summary, release) => {
-    const completion = storyCompletionFor(release);
-    return { completed: summary.completed + completion.completed, total: summary.total + completion.total };
-  }, { completed: 0, total: 0 });
-  const portfolioCompletionPercent = releaseStoryCompletion.total
-    ? Math.round((releaseStoryCompletion.completed / releaseStoryCompletion.total) * 100)
-    : 0;
+  const releaseStoryCompletion = releasePortfolioCompletion(releases);
+  const portfolioCompletionPercent = releaseStoryCompletion.percent;
   const releaseStoryColumns = useMemo<Array<DataTableColumn<Requirement>>>(() => [
     {
       key: "id",
@@ -544,21 +490,21 @@ export function ReleasesPage() {
           {
             icon: <IconTargetArrow aria-hidden="true" size={13} stroke={1.8} />,
             label: "Readiness",
-            value: readiness ? `${readiness.readiness_score}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
-            tone: !readiness ? "neutral" : readiness.readiness_state === "ready" ? "success" : readiness.readiness_state === "at_risk" ? "warning" : "danger",
+            value: readiness ? readiness.readiness_score === null ? "No runs" : `${readiness.readiness_score}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
+            tone: !readiness || readiness.readiness_score === null ? "neutral" : readiness.readiness_state === "ready" ? "success" : readiness.readiness_state === "at_risk" ? "warning" : "danger",
             title: isReadinessUnavailable ? readinessUnavailableReason : readinessLabel(readiness)
           },
           {
             icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />,
             label: "Story completion",
-            value: `${completion.percent}%`,
+            value: completion.percent === null ? "Unavailable" : `${completion.percent}%`,
             tone: completion.percent === 100 && completion.total > 0 ? "success" : "neutral",
             title: `${completion.completed}/${completion.total} scoped Stories are QA done.`
           },
           {
             icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />,
             label: "Test coverage",
-            value: readiness ? `${readiness.test_coverage_percent ?? 0}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
+            value: readiness ? readiness.test_coverage_percent === null ? "—" : `${readiness.test_coverage_percent}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
             tone: !readiness ? "neutral" : (readiness.test_coverage_percent ?? 0) >= 80 ? "success" : "warning",
             title: readiness ? `${readiness.covered_stories}/${readiness.total_stories} scoped Stories have linked test coverage.` : isReadinessUnavailable ? readinessUnavailableReason : "Loading release test evidence."
           },
@@ -626,32 +572,22 @@ export function ReleasesPage() {
     );
   };
   const renderReleaseStoryTile = (story: Requirement) => {
-    const evidenceStory = storyEvidenceById.get(story.id) || story;
-    const linkedCaseIds = releaseStoryCaseIdsByStoryId.get(story.id) || asArray(evidenceStory.test_case_ids).map(String);
-    const linkedCaseCount = linkedCaseIds.length;
-    const linkedBugCount = new Set([
-      ...asArray(evidenceStory.defect_ids).map(String),
-      ...asArray(evidenceStory.defects).map((defect) => defect.id)
-    ]).size;
-    const passedCaseCount = linkedCaseIds.filter((testCaseId) => latestReleaseStoryResultByCaseId.get(testCaseId)?.status === "passed").length;
-    const passPercent = linkedCaseCount ? Math.round((passedCaseCount / linkedCaseCount) * 100) : 0;
-    const knownTestCases = linkedCaseIds.map((testCaseId) => releaseStoryTestCaseById.get(testCaseId)).filter(Boolean) as TestCase[];
-    const automatedCaseCount = knownTestCases.filter((testCase) => testCase.automated === "yes").length;
-    const hasCompleteAutomationCoverage = knownTestCases.length === linkedCaseCount;
-    const automationPercent = knownTestCases.length ? Math.round((automatedCaseCount / knownTestCases.length) * 100) : 0;
-    const testCoveragePercent = linkedCaseCount ? 100 : 0;
-    const bugHealthPercent = Math.max(0, 100 - linkedBugCount * 25);
-    const readinessScore = Math.round((testCoveragePercent * 0.3) + (passPercent * 0.5) + (bugHealthPercent * 0.2));
-    const passCoverageTitle = !hasCompleteStoryRunEvidence
-      ? !canReadReadiness ? readinessUnavailableReason : releaseStoryExecutionResultsQuery.isPending ? "Loading this Release's execution evidence" : "Release execution evidence is unavailable or incomplete; open the readiness board to inspect coverage."
-      : linkedCaseCount
-      ? `${passedCaseCount}/${linkedCaseCount} linked test cases passed`
-      : "No linked test cases to measure pass coverage";
-    const automationCoverageTitle = !hasCompleteAutomationCoverage
-      ? `${knownTestCases.length}/${linkedCaseCount} linked test case summaries loaded; open the Story for complete automation details`
-      : linkedCaseCount
-        ? `${automatedCaseCount}/${linkedCaseCount} linked test cases automated`
-        : "No linked test cases to measure automation coverage";
+    const evidenceStory = story;
+    const metrics = expandedRelease ? readinessByReleaseId.get(expandedRelease.id)?.story_metrics?.[story.id] : undefined;
+    const linkedCaseCount = metrics?.linked_cases;
+    const linkedBugCount = metrics?.total_bugs;
+    const passPercent = metrics?.pass_rate_percent ?? null;
+    const automationPercent = metrics?.automation_coverage_percent ?? null;
+    const readinessScore = metrics?.readiness_score ?? null;
+    const evidenceState = isReadinessLoading ? "Loading…" : "Unavailable";
+    const passCoverageTitle = !metrics
+      ? isReadinessLoading ? "Loading this Release's execution evidence" : readinessUnavailableReason
+      : metrics.executed_cases
+        ? `${metrics.passed_cases}/${metrics.executed_cases} linked test cases with finalized Release outcomes passed. Pending runs are excluded.`
+        : "No finalized passed, failed or blocked outcomes for this Story in this Release.";
+    const automationCoverageTitle = !metrics
+      ? "Complete linked test case evidence is unavailable."
+      : `${metrics.automated_cases}/${metrics.linked_cases} linked test cases automated`;
 
     return (
       <article
@@ -677,25 +613,25 @@ export function ReleasesPage() {
           <CatalogCardDescription fallback="No Story description captured yet." profile="story" value={evidenceStory.description} />
           <div className="requirement-progress-stack release-story-progress-stack">
             <TileCardProgress
-              displayValue={hasCompleteStoryRunEvidence ? `${passPercent}%` : "—"}
+              displayValue={metrics ? passPercent === null ? "No runs" : `${Math.round(passPercent)}%` : "—"}
               label="Pass rate"
               title={passCoverageTitle}
-              tone={!hasCompleteStoryRunEvidence || !linkedCaseCount ? "neutral" : passedCaseCount >= linkedCaseCount ? "success" : passedCaseCount ? "info" : "danger"}
-              value={hasCompleteStoryRunEvidence ? passPercent : null}
+              tone={passPercent === null ? "neutral" : passPercent === 100 ? "success" : passPercent ? "info" : "danger"}
+              value={passPercent}
             />
             <TileCardProgress
-              displayValue={hasCompleteAutomationCoverage ? `${automationPercent}%` : "—"}
+              displayValue={automationPercent === null ? "—" : `${Math.round(automationPercent)}%`}
               label="Automation coverage"
               title={automationCoverageTitle}
-              tone={!hasCompleteAutomationCoverage || !linkedCaseCount ? "neutral" : automatedCaseCount >= linkedCaseCount ? "success" : automatedCaseCount ? "info" : "danger"}
-              value={hasCompleteAutomationCoverage ? automationPercent : null}
+              tone={automationPercent === null || !linkedCaseCount ? "neutral" : automationPercent === 100 ? "success" : automationPercent ? "info" : "danger"}
+              value={automationPercent}
             />
           </div>
           <div className="tile-card-facts story-tile-metrics" aria-label={`${evidenceStory.title} health metrics`}>
             <TileCardMetric className="story-tile-metric" label="Priority" tone={(evidenceStory.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${evidenceStory.priority ?? 3}`} />
-            <TileCardMetric className="story-tile-metric" label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={String(linkedCaseCount)} />
-            <TileCardMetric className="story-tile-metric" label="Defect density" tone={linkedBugCount ? "danger" : "success"} value={linkedCaseCount ? (linkedBugCount / linkedCaseCount).toFixed(2) : linkedBugCount ? "∞" : "0.00"} />
-            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={!hasCompleteStoryRunEvidence ? "neutral" : readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={hasCompleteStoryRunEvidence ? `${readinessScore}%` : "Unavailable"} />
+            <TileCardMetric className="story-tile-metric" label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={linkedCaseCount === undefined ? "—" : String(linkedCaseCount)} />
+            <TileCardMetric className="story-tile-metric" label="Defect density" tone={linkedBugCount === undefined ? "neutral" : linkedBugCount ? "danger" : "success"} value={linkedBugCount === undefined ? "—" : linkedBugCount.toFixed(2)} />
+            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={readinessScore === null ? "neutral" : readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={metrics ? readinessScore === null ? "No runs" : `${readinessScore}%` : evidenceState} />
           </div>
           <div className="tile-card-facts release-story-context-facts" aria-label={`${evidenceStory.title} delivery context`}>
             <TileCardFact label={evidenceStory.sprint || "No Sprint"} title={evidenceStory.sprint ? `Included through Sprint ${evidenceStory.sprint}` : "Direct Release scope without a Sprint"} tone={evidenceStory.sprint ? "info" : "neutral"}><SprintIcon size={14} /></TileCardFact>
@@ -719,6 +655,10 @@ export function ReleasesPage() {
   });
 
   if (!projectId) return <div className="page-content"><div className="empty-state compact">Select a project to plan releases.</div></div>;
+
+  if (releasesQuery.isLoading) {
+    return <div className="page-content page-content--library-full releases-page"><LoadingState label="Loading Releases" /></div>;
+  }
 
   if (releasesQuery.isError) {
     return (
@@ -753,7 +693,7 @@ export function ReleasesPage() {
         <article className="release-portfolio-card tone-ready"><span>Release ready</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : releaseReadyCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Loading quality evidence…" : "Quality evidence meets the readiness policy"}</small></article>
         <article className="release-portfolio-card tone-risk"><span>At risk</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : atRiskCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Evaluating schedule and quality…" : "Schedule or quality evidence needs action"}</small></article>
         <article className="release-portfolio-card tone-overdue"><span>Overdue</span><strong>{releases.filter((item) => item.state === "overdue").length}</strong><small>Open releases beyond their target date</small></article>
-        <article className="release-portfolio-card tone-completion"><span>Story completion</span><strong>{portfolioCompletionPercent}%</strong><small>{releaseStoryCompletion.completed}/{releaseStoryCompletion.total} scoped Stories QA done</small></article>
+        <article className="release-portfolio-card tone-completion"><span>Story completion</span><strong>{portfolioCompletionPercent === null ? "—" : `${portfolioCompletionPercent}%`}</strong><small>{portfolioCompletionPercent === null ? "Complete Story scope unavailable" : `${releaseStoryCompletion.completed}/${releaseStoryCompletion.total} unique scoped Stories QA done`}</small></article>
       </section>
 
       {isReadinessUnavailable ? <div className="notice" role="status"><strong>Release evidence unavailable. </strong>{readinessUnavailableReason}{canReadReadiness ? <button className="ghost-button compact" type="button" onClick={() => void releaseReadinessQuery.refetch()}>Retry evidence</button> : null}</div> : null}
@@ -907,7 +847,7 @@ export function ReleasesPage() {
                     <div><span>Version</span><strong>{releaseNotes.fix_version}</strong></div>
                     <div><span>Delivered changes</span><strong>{releaseNotes.scope_summary.delivered_changes}</strong></div>
                     <div><span>Change categories</span><strong>{releaseNotes.scope_summary.change_categories}</strong></div>
-                    <div><span>Validation signal</span><strong>{releaseNotes.quality_summary.readiness_score}%</strong></div>
+                    <div><span>Validation signal</span><strong>{releaseNotes.quality_summary.readiness_score === null ? "No runs" : `${releaseNotes.quality_summary.readiness_score}%`}</strong></div>
                   </section>
                   <section className="release-notes-summary-card"><span>What’s in this release</span><p>{releaseNotes.executive_summary}</p></section>
                   <div className="release-notes-change-grid">

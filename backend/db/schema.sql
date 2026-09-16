@@ -2041,3 +2041,17 @@ CREATE INDEX IF NOT EXISTS idx_repository_agent_runs_queue ON repository_agent_r
 CREATE INDEX IF NOT EXISTS idx_repository_agent_runs_cache ON repository_agent_runs(project_id, agent_type, input_hash, compiler_version) WHERE status IN ('completed','partial');
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_agent_runs_request ON repository_agent_runs(project_id, created_by, request_key) WHERE request_key IS NOT NULL;
+
+-- Catalog pages use stable cursors; metrics look up the latest case result.
+CREATE INDEX IF NOT EXISTS idx_requirements_catalog_cursor
+  ON requirements (project_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, created_at DESC NULLS LAST, id DESC);
+CREATE INDEX IF NOT EXISTS idx_requirements_iteration_cursor
+  ON requirements (project_id, iteration_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, created_at DESC NULLS LAST, id DESC);
+CREATE INDEX IF NOT EXISTS idx_test_cases_catalog_cursor
+  ON test_cases (app_type_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, id DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_catalog_cursor
+  ON feedback (project_id, created_at DESC NULLS LAST, id DESC);
+CREATE INDEX IF NOT EXISTS idx_test_case_module_cases_cursor
+  ON test_case_module_cases (module_id, sort_order, test_case_id);
+CREATE INDEX IF NOT EXISTS idx_execution_results_case_latest
+  ON execution_results (test_case_id, created_at DESC, id DESC) INCLUDE (status, duration_ms);

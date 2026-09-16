@@ -33,7 +33,8 @@ import { VisualTestBuilder } from "../components/VisualTestBuilder";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
-import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { useWorkspaceResource } from "../hooks/useWorkspaceData";
 import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { asArray } from "../lib/collectionGuards";
@@ -42,7 +43,6 @@ import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { composeSharedStepGherkin, mergeGherkinStepMetadata, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin } from "../lib/gherkin";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
-import { hasPermission } from "../lib/permissions";
 import {
   normalizeStepType
 } from "../lib/stepAutomation";
@@ -184,9 +184,12 @@ export function SharedStepsPage() {
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
-  const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canManageSharedStepGroups = hasPermission(session, "shared_step.manage", projectId);
-  const canUseSharedStepAi = hasPermission(session, "testcase.ai", projectId);
+  const { can } = useCapabilityAccess(projectId);
+  const canManageSharedStepGroups = can("shared_step.manage");
+  const canUseSharedStepAi = canManageSharedStepGroups && can("testcase.ai");
+  const canViewTestCases = can("testcase.view");
+  const canViewRunHistory = can("result.view");
+  const canViewAppTypes = can("app_type.view");
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -216,43 +219,38 @@ export function SharedStepsPage() {
   const closingWorkspaceRef = useRef(false);
 
   const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: async () => asArray(await api.projects.list())
+    queryKey: ["projects", "workspace-scopes", JSON.stringify([session?.user.id, session?.user.role, session?.user.role_id, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions])],
+    queryFn: ({ signal }) => api.metadata.workspaceScopes({ signal }),
+    select: (data) => data.projects,
+    enabled: can("workspace.view")
   });
-  const appTypesQuery = useQuery({
-    queryKey: ["app-types", projectId],
-    queryFn: async () => asArray(await api.appTypes.list({ project_id: projectId })),
-    enabled: Boolean(projectId)
-  });
-  const sharedGroupsQuery = useQuery({
-    queryKey: ["shared-step-groups", appTypeId],
-    queryFn: async () => asArray(await api.sharedStepGroups.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId)
-  });
-  const requirementsQuery = useQuery({
-    queryKey: ["shared-steps-requirements", projectId],
-    queryFn: async () => asArray(await api.requirements.list({ project_id: projectId })),
-    enabled: Boolean(projectId)
-  });
-  const testCasesQuery = useQuery({
-    queryKey: ["shared-steps-test-cases", appTypeId],
-    queryFn: async () => asArray(await api.testCases.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId)
-  });
-  const executionResultsQuery = useQuery({
-    queryKey: ["shared-steps-execution-results", appTypeId],
-    queryFn: async () => asArray(await api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000 })),
-    enabled: Boolean(appTypeId)
-  });
-  const suitesQuery = useQuery({
-    queryKey: ["shared-steps-test-suites", appTypeId],
-    queryFn: async () => asArray(await api.testSuites.list({ app_type_id: appTypeId })),
-    enabled: Boolean(appTypeId)
-  });
-  const usersQuery = useQuery({
-    queryKey: ["users"],
-    queryFn: async () => asArray(await api.users.list())
-  });
+  const appTypesQuery = useWorkspaceResource(
+    ["app-types", projectId], signal => api.appTypes.list({ project_id: projectId }, { signal }),
+    canViewAppTypes, Boolean(projectId)
+  );
+  const sharedGroupsQuery = useWorkspaceResource(
+    ["shared-step-groups", appTypeId], signal => api.sharedStepGroups.list({ app_type_id: appTypeId }, { signal }),
+    can("shared_step.view"), Boolean(appTypeId)
+  );
+  const requirementsQuery = useWorkspaceResource(
+    ["shared-steps-requirements", projectId], signal => api.requirements.list({ project_id: projectId }, { signal }),
+    can("requirement.view"), Boolean(projectId && linkedPreviewCaseId)
+  );
+  const testCasesQuery = useWorkspaceResource(
+    ["shared-steps-test-cases", appTypeId], signal => api.testCases.list({ app_type_id: appTypeId }, { signal }),
+    canViewTestCases, Boolean(appTypeId && linkedPreviewCaseId)
+  );
+  const executionResultsQuery = useWorkspaceResource(
+    ["shared-steps-execution-results", appTypeId], signal => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000 }, { signal }),
+    canViewRunHistory, Boolean(appTypeId)
+  );
+  const suitesQuery = useWorkspaceResource(
+    ["shared-steps-test-suites", appTypeId], signal => api.testSuites.list({ app_type_id: appTypeId }, { signal }),
+    can("suite.view"), Boolean(appTypeId && linkedPreviewCaseId)
+  );
+  const usersQuery = useWorkspaceResource(
+    ["users", projectId], signal => api.users.list({ signal }), can("user.view"), true
+  );
 
   const createSharedGroup = useMutation({ mutationFn: api.sharedStepGroups.create });
   const updateSharedGroup = useMutation({
@@ -284,7 +282,7 @@ export function SharedStepsPage() {
   };
 
   useEffect(() => {
-    if (appTypesQuery.isPending) {
+    if (!canViewAppTypes || appTypesQuery.isPending || appTypesQuery.isError) {
       return;
     }
 
@@ -304,7 +302,7 @@ export function SharedStepsPage() {
     if (!scopedAppTypes.some((appType) => appType.id === appTypeId)) {
       setAppTypeId(scopedAppTypes[0].id);
     }
-  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, appTypesQuery.isError, canViewAppTypes, projectId, setAppTypeId]);
 
   useEffect(() => {
     setSelectedGroupId("");
@@ -380,7 +378,7 @@ export function SharedStepsPage() {
   );
 
   useEffect(() => {
-    if (sharedGroupsQuery.isLoading || sharedGroupsQuery.isFetching) {
+    if (!sharedGroupsQuery.isFetched || sharedGroupsQuery.isError || sharedGroupsQuery.isLoading || sharedGroupsQuery.isFetching) {
       return;
     }
 
@@ -408,7 +406,7 @@ export function SharedStepsPage() {
         return next;
       }, { replace: true });
     }
-  }, [searchParams, selectedGroupId, setSearchParams, sharedGroups, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
+  }, [searchParams, selectedGroupId, setSearchParams, sharedGroups, sharedGroupsQuery.isFetched, sharedGroupsQuery.isError, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
 
   useEffect(() => {
     if (searchParams.get("usage") !== "1" || !selectedGroup) return;
@@ -452,9 +450,10 @@ export function SharedStepsPage() {
   }, [detectedSharedParameters]);
 
   useEffect(() => {
+    if (!sharedGroupsQuery.isFetched || sharedGroupsQuery.isError) return;
     const validGroupIds = new Set(sharedGroups.map((group) => group.id));
     setSelectedGroupIds((current) => current.filter((groupId) => validGroupIds.has(groupId)));
-  }, [sharedGroups]);
+  }, [sharedGroups, sharedGroupsQuery.isFetched, sharedGroupsQuery.isError]);
 
   useEffect(() => {
     if (isCreating) {
@@ -474,14 +473,14 @@ export function SharedStepsPage() {
       return;
     }
 
-    if (sharedGroupsQuery.isLoading || sharedGroupsQuery.isFetching) {
+    if (!sharedGroupsQuery.isFetched || sharedGroupsQuery.isError || sharedGroupsQuery.isLoading || sharedGroupsQuery.isFetching) {
       return;
     }
 
     setSelectedGroupId("");
     setGroupDraft(EMPTY_GROUP_DRAFT);
     resetStepComposer();
-  }, [isCreating, selectedGroup, selectedGroupId, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
+  }, [isCreating, selectedGroup, selectedGroupId, sharedGroupsQuery.isFetched, sharedGroupsQuery.isError, sharedGroupsQuery.isFetching, sharedGroupsQuery.isLoading]);
 
   const filteredGroups = useMemo(() => {
     const search = deferredSearchTerm.trim().toLowerCase();
@@ -1355,8 +1354,8 @@ export function SharedStepsPage() {
             </div>
 
             <TileBrowserPane className="test-case-library-scroll" scrollKey={`shared-steps:${projectId}:${appTypeId}`}>
-              {sharedGroupsQuery.isLoading || executionResultsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
-              {!sharedGroupsQuery.isLoading && !executionResultsQuery.isLoading && filteredGroups.length && catalogViewMode === "tile" ? (
+              {sharedGroupsQuery.isLoading ? <TileCardSkeletonGrid /> : null}
+              {!sharedGroupsQuery.isLoading && filteredGroups.length && catalogViewMode === "tile" ? (
                 <div className="tile-browser-grid">
                   {filteredGroups.map((group) => {
                     const isActive = !isCreating && selectedGroupId === group.id;
@@ -1489,7 +1488,7 @@ export function SharedStepsPage() {
                   })}
                 </div>
               ) : null}
-              {!sharedGroupsQuery.isLoading && !executionResultsQuery.isLoading && filteredGroups.length && catalogViewMode === "list" ? (
+              {!sharedGroupsQuery.isLoading && filteredGroups.length && catalogViewMode === "list" ? (
                 <DataTable
                   columns={sharedGroupListColumns}
                   emptyMessage="No Shared Step Groups match the current search."
@@ -1557,7 +1556,7 @@ export function SharedStepsPage() {
                       <SharedGroupParameterIcon />
                       <span>{detectedSharedParameters.length ? `Group Params · ${detectedSharedParameters.length}` : "Group Params"}</span>
                     </button>
-                    {!isCreating && selectedGroup ? (
+                    {!isCreating && selectedGroup && canViewTestCases ? (
                       <button className="ghost-button compact" disabled={!selectedGroup.usage_count} onClick={() => setIsUsageDialogOpen(true)} type="button">
                         <LinkedCasesIcon />
                         <span>{selectedGroup.usage_count ? `Linked cases · ${selectedGroup.usage_count}` : "Linked cases"}</span>
@@ -1834,7 +1833,7 @@ export function SharedStepsPage() {
         />
       ) : null}
 
-      {isUsageDialogOpen && selectedGroup ? (
+      {isUsageDialogOpen && selectedGroup && canViewTestCases ? (
         <SharedStepUsageDialog
           groupName={selectedGroup.name}
           onClose={() => setIsUsageDialogOpen(false)}
@@ -1843,7 +1842,7 @@ export function SharedStepsPage() {
         />
       ) : null}
 
-      {linkedPreviewCase ? (
+      {linkedPreviewCase && canViewTestCases ? (
         <LinkedTestCaseModal
           appTypeName={selectedAppType?.name || ""}
           projectName={selectedProject?.name || ""}

@@ -28,6 +28,12 @@
   gap: 0.2rem;
 }
 
+.suite-scope-server-picker { display: grid; gap: 0.65rem; min-width: 0; }
+.suite-scope-server-picker > details > summary { cursor: pointer; font-size: 0.8rem; }
+.suite-scope-server-filters { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 0.5rem; }
+.suite-scope-server-filters label { display: grid; gap: 0.3rem; min-width: 0; flex: 1 1 11rem; font-size: 0.76rem; }
+.suite-scope-server-filters input, .suite-scope-server-filters select { min-width: 0; width: 100%; }
+
 .suite-scope-picker-heading > span,
 .suite-scope-picker-summary {
   color: var(--muted);

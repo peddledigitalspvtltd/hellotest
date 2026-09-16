@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -209,13 +210,7 @@ export function QualityAnalyticsDashboard() {
     </button>
   );
   const loading = (
-    <div className="qa-loading" role="status" aria-label={tr("loading")}>
-      <div />
-      <div />
-      <div />
-      <div />
-      <span>{tr("loading")}</span>
-    </div>
+    <LoadingState label={tr("loading")} />
   );
   const error = (
     <div className="qa-empty" role="alert">

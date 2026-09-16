@@ -2,11 +2,9 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FormField } from "./FormField";
 import { TestDataIcon } from "./AppIcons";
-import { useAuth } from "../auth/AuthContext";
-import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { api } from "../lib/api";
-import { areFeatureFlagsEnabled } from "../lib/featureFlags";
-import { hasPermission } from "../lib/permissions";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import type { TestConfiguration, TestDataSet, TestEnvironment } from "../types";
 
 type ExecutionContextSelectorProps = {
@@ -42,30 +40,28 @@ export function ExecutionContextSelector({
   prefillFirstAvailable = false,
   preserveMissingSelection = false
 }: ExecutionContextSelectorProps) {
-  const { session } = useAuth();
-  const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const canViewEnvironments = hasPermission(session, "environment.view", projectId);
-  const canViewConfigurations = hasPermission(session, "configuration.view", projectId);
-  const canViewTestData = hasPermission(session, "data.view", projectId)
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.test_data"]);
+  const { can } = useCapabilityAccess(projectId);
+  const canViewEnvironments = can("environment.view");
+  const canViewConfigurations = can("configuration.view");
+  const canViewTestData = can("data.view");
   const environmentPrefillScopeRef = useRef("");
   const configurationPrefillScopeRef = useRef("");
   const dataSetPrefillScopeRef = useRef("");
-  const environmentsQuery = useQuery({
+  const environmentsQuery = optionalQueryView(useQuery({
     queryKey: ["test-environments", projectId, appTypeId],
     queryFn: () => api.testEnvironments.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
     enabled: Boolean(projectId && canViewEnvironments)
-  });
-  const configurationsQuery = useQuery({
+  }), canViewEnvironments);
+  const configurationsQuery = optionalQueryView(useQuery({
     queryKey: ["test-configurations", projectId, appTypeId],
     queryFn: () => api.testConfigurations.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
     enabled: Boolean(projectId && canViewConfigurations)
-  });
-  const dataSetsQuery = useQuery({
+  }), canViewConfigurations);
+  const dataSetsQuery = optionalQueryView(useQuery({
     queryKey: ["test-data-sets", projectId, appTypeId],
     queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
     enabled: Boolean(projectId && canViewTestData)
-  });
+  }), canViewTestData);
 
   const environments = useMemo(
     () => filterScopedResources(environmentsQuery.data || [], appTypeId),
@@ -96,22 +92,22 @@ export function ExecutionContextSelector({
   const hasAnyContext = Boolean(environments.length || configurations.length || dataSets.length);
 
   useEffect(() => {
-    if (!preserveMissingSelection && environmentsQuery.isSuccess && selectedEnvironmentId && !environments.some((item) => item.id === selectedEnvironmentId)) {
+    if (canViewEnvironments && !preserveMissingSelection && environmentsQuery.isSuccess && selectedEnvironmentId && !environments.some((item) => item.id === selectedEnvironmentId)) {
       onEnvironmentChange("");
     }
-  }, [environments, environmentsQuery.isSuccess, onEnvironmentChange, preserveMissingSelection, selectedEnvironmentId]);
+  }, [canViewEnvironments, environments, environmentsQuery.isSuccess, onEnvironmentChange, preserveMissingSelection, selectedEnvironmentId]);
 
   useEffect(() => {
-    if (!preserveMissingSelection && configurationsQuery.isSuccess && selectedConfigurationId && !configurations.some((item) => item.id === selectedConfigurationId)) {
+    if (canViewConfigurations && !preserveMissingSelection && configurationsQuery.isSuccess && selectedConfigurationId && !configurations.some((item) => item.id === selectedConfigurationId)) {
       onConfigurationChange("");
     }
-  }, [configurations, configurationsQuery.isSuccess, onConfigurationChange, preserveMissingSelection, selectedConfigurationId]);
+  }, [canViewConfigurations, configurations, configurationsQuery.isSuccess, onConfigurationChange, preserveMissingSelection, selectedConfigurationId]);
 
   useEffect(() => {
-    if (!preserveMissingSelection && dataSetsQuery.isSuccess && selectedDataSetId && !dataSets.some((item) => item.id === selectedDataSetId)) {
+    if (canViewTestData && !preserveMissingSelection && dataSetsQuery.isSuccess && selectedDataSetId && !dataSets.some((item) => item.id === selectedDataSetId)) {
       onDataSetChange("");
     }
-  }, [dataSets, dataSetsQuery.isSuccess, onDataSetChange, preserveMissingSelection, selectedDataSetId]);
+  }, [canViewTestData, dataSets, dataSetsQuery.isSuccess, onDataSetChange, preserveMissingSelection, selectedDataSetId]);
 
   useEffect(() => {
     if (!prefillFirstAvailable || selectedEnvironmentId || !environments.length) {
@@ -152,26 +148,28 @@ export function ExecutionContextSelector({
     onDataSetChange(dataSets[0].id);
   }, [dataSetPrefillScopeKey, dataSets, onDataSetChange, prefillFirstAvailable, selectedDataSetId]);
 
+  if (!canViewEnvironments && !canViewConfigurations && !canViewTestData) return null;
+
   return (
     <div className="execution-context-block">
       <div className="execution-context-grid">
-        <ExecutionContextField
+        {canViewEnvironments ? <ExecutionContextField
           disabled={!canViewEnvironments}
           items={environments}
           label="Test environment"
           onChange={onEnvironmentChange}
           placeholder="No test environment"
           selectedId={selectedEnvironmentId}
-        />
-        <ExecutionContextField
+        /> : null}
+        {canViewConfigurations ? <ExecutionContextField
           disabled={!canViewConfigurations}
           items={configurations}
           label="Test configuration"
           onChange={onConfigurationChange}
           placeholder="No test configuration"
           selectedId={selectedConfigurationId}
-        />
-        <ExecutionContextField
+        /> : null}
+        {canViewTestData ? <ExecutionContextField
           disabled={!canViewTestData}
           labelIcon={<TestDataIcon size={16} />}
           items={dataSets}
@@ -179,7 +177,7 @@ export function ExecutionContextSelector({
           onChange={onDataSetChange}
           placeholder="No test data"
           selectedId={selectedDataSetId}
-        />
+        /> : null}
       </div>
 
       {projectId && !isLoading && !hasAnyContext ? (

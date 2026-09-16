@@ -4,7 +4,8 @@ import test from 'node:test';
 import ts from 'typescript';
 import * as permissions from '../src/lib/permissions.ts';
 const load=(file,resolve=()=>({}))=>{const exports={};new Function('require','exports',ts.transpileModule(readFileSync(new URL(file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(resolve,exports);return exports;};
-const flags=load('../src/lib/featureFlags.ts',()=>permissions);
+const generatedPolicy=JSON.parse(readFileSync(new URL('../src/lib/featurePolicy.generated.json',import.meta.url),'utf8'));
+const flags=load('../src/lib/featureFlags.ts',name=>name.endsWith('.json')?{default:generatedPolicy}:permissions);
 const {WORKSPACE_CAPABILITIES,capabilityAvailability,searchCapabilities}=load('../src/lib/workspaceCapabilities.ts',name=>name.includes('permissions')?permissions:flags);
 const context={session:{user:{id:'a',role:'admin'}},projectId:'project',flags:{flags:new Proxy({},{get:()=>true})}};
 test('all registered destinations have explicit permission coverage and unique stable identifiers',()=>{

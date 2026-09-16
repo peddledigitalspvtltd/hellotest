@@ -1,4 +1,5 @@
 const service = require("../services/testCase.service");
+const catalogService = require("../services/testCaseCatalog.service");
 const appTypeService = require("../services/appType.service");
 const projectService = require("../services/project.service");
 const requirementService = require("../services/requirement.service");
@@ -830,6 +831,22 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/metrics", async (req) => {
+    await fastify.authenticate(req);
+    const scopedProjectId = await resolveTestCaseListProjectId(req.query);
+    if (scopedProjectId) {
+      await projectService.getProject(scopedProjectId, req.user.id);
+      await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+    } else if (req.user.role !== "admin") {
+      throw Object.assign(new Error("project_id or app_type_id is required for Test Case metrics"), { statusCode: 400 });
+    }
+    if (req.query.include_execution === true || req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", { projectId: scopedProjectId })(req);
+      await fastify.requirePermission("result.view", { projectId: scopedProjectId })(req);
+    }
+    return catalogService.getMetrics({ ...req.query, project_id: scopedProjectId || req.query.project_id });
+  });
+
   fastify.get("/test-cases", async (req) => {
     await fastify.authenticate(req);
     const { project_id, suite_id, requirement_id, module_id, unassigned_module, status, app_type_id } = req.query;
@@ -844,16 +861,18 @@ module.exports = async function (fastify) {
       throw error;
     }
 
-    const items = await service.getTestCases({
+    const filters = {
+      ...req.query,
       project_id: scopedProjectId || project_id,
-      suite_id,
-      requirement_id,
-      module_id,
-      unassigned_module: unassigned_module === true || unassigned_module === "true",
-      status,
-      app_type_id
-    });
-    return shouldPaginate(req.query) ? paginate(items, req.query) : items;
+      suite_id, requirement_id, module_id, status, app_type_id,
+      unassigned_module: unassigned_module === true || unassigned_module === "true"
+    };
+    if (req.query.projection !== "picker" && (req.query.include_execution === true || req.query.include_execution === "true")) {
+      await fastify.requirePermission("run.view", { projectId: scopedProjectId })(req);
+      await fastify.requirePermission("result.view", { projectId: scopedProjectId })(req);
+    }
+    if (req.query.projection === "picker" || shouldPaginate(req.query)) return catalogService.listPage(filters);
+    return service.getTestCases(filters);
   });
 
   fastify.post("/test-cases/resolve-requirements", async (req) => {
@@ -868,7 +887,14 @@ module.exports = async function (fastify) {
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("testcase.view", { projectId: appType.project_id })(req);
     await fastify.requirePermission("requirement.view", { projectId: appType.project_id })(req);
-    const scopedRequirements = await resolveScopedRequirements(req.body.requirement_ids, appType.project_id);
+    const selectedRequirementIds = testCaseScopeService.uniqueIds(req.body.requirement_ids);
+    if (!selectedRequirementIds.length) throw Object.assign(new Error("Select at least one requirement"), { statusCode: 400 });
+    const scopedRequirements = await testCaseScopeService.resolveRequirementScopes(selectedRequirementIds);
+    const byId = new Map(scopedRequirements.map((requirement) => [requirement.id, requirement]));
+    for (const id of selectedRequirementIds) {
+      if (!byId.has(id)) throw Object.assign(new Error("Requirement not found"), { statusCode: 404 });
+      if (byId.get(id).project_id !== appType.project_id) throw Object.assign(new Error("Requirement must belong to the same project as the selected app type"), { statusCode: 403 });
+    }
 
     return service.getTestCasesForRequirements({
       app_type_id: appType.id,

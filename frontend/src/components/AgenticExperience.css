@@ -909,7 +909,7 @@ button.ai-feature-composer__brief-item:focus-visible { z-index: 1; outline: 2px 
 .agent-process-stage {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 26px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   min-width: 0;
@@ -945,7 +945,7 @@ button.ai-feature-composer__brief-item:focus-visible { z-index: 1; outline: 2px 
   color: #7a869a;
 }
 
-.agent-process-stage > div { z-index: 1; display: grid; gap: 1px; min-width: 0; background: var(--panel, #f7f8f9); }
+.agent-process-stage > div { grid-column: 2; z-index: 1; display: grid; gap: 1px; min-width: 0; background: var(--panel, #f7f8f9); }
 .agent-process-stage strong { font-size: 0.68rem; line-height: 1.2; }
 .agent-process-stage small { overflow: hidden; color: var(--text-secondary, #626f86); font-size: 0.6rem; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .agent-process-stage[data-stage-status="complete"] > span { border-color: #22a06b; background: #dcfff1; color: #216e4e; }
@@ -1253,7 +1253,7 @@ button.ai-feature-composer__brief-item:focus-visible { z-index: 1; outline: 2px 
 .agent-activity-event[data-status="failed"] .agent-activity-event__marker { border-color: #e2483d; background: #ffeceb; color: #ae2a19; }
 .agent-activity-event[data-status="queued"] { opacity: 0.55; }
 
-.agent-activity-event > div { display: grid; gap: 4px; min-width: 0; padding-top: 2px; }
+.agent-activity-event > div { grid-column: 2; display: grid; gap: 4px; min-width: 0; padding-top: 2px; }
 .agent-activity-event > div > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .agent-activity-event header strong { font-size: 0.76rem; text-transform: capitalize; }
 .agent-activity-event time { color: var(--text-secondary, #626f86); font-size: 0.62rem; }

@@ -1,5 +1,6 @@
 const db = require('../../db');
 const flags = require('../featureFlag.service');
+const rolePresets = require('../rolePreset.service');
 const { modules, resolveModules } = require('./catalog');
 const { buildRecords, PROJECT } = require('./records');
 const identifier = value => { if (!/^[a-z_][a-z0-9_]*$/.test(value)) throw new Error('Invalid sample schema identifier'); return `"${value}"`; };
@@ -78,9 +79,13 @@ async function insertRecords(records) {
 }
 async function getCatalog() {
   const packs = buildRecords(null);
-  const [counts, snapshot, project] = await Promise.all([countRecords(packs), flags.getSnapshot(), db.prepare("SELECT id, name FROM projects WHERE id = ?").get(PROJECT)]);
+  const [counts, snapshot, project, roles] = await Promise.all([
+    countRecords(packs), flags.getSnapshot(),
+    db.prepare("SELECT id, name FROM projects WHERE id = ?").get(PROJECT),
+    rolePresets.getSetupRoleCatalog()
+  ]);
   return {
-    version: 2, project_id: project?.id || null,
+    version: 2, project_id: project?.id || null, roles,
     project_name: project?.name || 'HelloTest Launchpad',
     description: 'Connected, synthetic commerce examples. Existing records are retained; required modules are included automatically.',
     notes: ['Endpoints and integrations require your own connection settings before execution.', 'AI workflows are drafts. Live model responses, telemetry and device sessions require configured services.'],
@@ -98,6 +103,7 @@ async function install({ requestedModules, actorId, ensureWorkspace, recordAudit
   return db.transaction(async () => {
     // Serialize installs to keep per-module counts and dependency outcomes exact.
     await db.prepare("SELECT pg_advisory_xact_lock(hashtext('admin_sample_data_v2'))").get();
+    const roles = await rolePresets.ensureSetupRoles();
     await validateExistingScopes(packs, selection.installed);
     const before = await countRecords(packs);
     const administratorMemberships = await ensureWorkspace(actorId);
@@ -112,8 +118,8 @@ async function install({ requestedModules, actorId, ensureWorkspace, recordAudit
       results.push({ key, inserted_records: after[index] - before[index], existing_records: before[index], total_records: after[index] });
     }
     const inserted = results.reduce((sum, item) => sum + item.inserted_records, 0);
-    await recordAudit({ actorId, action: 'sample_data.seed', targetType: 'project', targetId: PROJECT, summary: `Installed ${selection.installed.length} sample modules; ${inserted} new records.`, metadata: { ...selection, module_results: results, administrator_memberships: administratorMemberships, version: 2 }, ipAddress });
-    return { ...selection, project_id: PROJECT, administrator_memberships: administratorMemberships, idempotent: true, version: 2, inserted_records: inserted, existing_records: results.reduce((sum, item) => sum + item.existing_records, 0), module_results: results };
+    await recordAudit({ actorId, action: 'sample_data.seed', targetType: 'project', targetId: PROJECT, summary: `Installed ${selection.installed.length} sample modules; ${inserted} new records and ${roles.created.length} roles.`, metadata: { ...selection, module_results: results, administrator_memberships: administratorMemberships, roles, version: 2 }, ipAddress });
+    return { ...selection, project_id: PROJECT, administrator_memberships: administratorMemberships, roles, idempotent: true, version: 2, inserted_records: inserted, existing_records: results.reduce((sum, item) => sum + item.existing_records, 0), module_results: results };
   })();
 }
 module.exports = { getCatalog, install, insertRecords, countRecords, resolveModules, buildRecords };

@@ -7,6 +7,7 @@ const workspaceTransactionService = require("./workspaceTransaction.service");
 const integrationService = require("./integration.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
+const { getOptionalEvidenceAccess } = require("./optionalEvidenceAccess.service");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
@@ -19,6 +20,8 @@ const selectLinkedTestCases = db.prepare(`
   SELECT test_cases.id, test_cases.title, test_cases.description, test_cases.automated, test_cases.priority, test_cases.status
   FROM requirement_test_cases
   JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id
+  JOIN requirements ON requirements.id = requirement_test_cases.requirement_id
+  JOIN app_types ON app_types.id = test_cases.app_type_id AND app_types.project_id = requirements.project_id
   WHERE requirement_test_cases.requirement_id = ?
   ORDER BY test_cases.title ASC
 `);
@@ -909,6 +912,15 @@ const normalizeRequirementCreationCandidate = (candidate, index, defaults) => {
   return { ...normalized, quality_score: evaluation.score / 100, evaluation };
 };
 
+const normalizeRequirementFields = (requirement) => ({
+  ...requirement,
+  gherkin_scenarios: normalizeStoredTextList(requirement.gherkin_scenarios),
+  additional_fields: normalizeJsonObject(parseStoredJson(requirement.additional_fields, {})),
+  ai_review: parseStoredJson(requirement.ai_review, null),
+  external_references: normalizeStoredReferenceList(requirement.external_references),
+  labels: normalizeStoredReferenceList(requirement.labels)
+});
+
 const hydrateRequirements = async (requirements) => {
   const ids = uniqueIds(requirements);
   if (!ids.length) {
@@ -918,11 +930,19 @@ const hydrateRequirements = async (requirements) => {
   const placeholders = placeholdersFor(ids);
   const [testCaseRows, defectRows, relatedRows] = await Promise.all([
     db.prepare(`
-      SELECT requirement_id, test_case_id
-      FROM requirement_test_cases
-      WHERE requirement_id IN (${placeholders})
+      SELECT links.requirement_id, links.test_case_id
+      FROM requirement_test_cases links
+      JOIN requirements r ON r.id = links.requirement_id
+      JOIN test_cases tc ON tc.id = links.test_case_id
+      LEFT JOIN app_types app ON app.id = tc.app_type_id
+      WHERE links.requirement_id IN (${placeholders}) AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)
+      UNION
+      SELECT tc.requirement_id, tc.id AS test_case_id
+      FROM test_cases tc JOIN requirements r ON r.id = tc.requirement_id
+      LEFT JOIN app_types app ON app.id = tc.app_type_id
+      WHERE tc.requirement_id IN (${placeholders}) AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)
       ORDER BY requirement_id ASC, test_case_id ASC
-    `).all(...ids),
+    `).all(...ids, ...ids),
     db.prepare(`
       SELECT
         requirement_defects.requirement_id,
@@ -932,7 +952,8 @@ const hydrateRequirements = async (requirements) => {
         feedback.created_at,
         requirement_defects.link_source
       FROM requirement_defects
-      JOIN feedback ON feedback.id = requirement_defects.issue_id
+      JOIN requirements linked_story ON linked_story.id = requirement_defects.requirement_id
+      JOIN feedback ON feedback.id = requirement_defects.issue_id AND feedback.project_id = linked_story.project_id
       WHERE requirement_defects.requirement_id IN (${placeholders})
       ORDER BY requirement_defects.requirement_id ASC, feedback.created_at DESC, feedback.title ASC
     `).all(...ids),
@@ -960,12 +981,7 @@ const hydrateRequirements = async (requirements) => {
   return requirements.map((requirement) => {
     const defects = defectsByRequirement.get(requirement.id) || [];
     return {
-      ...requirement,
-      gherkin_scenarios: normalizeStoredTextList(requirement.gherkin_scenarios),
-      additional_fields: normalizeJsonObject(parseStoredJson(requirement.additional_fields, {})),
-      ai_review: parseStoredJson(requirement.ai_review, null),
-      external_references: normalizeStoredReferenceList(requirement.external_references),
-      labels: normalizeStoredReferenceList(requirement.labels),
+      ...normalizeRequirementFields(requirement),
       test_case_ids: (testCasesByRequirement.get(requirement.id) || []).map((row) => row.test_case_id),
       defect_ids: defects.map((defect) => defect.id),
       defects: defects.map(({ requirement_id, ...defect }) => defect),
@@ -1512,6 +1528,8 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
   return { id, related_requirement_ids: relatedRequirementIds };
 };
 
+exports.getRequirementsPage = (query) => require("./requirementCatalog.service").getPage(query, hydrateRequirements);
+
 exports.getRequirements = async ({ project_id, status, priority, ids, limit }) => {
   let query = `SELECT * FROM requirements WHERE 1=1`;
   const params = [];
@@ -1549,14 +1567,14 @@ exports.getRequirements = async ({ project_id, status, priority, ids, limit }) =
   return hydrateRequirements(rows);
 };
 
-exports.getRequirement = async (id) => {
+exports.getRequirement = async (id, { includeLinkedRecords = true } = {}) => {
   const requirement = await db.prepare(`
     SELECT * FROM requirements WHERE id = ?
   `).get(id);
 
   if (!requirement) throw new Error("Requirement not found");
 
-  return hydrateTestCaseIds(requirement);
+  return includeLinkedRecords ? hydrateTestCaseIds(requirement) : normalizeRequirementFields(requirement);
 };
 
 exports.updateRequirement = async (id, data) => {
@@ -1635,10 +1653,12 @@ exports.updateRequirement = async (id, data) => {
   return transaction();
 };
 
-exports.previewRequirementOptimization = async ({ id, integration_id, user_id, additional_context, external_links, images } = {}) => {
+exports.previewRequirementOptimization = async ({ id, integration_id, user_id, user, additional_context, external_links, images } = {}) => {
   const requestId = uuid();
-  const requirement = await exports.getRequirement(id);
-  const linkedTestCases = await selectLinkedTestCases.all(id);
+  const requirement = await exports.getRequirement(id, { includeLinkedRecords: false });
+  const evidenceUser = user || (user_id ? { id: user_id } : null);
+  const evidenceAccess = await getOptionalEvidenceAccess(evidenceUser, requirement.project_id, ["testcase.view"]);
+  const linkedTestCases = evidenceAccess["testcase.view"] ? await selectLinkedTestCases.all(id) : [];
   const additionalContext = (normalizeText(additional_context) || "").slice(0, 20_000);
   const externalLinks = normalizeTextList(external_links, 20, 2000);
   const safeImages = normalizeRequirementAiReferenceImages(images);
@@ -1648,7 +1668,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, a
     query: requirement.description || requirement.title,
     module_name: requirement.module_name || null,
     feature_name: requirement.feature_name || null,
-    user: user_id ? { id: user_id } : undefined
+    user: evidenceUser || undefined
   });
   const evidence = buildStoryCompletionEvidence({
     requirement,
@@ -1659,7 +1679,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, a
     images: safeImages
   });
   const integration = await resolveLlmIntegration(integration_id, requirement.project_id, {
-    userId: user_id,
+    userId: user_id || user?.id,
     usageKey: "ai.requirement.optimization"
   });
   const inputFingerprint = storyRequestFingerprint({
@@ -1773,6 +1793,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, a
   normalizedSuggestion.no_changes_proposed = normalizedSuggestion.no_changes_proposed || !hasSupportedChange;
   const evaluation = evaluateStoryCandidate(normalizedSuggestion);
   const limitations = storyEvidenceLimitations(evidence, fallbackReason || suggestion.fallback_reason || null);
+  if (!evidenceAccess["testcase.view"]) limitations.push("Linked Test Case evidence is unavailable under the current access settings; Story completion uses the remaining permitted context.");
   if (unsupportedFields.length) {
     limitations.push(`Unsupported model changes were discarded for: ${unsupportedFields.join(", ")}. The saved Story values remain unchanged for those fields.`);
   }

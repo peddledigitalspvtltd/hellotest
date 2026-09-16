@@ -1,24 +1,27 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { IconAlertCircle, IconApps, IconCheck, IconChevronDown, IconFolder, IconLoader2, IconSearch, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconApps, IconCheck, IconChevronDown, IconFolder, IconSearch, IconX } from "@tabler/icons-react";
 import { useLocalization } from "../context/LocalizationContext";
 import { setCurrentScope, useCurrentAppType } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
 import { queryKeys } from "../lib/queryKeys";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { SWITCHER_MESSAGES, type SwitcherMessage } from "../lib/switcherMessages";
 import { applicationsForWorkspace, availableWorkspaceProjects, filterWorkspaceOptions, workspaceMenuPosition, type WorkspaceScopeSelection } from "../lib/workspaceSwitcher";
-import type { AppType, Project } from "../types";
+import type { AppType, WorkspaceProjectScope } from "../types";
 import "./workspace-project-switcher.css";
 
 export type WorkspaceProjectSwitcherProps = {
-  projects: Project[];
+  projects: WorkspaceProjectScope[];
   projectId: string;
   /** Stable authenticated identity + effective grants, shared with project catalog. */
   accessKey: string;
   isCollapsed?: boolean;
   isLoadingProjects?: boolean;
   projectsError?: boolean;
+  canViewApplications?: boolean;
   onRetryProjects?: () => void;
   /** Pure navigation/access check. The switcher commits scope only after approval. */
   beforeScopeChange?: (next: WorkspaceScopeSelection) => boolean | Promise<boolean>;
@@ -26,22 +29,23 @@ export type WorkspaceProjectSwitcherProps = {
 
 type Menu = "project" | "application";
 
-export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCollapsed = false, isLoadingProjects = false, projectsError = false, onRetryProjects, beforeScopeChange }: WorkspaceProjectSwitcherProps) {
+export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCollapsed = false, isLoadingProjects = false, projectsError = false, canViewApplications = true, onRetryProjects, beforeScopeChange }: WorkspaceProjectSwitcherProps) {
   const { t } = useLocalization();
   const copy = (key: SwitcherMessage, values?: Record<string, string | number>) => t(`switcher.${key}`, SWITCHER_MESSAGES[`switcher.${key}`], values);
   const id = useId();
   const [appTypeId] = useCurrentAppType(projectId);
   const accessibleProjects = useMemo(() => availableWorkspaceProjects(projects), [projects]);
   const currentProject = accessibleProjects.find((project) => String(project.id) === projectId);
-  const applicationsQuery = useQuery({
+  const canLoadApplications = Boolean(currentProject && canViewApplications);
+  const applicationsQuery = optionalQueryView(useQuery({
     queryKey: [...queryKeys.appTypes(projectId), "workspace-access", accessKey],
-    queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(currentProject),
+    queryFn: ({ signal }) => api.appTypes.list({ project_id: projectId }, { signal }),
+    enabled: canLoadApplications,
     staleTime: 60_000,
     retry: 1,
     // Never inherit a previous project's placeholder catalog from query defaults.
     placeholderData: undefined,
-  });
+  }), canLoadApplications);
   const applications = useMemo(() => currentProject ? applicationsForWorkspace(projectId, applicationsQuery.data) : [], [projectId, applicationsQuery.data, Boolean(currentProject)]);
   const currentApplication = applications.find((app) => String(app.id) === appTypeId);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -61,7 +65,7 @@ export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCol
   const loading = menu === "project" ? isLoadingProjects : Boolean(currentProject) && applicationsQuery.isPending;
   const loadError = menu === "project" ? projectsError : Boolean(currentProject) && applicationsQuery.isError;
   const options = menu === "project" ? accessibleProjects : applications;
-  const filteredOptions = useMemo(() => filterWorkspaceOptions<AppType | Project>(options, search), [options, search]);
+  const filteredOptions = useMemo(() => filterWorkspaceOptions<AppType | WorkspaceProjectScope>(options, search), [options, search]);
   const selectedId = menu === "project" ? projectId : appTypeId;
   const searchable = options.length > 7 && !loading && !loadError;
   const listId = `${id}-${menu || "project"}-options`;
@@ -217,7 +221,7 @@ export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCol
       return <button key={kind} id={`${id}-${kind}-trigger`} type="button" className={`workspace-scope-trigger workspace-scope-trigger--${kind}`} ref={(node) => { triggers.current[kind] = node; }}
         aria-label={copy(kind === "project" ? "projectLabel" : "applicationLabel", { name })} title={name}
         aria-haspopup="listbox" aria-expanded={menu === kind} aria-controls={menu === kind ? listId : undefined}
-        disabled={kind === "application" && !currentProject} aria-disabled={switching || undefined}
+        disabled={kind === "application" && !canLoadApplications} aria-disabled={switching || undefined}
         onClick={() => openMenu(kind)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); openMenu(kind); } }}>
         <span className="workspace-scope-trigger__icon"><Icon size={17} stroke={1.8} aria-hidden="true" /></span>
         {!isCollapsed && <span className="workspace-scope-trigger__copy"><span>{copy(kind)}</span><strong>{name}</strong></span>}
@@ -232,7 +236,7 @@ export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCol
       {searchable && <div className="workspace-scope-menu__search"><IconSearch size={16} aria-hidden="true" /><input ref={searchInput} aria-label={copy(menu === "project" ? "searchProjects" : "searchApplications")} placeholder={copy(menu === "project" ? "searchProjects" : "searchApplications")}
         value={search} onChange={(event) => setSearch(event.target.value)} autoComplete="off" spellCheck={false} />{search && <button type="button" aria-label={copy("clearSearch")} onClick={() => { setSearch(""); searchInput.current?.focus(); }}><IconX size={14} aria-hidden="true" /></button>}</div>}
       <div className="workspace-scope-menu__body">
-        {loading ? <div className="workspace-scope-menu__state" role="status"><IconLoader2 className="workspace-scope-spinner" size={19} aria-hidden="true" /><span>{copy(menu === "project" ? "loadingProjects" : "loadingApplications")}</span></div>
+        {loading ? <LoadingState label={copy(menu === "project" ? "loadingProjects" : "loadingApplications")} />
           : loadError ? <div className="workspace-scope-menu__state workspace-scope-menu__state--error" role="alert"><IconAlertCircle size={20} aria-hidden="true" /><span>{copy(menu === "project" ? "projectError" : "applicationError")}</span>{(menu === "application" || onRetryProjects) && <button type="button" onClick={retry} disabled={menu === "application" && applicationsQuery.isFetching}>{copy("retry")}</button>}</div>
           : options.length === 0 ? <div className="workspace-scope-menu__state" role="status"><IconApps size={21} aria-hidden="true" /><strong>{copy(menu === "project" ? "emptyProjects" : "emptyApplications")}</strong><span>{copy(menu === "project" ? "emptyProjectsHelp" : "emptyApplicationsHelp")}</span></div>
           : filteredOptions.length === 0 ? <div className="workspace-scope-menu__state" role="status"><span>{copy("noMatches")}</span><button type="button" onClick={() => { setSearch(""); searchInput.current?.focus(); }}>{copy("clearSearch")}</button></div>
@@ -246,7 +250,7 @@ export function WorkspaceProjectSwitcher({ projects, projectId, accessKey, isCol
             </button>;
           })}</div>}
       </div>
-      {switching && <div className="workspace-scope-menu__feedback" role="status">{copy("switching")}</div>}
+      {switching && <LoadingState label={copy("switching")} />}
       {selectionError && <div className="workspace-scope-menu__feedback is-error" role="alert">{copy(selectionError)}</div>}
     </div>, document.body)}
   </div>;

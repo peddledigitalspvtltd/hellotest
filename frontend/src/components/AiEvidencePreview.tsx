@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
@@ -72,7 +73,7 @@ export function AiEvidencePreview({ label, title, load }: { label: string; title
               <button aria-label="Close preview" className="ghost-button compact" onClick={() => setIsOpen(false)} type="button">Close</button>
             </div>
             <div className="ai-evidence-body">
-              {preview.isPending ? <div className="entity-evidence-loading">Analyzing current HelloTest evidence…</div> : null}
+              {preview.isPending ? <LoadingState label="Analyzing current HelloTest evidence" /> : null}
               {preview.error ? <div className="inline-error">{preview.error instanceof Error ? preview.error.message : "Unable to produce the preview."}</div> : null}
               {preview.data ? (
                 <>

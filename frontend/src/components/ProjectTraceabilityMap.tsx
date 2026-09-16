@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchIcon } from "./AppIcons";
+import { HierarchyAutoLoadSentinel } from "./HierarchyLoadMoreButton";
 import { DisplayIdBadge } from "./DisplayIdBadge";
 import { EvidenceFlipCard } from "./EvidenceFlipCard";
 import type { AppType, Issue, Requirement, RequirementIteration, TestCase, TestCaseModule } from "../types";
@@ -311,11 +312,14 @@ export function ProjectTraceabilityMap({
         })}
         {!visibleSprintGroups.length ? <div className="project-traceability-empty">No sprint traceability paths match the current filters.</div> : null}
       </div>
-      {hasMore ? (
-        <div className={`project-traceability-continuation${loadMoreError ? " is-error" : ""}`} role="status">
-          <span><strong>{loadMoreError ? "The next work-item page could not be loaded." : "More work items are available."}</strong> {loadMoreError ? "The visible paths remain usable but incomplete; retry when ready." : "Coverage remains provisional until every page is loaded."}</span>
-          <button className="ghost-button compact" disabled={isLoadingMore} onClick={onLoadMore} type="button">{isLoadingMore ? "Loading…" : "Load more records"}</button>
-        </div>
+      {(hasMore || loadMoreError) && onLoadMore ? (
+        <HierarchyAutoLoadSentinel
+          error={loadMoreError}
+          isLoading={isLoadingMore}
+          onLoad={onLoadMore}
+          progressKey={`${requirements.length}:${testCases.length}:${bugs.length}`}
+          scopeLabel="traceability records"
+        />
       ) : null}
       <p className="project-traceability-footnote">Sprint membership comes from loaded connected-workspace and HelloTest sprint assignments. Module and Bug relationships are derived through direct Story, module, and test-case links; unloaded pages are never treated as complete coverage.</p>
     </section>

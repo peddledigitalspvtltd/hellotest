@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { LoadingState } from "./LoadingState";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   IconAdjustmentsHorizontal,
@@ -9,12 +10,9 @@ import {
   IconSearch,
   IconShieldCheck
 } from "@tabler/icons-react";
-import { useAuth } from "../auth/AuthContext";
 import { useDialogFocus } from "../hooks/useDialogFocus";
-import { useFeatureFlags } from "../hooks/useFeatureFlags";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { api } from "../lib/api";
-import { areFeatureFlagsEnabled } from "../lib/featureFlags";
-import { hasPermission } from "../lib/permissions";
 import type { KnowledgeRetrievalSummary, KnowledgeSearchHit } from "../types";
 import { DialogCloseButton } from "./DialogCloseButton";
 import { SelectionToggleIcon } from "./AppIcons";
@@ -76,8 +74,10 @@ export function SmartContextWorkbench({
   preferredSourceKinds,
   projectId
 }: SmartContextWorkbenchProps) {
-  const { session } = useAuth();
-  const featureFlagsQuery = useFeatureFlags(Boolean(session));
+  const { can } = useCapabilityAccess(projectId);
+  const canUseKnowledge = Boolean(projectId) && can("knowledge.view");
+  const requestVersion = useRef(0);
+  const retrievalController = useRef<AbortController | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KnowledgeSearchHit[]>([]);
@@ -87,10 +87,7 @@ export function SmartContextWorkbench({
   const [message, setMessage] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen, onClose: () => setIsOpen(false) });
-  const canUseKnowledge = Boolean(projectId)
-    && hasPermission(session, "knowledge.view", projectId || "")
-    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.knowledge"]);
+  const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen && canUseKnowledge, onClose: () => setIsOpen(false) });
   const selectedHits = useMemo(() => results.filter((hit, index) => selectedResultIds.includes(resultId(hit, index))), [results, selectedResultIds]);
   const isBusy = isSearching || isApplying;
 
@@ -98,6 +95,20 @@ export function SmartContextWorkbench({
     onBusyChange?.(isBusy);
     return () => onBusyChange?.(false);
   }, [isBusy, onBusyChange]);
+
+  useEffect(() => {
+    // Losing an optional retrieval capability must release the host form.
+    // Its manual input and already-applied context belong to the host and stay.
+    requestVersion.current += 1;
+    retrievalController.current?.abort();
+    setIsOpen(false);
+    setIsSearching(false);
+    setIsApplying(false);
+    return () => {
+      requestVersion.current += 1;
+      retrievalController.current?.abort();
+    };
+  }, [appTypeId, canUseKnowledge, projectId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -117,7 +128,10 @@ export function SmartContextWorkbench({
 
   const retrieve = async () => {
     const normalizedQuery = query.trim();
-    if (!projectId || !normalizedQuery || isSearching) return;
+    if (!canUseKnowledge || !projectId || !normalizedQuery || isSearching) return;
+    const version = ++requestVersion.current;
+    const controller = new AbortController();
+    retrievalController.current = controller;
     setIsSearching(true);
     setMessage("");
     try {
@@ -130,7 +144,8 @@ export function SmartContextWorkbench({
           app_type_id: appTypeId || null,
           source_kinds: preferredSourceKinds?.length ? preferredSourceKinds : undefined
         }
-      });
+      }, { signal: controller.signal });
+      if (controller.signal.aborted || version !== requestVersion.current) return;
       const nextResults = response.results || response.hits || [];
       const nextIds = nextResults.map(resultId);
       setResults(nextResults);
@@ -141,9 +156,10 @@ export function SmartContextWorkbench({
         ? `${nextResults.length} citable chunk${nextResults.length === 1 ? "" : "s"} retrieved. Review, remove, or edit before applying.`
         : "No sufficiently relevant indexed context was found. Refine the query or add the missing source to Knowledge Repo.");
     } catch (error) {
+      if (controller.signal.aborted || version !== requestVersion.current) return;
       setMessage(error instanceof Error ? error.message : "Unable to retrieve Smart Context.");
     } finally {
-      setIsSearching(false);
+      if (version === requestVersion.current) setIsSearching(false);
     }
   };
 
@@ -157,7 +173,7 @@ export function SmartContextWorkbench({
   };
 
   const apply = async () => {
-    if (!selectedHits.length || !contextDraft.trim() || isApplying) return;
+    if (!canUseKnowledge || !selectedHits.length || !contextDraft.trim() || isApplying) return;
     setIsApplying(true);
     setMessage("");
     try {
@@ -194,11 +210,11 @@ export function SmartContextWorkbench({
         </header>
 
         <div className="smart-context-dialog__body">
-          <form className="smart-context-query" onSubmit={(event) => { event.preventDefault(); void retrieve(); }}>
+          <form className="smart-context-query" onSubmit={(event) => { event.preventDefault(); event.stopPropagation(); void retrieve(); }}>
             <IconSearch aria-hidden="true" size={19} />
             <input aria-label="Smart Context retrieval query" autoFocus maxLength={2_000} onChange={(event) => setQuery(event.target.value)} value={query} />
             <button className="primary-button compact" disabled={!query.trim() || isSearching} type="submit">
-              {isSearching ? <IconRefresh className="smart-context-spin" size={16} /> : <IconDatabaseSearch size={16} />}
+              {isSearching ? <LoadingState label="Searching project context" /> : <IconDatabaseSearch size={16} />}
               <span>{isSearching ? "Retrieving…" : "Retrieve"}</span>
             </button>
           </form>

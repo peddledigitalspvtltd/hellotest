@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -621,7 +622,7 @@ export function GroundedAssistant() {
           </div>
 
           <div className="grounded-assistant-conversation" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions">
-            {isRestoringSession ? <p role="status">Loading conversation…</p> : null}
+            {isRestoringSession ? <LoadingState label="Loading conversation" /> : null}
             {sessionError ? <p className="grounded-assistant-download-error" role="alert">{sessionError}</p> : null}
             {!messages.length ? (
               <div className="grounded-assistant-welcome">

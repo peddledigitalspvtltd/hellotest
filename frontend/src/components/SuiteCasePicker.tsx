@@ -1,4 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
 import { IconChevronDown, IconChevronUp, IconFilter } from "@tabler/icons-react";
 import { SelectionToggleIcon, TestCaseIcon } from "./AppIcons";
 import { CatalogSearchFilter } from "./CatalogSearchFilter";
@@ -19,6 +22,8 @@ type SuiteCasePickerProps = {
 };
 
 type SuiteScopePickerProps = {
+  projectId?: string;
+  appTypeId?: string;
   suites: TestSuite[];
   selectedSuiteIds: string[];
   onChange: (nextIds: string[]) => void;
@@ -160,7 +165,67 @@ export function SuiteCasePicker({
   );
 }
 
-export function SuiteScopePicker({
+export function SuiteScopePicker(props: SuiteScopePickerProps) {
+  return props.projectId ? <ScopedSuiteScopePicker {...props} projectId={props.projectId} /> : <LocalSuiteScopePicker {...props} />;
+}
+
+function ScopedSuiteScopePicker(props: SuiteScopePickerProps & { projectId: string }) {
+  const { can } = useCapabilityAccess(props.projectId);
+  return can("suite.view") ? <AuthorizedSuiteScopePicker {...props} /> : null;
+}
+
+function AuthorizedSuiteScopePicker({ projectId, appTypeId, suites, selectedSuiteIds, onChange, heading, description, emptyMessage }: SuiteScopePickerProps & { projectId: string }) {
+  const { can } = useCapabilityAccess(projectId);
+  const canFilterCases = can("testcase.view");
+  const [caseSearch, setCaseSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [moduleId, setModuleId] = useState("");
+  const [label, setLabel] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(caseSearch.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [caseSearch]);
+  const hasServerFilters = canFilterCases && Boolean(debouncedSearch || moduleId || label.trim());
+  const matching = useQuery({
+    queryKey: ["suite-scope-picker", projectId, appTypeId || "", debouncedSearch, moduleId, label.trim()],
+    queryFn: ({ signal }) => api.testSuites.list({ project_id: projectId, app_type_id: appTypeId || undefined,
+      projection: "picker", case_search: debouncedSearch || undefined,
+      module_id: moduleId || undefined, label: label.trim() || undefined }, { signal }),
+    enabled: hasServerFilters, staleTime: 30_000, placeholderData: previous => previous, retry: false
+  });
+  const modules = useQuery({
+    queryKey: ["test-case-picker-modules", projectId, appTypeId || ""],
+    queryFn: () => api.testCaseModules.list({ project_id: projectId, app_type_id: appTypeId || undefined, projection: "summary" }),
+    enabled: canFilterCases && filtersOpen, staleTime: 60_000, retry: false
+  });
+  const visibleSuites = hasServerFilters ? matching.data || [] : suites;
+  const items = useMemo<OrderedSelectionPickerItem[]>(() => visibleSuites.map(suite => ({
+    id: suite.id, displayId: suite.display_id || suite.id, title: suite.name,
+    description: richTextToPlainText(suite.description || ""), labels: suite.labels || [],
+    meta: `${suite.test_case_count ?? suite.test_case_ids?.length ?? 0} test cases`,
+    metadata: { suite: [suite.display_id || suite.id, suite.name], label: suite.labels || [] }
+  })), [visibleSuites]);
+  const pending = canFilterCases && (caseSearch.trim() !== debouncedSearch || (hasServerFilters && (matching.isFetching || matching.isPlaceholderData)));
+  return <div className="suite-scope-server-picker">
+    {canFilterCases ? <details onToggle={event => setFiltersOpen(event.currentTarget.open)}>
+      <summary>Filter by linked test cases</summary>
+      <div className="suite-scope-server-filters">
+        <label>Linked test cases and metadata<input type="search" aria-label="Search linked test cases and metadata" placeholder="Case, module, story, or shared step group" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} /></label>
+        <label>Module<select aria-label="Filter suites by module" value={moduleId} onChange={event => setModuleId(event.target.value)}><option value="">All modules</option>{(modules.data || []).map(module => <option key={module.id} value={module.id}>{module.name}</option>)}</select></label>
+        <label>Label<input aria-label="Filter suites by label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Exact label" /></label>
+      </div>
+    </details> : null}
+    {pending ? <p role="status">Searching suite scope…</p> : null}
+    {hasServerFilters && matching.isError ? <p role="alert">Suite filters couldn't be applied. <button className="ghost-button" type="button" onClick={() => void matching.refetch()}>Retry suite filters</button></p> : null}
+    {canFilterCases && modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
+    <OrderedSelectionPicker items={items} selectedIds={selectedSuiteIds} onChange={onChange}
+      heading={heading} description={description} emptyMessage={pending ? "Searching suites…" : emptyMessage}
+      itemLabel="suite" filterKeys={["suite", "label"]} disabled={pending} />
+  </div>;
+}
+
+function LocalSuiteScopePicker({
   suites,
   selectedSuiteIds,
   onChange,
@@ -493,7 +558,7 @@ function OrderedSelectionPicker({
                       <button
                         aria-label={`Move ${item.title} down`}
                         className="ghost-button"
-                        disabled={disabled || !isSelected || selectedIndex === selectedItems.length - 1}
+                        disabled={disabled || !isSelected || selectedIndex === selectedIds.length - 1}
                         onClick={() => moveSelectedItem(item.id, "down")}
                         type="button"
                       >
@@ -532,7 +597,7 @@ function OrderedSelectionPicker({
       </div>
 
       {showSelectionSummary ? <div className="suite-scope-picker-summary" aria-live="polite">
-        <span>{selectedItems.length} {itemLabel}{selectedItems.length === 1 ? "" : "s"} selected</span>
+        <span>{selectedIds.length} {itemLabel}{selectedIds.length === 1 ? "" : "s"} selected</span>
         {hasActiveFilters ? <span>{filteredItems.length} shown · {visibleSelectedCount} selected here</span> : null}
       </div> : null}
 
@@ -565,7 +630,7 @@ function OrderedSelectionPicker({
                   <button
                     aria-label={`Move ${item.title} up`}
                     className="ghost-button suite-case-picker-move"
-                    disabled={!isSelected || selectedIndex === 0}
+                    disabled={disabled || !isSelected || selectedIndex === 0}
                     onClick={(event) => {
                       event.preventDefault();
                       moveSelectedItem(item.id, "up");
@@ -577,7 +642,7 @@ function OrderedSelectionPicker({
                   <button
                     aria-label={`Move ${item.title} down`}
                     className="ghost-button suite-case-picker-move"
-                    disabled={!isSelected || selectedIndex === selectedItems.length - 1}
+                    disabled={disabled || !isSelected || selectedIndex === selectedIds.length - 1}
                     onClick={(event) => {
                       event.preventDefault();
                       moveSelectedItem(item.id, "down");

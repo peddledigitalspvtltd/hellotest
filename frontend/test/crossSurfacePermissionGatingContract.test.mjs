@@ -17,19 +17,19 @@ test("delivery catalogs require Product Management feature and iteration visibil
   ].map(readSource));
 
   sources.forEach((source) => {
-    assert.match(source, /hasPermission\(session, "requirement_iteration\.view", projectId\)[\s\S]{0,180}hellotest\.manual\.requirements/);
+    assert.match(source, /can\("requirement_iteration\.view"\)/);
   });
 });
 
 test("Test Case data-set authoring separates view, manage, and Test Case edit rights", async () => {
   const source = await readSource("../src/pages/TestCasesPage.tsx");
 
-  assert.match(source, /const canViewTestData = hasPermission\(session, "data\.view", projectId\) && canUseTestData/);
-  assert.match(source, /const canManageTestData = hasPermission\(session, "data\.manage", projectId\) && canUseTestData/);
-  assert.match(source, /enabled: Boolean\(projectId && canViewTestData\)/);
+  assert.match(source, /const canViewTestData = can\("data\.view"\) && canUseTestData/);
+  assert.match(source, /const canManageTestData = can\("data\.manage"\) && canUseTestData/);
+  assert.match(source, /enabled: [^\n]*Boolean\(projectId && canViewTestData && needsAuthoringCatalog\)/);
   assert.match(source, /const canLinkTestDataToCurrentCase = canViewTestData[\s\S]*canCreateTestCases[\s\S]*canUpdateTestCases/);
   assert.match(source, /const canCreateAndLinkTestData = canManageTestData && canLinkTestDataToCurrentCase/);
-  assert.match(source, /canViewProjectMembers = hasPermission\(session, "project_member\.view", projectId\)/);
+  assert.match(source, /canViewProjectMembers = can\("project_member\.view"\)/);
   assert.doesNotMatch(source, /queryFn: api\.users\.list/);
   assert.match(source, /name: member\.user_name/);
 });
@@ -40,10 +40,11 @@ test("shared execution context and Shared Step Group actions fail closed", async
     readSource("../src/pages/SharedStepsPage.tsx")
   ]);
 
-  assert.match(contextSelector, /canViewTestData = hasPermission\(session, "data\.view", projectId\)/);
-  assert.match(contextSelector, /hellotest\.manual\.test_data/);
+  assert.match(contextSelector, /canViewTestData = can\("data\.view"\)/);
+  assert.match(contextSelector, /useCapabilityAccess\(projectId\)/);
+  assert.match(contextSelector, /optionalQueryView\(useQuery/);
   assert.match(contextSelector, /enabled: Boolean\(projectId && canViewTestData\)/);
-  assert.match(sharedSteps, /canManageSharedStepGroups = hasPermission\(session, "shared_step\.manage", projectId\)/);
+  assert.match(sharedSteps, /canManageSharedStepGroups = can\("shared_step\.manage"\)/);
   assert.match(sharedSteps, /Permission required: shared_step\.manage/);
 });
 

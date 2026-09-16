@@ -8,6 +8,8 @@ import { DisplayIdBadge } from "./DisplayIdBadge";
 import { LoadingState } from "./LoadingState";
 import { StatusBadge } from "./StatusBadge";
 import { api } from "../lib/api";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import { asArray } from "../lib/collectionGuards";
 import type { TraceabilityRunHistoryItem } from "../types";
 
@@ -53,7 +55,9 @@ export function TraceabilityRunHistory({
   testCaseId?: string;
 }) {
   const navigate = useNavigate();
-  const historyQuery = useQuery({
+  const { can } = useCapabilityAccess(projectId);
+  const canView = can("run.view") && can("result.view");
+  const historyQuery = optionalQueryView(useQuery({
     queryKey: ["traceability-run-history", projectId, appTypeId || "all", requirementId || "", testCaseId || ""],
     queryFn: () => api.executions.history({
       project_id: projectId,
@@ -62,9 +66,9 @@ export function TraceabilityRunHistory({
       test_case_id: testCaseId || undefined,
       page_size: 25
     }),
-    enabled: Boolean(projectId && (requirementId || testCaseId)),
+    enabled: canView && Boolean(projectId && (requirementId || testCaseId)),
     staleTime: 30_000
-  });
+  }), canView);
   const rows = asArray(historyQuery.data);
   const [searchTerm, setSearchTerm] = useState("");
   const [resultFilter, setResultFilter] = useState("all");
@@ -208,6 +212,8 @@ export function TraceabilityRunHistory({
   if (historyQuery.isError) {
     return <div className="empty-state compact">Run history could not be loaded.</div>;
   }
+
+  if (!canView) return <p className="muted">Run history is unavailable.</p>;
 
   return (
     <div className="traceability-run-history">

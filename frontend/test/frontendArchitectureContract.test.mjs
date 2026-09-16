@@ -36,15 +36,17 @@ test("workspace and catalog navigation preserve scroll without synchronous scrol
   assert.match(pane, /MAX_REMEMBERED_SCROLL_POSITIONS/);
 });
 
-test("route loading uses a stable workspace skeleton", async () => {
-  const [shell, skeleton, styles] = await Promise.all([
+test("route loading uses the shared accessible loading indicator", async () => {
+  const [shell, skeleton, loader, styles] = await Promise.all([
     readSource("../src/components/AppShell.tsx"),
     readSource("../src/components/WorkspacePageSkeleton.tsx"),
-    readSource("../src/components/WorkspacePageSkeleton.css")
+    readSource("../src/components/LoadingState.tsx"),
+    readSource("../src/components/LoadingState.css")
   ]);
 
   assert.match(shell, /Suspense fallback=\{<WorkspacePageSkeleton/);
-  assert.match(skeleton, /aria-busy="true"/);
+  assert.match(skeleton, /<LoadingState label=\{label\}/);
+  assert.match(loader, /aria-live="polite"[\s\S]*role="status"/);
   assert.match(styles, /prefers-reduced-motion/);
 });
 
@@ -59,8 +61,10 @@ test("release readiness is loaded in one project request instead of one browser 
   assert.match(page, /isReadinessLoading \|\| isReadinessUnavailable \? "—"/);
   assert.match(page, /Release evidence unavailable/);
   assert.match(page, /canReadReadiness && !releaseReadinessQuery\.isError \? asArray\(releaseReadinessQuery\.data\) : \[\]/);
-  assert.match(page, /api\.executionResults\.releaseReadiness\(\{ project_id: projectId, release: expandedRelease!\.fix_version/);
-  assert.doesNotMatch(page, /api\.executionResults\.list\(/);
+  assert.match(page, /readinessByReleaseId\.get\(expandedRelease\.id\)\?\.story_metrics\?\.\[story\.id\]/);
+  assert.equal((page.match(/api\.requirementReleases\.listReadiness\(/g) || []).length, 1);
+  assert.doesNotMatch(page, /api\.(executionResults|testCases)\.(list|releaseReadiness)\(/);
+  assert.match(page, /hasMissingReleaseEvidence/);
   assert.match(api, /\/requirement-releases\/readiness/);
 });
 

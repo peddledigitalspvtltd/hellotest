@@ -1,5 +1,6 @@
+import { LoadingState } from "./LoadingState";
 import { useEffect, useState } from "react";
-import { IconPlayerStop, IconSparkles } from "@tabler/icons-react";
+import { IconPlayerStop } from "@tabler/icons-react";
 import type { KnowledgeRetrievalEvent } from "../types";
 import { knowledgeElapsedLabel, knowledgeProgressLabel, knowledgeProgressDescription } from "../lib/knowledgeAssistantStream";
 
@@ -21,7 +22,7 @@ export function KnowledgeTurnProgress({ events, startedAt, opening, onStop }: {
   const partial = events.some((event) => ["PARTIAL", "DEGRADED", "TIMEOUT"].includes(String(event.status).toUpperCase()));
   return <section aria-label="Answer progress" className="grounded-assistant-turn-progress">
     <div className="grounded-assistant-progress-heading">
-      <span aria-hidden="true" className="grounded-assistant-progress-orb"><IconSparkles size={19} /></span>
+      <LoadingState label={knowledgeProgressLabel(latest, opening)} />
       <div role="status" aria-live="polite"><span>Working with your project evidence</span><strong>{knowledgeProgressLabel(latest, opening)}</strong></div>
       <time aria-label={`${knowledgeElapsedLabel(now - startedAt)} elapsed`}>{knowledgeElapsedLabel(now - startedAt)}</time>
     </div>

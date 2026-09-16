@@ -4,22 +4,17 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("Story creation actions reuse the Create Project action palette", async () => {
-  const [page, catalogStyles, modalStyles, aiStyles] = await Promise.all([
+test("Story creation and submit actions reuse the Create Project action palette", async () => {
+  const [page, catalogStyles, modalStyles] = await Promise.all([
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/catalog-list.css"),
-    readSource("../src/modal-system.css"),
-    readSource("../src/pages/RequirementsPage.ai.css")
+    readSource("../src/modal-system.css")
   ]);
 
   const toolbar = page.slice(page.indexOf('aria-label="Story actions"'), page.indexOf('aria-label="Story catalog"'));
   const storySubmit = modalStyles.slice(
     modalStyles.indexOf(".story-create-dialog .story-create-submit-button {"),
     modalStyles.indexOf(".story-create-dialog .story-create-submit-icon")
-  );
-  const aiMenu = aiStyles.slice(
-    aiStyles.indexOf(".requirement-action-dropdown.tone-ai button:not(:disabled)"),
-    aiStyles.indexOf("@media (max-width: 960px)")
   );
 
   assert.match(toolbar, /requirement-create-story-button/);
@@ -29,9 +24,6 @@ test("Story creation actions reuse the Create Project action palette", async () 
   assert.match(storySubmit, /var\(--project-create-action, #0758c9\)/);
   assert.match(storySubmit, /var\(--project-create-action-hover, #0649aa\)/);
   assert.doesNotMatch(storySubmit, /#000000/);
-  assert.match(aiMenu, /var\(--project-create-action, #0758c9\)/);
-  assert.match(aiMenu, /var\(--project-create-action-hover, #0649aa\)/);
-  assert.doesNotMatch(aiMenu, /#4c3ee8|#3f31d6/);
 });
 
 test("Bulk Story import keeps the secondary action before the project-blue submit action", async () => {

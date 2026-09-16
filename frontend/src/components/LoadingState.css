@@ -1,0 +1,85 @@
+.screen-loading-overlay {
+  --screen-loading-size: min(96px, 20vmin);
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  overflow: visible;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+  animation: screen-loading-enter 140ms ease-out;
+}
+
+.screen-loading-overlay.is-exiting {
+  opacity: 0;
+}
+
+.screen-loading-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: var(--screen-loading-size);
+  height: var(--screen-loading-size);
+  max-width: none;
+  overflow: visible;
+  transform: translate(-50%, -50%);
+  /* Keep the white orbit visible over both light and dark application themes. */
+  filter: drop-shadow(0 1px 2px rgb(0 0 16 / 24%));
+}
+
+.screen-loading-orbit {
+  transform-origin: 120px 120px;
+  animation: screen-loading-orbit 2.4s linear infinite;
+}
+
+.screen-loading-orbit.is-blue { --orbit-angle: -35deg; animation-duration: 2.8s; }
+.screen-loading-orbit.is-purple { --orbit-angle: 42deg; animation-duration: 2.1s; animation-direction: reverse; }
+.screen-loading-orbit.is-gold { --orbit-angle: -28deg; animation-duration: 3.2s; }
+.screen-loading-orbit.is-green { --orbit-angle: -10deg; animation-duration: 2.6s; animation-direction: reverse; }
+.screen-loading-orbit.is-red { --orbit-angle: 16deg; animation-duration: 2.3s; }
+.screen-loading-orbit.is-white { --orbit-angle: 12deg; animation-duration: 3s; }
+
+.screen-loading-label {
+  position: absolute;
+  top: calc(50% + var(--screen-loading-size) / 2 + 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  color: var(--ds-text, var(--text, #172b4d));
+  font-family: "Hanken Grotesk", "Inter", sans-serif;
+  font-size: clamp(14px, 3.5vmin, 16px);
+  font-weight: 400;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-align: center;
+  text-shadow: 0 1px 3px var(--panel, #fff);
+}
+
+.screen-loading-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes screen-loading-orbit {
+  from { transform: rotate(var(--orbit-angle)); }
+  to { transform: rotate(calc(var(--orbit-angle) + 360deg)); }
+}
+
+@keyframes screen-loading-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-loading-overlay { animation: none; transition: none; }
+  .screen-loading-orbit {
+    animation: none;
+    transform: rotate(var(--orbit-angle));
+  }
+}

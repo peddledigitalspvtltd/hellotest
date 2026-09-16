@@ -652,12 +652,12 @@
 .knowledge-collection-card > .ghost-button { justify-content: center; min-height: 2rem; font-size: 0.72rem; }
 
 .knowledge-activity-list { display: grid; gap: 0.55rem; }
-.knowledge-job-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.62rem; padding: 0.75rem; }
+.knowledge-job-card { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 0.62rem; padding: 0.75rem; }
 .knowledge-job-status-icon { display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border-radius: 10px; background: rgba(79, 70, 229, 0.09); color: #4f46e5; }
 .knowledge-job-card.is-completed .knowledge-job-status-icon { background: rgba(22, 163, 74, 0.1); color: #15803d; }
 .knowledge-job-card.is-completed_with_warnings .knowledge-job-status-icon { background: rgba(245, 158, 11, 0.1); color: #a16207; }
 .knowledge-job-card.is-failed .knowledge-job-status-icon { background: rgba(220, 38, 38, 0.09); color: #dc2626; }
-.knowledge-job-body { min-width: 0; }
+.knowledge-job-body { grid-column: 2; min-width: 0; }
 .knowledge-job-head span { color: #4f46e5; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; }
 .knowledge-job-head h4 { margin: 0.12rem 0 0; font-size: 0.75rem; }
 .knowledge-job-head code { font-size: 0.68rem; }

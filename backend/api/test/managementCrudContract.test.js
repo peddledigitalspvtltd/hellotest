@@ -74,8 +74,8 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseService, /requirements\.iteration_id IN/);
   assert.match(releaseService, /release_membership_source/);
   assert.match(releaseService, /UPDATE requirements[\s\S]*release = \?, fix_version = \?/);
-  assert.match(releaseService, /testCoverage \|\| 0\) \* 0\.3/);
-  assert.match(releaseService, /passRate \|\| 0\) \* 0\.5/);
+  assert.match(releaseService, /coveredStories \/ storyIds\.length \* 30/);
+  assert.match(releaseService, /passedCases \/ latestResults\.length \* 50/);
   assert.match(releaseService, /bugHealth \* 0\.2/);
   assert.match(releaseService, /automation_is_informational: true/);
   assert.match(releaseService, /exports\.listReadiness/);

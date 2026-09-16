@@ -19,12 +19,16 @@ const readinessFixture = (fixVersion = '  Version 1.2 ') => {
       const sql = statement.replace(/\s+/g, ' ').trim();
       assert.equal((sql.match(/\?/g) || []).length, args.length);
       reads.push({ sql, args });
-      if (sql.startsWith('SELECT DISTINCT requirement_id, test_case_id')) return [{ requirement_id: 'story', test_case_id: 'linked-case' }];
-      if (sql.includes('FROM execution_results JOIN executions')) {
-        assert.match(sql, /execution_results.test_case_id IN \(\?\) AND executions.project_id = \?/);
-        assert.match(sql, /AND \? <> '' AND LOWER\(TRIM\(COALESCE\(executions.release, ''\)\)\) = \?/);
+      if (sql.startsWith('SELECT requirement_test_cases.requirement_id')) {
+        assert.match(sql, /UNION SELECT test_cases.requirement_id/);
+        assert.deepEqual(Array.from(args), ['story','project-a','story','project-a']);
+        return [{ requirement_id: 'story', test_case_id: 'linked-case' }];
+      }
+      if (sql.includes('FROM execution_results er JOIN executions')) {
+        assert.match(sql, /er.test_case_id IN \(\?\) AND e.project_id = \?/);
+        assert.match(sql, /AND \? <> '' AND LOWER\(TRIM\(COALESCE\(e.release, ''\)\)\) = \?/);
         const [caseId, projectId, requiredToken, token] = args;
-        const selected = candidates.filter(row => row.test_case_id === caseId && row.project_id === projectId && requiredToken && row.release.trim().toLowerCase() === token)
+        const selected = candidates.filter(row => row.test_case_id === caseId && row.project_id === projectId && requiredToken && row.release.trim().toLowerCase() === token && ['passed','failed','blocked'].includes(row.status))
           .sort((a, b) => b.created_at.localeCompare(a.created_at));
         return selected.length ? [{ test_case_id: selected[0].test_case_id, status: selected[0].status }] : [];
       }
@@ -40,7 +44,7 @@ const readinessFixture = (fixVersion = '  Version 1.2 ') => {
   const service = {};
   vm.runInNewContext(readFileSync(path.join(__dirname, '../src/services/requirementRelease.service.js'), 'utf8'), {
     exports: service,
-    require: dependency => dependency === '../db' ? db : dependency === 'crypto' ? require('node:crypto') : {}
+    require: dependency => dependency === '../db' ? db : dependency === 'crypto' ? require('node:crypto') : dependency === '../utils/finalizedCaseMetrics' ? require('../src/utils/finalizedCaseMetrics') : {}
   });
   service.getRelease = async () => ({ id: 'release-id', project_id: 'project-a', fix_version: fixVersion, requirement_ids: ['story'] });
   return { service, reads, candidates };
@@ -66,6 +70,7 @@ test('releases without their own execution evidence report no result rather than
     assert.equal(result.executed_cases, 0);
     assert.equal(result.passed_cases, 0);
     assert.equal(result.pass_rate_percent, null);
+    assert.equal(result.readiness_score, null, 'No run evidence is not a computed readiness percentage');
   }
 });
 

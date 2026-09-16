@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { FormField } from "../components/FormField";
+import { LoadingState } from "../components/LoadingState";
 import { BrandWordmark } from "../components/BrandWordmark";
 import { EyeIcon } from "../components/AppIcons";
 import { ToastMessage } from "../components/ToastMessage";
@@ -1036,7 +1037,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
                   }
                   type="submit"
                 >
-                  {isSubmitting ? <span className="button-spinner" aria-hidden="true" /> : null}
+                  {isSubmitting ? <LoadingState label={currentCopy.loadingLabel} /> : null}
                   <span>{isSubmitting ? currentCopy.loadingLabel : currentCopy.submitLabel}</span>
                 </button>
 

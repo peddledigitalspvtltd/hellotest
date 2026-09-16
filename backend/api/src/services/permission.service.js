@@ -67,6 +67,12 @@ const hasPermission = async (user, permissionCode, projectId = null) => {
     `).get(user.id, permissionCode);
   }
 
+  // Existing roles with the original combined Bug capability retain creation
+  // access. A create-only role never gains the reverse update/delete grant.
+  if (!row?.allowed && permissionCode === "feedback.create") {
+    return hasPermission(user, "feedback.manage", projectId);
+  }
+
   return Boolean(row?.allowed);
 };
 

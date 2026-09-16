@@ -46,7 +46,7 @@ test("Bug creation resolves native delivery IDs, merges native and Jira choices,
   assert.match(issues, /searchParams\.get\("sprintId"\) \|\| searchParams\.get\("sprint_id"\)/);
   assert.match(issues, /api\.requirementIterations\.list\(\{ project_id: projectId \}\)/);
   assert.match(issues, /api\.requirementReleases\.list\(\{ project_id: projectId \}\)/);
-  assert.match(issues, /canViewDeliveryScopes = hasPermission\(session, "requirement_iteration\.view", projectId\)/);
+  assert.match(issues, /canViewDeliveryScopes = can\("requirement_iteration\.view"\)/);
   assert.match(issues, /buildDeliveryScopeOptions\(\{/);
   assert.match(issues, /includeClosedSprints: true/);
   assert.match(issues, /resolveDeliveryScopePrefill\(deliveryPrefill, deliveryScopeCatalog\)/);

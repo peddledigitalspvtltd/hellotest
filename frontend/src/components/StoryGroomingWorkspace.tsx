@@ -269,17 +269,7 @@ export function StoryGroomingWorkspace({
   if (isLoading) {
     return (
       <GroomingContainer>
-        <section aria-busy="true" className="story-grooming-workspace story-grooming-loading">
-          <div className="story-grooming-loading-hero">
-            <span><IconSparkles /></span>
-            <div>
-              <h2>Preparing the Story refinement</h2>
-              <p>Reviewing the Story, comments, linked work, Bugs, and available attachment metadata. No Story fields are changed.</p>
-            </div>
-          </div>
-          <LoadingState label="Building an evidence-backed readiness brief" />
-          <div aria-hidden="true" className="story-grooming-loading-grid"><i /><i /><i /></div>
-        </section>
+        <LoadingState label="Building an evidence-backed readiness brief" description="Reviewing the Story, comments, linked work, Bugs, and available attachment metadata. No Story fields are changed." />
       </GroomingContainer>
     );
   }

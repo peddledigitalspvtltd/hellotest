@@ -31,8 +31,11 @@ test("Test Case context links and run builders resolve and prefill delivery scop
   }
   assert.match(routeContext, /resolveDeliveryScopePrefill/);
   assert.match(page, /const openRunBuilder = \(testCaseIds: string\[\], mode: ExecutionStartMode = "manual"\)/);
-  assert.match(page, /setExecutionRelease\(releases\.length === 1 \? releases\[0\] : ""\)/);
-  assert.match(page, /setExecutionSprint\(sprints\.length === 1 \? sprints\[0\] : ""\)/);
+  assert.match(page, /return \{ release: releases\.length === 1 \? releases\[0\] : "", sprint: sprints\.length === 1 \? sprints\[0\] : "" \}/);
+  assert.match(page, /if \(!runDeliveryFieldsEditedRef\.current\.release\) setExecutionRelease\(prefill\.release\)/);
+  assert.match(page, /if \(!runDeliveryFieldsEditedRef\.current\.sprint\) setExecutionSprint\(prefill\.sprint\)/);
+  const opener = page.slice(page.indexOf("const openRunBuilder ="), page.indexOf("useEffect", page.indexOf("const openRunBuilder =")));
+  assert.ok(opener.indexOf("setIsCreateExecutionModalOpen(true)") < opener.indexOf("setPendingRunBuilder("), "The form opens before optional delivery prefill completes");
   assert.match(page, /releaseOptions=\{deliveryReleaseOptions\}/);
   assert.match(page, /sprintOptions=\{deliverySprintOptions\}/);
   assert.match(page, /<select value=\{executionRelease\}[\s\S]*?releaseOptions\.map/);
@@ -43,7 +46,8 @@ test("Test Suite run creation also uses populated delivery selectors and linked-
   const page = await readSource("../src/pages/DesignPage.tsx");
 
   assert.match(page, /const openSuiteRunBuilder = \(mode: ExecutionStartMode\)/);
-  assert.match(page, /deliveryScopeByRequirementId\.get\(requirementId\)/);
+  assert.match(page, /runScopeStoryIds\.map\(id => deliveryScopeByRequirementId\.get\(id\)\)/);
+  assert.match(page, /suiteDeliveryPrefillPending \|\| suiteDeliveryPrefillError/);
   assert.match(page, /onCreateManualRun=\{\(\) => openSuiteRunBuilder\("manual"\)\}/);
   assert.match(page, /releaseOptions=\{deliveryReleaseOptions\}/);
   assert.match(page, /sprintOptions=\{deliverySprintOptions\}/);

@@ -38,7 +38,7 @@ module.exports = async function (fastify) {
       integration_id: { required: false, type: "string", maxLength: 255 },
       prompt_guidance: { required: false, type: "string", maxLength: 4000 }
     }, req.body || {});
-    const requirement = await service.getRequirement(req.params.id);
+    const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords: false });
     const project = await projectService.getProject(requirement.project_id, req.user.id);
     if (req.body?.project_id && req.body.project_id !== project.id) throw Object.assign(new Error("Story does not belong to the selected project"), { statusCode: 403 });
     await fastify.requirePermission("requirement.ai", { projectId: project.id })(req);
@@ -46,6 +46,7 @@ module.exports = async function (fastify) {
       requirement,
       project,
       userId: req.user.id,
+      user: req.user,
       integrationId: req.body?.integration_id,
       promptGuidance: req.body?.prompt_guidance
     });
@@ -247,6 +248,20 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/requirements/metrics", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" } }, req.query);
+    await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("requirement.view", { projectId: req.query.project_id })(req);
+    const includeSprints = req.query.include_sprints === "true";
+    if (includeSprints) await fastify.requirePermission("requirement_iteration.view", { projectId: req.query.project_id })(req);
+    if (req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", { projectId: req.query.project_id })(req);
+      await fastify.requirePermission("result.view", { projectId: req.query.project_id })(req);
+    }
+    return require("../services/requirementCatalog.service").getMetrics({ ...req.query, include_sprints: includeSprints });
+  });
+
   fastify.get("/requirements", async (req) => {
     await fastify.authenticate(req);
     const { project_id, status, priority, sprint_id, unassigned } = req.query;
@@ -260,6 +275,12 @@ module.exports = async function (fastify) {
       throw error;
     }
     
+    if (req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", { projectId: project_id })(req);
+      await fastify.requirePermission("result.view", { projectId: project_id })(req);
+    }
+    if (shouldPaginate(req.query)) return service.getRequirementsPage(req.query);
+
     const items = await service.getRequirements({
       project_id,
       status,
@@ -276,7 +297,13 @@ module.exports = async function (fastify) {
   fastify.get("/requirements/:id", async (req) => {
     await fastify.authenticate(req);
     const requirement = await service.getRequirement(req.params.id);
-    return ensureRequirementPermission(fastify, req, requirement, "requirement.view");
+    await ensureRequirementPermission(fastify, req, requirement, "requirement.view");
+    if (req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", { projectId: requirement.project_id })(req);
+      await fastify.requirePermission("result.view", { projectId: requirement.project_id })(req);
+    }
+    const [detailed] = await require("../services/requirementCatalog.service").withCatalogMetrics([requirement], req.query);
+    return detailed;
   });
 
   fastify.put("/requirements/:id", async (req) => {
@@ -349,7 +376,7 @@ module.exports = async function (fastify) {
       images: { required: false, type: "array", maxItems: 6 }
     }, req.body || {});
 
-    const requirement = await service.getRequirement(req.params.id);
+    const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords: false });
     await projectService.getProject(requirement.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: requirement.project_id })(req);
 
@@ -357,6 +384,7 @@ module.exports = async function (fastify) {
       id: req.params.id,
       integration_id: req.body?.integration_id,
       user_id: req.user.id,
+      user: req.user,
       additional_context: req.body?.additional_context,
       external_links: req.body?.external_links,
       images: req.body?.images

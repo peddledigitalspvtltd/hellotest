@@ -59,7 +59,7 @@ const formatPermissionAvailability = (permission: Permission) => {
   const disabled = (permission.features || []).filter((feature) => feature.enabled === false);
   return [
     enabled.length ? `Available in: ${enabled.map((feature) => feature.label).join(", ")}` : "",
-    disabled.length ? `Paused in: ${disabled.map((feature) => feature.label).join(", ")}` : ""
+    disabled.length ? `Unavailable while disabled: ${disabled.map((feature) => feature.label).join(", ")}. Saved grants take effect when enabled.` : ""
   ].filter(Boolean).join(" · ");
 };
 

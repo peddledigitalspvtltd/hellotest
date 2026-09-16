@@ -73,10 +73,7 @@ test("Context Studio builds exact application-record scopes and distinguishes st
 });
 
 test("Context Studio exposes hybrid retrieval, citations, reusable collections, exact job states, and source readiness", async () => {
-  const [studio, styles] = await Promise.all([
-    readSource("../src/components/KnowledgeContextStudio.tsx"),
-    readSource("../src/components/KnowledgeContextStudio.css")
-  ]);
+  const studio = await readSource("../src/components/KnowledgeContextStudio.tsx");
 
   assert.match(studio, /"hybrid"/);
   assert.match(studio, /Search & validate/);
@@ -101,11 +98,10 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /max_extractable_bytes/);
   assert.match(studio, /result\.source_kind !== "product_help"/);
   assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\)/);
-  assert.match(studio, /IconLoader2[\s\S]*knowledge-processing-spinner/);
+  assert.match(studio, /<LoadingState/);
   assert.match(studio, /Recent embedding fallback/);
   assert.match(studio, /Context refresh recommended/);
   assert.doesNotMatch(studio, /loading-state-spinner/);
-  assert.match(styles, /\.knowledge-processing-spinner \{[\s\S]*width: 1rem;[\s\S]*height: 1rem;/);
   assert.doesNotMatch(studio, /job\.error(?!s)/);
 });
 
@@ -184,8 +180,8 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
     readSource("../src/lib/aiDesignStudio.ts")
   ]);
 
-  assert.match(workbench, /hasPermission\(session, "knowledge\.view", projectId/);
-  assert.match(workbench, /areFeatureFlagsEnabled\(featureFlagsQuery\.data, \["hellotest\.ai\.knowledge"\]\)/);
+  assert.match(workbench, /useCapabilityAccess\(projectId\)/);
+  assert.match(workbench, /can\("knowledge\.view"\)/);
   assert.match(workbench, /api\.knowledgeRepo\.search\(\{[\s\S]*mode: "hybrid"/);
   assert.match(workbench, /Project ACL enforced/);
   assert.match(workbench, /Retrieved evidence/);
@@ -207,7 +203,7 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.doesNotMatch(richText, /<SmartContextWorkbench/);
   assert.doesNotMatch(testData, /<SmartContextWorkbench/);
   assert.doesNotMatch(dashboard, /<SmartContextWorkbench/);
-  assert.match(workflows, /smart_context: assistantSmartContext \?/);
+  assert.match(workflows, /smart_context: canUseKnowledge && assistantSmartContext \?/);
   assert.match(workflows, /source_ids: assistantSmartContext\.sourceIds/);
   assert.match(workflows, /reviewed_context: assistantSmartContext\.contextText/);
   assert.match(workflows, /knowledgeQuery: selection\.query/);

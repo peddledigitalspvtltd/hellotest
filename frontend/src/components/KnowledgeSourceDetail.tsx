@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconArchive, IconExternalLink, IconRefresh, IconDownload } from "@tabler/icons-react";
@@ -39,7 +40,7 @@ export function KnowledgeSourceDetail({ sourceId, projectId, canManage, initialR
   return <div className="modal-backdrop knowledge-source-detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !isMutating) onClose(); }}>
     <div aria-labelledby="knowledge-source-detail-title" aria-modal="true" className="modal knowledge-source-detail" ref={dialogRef} role="dialog" tabIndex={-1}>
       <header><div><span className="eyebrow">Source evidence</span><h2 id="knowledge-source-detail-title">{source?.title || "Source details"}</h2></div><DialogCloseButton disabled={isMutating} onClick={onClose} /></header>
-      {detailQuery.isPending ? <p role="status">Loading source and index state…</p> : null}
+      {detailQuery.isPending ? <LoadingState label="Loading source and index state" /> : null}
       {detailQuery.isError ? <div role="alert"><p>{detailQuery.error instanceof Error ? detailQuery.error.message : "Source could not be loaded."}</p><button className="ghost-button" onClick={() => void detailQuery.refetch()} type="button">Retry source details</button></div> : null}
       {source && detail ? <>
         <div className="knowledge-source-detail-toolbar">

@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconX } from "@tabler/icons-react";
@@ -29,7 +30,7 @@ export function RunEditDialog(props: Props) {
 function RunEditLoading({ onClose, isError, onRetry }: { onClose: () => void; isError: boolean; onRetry: () => void }) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   return <div className="modal-backdrop" role="presentation"><div role="dialog" aria-modal="true" aria-label="Edit run" className="modal-card run-edit-dialog" ref={dialogRef} tabIndex={-1}>
-    <div className="run-edit-loading"><h2>Edit run</h2><p role={isError ? "alert" : "status"}>{isError ? "The run could not be loaded. Try again." : "Loading the current run…"}</p>
+    <div className="run-edit-loading"><h2>Edit run</h2>{isError ? <p role="alert">The run could not be loaded. Try again.</p> : <LoadingState label="Loading the current run" />}
     {isError ? <button type="button" className="ghost-button" onClick={onRetry}>Retry</button> : null}
     <button className="ghost-button" onClick={onClose} type="button">Close</button></div>
   </div></div>;
@@ -145,7 +146,7 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
             <section className="run-edit-scope">
               <h3>Run scope</h3><p>{scopeLocked ? "Automated run scope is fixed after execution starts." : "Choose suites and any additional individual cases. Cases with recorded results must stay in the run."}</p>
               {suites.isError || cases.isError ? <p role="alert">Some scope options could not load. Existing selections are retained. <button className="ghost-button" type="button" onClick={() => { void suites.refetch(); void cases.refetch(); }}>Retry</button></p> : null}
-              {suites.isLoading || cases.isLoading ? <p role="status">Loading suites and test cases…</p> : <>
+              {suites.isLoading || cases.isLoading ? <LoadingState label="Loading suites and test cases" /> : <>
                 <fieldset className="run-edit-scope-options" disabled={scopeLocked || !canViewSuites}><SuiteScopePicker suites={suiteOptions} testCases={caseOptions} selectedSuiteIds={draft.suite_ids} onChange={(value) => set("suite_ids", value)} heading="Run suites" emptyMessage="No suites are available in this scope." /></fieldset>
                 <fieldset className="run-edit-scope-options" disabled={scopeLocked || !canViewCases}><SuiteCasePicker cases={caseOptions} selectedCaseIds={draft.test_case_ids} onChange={(value) => set("test_case_ids", value)} disabled={scopeLocked || !canViewCases || fieldsDisabled} heading="Additional test cases" description="Cases selected here are retained independently of suite membership." emptyMessage="No individual cases are available in this scope." /></fieldset>
               </>}

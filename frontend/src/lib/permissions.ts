@@ -79,6 +79,10 @@ export function hasPermission(session: SessionPayload | null, permission: string
     return true;
   }
 
+  if (permission === "feedback.create" && hasPermission(session, "feedback.manage", projectId)) {
+    return true;
+  }
+
   const isWorkspaceOnly = WORKSPACE_ONLY_PERMISSIONS.has(permission);
 
   if (projectId && session.user.project_permissions && !isWorkspaceOnly) {

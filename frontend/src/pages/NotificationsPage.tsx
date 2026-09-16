@@ -276,7 +276,7 @@ export function NotificationsPage() {
 
         {serverNotificationsQuery.isPending ? (
           <LoadingState label="Loading notifications" description="Retrieving this project's notification history." />
-        ) : serverNotificationsQuery.isError ? (
+        ) : serverNotificationsQuery.isError && !serverNotificationsQuery.data ? (
           <div className="empty-state compact notification-error-state" role="alert">
             <p>{serverNotificationsQuery.error instanceof Error ? serverNotificationsQuery.error.message : "Unable to load notifications."}</p>
             <button className="ghost-button compact" disabled={notificationsBusy} onClick={() => void refreshNotifications()} type="button">Retry</button>
@@ -317,7 +317,7 @@ export function NotificationsPage() {
                           title="Delete notification"
                           type="button"
                         >
-                          {isDeleting ? <span aria-hidden="true" className="notification-action-spinner" /> : <TrashIcon size={16} />}
+                          {isDeleting ? <LoadingState label="Deleting notification" /> : <TrashIcon size={16} />}
                         </button>
                       ) : null}
                     </article>
@@ -329,6 +329,7 @@ export function NotificationsPage() {
             )}
             {serverNotificationsQuery.hasNextPage ? (
               <HierarchyLoadMoreButton
+                error={serverNotificationsQuery.isFetchNextPageError}
                 isLoading={serverNotificationsQuery.isFetchingNextPage}
                 loaded={allServerNotifications.length}
                 onLoad={() => serverNotificationsQuery.fetchNextPage()}

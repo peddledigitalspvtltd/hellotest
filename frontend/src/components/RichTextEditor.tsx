@@ -1,3 +1,4 @@
+import { LoadingState } from "./LoadingState";
 import { type CSSProperties, type ElementType, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconPaperclip, IconPhoto } from "@tabler/icons-react";
@@ -888,7 +889,7 @@ export function RichTextEditor({
             <strong>{isRephrasing ? "Building an editable proposal" : "Review before replacing the current text"}</strong>
           </header>
           {isRephrasing ? (
-            <div className="rich-text-ai-review__loading" role="status">Building an editable proposal. Your current text is preserved.</div>
+            <LoadingState label="Building an editable proposal" description="Your current text is preserved." />
           ) : (
             <>
               <textarea aria-label="Edit AI rephrase proposal" onChange={(event) => setAiProposal(event.target.value)} rows={Math.max(4, rows)} value={aiProposal || ""} />

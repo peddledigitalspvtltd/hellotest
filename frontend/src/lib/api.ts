@@ -111,7 +111,7 @@ import { consumeKnowledgeAssistantStream, KnowledgeStreamError } from "./knowled
 
 export type PagedResult<T> = {
   items: T[];
-  total: number;
+  total?: number;
   next_cursor: string | null;
   is_last: boolean;
 };
@@ -961,7 +961,9 @@ export const api = {
     snapshot: (options?: { signal?: AbortSignal; fresh?: boolean }) => request<FeatureFlagSnapshot>("/feature-flags", { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined })
   },
   metadata: {
-    domain: () => request<DomainMetadata>("/metadata/domain")
+    domain: () => request<DomainMetadata>("/metadata/domain"),
+    workspaceScopes: (options?: { signal?: AbortSignal }) =>
+      request<{ projects: import("../types").WorkspaceProjectScope[] }>("/metadata/workspace-scopes", { signal: options?.signal })
   },
   auth: {
     setup: () => request<AuthSetupPayload>("/auth/setup"),
@@ -995,10 +997,10 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    session: () => request<SessionPayload>("/auth/session")
+    session: () => request<SessionPayload>("/auth/session", { cache: "no-store" })
   },
   users: {
-    list: () => request<User[]>("/users"),
+    list: (options?: { signal?: AbortSignal }) => request<User[]>("/users", { signal: options?.signal }),
     get: (id: string) => request<User>(`/users/${id}`),
     create: (input: { email: string; password: string; name?: string; role_id: string }) =>
       request<{ id: string }>("/users", { method: "POST", body: JSON.stringify(input) }),
@@ -1076,7 +1078,7 @@ export const api = {
     }
   },
   roles: {
-    list: () => request<Role[]>("/roles"),
+    list: (options?: { signal?: AbortSignal }) => request<Role[]>("/roles", { signal: options?.signal }),
     permissions: () => request<PermissionGroup[]>("/permissions"),
     rolePermissions: (id: string) => request<Permission[]>(`/roles/${id}/permissions`),
     create: (input: { name: string; permission_codes?: string[] }) =>
@@ -1091,7 +1093,7 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/roles/${id}`, { method: "DELETE" })
   },
   projects: {
-    list: () => request<Project[]>("/projects"),
+    list: (options?: { signal?: AbortSignal }) => request<Project[]>("/projects", { signal: options?.signal }),
     catalog: () => request<Project[]>("/projects/catalog"),
     portfolioAnalytics: () => request<ProjectPortfolioAnalytics>("/projects/portfolio-analytics"),
     downloadPortfolioAttentionPdf: (input: DashboardStyledReportPayload) =>
@@ -1133,8 +1135,8 @@ export const api = {
     })
   },
   projectMembers: {
-    list: (query?: { project_id?: string; user_id?: string; role_id?: string }) =>
-      request<ProjectMember[]>(`/project-members${toQueryString(query)}`),
+    list: (query?: { project_id?: string; user_id?: string; role_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<ProjectMember[]>(`/project-members${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { project_id: string; user_id: string; role_id: string }) =>
       request<{ id: string }>("/project-members", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ project_id: string; user_id: string; role_id: string }>) =>
@@ -1142,7 +1144,7 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/project-members/${id}`, { method: "DELETE" })
   },
   appTypes: {
-    list: (query?: { project_id?: string }) => request<AppType[]>(`/app-types${toQueryString(query)}`),
+    list: (query?: { project_id?: string }, options?: { signal?: AbortSignal }) => request<AppType[]>(`/app-types${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { project_id: string; name: string; type: AppType["type"]; is_unified?: boolean }) =>
       request<{ id: string }>("/app-types", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ name: string; is_unified: boolean }>) =>
@@ -1150,9 +1152,11 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/app-types/${id}`, { method: "DELETE" })
   },
   requirements: {
-    list: (query?: { project_id?: string; status?: string; priority?: number; sprint_id?: string; unassigned?: boolean; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }) =>
-      request<Requirement[]>(`/requirements${toQueryString(query)}`),
-    listPage: (query?: { project_id?: string; status?: string; priority?: number; sprint_id?: string; unassigned?: boolean; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
+    metrics: (query: { project_id: string; include_sprints?: boolean } & import("./requirementCatalog").RequirementCatalogFilters) =>
+      request<import("./requirementCatalog").RequirementCatalogMetricsResponse>(`/requirements/metrics${toQueryString({ ...query })}`),
+    list: (query?: import("./requirementCatalog").RequirementCatalogFilters & { project_id?: string; status?: string; priority?: number; sprint_id?: string; unassigned?: boolean; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
+      request<Requirement[]>(`/requirements${toQueryString({ ...query })}`, { signal: options?.signal }),
+    listPage: (query?: import("./requirementCatalog").RequirementCatalogFilters & { project_id?: string; status?: string; priority?: number; sprint_id?: string; unassigned?: boolean; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
       request<PagedResult<Requirement>>(`/requirements${toQueryString({ ...query, include_page: true })}`),
     createMetadata: (query?: { project_id?: string }) =>
       request<JiraIssueCreateMetadata>(`/requirements/create-metadata${toQueryString(query)}`),
@@ -1160,7 +1164,7 @@ export const api = {
       request<JiraIssueCreateMetadata>(`/requirements/${id}/edit-metadata${toQueryString(query)}`),
     create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
       request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
-    get: (id: string, query?: { project_id?: string }) =>
+    get: (id: string, query?: { project_id?: string; include_execution?: boolean }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
     previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string }) =>
       request<StoryGroomingPreviewResponse>(`/requirements/${id}/ai-groom-preview`, {
@@ -1295,7 +1299,7 @@ export const api = {
       ),
     get: (id: string) =>
       request<RequirementIteration>(`/requirement-iterations/${id}`),
-    listRequirements: (id: string, query?: { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
+    listRequirements: (id: string, query?: import("./requirementCatalog").RequirementCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
       request<PagedResult<Requirement>>(`/requirement-iterations/${id}/requirements${toQueryString({ ...query, include_page: true })}`),
     create: (input: { project_id: string; name: string; description?: string; goal?: string; labels?: string[]; external_references?: string[]; start_date?: string; end_date?: string; assignee_id?: string; effort_points?: number; original_dev_id?: string; original_qa_id?: string; state: "future" | "active"; requirement_ids?: string[] }) =>
       request<{
@@ -1353,9 +1357,10 @@ export const api = {
       mode?: KnowledgeSearchMode;
       limit?: number;
       filters?: KnowledgeSearchFilters;
-    }) => request<KnowledgeSearchResponse>("/knowledge/search", {
+    }, options?: { signal?: AbortSignal }) => request<KnowledgeSearchResponse>("/knowledge/search", {
       method: "POST",
-      body: JSON.stringify(input)
+      body: JSON.stringify(input),
+      signal: options?.signal
     }),
     sources: (projectId: string, options?: { includeArchived?: boolean }) =>
       request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId, include_archived: options?.includeArchived || undefined })}`),
@@ -1446,10 +1451,14 @@ export const api = {
     }
   },
   issues: {
-    list: (query?: { project_id?: string; user_id?: string; status?: string; q?: string; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
-      request<Issue[]>(`/feedback${toQueryString(query)}`),
-    listPage: (query?: { project_id?: string; user_id?: string; status?: string; q?: string; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
+    list: (query?: import("./issueCatalog").IssueCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
+      request<Issue[]>(`/feedback${toQueryString(query)}`, { signal: options?.signal }),
+    listPage: (query?: import("./issueCatalog").IssueCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
       request<PagedResult<Issue>>(`/feedback${toQueryString({ ...query, include_page: true })}`),
+    catalogPage: (query: import("./issueCatalog").IssueCatalogFilters & { page_size?: number; cursor?: string }, options?: { signal?: AbortSignal }) =>
+      request<import("./issueCatalog").IssueCatalogPage>(`/feedback${toQueryString({ ...query, include_page: true, include_total: false, projection: "summary" })}`, { signal: options?.signal }),
+    metrics: (query: import("./issueCatalog").IssueCatalogFilters, options?: { signal?: AbortSignal }) =>
+      request<import("./issueCatalog").IssueCatalogMetrics>(`/feedback/metrics${toQueryString(query)}`, { signal: options?.signal }),
     get: (id: string, query?: { project_id?: string }) =>
       request<Issue>(`/feedback/${id}${toQueryString(query)}`),
     history: (id: string) => request<import("../types").IssueHistoryEntry[]>(`/feedback/${id}/history`),
@@ -1507,8 +1516,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/feedback/${id}`, { method: "DELETE" })
   },
   integrations: {
-    list: (query?: { type?: Integration["type"]; is_active?: boolean }) =>
-      request<Integration[]>(`/integrations${toQueryString(query)}`),
+    list: (query?: { type?: Integration["type"]; is_active?: boolean }, options?: { signal?: AbortSignal }) =>
+      request<Integration[]>(`/integrations${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { type: Integration["type"]; name: string; base_url?: string; api_key?: string; model?: string; project_key?: string; username?: string; config?: Record<string, unknown>; is_active?: boolean }) =>
       request<{ id: string }>("/integrations", { method: "POST", body: JSON.stringify(input) }),
     testConnection: (input: IntegrationConnectionInput, options?: { signal?: AbortSignal }) =>
@@ -1554,11 +1563,11 @@ export const api = {
       })
   },
   testCaseModules: {
-    list: (query?: { app_type_id?: string; project_id?: string }) =>
+    list: (query?: { app_type_id?: string; project_id?: string; projection?: "summary" | "detail" }) =>
       request<TestCaseModule[]>(`/test-case-modules${toQueryString(query)}`),
     get: (id: string) =>
       request<TestCaseModule>(`/test-case-modules/${id}`),
-    listCases: (id: string, query?: { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
+    listCases: (id: string, query?: import("./testCaseCatalog").TestCaseCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
       request<PagedResult<TestCase>>(`/test-case-modules/${id}/test-cases${toQueryString({ ...query, include_page: true })}`),
     create: (input: { app_type_id: string; name: string; description?: string; test_case_ids?: string[]; requirement_ids?: string[] }) =>
       request<{ id: string }>("/test-case-modules", { method: "POST", body: JSON.stringify(input) }),
@@ -1577,8 +1586,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-case-modules/${id}`, { method: "DELETE" })
   },
   testSuites: {
-    list: (query?: { app_type_id?: string; project_id?: string }) =>
-      request<TestSuite[]>(`/test-suites${toQueryString(query)}`),
+    list: (query?: { app_type_id?: string; project_id?: string; projection?: "picker" | "summary"; case_search?: string; module_id?: string; requirement_id?: string; label?: string; shared_step_group_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<TestSuite[]>(`/test-suites${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_set_id?: string | null; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
@@ -1591,10 +1600,14 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-suites/${id}`, { method: "DELETE" })
   },
   testCases: {
-    list: (query?: { project_id?: string; suite_id?: string; requirement_id?: string; module_id?: string; unassigned_module?: boolean; status?: string; app_type_id?: string; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }) =>
-      request<TestCase[]>(`/test-cases${toQueryString(query)}`),
-    listPage: (query?: { project_id?: string; suite_id?: string; requirement_id?: string; module_id?: string; unassigned_module?: boolean; status?: string; app_type_id?: string; page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
-      request<PagedResult<TestCase>>(`/test-cases${toQueryString({ ...query, include_page: true })}`),
+    metrics: (query?: { app_type_id?: string; project_id?: string; exclude_automated?: boolean; include_execution?: boolean }) =>
+      request<import("./testCaseCatalog").TestCaseCatalogMetrics>(`/test-cases/metrics${toQueryString(query)}`),
+    list: (query?: { project_id?: string; suite_id?: string; requirement_id?: string; module_id?: string; unassigned_module?: boolean; status?: string; app_type_id?: string; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
+      request<TestCase[]>(`/test-cases${toQueryString(query)}`, { signal: options?.signal }),
+    listPage: (query?: import("./testCaseCatalog").TestCasePickerFilters & { projection?: "summary" | "detail" | "picker" }, options?: { signal?: AbortSignal }) =>
+      request<PagedResult<TestCase>>(`/test-cases${toQueryString({ ...query, include_page: true })}`, { signal: options?.signal }),
+    listPicker: (query?: import("./testCaseCatalog").TestCasePickerFilters, options?: { signal?: AbortSignal }) =>
+      request<PagedResult<TestCase>>(`/test-cases${toQueryString({ page_size: 25, ...query, projection: "picker", include_page: true, include_total: false })}`, { signal: options?.signal }),
     resolveRequirementCases: (input: { app_type_id: string; requirement_ids: string[] }) =>
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }) =>
@@ -2008,8 +2021,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-steps/${id}`, { method: "DELETE" })
   },
   sharedStepGroups: {
-    list: (query?: { app_type_id?: string; project_id?: string }) =>
-      request<SharedStepGroup[]>(`/shared-step-groups${toQueryString(query)}`),
+    list: (query?: { app_type_id?: string; project_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<SharedStepGroup[]>(`/shared-step-groups${toQueryString(query)}`, { signal: options?.signal }),
     get: (id: string) =>
       request<SharedStepGroup>(`/shared-step-groups/${id}`),
     create: (input: { app_type_id: string; name: string; description?: string; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }) =>
@@ -2050,8 +2063,8 @@ export const api = {
   executions: {
     parameterPlan: (input: { project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
       request<{ expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
-    list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }) =>
-      request<Execution[]>(`/executions${toQueryString(query)}`),
+    list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }, options?: { signal?: AbortSignal }) =>
+      request<Execution[]>(`/executions${toQueryString(query)}`, { signal: options?.signal }),
     history: (query: { project_id: string; app_type_id?: string; requirement_id?: string; test_case_id?: string; page_size?: number }) =>
       request<import("../types").TraceabilityRunHistoryItem[]>(`/executions/history${toQueryString(query)}`),
     get: (id: string) =>
@@ -2256,8 +2269,8 @@ export const api = {
     ensure: (input: ExecutionCaseIdentity) => request<ExecutionResult>("/execution-results/ensure", { method: "POST", body: JSON.stringify(input) }),
     transition: (input: ExecutionCaseIdentity & { action: ExecutionCaseLifecycleAction; expected_revision?: number; expected_result_id?: string }) =>
       request<ExecutionResult>("/execution-results/lifecycle", { method: "POST", body: JSON.stringify(input) }),
-    list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number }) =>
-      request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`),
+    list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number }, options?: { signal?: AbortSignal }) =>
+      request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`, { signal: options?.signal }),
     releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; run_limit?: number; result_limit?: number }) =>
       request<ReleaseReadinessExecutionEvidence>(`/execution-results/release-readiness${toQueryString(query)}`),
     create: (input: { execution_id: string; test_case_id: string; app_type_id: string; status: ExecutionResult["status"]; duration_ms?: number; error?: string; logs?: string; test_data_set_id?: string; test_data_set_name?: string; data_set_iteration_index?: number; data_set_iteration_key?: string; data_set_row_snapshot?: Record<string, string>; external_references?: string[]; defects?: string[]; executed_by?: string }) =>

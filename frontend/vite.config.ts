@@ -15,6 +15,11 @@ export default defineConfig({
         target: process.env.VITE_DEV_API_PROXY_TARGET || "http://localhost:3000",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, "")
+      },
+      "^/jaeger(?:/|$)": {
+        target: process.env.VITE_DEV_JAEGER_PROXY_TARGET || "http://localhost:16686",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/jaeger(?=\/|$)/, "") || "/"
       }
     }
   }

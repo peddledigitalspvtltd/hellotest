@@ -199,7 +199,6 @@
 .page-agentic-workflows .agentic-workflow-form { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)) !important; }
 .page-agentic-workflows .agentic-flow-shell { height: 560px; min-height: 420px; }
 .page-agentic-workflows .agentic-workflows-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.page-agentic-workflows .agentic-workflows-toolbar .catalog-toolbar-discovery { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 @media (max-width: 1100px) {
   .page-agentic-workflows .agentic-playground-grid { grid-template-columns: minmax(0, 1fr) !important; }
 }

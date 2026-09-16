@@ -139,6 +139,7 @@ function mountBrowser(overrides = {}) {
     if (path === "react") return hooks;
     if (path === "../lib/repositoryBrowserBridge") return bridge;
     if (path === "./AppIcons") return { RefreshIcon: () => null };
+    if (path === "./LoadingState") return { LoadingState: () => null };
     if (path.endsWith(".css")) return {};
     return require(path);
   }, componentExports, windowFixture, HostNode);

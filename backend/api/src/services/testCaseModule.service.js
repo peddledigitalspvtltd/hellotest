@@ -168,16 +168,16 @@ const ensureRequirementsMatchProject = async (requirementIds, projectId) => {
   }
 };
 
-exports.listModules = async ({ app_type_id, project_id } = {}) => {
+exports.listModules = async ({ app_type_id, project_id, projection } = {}) => {
   let query = `
     SELECT
       test_case_modules.*,
       COUNT(test_case_module_cases.test_case_id)::INTEGER AS test_case_count,
-      COALESCE(
+      ${projection === "summary" ? "'[]'::jsonb" : `COALESCE(
         jsonb_agg(test_case_module_cases.test_case_id ORDER BY test_case_module_cases.sort_order ASC)
           FILTER (WHERE test_case_module_cases.test_case_id IS NOT NULL),
         '[]'::jsonb
-      ) AS test_case_ids,
+      )`} AS test_case_ids,
       COALESCE(
         (
           SELECT jsonb_agg(
@@ -214,14 +214,14 @@ exports.listModules = async ({ app_type_id, project_id } = {}) => {
   return rows.map(hydrateModuleListRow);
 };
 
-exports.getModule = async (id) => {
+exports.getModule = async (id, { summary = false } = {}) => {
   const module = await selectModule.get(id);
 
   if (!module) {
     throw new Error("Module not found");
   }
 
-  return hydrateModule(module);
+  return summary ? module : hydrateModule(module);
 };
 
 exports.getModuleCases = async (moduleId) => {

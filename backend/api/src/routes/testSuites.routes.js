@@ -65,7 +65,11 @@ module.exports = async function (fastify) {
       throw error;
     }
 
-    return service.getTestSuites({ project_id: scopedProjectId, app_type_id, parent_id });
+    const { case_search, module_id, requirement_id, label, shared_step_group_id, projection } = req.query;
+    if (case_search || module_id || requirement_id || label || shared_step_group_id) {
+      await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+    }
+    return service.getTestSuites({ project_id: scopedProjectId, app_type_id, parent_id, case_search, module_id, requirement_id, label, shared_step_group_id, projection });
   });
 
   fastify.get("/test-suites/:id", async (req) => {

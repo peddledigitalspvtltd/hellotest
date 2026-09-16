@@ -3,6 +3,7 @@ const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { latestFinalizedCaseResultsCte } = require("../utils/finalizedCaseMetrics");
 
 const normalizeText = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
 const normalizeList = (values = []) => [...new Set((Array.isArray(values) ? values : []).map(normalizeText).filter(Boolean))];
@@ -22,6 +23,38 @@ const normalizeDate = (value) => {
 
 const COMPLETED_STORY_STATUSES = ["qa_done", "qa done", "done", "closed", "resolved", "accepted", "complete", "completed"];
 const isCompletedStoryStatus = (value) => COMPLETED_STORY_STATUSES.includes(String(value || "").trim().toLowerCase());
+const isOpenReleaseBug = (status) => !["closed", "done", "resolved", "accepted", "complete", "completed", "fixed", "verified"].includes(String(status || "").trim().toLowerCase());
+const isAutomatedReleaseCase = (row) => String(row.automated || "").trim().toLowerCase() === "yes"
+  || ["ready", "automated", "yes", "covered"].includes(String(row.automation_status || "").trim().toLowerCase());
+
+// Both supported Story links belong to the same cohort. UNION also prevents a
+// legacy primary link mirrored in the join table from counting a case twice.
+const getReleaseCaseLinks = async (storyIds, projectId) => {
+  if (!storyIds.length) return [];
+  const placeholders = storyIds.map(() => "?").join(",");
+  return db.prepare(`
+    SELECT requirement_test_cases.requirement_id, test_cases.id AS test_case_id
+    FROM requirement_test_cases
+    JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id
+    LEFT JOIN app_types ON app_types.id = test_cases.app_type_id
+    WHERE requirement_test_cases.requirement_id IN (${placeholders}) AND (test_cases.app_type_id IS NULL OR app_types.project_id = ?)
+    UNION
+    SELECT test_cases.requirement_id, test_cases.id AS test_case_id
+    FROM test_cases
+    LEFT JOIN app_types ON app_types.id = test_cases.app_type_id
+    WHERE test_cases.requirement_id IN (${placeholders}) AND (test_cases.app_type_id IS NULL OR app_types.project_id = ?)
+  `).all(...storyIds, projectId, ...storyIds, projectId);
+};
+
+const getReleaseBugLinks = async (storyIds, projectId) => {
+  if (!storyIds.length) return [];
+  return db.prepare(`
+    SELECT DISTINCT requirement_defects.requirement_id, feedback.id, feedback.status
+    FROM requirement_defects JOIN feedback ON feedback.id = requirement_defects.issue_id
+    WHERE requirement_defects.requirement_id IN (${storyIds.map(() => "?").join(",")})
+      AND feedback.project_id = ?
+  `).all(...storyIds, projectId);
+};
 
 const ensureReleaseStoriesComplete = async (release, requirementIds, sprintIds) => {
   const sourceById = await resolveMembership({ requirementIds, sprintIds, projectId: release.project_id });
@@ -352,10 +385,9 @@ exports.getReadiness = async (id) => {
     release_id: id, total_stories: 0, covered_stories: 0, test_coverage_percent: null,
     linked_cases: 0, executed_cases: 0, passed_cases: 0, pass_rate_percent: null,
     total_bugs: 0, open_bugs: 0, bug_density: null, automation_coverage_percent: null,
-    readiness_score: 0, readiness_state: "not_ready"
+    readiness_score: null, readiness_state: "not_ready", story_metrics: {}
   };
-  const placeholders = storyIds.map(() => "?").join(",");
-  const links = await db.prepare(`SELECT DISTINCT requirement_id, test_case_id FROM requirement_test_cases WHERE requirement_id IN (${placeholders})`).all(...storyIds);
+  const links = await getReleaseCaseLinks(storyIds, release.project_id);
   const caseIds = [...new Set(links.map((row) => row.test_case_id))];
   const casePlaceholders = caseIds.map(() => "?").join(",");
   // Runs persist the canonical delivery token (fix_version), not a release ID.
@@ -363,29 +395,57 @@ exports.getReadiness = async (id) => {
   // not evidence for this Release, even when it belongs to the same project.
   const releaseToken = String(release.fix_version || "").trim().toLowerCase();
   const latestResults = caseIds.length ? await db.prepare(`
-    SELECT DISTINCT ON (execution_results.test_case_id) execution_results.test_case_id, execution_results.status
-    FROM execution_results JOIN executions ON executions.id = execution_results.execution_id
-    WHERE execution_results.test_case_id IN (${casePlaceholders}) AND executions.project_id = ?
-      AND ? <> '' AND LOWER(TRIM(COALESCE(executions.release, ''))) = ?
-    ORDER BY execution_results.test_case_id, execution_results.created_at DESC, execution_results.id DESC
+    WITH ${latestFinalizedCaseResultsCte(`
+      SELECT er.id, er.execution_id, er.test_case_id, er.status, er.created_at,
+             er.ended_at, er.data_set_iteration_index, er.data_set_iteration_key
+      FROM execution_results er JOIN executions e ON e.id = er.execution_id
+      WHERE er.test_case_id IN (${casePlaceholders}) AND e.project_id = ?
+        AND ? <> '' AND LOWER(TRIM(COALESCE(e.release, ''))) = ?
+    `)}
+    SELECT test_case_id, status FROM latest_finalized
   `).all(...caseIds, release.project_id, releaseToken, releaseToken) : [];
   const cases = caseIds.length ? await db.prepare(`SELECT id, automated, automation_status FROM test_cases WHERE id IN (${casePlaceholders})`).all(...caseIds) : [];
-  const bugs = await db.prepare(`
-    SELECT DISTINCT feedback.id, feedback.status
-    FROM requirement_defects JOIN feedback ON feedback.id = requirement_defects.issue_id
-    WHERE requirement_defects.requirement_id IN (${placeholders})
-      AND feedback.project_id = ?
-  `).all(...storyIds, release.project_id);
+  const bugLinks = await getReleaseBugLinks(storyIds, release.project_id);
+  const bugs = [...new Map(bugLinks.map((row) => [row.id, row])).values()];
   const percent = (n, d) => d ? Math.round((n / d) * 1000) / 10 : null;
   const coveredStories = new Set(links.map((row) => row.requirement_id)).size;
   const passedCases = latestResults.filter((row) => String(row.status).toLowerCase() === "passed").length;
-  const openBugs = bugs.filter((row) => !["closed", "done", "resolved"].includes(String(row.status || "").toLowerCase())).length;
-  const automatedCases = cases.filter((row) => String(row.automated || "").toLowerCase() === "yes"
-    || ["ready", "automated", "yes", "covered"].includes(String(row.automation_status || "").toLowerCase())).length;
+  const openBugs = bugs.filter((row) => isOpenReleaseBug(row.status)).length;
+  const automatedCases = cases.filter(isAutomatedReleaseCase).length;
   const testCoverage = percent(coveredStories, storyIds.length);
   const passRate = percent(passedCases, latestResults.length);
   const bugHealth = Math.max(0, 100 - (openBugs / storyIds.length) * 25);
-  const readinessScore = Math.round(((testCoverage || 0) * 0.3) + ((passRate || 0) * 0.5) + (bugHealth * 0.2));
+  const readinessScore = latestResults.length && caseIds.length
+    ? Math.round((coveredStories / storyIds.length * 30) + (passedCases / latestResults.length * 50) + (bugHealth * 0.2))
+    : null;
+  const caseById = new Map(cases.map((row) => [row.id, row]));
+  const resultByCaseId = new Map(latestResults.map((row) => [row.test_case_id, row]));
+  const caseIdsByStory = new Map(storyIds.map((storyId) => [storyId, new Set()]));
+  const bugsByStory = new Map(storyIds.map((storyId) => [storyId, new Map()]));
+  for (const link of links) caseIdsByStory.get(link.requirement_id)?.add(link.test_case_id);
+  for (const bug of bugLinks) bugsByStory.get(bug.requirement_id)?.set(bug.id, bug);
+  const storyMetrics = Object.fromEntries(storyIds.map((storyId) => {
+    const storyCaseIds = [...caseIdsByStory.get(storyId)];
+    const storyResults = storyCaseIds.map((caseId) => resultByCaseId.get(caseId)).filter(Boolean);
+    const storyBugs = [...bugsByStory.get(storyId).values()];
+    const storyPassed = storyResults.filter((row) => String(row.status).trim().toLowerCase() === "passed").length;
+    const storyOpenBugs = storyBugs.filter((row) => isOpenReleaseBug(row.status)).length;
+    const storyAutomated = storyCaseIds.filter((caseId) => isAutomatedReleaseCase(caseById.get(caseId) || {})).length;
+    const storyPassRate = percent(storyPassed, storyResults.length);
+    return [storyId, {
+      linked_cases: storyCaseIds.length,
+      executed_cases: storyResults.length,
+      passed_cases: storyPassed,
+      pass_rate_percent: storyPassRate,
+      automated_cases: storyAutomated,
+      automation_coverage_percent: percent(storyAutomated, storyCaseIds.length) ?? 0,
+      total_bugs: storyBugs.length,
+      open_bugs: storyOpenBugs,
+      readiness_score: storyCaseIds.length && storyResults.length
+        ? Math.round(30 + (storyPassed / storyResults.length * 50) + (Math.max(0, 100 - storyOpenBugs * 25) * 0.2))
+        : null
+    }];
+  }));
   return {
     release_id: id,
     total_stories: storyIds.length,
@@ -402,13 +462,15 @@ exports.getReadiness = async (id) => {
     automation_coverage_percent: percent(automatedCases, caseIds.length),
     readiness_score: readinessScore,
     readiness_state: readinessScore >= 80 && openBugs === 0 ? "ready" : readinessScore >= 60 ? "at_risk" : "not_ready",
+    story_metrics: storyMetrics,
     methodology: {
       test_coverage_weight: 30,
       pass_rate_weight: 50,
       bug_health_weight: 20,
       automation_is_informational: true,
       test_coverage: "Stories with at least one linked Test Case divided by release Stories.",
-      pass_rate: "Latest passed result divided by linked Test Cases with a result in this Release's runs.",
+      pass_rate: "Latest finalized passed case divided by linked Test Cases with a finalized passed, failed or blocked outcome in this Release's runs. All planned Data Set rows must be finalized; a failed or blocked row determines the case outcome.",
+      no_run_evidence: "Readiness is unavailable until at least one linked Test Case has a finalized outcome.",
       execution_scope: "Same project and exact normalized run release matching the stored Release fix version; linked Test Cases only.",
       release_token: release.fix_version || "",
       bug_health: "100 minus 25 points per open Bug per Story, floored at zero."
@@ -508,28 +570,10 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
 exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) => {
   const release = await exports.getRelease(id);
   const readiness = await exports.getReadiness(id);
-  const storyIds = release.requirement_ids;
-  const placeholders = storyIds.map(() => "?").join(",");
-  const linkedRows = storyIds.length ? await db.prepare(`
-    SELECT requirement_id, COUNT(DISTINCT test_case_id)::INTEGER AS linked_cases
-    FROM requirement_test_cases
-    WHERE requirement_id IN (${placeholders})
-    GROUP BY requirement_id
-  `).all(...storyIds) : [];
-  const bugRows = storyIds.length ? await db.prepare(`
-    SELECT requirement_defects.requirement_id,
-           COUNT(DISTINCT feedback.id)::INTEGER AS total_bugs,
-           COUNT(DISTINCT CASE WHEN LOWER(COALESCE(feedback.status, 'open')) NOT IN ('closed', 'done', 'resolved') THEN feedback.id END)::INTEGER AS open_bugs
-    FROM requirement_defects
-    JOIN feedback ON feedback.id = requirement_defects.issue_id
-    WHERE requirement_defects.requirement_id IN (${placeholders})
-    GROUP BY requirement_defects.requirement_id
-  `).all(...storyIds) : [];
-  const linkedByStory = new Map(linkedRows.map((row) => [row.requirement_id, Number(row.linked_cases) || 0]));
-  const bugsByStory = new Map(bugRows.map((row) => [row.requirement_id, { total: Number(row.total_bugs) || 0, open: Number(row.open_bugs) || 0 }]));
   const storyEvaluations = (release.requirements || []).map((story) => {
-    const linkedCases = linkedByStory.get(story.id) || 0;
-    const bugs = bugsByStory.get(story.id) || { total: 0, open: 0 };
+    const evidence = readiness.story_metrics[story.id];
+    const linkedCases = evidence?.linked_cases || 0;
+    const bugs = { total: evidence?.total_bugs || 0, open: evidence?.open_bugs || 0 };
     const completed = isCompletedStoryStatus(story.status);
     const health = bugs.open ? "at_risk" : !completed || !linkedCases ? "attention" : "healthy";
     const outcome = compactReleaseEvidence(story.description);
@@ -579,11 +623,12 @@ exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) =>
     !storyEvaluations.length ? "Release scope is empty; add Stories before publishing these notes." : "",
     storyEvaluations.some((story) => !story.completed) ? `${storyEvaluations.filter((story) => !story.completed).length} scoped changes are still in progress and are not included as delivered changes.` : "",
     readiness.open_bugs ? `${readiness.open_bugs} open Bugs remain across the Release scope.` : "",
-    (readiness.test_coverage_percent ?? 0) < 80 ? `Story test coverage is ${readiness.test_coverage_percent ?? 0}%, below the 80% release target.` : "",
+    readiness.test_coverage_percent !== null && readiness.test_coverage_percent < 80 ? `Story test coverage is ${readiness.test_coverage_percent}%, below the 80% release target.` : "",
+    readiness.pass_rate_percent === null ? "No finalized Release test outcomes are available to assess pass rate or readiness." : "",
     release.state === "overdue" ? "The Release target date has passed." : ""
   ].filter(Boolean);
   const validationSummary = storyEvaluations.length
-    ? `${completedStories.length} of ${storyEvaluations.length} scoped changes are complete. Linked evidence reports ${readiness.test_coverage_percent ?? 0}% Story coverage, ${readiness.pass_rate_percent ?? 0}% latest-result pass rate, and ${readiness.open_bugs} open ${readiness.open_bugs === 1 ? "Bug" : "Bugs"}.`
+    ? `${completedStories.length} of ${storyEvaluations.length} scoped changes are complete. Linked evidence reports ${readiness.test_coverage_percent ?? 0}% Story coverage, ${readiness.pass_rate_percent === null ? "no finalized test outcomes" : `${readiness.pass_rate_percent}% finalized-case pass rate`}, and ${readiness.open_bugs} open ${readiness.open_bugs === 1 ? "Bug" : "Bugs"}.`
     : "Validation is unavailable because the Release has no scoped Stories.";
   const deterministic = {
     executive_summary: completedStories.length

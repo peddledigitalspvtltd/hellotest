@@ -32,7 +32,8 @@ test("Create Module places the Requirement picker above Test Case selection in t
   assert.match(requirementPicker, /Clear selected Requirements/);
   assert.match(requirementPicker, /Select all visible Requirements/);
   assert.match(requirementPicker, /Loading Requirements/);
-  assert.match(requirementPicker, /Load more Requirements/);
+  assert.match(requirementPicker, /<HierarchyAutoLoadSentinel[\s\S]*onLoad=\{onLoadMoreRequirements\}/);
+  assert.doesNotMatch(requirementPicker, /Load more Requirements/);
   assert.match(requirementPicker, /<span role="columnheader">Requirement<\/span>[\s\S]*<span role="columnheader">Priority<\/span>[\s\S]*<span role="columnheader">Status<\/span>/);
 
   assert.match(styles, /\.test-case-create-module-requirement-panel\s*\{[^}]*height:\s*clamp\(340px, 43vh, 430px\)/);
@@ -70,7 +71,7 @@ test("selecting Requirements auto-selects every app-scoped linked Test Case with
   const modalEnd = page.indexOf("export function TestCasesPage", modalStart);
   const modal = page.slice(modalStart, modalEnd);
   const requirementHandlerStart = modal.indexOf("const handleRequirementSelectionChange");
-  const manualHandlerStart = modal.indexOf("const setManualCaseSelection", requirementHandlerStart);
+  const manualHandlerStart = modal.indexOf("const updateCaseSelection", requirementHandlerStart);
   const requirementHandler = modal.slice(requirementHandlerStart, manualHandlerStart);
 
   assert.match(modal, /const \[manualSelectedCaseIds, setManualSelectedCaseIds\]/);
@@ -82,7 +83,9 @@ test("selecting Requirements auto-selects every app-scoped linked Test Case with
   assert.match(modal, /candidateTestCases\.map[\s\S]*Object\.values\(linkedCasesByRequirement\)[\s\S]*byId\.set/);
   assert.match(modal, /onSelectionChange=\{handleRequirementSelectionChange\}/);
   assert.doesNotMatch(requirementHandler, /setManualSelectedCaseIds/);
-  assert.match(modal, /setManualCaseSelection\(testCase\.id, !isChecked\)/);
+  assert.match(modal, /<TestCasePicker[\s\S]*selectedIds=\{selectedIds\}[\s\S]*onChange=\{updateCaseSelection\}/);
+  assert.match(modal, /current\.filter\(\(id\) => nextIdSet\.has\(id\)\)/);
+  assert.match(modal, /activeAutoLinkedCaseIds\.filter\(\(id\) => !nextIdSet\.has\(id\)\)/);
   assert.match(modal, /setExcludedAutoCaseIds/);
 
   assert.match(modal, /Promise\.all\(batches\.map\(\(batch\) => onResolveRequirementCases\(batch\)\)\)/);
@@ -91,7 +94,7 @@ test("selecting Requirements auto-selects every app-scoped linked Test Case with
   assert.doesNotMatch(page, /MAX_CREATE_MODULE_CASES/);
 
   assert.match(modal, /const isResolvingRequirementCases/);
-  assert.match(modal, /aria-busy=\{isLoadingCases \|\| isLoadingMoreCases \|\| isResolvingRequirementCases\}/);
+  assert.match(modal, /disabled=\{isSaving \|\| isResolvingRequirementCases\}/);
   assert.doesNotMatch(modal, /Linked cases are selected automatically/);
   assert.doesNotMatch(page, /onWheel(?:Capture)?=/);
   assert.doesNotMatch(page, /scrollModuleRecordList/);

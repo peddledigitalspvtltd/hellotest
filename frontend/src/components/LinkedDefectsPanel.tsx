@@ -4,12 +4,14 @@ import { BugIcon, SearchIcon, SelectionToggleIcon } from "./AppIcons";
 import { LoadingState } from "./LoadingState";
 import { StatusBadge } from "./StatusBadge";
 import { api } from "../lib/api";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import type { RequirementDefectLink, TestCaseDefectLink } from "../types";
 
 type DefectLink = RequirementDefectLink | TestCaseDefectLink;
 
 export function LinkedDefectsPanel({
-  canUpdate,
+  canUpdate: allowUpdate,
   initialDefects = [],
   itemId,
   onSaved,
@@ -24,25 +26,28 @@ export function LinkedDefectsPanel({
   subject: "requirement" | "test-case";
 }) {
   const queryClient = useQueryClient();
+  const { can } = useCapabilityAccess(projectId);
+  const canView = can("feedback.view");
+  const canUpdate = allowUpdate && canView && can("feedback.manage") && can(subject === "test-case" ? "testcase.update" : "requirement.update");
   const [searchTerm, setSearchTerm] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>(initialDefects.map((item) => item.id));
-  const linkedDefectsQuery = useQuery({
+  const linkedDefectsQuery = optionalQueryView(useQuery({
     queryKey: ["linked-defects", subject, itemId],
     queryFn: () => subject === "test-case" ? api.testCaseDefects.listIssues(itemId) : Promise.resolve(initialDefects),
-    enabled: Boolean(itemId),
+    enabled: canView && Boolean(itemId),
     staleTime: 30_000
-  });
-  const defectSearchQuery = useQuery({
+  }), canView);
+  const defectSearchQuery = optionalQueryView(useQuery({
     queryKey: ["defect-search", projectId, submittedSearch || ""],
     queryFn: () => api.issues.list({
       project_id: projectId,
       q: submittedSearch || undefined,
       page_size: 25
     }),
-    enabled: submittedSearch !== null && Boolean(projectId)
-  });
+    enabled: canView && submittedSearch !== null && Boolean(projectId)
+  }), canView);
   const replaceLinks = useMutation({
     mutationFn: (issueIds: string[]) => subject === "requirement"
       ? api.requirementDefects.replace(itemId, issueIds)
@@ -79,6 +84,7 @@ export function LinkedDefectsPanel({
   const hasActiveFilters = statusFilter !== "all" || searchTerm.trim().length > 0 || submittedSearch !== null;
 
   const saveLinks = async () => {
+    if (!canUpdate) return;
     await replaceLinks.mutateAsync(selectedIds);
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["linked-defects", subject, itemId] }),
@@ -86,6 +92,8 @@ export function LinkedDefectsPanel({
     ]);
     onSaved?.(selectedIds);
   };
+
+  if (!canView) return <p className="muted">Bug links are unavailable. Existing links are retained.</p>;
 
   return (
     <div className="linked-defects-panel">

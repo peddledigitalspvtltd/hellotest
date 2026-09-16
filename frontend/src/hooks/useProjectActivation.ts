@@ -208,7 +208,7 @@ export function useProjectActivation(projectId: string, enabled = true) {
   const openWorkspace = useCallback(() => {
     setAcknowledgedProjectId(projectId);
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.featureFlags(projectId), exact: true }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.featureFlags(), exact: true }),
       queryClient.invalidateQueries({ queryKey: queryKeys.appTypes(projectId), exact: true }),
       queryClient.invalidateQueries({ queryKey: ["domain-metadata"] }),
       queryClient.invalidateQueries({ queryKey: ["admin-health", projectId], exact: true })

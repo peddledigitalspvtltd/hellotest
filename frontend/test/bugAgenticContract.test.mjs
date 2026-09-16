@@ -105,8 +105,8 @@ test("Bug creation is project scoped and AI review can yield space to findings",
     readSource("../src/components/AiInsightPreviewDialog.css")
   ]);
 
-  assert.match(issues, /const buildIssuePayload = \(draft: IssueDraft, userId: string, projectId: string\) => \(\{\s*project_id: projectId,/);
-  assert.match(issues, /buildIssuePayload\(draft, session\.user\.id, projectId\)/);
+  assert.match(issues, /const buildIssuePayload = \(draft: IssueDraft, userId: string, projectId: string, can: \(permission: string\) => boolean\) => \(\{\s*project_id: projectId,/);
+  assert.match(issues, /buildIssuePayload\(draft, session\.user\.id, projectId, can\)/);
   assert.match(issues, /value=\{selectedItem\.display_id \|\| selectedItem\.jira_bug_key \|\| selectedItem\.id\}/);
   assert.match(issues, /closedIssueIdRef\.current = selectedIssueId/);
   assert.match(issues, /closedIssueIdRef\.current === requestedIssueId/);

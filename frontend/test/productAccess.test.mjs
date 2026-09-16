@@ -9,7 +9,8 @@ const load = (file, resolve = () => ({})) => {
   new Function('require', 'exports', ts.transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(resolve, exports);
   return exports;
 };
-const features = load('../src/lib/featureFlags.ts', () => permissions);
+const generatedPolicy = JSON.parse(readFileSync(new URL('../src/lib/featurePolicy.generated.json', import.meta.url), 'utf8'));
+const features = load('../src/lib/featureFlags.ts', name => name.endsWith('.json') ? {default:generatedPolicy} : permissions);
 const session = { user: { id: 'member', role: 'member', workspace_permissions: ['workspace.view'], project_permissions: { a: ['agentic_workflow.view', 'automation.view'], b: [] }, permissions: ['agentic_workflow.view', 'automation.view', 'feature_flag.manage'] } };
 
 test('workspace and project authority cannot leak through aggregate or legacy role metadata', () => {
@@ -56,11 +57,11 @@ test('workspace flag loading remains enabled before first project and propagates
   const { useFeatureFlags } = load('../src/hooks/useFeatureFlags.ts', (name) => {
     if (name === '@tanstack/react-query') return { useQuery: (input) => input };
     if (name.endsWith('/api')) return { api };
-    if (name.endsWith('/queryKeys')) return { queryKeys: { featureFlags: (id) => ['feature-flags', id] } };
-    if (name === './useCurrentProject') return { useCurrentProject: () => [''] };
+    if (name.endsWith('/queryKeys')) return { queryKeys: { featureFlags: () => ['feature-flags'] } };
     throw new Error(`Unexpected dependency: ${name}`);
   });
   const query = useFeatureFlags(true);
+  assert.deepEqual(query.queryKey, ['feature-flags']);
   assert.equal(query.enabled, true);
   const controller = new AbortController();
   await query.queryFn({ signal: controller.signal });

@@ -1,6 +1,5 @@
 const service = require("../services/requirementIteration.service");
 const projectService = require("../services/project.service");
-const { paginate } = require("../utils/pagination");
 const db = require("../db");
 
 const HEALTH_LIMITS = Object.freeze({
@@ -126,7 +125,7 @@ const ensureProjectAccess = async (projectId, userId) => {
 };
 
 const ensureIterationAccess = async (iterationId, userId) => {
-  const iteration = await service.getIteration(iterationId);
+  const iteration = await service.getIterationSummary(iterationId);
   await ensureProjectAccess(iteration.project_id, userId);
   return iteration;
 };
@@ -279,8 +278,12 @@ module.exports = async function (fastify) {
 
   fastify.get("/requirement-iterations/:id/requirements", async (req) => {
     await fastify.authenticate(req);
-    await ensureIterationPermission(fastify, req, "requirement_iteration.view");
-    return paginate(await service.listRequirements(req.params.id), req.query);
+    const iteration = await ensureIterationPermission(fastify, req, "requirement_iteration.view");
+    if (req.query.include_execution === "true") {
+      await fastify.requirePermission("run.view", { projectId: iteration.project_id })(req);
+      await fastify.requirePermission("result.view", { projectId: iteration.project_id })(req);
+    }
+    return require("../services/requirement.service").getRequirementsPage({ ...req.query, project_id: iteration.project_id, sprint_id: req.params.id });
   });
 
   fastify.put("/requirement-iterations/:id/requirements", async (req) => {

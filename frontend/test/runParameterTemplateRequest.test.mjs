@@ -38,6 +38,7 @@ function fixture() {
         }
       }
     };
+    if (path === "../hooks/useCapabilityAccess") return { useCapabilityAccess: () => ({ can: () => true }) };
     if (path === "../auth/AuthContext") return { useAuth: () => ({ session: {} }) };
     if (path === "../lib/permissions") return { hasPermission: () => true };
     if (path === "../lib/stepParameters") return parameters;

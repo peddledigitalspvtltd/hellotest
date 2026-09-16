@@ -85,6 +85,9 @@ export type FeatureFlagSnapshot = {
   groups: FeatureFlagGroup[];
   flags: Record<string, boolean>;
   local_flags: Record<string, boolean>;
+  dependencies?: Record<string, string[]>;
+  optional_dependencies?: Record<string, string[]>;
+  permission_features?: Record<string, string[]>;
   provider: {
     type: string;
     name?: string;
@@ -262,6 +265,8 @@ export type Project = {
   case_count?: number | null;
   bug_count?: number | null;
 };
+
+export type WorkspaceProjectScope = Pick<Project, "id" | "display_id" | "name" | "has_access">;
 
 export type ProjectPortfolioImpact = {
   total: number;
@@ -564,6 +569,7 @@ export type AppType = {
 };
 
 export type Requirement = {
+  catalog_metrics?: import("./lib/requirementCatalog").RequirementRecordMetrics;
   id: string;
   display_id?: string | null;
   jira_url?: string | null;
@@ -690,7 +696,7 @@ export type RequirementReleaseNotes = {
     change_categories: number;
   };
   quality_summary: {
-    readiness_score: number;
+    readiness_score: number | null;
     readiness_state: RequirementReleaseReadiness["readiness_state"];
     story_completion: string;
     test_coverage_percent: number | null;
@@ -728,7 +734,7 @@ export type RequirementReleaseReadiness = {
   bug_density: number | null;
   automated_cases?: number;
   automation_coverage_percent: number | null;
-  readiness_score: number;
+  readiness_score: number | null;
   readiness_state: "ready" | "at_risk" | "not_ready";
   methodology?: Record<string, string | number | boolean>;
 };
@@ -740,6 +746,8 @@ export type RequirementIterationHealthSourceState =
   | "not_needed";
 
 export type RequirementIterationHealth = {
+  blocked_stories?: number | null;
+  comment_count?: number | null;
   iteration_id: string;
   jira_sprint_id: string | null;
   name: string;
@@ -2003,6 +2011,11 @@ export type TestSuite = {
   description?: string | null;
   parent_id: string | null;
   test_case_ids?: string[];
+  test_case_count?: number;
+  automated_case_count?: number;
+  step_count?: number;
+  total_step_count?: number;
+  story_linked_case_count?: number;
   labels?: string[];
   parameter_values?: Record<string, string>;
   test_data_set_id?: string | null;

@@ -93,20 +93,19 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
   for (const detail of ["Pass rate", "Automation coverage", "Priority", "Linked cases", "Defect density", "Release readiness", "Sprint", "Fix Version"]) {
     assert.match(card, new RegExp(detail));
   }
-  assert.match(page, /storyEvidenceById = useMemo/);
-  assert.match(page, /releaseStoryCaseIdsByStoryId = useMemo/);
-  const evidenceQuery = sliceBetween(page, "const releaseStoryExecutionResultsQuery = useQuery", "const createRelease = useMutation");
-  assert.match(evidenceQuery, /queryKey: \["release-story-execution-results", projectId, expandedRelease\?\.id, expandedRelease\?\.fix_version, readinessAccessKey\]/);
-  assert.match(evidenceQuery, /api\.executionResults\.releaseReadiness\(\{ project_id: projectId, release: expandedRelease!\.fix_version, run_limit: 50, result_limit: 1000 \}\)/);
-  assert.match(evidenceQuery, /enabled: Boolean\(projectId && expandedRelease\?\.fix_version && canReadReadiness\)/);
+  const evidenceQuery = sliceBetween(page, "const releaseReadinessQuery = useQuery", "const sprintsQuery = useQuery");
+  assert.match(evidenceQuery, /api\.requirementReleases\.listReadiness\(\{ project_id: projectId \}\)/);
+  assert.match(evidenceQuery, /readinessAccessKey/);
+  assert.match(evidenceQuery, /enabled: Boolean\(projectId && canReadReadiness\)/);
   assert.match(page, /canReadReadiness = \["requirement_iteration\.view", "requirement\.view", "testcase\.view", "run\.view", "result\.view", "feedback\.view"\][\s\S]*?\.every\(\(permission\) => hasPermission\(session, permission, projectId\)\)/);
-  assert.match(page, /hasCompleteStoryRunEvidence = canReadReadiness && !releaseStoryExecutionResultsQuery\.isError && releaseStoryExecutionResultsQuery\.data\?\.complete === true/);
-  assert.doesNotMatch(page, /api\.executionResults\.list\(/);
-  assert.match(card, /value=\{hasCompleteStoryRunEvidence \? passPercent : null\}/);
-  assert.match(card, /value=\{hasCompleteStoryRunEvidence \? `\$\{readinessScore\}%` : "Unavailable"\}/);
-  assert.match(card, /testCoveragePercent \* 0\.3/);
-  assert.match(card, /passPercent \* 0\.5/);
-  assert.match(card, /bugHealthPercent \* 0\.2/);
+  assert.match(card, /readinessByReleaseId\.get\(expandedRelease\.id\)\?\.story_metrics\?\.\[story\.id\]/);
+  assert.doesNotMatch(page, /api\.(executionResults|testCases)\.(list|releaseReadiness)\(/);
+  assert.doesNotMatch(card, /storyEvidenceById|releaseStoryCaseIdsByStoryId|knownTestCases|linkedBugCount \/ linkedCaseCount/);
+  assert.match(card, /metrics\?\.pass_rate_percent \?\? null/);
+  assert.match(card, /metrics\?\.automation_coverage_percent \?\? null/);
+  assert.match(card, /metrics\?\.readiness_score \?\? null/);
+  assert.match(card, /readinessScore === null \? "No runs"/);
+  assert.match(card, /linkedBugCount\.toFixed\(2\)/);
   assert.match(card, /story-tile-metrics/);
 });
 
@@ -208,7 +207,7 @@ test("execution-result evidence is project scoped, authorized, and bounded", asy
   assert.match(api, /list: \(query\?: \{ project_id\?: string;/);
   assert.match(executions, /executionResults\.list\(\{ project_id: projectId, limit: 5000 \}\)/);
   assert.match(design, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId/);
-  assert.match(shared, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, limit: 5000 \}\)/);
+  assert.match(shared, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, limit: 5000 \}, \{ signal \}\)/);
   assert.match(route, /accessibleProjectIds/);
   assert.match(route, /projectService\.getProject\(scopedProjectId, req\.user\.id\)/);
   assert.match(route, /A project, execution, app type, or test case scope is required/);

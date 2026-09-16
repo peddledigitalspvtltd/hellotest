@@ -1,12 +1,13 @@
+import { LoadingState } from "./LoadingState";
 import { useMemo, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { setCurrentScope } from "../hooks/useCurrentProject";
 import { api } from "../lib/api";
-import { hasPermission } from "../lib/permissions";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { optionalQueryView } from "../lib/optionalQueryView";
 import {
   ConfigurationForm,
   DataSetForm,
@@ -54,14 +55,14 @@ const includeSavedOptions = (options: Array<{ value: string; label: string }>, v
 
 /** Uses the same fields as the resource screens, with the values frozen for this run. */
 export function RunConfigurationDialog({ resource, projectId, appTypeId, resourceId, snapshot, onClose }: RunConfigurationDialogProps) {
-  const { session } = useAuth();
+  const { can } = useCapabilityAccess(projectId);
   const metadata = useDomainMetadata();
   const details = resourceDetails[resource];
-  const canViewCurrent = hasPermission(session, details.permission, projectId);
-  const canViewSnapshot = hasPermission(session, "run.view", projectId);
+  const canViewCurrent = can(details.permission);
+  const canViewSnapshot = can("run.view");
   const savedSnapshot = canViewSnapshot ? snapshot : null;
   const id = savedSnapshot?.id || resourceId || "";
-  const current = useQuery<TestEnvironment | TestConfiguration | TestDataSet | null>({
+  const current = optionalQueryView(useQuery<TestEnvironment | TestConfiguration | TestDataSet | null>({
     queryKey: ["run-configuration-resource", resource, projectId, appTypeId || "", id],
     queryFn: async () => {
       const query = { project_id: projectId, app_type_id: appTypeId || undefined };
@@ -76,7 +77,7 @@ export function RunConfigurationDialog({ resource, projectId, appTypeId, resourc
     enabled: Boolean(!snapshot && id && projectId && canViewCurrent),
     retry: 1,
     staleTime: 60_000
-  });
+  }), canViewCurrent, null);
   const record = savedSnapshot || (!snapshot && canViewCurrent ? current.data : null);
   const configurationDraft = useMemo(() => resource === "configuration" && record
     ? configurationToDraft(record as ExecutionConfigurationSnapshot) : null, [resource, record]);
@@ -113,7 +114,7 @@ export function RunConfigurationDialog({ resource, projectId, appTypeId, resourc
       ) : <div className="run-configuration-dialog-state" role={current.isError ? "alert" : "status"}>
         {!hasAccess ? <><strong>Access is unavailable</strong><p>You do not have permission to view this {details.label.toLowerCase()}.</p></>
           : !id ? <><strong>No {details.label.toLowerCase()} attached</strong><p>This run was created without a {details.label.toLowerCase()}.</p></>
-            : current.isFetching ? <><strong>Loading {details.label.toLowerCase()}…</strong><p>Checking the current resource because this run has no saved snapshot.</p></>
+            : current.isFetching ? <LoadingState label={`Loading ${details.label.toLowerCase()}`} description="Checking the current resource because this run has no saved snapshot." />
               : current.isError ? <><strong>Could not load {details.label.toLowerCase()}</strong><p>Try loading the resource again.</p><button className="ghost-button" onClick={() => void current.refetch()} type="button">Try again</button></>
                 : <><strong>{details.label} is no longer available</strong><p>The original resource may have been removed. This run has no saved snapshot to display.</p></>}
       </div>}

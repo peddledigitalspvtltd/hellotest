@@ -140,8 +140,11 @@ exports.createTestSuite = async ({ app_type_id, name, description, parent_id, la
   return { id };
 };
 
-exports.getTestSuites = async ({ project_id, app_type_id, parent_id }) => {
-  let query = `SELECT * FROM test_suites WHERE 1=1`;
+exports.getTestSuites = async ({ project_id, app_type_id, parent_id, projection, case_search, module_id, requirement_id, label, shared_step_group_id } = {}) => {
+  const picker = projection === 'picker';
+  const summary = projection === 'summary';
+  const membership = `(tc.suite_id = test_suites.id OR EXISTS (SELECT 1 FROM suite_test_cases link WHERE link.suite_id = test_suites.id AND link.test_case_id = tc.id))`;
+  let query = `SELECT ${picker ? 'id, display_id, app_type_id, name, parent_id, labels, parallel_enabled, parallel_count, created_at, updated_at' : 'test_suites.*'} FROM test_suites WHERE 1=1`;
   const params = [];
 
   if (app_type_id) {
@@ -163,10 +166,59 @@ exports.getTestSuites = async ({ project_id, app_type_id, parent_id }) => {
     }
   }
 
-  query += ` ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC`;
+  const hasCaseFilters = Boolean(String(case_search || '').trim() || module_id || requirement_id || shared_step_group_id);
+  if (hasCaseFilters || label) {
+    const scope = require('./testCaseCatalog.service').buildScope({ projection: 'picker', search: case_search, module_id, requirement_id, shared_step_group_id });
+    const labelClause = label ? ` AND (COALESCE(test_suites.labels, '[]'::jsonb) @> ?::jsonb OR COALESCE(tc.labels, '[]'::jsonb) @> ?::jsonb)` : '';
+    const matchingCases = `EXISTS (SELECT 1 FROM test_cases tc WHERE tc.app_type_id = test_suites.app_type_id AND ${membership} AND ${scope.where}${labelClause})`;
+    if (!hasCaseFilters && label) {
+      query += ` AND (COALESCE(test_suites.labels, '[]'::jsonb) @> ?::jsonb OR ${matchingCases})`;
+      params.push(JSON.stringify([label]));
+    } else query += ` AND ${matchingCases}`;
+    params.push(...scope.params, ...(label ? [JSON.stringify([label]), JSON.stringify([label])] : []));
+  }
+
+  if (picker || summary) {
+    // Resolve membership once for all selected Suites, instead of scanning the
+    // application's entire case catalog separately for each Suite and metric.
+    query = `WITH scoped_suites AS MATERIALIZED (${query}), members AS MATERIALIZED (
+      SELECT suite.id AS suite_id, tc.id AS test_case_id, tc.app_type_id, tc.automated, tc.requirement_id
+      FROM scoped_suites suite JOIN suite_test_cases link ON link.suite_id = suite.id
+      JOIN test_cases tc ON tc.id = link.test_case_id AND tc.app_type_id = suite.app_type_id
+      UNION
+      SELECT suite.id, tc.id, tc.app_type_id, tc.automated, tc.requirement_id
+      FROM scoped_suites suite JOIN test_cases tc ON tc.suite_id = suite.id AND tc.app_type_id = suite.app_type_id
+    )${summary ? `, member_cases AS MATERIALIZED (
+      SELECT DISTINCT test_case_id, app_type_id, automated, requirement_id FROM members
+    ), steps AS (
+      SELECT member.test_case_id, COUNT(*)::INTEGER AS step_count
+      FROM member_cases member JOIN test_steps step ON step.test_case_id = member.test_case_id GROUP BY member.test_case_id
+    ), covered AS (
+      SELECT member.test_case_id FROM member_cases member JOIN app_types app ON app.id = member.app_type_id
+      JOIN requirements story ON story.id = member.requirement_id AND story.project_id = app.project_id
+      UNION
+      SELECT member.test_case_id FROM member_cases member JOIN app_types app ON app.id = member.app_type_id
+      JOIN requirement_test_cases link ON link.test_case_id = member.test_case_id
+      JOIN requirements story ON story.id = link.requirement_id AND story.project_id = app.project_id
+    )` : ''}, totals AS (
+      SELECT member.suite_id, COUNT(*)::INTEGER AS test_case_count${summary ? `,
+        COUNT(*) FILTER (WHERE member.automated = 'yes')::INTEGER AS automated_case_count,
+        COALESCE(SUM(steps.step_count), 0)::INTEGER AS step_count,
+        COUNT(covered.test_case_id)::INTEGER AS story_linked_case_count` : ''}
+      FROM members member${summary ? ` LEFT JOIN steps ON steps.test_case_id = member.test_case_id
+        LEFT JOIN covered ON covered.test_case_id = member.test_case_id` : ''} GROUP BY member.suite_id
+    ) SELECT suite.*, COALESCE(totals.test_case_count, 0) AS test_case_count${summary ? `,
+      COALESCE(totals.automated_case_count, 0) AS automated_case_count,
+      COALESCE(totals.step_count, 0) AS step_count,
+      COALESCE(totals.story_linked_case_count, 0) AS story_linked_case_count` : ''}
+    FROM scoped_suites suite LEFT JOIN totals ON totals.suite_id = suite.id
+    ORDER BY COALESCE(suite.updated_at, suite.created_at) DESC, suite.created_at DESC`;
+  } else query += ` ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC`;
 
   const suites = await db.prepare(query).all(...params);
-  return suites.map(shapeSuite);
+  return suites.map((suite) => picker
+    ? { ...suite, labels: normalizeStoredReferenceList(suite.labels), detail_complete: false }
+    : { ...shapeSuite(suite), ...(summary ? { total_step_count: suite.step_count } : {}) });
 };
 
 exports.getTestSuite = async (id) => {

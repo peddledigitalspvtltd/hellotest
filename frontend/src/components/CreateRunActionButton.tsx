@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "../auth/AuthContext";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useCurrentProject } from "../hooks/useCurrentProject";
+import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import { PlayIcon } from "./AppIcons";
@@ -47,7 +48,6 @@ export function CreateRunActionButton({
   const permissionProjectId = projectId || activeProjectId;
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canCreateManualRuns = hasPermission(session, "run.create", permissionProjectId)
@@ -58,50 +58,7 @@ export function CreateRunActionButton({
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
   const isManualDisabled = disabled || !canCreateManualRuns;
   const canOpenMenu = !disabled && (canCreateLocalRuns || canCreateRemoteRuns);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setMenuStyle(null);
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const trigger = triggerRef.current;
-      if (!trigger) return;
-
-      const rect = trigger.getBoundingClientRect();
-      const menuWidth = Math.max(menuRef.current?.offsetWidth || 292, 292);
-      const menuHeight = menuRef.current?.offsetHeight || 190;
-      const viewportPadding = 10;
-      const left = Math.min(
-        Math.max(viewportPadding, rect.right - menuWidth),
-        window.innerWidth - menuWidth - viewportPadding
-      );
-      const bottomTop = rect.bottom + 8;
-      const top = bottomTop + menuHeight > window.innerHeight - viewportPadding
-        ? Math.max(viewportPadding, rect.top - menuHeight - 8)
-        : bottomTop;
-
-      setMenuStyle({
-        left,
-        top,
-        minWidth: "18.25rem",
-        maxWidth: "min(calc(100vw - 1.25rem), 23rem)",
-        opacity: 1
-      });
-    };
-
-    updateMenuPosition();
-    const frameId = window.requestAnimationFrame(updateMenuPosition);
-    window.addEventListener("resize", updateMenuPosition);
-    window.addEventListener("scroll", updateMenuPosition, true);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", updateMenuPosition);
-      window.removeEventListener("scroll", updateMenuPosition, true);
-    };
-  }, [isOpen]);
+  const { menuStyle, menuPlacement } = useSplitActionMenu(isOpen && canOpenMenu, triggerRef, menuRef);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -144,9 +101,11 @@ export function CreateRunActionButton({
   const menu = isOpen && canOpenMenu ? (
     <div
       className={`run-action-dropdown run-action-dropdown--${source.toLowerCase().replace(/_/g, "-")}`}
+      data-split-action-menu
+      data-placement={menuPlacement}
       ref={menuRef}
       role="menu"
-      style={menuStyle || { opacity: 0, pointerEvents: "none" }}
+      style={menuStyle}
     >
       <button disabled={!canCreateLocalRuns} onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>

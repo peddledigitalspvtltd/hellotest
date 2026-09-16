@@ -17,7 +17,7 @@ const params=new URLSearchParams(location.search); const viewer=params.has('view
 const session={token:'workspace-experience-fixture',user:{id:params.get('user')||'reviewer',role:viewer?'member':'admin',name:'QA Reviewer',email:'reviewer@example.test',permissions:['workspace.view','testcase.view','automation.view','project.view']}};
 sessionStorage.write(session); setCurrentScope(params.has('no-project')?'':'project','app');
 for(const group of Object.values(api)) if(group&&typeof group==='object') for(const [key,value] of Object.entries(group)) if(typeof value==='function') group[key]=async()=>[];
-api.auth.session=async()=>session; api.projects.list=async()=>params.has('no-project')?[]:[{id:'project',name:'Commerce quality'}];
+api.auth.session=async()=>session; api.metadata.workspaceScopes=async()=>({projects:await api.projects.list()});api.projects.list=async()=>params.has('no-project')?[]:[{id:'project',name:'Commerce quality'}];
 api.featureFlags.snapshot=async()=>{if(window.failFlagRefresh || (params.has('flags-error')&&!window.retrySucceeded)) throw new Error('Connection interrupted');return {flags:new Proxy({}, {get:(_,key)=>key==='hellotest.automation.object_repository'?false:true})}};
 api.notifications.unreadCount=async()=>({total:0,by_preference:{}});api.settings.getLocalization=async()=>({strings:params.has('rtl')?{'meta.language':'ar','meta.direction':'rtl'}:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});
 window.languagePublications=[];api.settings.updateLocalization=async input=>{window.languagePublications.push(input);return {strings:input.strings}};

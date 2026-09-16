@@ -116,7 +116,7 @@ export const READINESS_MESSAGES: Record<string, string> = {
     "Case coverage is not scenario completeness. Rows include the loaded release/sprint stories.",
   "readiness.noStories": "No stories in the loaded scope",
   "readiness.noStoriesHelp":
-    "Adjust the scope or load more evidence to include additional stories.",
+    "Adjust the scope or scroll through the evidence to include additional stories.",
   "readiness.noRuns": "No runs in the loaded scope",
   "readiness.noRunsHelp":
     "Assign the release or sprint to a run and execute its planned cases.",
@@ -279,7 +279,7 @@ Object.assign(READINESS_MESSAGES_ES, {
   "readiness.storiesHelp":
     "La cobertura de casos no representa todos los escenarios. Las filas incluyen las historias cargadas de la versión o sprint.",
   "readiness.noStoriesHelp":
-    "Ajuste el alcance o cargue más evidencia para incluir otras historias.",
+    "Ajuste el alcance o desplácese por la evidencia para incluir otras historias.",
   "readiness.noRunsHelp":
     "Asigne la versión o sprint a una ejecución y ejecute sus casos planificados.",
   "readiness.runsHelp":
