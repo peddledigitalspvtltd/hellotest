@@ -55,6 +55,72 @@ test("suite toolbar selection respects filtered visibility, existing order, and 
   assert.deepEqual(selected, []);
 });
 
+for (const canFilterCases of [true, false]) {
+  test(`suite popup preserves ordered selections and ${canFilterCases ? "editable pending filters" : "test-case permission boundaries"}`, () => {
+    const state = [];
+    const queries = [];
+    let cursor = 0;
+    let selected = ["suite-b", "suite-a"];
+    const suites = [{ id: "suite-a", name: "Alpha" }, { id: "suite-b", name: "Beta" }];
+    const CatalogSearchFilter = () => null;
+    const { SuiteScopePicker } = compile("../src/components/SuiteCasePicker.tsx", (path) => {
+      if (path === "../hooks/useCapabilityAccess") return { useCapabilityAccess: () => ({ can: permission => permission === "suite.view" || canFilterCases }) };
+      if (path === "react") return {
+        useEffect() {}, useMemo: factory => factory(),
+        useState: initial => { const key = cursor++; if (!(key in state)) state[key] = initial; return [state[key], value => { state[key] = value; }]; }
+      };
+      if (path === "./CatalogSearchFilter") return { CatalogSearchFilter };
+      if (path === "./RichTextEditor") return { richTextToPlainText: value => value || "" };
+      if (path === "./AppIcons") return { SelectionToggleIcon: () => null, TestCaseIcon: () => null };
+      if (path === "../lib/api") return { api: {} };
+      if (path === "@tanstack/react-query") return { useQuery: options => {
+        queries.push(options);
+        return { data: options.queryKey[0] === "suite-scope-picker" ? suites : [{ id: "module", name: "Accounts" }], isFetching: Boolean(options.enabled), isPlaceholderData: false, isError: false };
+      } };
+      if (path.endsWith(".css")) return {};
+      return require(path);
+    });
+    const render = () => {
+      cursor = 0;
+      queries.length = 0;
+      let component = SuiteScopePicker({ projectId: "project", appTypeId: "app", suites, selectedSuiteIds: selected, onChange: next => { selected = next; }, emptyMessage: "No suites" });
+      while (typeof component.type === "function") component = component.type(component.props);
+      assert.equal(nodes(component).some(node => node.type === "details"), false);
+      const ordered = nodes(component).find(node => node.props?.itemLabel === "suite");
+      return ordered.type(ordered.props);
+    };
+    let tree = render();
+    let popup = nodes(tree).find(node => node.type === CatalogSearchFilter);
+    assert.equal(queries.every(query => !query.enabled), true, "Opening the picker alone loads no linked-case catalogs");
+    popup.props.onOpenChange(true);
+    tree = render();
+    popup = nodes(tree).find(node => node.type === CatalogSearchFilter);
+    const moduleFilter = nodes(popup).find(node => node.props?.["aria-label"] === "Filter suites by module");
+    assert.equal(Boolean(moduleFilter), canFilterCases);
+    assert.equal(queries.find(query => query.queryKey[0] === "test-case-picker-modules").enabled, canFilterCases);
+    if (!canFilterCases) {
+      assert.equal(nodes(popup).some(node => node.props?.["aria-label"] === "Search linked test cases and metadata"), false);
+      assert.equal(nodes(tree).filter(node => node.type === "input" && node.props.type === "checkbox").every(node => !node.props.disabled), true);
+      return;
+    }
+    moduleFilter.props.onChange({ target: { value: "module" } });
+    tree = render();
+    popup = nodes(tree).find(node => node.type === CatalogSearchFilter);
+    assert.equal(popup.props.disabled, false, "Pending suite results leave their filter popup enabled");
+    assert.equal(popup.props.activeFilterCount, 1);
+    assert.equal(nodes(popup).filter(node => node.type === "select" || node.type === "input").every(node => !node.props.disabled), true);
+    assert.equal(nodes(tree).filter(node => node.type === "input" && node.props.type === "checkbox").every(node => node.props.disabled), true, "Stale results cannot be selected while filtering");
+    assert.equal(nodes(tree).find(node => node.props?.["aria-label"] === "Move Beta down").props.disabled, false, "Existing selections may still be ordered while filtering");
+    nodes(popup).find(node => node.type === "button" && text(node).trim() === "Clear filters").props.onClick();
+    tree = render();
+    popup = nodes(tree).find(node => node.type === CatalogSearchFilter);
+    assert.equal(popup.props.activeFilterCount, 0);
+    assert.equal(queries.find(query => query.queryKey[0] === "suite-scope-picker").enabled, false);
+    assert.deepEqual(selected, ["suite-b", "suite-a"]);
+    assert.equal(nodes(tree).filter(node => node.type === "input" && node.props.type === "checkbox").every(node => !node.props.disabled), true);
+  });
+}
+
 test("run context retains the selected dynamic data set without generating a sample", () => {
   let changedDataSet;
   const dataSet = { id: "data-1", name: "Dynamic accounts", app_type_id: "web", rows: [{ email: "{{random.email}}" }] };

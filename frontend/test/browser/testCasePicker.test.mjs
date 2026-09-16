@@ -49,7 +49,7 @@ api.requirementIterations.list=async()=>[{id:'sprint-planned',name:'Planned spri
 api.requirements.get=async(id,input)=>{window.calls.all.push({path:'requirements.get',args:[id,input]});return{id,project_id:'picker-project',title:'Suite story',fix_version:'2026.10',iteration_id:'sprint-planned'}};
 api.executions.create=async(input)=>{window.calls.runs.push(input);return{id:'run-new'}};
 const suites=[{id:'suite-existing',display_id:'SUITE-1',app_type_id:'picker-app',name:'Checkout regression',description:'Complete suite metrics',parent_id:null,labels:['regression'],test_case_count:60,total_step_count:120,automated_case_count:45,story_linked_case_count:30,revision:1},{id:'suite-empty',display_id:'SUITE-2',app_type_id:'picker-app',name:'Empty suite',parent_id:null,labels:[],test_case_count:0,total_step_count:0,automated_case_count:0,story_linked_case_count:0,revision:1}];
-api.testSuites.list=async(input)=>{window.calls.suiteFilters.push(structuredClone(input));return input.case_search||input.module_id?[suites[0]]:suites};
+api.testSuites.list=async(input)=>{window.calls.suiteFilters.push(structuredClone(input));if(input.case_search||input.module_id||input.label){if(window.holdSuiteFilters)await window.suiteFilterReady;if(window.failSuiteFilters){window.failSuiteFilters=false;throw new Error('Suite search temporarily unavailable')};return[suites[0]];}return suites;};
 api.testSuites.create=async(input)=>{window.calls.create.push(input);return{id:'suite-new'}};
 api.testSuites.assignTestCases=async(...args)=>{window.calls.assign.push(args);return{updated:true,revision:2}};
 api.suiteTestCases.list=async()=>cases.map((item,i)=>({id:'mapping-'+i,test_case_id:item.id,suite_id:'suite-existing',sort_order:i}));
@@ -71,7 +71,7 @@ api.testCases.listPage=async(input,{signal}={})=>{
 };
 api.testCases.listPicker=(input,options)=>api.testCases.listPage({...input,projection:'picker'},options);
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
-function PickerFixture(){const[ids,setIds]=useState(['case-60']);const[suiteIds,setSuiteIds]=useState(['suite-empty']);window.selected=ids;window.fixtureSetIds=setIds;return <main style={{maxWidth:780,margin:'24px auto',padding:16}}><h1>Choose reusable coverage</h1><TestCasePicker projectId='picker-project' appTypeId='picker-app' selectedIds={ids} onChange={(next,items)=>{window.lastChanged={ids:next,items};setIds(next)}} allowReorder onItemsResolved={items=>window.resolved=items}/><div style={{marginTop:30}}><SuiteScopePicker projectId='picker-project' appTypeId='picker-app' suites={suites} selectedSuiteIds={suiteIds} onChange={setSuiteIds} emptyMessage='No matching suites'/></div></main>}
+function PickerFixture(){const[ids,setIds]=useState(['case-60']);const[suiteIds,setSuiteIds]=useState(['suite-empty']);window.selected=ids;window.selectedSuites=suiteIds;window.fixtureSetIds=setIds;return <main style={{maxWidth:780,margin:'24px auto',padding:16}}><h1>Choose reusable coverage</h1><TestCasePicker projectId='picker-project' appTypeId='picker-app' selectedIds={ids} onChange={(next,items)=>{window.lastChanged={ids:next,items};setIds(next)}} allowReorder onItemsResolved={items=>window.resolved=items}/><div style={{marginTop:30}}><SuiteScopePicker projectId='picker-project' appTypeId='picker-app' suites={suites} selectedSuiteIds={suiteIds} onChange={setSuiteIds} emptyMessage='No matching suites'/></div></main>}
 const mode=new URLSearchParams(location.search).get('mode');
 const router=createMemoryRouter([{path:'/',element:mode?.startsWith('design')?<DesignPage/>:<PickerFixture/>},{path:'/executions',element:<h1>Created run</h1>}],{initialEntries:['/']});
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId='reviewer'><RouterProvider router={router}/></LocalizationProvider></AuthProvider></QueryClientProvider>);
@@ -142,12 +142,45 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length===1);
     assert.equal(await page.evaluate(()=>window.calls.pages.at(-1).module_id),'module-remote');
     assert.equal(await page.evaluate(()=>window.calls.pages.at(-1).cursor),undefined);
-    await page.locator('.suite-scope-server-picker > details > summary').click();
-    await page.getByRole('searchbox',{name:'Search linked test cases and metadata'}).fill('remote');
+    const scopePicker=page.locator('.suite-scope-server-picker');
+    assert.equal(await scopePicker.locator('details').count(),0,'Linked-case filters share the existing suite popup');
+    assert.equal(await scopePicker.getByText('Filter by linked test cases',{exact:true}).count(),0);
+    await scopePicker.locator('.suite-case-picker-option').filter({hasText:'Checkout regression'}).getByRole('checkbox').check();
+    await scopePicker.getByRole('button',{name:'Move Checkout regression up',exact:true}).click();
+    const selectedSuiteOrder=['suite-existing','suite-empty'];
+    assert.deepEqual(await page.evaluate(()=>window.selectedSuites),selectedSuiteOrder);
+    await scopePicker.getByRole('button',{name:'Open filters',exact:true}).click();
+    const scopeFilters=page.getByRole('dialog',{name:'Filter suites',exact:true});
+    const linkedSearch=scopeFilters.getByRole('searchbox',{name:'Search linked test cases and metadata',exact:true});
+    const linkedModule=scopeFilters.getByRole('combobox',{name:'Filter suites by module',exact:true});
+    const linkedLabel=scopeFilters.getByRole('textbox',{name:'Filter suites by label',exact:true});
+    await page.evaluate(()=>{window.holdSuiteFilters=true;window.suiteFilterReady=new Promise(resolve=>{window.releaseSuiteFilters=resolve})});
+    await linkedSearch.fill('remote');
     await page.waitForFunction(()=>window.calls.suiteFilters.some(input=>input.case_search==='remote'));
-    await page.waitForTimeout(150);
-    assert.equal(await page.locator('.suite-case-picker-option').count(),1);
-    assert.match(await page.locator('.suite-scope-picker-summary').innerText(),/1 suite selected/,'Selected suite outside search still counts');
+    assert.equal(await linkedSearch.isEnabled(),true,'A pending request never disables the filter popup');
+    await linkedModule.selectOption('module-remote');
+    await linkedLabel.fill('regression');
+    await page.waitForFunction(()=>window.calls.suiteFilters.some(input=>input.case_search==='remote'&&input.module_id==='module-remote'&&input.label==='regression'));
+    const linkedQuery=await page.evaluate(()=>window.calls.suiteFilters.at(-1));
+    assert.equal(linkedQuery.project_id,'picker-project');assert.equal(linkedQuery.app_type_id,'picker-app');assert.equal(linkedQuery.projection,'picker');
+    await scopeFilters.getByRole('button',{name:'Clear filters',exact:true}).click();
+    assert.equal(await linkedSearch.inputValue(),'');assert.equal(await linkedModule.inputValue(),'');assert.equal(await linkedLabel.inputValue(),'');
+    assert.equal(await scopePicker.locator('.suite-case-picker-option').count(),2,'Clear immediately restores suites while old requests remain pending');
+    assert.deepEqual(await page.evaluate(()=>window.selectedSuites),selectedSuiteOrder,'Clearing server filters preserves selection and order');
+    await page.evaluate(()=>{window.holdSuiteFilters=false;window.releaseSuiteFilters()});
+    await page.evaluate(()=>window.failSuiteFilters=true);
+    await linkedSearch.fill('retry');
+    await scopePicker.getByRole('button',{name:'Retry suite filters',exact:true}).waitFor();
+    await page.keyboard.press('Escape');await scopeFilters.waitFor({state:'hidden'});
+    await scopePicker.getByRole('button',{name:'Retry suite filters',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll('.suite-case-picker-option').length===1);
+    assert.match(await scopePicker.locator('.suite-scope-picker-summary').innerText(),/2 suites selected/,'Selected suites outside search still count');
+    assert.deepEqual(await page.evaluate(()=>window.selectedSuites),selectedSuiteOrder,'Failed and retried filters preserve selection order');
+    if(!await scopeFilters.isVisible())await scopePicker.getByRole('button',{name:/^Open filters/}).click();
+    await scopeFilters.getByRole('button',{name:'Clear filters',exact:true}).click();
+    await page.keyboard.press('Escape');await scopeFilters.waitFor({state:'hidden'});
+    assert.equal(await scopePicker.locator('.suite-case-picker-option').count(),2);
+    assert.deepEqual(await scopePicker.locator('.suite-case-picker-option strong').allTextContents(),['Checkout regression','Empty suite']);
     await page.setViewportSize({width:390,height:844});await search.scrollIntoViewIfNeeded();
     await page.screenshot({path:artifacts+'/picker-mobile.png'});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1),false,'Picker has no horizontal mobile overflow');
@@ -183,6 +216,9 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     assert.equal(await suitePicker.locator('.test-case-picker-row.is-selected').count(),25,'Select all adds only currently visible cases');
     await page.emulateMedia({reducedMotion:'no-preference'});
     await page.setViewportSize({width:1280,height:800});
+    // Enabling motion restarts the dialog's entrance animation. Establish the
+    // baseline after it finishes so this measures reorder/focus movement only.
+    await dialog.evaluate(node=>Promise.all(node.getAnimations().map(animation=>animation.finished.catch(()=>{}))));
     const suiteFrame=await dialog.boundingBox();
     const suiteMovement=dialog.evaluate(node=>new Promise(resolve=>{
       const samples=[],started=performance.now();
@@ -194,7 +230,7 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     }));
     await suitePicker.getByRole('button',{name:'Move Checkout case 20 down',exact:true}).click();
     for(const sample of await suiteMovement){
-      assert.ok(Math.abs(sample.top-suiteFrame.y)<1,'Suite frame stays fixed while navigating lower rows');
+      assert.ok(Math.abs(sample.top-suiteFrame.y)<1,`Suite frame stays fixed while navigating lower rows (baseline ${JSON.stringify(suiteFrame)}, sample ${JSON.stringify(sample)})`);
       assert.equal(sample.scroll,0,'Suite frame does not scroll when a lower arrow receives focus');
       assert.ok(sample.headerTop>=sample.top&&sample.bottom<=800,'Suite title remains visible within the viewport');
     }

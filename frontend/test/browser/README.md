@@ -17,6 +17,13 @@ while picker requests are delayed, 25-record paging, search beyond the first
 page, retained selections and ordering, linked context, and local retries.
 Run browser fixtures sequentially to avoid Vite reloads from another fixture.
 
+`largeSelectionDialogs.test.mjs` stress-tests the real AppShell with 400 selected
+cases from a 450-case catalog and 120 selected suites. It covers delayed names,
+long titles, last-case reordering and focus, native picker scrolling, locked
+background positions, and clearing selections. Header, footer, and backdrop
+bounds are checked at 1440×900, 1024×650, 768×600, 390×700, 320×480, and 900×400,
+with mobile light/dark screenshots in `/tmp/qaira-large-selection-dialogs`.
+
 The project tile regression (`projectTileNavigation.test.mjs`) mounts the actual
 Projects page inside AppShell. It checks first-click opening, uninterrupted page
 state across project changes, keyboard and mobile opening, and enforcement of

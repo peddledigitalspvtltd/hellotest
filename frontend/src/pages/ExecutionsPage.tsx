@@ -12793,7 +12793,7 @@ export function ExecutionCreateModal({
               </span>
               <div className="execution-run-builder-title-copy">
                 <h2 className="dialog-title" id="create-execution-title">
-                  {isSmartMode ? "HelloTest Smart Run Planner" : "Create New Execution Run"}
+                  {isSmartMode ? "HelloTest Smart Run Planner" : "Create new run"}
                 </h2>
                 {isSmartMode ? <span>Evidence-ranked execution planning</span> : null}
               </div>

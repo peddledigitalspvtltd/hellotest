@@ -1088,7 +1088,7 @@ const statements = [
   `ALTER TABLE requirements ALTER COLUMN external_references SET NOT NULL`,
   `ALTER TABLE requirements ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE requirements ALTER COLUMN labels SET NOT NULL`,
-  `UPDATE requirements SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
+  `UPDATE requirements SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
   `
     CREATE TABLE IF NOT EXISTS requirement_iterations (
       id TEXT PRIMARY KEY,
@@ -1253,7 +1253,7 @@ const statements = [
   `ALTER TABLE test_suites ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_suites ALTER COLUMN labels SET NOT NULL`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
-  `UPDATE test_suites SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
+  `UPDATE test_suites SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
   `
     CREATE TABLE IF NOT EXISTS ai_test_case_generation_jobs (
       id TEXT PRIMARY KEY,
@@ -1418,7 +1418,7 @@ const statements = [
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
   `ALTER TABLE shared_step_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
-  `UPDATE shared_step_groups SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
+  `UPDATE shared_step_groups SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
   `ALTER TABLE test_steps ADD COLUMN IF NOT EXISTS step_type TEXT`,
   `ALTER TABLE test_steps ADD COLUMN IF NOT EXISTS automation_code TEXT`,
   `ALTER TABLE test_steps ADD COLUMN IF NOT EXISTS api_request JSONB`,
@@ -1624,7 +1624,7 @@ const statements = [
   `ALTER TABLE test_cases ALTER COLUMN external_references SET NOT NULL`,
   `ALTER TABLE test_cases ALTER COLUMN labels SET DEFAULT '[]'::jsonb`,
   `ALTER TABLE test_cases ALTER COLUMN labels SET NOT NULL`,
-  `UPDATE test_cases SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)`,
+  `UPDATE test_cases SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
   `
     UPDATE test_cases
     SET automated = CASE
@@ -1632,6 +1632,7 @@ const statements = [
       WHEN LOWER(BTRIM(automated)) IN ('yes', 'y', 'true', '1') THEN 'yes'
       ELSE 'no'
     END
+    WHERE automated IS NULL OR automated NOT IN ('yes', 'no')
   `,
   `
     UPDATE test_cases
@@ -1640,6 +1641,8 @@ const statements = [
       WHEN automated <> 'yes' THEN 'not_automated'
       ELSE automation_status
     END
+    WHERE (automated = 'yes' AND automation_status = 'not_automated')
+      OR (automated <> 'yes' AND automation_status IS DISTINCT FROM 'not_automated')
   `,
   `ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_automated_check`,
   `ALTER TABLE test_cases ADD CONSTRAINT test_cases_automated_check CHECK (automated IN ('yes', 'no'))`,

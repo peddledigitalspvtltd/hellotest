@@ -149,7 +149,7 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   await cards.getByRole('checkbox').check();
   await page.getByRole('button',{name:'Run manually',exact:true}).click();
   await page.waitForFunction(()=>typeof window.releaseAuthoring==='function');
-  const run=page.getByRole('dialog',{name:'Create New Execution Run',exact:true});
+  const run=page.getByRole('dialog',{name:'Create new run',exact:true});
   await run.waitFor();
   assert.equal(await page.evaluate(()=>window.fixtureLocation().pathname),'/executions','Manual action invokes the canonical execution route');
   assert.equal(await run.locator('.test-case-picker--inline').count(),1);

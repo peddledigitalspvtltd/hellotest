@@ -1,5 +1,6 @@
 import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { IconChevronDown, IconChevronUp, IconFilter } from "@tabler/icons-react";
@@ -98,6 +99,11 @@ type OrderedSelectionPickerProps = {
   showSelectionSummary?: boolean;
   disabled?: boolean;
   filterKeys: readonly SuitePickerFilterKey[];
+  filterContent?: ReactNode;
+  onFiltersOpenChange?: (open: boolean) => void;
+  extraActiveFilterCount?: number;
+  onClearExtraFilters?: () => void;
+  selectionPending?: boolean;
 };
 
 const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
@@ -207,21 +213,27 @@ function AuthorizedSuiteScopePicker({ projectId, appTypeId, suites, selectedSuit
     metadata: { suite: [suite.display_id || suite.id, suite.name], label: suite.labels || [] }
   })), [visibleSuites]);
   const pending = canFilterCases && (caseSearch.trim() !== debouncedSearch || (hasServerFilters && (matching.isFetching || matching.isPlaceholderData)));
+  const activeServerFilterCount = canFilterCases ? Number(Boolean(caseSearch.trim())) + Number(Boolean(moduleId)) + Number(Boolean(label.trim())) : 0;
+  const clearServerFilters = () => {
+    setCaseSearch("");
+    setDebouncedSearch("");
+    setModuleId("");
+    setLabel("");
+  };
   return <div className="suite-scope-server-picker">
-    {canFilterCases ? <details onToggle={event => setFiltersOpen(event.currentTarget.open)}>
-      <summary>Filter by linked test cases</summary>
-      <div className="suite-scope-server-filters">
-        <label>Linked test cases and metadata<input type="search" aria-label="Search linked test cases and metadata" placeholder="Case, module, story, or shared step group" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} /></label>
-        <label>Module<select aria-label="Filter suites by module" value={moduleId} onChange={event => setModuleId(event.target.value)}><option value="">All modules</option>{(modules.data || []).map(module => <option key={module.id} value={module.id}>{module.name}</option>)}</select></label>
-        <label>Label<input aria-label="Filter suites by label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Exact label" /></label>
-      </div>
-    </details> : null}
     {pending ? <p role="status">Searching suite scope…</p> : null}
     {hasServerFilters && matching.isError ? <p role="alert">Suite filters couldn't be applied. <button className="ghost-button" type="button" onClick={() => void matching.refetch()}>Retry suite filters</button></p> : null}
-    {canFilterCases && modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
     <OrderedSelectionPicker items={items} selectedIds={selectedSuiteIds} onChange={onChange}
       heading={heading} description={description} emptyMessage={pending ? "Searching suites…" : emptyMessage}
-      itemLabel="suite" filterKeys={["suite", "label"]} disabled={pending} />
+      itemLabel="suite" filterKeys={["suite", "label"]} selectionPending={pending}
+      onFiltersOpenChange={setFiltersOpen} extraActiveFilterCount={activeServerFilterCount}
+      onClearExtraFilters={clearServerFilters}
+      filterContent={canFilterCases ? <div className="suite-scope-server-filters">
+        <label className="catalog-filter-field"><span>Linked test cases and metadata</span><input type="search" aria-label="Search linked test cases and metadata" placeholder="Case, module, story, or shared step group" value={caseSearch} onChange={event => setCaseSearch(event.target.value)} /></label>
+        <label className="catalog-filter-field"><span>Module</span><select aria-label="Filter suites by module" value={moduleId} onChange={event => setModuleId(event.target.value)}><option value="">All modules</option>{(modules.data || []).map(module => <option key={module.id} value={module.id}>{module.name}</option>)}</select></label>
+        <label className="catalog-filter-field"><span>Label</span><input aria-label="Filter suites by label" value={label} onChange={event => setLabel(event.target.value)} placeholder="Exact label" /></label>
+        {modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
+      </div> : null} />
   </div>;
 }
 
@@ -317,7 +329,12 @@ function OrderedSelectionPicker({
   showCaseFilters = false,
   showSelectionSummary = true,
   disabled = false,
-  filterKeys
+  filterKeys,
+  filterContent,
+  onFiltersOpenChange,
+  extraActiveFilterCount = 0,
+  onClearExtraFilters,
+  selectionPending = false
 }: OrderedSelectionPickerProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterKey, setFilterKey] = useState<"all" | SuitePickerFilterKey>("all");
@@ -384,12 +401,13 @@ function OrderedSelectionPicker({
   );
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const areAllVisibleItemsSelected = Boolean(allVisibleItemIds.length) && allVisibleItemIds.every((itemId) => selectedIdSet.has(itemId));
-  const hasActiveFilters = Boolean(searchTerm.trim() || filterKey !== "all" || filterValue);
-  const activeMetadataFilterCount = Number(filterKey !== "all") + Number(Boolean(filterValue));
+  const hasActiveFilters = Boolean(searchTerm.trim() || filterKey !== "all" || filterValue || extraActiveFilterCount);
+  const activeMetadataFilterCount = Number(filterKey !== "all") + Number(Boolean(filterValue)) + extraActiveFilterCount;
+  const selectionDisabled = disabled || selectionPending;
   const visibleSelectedCount = allVisibleItemIds.filter((itemId) => selectedIdSet.has(itemId)).length;
 
   const toggleItem = (itemId: string) => {
-    if (disabled) return;
+    if (selectionDisabled) return;
 
     if (selectedIdSet.has(itemId)) {
       onChange(selectedIds.filter((id) => id !== itemId));
@@ -413,7 +431,7 @@ function OrderedSelectionPicker({
   };
 
   const selectVisibleItems = () => {
-    if (disabled) return;
+    if (selectionDisabled) return;
     onChange(Array.from(new Set([...selectedIds, ...allVisibleItemIds])));
   };
 
@@ -424,6 +442,7 @@ function OrderedSelectionPicker({
       disabled={disabled}
       filterIcon={<IconFilter aria-hidden="true" size={16} stroke={1.8} />}
       onChange={setSearchTerm}
+      onOpenChange={onFiltersOpenChange}
       placeholder={filterKey === "all"
         ? `Search ${itemLabel}s and metadata...`
         : `Search associated ${FILTER_LABELS[filterKey].toLowerCase()} metadata...`}
@@ -458,6 +477,8 @@ function OrderedSelectionPicker({
           </label>
         ) : null}
 
+        {filterContent}
+
         <div className="suite-reference-picker-filter-footer">
           <span aria-live="polite">Showing {filteredItems.length} of {items.length} {itemLabel}{items.length === 1 ? "" : "s"}</span>
           <button
@@ -466,6 +487,7 @@ function OrderedSelectionPicker({
             onClick={() => {
               setFilterKey("all");
               setFilterValue("");
+              onClearExtraFilters?.();
             }}
             type="button"
           >
@@ -491,7 +513,7 @@ function OrderedSelectionPicker({
           <div className="suite-reference-picker-selection-actions" aria-label="Reusable test case selection actions">
             <button
               className="ghost-button"
-              disabled={disabled || !allVisibleItemIds.length || areAllVisibleItemsSelected}
+              disabled={selectionDisabled || !allVisibleItemIds.length || areAllVisibleItemsSelected}
               onClick={selectVisibleItems}
               type="button"
             >
@@ -528,7 +550,7 @@ function OrderedSelectionPicker({
                     role="row"
                   >
                     <label className="suite-reference-case-checkbox" title={`${isSelected ? "Remove" : "Select"} ${item.title}`}>
-                      <input checked={isSelected} disabled={disabled} onChange={() => toggleItem(item.id)} type="checkbox" />
+                      <input checked={isSelected} disabled={selectionDisabled} onChange={() => toggleItem(item.id)} type="checkbox" />
                       <span className="sr-only">{isSelected ? "Remove" : "Select"} {item.title}</span>
                     </label>
                     <div className="suite-reference-case-copy" role="cell">
@@ -585,7 +607,7 @@ function OrderedSelectionPicker({
       <div className="suite-reference-picker-toolbar suite-reference-picker-toolbar--scope">
         {searchAndFilterControl}
         <div className="suite-case-picker-actions" aria-label="Suite selection actions">
-          <button className="ghost-button" disabled={disabled || !allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
+          <button className="ghost-button" disabled={selectionDisabled || !allVisibleItemIds.length || areAllVisibleItemsSelected} onClick={selectVisibleItems} type="button">
             <SelectionToggleIcon checked />
             Select all
           </button>
@@ -613,7 +635,7 @@ function OrderedSelectionPicker({
             return (
               <div className={isSelected ? "suite-case-picker-option is-selected" : "suite-case-picker-option"} key={item.id}>
                 <label className="suite-case-picker-option-label">
-                  <input checked={isSelected} disabled={disabled} onChange={() => toggleItem(item.id)} type="checkbox" />
+                  <input checked={isSelected} disabled={selectionDisabled} onChange={() => toggleItem(item.id)} type="checkbox" />
                   <div className="suite-case-picker-option-copy">
                     <div className="suite-case-picker-option-title">
                       {isSelected ? <span className="suite-case-picker-order">{selectedIndex + 1}</span> : null}

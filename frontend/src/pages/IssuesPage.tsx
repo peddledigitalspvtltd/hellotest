@@ -1368,7 +1368,9 @@ export function IssuesPage() {
   }, [selectedIssueQuery.data, selectedIssueId, queryClient, projectId, setSearchParams]);
 
   useEffect(() => {
-    if (isCreating) {
+    // The query-driven create effect above seeds the draft in this same effect
+    // pass. Preserve that seed until its isCreating update has rendered.
+    if (isCreating || (canCreateBugs && searchParams.get("create") === "1")) {
       seededIssueDraftKeyRef.current = "";
       return;
     }
@@ -1395,7 +1397,7 @@ export function IssuesPage() {
 
     // A direct link may refer to a Bug beyond the loaded catalog page.
     // Keep its selection while the independent detail query resolves or fails.
-  }, [defaultIssueStatus, emptyDraft, isCreating, selectedIssueId, selectedItem]);
+  }, [canCreateBugs, defaultIssueStatus, emptyDraft, isCreating, searchParams, selectedIssueId, selectedItem]);
 
   useEffect(() => {
     if (isCreating || !selectedItem || !bugEditMetadataQuery.data) return;
@@ -2168,6 +2170,7 @@ export function IssuesPage() {
                         initialItems={testCaseItems}
                         onItemsResolved={rememberCaseItems}
                         heading="Impacted Test Cases"
+                        presentation="impact"
                         onChange={(ids, selectedItems) => {
                           updateAiLinkedTestCases(ids, selectedItems);
                           invalidateAiBugDraft();
@@ -2875,6 +2878,7 @@ export function IssuesPage() {
                       initialItems={testCaseItems}
                       onItemsResolved={rememberCaseItems}
                       heading="Impacted Test Cases"
+                      presentation="impact"
                       onChange={updateDraftLinkedTestCases}
                       selectedIds={draft.linked_test_case_ids}
                     />

@@ -84,10 +84,12 @@ api.issues.createMetadata=async()=>({fields:[],core_fields:[],required_fields:[]
 api.issues.editMetadata=api.issues.createMetadata;
 api.issues.get=async id=>({id,...window.created.at(-1),created_at:'2026-09-16T00:00:00Z'});
 api.issues.create=async input=>{window.created.push(input);return {id:'created-bug'}};
+window.previewInputs=[];api.issues.previewAiDraft=async input=>{window.previewInputs.push(input);await new Promise(resolve=>{window.releaseAiPreview=resolve});throw new Error('Fixture provider temporarily unavailable')};
 api.issues.catalogPage=async()=>({items:[],is_last:true,next_cursor:null});
 api.issues.metrics=async()=>({total:0,converted:0,statuses:{}});
 
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+window.clearCasePickerQueries=()=>{client.removeQueries({queryKey:['test-case-picker']});client.removeQueries({queryKey:['test-case-picker-selected']})};
 // AppShell resolves workspace features before opening a catalog route.
 client.setQueryData(['feature-flags'],flags);
 const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>},{path:'/issues',element:<IssuesPage/>},{path:'/away',element:<h1>Away from Test Cases</h1>}],{initialEntries:['/test-cases']});
@@ -200,14 +202,45 @@ test('Module and Bug forms stay editable during picker loading and preserve remo
   await page.evaluate(()=>{window.pausePicker=true;window.releasePicker=undefined;window.fixtureNavigate('/issues?create=1')});
   const bug=page.getByRole('dialog',{name:'Report Bug',exact:true});
   await bug.getByLabel('Bug Title').fill('Search keeps related context');
+  const bugPicker=bug.locator('.test-case-picker--impact');
+  await bugPicker.locator('summary').waitFor();
+  assert.equal(await bugPicker.getAttribute('open'),null,'Impacted cases begin compact, matching the other impact selectors');
+  assert.equal(await page.evaluate(()=>typeof window.releasePicker),'undefined','Closed impact picker does not request the case catalog');
+  const impactSummaryGeometry=await bug.locator('.issue-form-impact-grid .impact-select-summary').evaluateAll(nodes=>nodes.map(node=>({height:node.getBoundingClientRect().height,width:node.getBoundingClientRect().width})));
+  assert.equal(impactSummaryGeometry.length,4);
+  assert.ok(impactSummaryGeometry.every(rect=>Math.abs(rect.height-impactSummaryGeometry[0].height)<1&&Math.abs(rect.width-impactSummaryGeometry[0].width)<1),'Case selector matches the compact Suite, Module and Story controls');
+  await bugPicker.locator('summary').click();
   await page.waitForFunction(()=>typeof window.releasePicker==='function');
   assert.equal(await bug.getByLabel('Bug Title').inputValue(),'Search keeps related context');
   assert.equal(await page.locator('.screen-loading-overlay').count(),0);
   await page.screenshot({path:artifacts+'/bug-form-loading-picker.png'});
   await page.evaluate(()=>{window.pausePicker=false;window.releasePicker()});
-  const bugPicker=bug.locator('.test-case-picker');
-  await bugPicker.getByRole('searchbox',{name:'Search test cases'}).fill('distant boundary');
-  await bugPicker.locator('.test-case-picker-row').filter({hasText:'Distant boundary coverage'}).getByRole('checkbox').check();
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker--impact .impact-checkbox-option').length===25);
+  assert.equal(await bugPicker.getByText('Filters',{exact:true}).count(),0);
+  assert.equal(await bugPicker.locator('details').count(),0,'Impacted cases have no separate Filters or selected-case disclosures');
+  await bugPicker.getByRole('button',{name:'Select all',exact:true}).click();
+  assert.equal(await bugPicker.locator('.impact-checkbox-option.is-selected').count(),25);
+  await bugPicker.getByRole('button',{name:'Clear',exact:true}).click();
+  assert.equal(await bugPicker.locator('.impact-checkbox-option.is-selected').count(),0);
+  await bugPicker.locator('.impact-checkbox-list').evaluate(node=>node.scrollTop=node.scrollHeight);
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker--impact .impact-checkbox-option').length===50);
+  await bugPicker.getByRole('checkbox',{name:'Checkout coverage 26 TC-26',exact:true}).check();
+  const impactSearch=bugPicker.getByRole('searchbox',{name:'Search impacted test cases'});
+  await impactSearch.fill('distant boundary');
+  await bugPicker.getByRole('checkbox',{name:'Distant boundary coverage TC-60',exact:true}).check();
+  assert.match(await bugPicker.locator('summary').innerText(),/2 selected/,'Server search retains the off-page impacted selection');
+  await impactSearch.fill('');
+  await bugPicker.getByRole('checkbox',{name:'Checkout coverage 26 TC-26',exact:true}).uncheck();
+  for(const width of [1440,390]){
+    await page.setViewportSize({width,height:width===390?844:1000});
+    for(const theme of ['light','dark']){
+      await page.evaluate(theme=>document.documentElement.setAttribute('data-theme',theme),theme);
+      await bugPicker.locator('summary').scrollIntoViewIfNeeded();
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Impact selector has no horizontal overflow');
+      await page.screenshot({path:`${artifacts}/bug-impact-${width}-${theme}.png`});
+    }
+  }
+  await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
   await page.screenshot({path:artifacts+'/bug-linked-case-context.png'});
   await bug.locator('form').evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
   await page.waitForFunction(()=>window.created.length===2);
@@ -217,6 +250,43 @@ test('Module and Bug forms stay editable during picker loading and preserve remo
   assert.deepEqual(created.linked_module_ids,['case-module']);
   assert.deepEqual(created.linked_requirement_ids,['story-run']);
   assert.equal((await page.evaluate(()=>window.calls.all)).some(c=>c.path==='testCases.list'),false);
+
+  await page.evaluate(()=>window.fixtureNavigate('/away'));
+  await page.getByRole('heading',{name:'Away from Test Cases',exact:true}).waitFor();
+  await page.evaluate(()=>window.clearCasePickerQueries());
+  const callsBeforeHydration=await page.evaluate(()=>window.pickerCalls.length);
+  await page.evaluate(()=>window.fixtureNavigate('/issues?create=1&testCase=case-80'));
+  await bug.waitFor();
+  const hydratedPicker=bug.locator('.test-case-picker--impact');
+  await page.waitForFunction(()=>window.pickerCalls.some(input=>input.ids==='case-80'));
+  assert.equal((await page.evaluate(start=>window.pickerCalls.slice(start),callsBeforeHydration)).every(input=>input.ids==='case-80'),true,'A closed prefilled picker hydrates exact IDs without loading surrounding cases');
+  await hydratedPicker.locator('summary').click();
+  await hydratedPicker.getByRole('checkbox',{name:'Checkout coverage 80 TC-80',exact:true}).waitFor();
+  assert.equal(await hydratedPicker.getByRole('checkbox',{name:'Checkout coverage 80 TC-80',exact:true}).isChecked(),true);
+
+  await page.evaluate(()=>window.fixtureNavigate('/away'));
+  await page.getByRole('heading',{name:'Away from Test Cases',exact:true}).waitFor();
+  await page.evaluate(()=>window.fixtureNavigate('/issues?ai=1&title=Investigate%20checkout%20failure'));
+  await page.getByRole('button',{name:/Review evidence setup/}).click();
+  const evidence=page.getByRole('dialog',{name:'Evidence and impacted scope',exact:true});await evidence.waitFor();
+  const aiPicker=evidence.locator('.test-case-picker--impact');await aiPicker.locator('summary').click();
+  assert.equal(await aiPicker.getByText('Filters',{exact:true}).count(),0);
+  await aiPicker.getByRole('searchbox',{name:'Search impacted test cases'}).fill('distant boundary');
+  await aiPicker.getByRole('checkbox',{name:'Distant boundary coverage TC-60',exact:true}).check();
+  const aiStories=evidence.locator('.impact-select-dropdown').filter({has:page.locator('summary').filter({hasText:'Impacted Stories'})});
+  assert.match(await aiStories.locator('summary').innerText(),/1 selected/,'AI evidence still automatically includes the selected case Story');
+  await evidence.getByRole('button',{name:'Close Evidence and impacted scope',exact:true}).click();
+  await page.getByRole('button',{name:'Generate draft',exact:true}).click();
+  await page.waitForFunction(()=>window.previewInputs.length===1);
+  assert.deepEqual(await page.evaluate(()=>window.previewInputs[0].linked_test_case_ids),['case-60']);
+  assert.deepEqual(await page.evaluate(()=>window.previewInputs[0].linked_requirement_ids),['story-run']);
+  await page.getByRole('button',{name:/Review evidence setup/}).click();
+  await aiPicker.locator('summary').click();
+  assert.equal(await aiPicker.getByRole('searchbox',{name:'Search impacted test cases'}).isDisabled(),true,'AI mutation disables impacted-case edits');
+  await page.evaluate(()=>window.releaseAiPreview());
+  await page.waitForFunction(()=>document.querySelector('.test-case-picker--impact input[type="search"]')?.disabled===false);
+  assert.match(await aiPicker.locator('summary').innerText(),/1 selected/,'A failed AI request retains impacted selection');
+  assert.equal((await page.evaluate(()=>window.pickerCalls)).every(input=>input.page_size===25&&input.projection==='picker'),true,'Impact catalogs and selected hydration remain bounded');
   assert.deepEqual(errors,[]);
  }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
 });

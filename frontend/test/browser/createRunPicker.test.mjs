@@ -25,7 +25,7 @@ const page=async query=>{window.calls.push({resource:'testCases',method:'picker'
 api.auth.session=async()=>{await sessionReady;return session;};api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.settings.getLocalization=async()=>({strings:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});api.metadata.domain=async()=>({test_cases:{statuses:[{value:'approved',label:'Approved'},{value:'draft',label:'Draft'}]}});api.projects.list=async()=>[project];api.appTypes.list=async()=>[app];
 api.metadata.workspaceScopes=async()=>({projects:[project]});
 api.executions.list=async()=>[];api.executions.get=async id=>({id,name:'Created run',status:'queued',project_id:'project',app_type_id:'app',test_case_ids:[],case_snapshots:[],step_snapshots:[],suite_ids:[]});api.executions.create=async input=>{window.saved.push(input);return {id:'created-run'};};
-api.testCases.list=async()=>{window.calls.push({resource:'testCases',method:'list'});throw new Error('A full Test Case catalog must not load');};api.testCases.listPage=page;api.testCases.listPicker=page;api.testSuites.list=async query=>{window.calls.push({resource:'testSuites',method:'list',args:[query]});return suites;};
+api.testCases.list=async()=>{window.calls.push({resource:'testCases',method:'list'});throw new Error('A full Test Case catalog must not load');};api.testCases.listPage=page;api.testCases.listPicker=page;api.testSuites.list=async query=>{window.calls.push({resource:'testSuites',method:'list',args:[query]});return query?.label==='missing'?[]:suites;};
 api.testCaseModules.list=async query=>{window.calls.push({resource:'testCaseModules',method:'list',args:[query]});return [{id:'advanced-module',app_type_id:'app',name:'Advanced coverage'}];};
 api.requirementReleases.list=async()=>{await releaseReady;return [{id:'release',name:'Release 2026',fix_version:'v2026',sprint_ids:[],requirement_ids:[]}];};api.requirementIterations.list=async()=>[];
 api.executions.parameterPlan=async input=>({case_count:input.test_case_ids?.length||0,suite_count:input.suite_ids?.length||0,expected_instance_count:input.test_case_ids?.length||0,parameters:[]});
@@ -52,7 +52,7 @@ test('Create Run unified selection preserves paged choices and submitted order t
     await page.getByRole('button', { name: 'Create Manual Run', exact: true }).waitFor();
     assert.equal(await page.evaluate(() => window.calls.filter(call => call.resource === 'testCases').length), 0, 'the run library does not prefetch the entire case catalog');
     await page.getByRole('button', { name: 'Create Manual Run', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Create New Execution Run', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Create new run', exact: true });
     await dialog.waitFor();
     await dialog.getByLabel('Run Name', { exact: true }).fill('A run selected across pages');
     const picker = dialog.locator('.test-case-picker--inline').filter({ has: page.getByText('Test Case Selection', { exact: true }) });
@@ -139,6 +139,21 @@ test('Create Run unified selection preserves paged choices and submitted order t
     assert.equal(await picker.getByRole('button',{name:'Move Run picker case 1 down',exact:true}).isDisabled(),true);
     await picker.getByRole('button',{name:'Move Run picker case 51 down',exact:true}).click();
     await picker.getByRole('button',{name:'Move Run picker case 51 up',exact:true}).click();
+    const suiteScope=dialog.locator('.suite-scope-server-picker');
+    assert.equal(await suiteScope.locator('details').count(),0,'Suite filtering has no separate linked-case disclosure');
+    assert.equal(await dialog.getByText('Filter by linked test cases',{exact:true}).count(),0);
+    await suiteScope.getByRole('button',{name:'Open filters',exact:true}).click();
+    const suiteScopeFilters=page.getByRole('dialog',{name:'Filter suites',exact:true});
+    await suiteScopeFilters.getByRole('searchbox',{name:'Search linked test cases and metadata',exact:true}).fill('Run picker case 51');
+    await suiteScopeFilters.getByRole('combobox',{name:'Filter suites by module',exact:true}).selectOption('advanced-module');
+    await suiteScopeFilters.getByRole('textbox',{name:'Filter suites by label',exact:true}).fill('missing');
+    await page.waitForFunction(()=>window.calls.some(call=>call.resource==='testSuites'&&call.args[0]?.case_search==='Run picker case 51'&&call.args[0]?.module_id==='advanced-module'&&call.args[0]?.label==='missing'&&call.args[0]?.projection==='picker'));
+    await suiteScope.locator('.suite-case-picker-option').waitFor({state:'hidden'});
+    await suiteScopeFilters.getByRole('button',{name:'Clear filters',exact:true}).click();
+    await page.keyboard.press('Escape');await suiteScopeFilters.waitFor({state:'hidden'});
+    await suiteScope.getByText('Checkout suite',{exact:true}).waitFor();
+    assert.equal(await dialog.isVisible(),true,'Clearing suite filters and closing their popup preserves the Run dialog');
+    assert.deepEqual(await selectedNames(),['Run picker case 51','Run picker case 1'],'Suite filters and clearing preserve direct case selection and order');
     for(const width of [1440,390]){
       await page.setViewportSize({width,height:1000});
       for(const theme of ['light','dark']){

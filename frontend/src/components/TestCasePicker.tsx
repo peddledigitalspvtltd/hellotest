@@ -41,7 +41,7 @@ export type TestCasePickerProps = {
   emptyMessage?: string;
   filters?: TestCasePickerFilters;
   allowReorder?: boolean;
-  presentation?: "default" | "inline";
+  presentation?: "default" | "inline" | "impact";
   selectionContext?: "module" | "run" | "suite";
   onItemsResolved?: (selectedItems: TestCase[]) => void;
   onSelectionResolutionChange?: (resolution: TestCaseSelectionResolution) => void;
@@ -67,11 +67,13 @@ function ScopedTestCasePicker({
   const viewport = useRef<HTMLDivElement>(null);
   const selectVisibleRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
+  const [impactOpen, setImpactOpen] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [moduleFilter, setModuleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [knownItems, setKnownItems] = useState(() => new Map(initialItems.map(item => [item.id, item])));
+  const isImpact = presentation === "impact";
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedIndexById = useMemo(() => new Map(selectedIds.map((id, index) => [id, index])), [selectedIds]);
   const selectedIdsKey = JSON.stringify(selectedIds);
@@ -102,7 +104,7 @@ function ScopedTestCasePicker({
       const cursor = page.next_cursor;
       return !page.is_last && cursor && !pageParams.includes(cursor) ? cursor : undefined;
     },
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId && (!isImpact || impactOpen)),
     staleTime: 30_000,
     placeholderData: previous => previous,
     retry: false
@@ -211,7 +213,7 @@ function ScopedTestCasePicker({
       .map(id => ({ id, item: itemById.get(id) }));
     return [...selected, ...items.filter(item => !selectedIdSet.has(item.id)).map(item => ({ id: item.id, item }))];
   }, [hasLocalFilter, items, itemById, selectedIdsKey, selectedIdSet]);
-  const visibleIds = useMemo(() => isInline ? inlineRows.map(row => row.id) : items.map(item => item.id), [inlineRows, isInline, items]);
+  const visibleIds = useMemo(() => isInline || isImpact ? inlineRows.map(row => row.id) : items.map(item => item.id), [inlineRows, isInline, isImpact, items]);
   const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds]);
   const visibleSelectedCount = visibleIds.filter(id => selectedIdSet.has(id)).length;
   const allVisibleSelected = Boolean(visibleIds.length) && visibleSelectedCount === visibleIds.length;
@@ -233,6 +235,50 @@ function ScopedTestCasePicker({
     [next[index], next[destination]] = [next[destination], next[index]];
     commitSelection(next);
   };
+
+  if (isImpact) return <details className="form-field impact-checkbox-field impact-select-dropdown test-case-picker--impact" onToggle={event => setImpactOpen(event.currentTarget.open)}>
+    <summary className="impact-select-summary">
+      <span className="form-field-label" id={`${controlId}-heading`}>{heading}</span>
+      <span>{selectedIds.length ? `${selectedIds.length} selected` : "Select…"}</span>
+    </summary>
+    <div className="impact-select-popover">
+      <div className="impact-checkbox-heading">
+        <span aria-live="polite">{selectedIds.length} selected</span>
+        <div className="impact-checkbox-actions">
+          {multiple ? <><button className="impact-checkbox-action" type="button"
+            disabled={disabled || isChangingSearch || !visibleIds.length || allVisibleSelected}
+            onClick={() => commitSelection([...selectedIds, ...visibleIds])}><SelectionToggleIcon checked />Select all</button><span aria-hidden="true">|</span></> : null}
+          <button className="impact-checkbox-action" type="button" disabled={disabled || !selectedIds.length}
+            onClick={() => commitSelection([])}><SelectionToggleIcon checked={false} />Clear</button>
+        </div>
+      </div>
+      <div className="impact-checkbox-picker">
+        <label className="impact-checkbox-search">
+          <IconSearch aria-hidden="true" size={17} />
+          <input type="search" aria-label={`Search ${heading.toLowerCase()}`} placeholder="Search test cases..." value={search} disabled={disabled}
+            onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} />
+        </label>
+        <div className="impact-checkbox-list" ref={viewport} role="group" aria-labelledby={`${controlId}-heading`} aria-busy={catalog.isFetching || isChangingSearch}>
+          {catalog.isLoading ? <p className="test-case-picker-status" role="status">Loading test cases…</p> : null}
+          {catalog.isError && !items.length ? <p className="test-case-picker-status" role="alert">Test cases couldn't be loaded. <button className="impact-checkbox-action" type="button" onClick={() => void catalog.refetch()}>Retry test cases</button></p> : null}
+          {inlineRows.map(({ id, item }) => <label className={`impact-checkbox-option${selectedIdSet.has(id) ? " is-selected" : ""}`} key={id}>
+            <input type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selectedIdSet.has(id)} disabled={disabled || isChangingSearch} onChange={() => toggle(id)} />
+            <span><strong>{item?.title || id}</strong><small>{item?.display_id || id}</small></span>
+          </label>)}
+          {!catalog.isLoading && !catalog.isError && !inlineRows.length ? <div className="empty-state compact">{emptyMessage}</div> : null}
+          {selectedLookup.isLoading ? <p className="test-case-picker-status" role="status">Loading selected test case names…</p> : null}
+          {selectedLookup.isError ? <p className="test-case-picker-status" role="alert">Selected names couldn't be loaded. Your selection is retained. <button className="impact-checkbox-action" type="button" onClick={() => void selectedLookup.refetch()}>Retry selected cases</button></p> : null}
+          {isChangingSearch ? <p className="test-case-picker-status" role="status">Searching test cases…</p> : null}
+          {catalog.isError && items.length && !catalog.isFetchNextPageError ? <p className="test-case-picker-status" role="alert">Search couldn't be updated. <button className="impact-checkbox-action" type="button" onClick={() => void catalog.refetch()}>Retry search</button></p> : null}
+          {impactOpen && catalog.hasNextPage && !isChangingSearch ? <HierarchyAutoLoadSentinel
+            isLoading={catalog.isFetchingNextPage} onLoad={() => catalog.fetchNextPage()}
+            error={catalog.isFetchNextPageError} onRetry={() => catalog.fetchNextPage()}
+            scopeLabel="test cases" progressKey={`${scopeKey}:${catalog.data?.pages.length || 0}`}
+          /> : null}
+        </div>
+      </div>
+    </div>
+  </details>;
 
   const filterFields = <>
     {!filters?.module_id ? <label>Current module<select aria-label="Filter test cases by module" value={moduleFilter} disabled={disabled} onChange={event => setModuleFilter(event.target.value)}>
