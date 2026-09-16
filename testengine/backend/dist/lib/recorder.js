@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { chromium } from "playwright";
 import { constantTimeSecretMatches, extractTestEngineSecrets, resolveTestEngineSharedSecret } from "./testEngineSecurity.js";
-import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
+import { assertRemoteInspectionUrl, InspectionTargetError } from "./inspectionSecurity.js";
 import { createInspectionProxy } from "./inspectionProxy.js";
 const sessions = new Map();
 let inspectionSessionsStarting = 0;
@@ -2054,14 +2054,14 @@ export const registerRecorderRoutes = async (app) => {
             && request.body?.purpose === "repository-inspect";
         if ((agentToken && !paired && !scoped)
             || (!agentToken && (repositoryCreate || session?.purpose === "repository-inspect") && !scoped && !isPrivileged(request))) {
-            reply.code(401).send({ message: agentToken ? "Pair this local inspection agent from HelloTest before connecting." : "Protected inspection session requires authorization." });
+            reply.code(401).send({ code: agentToken ? "INSPECTION_AGENT_UNPAIRED" : "INSPECTION_AUTH_REQUIRED", message: agentToken ? "Pair this local inspection agent from HelloTest before connecting." : "Protected inspection session requires authorization." });
         }
     });
     app.get("/api/v1/recorder/agent/status", async (_request, reply) => {
         reply.header("cache-control", "no-store");
         if (!agentToken) {
             reply.code(409);
-            return { ready: false, message: "Restart the local agent using the pairing command from Object Repository." };
+            return { ready: false, code: "INSPECTION_AGENT_NOT_CONFIGURED", message: "Restart the local agent using the pairing command from Object Repository." };
         }
         const ready = await access(chromium.executablePath()).then(() => true, () => false);
         return { ready, service: "hellotest-inspection-agent", protocol_version: 1,
@@ -2724,19 +2724,19 @@ export const registerRecorderRoutes = async (app) => {
         const remoteInspection = purpose === "repository-inspect" && !agentToken;
         if (body?.start_url && !startUrl) {
             reply.code(400);
-            return { message: "Enter a valid HTTP(S) URL." };
+            return { code: "INSPECTION_URL_INVALID", message: "Enter a valid HTTP(S) URL." };
         }
         if (startUrl) {
             try {
                 const parsed = new URL(startUrl);
                 if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password)
-                    throw new Error("Enter an HTTP(S) URL without credentials.");
+                    throw new InspectionTargetError("INSPECTION_URL_INVALID", "Enter an HTTP(S) URL without credentials.");
                 if (remoteInspection)
                     await assertRemoteInspectionUrl(startUrl);
             }
             catch (error) {
                 reply.code(400);
-                return { message: error instanceof Error ? error.message : "Invalid inspection URL" };
+                return { code: error instanceof InspectionTargetError ? error.code : "INSPECTION_URL_INVALID", message: error instanceof Error ? error.message : "Invalid inspection URL" };
             }
         }
         const reusableSession = purpose !== "repository-inspect" && body?.reuse_existing === true

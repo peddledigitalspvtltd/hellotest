@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
-import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, stopRepositoryInspectSession } from "../src/lib/repositoryInspectSession.ts";
+import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, normalizeRepositoryInspectStartUrl, repositoryInspectLegacyPageUrl, stopRepositoryInspectSession } from "../src/lib/repositoryInspectSession.ts";
 
 const session = { id: "inspect-1", purpose: "repository-inspect", status: "running", status_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1", live_view_url: "http://localhost:4311/api/v1/recorder/sessions/inspect-1/live?token=secret-session-token" };
 const tab = (id, active = false) => ({ id, title: id, url: `https://app.test/${id}`, active });
@@ -99,7 +99,7 @@ test("reopening recovers an expired session and selects a tab from the new brows
   const staged = [{ locator: "#kept" }];
   const context = {
     inspectLifecycleBusyRef: { current: false }, inspectSessionRef: { current: session }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "old-tab" },
-    screenUrlDraft: "https://app.test/checkout", loadRepositoryInspectTabs, stopRepositoryInspectSession,
+    screenUrlDraft: "https://app.test/checkout", normalizeRepositoryInspectStartUrl, loadRepositoryInspectTabs, stopRepositoryInspectSession,
     readRecorderJson: async (url, options) => {
       requested.push({ url, options });
       if (url.includes("/inspect-1/")) throw Object.assign(new Error("Recorder session not found"), { status: 404 });
@@ -142,7 +142,7 @@ test("remote launch never discovers or contacts a browser-machine local agent", 
   const remote = { ...session, recorder_mode: "remote", id: "remote-session", status_url: "https://app.test/api/repository-inspection/sessions/remote-session?token=opaque", live_view_url: "https://app.test/api/repository-inspection/sessions/remote-session/live?token=opaque" };
   let started;
   const context = {
-    recommendedInspectMode: "remote", canInspectRepository: true, activeRepositoryProjectId: "project", projectId: "project", activeRepositoryAppTypeId: "app", appTypeId: "app", screenUrlDraft: "https://target.test",
+    recommendedInspectMode: "remote", canInspectRepository: true, normalizeRepositoryInspectStartUrl, activeRepositoryProjectId: "project", projectId: "project", activeRepositoryAppTypeId: "app", appTypeId: "app", screenUrlDraft: "https://target.test",
     inspectLifecycleBusyRef: { current: false }, inspectSessionRef: { current: null }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "" },
     inspectAgent: { check: () => assert.fail("Remote launch must not probe localhost") },
     api: { repositoryInspection: { start: async input => { started = input; return remote; } } },
@@ -153,7 +153,7 @@ test("remote launch never discovers or contacts a browser-machine local agent", 
   context.loadInspectTabs = handler("loadInspectTabs", context);
   const result = await handler("launchInspectBrowser", context)();
   assert.equal(result, remote);
-  assert.deepEqual(started, { project_id: "project", app_type_id: "app", start_url: "https://target.test" });
+  assert.deepEqual(started, { project_id: "project", app_type_id: "app", start_url: "https://target.test/" });
   assert.equal(context.selectedInspectTabIdRef.current, "remote-tab");
 });
 
@@ -166,4 +166,30 @@ test("local inspection forwards pairing credentials only for explicitly local se
 test("inspection creation requires repository management without depending on execution permissions", async () => {
   const launch = handler("launchInspectBrowser", { canInspectRepository: false, recommendedInspectMode: "remote" });
   await assert.rejects(launch(), /Object repository management permission is required/);
+});
+
+test("inspection URLs trim and canonicalize websites but reject screen names and matching patterns", () => {
+  for (const value of [undefined, null, "", " \n "]) assert.equal(normalizeRepositoryInspectStartUrl(value), undefined);
+  assert.equal(normalizeRepositoryInspectStartUrl("  https://app.test/checkout  "), "https://app.test/checkout");
+  assert.equal(normalizeRepositoryInspectStartUrl("app.test/checkout"), "https://app.test/checkout");
+  assert.equal(normalizeRepositoryInspectStartUrl("http://localhost:3000"), "http://localhost:3000/");
+  assert.equal(normalizeRepositoryInspectStartUrl("localhost:3000"), "https://localhost:3000/");
+  assert.equal(normalizeRepositoryInspectStartUrl("http://intranet/login"), "http://intranet/login");
+  for (const value of ["Checkout", "checkout-screen", "/checkout", "//app.test", "https://user:secret@app.test", "javascript:alert(1)", "ftp://app.test", "file:///tmp/app", "about:blank", "https://app.test/login\nextra", "*.app.test"]) {
+    assert.throws(() => normalizeRepositoryInspectStartUrl(value), /Page URL empty/, value);
+  }
+});
+
+test("repository screen identifiers never become inspection navigation URLs", () => {
+  const resolve = handler("getRepositoryScreenUrl", { repositoryInspectLegacyPageUrl });
+  assert.equal(resolve([{ page_key: "Checkout page" }]), "No URL captured");
+  assert.equal(resolve([{ page_key: "/checkout" }]), "No URL captured");
+  assert.equal(resolve([{ page_key: "https://app.test/legacy" }]), "https://app.test/legacy");
+  assert.equal(resolve([{ page_key: "Checkout", page_url: "https://app.test/checkout" }]), "https://app.test/checkout");
+});
+
+test("invalid page URLs are rejected before either browser transport creates a session", async () => {
+  const context = { recommendedInspectMode: "remote", canInspectRepository: true, inspectLifecycleBusyRef: { current: false }, screenUrlDraft: "CheckoutScreen", normalizeRepositoryInspectStartUrl };
+  await assert.rejects(handler("launchInspectBrowser", context)(), /Screen names and URL match patterns cannot be opened/);
+  assert.equal(context.inspectLifecycleBusyRef.current, false);
 });

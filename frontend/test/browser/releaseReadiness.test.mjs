@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import test from "node:test";
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || "playwright");
+const { expect } = require(`${process.env.PLAYWRIGHT_MODULE || "playwright"}/test`);
 const root = new URL("../../", import.meta.url);
 const fixture = await readFile(
   new URL("./fixtures/releaseReadiness.fixture.tsx", import.meta.url),
@@ -75,26 +76,20 @@ test(
         path: `${screenshotRoot}/readiness-after-desktop.png`,
         fullPage: true,
       });
-      const review = page.getByRole("tab", { name: /Review/ });
+      const review = page.getByRole("tab", { name: /Decision brief/ });
       await review.focus();
       await review.press("ArrowRight");
-      assert.equal(
-        await page
-          .getByRole("tab", { name: /Stories/ })
-          .getAttribute("aria-selected"),
-        "true",
-      );
+      await expect(page
+          .getByRole("tab", { name: /Traceability/ })
+          ).toHaveAttribute("aria-selected", "true");
       assert.match(
         await page.locator(".rr-story-row").first().innerText(),
         /1 failed/,
       );
-      await page.getByRole("tab", { name: /Stories/ }).press("End");
-      assert.equal(
-        await page
-          .getByRole("tab", { name: /Runs/ })
-          .getAttribute("aria-selected"),
-        "true",
-      );
+      await page.getByRole("tab", { name: /Traceability/ }).press("End");
+      await expect(page.getByRole("tab", { name: /Bugs/ })).toHaveAttribute("aria-selected", "true");
+      await expect(page.getByRole("tab")).toHaveCount(5);
+      await page.getByRole("tab", { name: /Execution evidence/ }).click();
       assert.match(
         await page.locator(".rr-run").first().innerText(),
         /2 passed.*1 failed.*1 not assessed/s,
@@ -105,7 +100,7 @@ test(
         path: `${screenshotRoot}/readiness-runs.png`,
         fullPage: true,
       });
-      await page.getByRole("tab", { name: /Runs/ }).press("Home");
+      await page.getByRole("tab", { name: /Execution evidence/ }).press("Home");
       for (const width of [1440, 1024, 768, 390, 320]) {
         await page.setViewportSize({ width, height: 1100 });
         const bounds = await page.evaluate(() => ({
@@ -172,7 +167,7 @@ test(
         ),
       );
       await page.evaluate(() => window.finishReadinessAi());
-      assert.equal(await page.getByRole("dialog").count(), 0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await page.evaluate(() =>
         window.setReadinessPreferences({
           language: "es",
@@ -282,8 +277,8 @@ test(
       });
       await page.goto(`${base}?scenario=linked`);
       await page.getByRole("heading",{name:"Attention required",exact:true}).waitFor();
-      await page.getByRole("tab",{name:/Stories/}).click();
-      assert.equal(await page.locator(".rr-story-row").count(),1);
+      await page.getByRole("tab",{name:/Traceability/}).click();
+      await expect(page.locator(".rr-story-row")).toHaveCount(1);
       assert.match(await page.locator(".rr-story-row").innerText(),/CP-143/);
       assert.equal((await page.evaluate(()=>window.readinessCalls.filter(call=>call.kind==='stories'))).length,0);
       assert.equal(await page.getByLabel("Release / fix version").isDisabled(),true);
@@ -329,10 +324,10 @@ test('revoking a source permission clears cached evidence and a pending AI expla
   await page.getByRole('button',{name:'Explain release',exact:true}).click();await page.getByRole('dialog').waitFor();
   await page.evaluate(()=>window.revokeReadinessBugs());await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Explain release',exact:true}).count(),0);
-  assert.equal(await page.getByRole('link',{name:'Review defect: Payment is captured twice after retry'}).count(),0);
+  await expect(page.getByRole('button',{name:'Explain release',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('link',{name:'Review defect: Payment is captured twice after retry'})).toHaveCount(0);
   assert.match(await page.locator('.rr-metric').last().innerText(),/—.*Unavailable/s);
-  await page.evaluate(()=>window.finishReadinessAi());assert.equal(await page.getByRole('dialog').count(),0);
+  await page.evaluate(()=>window.finishReadinessAi());await expect(page.getByRole('dialog')).toHaveCount(0);
 }));
 
 async function downloadEvidence(page) {
@@ -355,11 +350,11 @@ test('readiness search, check drilldowns, exact Story relationships and exports 
   });
   assert.ok(Math.abs(toolbar.search.top-toolbar.filter.top)<2,'desktop search and filter share the same row');
   assert.ok(toolbar.search.width>200&&toolbar.filter.width>100,'both inline controls remain usable');
-  assert.equal(await page.locator('.rr-checks > li').count(),6,'all six observed checks are available');
+  await expect(page.locator('.rr-checks > li')).toHaveCount(6);
   assert.match(await page.locator('.rr-actions > li').first().innerText(),/Payment is captured twice/,'known critical evidence leads the action queue');
 
   await search.fill('duplicate charge');
-  assert.equal(await page.locator('.rr-actions > li').count(),1);
+  await expect(page.locator('.rr-actions > li')).toHaveCount(1);
   assert.match(await page.locator('.rr-actions').innerText(),/Recover abandoned payments/);
   await filter.selectOption('bugs');
   await page.getByRole('heading',{name:'No matching evidence',exact:true}).waitFor();
@@ -376,17 +371,21 @@ test('readiness search, check drilldowns, exact Story relationships and exports 
   assert.deepEqual(exportWithNoLocalMatches.source_limits,{page_size:100,maximum_pages:10,run_limit:10,result_attempt_limit:300});
   assert.ok(exportWithNoLocalMatches.sources.every(source=>source.available&&source.status==='complete'));
   assert.equal(exportWithNoLocalMatches.assessment.provisional,false);
+  assert.ok(exportWithNoLocalMatches.readiness_index, 'export includes the transparent advisory index');
+  assert.ok(Array.isArray(exportWithNoLocalMatches.readiness_index.components));
+  assert.equal(exportWithNoLocalMatches.readiness_index.components.length, 4);
   assert.doesNotMatch(JSON.stringify(exportWithNoLocalMatches),/SENSITIVE_FIXTURE_MARKER|"snapshot"|"readinessScore"|"confidence"/);
   await page.getByRole('button',{name:'Clear filters',exact:true}).click();
 
-  await page.getByRole('tab',{name:/Stories/}).click();
+  await page.getByRole('tab',{name:/Traceability/}).click();
+  await expect(page.getByRole('tab',{name:/Traceability/})).toHaveAttribute('aria-selected','true');
   await search.fill('CP-142');
-  assert.equal(await page.locator('.rr-story-row').count(),1);
+  await expect(page.locator('.rr-story-row')).toHaveCount(1);
   await page.getByRole('button',{name:'Inspect evidence: Customers can securely complete checkout',exact:true}).click();
   const inspector = page.locator('.rr-story-inspector');
   await inspector.locator('summary').filter({hasText:'Linked tests'}).click();
-  await inspector.locator('summary').filter({hasText:'Runs'}).click();
-  await inspector.locator('summary').filter({hasText:'Open defects'}).click();
+  await inspector.locator('summary').filter({hasText:'Execution evidence'}).click();
+  await inspector.locator('summary').filter({hasText:'Open Bugs'}).click();
   assert.deepEqual(await inspector.locator('a[href^="/test-cases"]').evaluateAll(links=>links.map(link=>link.getAttribute('href'))),['/test-cases?case=c1&project_id=project','/test-cases?case=c2&project_id=project']);
   assert.deepEqual(await inspector.locator('a[href^="/executions"]').evaluateAll(links=>links.map(link=>link.getAttribute('href'))),['/executions?execution=r1&project_id=project','/executions?execution=r2&project_id=project']);
   assert.equal(await inspector.getByRole('link',{name:/Payment is captured twice/}).getAttribute('href'),'/issues?issue=bug1&project_id=project');
@@ -404,38 +403,39 @@ test('readiness search, check drilldowns, exact Story relationships and exports 
   await page.evaluate(()=>document.documentElement.dataset.theme='dark');
   await page.screenshot({path:`${screenshotRoot}/readiness-story-inspector-dark.png`,fullPage:true});
   await page.evaluate(()=>document.documentElement.dataset.theme='light');
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.rr-evidence-toolbar select')).backgroundColor==='rgb(255, 255, 255)'&&getComputedStyle(document.querySelector('.rr-search input')).backgroundColor==='rgba(0, 0, 0, 0)');
 
   const drills=[
-    ['Critical defects','Review','critical','.rr-actions > li',1],
-    ['Failed test outcomes','Runs','failed','.rr-run',1],
-    ['Uncovered P1 / P2 stories','Stories','priority','.rr-story-row',1],
-    ['Cases awaiting assessment','Stories','unassessed','.rr-story-row',1],
-    ['Blocked test evidence','Runs','blocked','.rr-run',1],
-    ['Evidence freshness','Runs','all','.rr-run',2],
+    ['Critical defect exposure','Bugs','critical','.rr-record-explorer--bugs tbody > tr',1],
+    ['Failed test outcomes','Execution evidence','failed','.rr-run',1],
+    ['Priority Story coverage','Traceability','priority','.rr-story-row',1],
+    ['Cases awaiting assessment','Test cases','unassessed','.rr-record-explorer--cases tbody > tr',1],
+    ['Blocked test evidence','Execution evidence','blocked','.rr-run',1],
+    ['Evidence freshness','Execution evidence','all','.rr-run',2],
   ];
   for(const [check,tab,value,selector,count] of drills){
     await page.getByRole('button',{name:`Inspect ${check} evidence`,exact:true}).click();
-    assert.equal(await page.getByRole('tab',{name:new RegExp(tab)}).getAttribute('aria-selected'),'true');
-    assert.equal(await filter.inputValue(),value);
-    assert.equal(await search.inputValue(),'','check drilldown clears an unrelated search');
+    await expect(page.getByRole('tab',{name:new RegExp(tab)})).toHaveAttribute("aria-selected", "true");
+    await expect(filter).toHaveValue(value);
+    await expect(search).toHaveValue('');
     assert.equal(await page.locator(selector).count(),count,check+' opens the relevant evidence');
     if(value==='priority')assert.match(await page.locator('.rr-story-inspector h3').innerText(),/Recover abandoned payments/,'a check never leaves a hidden, unrelated Story in the inspector');
     assert.match(await page.locator('.rr-check-detail').innerText(),new RegExp(check.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
     assert.equal(await page.locator('.rr-metrics').innerText(),metrics);
   }
   await search.fill('Archived Firefox');
-  assert.equal(await page.locator('.rr-run').count(),1,'run search uses saved context labels');
+  await expect(page.locator('.rr-run')).toHaveCount(1);
   assert.match(await page.locator('.rr-run').innerText(),/Planned Firefox confirmation/);
   await page.evaluate(()=>window.revokeReadinessBugs());
   await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
-  await page.waitForFunction(()=>document.querySelector('.rr-metric:last-child').textContent.includes('Unavailable'));
+  await page.waitForFunction(()=>[...document.querySelectorAll('.rr-metric')].at(-1)?.textContent.includes('Unavailable'));
   const restrictedExport=await downloadEvidence(page);
   assert.equal(restrictedExport.assessment.provisional,true);
   assert.equal(restrictedExport.metrics.open_defects,null);
   assert.deepEqual(restrictedExport.open_defects,[]);
   assert.ok(restrictedExport.stories.every(story=>story.open_defect_ids.length===0));
   assert.equal(restrictedExport.sources.find(source=>source.source==='bugs').status,'unavailable');
-  assert.equal(await page.getByRole('button',{name:'Inspect Critical defects evidence',exact:true}).isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Inspect Critical defect exposure evidence',exact:true}).isDisabled(),true);
 }));
 
 test('readiness treats policy refresh errors, unknown freshness and missing release permission as incomplete evidence', {timeout:60000}, async()=>withPage(async(page,base)=>{
@@ -458,7 +458,7 @@ test('readiness treats policy refresh errors, unknown freshness and missing rele
   await page.getByRole('button',{name:'Refresh evidence',exact:true}).click();
   await page.getByRole('alert').filter({hasText:'Some sources could not be refreshed'}).waitFor();
   await page.locator('.rr-decision').getByText('Limited evidence',{exact:true}).waitFor();
-  assert.equal(await page.getByText('Loaded sources complete',{exact:true}).count(),0);
+  await expect(page.getByText('Loaded sources complete',{exact:true})).toHaveCount(0);
   const uncertain=await downloadEvidence(page);
   assert.equal(uncertain.assessment.provisional,true);
   assert.ok(uncertain.checks.every(check=>check.state!=='pass'),'cached source rows cannot clear checks after policy refresh fails');
@@ -466,4 +466,234 @@ test('readiness treats policy refresh errors, unknown freshness and missing rele
   await page.evaluate(()=>window.readinessFailFlags=false);
   await page.getByRole('button',{name:'Retry',exact:true}).click();
   await page.getByText('Loaded sources complete',{exact:true}).waitFor();
+}));
+
+
+test('case explorer retains run-only and missing-detail IDs without collapsing conflicting outcome rows', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=explorers`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await page.getByRole('tab',{name:/Test cases/}).click();
+  const explorer=page.locator('.rr-record-explorer--cases');
+  const primaryRows=explorer.locator('tbody > tr:not(.rr-record-detail-row)');
+  await expect(primaryRows).toHaveCount(11);
+  for(const id of ['c-missing','c-run-only','c-planned-only']){
+    const row=primaryRows.filter({has:page.locator(`a[href="/test-cases?case=${id}&project_id=project"]`)});
+    await expect(row).toHaveCount(1);
+    assert.match(await row.innerText(),/Case details are outside the loaded evidence/);
+  }
+  const mixed=primaryRows.filter({has:page.getByRole('link',{name:'Card payment succeeds',exact:true})});
+  await expect(mixed).toHaveCount(1);
+  assert.match(await mixed.innerText(),/Failed outcomes.*1 passed.*1 failed/s);
+  await mixed.getByRole('button',{name:'Inspect evidence for Card payment succeeds',exact:true}).click();
+  const details=page.getByRole('region',{name:'Evidence for Card payment succeeds',exact:true});
+  await expect(details.locator('.rr-case-result-list > li')).toHaveCount(2);
+  assert.match(await details.innerText(),/card-a.*res1.*failed.*card-b.*res2.*passed/si);
+  assert.equal(await details.getByRole('link',{name:'Release candidate · Chrome and Safari',exact:true}).last().getAttribute('href'),'/executions?execution=r1&project_id=project');
+
+  const filter=page.getByRole('combobox',{name:'Filter evidence',exact:true});
+  await filter.selectOption('unassessed');
+  await expect(explorer.getByRole('link',{name:'c-planned-only',exact:true})).toHaveCount(1);
+  await expect(explorer.getByRole('link',{name:'c-missing',exact:true})).toHaveCount(1);
+  await expect(explorer.getByRole('link',{name:'c-run-only',exact:true})).toHaveCount(0);
+  await filter.selectOption('failed');
+  await expect(primaryRows).toHaveCount(2);
+  await expect(explorer.getByRole('link',{name:'c-run-only',exact:true})).toHaveCount(1);
+  await filter.selectOption('passed');
+  await expect(explorer.getByRole('link',{name:'Card payment succeeds',exact:true})).toHaveCount(0);
+  await filter.selectOption('all');
+  await explorer.getByRole('button',{name:'Inspect evidence for Card payment succeeds',exact:true}).click();
+  await page.locator('.rr-evidence').evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+  await page.screenshot({path:`${screenshotRoot}/readiness-case-explorer.png`,fullPage:false});
+  await page.evaluate(()=>document.documentElement.dataset.theme='dark');
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.rr-evidence-toolbar select')).backgroundColor==='rgb(24, 34, 49)');
+  await page.screenshot({path:`${screenshotRoot}/readiness-case-explorer-dark.png`,fullPage:false});
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.rr-evidence-toolbar select')).backgroundColor==='rgb(255, 255, 255)'&&getComputedStyle(document.querySelector('.rr-search input')).backgroundColor==='rgba(0, 0, 0, 0)');
+  for(const width of [768,390,320]){
+    await page.setViewportSize({width,height:1100});
+    await page.waitForFunction(()=>{
+      const selected=document.querySelector('[role=tab][aria-selected=true]').getBoundingClientRect();
+      const strip=document.querySelector('[role=tablist]').getBoundingClientRect();
+      return selected.left>=strip.left-1&&selected.right<=strip.right+1;
+    });
+    const bounds=await page.evaluate(()=>({doc:document.documentElement.scrollWidth,right:document.querySelector('.rr-record-explorer--cases').getBoundingClientRect().right}));
+    assert.ok(bounds.doc<=width+1&&bounds.right<=width+1,`Case evidence overflow at ${width}: ${JSON.stringify(bounds)}`);
+    if(width===390){
+      await page.locator('.rr-evidence').evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+      await page.screenshot({path:`${screenshotRoot}/readiness-case-explorer-mobile.png`,fullPage:false});
+    }
+  }
+}));
+
+test('Bug explorer filters scoped open records and follows exact relationships without exposing resolved bugs', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=explorers`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await page.getByRole('tab',{name:/Bugs/}).click();
+  const explorer=page.locator('.rr-record-explorer--bugs');
+  const rows=explorer.locator('tbody > tr');
+  await expect(rows).toHaveCount(8);
+  await expect(explorer.getByRole('link',{name:'Resolved checkout alignment',exact:true})).toHaveCount(0);
+  const unlinked=rows.filter({has:page.getByRole('link',{name:'Unlinked release bug',exact:true})});
+  assert.match(await unlinked.innerText(),/No linked evidence in the loaded scope/);
+  const filter=page.getByRole('combobox',{name:'Filter evidence',exact:true});
+  await filter.selectOption('linked');
+  await expect(rows).toHaveCount(7);
+  await expect(explorer.getByRole('link',{name:'Unlinked release bug',exact:true})).toHaveCount(0);
+  await filter.selectOption('critical');
+  await expect(rows).toHaveCount(1);
+  assert.equal(await explorer.getByRole('link',{name:'Payment is captured twice after retry',exact:true}).getAttribute('href'),'/issues?issue=bug1&project_id=project');
+  await explorer.locator('.rr-bug-links > summary').click();
+  assert.equal(await explorer.getByRole('link',{name:'Card payment succeeds',exact:true}).getAttribute('href'),'/test-cases?case=c1&project_id=project');
+  assert.equal(await explorer.getByRole('link',{name:'Release candidate · Chrome and Safari',exact:true}).getAttribute('href'),'/executions?execution=r1&project_id=project');
+  await page.locator('.rr-evidence').evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+  await page.screenshot({path:`${screenshotRoot}/readiness-bug-explorer.png`,fullPage:false});
+  await page.evaluate(()=>document.documentElement.dataset.theme='dark');
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.rr-evidence-toolbar select')).backgroundColor==='rgb(24, 34, 49)');
+  await page.screenshot({path:`${screenshotRoot}/readiness-bug-explorer-dark.png`,fullPage:false});
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.rr-evidence-toolbar select')).backgroundColor==='rgb(255, 255, 255)'&&getComputedStyle(document.querySelector('.rr-search input')).backgroundColor==='rgba(0, 0, 0, 0)');
+  await page.setViewportSize({width:390,height:1100});
+  await page.waitForFunction(()=>{
+    const selected=document.querySelector('[role=tab][aria-selected=true]').getBoundingClientRect();
+    const strip=document.querySelector('[role=tablist]').getBoundingClientRect();
+    return selected.left>=strip.left-1&&selected.right<=strip.right+1;
+  });
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Bug relationships fit the mobile viewport');
+  await page.locator('.rr-evidence').evaluate(node=>node.scrollIntoView({block:'start',behavior:'instant'}));
+  await page.screenshot({path:`${screenshotRoot}/readiness-bug-explorer-mobile.png`,fullPage:false});
+  await explorer.getByRole('button',{name:/CP-142.*Customers can securely complete checkout/}).click();
+  await expect(page.getByRole('tab',{name:/Traceability/})).toHaveAttribute("aria-selected", "true");
+  assert.match(await page.locator('.rr-story-inspector h3').innerText(),/Customers can securely complete checkout/);
+  await page.waitForFunction(()=>{
+    const inspector=document.querySelector('.rr-story-inspector');
+    const bounds=inspector?.getBoundingClientRect();
+    return document.activeElement===inspector&&bounds.top>=-1&&bounds.top<innerHeight-100;
+  }).catch(async error=>{
+    console.error('Mobile Story navigation',await page.evaluate(()=>({active:document.activeElement?.outerHTML.slice(0,250),inspector:document.querySelector('.rr-story-inspector')?.getBoundingClientRect().toJSON(),url:location.href})));
+    await page.screenshot({path:`${screenshotRoot}/readiness-story-navigation-failure.png`,fullPage:false});
+    throw error;
+  });
+}));
+
+test('evidence URL preserves filter, search, selected Story and observed check through reload and browser Back', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=explorers`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await page.getByRole('tab',{name:/Traceability/}).click();
+  await expect(page.getByRole('tab',{name:/Traceability/})).toHaveAttribute('aria-selected','true');
+  await page.getByRole('searchbox',{name:'Search evidence',exact:true}).fill('CP-142');
+  await page.getByRole('button',{name:'Inspect evidence: Customers can securely complete checkout',exact:true}).click();
+  await page.waitForURL(url=>url.searchParams.get('evidence_story')==='s1');
+  const storyUrl=new URL(page.url());
+  assert.equal(storyUrl.searchParams.get('evidence_view'),'stories');
+  assert.equal(storyUrl.searchParams.get('evidence_search'),'CP-142');
+  assert.equal(storyUrl.searchParams.get('release'),'Autumn 2026');
+  await page.getByRole('button',{name:'Inspect Critical defect exposure evidence',exact:true}).click();
+  await page.waitForURL(url=>url.searchParams.get('evidence_check')==='critical-defects');
+  assert.equal(new URL(page.url()).searchParams.get('evidence_view'),'bugs');
+  assert.equal(new URL(page.url()).searchParams.get('evidence_filter'),'critical');
+  await page.reload();
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await expect(page.getByRole('tab',{name:/Bugs/})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('critical');
+  assert.match(await page.locator('.rr-check-detail').innerText(),/Critical defect exposure/);
+  await page.goBack();
+  await page.waitForURL(url=>url.searchParams.get('evidence_story')==='s1');
+  await expect(page.getByRole('tab',{name:/Traceability/})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole('searchbox',{name:'Search evidence',exact:true})).toHaveValue('CP-142');
+  assert.match(await page.locator('.rr-story-inspector h3').innerText(),/Customers can securely complete checkout/);
+  assert.equal(new URL(page.url()).searchParams.get('evidence_check'),null);
+  await page.reload();
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await expect(page.getByRole('searchbox',{name:'Search evidence',exact:true})).toHaveValue('CP-142');
+  assert.match(await page.locator('.rr-story-inspector h3').innerText(),/Customers can securely complete checkout/);
+}));
+
+test('metric definitions and the scope map distinguish unique cases from passing outcomes', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(base);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  const labels=['Story coverage','Execution completion','Latest pass rate','Blocking signals'];
+  assert.deepEqual(await page.locator('.rr-metric-heading > span').allTextContents(),labels);
+  for(const label of labels){
+    const card=page.locator('.rr-metric-card').filter({has:page.locator('.rr-metric-heading > span').filter({hasText:label})});
+    await card.locator('summary').filter({hasText:'How it’s calculated'}).click();
+    assert.ok((await card.locator('.rr-metric-definition p').innerText()).length>60,label+' has an actual metric definition');
+  }
+  await page.locator('.rr-metric').filter({hasText:'Blocking signals'}).click();
+  await expect(page.getByRole('tab',{name:/Decision brief/})).toHaveAttribute('aria-selected','true');
+  await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('blocking');
+  await expect(page.locator('.rr-actions > li')).toHaveCount(2);
+  assert.match(await page.locator('.rr-actions').innerText(),/Payment is captured twice.*Recover abandoned payments/s);
+  assert.doesNotMatch(await page.locator('.rr-actions').innerText(),/Release candidate · Chrome and Safari/,'a failed outcome alone is not part of the defined blocking-signal sum');
+  const map=page.getByRole('region',{name:'Scope to evidence',exact:true});
+  await expect(map.getByRole('button')).toHaveCount(6);
+  assert.equal(await map.getByRole('button',{name:/^Scoped test cases/}).locator('strong').innerText(),'3');
+  assert.equal(await map.getByRole('button',{name:/^Executed test cases/}).locator('strong').innerText(),'2');
+  assert.equal(await map.getByRole('button',{name:/^Passing test cases/}).locator('strong').innerText(),'1');
+  assert.match(await page.locator('.rr-metric').filter({hasText:'Latest pass rate'}).innerText(),/67%.*2 passed · 1 failed/s);
+  await map.getByRole('button',{name:/^Passing test cases/}).click();
+  await expect(page.getByRole('tab',{name:/Test cases/})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('passed');
+  await expect(page.locator('.rr-record-explorer--cases tbody > tr')).toHaveCount(1);
+  await expect(page.locator('.rr-record-explorer--cases').getByRole('link',{name:'Confirmation uses customer locale',exact:true})).toHaveCount(1);
+  await map.getByRole('button',{name:/^Covered stories/}).click();
+  await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('covered');
+  await expect(page.locator('.rr-story-row')).toHaveCount(2);
+  await map.getByRole('button',{name:/^Open Bugs/}).click();
+  await expect(page.getByRole('tab',{name:/Bugs/})).toHaveAttribute("aria-selected", "true");
+  const exported=await downloadEvidence(page);
+  assert.equal(exported.readiness_index.components.length,4);
+  assert.equal(exported.readiness_index.score,39,'known critical exposure caps the advisory index');
+  assert.ok(exported.readiness_index.caps.some(cap=>cap.id==='critical-defects'&&cap.maximum===39));
+  assert.ok(exported.readiness_index.rawScore>=exported.readiness_index.score);
+  assert.doesNotMatch(JSON.stringify(exported),/"confidence"/);
+  await page.setViewportSize({width:390,height:1000});
+  await map.getByRole('button',{name:/^Executed test cases/}).click();
+  await expect(page.getByRole('tab',{name:/Test cases/})).toHaveAttribute('aria-selected','true');
+  await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('executed');
+  await page.waitForFunction(()=>{
+    const tab=document.querySelector('[role="tab"][aria-selected="true"]');
+    const bounds=tab?.getBoundingClientRect();
+    return document.activeElement===tab&&bounds.top>=-1&&bounds.bottom<=innerHeight+1;
+  });
+}));
+
+test('every linked Story record remains reachable beyond five related cases, runs and Bugs', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=explorers`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  await page.getByRole('tab',{name:/Traceability/}).click();
+  await page.getByRole('button',{name:'Inspect evidence: Customers can securely complete checkout',exact:true}).click();
+  const inspector=page.locator('.rr-story-inspector');
+  for(const label of ['Linked tests','Execution evidence','Open Bugs']) await inspector.locator('summary').filter({hasText:label}).click();
+  for(const [prefix,lastId,param] of [['/test-cases','c-missing','case'],['/executions','r7','execution'],['/issues','bug9','issue']]){
+    assert.ok(await inspector.locator(`a[href^="${prefix}?"]`).count()>5,`${prefix}: every linked record is rendered`);
+    await expect(inspector.locator(`a[href="${prefix}?${param}=${lastId}&project_id=project"]`)).toHaveCount(1);
+  }
+}));
+
+test('permission fallbacks preserve available records and never present inaccessible runs or bugs as passing evidence', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=cases-denied&evidence_view=cases`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  assert.equal((await page.evaluate(()=>window.readinessCalls.filter(call=>call.kind==='cases'))).length,0);
+  assert.match(await page.getByRole('tabpanel').innerText(),/Test case evidence is unavailable/);
+  await expect(page.getByRole('tab',{name:/Test cases/}).locator('span')).toHaveText('—');
+  const hiddenCases=await downloadEvidence(page);
+  assert.equal(hiddenCases.readiness_index.score,null);
+  assert.equal(await page.getByRole('region',{name:'Scope to evidence',exact:true}).getByRole('button',{name:/^Scoped test cases/}).isDisabled(),true);
+
+  await page.goto(`${base}?scenario=runs-denied&evidence_view=cases&evidence_filter=passed`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  assert.equal((await page.evaluate(()=>window.readinessCalls.filter(call=>call.kind==='runs'))).length,0);
+  assert.match(await page.getByRole('tabpanel').innerText(),/Run evidence is unavailable/);
+  await expect(page.getByRole('tab',{name:/Execution evidence/}).locator('span')).toHaveText('—');
+  await page.getByRole('combobox',{name:'Filter evidence',exact:true}).selectOption('all');
+  await expect(page.locator('.rr-record-explorer--cases tbody > tr')).toHaveCount(3);
+  await expect(page.locator('.rr-case-state')).toHaveCount(0);
+  assert.equal((await downloadEvidence(page)).readiness_index.score,null);
+
+  await page.goto(`${base}?scenario=restricted&evidence_view=bugs`);
+  await page.getByRole('heading',{name:'Attention required',exact:true}).waitFor();
+  assert.match(await page.getByRole('tabpanel').innerText(),/Defect evidence is unavailable/);
+  await expect(page.getByRole('tab',{name:/Bugs/}).locator('span')).toHaveText('—');
+  assert.equal((await page.evaluate(()=>window.readinessCalls.filter(call=>call.kind==='bugs'))).length,0);
+  assert.equal((await downloadEvidence(page)).readiness_index.score,null);
 }));

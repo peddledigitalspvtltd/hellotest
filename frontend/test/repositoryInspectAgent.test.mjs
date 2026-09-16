@@ -148,3 +148,23 @@ test("unmount aborts setup and in-flight polling without late writes or restarti
   assert.equal(harness.lateWrites, 0);
   assert.equal(harness.timers.size, 0);
 });
+
+test("a browser-blocked local connection stays disconnected and can be paused for remote inspection", async () => {
+  const harness = createHarness();
+  harness.flush();
+  const blocked = harness.current.check();
+  harness.flush();
+  harness.probes[0].reject(new TypeError("Failed to fetch"));
+  assert.equal(await blocked, null);
+  harness.flush();
+  assert.equal(harness.current.state, "disconnected");
+  assert.equal(harness.current.agent, null);
+  assert.match(harness.current.message, /agent was started for another HelloTest address/);
+  assert.match(harness.current.message, /remote browser without a local agent/);
+  harness.current.pauseChecks();
+  harness.flush();
+  assert.equal(harness.current.state, "unchecked");
+  assert.equal(harness.current.setupOpen, false);
+  assert.equal(harness.timers.size, 0, "Remote fallback stops repeated blocked local probes");
+  harness.unmount();
+});

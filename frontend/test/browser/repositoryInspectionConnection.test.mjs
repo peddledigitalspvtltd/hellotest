@@ -19,10 +19,12 @@ import '/src/dark-theme.css';
 window.inspectionCalls = { checks: [], setups: [], starts: [], copies: [] };
 window.agentReady = false;
 window.agentStatusCode = 200;
+window.agentBlocked = false;
 const fetchOriginal = window.fetch;
 window.fetch = async (url, options) => {
   if (String(url).startsWith('http://127.0.0.1:4311')) {
     window.inspectionCalls.checks.push({ url: String(url), token: options.headers['X-HelloTest-Agent-Token'] });
+    if (window.agentBlocked) throw new TypeError('Failed to fetch');
     return new Response(JSON.stringify({ service:'hellotest-inspection-agent', protocol_version:1, ready:window.agentReady }), { status:window.agentStatusCode });
   }
   return fetchOriginal(url, options);
@@ -34,7 +36,7 @@ function App(){
   const [open,setOpen] = useState(false), [running,setRunning] = useState(false), [mode,setMode] = useState('remote');
   const ref=useDialogFocus({active:open,onClose:()=>setOpen(false)});
   return <main style={{padding:24}}><header style={{display:'flex',flexWrap:'wrap',justifyContent:'space-between',gap:12}}><h1>Object repository</h1><RepositoryAgentStatus connection={connection}/></header><button onClick={()=>setOpen(true)}>Inspect screen</button>
-  {open?<div className="modal-backdrop"><div className="modal-card" ref={ref} role="dialog" aria-label="Object repository inspector" tabIndex={-1} style={{width:920,padding:24}}><h2>Inspect screen</h2><RepositoryInspectSessionControls mode={mode} recommendedMode={connection.state==='connected'?'local':'remote'} remoteAvailable={true} localConnected={connection.state==='connected'} running={running} busy={false} onSetup={connection.openSetup} onStart={next=>{window.inspectionCalls.starts.push(next);setMode(next);setRunning(true)}} onClose={()=>setRunning(false)}/><p>Browser inspection workspace</p><button onClick={()=>setOpen(false)}>Close inspector</button></div></div>:null}<RepositoryAgentSetup connection={connection}/></main>;
+  {open?<div className="modal-backdrop"><div className="modal-card" ref={ref} role="dialog" aria-label="Object repository inspector" tabIndex={-1} style={{width:920,padding:24}}><h2>Inspect screen</h2><RepositoryInspectSessionControls mode={mode} recommendedMode={connection.state==='connected'?'local':'remote'} remoteAvailable={true} localConnected={connection.state==='connected'} running={running} busy={false} onSetup={connection.openSetup} onStart={next=>{window.inspectionCalls.starts.push(next);setMode(next);setRunning(true)}} onClose={()=>setRunning(false)}/><p>Browser inspection workspace</p><button onClick={()=>setOpen(false)}>Close inspector</button></div></div>:null}<RepositoryAgentSetup connection={connection} onUseRemote={()=>{window.inspectionCalls.starts.push('remote');setMode('remote');setRunning(true);setOpen(true)}}/></main>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
 `;
@@ -117,6 +119,14 @@ test("inspection defaults to remote without loopback probes and verifies paired 
     await setup.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("button", { name: "Inspect screen", exact: true }).click();
     await page.getByRole("button", { name: "Remote browser", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Close inspector", exact: true }).click();
+    await page.evaluate(() => { window.agentBlocked = true; });
+    await page.getByRole("button", { name: /Local agent: Not connected/ }).click();
+    await setup.getByText(/The local agent is unavailable or this browser blocked the connection/).waitFor();
+    await setup.getByRole("button", { name: "Use remote browser", exact: true }).click();
+    await setup.waitFor({ state: "hidden" });
+    await page.getByRole("button", { name: "Close browser", exact: true }).waitFor();
+    assert.deepEqual(await page.evaluate(() => window.inspectionCalls.starts), ["remote", "local", "remote"], "Local network/CORS failure cannot block the explicit remote fallback");
     assert.deepEqual(errors, []);
   } finally {
     await browser?.close();

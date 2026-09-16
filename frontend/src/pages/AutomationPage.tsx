@@ -39,7 +39,7 @@ import { GherkinStepTextField } from "../components/GherkinStepTextField";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall } from "../lib/automationKeywordInputs";
 import { automationMappingIsComplete, getAutomationSchedule, isAutomationPrecondition, seedAutomationPlan } from "../lib/automationPlan";
-import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, stopRepositoryInspectSession } from "../lib/repositoryInspectSession";
+import { buildInspectLiveUrl, inspectSessionRequest, loadRepositoryInspectTabs, normalizeRepositoryInspectStartUrl, repositoryInspectLegacyPageUrl, stopRepositoryInspectSession } from "../lib/repositoryInspectSession";
 import { automationCaseMappingStatus, automationMappingFieldsEqual, buildAutomationEditorStep, cacheCreatedAutomationStep, getAutomationStepInsertion, isAutomationStepMapped, refreshCreatedAutomationStep, resolveAutomationMappingSave, getAutomationStepReorder } from "../lib/automationStepPersistence";
 import {
   TileCardCaseIcon,
@@ -526,7 +526,7 @@ function formatRecorderDisplayMode(value?: string | null) {
 }
 
 function getRepositoryScreenUrl(entries: AutomationLearningCacheEntry[]) {
-  return entries.find((entry) => entry.page_url)?.page_url || entries[0]?.page_key || "No URL captured";
+  return entries.find((entry) => entry.page_url)?.page_url || repositoryInspectLegacyPageUrl(entries[0]?.page_key) || "No URL captured";
 }
 
 function isLikelyImageUrl(value: string) {
@@ -2039,6 +2039,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
     if (targetPage?.url && targetPage.url !== "No URL captured") {
       setScreenUrlDraft(targetPage.url);
+    } else if (targetPage) {
+      setScreenUrlDraft("");
     }
     setIsInspectOpen(true);
     setInspectReviewTab("candidates");
@@ -2222,7 +2224,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     const metadata = { ...screenMetadata, ...fieldMetadata };
     setScreenDomDraft(normalizeMetadataValue(screenMetadata.screen_dom_compressed) || normalizeMetadataValue(metadata.screen_dom_compressed));
     setScreenScreenshotDraft(normalizeMetadataValue(screenMetadata.screen_screenshot_url) || normalizeMetadataValue(metadata.screen_screenshot_url));
-    setScreenUrlDraft(activeScreenRecord?.page_url || selectedRepositoryEntry?.page_url || activeScreenRecord?.page_key || "");
+    setScreenUrlDraft(activeScreenRecord?.page_url || selectedRepositoryEntry?.page_url || repositoryInspectLegacyPageUrl(activeScreenRecord?.page_key));
     setScreenInfoDraft({
       screen_name: normalizeMetadataValue(screenMetadata.screen_name) || activeScreenName,
       url_pattern_type: normalizeMetadataValue(screenMetadata.url_pattern_type) || "contains",
@@ -4641,6 +4643,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const launchInspectBrowser = async (requestedMode: InspectSessionMode = recommendedInspectMode) => {
     if (!canInspectRepository) throw new Error("Object repository management permission is required to inspect a browser.");
     if (inspectLifecycleBusyRef.current) return inspectSessionRef.current;
+    const inspectionStartUrl = normalizeRepositoryInspectStartUrl(screenUrlDraft);
     inspectLifecycleBusyRef.current = true;
     setIsLaunchingInspectBrowser(true);
     setInspectMessage(requestedMode === "local" ? "Connecting to your local inspection agent…" : "Starting a remote inspection browser in the Test Engine…");
@@ -4669,7 +4672,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         const session = await readRecorderJson<RecorderSessionResponse>(`${runtime.publicBaseUrl}/api/v1/recorder/sessions`, {
           method: "POST",
           headers: { "X-HelloTest-Agent-Token": runtime.token },
-          body: JSON.stringify({ start_url: screenUrlDraft || undefined, reuse_existing: false, purpose: "repository-inspect" }),
+          body: JSON.stringify({ start_url: inspectionStartUrl, reuse_existing: false, purpose: "repository-inspect" }),
           signal: AbortSignal.timeout(90_000)
         });
         if (!session) throw new Error("The local agent did not return an inspection browser session.");
@@ -4678,7 +4681,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         connectedSession = await api.repositoryInspection.start({
           project_id: activeRepositoryProjectId || projectId,
           app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
-          start_url: screenUrlDraft || undefined
+          start_url: inspectionStartUrl
         });
       }
       if (generation !== inspectSessionGenerationRef.current) {
@@ -6295,7 +6298,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	            </div>
 	          ) : null}
 
-          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} /> : null}
+          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} onUseRemote={inspectCapabilities.data?.remote.available && inspectRecorderSession?.status !== "running" && !isLaunchingInspectBrowser ? () => {
+            setIsInspectOpen(true);
+            void launchInspectBrowser("remote").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start remote inspection browser."));
+          } : undefined} /> : null}
 	          {isInspectOpen ? (
             <div className="modal-backdrop" role="presentation">
               <div className={`dialog object-repository-inspector${isInspectBrowserMaximized ? " is-browser-maximized" : ""}`} ref={repositoryInspectorRef} role="dialog" aria-modal="true" aria-label="Object repository inspector" tabIndex={-1}>

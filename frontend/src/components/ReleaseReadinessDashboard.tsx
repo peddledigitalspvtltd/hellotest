@@ -31,6 +31,8 @@ import {
   isCriticalReadinessIssue,
   releaseReadinessScopeOptions,
 } from "../lib/releaseReadiness";
+import { ReadinessRecordExplorer } from "./ReadinessRecordExplorer";
+import { deriveReadinessIndex } from "../lib/readinessIndex";
 import { READINESS_MESSAGES } from "../lib/releaseReadinessMessages";
 import {
   AiInsightPreviewDialog,
@@ -41,7 +43,18 @@ import { HierarchyAutoLoadSentinel } from "./HierarchyLoadMoreButton";
 import { StatusBadge } from "./StatusBadge";
 import "./ReleaseReadinessDashboard.css";
 
-type View = "review" | "stories" | "runs";
+type View = "review" | "stories" | "runs" | "cases" | "bugs";
+const EVIDENCE_VIEWS: View[] = ["review", "stories", "runs", "cases", "bugs"];
+const FILTER_OPTIONS: Record<View, string[]> = {
+  review: ["all", "urgent", "blocking", "critical", "bugs", "runs", "stories"],
+  stories: ["all", "covered", "attention", "priority", "uncovered", "failed", "unassessed", "defects"],
+  runs: ["all", "failed", "blocked", "unassessed"],
+  cases: ["all", "executed", "passed", "failed", "blocked", "unassessed", "not-run"],
+  bugs: ["all", "critical", "high", "linked"],
+};
+const clearEvidenceParams = (params: URLSearchParams) => {
+  for (const key of ["view", "filter", "search", "story", "check"]) params.delete(`evidence_${key}`);
+};
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
 const RUN_LIMIT = 10;
@@ -107,17 +120,24 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   const releaseId = searchParams.get("release_id") || "";
   const requestedRelease = searchParams.get("release") || "";
   const sprint = searchParams.get("sprint") || "";
-  const [view, setView] = useState<View>("review");
+  const view: View = EVIDENCE_VIEWS.includes(searchParams.get("evidence_view") as View) ? searchParams.get("evidence_view") as View : "review";
+  const evidenceSearch = searchParams.get("evidence_search") || "";
+  const evidenceFilter = FILTER_OPTIONS[view].includes(searchParams.get("evidence_filter") || "") ? searchParams.get("evidence_filter")! : "all";
+  const evidenceFilters = { review: "all", stories: "all", runs: "all", cases: "all", bugs: "all", [view]: evidenceFilter };
+  const selectedStoryId = searchParams.get("evidence_story") || "";
+  const selectedCheckId = searchParams.get("evidence_check") || "";
+  const updateEvidence = (patch: Record<string, string>, replace = false) => {
+    const next = new URLSearchParams(searchParams);
+    for (const [key, value] of Object.entries(patch)) value ? next.set(`evidence_${key}`, value) : next.delete(`evidence_${key}`);
+    setSearchParams(next, { replace, preventScrollReset: true });
+  };
+  const [evidenceFocus, setEvidenceFocus] = useState<{ target: View; filter: string; story: string; scroll: boolean } | null>(null);
   const [actionLimit, setActionLimit] = useState(6);
   const [storyLimit, setStoryLimit] = useState(25);
-  const [evidenceSearch, setEvidenceSearch] = useState("");
-  const [evidenceFilters, setEvidenceFilters] = useState<Record<View, string>>({ review: "all", stories: "all", runs: "all" });
-  const [selectedStoryId, setSelectedStoryId] = useState("");
-  const [selectedCheckId, setSelectedCheckId] = useState("");
   const [aiScope, setAiScope] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const tabId = useId();
-  useEffect(() => { setStoryLimit(25); setActionLimit(6); }, [evidenceSearch, evidenceFilters, releaseId, requestedRelease, sprint]);
+  useEffect(() => { setStoryLimit(25); setActionLimit(6); }, [evidenceSearch, evidenceFilter, releaseId, requestedRelease, sprint]);
   const projects = useQuery({
     queryKey: ["release-review-projects", authorizationKey],
     queryFn: () => api.projects.list(),
@@ -148,10 +168,6 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     setDraftSprint(sprint);
     setActionLimit(6);
     setAiScope(null);
-    setEvidenceSearch("");
-    setEvidenceFilters({ review: "all", stories: "all", runs: "all" });
-    setSelectedStoryId("");
-    setSelectedCheckId("");
   }, [release, sprint, releaseId]);
   const queryDefaults = {
     initialPageParam: undefined as string | undefined,
@@ -341,6 +357,11 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   );
   const provisional =
     incomplete || duplicateSprint || model.metrics.missingCaseDetailsCount > 0;
+  const readinessIndex = deriveReadinessIndex(model, {
+    sourcesAvailable: canStories && canCases && canRuns && canBugs && !failed,
+    evidenceComplete: !provisional,
+    scoped: Boolean(release || sprint),
+  });
   const scopeOptions = useMemo(
     () => releaseReadinessScopeOptions(requirements, executions, issues),
     [requirements, executions, issues],
@@ -417,6 +438,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             link: recordLink("/issues", "issue", issue.id),
             action: text("openDefect"),
             danger: isCriticalReadinessIssue(issue),
+            blocking: isCriticalReadinessIssue(issue),
             priority: isCriticalReadinessIssue(issue) ? 0 : /high/i.test(`${issue.severity || ""} ${issue.priority || ""}`) ? 1 : 4,
           }))
       : []),
@@ -437,6 +459,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         link: recordLink("/executions", "execution", run.execution.id),
         action: text("openRun"),
         danger: run.failed > 0,
+        blocking: run.blocked > 0,
         priority: run.failed || run.blocked ? 1 : 3,
       })),
     ...(canStories
@@ -458,6 +481,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             link: recordLink("/stories", "requirement", story.id),
             action: text("openStory"),
             danger: !story.coverageCount && Number(story.priority || 3) <= 2,
+            blocking: !story.coverageCount && Number(story.priority || 3) <= 2,
             priority: !story.coverageCount && Number(story.priority || 3) <= 2 ? 1 : !story.coverageCount ? 2 : 3,
           }))
       : []),
@@ -497,6 +521,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     ]);
   const applyScope = () => {
     const next = new URLSearchParams(searchParams);
+    clearEvidenceParams(next);
     next.delete("release_id");
     draftRelease.trim()
       ? next.set("release", draftRelease.trim())
@@ -508,10 +533,11 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   };
   const clearContext = () => {
     const next = new URLSearchParams(searchParams);
+    clearEvidenceParams(next);
     next.delete("release_id");
     setSearchParams(next);
   };
-  const tabs: View[] = ["review", "stories", "runs"];
+  const tabs = EVIDENCE_VIEWS;
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const next =
       event.key === "ArrowRight"
@@ -525,7 +551,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               : -1;
     if (next < 0) return;
     event.preventDefault();
-    setView(tabs[next]);
+    openEvidence(tabs[next], "all", { scroll: false });
     document.getElementById(`${tabId}-${tabs[next]}`)?.focus();
   };
   const percent = (value: number | null, available: boolean) =>
@@ -539,8 +565,9 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         covered: n(model.metrics.coveredRequirementCount),
         total: n(model.metrics.requirementCount),
       }),
+      progress: model.metrics.coverage,
       available: canStories && canCases,
-      target: "stories" as View,
+      target: "stories" as View, filter: "all", definition: "definition.coverage",
     },
     {
       icon: IconListCheck,
@@ -553,8 +580,9 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         assessed: n(model.metrics.executedCaseCount),
         total: n(model.metrics.plannedCaseCount),
       }),
+      progress: model.metrics.completion,
       available: canRuns && canCases && canStories,
-      target: "runs" as View,
+      target: "cases" as View, filter: "all", definition: "definition.completion",
     },
     {
       icon: IconTestPipe,
@@ -564,28 +592,27 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         passed: n(model.metrics.passedCount),
         failed: n(model.metrics.failedCount),
       }),
+      progress: model.metrics.passRate,
       available: canRuns,
-      target: "runs" as View,
+      target: "runs" as View, filter: "all", definition: "definition.passRate",
     },
     {
-      icon: IconBug,
-      label: text("metric.defects"),
-      value: canBugs ? n(model.metrics.openBugCount) : "—",
-      detail: text("defectsDetail", {
-        critical: n(model.metrics.openCriticalBugCount),
-        high: n(model.metrics.openHighBugCount),
-      }),
-      available: canBugs,
-      target: "review" as View,
+      icon: IconAlertTriangle,
+      label: text("metric.blockers"),
+      value: canBugs && canRuns && canStories && canCases ? n(model.metrics.openCriticalBugCount + model.metrics.blockedCount + model.metrics.highPriorityUncoveredCount) : "—",
+      detail: text("blockingDetail", { critical: n(model.metrics.openCriticalBugCount), blocked: n(model.metrics.blockedCount), gaps: n(model.metrics.highPriorityUncoveredCount) }),
+      available: canBugs && canRuns && canStories && canCases,
+      target: "review" as View, filter: "blocking", definition: "definition.blockers",
     },
   ];
   const searchMatches = (...values: unknown[]) => values.join(" ").toLocaleLowerCase().includes(evidenceSearch.trim().toLocaleLowerCase());
   const visibleActions = actions.filter(action => searchMatches(action.title, action.label, action.detail)
-    && (evidenceFilters.review === "all" || evidenceFilters.review === "urgent" && action.priority <= 1
+    && (evidenceFilters.review === "all" || evidenceFilters.review === "blocking" && action.blocking || evidenceFilters.review === "urgent" && action.priority <= 1
       || evidenceFilters.review === "critical" && action.kind === "bug" && action.priority === 0
       || evidenceFilters.review === (action.kind === "story" ? "stories" : `${action.kind}s`)));
   const visibleStories = model.hotspots.filter(story => searchMatches(story.title, story.displayId)
     && (evidenceFilters.stories === "all"
+      || evidenceFilters.stories === "covered" && story.coverageCount > 0
       || evidenceFilters.stories === "attention" && story.needsAttention
       || evidenceFilters.stories === "uncovered" && !story.coverageCount
       || evidenceFilters.stories === "priority" && !story.coverageCount && Number(story.priority || 3) <= 2
@@ -599,22 +626,16 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       || evidenceFilters.runs === "unassessed" && run.unassessed > 0));
   const selectedStory = visibleStories.find(story => story.id === selectedStoryId) || visibleStories[0];
   const selectedCheck = model.gates.find(gate => gate.id === selectedCheckId);
-  const filterOptions: Record<View, string[]> = {
-    review: ["all", "urgent", "critical", "bugs", "runs", "stories"],
-    stories: ["all", "attention", "priority", "uncovered", "failed", "unassessed", "defects"],
-    runs: ["all", "failed", "blocked", "unassessed"],
-  };
+  const filterOptions = FILTER_OPTIONS;
   const visibleCount = view === "review" ? visibleActions.length : view === "stories" ? visibleStories.length : visibleRuns.length;
   const totalCount = view === "review" ? actions.length : view === "stories" ? model.hotspots.length : runs.length;
-  const openEvidence = (target: View, filter = "all") => {
-    setView(target);
-    setEvidenceSearch("");
-    setEvidenceFilters(current => ({ ...current, [target]: filter }));
+  const openEvidence = (target: View, filter = "all", context: { story?: string; check?: string; scroll?: boolean } = {}) => {
+    updateEvidence({ view: target, filter: filter === "all" ? "" : filter, search: "", story: context.story || "", check: context.check || "" });
     setActionLimit(6);
-    document.getElementById(`${tabId}-${target}`)?.focus({ preventScroll: true });
+    setEvidenceFocus({ target, filter, story: context.story || "", scroll: context.scroll !== false });
   };
   const inspectStory = (id: string) => {
-    setSelectedStoryId(id);
+    updateEvidence({ story: id });
     if (window.matchMedia("(max-width: 980px)").matches) {
       requestAnimationFrame(() => {
         const inspector = document.getElementById(`${tabId}-story-inspector-panel`);
@@ -629,19 +650,47 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   const checkValue = (id: string, count: number | null) => !checkAvailable(id) || count === null ? "—"
     : id === "evidence-freshness" ? text("days", { count: n(count) }) : n(count);
   const inspectCheck = (id: string) => {
-    setSelectedCheckId(id);
-    if (id === "critical-defects") openEvidence("review", "critical");
-    else if (id === "priority-coverage") openEvidence("stories", "priority");
-    else if (id === "remaining-evidence") openEvidence("stories", "unassessed");
-    else openEvidence("runs", id === "failed-outcomes" ? "failed" : id === "blocked-evidence" ? "blocked" : "all");
+    if (id === "critical-defects") openEvidence("bugs", "critical", { check: id });
+    else if (id === "priority-coverage") openEvidence("stories", "priority", { check: id });
+    else if (id === "remaining-evidence") openEvidence("cases", "unassessed", { check: id });
+    else openEvidence("runs", id === "failed-outcomes" ? "failed" : id === "blocked-evidence" ? "blocked" : "all", { check: id });
   };
   const checksClear = model.gates.filter(gate => gate.state === "pass" && checkAvailable(gate.id)).length;
   const latestRun = [...executions].sort((a, b) =>
     new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime())[0];
+  // Router navigation can commit after the click handler. Focus only after the
+  // requested view and selection have rendered, so mobile Story links find the inspector.
+  useEffect(() => {
+    if (!evidenceFocus || view !== evidenceFocus.target || evidenceFilter !== evidenceFocus.filter || selectedStoryId !== evidenceFocus.story) return;
+    const inspector = evidenceFocus.story && window.matchMedia("(max-width: 980px)").matches
+      ? document.getElementById(`${tabId}-story-inspector-panel`) : null;
+    const target = inspector || document.getElementById(`${tabId}-${view}`);
+    target?.focus({ preventScroll: true });
+    if (evidenceFocus.scroll) target?.scrollIntoView({ block: "start", inline: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    setEvidenceFocus(null);
+  }, [evidenceFocus, view, evidenceFilter, selectedStoryId, tabId]);
+  useEffect(() => {
+    const strip = document.getElementById(`${tabId}-tabs`);
+    if (!strip) return;
+    const revealActiveTab = () => {
+      const active = document.getElementById(`${tabId}-${view}`);
+      if (!active) return;
+      const bounds = strip.getBoundingClientRect();
+      const tab = active.getBoundingClientRect();
+      const shift = tab.left < bounds.left ? tab.left - bounds.left
+        : tab.right > bounds.right ? tab.right - bounds.right : 0;
+      if (shift) strip.scrollLeft += shift;
+    };
+    const observer = new ResizeObserver(revealActiveTab);
+    observer.observe(strip);
+    revealActiveTab();
+    return () => observer.disconnect();
+  }, [view, loading, invalidContext, tabId, flags.data]);
   const exportEvidence = () => {
     const evaluatedAt = new Date().toISOString();
     const snapshot = {
-      schema_version: 1, evaluated_at: evaluatedAt,
+      schema_version: 2, evaluated_at: evaluatedAt,
+      readiness_index: readinessIndex,
       scope: { project_id: projectId, release_id: releaseId || null, release: release || null, sprint: sprint || null },
       assessment: { state: model.decisionState, provisional, latest_evidence_at: model.latestEvidenceAt, approval: "Human review required; this report does not approve a release." },
       source_limits: { page_size: PAGE_SIZE, maximum_pages: MAX_PAGES, run_limit: RUN_LIMIT, result_attempt_limit: RESULT_LIMIT },
@@ -655,14 +704,15 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         passing_outcomes: canRuns ? { percent: model.metrics.passRate, passed: model.metrics.passedCount, failed: model.metrics.failedCount, blocked: model.metrics.blockedCount } : null,
         open_defects: canBugs ? { count: model.metrics.openBugCount, critical: model.metrics.openCriticalBugCount, high: model.metrics.openHighBugCount } : null,
       },
+      case_evidence: canCases ? model.caseEvidence.map(item => ({ id: item.id, title: item.title, story_ids: canStories ? item.storyIds : [], run_ids: canRuns ? item.runIds : [], status: canRuns ? item.status : null, missing_rows: canRuns ? item.missingRows : null, details_available: item.detailsAvailable })) : [],
       checks: model.gates.map(gate => ({ ...gate, count: checkAvailable(gate.id) ? gate.count : null, available: checkAvailable(gate.id) })),
       stories: canStories ? model.hotspots.map(story => ({ id: story.id, display_id: story.displayId, title: story.title, priority: story.priority,
         test_case_ids: canCases ? story.caseIds : [], run_ids: canRuns ? story.runIds : [], open_defect_ids: canBugs ? story.openIssueIds : [],
       })) : [],
       runs: canRuns ? runs.map(run => ({ id: run.execution.id, name: run.execution.name, status: run.execution.status,
-        environment: run.execution.test_environment?.name || null, configuration: run.execution.test_configuration?.name || null,
+        build: run.execution.build || null, data_set: run.execution.test_data_set?.name || null, environment: run.execution.test_environment?.name || null, configuration: run.execution.test_configuration?.name || null,
         passed: run.passed, failed: run.failed, blocked: run.blocked, unassessed: run.unassessed,
-        outcomes: run.rows.map(row => ({ id: row.id, test_case_id: row.test_case_id, status: row.status, data_set_iteration_key: row.data_set_iteration_key ?? null, data_set_iteration_index: row.data_set_iteration_index ?? null, created_at: row.created_at })),
+        outcomes: run.rows.map(row => ({ id: row.id, test_case_id: row.test_case_id, status: row.status, test_data_set_id: row.test_data_set_id || null, data_set_iteration_key: row.data_set_iteration_key ?? null, data_set_iteration_index: row.data_set_iteration_index ?? null, created_at: row.created_at })),
       })) : [],
       open_defects: canBugs ? model.openIssues.map(issue => ({ id: issue.id, key: issue.jira_bug_key || null, title: issue.title, severity: issue.severity, priority: issue.priority })) : [],
       methodology: text("methodologyBody"),
@@ -760,7 +810,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
           {text("apply")}
         </button>
         {!releaseId && (release || sprint) && <button type="button" className="rr-link-button" onClick={() => {
-          const next = new URLSearchParams(searchParams); next.delete("release"); next.delete("sprint"); setSearchParams(next);
+          const next = new URLSearchParams(searchParams); clearEvidenceParams(next); next.delete("release"); next.delete("sprint"); setSearchParams(next);
         }}>{text("resetScope")}</button>}
         {releaseId && (
           <button
@@ -863,15 +913,15 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               </p>
             </div>
             <div className="rr-decision-status">
-              <span>{text("checks")}</span><strong>{n(checksClear)}<small> / {n(model.gates.length)}</small></strong>
-              <span>{text("checksClear")}</span>
-              <div className="rr-progress" aria-hidden="true"><span style={{ width: `${checksClear / model.gates.length * 100}%` }} /></div>
-              <span className="rr-ownership">{text("humanDecision")}</span>
+              <span>{text("index.title")}</span><strong>{readinessIndex.score === null ? "—" : n(readinessIndex.score)}<small> / 100</small></strong>
+              <span>{text(readinessIndex.score === null ? "index.unavailable" : "index.advisory")}</span>
+              <div className="rr-progress" aria-hidden="true"><span style={{ width: `${readinessIndex.score || 0}%` }} /></div>
+              <a className="rr-index-link" href={`#${tabId}-index`} onClick={() => { const element = document.getElementById(`${tabId}-index`) as HTMLDetailsElement | null; if (element) element.open = true; }}>{text("index.method")}<IconChevronDown size={13} /></a>
             </div>
           </section>
           <div className="rr-context-ribbon">
-            <div><IconGitBranch size={17} /><span>{text("appliedScope")}<strong>{release || text("allReleases")} · {sprint || text("allSprints")}</strong></span></div>
-            <div><IconTestPipe size={17} /><span>{text("latestRun")}<strong>{latestRun ? [latestRun.test_environment?.name || text("notRecorded"), latestRun.test_configuration?.name].filter(Boolean).join(" · ") : text("noRuns")}</strong></span></div>
+            <div><IconGitBranch size={17} /><span>{text("appliedScope")}<strong>{release || text("allReleases")} · {sprint || text("allSprints")}</strong><small>{canStories ? text("storiesDone", { done: n(model.metrics.completedRequirementCount), total: n(model.metrics.requirementCount) }) : text("source.unavailable")}</small></span></div>
+            <div><IconTestPipe size={17} /><span>{text("latestRun")}<strong>{canRuns ? latestRun ? [latestRun.test_environment?.name || text("notRecorded"), latestRun.test_configuration?.name].filter(Boolean).join(" · ") : text("noRuns") : text("source.unavailable")}</strong><small>{text("build")}: {canRuns ? latestRun?.build || text("notRecorded") : text("source.unavailable")}{canRuns && latestRun?.test_data_set?.name ? ` · ${text("dataSet")}: ${latestRun.test_data_set.name}` : ""}</small></span></div>
             <div className="rr-freshness">
               <IconClock size={15} />
               <span>
@@ -881,6 +931,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                     ? formatDate(model.latestEvidenceAt)
                     : text("noDate")}
                 </strong>
+                <small>{canCases ? text("caseDetailsKnown", { known: n(model.metrics.designKnownCount), total: n(model.metrics.plannedCaseCount) }) : text("source.unavailable")}</small>
               </span>
             </div>
           </div>
@@ -889,34 +940,43 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             <span><strong>{text("partial")}</strong> · {text(!release && !sprint ? "scopeNeeded" : "partialHelp")}</span>
             <a href={`#${tabId}-sources`}>{text("reviewSources")}<IconArrowRight size={15} /></a>
           </div>}
+          <nav className="rr-quick-actions" aria-label={text("quickActions")}>
+            <button className="rr-button" type="button" onClick={() => openEvidence("stories", "uncovered")} disabled={!canStories || !canCases}><IconGitBranch size={16} />{text("reviewGaps")}</button>
+            <button className="rr-button" type="button" onClick={() => openEvidence("runs")} disabled={!canRuns}><IconTestPipe size={16} />{text("tab.runs")}</button>
+            <button className="rr-button" type="button" onClick={() => openEvidence("bugs")} disabled={!canBugs}><IconBug size={16} />{text("metric.defects")}</button>
+          </nav>
           <div className="rr-metrics">
             {metricCards.map((card) => (
-              <button
-                key={card.label}
-                type="button"
-                className="rr-metric"
-                onClick={() => {
-                  setSelectedCheckId("");
-                  openEvidence(card.target, card.label === text("metric.defects") ? "bugs" : "all");
-                }}
-              >
-                <span className="rr-metric-heading">
-                  <card.icon size={19} />
-                  <span>{card.label}</span>
-                  <IconArrowRight className="rr-metric-arrow" size={16} />
-                </span>
-                <strong>{card.value}</strong>
-                <span>
-                  {card.available ? card.detail : text("source.unavailable")}
-                </span>
-              </button>
+              <article className="rr-metric-card" key={card.label}>
+                <button type="button" className="rr-metric" disabled={!card.available} onClick={() => openEvidence(card.target, card.filter)}>
+                  <span className="rr-metric-heading"><card.icon size={19} /><span>{card.label}</span><IconArrowRight className="rr-metric-arrow" size={16} /></span>
+                  <strong>{card.value}</strong>
+                  <span>{card.available ? card.detail : text("source.unavailable")}</span>
+                  {card.available && card.progress != null && <div className="rr-progress rr-metric-progress" aria-hidden="true"><span style={{ width: `${card.progress}%` }} /></div>}
+                </button>
+                <details className="rr-metric-definition"><summary>{text("calculation")}<IconChevronDown size={13} /></summary><p>{text(card.definition)}</p></details>
+              </article>
             ))}
           </div>
+          <section className="rr-evidence-map" aria-label={text("evidenceMap")}>
+            <div className="rr-map-heading"><h2>{text("evidenceMap")}</h2><p>{text("mapHelp")}</p></div>
+            <div className="rr-map-steps">{[
+              { name: "stories", count: model.metrics.requirementCount, target: "stories", filter: "all", available: canStories },
+              { name: "covered", count: model.metrics.coveredRequirementCount, target: "stories", filter: "covered", available: canStories && canCases },
+              { name: "scoped", count: model.metrics.plannedCaseCount, target: "cases", filter: "all", available: canCases },
+              { name: "executed", count: model.metrics.executedCaseCount, target: "cases", filter: "executed", available: canRuns && canCases },
+              { name: "passing", count: model.metrics.passingCaseCount, target: "cases", filter: "passed", available: canRuns && canCases },
+              { name: "bugs", count: model.metrics.openBugCount, target: "bugs", filter: "all", available: canBugs },
+            ].map(step => <button key={step.name} type="button" disabled={!step.available} onClick={() => openEvidence(step.target as View, step.filter)}>
+              <span>{text(`map.${step.name}`)}<IconArrowRight size={15} /></span><strong>{step.available ? n(step.count) : "—"}</strong><small>{text(`mapDetail.${step.name}`)}</small>
+            </button>)}</div>
+          </section>
           <div className="rr-workspace-heading"><div><span className="rr-section-eyebrow">{text("evidenceWorkspace")}</span><h2>{text("evidenceTitle")}</h2></div><span>{text("evidenceHelp")}</span></div>
           <div className="rr-workspace">
             <section className="rr-evidence">
               <div
                 className="rr-tabs"
+                id={`${tabId}-tabs`}
                 role="tablist"
                 aria-label={text("title")}
               >
@@ -930,28 +990,28 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                     aria-controls={`${tabId}-panel-${item}`}
                     tabIndex={view === item ? 0 : -1}
                     onKeyDown={(event) => onTabKey(event, index)}
-                    onClick={() => setView(item)}
+                    onClick={() => openEvidence(item, "all", { scroll: false })}
                   >
                     {text(`tab.${item}`)}
                     <span>
-                      {n(
+                      {(item === "stories" && !canStories || item === "runs" && !canRuns || item === "cases" && !canCases || item === "bugs" && !canBugs) ? "—" : n(
                         item === "stories"
                           ? model.requirements.length
                           : item === "runs"
                             ? runs.length
-                            : actions.length,
+                            : item === "cases" ? model.caseEvidence.length : item === "bugs" ? model.openIssues.length : actions.length,
                       )}
                     </span>
                   </button>
                 ))}
               </div>
               <div className="rr-evidence-toolbar">
-                <label className="rr-search"><IconSearch size={17} /><input type="search" aria-label={text("searchEvidence")} placeholder={text("searchEvidence")} value={evidenceSearch} onChange={event => setEvidenceSearch(event.target.value)} /></label>
-                <select aria-label={text("filterEvidence")} value={evidenceFilters[view]} onChange={event => setEvidenceFilters(current => ({ ...current, [view]: event.target.value }))}>
-                  {filterOptions[view].map(option => <option key={option} value={option}>{text(`filter.${option}`)}</option>)}
+                <label className="rr-search"><IconSearch size={17} /><input type="search" aria-label={text("searchEvidence")} placeholder={text("searchEvidence")} value={evidenceSearch} onChange={event => updateEvidence({ search: event.target.value }, true)} /></label>
+                <select aria-label={text("filterEvidence")} value={evidenceFilters[view]} onChange={event => updateEvidence({ filter: event.target.value === "all" ? "" : event.target.value, check: "" }, true)}>
+                  {filterOptions[view].map(option => <option key={option} value={option}>{text(view === "cases" && option === "blocked" ? "explorer.caseStatus.blocked" : view === "stories" && option === "failed" ? "filter.failedOrBlocked" : `filter.${option}`)}</option>)}
                 </select>
-                {(evidenceSearch || evidenceFilters[view] !== "all") && <button className="rr-link-button" type="button" onClick={() => { setEvidenceSearch(""); setEvidenceFilters(current => ({ ...current, [view]: "all" })); setSelectedCheckId(""); }}>{text("clearFilters")}</button>}
-                <span className="rr-filter-count" aria-live="polite">{text("matching", { shown: n(visibleCount), total: n(totalCount) })}</span>
+                {(evidenceSearch || evidenceFilters[view] !== "all") && <button className="rr-link-button" type="button" onClick={() => updateEvidence({ search: "", filter: "", check: "" }, true)}>{text("clearFilters")}</button>}
+                {view !== "cases" && view !== "bugs" && <span className="rr-filter-count" aria-live="polite">{text("matching", { shown: n(visibleCount), total: n(totalCount) })}</span>}
               </div>
               <div
                 role="tabpanel"
@@ -960,6 +1020,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 aria-labelledby={`${tabId}-${view}`}
                 className="rr-panel"
               >
+                {(view === "cases" || view === "bugs") && <ReadinessRecordExplorer kind={view} model={model} projectId={projectId} filter={evidenceFilter} search={evidenceSearch} canStories={canStories} canCases={canCases} canRuns={canRuns} canBugs={canBugs} text={text} onInspectStory={id => openEvidence("stories", "all", { story: id })} />}
                 {view === "review" && (
                   <>
                     <div className="rr-panel-heading">
@@ -1163,6 +1224,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                                 {run.execution.test_configuration?.name ||
                                   text("notRecorded")}
                               </span>
+                              <span>{text("build")}: {run.execution.build || text("notRecorded")}</span>
+                              {run.execution.test_data_set?.name && <span>{text("dataSet")}: {run.execution.test_data_set.name}</span>}
                               <span>
                                 {formatDate(
                                   run.execution.started_at ||
@@ -1216,6 +1279,10 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                                 })}
                               </span>
                             </div>
+                            <details className="rr-run-result-detail"><summary>{text("runRows")}<span>{n(run.rows.length)}<IconChevronDown size={14} /></span></summary>
+                              {run.rows.length > 0 && <div className="rr-result-table-scroll"><table className="rr-result-table"><thead><tr><th>{text("explorer.case")}</th><th>{text("rowColumn")}</th><th>{text("outcomeColumn")}</th></tr></thead><tbody>{run.rows.map(row => <tr key={row.id}><td>{canCases ? <Link to={recordLink("/test-cases", "case", row.test_case_id)}>{model.caseEvidence.find(item => item.id === row.test_case_id)?.title || row.test_case_id}</Link> : text("source.unavailable")}</td><td><span>{row.data_set_iteration_key || (row.data_set_iteration_index != null ? text("explorer.dataRow", { number: n(row.data_set_iteration_index + 1) }) : text("explorer.defaultRow"))}</span><small>{row.id}</small>{(row.test_data_set_name || row.test_data_set_id) && <small>{text("dataSet")}: {row.test_data_set_name || row.test_data_set_id}</small>}</td><td><StatusBadge value={row.status} /></td></tr>)}</tbody></table></div>}
+                              {(model.missingRowsByRun.get(run.execution.id) || 0) > 0 && <p>{text("runMissing", { count: n(model.missingRowsByRun.get(run.execution.id) || 0) })}</p>}
+                            </details>
                           </article>
                         ))}
                       </div>
@@ -1234,6 +1301,12 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 <div className="rr-inspector-heading"><IconEye size={18} /><h2 id={`${tabId}-story-inspector`}>{text("storyInspector")}</h2></div>
                 <span className="rr-action-meta">{selectedStory.displayId}{selectedStory.priority ? ` · P${selectedStory.priority}` : ""}</span>
                 <h3 aria-live="polite">{selectedStory.title}</h3>
+                <ul className="rr-story-reasons">
+                  {canCases && !selectedStory.coverageCount && <li>{text(Number(selectedStory.priority || 3) <= 2 ? "priorityReason" : "noTests")}</li>}
+                  {canRuns && selectedStory.failedCount > 0 && <li>{text("failed", { count: n(selectedStory.failedCount) })}</li>}
+                  {canRuns && selectedStory.blockedCount > 0 && <li>{text("blocked", { count: n(selectedStory.blockedCount) })}</li>}
+                  {canBugs && selectedStory.openBugCount > 0 && <li>{n(selectedStory.openBugCount)} {text("metric.defects")}</li>}
+                </ul>
                 <div className="rr-inspector-metrics">
                   <div><strong>{canCases ? n(selectedStory.coverageCount) : "—"}</strong><span>{text("coverageColumn")}</span></div>
                   <div><strong>{canCases && canRuns ? n(selectedStory.executedCount) : "—"}</strong><span>{text("assessedColumn")}</span></div>
@@ -1241,23 +1314,20 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                   <div><strong>{canBugs ? n(selectedStory.openBugCount) : "—"}</strong><span>{text("metric.defects")}</span></div>
                 </div>
                 {canCases && <details className="rr-inspector-links"><summary>{text("coverageColumn")}<span>{n(selectedStory.caseIds.length)}<IconChevronDown size={14} /></span></summary>
-                  {selectedStory.caseIds.length ? <ul>{selectedStory.caseIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/test-cases", "case", id)}>{model.testCases.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noTests")}</p>}
-                  {selectedStory.caseIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.caseIds.length - 5) })}</p>}
+                  {selectedStory.caseIds.length ? <ul>{selectedStory.caseIds.map(id => <li key={id}><Link to={recordLink("/test-cases", "case", id)}>{model.testCases.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noTests")}</p>}
                 </details>}
                 {canRuns && <details className="rr-inspector-links"><summary>{text("tab.runs")}<span>{n(selectedStory.runIds.length)}<IconChevronDown size={14} /></span></summary>
-                  {selectedStory.runIds.length ? <ul>{selectedStory.runIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/executions", "execution", id)}>{model.executions.find(item => item.id === id)?.name || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noLinkedRuns")}</p>}
-                  {selectedStory.runIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.runIds.length - 5) })}</p>}
+                  {selectedStory.runIds.length ? <ul>{selectedStory.runIds.map(id => <li key={id}><Link to={recordLink("/executions", "execution", id)}>{model.executions.find(item => item.id === id)?.name || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noLinkedRuns")}</p>}
                 </details>}
                 {canBugs && <details className="rr-inspector-links"><summary>{text("metric.defects")}<span>{n(selectedStory.openIssueIds.length)}<IconChevronDown size={14} /></span></summary>
-                  {selectedStory.openIssueIds.length ? <ul>{selectedStory.openIssueIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/issues", "issue", id)}>{model.openIssues.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noSignal")}</p>}
-                  {selectedStory.openIssueIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.openIssueIds.length - 5) })}</p>}
+                  {selectedStory.openIssueIds.length ? <ul>{selectedStory.openIssueIds.map(id => <li key={id}><Link to={recordLink("/issues", "issue", id)}>{model.openIssues.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noSignal")}</p>}
                 </details>}
                 <Link className="rr-button rr-inspector-open" to={recordLink("/stories", "requirement", selectedStory.id)}>{text("openStory")}<IconArrowRight size={15} /></Link>
                 {provisional && <p className="rr-inspector-note">{text("inspectorPartial")}</p>}
               </section>}
               <section className="rr-card">
                 <h2>{text("checks")}</h2>
-                <p>{text("checksHelp")}</p>
+                <p>{text("checksHelp")}</p><div className="rr-control-progress"><strong>{text("checksObserved", { clear: n(checksClear), total: n(model.gates.length) })}</strong><div className="rr-progress" aria-hidden="true"><span style={{ width: `${checksClear / model.gates.length * 100}%` }} /></div><small>{text("humanDecision")}</small></div>
                 <ul className="rr-checks">
                   {model.gates.map(gate => <li key={gate.id}>
                     <button type="button" aria-pressed={selectedCheckId === gate.id} disabled={!checkAvailable(gate.id)} onClick={() => inspectCheck(gate.id)} aria-label={text("inspectCheck", { check: text(`check.${gate.id}`) })}>
@@ -1353,6 +1423,15 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               </section>
             </aside>
           </div>
+          <details className="rr-methodology rr-index-method" id={`${tabId}-index`}>
+            <summary><IconShieldCheck size={18} />{text("index.method")}<IconChevronDown size={16} /></summary>
+            <p>{text("index.help")}</p>
+            <div className="rr-index-components">{readinessIndex.components.map(component => <div key={component.id}><span>{text(`index.${component.id}`)}</span><strong>{component.value === null ? "—" : `${n(component.value)}%`}</strong><small>{text("index.weight", { weight: n(component.weight) })}</small></div>)}</div>
+            <p>{text("index.containmentHelp")}</p>
+            {readinessIndex.rawScore !== null && <p><strong>{text("index.raw", { score: n(readinessIndex.rawScore) })}</strong></p>}
+            <p>{text("index.capsHelp")}</p>
+            {readinessIndex.caps.length > 0 && <ul>{readinessIndex.caps.map(cap => <li key={cap.id}>{text("index.limit", { maximum: n(cap.maximum), reason: text(`index.cap.${cap.id}`) })}</li>)}</ul>}
+          </details>
           <details className="rr-methodology">
             <summary>
               <IconListCheck size={18} />

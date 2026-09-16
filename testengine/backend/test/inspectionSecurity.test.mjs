@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { assertRemoteInspectionUrl, isPrivateInspectionAddress } from "../dist/lib/inspectionSecurity.js";
+import { assertRemoteInspectionUrl, isPrivateInspectionAddress, resolveRemoteInspectionTarget } from "../dist/lib/inspectionSecurity.js";
 import { registerRecorderRoutes } from "../dist/lib/recorder.js";
 import { createCorsHook, resolveCorsPolicy } from "../dist/lib/testEngineSecurity.js";
 
@@ -26,16 +26,68 @@ test("paired local agent accepts only exact configured origin and matching agent
   const url = "/api/v1/recorder/agent/status";
   assert.equal((await app.inject({ url, headers: { origin: "https://evil.test", "x-hellotest-agent-token": "local-pair-token" } })).statusCode, 403);
   assert.equal((await app.inject({ url, headers: { origin: "http://localhost:8080", "x-hellotest-agent-token": "local-pair-token" } })).statusCode, 403);
-  assert.equal((await app.inject({ url, headers: { origin: "https://app.example.test" } })).statusCode, 401);
+  const missingToken = await app.inject({ url, headers: { origin: "https://app.example.test" } });
+  assert.equal(missingToken.statusCode, 401);
+  assert.equal(missingToken.json().code, "INSPECTION_AGENT_UNPAIRED");
+  assert.equal(missingToken.headers["access-control-allow-origin"], "https://app.example.test", "an allowed app can read pairing errors instead of receiving an opaque CORS failure");
   assert.equal((await app.inject({ url, headers: { origin: "https://app.example.test", "x-hellotest-testengine-secret": "hellotest-testengine-dev-secret" } })).statusCode, 401);
   const response = await app.inject({ url, headers: { origin: "https://app.example.test", "x-hellotest-agent-token": "local-pair-token" } });
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().service, "hellotest-inspection-agent");
   assert.equal(typeof response.json().ready, "boolean");
+  assert.equal(response.headers["access-control-allow-origin"], "https://app.example.test");
+  assert.equal(response.headers["cache-control"], "no-store");
+  assert.equal((await app.inject({ url, headers: { "x-hellotest-agent-token": "local-pair-token" } })).statusCode, 200, "the installer may verify its own token without a browser origin");
   const preflight = await app.inject({ method: "OPTIONS", url, headers: { origin: "https://app.example.test", "access-control-request-private-network": "true", "access-control-request-headers": "x-hellotest-agent-token" } });
   assert.equal(preflight.statusCode, 204);
   assert.equal(preflight.headers["access-control-allow-private-network"], "true");
   assert.match(preflight.headers["access-control-allow-headers"], /x-hellotest-agent-token/);
+});
+
+test("an agent paired on localhost does not silently trust the hosted application origin", async t => {
+  const app = Fastify();
+  app.addHook("onRequest", createCorsHook(resolveCorsPolicy({ HELLOTEST_INSPECTOR_TOKEN: "local-pair-token", TESTENGINE_CORS_ORIGINS: "http://localhost:8080" })));
+  app.options("/*", async (_req, reply) => reply.code(204).send());
+  t.after(() => app.close());
+  const preflight = origin => app.inject({ method: "OPTIONS", url: "/api/v1/recorder/agent/status", headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "x-hellotest-agent-token", "access-control-request-private-network": "true" } });
+  const allowed = await preflight("http://localhost:8080");
+  assert.equal(allowed.statusCode, 204);
+  assert.equal(allowed.headers["access-control-allow-private-network"], "true");
+  const hosted = await preflight("https://app.hellotest.ai");
+  assert.equal(hosted.statusCode, 403);
+  assert.equal(hosted.json().code, "INSPECTION_ORIGIN_NOT_PAIRED");
+  assert.equal(hosted.headers["access-control-allow-origin"], undefined);
+  assert.equal(hosted.headers["access-control-allow-private-network"], undefined);
+});
+
+test("inspection target validation provides safe typed errors without weakening private-address checks", async () => {
+  const publicDns = async () => [{ address: "93.184.216.34" }];
+  for (const target of ["not a URL", "file:///etc/passwd", "https://user:secret@example.test"]) {
+    await assert.rejects(assertRemoteInspectionUrl(target, publicDns), failure => failure.code === "INSPECTION_URL_INVALID");
+  }
+  await assert.rejects(assertRemoteInspectionUrl("http://127.0.0.1", publicDns), failure => failure.code === "INSPECTION_PRIVATE_TARGET");
+  await assert.rejects(assertRemoteInspectionUrl("https://public.example", async () => [{ address: "93.184.216.34" }, { address: "192.168.1.1" }]), failure => failure.code === "INSPECTION_PRIVATE_TARGET");
+  await assert.rejects(assertRemoteInspectionUrl("https://missing.example", async () => { throw new Error("SECRET_DNS_DIAGNOSTIC"); }), failure => failure.code === "INSPECTION_DNS_FAILED" && !failure.message.includes("SECRET_DNS_DIAGNOSTIC"));
+  await assert.rejects(assertRemoteInspectionUrl("https://missing.example", async () => []), failure => failure.code === "INSPECTION_DNS_FAILED");
+  assert.equal(await resolveRemoteInspectionTarget("https://public.example", publicDns), "93.184.216.34");
+});
+
+test("remote session creation returns stable target errors before launching a browser", async t => {
+  const original = { token: process.env.HELLOTEST_INSPECTOR_TOKEN, secret: process.env.TESTENGINE_SHARED_SECRET };
+  delete process.env.HELLOTEST_INSPECTOR_TOKEN;
+  process.env.TESTENGINE_SHARED_SECRET = "isolated-inspection-test-secret-with-32-characters";
+  t.after(() => {
+    if (original.token === undefined) delete process.env.HELLOTEST_INSPECTOR_TOKEN; else process.env.HELLOTEST_INSPECTOR_TOKEN = original.token;
+    if (original.secret === undefined) delete process.env.TESTENGINE_SHARED_SECRET; else process.env.TESTENGINE_SHARED_SECRET = original.secret;
+  });
+  const app = Fastify();
+  await registerRecorderRoutes(app);
+  t.after(() => app.close());
+  for (const [start_url, code] of [["file:///etc/passwd", "INSPECTION_URL_INVALID"], ["https://user:secret@example.test", "INSPECTION_URL_INVALID"], ["http://127.0.0.1", "INSPECTION_PRIVATE_TARGET"]]) {
+    const response = await app.inject({ method: "POST", url: "/api/v1/recorder/sessions", headers: { "x-hellotest-testengine-secret": process.env.TESTENGINE_SHARED_SECRET }, payload: { purpose: "repository-inspect", recorder_mode: "remote", start_url } });
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().code, code);
+  }
 });
 
 test("remote repository browser creation requires Test Engine credentials", async t => {

@@ -274,4 +274,5 @@
 .repository-agent-command-heading label { display: grid; gap: 5px; font-size: 11px; color: var(--text-secondary); }
 .repository-agent-command-heading select { min-height: 30px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); border-radius: 5px; padding-inline: 8px; }
 .repository-agent-command { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-subtle); font-size: 11px; line-height: 1.6; user-select: all; }
-.repository-agent-setup .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border-subtle); flex: 0 0 auto; }
+.repository-agent-setup .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border-subtle); flex: 0 0 auto; }
+.repository-agent-remote-option { margin-inline-end: auto; }

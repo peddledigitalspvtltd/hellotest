@@ -3,6 +3,28 @@ import type { RecorderSessionResponse } from "../types";
 export type InspectBrowserTab = { id: string | null; url: string; title: string | null; active?: boolean };
 type RecorderRead = <T>(url: string, options?: RequestInit) => Promise<T | null>;
 
+/** Page-object names and match patterns are never navigation destinations. */
+export function normalizeRepositoryInspectStartUrl(value: string | null | undefined) {
+  const input = String(value || "").trim();
+  if (!input) return undefined;
+  const invalid = () => new Error("Enter a full HTTP or HTTPS page URL, or leave Page URL empty to open a blank browser. Screen names and URL match patterns cannot be opened.");
+  if (/[\u0000-\u0020\u007f\\]/.test(input) || input.startsWith("/")) throw invalid();
+  const absolute = /^https?:\/\//i.test(input);
+  try {
+    const url = new URL(absolute ? input : `https://${input}`);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || !url.hostname) throw invalid();
+    // Preserve explicitly entered intranet URLs, while refusing bare screen identifiers.
+    if (!absolute && !(url.hostname === "localhost" || url.hostname.includes(".") || /^\[.+\]$/.test(url.hostname))) throw invalid();
+    if (!url.hostname.startsWith("[") && !url.hostname.split(".").every(label => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label))) throw invalid();
+    return url.href;
+  } catch { throw invalid(); }
+}
+
+export function repositoryInspectLegacyPageUrl(value: string | null | undefined) {
+  if (!/^https?:\/\//i.test(String(value || "").trim())) return "";
+  try { return normalizeRepositoryInspectStartUrl(value) || ""; } catch { return ""; }
+}
+
 export function inspectSessionRequest(session: RecorderSessionResponse, path = "", options: RequestInit = {}) {
   const source = session.status_url || (session.engine_base_url ? `${session.engine_base_url.replace(/\/$/, "")}/api/v1/recorder/sessions/${encodeURIComponent(session.id)}` : "");
   if (!session.id || !source) throw new Error("Connect an inspection browser first.");

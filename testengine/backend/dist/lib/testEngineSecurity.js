@@ -110,10 +110,25 @@ export function createPrivilegedRunGuard(config) {
         }
     };
 }
+const normalizeOrigin = (value) => {
+    const text = normalizeText(value);
+    if (!/^https?:\/\/[^/?#\\]+\/?$/i.test(text))
+        return null;
+    try {
+        const url = new URL(text);
+        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
+            || url.pathname !== "/" || url.search || url.hash)
+            return null;
+        return url.origin;
+    }
+    catch {
+        return null;
+    }
+};
 const parseOrigins = (value) => normalizeText(value)
     .split(",")
-    .map((entry) => entry.trim().replace(/\/$/, ""))
-    .filter(Boolean);
+    .map((entry) => entry.trim() === "*" ? "*" : normalizeOrigin(entry))
+    .filter((entry) => Boolean(entry));
 export function resolveCorsPolicy(environment = process.env) {
     const production = isProduction(environment);
     const configured = parseOrigins(environment.TESTENGINE_CORS_ORIGINS
@@ -130,7 +145,8 @@ export function resolveCorsPolicy(environment = process.env) {
         production,
         allowAnyOrigin,
         configuredOrigins,
-        allowLoopbackOrigins: !production && !normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN)
+        allowLoopbackOrigins: !production && !normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN),
+        pairedLocalAgent: Boolean(normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN))
     };
 }
 const isLoopbackOrigin = (origin) => {
@@ -143,7 +159,7 @@ const isLoopbackOrigin = (origin) => {
     }
 };
 export function isCorsOriginAllowed(origin, policy) {
-    const normalizedOrigin = normalizeText(origin).replace(/\/$/, "");
+    const normalizedOrigin = normalizeOrigin(origin);
     return Boolean(normalizedOrigin
         && (policy.allowAnyOrigin
             || policy.configuredOrigins.has(normalizedOrigin)
@@ -158,7 +174,9 @@ export function createCorsHook(policy) {
             return;
         }
         if (!isCorsOriginAllowed(origin, policy)) {
-            reply.code(403).send({ message: "Origin is not allowed by the Test Engine CORS policy" });
+            reply.code(403).send({ code: policy.pairedLocalAgent ? "INSPECTION_ORIGIN_NOT_PAIRED" : "TESTENGINE_ORIGIN_DENIED", message: policy.pairedLocalAgent
+                    ? "This local agent is paired with another HelloTest origin. Stop it and run the setup downloaded from the HelloTest page you are using."
+                    : "Origin is not allowed by the Test Engine CORS policy" });
             return;
         }
         reply.header("access-control-allow-origin", origin);

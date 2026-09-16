@@ -4,7 +4,8 @@ const { resolveSessionSecret, resolveTestEngineSecret } = require("../security/r
 const { readBoundedResponseJson } = require("../utils/boundedResponse");
 
 const TTL_MS = 2 * 60 * 60 * 1000;
-const error = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+const error = (message, statusCode = 400, code) => Object.assign(new Error(message), { statusCode, ...(code ? { code } : {}) });
+const configurationError = message => Object.assign(error(message, 503, "INSPECTION_ENGINE_CONFIGURATION"), { publicMessage: message });
 const key = () => crypto.createHash("sha256").update(`repository-inspection:${resolveSessionSecret()}`).digest();
 const seal = (value) => {
   const iv = crypto.randomBytes(12);
@@ -24,10 +25,13 @@ const open = (value) => {
   } catch { throw error("Inspection session has expired. Open a new browser session.", 401); }
 };
 const engineBase = (integration) => {
-  if (!integration?.base_url) throw error("Configure an active Test Engine integration for this project to use a remote browser.", 503);
-  const url = new URL(integration.base_url);
+  if (!integration?.base_url) throw configurationError("Configure an active Test Engine integration for this project to use a remote browser.");
+  let url;
+  try { url = new URL(integration.base_url); } catch {
+    throw configurationError("The configured Test Engine URL must be an HTTP(S) base URL without credentials or a query.");
+  }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-    throw error("The configured Test Engine URL must be an HTTP(S) base URL without credentials or a query.", 503);
+    throw configurationError("The configured Test Engine URL must be an HTTP(S) base URL without credentials or a query.");
   }
   return url.href.replace(/\/+$/, "");
 };
@@ -37,12 +41,13 @@ const engineHeaders = (integration, token) => ({
   ...(token ? { "x-hellotest-recorder-token": token } : {})
 });
 const startUrl = (value) => {
-  if (!value) return null;
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return null;
   try {
-    const parsed = new URL(value);
+    if (typeof value !== "string" || /[\u0000-\u001f\u007f]/.test(value.trim())) throw new Error();
+    const parsed = new URL(value.trim());
     if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
     return parsed.href;
-  } catch { throw error("Enter an HTTP or HTTPS URL without embedded credentials."); }
+  } catch { throw error("Enter the page's full HTTP or HTTPS URL without embedded credentials, or leave it empty to open a blank browser.", 400, "INSPECTION_URL_INVALID"); }
 };
 
 exports.capabilities = async (projectId) => {
@@ -60,15 +65,20 @@ exports.capabilities = async (projectId) => {
   };
 };
 exports.start = async ({ project_id, app_type_id, start_url, user_id, authorization, origin }) => {
+  const destination = startUrl(start_url);
   const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", project_id);
   const base = engineBase(integration);
   const response = await fetch(`${base}/api/v1/recorder/sessions`, {
     method: "POST", redirect: "error", signal: AbortSignal.timeout(60_000),
     headers: engineHeaders(integration),
-    body: JSON.stringify({ start_url: startUrl(start_url), purpose: "repository-inspect", recorder_mode: "remote", reuse_existing: false })
+    body: JSON.stringify({ start_url: destination, purpose: "repository-inspect", recorder_mode: "remote", reuse_existing: false })
   });
   const session = await readBoundedResponseJson(response, { maxBytes: 1024 * 1024, label: "Test Engine inspection response" });
-  if (!response.ok) throw error(session?.message || "The Test Engine could not start an inspection browser.", response.status >= 500 ? 503 : response.status);
+  if (!response.ok) {
+    const validationCodes = new Set(["INSPECTION_URL_INVALID", "INSPECTION_PRIVATE_TARGET", "INSPECTION_DNS_FAILED"]);
+    const code = response.status === 400 && validationCodes.has(session?.code) ? session.code : undefined;
+    throw error(typeof session?.message === "string" ? session.message : "The Test Engine could not start an inspection browser.", response.status >= 500 ? 503 : response.status, code);
+  }
   if (!session?.id || !/^[a-zA-Z0-9-]{1,100}$/.test(session.id)) throw error("The Test Engine returned an invalid inspection session.", 502);
   const live = new URL(session.live_view_path || session.live_view_url || "", base);
   const engineToken = live.searchParams.get("token");

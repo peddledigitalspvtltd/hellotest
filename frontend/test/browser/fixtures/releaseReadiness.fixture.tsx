@@ -1,6 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "/src/auth/AuthContext";
 import { api, sessionStorage } from "/src/lib/api";
@@ -15,6 +15,15 @@ import "/src/dark-theme.css";
 import "/src/modal-system.css";
 import "/src/workspace-layout.css";
 const scenario = new URLSearchParams(location.search).get("scenario") || "";
+// Keep browser history real so Back/reload verify the report's shareable URL.
+const fixtureLocation = new URL(location.href);
+if (!fixtureLocation.searchParams.has("readiness_fixture")) {
+  fixtureLocation.searchParams.set("readiness_fixture", "1");
+  if (!fixtureLocation.searchParams.has("release")) fixtureLocation.searchParams.set("release", "Autumn 2026");
+  if (scenario === "wrong") fixtureLocation.searchParams.set("release_id", "wrong");
+  if (scenario === "linked" || scenario === "release-denied") fixtureLocation.searchParams.set("release_id", "linked");
+  history.replaceState(null, "", fixtureLocation);
+}
 window.readinessCalls = [];
 window.readinessDenyBugs = scenario === "restricted";
 window.readinessFailBugs = false;
@@ -30,10 +39,12 @@ const session = {
     role: "admin",
   },
 };
-if (scenario === "release-denied") {
+if (["release-denied", "cases-denied", "runs-denied"].includes(scenario)) {
   session.user.role = "member";
   session.user.project_permissions = { project: ["dashboard.view", "requirement.view", "testcase.view", "suite.view", "run.view", "result.view", "feedback.view", "project.view", "quality_insight.view"] };
 }
+if (scenario === "cases-denied") session.user.project_permissions.project = session.user.project_permissions.project.filter(permission => permission !== "testcase.view");
+if (scenario === "runs-denied") session.user.project_permissions.project = session.user.project_permissions.project.filter(permission => !["run.view", "result.view"].includes(permission));
 sessionStorage.write(session);
 setCurrentScope("project", "app");
 for (const methods of Object.values(api))
@@ -181,6 +192,20 @@ const bugs = [
     linked_requirement_ids: ["s1"],
   },
 ];
+if (scenario === "explorers") {
+  stories[0].test_case_ids = ["c1", "c2", "c4", "c5", "c6", "c7", "c8", "c-missing"];
+  for (let index = 4; index <= 8; index++) cases.push({ ...cases[0], id: `c${index}`, title: `Additional checkout coverage ${index}`, requirement_ids: ["s1"] });
+  runs[0].test_case_ids.push("c-run-only", "c-planned-only");
+  runs[0].scope_case_count = runs[0].test_case_ids.length;
+  results.push({ ...results[0], id: "res-run-only", test_case_id: "c-run-only", data_set_iteration_key: "run-only-row", defects: [] });
+  for (let index = 3; index <= 7; index++) {
+    runs.push({ ...runs[1], id: `r${index}`, name: `Checkout compatibility ${index}`, title: `Checkout compatibility ${index}`, test_case_ids: ["c4"], case_snapshots: [{test_case_id:"c4",expected_iterations:1}] });
+    results.push({ ...results[1], id: `res-extra-${index}`, execution_id: `r${index}`, test_case_id: "c4", data_set_iteration_key: "default", status: "passed" });
+  }
+  bugs.push({ ...bugs[0], id: "bug2", jira_bug_key: "CP-209", title: "Resolved checkout alignment", severity: "High", priority: "High", status: "Resolved", status_category: "done" });
+  bugs.push({ ...bugs[0], id: "bug3", jira_bug_key: "CP-210", title: "Unlinked release bug", severity: "Medium", priority: "Medium", linked_test_case_ids: [], linked_requirement_ids: [] });
+  for (let index = 4; index <= 9; index++) bugs.push({ ...bugs[0], id: `bug${index}`, jira_bug_key: `CP-${207+index}`, title: `Checkout related bug ${index}`, severity: "Medium", priority: "Medium" });
+}
 const page = (items) => ({
   items,
   total: items.length,
@@ -263,12 +288,7 @@ function Preferences() {
   return null;
 }
 createRoot(document.getElementById("root")).render(
-  <MemoryRouter
-    initialEntries={[
-      "/release-readiness?release=Autumn%202026" +
-        (scenario === "wrong" ? "&release_id=wrong" : scenario === "linked" || scenario === "release-denied" ? "&release_id=linked" : ""),
-    ]}
-  >
+  <BrowserRouter>
     <QueryClientProvider
       client={
         new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -288,5 +308,5 @@ createRoot(document.getElementById("root")).render(
         </LocalizationProvider>
       </AuthProvider>
     </QueryClientProvider>
-  </MemoryRouter>,
+  </BrowserRouter>,
 );

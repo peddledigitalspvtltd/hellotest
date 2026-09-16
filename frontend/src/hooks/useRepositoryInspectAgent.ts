@@ -95,7 +95,7 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
       setState("disconnected");
       setMessage(error instanceof Error && !["TypeError", "TimeoutError"].includes(error.name)
         ? error.message
-        : "Local agent is not reachable. Run the setup command, allow local network access in your browser if prompted, then check again.");
+        : "The local agent is unavailable or this browser blocked the connection. If an agent was started for another HelloTest address, stop it and run the setup command from this page. Allow local network access if prompted, then check again. You can continue with a remote browser without a local agent.");
       return null;
     }
   }, [isCurrentScope, ensureToken]);
@@ -123,6 +123,16 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
     void prepareSetup();
     void check();
   }, [check, prepareSetup, isCurrentScope]);
+
+  const pauseChecks = useCallback(() => {
+    if (!mountedRef.current) return;
+    controllerRef.current?.abort();
+    setOptedIn(false);
+    setAgent(null);
+    setState("unchecked");
+    setSetupOpen(false);
+    setMessage("Local connection checks are paused. Open agent setup to connect this computer again.");
+  }, []);
 
   useEffect(() => {
     if (!enabled || !optedIn) return;
@@ -162,5 +172,5 @@ export function useRepositoryInspectAgent(enabled: boolean, projectId: string) {
   const url = currentSetup?.download_url || "";
   const command = url ? `curl --fail --location '${url.replace(/'/g, "'\\''")}' --output "\${TMPDIR:-/tmp}/hellotest-inspection-agent.mjs" && node "\${TMPDIR:-/tmp}/hellotest-inspection-agent.mjs"` : "";
   const windowsCommand = url ? `$agentFile = Join-Path $env:TEMP 'hellotest-inspection-agent.mjs'; Invoke-WebRequest -Uri '${url.replace(/'/g, "''")}' -OutFile $agentFile; if ($?) { node $agentFile }` : "";
-  return { state, agent, message, setupOpen: enabled && setupOpen, setSetupOpen, openSetup, check, command, windowsCommand, setupError, preparingSetup, prepareSetup, expiresAt: currentSetup?.expires_at };
+  return { state, agent, message, setupOpen: enabled && setupOpen, setSetupOpen, openSetup, pauseChecks, check, command, windowsCommand, setupError, preparingSetup, prepareSetup, expiresAt: currentSetup?.expires_at };
 }

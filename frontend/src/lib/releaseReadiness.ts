@@ -14,6 +14,28 @@ export type ReadinessGate = {
   count: number | null;
   total: number;
 };
+export type ReadinessCaseRunEvidence = {
+  runId: string;
+  results: ExecutionResult[];
+  expectedRows: number;
+  missingRows: number;
+};
+export type ReadinessCaseEvidence = {
+  id: string;
+  title: string | null;
+  displayId: string;
+  /** A reusable case record is loaded; this does not measure design completeness or quality. */
+  detailsAvailable: boolean;
+  storyIds: string[];
+  runIds: string[];
+  results: ExecutionResult[];
+  runEvidence: ReadinessCaseRunEvidence[];
+  /** Observed rows plus declared missing run rows. A case with no run has no known row plan. */
+  expectedRows: number;
+  missingRows: number;
+  assessed: boolean;
+  status: "passed" | "failed" | "blocked" | "unassessed" | "not-run";
+};
 export type RequirementHotspot = {
   id: string;
   displayId: string;
@@ -78,6 +100,13 @@ export const caseIdsForReadinessRun = (execution: Execution) =>
   );
 const assessed = (result: ExecutionResult) =>
   result.status === "passed" || result.status === "failed";
+const completedStoryStatuses = new Set([
+  "qa_done", "qa done", "done", "closed", "resolved", "accepted", "complete", "completed",
+]);
+const completedStory = (story: Requirement) => {
+  const category = normalized(story.status_category);
+  return category ? category === "done" : completedStoryStatuses.has(normalized(story.status));
+};
 
 /** Keep run/environment boundaries and data rows. An edited old attempt cannot replace a newer attempt. */
 export function latestReadinessResults(results: ExecutionResult[]) {
@@ -241,15 +270,62 @@ export function deriveReleaseReadiness(input: Input) {
     ? Math.max(0, Math.floor((now - timestamp(latestEvidenceAt)) / 86_400_000))
     : null;
   const loadedCaseIds = new Set(testCases.map((item) => item.id));
+  const casesById = new Map(testCases.map((item) => [item.id, item]));
+  const caseIdsByRun = new Map(executions.map((run) => [run.id, new Set(caseIdsForReadinessRun(run))]));
+  const caseEvidence = [...plannedCaseIds].map<ReadinessCaseEvidence>((id) => {
+    const testCase = casesById.get(id);
+    const results = resultsByCase.get(id) || [];
+    const resultsByRun = new Map<string, ExecutionResult[]>();
+    for (const result of results)
+      resultsByRun.set(result.execution_id, [...(resultsByRun.get(result.execution_id) || []), result]);
+    const runEvidence = executions
+      .filter((run) => caseIdsByRun.get(run.id)?.has(id) || resultsByRun.has(run.id))
+      .map<ReadinessCaseRunEvidence>((run) => {
+        const rows = resultsByRun.get(run.id) || [];
+        const snapshot = run.case_snapshots?.find((item) => item.test_case_id === id);
+        const declaredRows = caseIdsByRun.get(run.id)?.has(id)
+          ? Math.max(1, Number(snapshot?.expected_iterations) || 1)
+          : 0;
+        return {
+          runId: run.id,
+          results: rows,
+          expectedRows: Math.max(declaredRows, rows.length),
+          missingRows: Math.max(0, declaredRows - rows.length),
+        };
+      });
+    const isAssessed = assessedCases.has(id);
+    return {
+      id,
+      title: testCase?.title || null,
+      displayId: testCase?.display_id || id,
+      detailsAvailable: Boolean(testCase),
+      storyIds: requirements.filter((story) => linkedCasesForStory(story).has(id)).map((story) => story.id),
+      runIds: runEvidence.map((item) => item.runId),
+      results,
+      runEvidence,
+      expectedRows: runEvidence.reduce((total, item) => total + item.expectedRows, 0),
+      missingRows: missingRowsByCase.get(id) || 0,
+      assessed: isAssessed,
+      status: results.some((result) => result.status === "failed") ? "failed"
+        : results.some((result) => result.status === "blocked") ? "blocked"
+        : !results.length ? "not-run"
+        : isAssessed && results.every((result) => result.status === "passed") ? "passed"
+        : "unassessed",
+    };
+  });
+  const linkedIssueIds = issues.filter(linkedIssue).map((item) => item.id);
   const metrics = {
     coverage: percentage(coveredRequirementCount, requirements.length),
     completion: percentage(assessedCases.size, plannedCaseIds.size),
     passRate: percentage(passedCount, passedCount + failedCount),
     requirementCount: requirements.length,
     coveredRequirementCount,
+    completedRequirementCount: requirements.filter(completedStory).length,
     highPriorityUncoveredCount,
     plannedCaseCount: plannedCaseIds.size,
     executedCaseCount: assessedCases.size,
+    passingCaseCount: caseEvidence.filter((item) => item.status === "passed").length,
+    designKnownCount: loadedCaseIds.size,
     passedCount,
     failedCount,
     blockedCount,
@@ -269,7 +345,7 @@ export function deriveReleaseReadiness(input: Input) {
       (total, count) => total + count,
       0,
     ),
-    linkedBugCount: issues.filter(linkedIssue).length,
+    linkedBugCount: linkedIssueIds.length,
     missingCaseDetailsCount: [...plannedCaseIds].filter(
       (id) => !loadedCaseIds.has(id),
     ).length,
@@ -416,11 +492,13 @@ export function deriveReleaseReadiness(input: Input) {
     missingRowsByRun,
     requirements,
     testCases,
+    caseEvidence,
     executions,
     executionResults,
     latestCaseResults,
     issues,
     openIssues,
+    linkedIssueIds,
     metrics,
     decisionState,
     gates,

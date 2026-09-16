@@ -18,7 +18,7 @@ export function RepositoryAgentStatus({ connection }: { connection: AgentConnect
   </button>;
 }
 
-export function RepositoryAgentSetup({ connection }: { connection: AgentConnection }) {
+export function RepositoryAgentSetup({ connection, onUseRemote }: { connection: AgentConnection; onUseRemote?: () => void }) {
   const [platform, setPlatform] = useState<"shell" | "windows">(() => /Win/i.test(navigator.platform) ? "windows" : "shell");
   const [copyMessage, setCopyMessage] = useState("");
   const dialogRef = useDialogFocus<HTMLDivElement>({ active: connection.setupOpen, onClose: () => connection.setSetupOpen(false) });
@@ -34,9 +34,10 @@ export function RepositoryAgentSetup({ connection }: { connection: AgentConnecti
         {connection.preparingSetup ? <p role="status">Preparing your paired setup command…</p> : connection.setupError ? <div role="alert"><p>{connection.setupError}</p><button className="ghost-button compact" onClick={() => void connection.prepareSetup()} type="button">Retry setup command</button></div> : <pre className="repository-agent-command" tabIndex={0}><code>{command}</code></pre>}
         {copyMessage ? <span role="status">{copyMessage}</span> : null}
         <p className="repository-agent-setup-note">Keep the terminal open. This command pairs the agent with this browser and allows this workspace’s address. Allow local network access if your browser asks. You can use a remote browser without installing an agent.</p>
+        {connection.state === "disconnected" ? <p className="repository-agent-setup-note">If another HelloTest agent is already running on port 4311, stop that agent before running this page’s command. An agent paired with localhost does not automatically allow a hosted workspace.</p> : null}
         {connection.expiresAt ? <p>The download link expires {new Date(connection.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Reopen this panel to get a fresh command.</p> : null}
       </div>
-      <footer className="dialog-actions"><button className="ghost-button" onClick={() => connection.setSetupOpen(false)} type="button">Done</button><button className="primary-button" disabled={connection.state === "checking"} onClick={() => void connection.check()} type="button"><RefreshIcon size={15} />{connection.state === "checking" ? "Checking…" : "Check connection"}</button></footer>
+      <footer className="dialog-actions">{onUseRemote ? <button className="ghost-button repository-agent-remote-option" onClick={() => { connection.pauseChecks(); onUseRemote(); }} type="button"><IconCloud size={15} />Use remote browser</button> : null}<button className="ghost-button" onClick={() => connection.setSetupOpen(false)} type="button">Done</button><button className="primary-button" disabled={connection.state === "checking"} onClick={() => void connection.check()} type="button"><RefreshIcon size={15} />{connection.state === "checking" ? "Checking…" : "Check connection"}</button></footer>
     </div>
   </div>, document.body);
 }

@@ -157,3 +157,23 @@ test("CORS emits an exact configured origin and local development permits loopba
     await development.close();
   }
 });
+
+test("paired CORS canonicalizes equivalent origins but rejects other origins and malformed origin values", async () => {
+  const app = await createCorsApp({ HELLOTEST_INSPECTOR_TOKEN: "paired-token", TESTENGINE_CORS_ORIGINS: "HTTPS://APP.HELLOTEST.AI:443/, https://ignored.example/path, https://query.example?x=1" });
+  try {
+    for (const origin of ["https://app.hellotest.ai", "https://APP.HELLOTEST.AI:443"]) {
+      const response = await app.inject({ method: "OPTIONS", url: "/resource", headers: { origin, "access-control-request-method": "POST", "access-control-request-headers": "content-type,x-hellotest-agent-token", "access-control-request-private-network": "true" } });
+      assert.equal(response.statusCode, 204, origin);
+      assert.equal(response.headers["access-control-allow-origin"], origin);
+      assert.equal(response.headers["access-control-allow-private-network"], "true");
+      assert.match(response.headers["access-control-allow-methods"], /POST/);
+      assert.match(response.headers["access-control-allow-headers"], /content-type/);
+      assert.match(response.headers["access-control-allow-headers"], /x-hellotest-agent-token/);
+    }
+    for (const origin of ["http://app.hellotest.ai", "https://app.hellotest.ai:444", "https://app.hellotest.ai.evil.test", "https://app.hellotest.ai/path", "https://app.hellotest.ai?x=1", "https://app.hellotest.ai#fragment", "https://user:pass@app.hellotest.ai", "https:app.hellotest.ai", "https:///app.hellotest.ai", "null", "https://ignored.example", "https://query.example", "http://localhost:8080"]) {
+      const response = await app.inject({ url: "/resource", headers: { origin } });
+      assert.equal(response.statusCode, 403, origin);
+      assert.equal(response.headers["access-control-allow-origin"], undefined, origin);
+    }
+  } finally { await app.close(); }
+});
