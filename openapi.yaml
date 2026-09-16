@@ -533,6 +533,11 @@ paths:
     get:
       tags: [Projects]
       summary: List projects
+      parameters:
+        - name: projection
+          in: query
+          description: Summary returns compact project metadata without cross-project counts. Fetch an individual project for its full description and portfolio analytics for metrics.
+          schema: { type: string, enum: [summary, detail], default: detail }
       responses:
         "200":
           description: List of projects
@@ -818,6 +823,28 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         "403":
           $ref: "#/components/responses/ErrorResponse"
+  /test-cases/review-summary:
+    get:
+      tags: [Test Cases]
+      summary: Count pending Test Cases assigned to the signed-in reviewer
+      description: Requires project-scoped testcase.view. Counts manual pending reviews and pending AI drafts, independent of catalog search, modules and pagination. Legacy unassigned AI drafts belong to their creator. Reviewer identity always comes from the authenticated session.
+      parameters:
+        - $ref: "#/components/parameters/ProjectIdQuery"
+        - $ref: "#/components/parameters/AppTypeIdQuery"
+      responses:
+        "200":
+          description: Pending reviews in the requested project/application scope.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [pending]
+                properties:
+                  pending: { type: integer, minimum: 0 }
+        "400":
+          $ref: "#/components/responses/ErrorResponse"
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
   /test-cases/metrics:
     get:
       tags:
@@ -831,6 +858,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/AppTypeIdQuery"
+        - name: review_queue
+          in: query
+          description: Restrict metrics to pending manual and AI reviews assigned to the authenticated user.
+          schema: { type: string, enum: [mine] }
         - name: exclude_automated
           in: query
           schema:
@@ -1224,6 +1255,10 @@ paths:
         requests without include_page or cursor return an array. Picker projection always returns at most 25 compact choices with a stable keyset cursor, including Suite/module scopes. It omits authoring bodies, step/execution counts, and execution history; total is omitted unless include_total=true. Membership display metadata is resolved only for the returned page.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
+        - name: review_queue
+          in: query
+          description: Show pending manual and AI reviews assigned to the authenticated user. Always returns a bounded page; cursors cannot cross reviewers. An explicit reviewer takes precedence over legacy AI creator fallback.
+          schema: { type: string, enum: [mine] }
         - $ref: "#/components/parameters/SuiteIdQuery"
         - $ref: "#/components/parameters/RequirementIdQuery"
         - $ref: "#/components/parameters/AppTypeIdQuery"
@@ -1944,6 +1979,13 @@ paths:
       tags: [Execution Results]
       summary: List execution results
       parameters:
+        - name: projection
+          in: query
+          description: Summary omits logs, captured row data and lifecycle history for list/history views. Use the detail projection (default) or fetch an individual result for full evidence.
+          schema:
+            type: string
+            enum: [summary, detail]
+            default: detail
         - $ref: "#/components/parameters/ProjectIdQuery"
         - $ref: "#/components/parameters/ExecutionIdQuery"
         - $ref: "#/components/parameters/TestCaseIdQuery"
@@ -4752,6 +4794,11 @@ paths:
     get:
       tags: [Projects]
       summary: Read projects catalog
+      parameters:
+        - name: projection
+          in: query
+          description: Summary returns compact catalog metadata and access markers without aggregate counts. The default preserves the full catalog response.
+          schema: { type: string, enum: [summary, detail], default: detail }
       responses:
         "200": { description: Successful response }
   /projects/portfolio-analytics:
@@ -4954,6 +5001,26 @@ paths:
         - bearerAuth: []
       responses:
         "200": { description: "Schema readiness, table counts, and roles.created/roles.retained arrays of role IDs and names." }
+  /admin-portal/setup/performance-indexing:
+    get:
+      tags: [Admin Portal]
+      summary: Read shared database performance indexing progress
+      description: Requires a workspace administrator. Returns the fixed index catalog, the latest persisted job and whether an indexing worker holds the database lock. Interrupted jobs can be retried.
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: "Indexing state with running, catalog, and job fields; responses are not cached." }
+        "403": { description: Workspace administrator access is required }
+    post:
+      tags: [Admin Portal]
+      summary: Build missing performance indexes without blocking normal writes
+      description: Requires a workspace administrator and accepts no parameters. Starts an audited asynchronous job using a fixed index catalog and concurrent PostgreSQL index builds. Repeated requests return the active job; valid equivalent indexes are retained and failed index builds can be retried.
+      security:
+        - bearerAuth: []
+      responses:
+        "202": { description: "The indexing job was started or an existing job is running; poll GET for progress and per-index results." }
+        "400": { description: Caller-supplied parameters are not supported }
+        "403": { description: Workspace administrator access is required }
   /admin-portal/users:
     post:
       tags: [Admin Portal]
@@ -5332,9 +5399,26 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     post:
       tags: [Test Cases]
-      summary: Execute test cases review
+      summary: Review an assigned pending Test Case
+      description: Requires testcase.update and current reviewer ownership. Legacy unassigned AI drafts default to their creator. Approval marks the case ready; requesting changes retains the draft. Manual and AI review states, history, and versions are updated together. Stale or already completed reviews return 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [review_status]
+              properties:
+                review_status: { type: string, enum: [accepted, changes_requested] }
+                comment: { type: string }
+                expected_updated_at: { type: string, description: Last observed update timestamp for stale-content protection. }
+                expected_revision: { type: integer, minimum: 1 }
       responses:
         "200": { description: Successful response }
+        "403":
+          $ref: "#/components/responses/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/ErrorResponse"
   /test-cases/ai-authoring-preview:
     post:
       tags: [Test Cases]
@@ -8121,6 +8205,8 @@ components:
         review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
         review_history: { type: array, items: { type: object, additionalProperties: true } }
         ai_quality_score: { type: number, nullable: true }
+        ai_generation_source: { type: string, nullable: true, enum: [scheduler, interactive, repository] }
+        ai_generation_review_status: { type: string, nullable: true, enum: [pending, accepted, rejected] }
         created_by: { type: string, nullable: true, description: Immutable user who created the Test Case. }
         updated_by: { type: string, nullable: true, description: User who most recently changed the Test Case. }
         created_at: { type: string }
@@ -8181,6 +8267,7 @@ components:
       type: object
       required: [title]
       properties:
+        ai_generation_source: { type: string, enum: [interactive], description: Marks a new AI-authored draft. The server defaults its reviewer to the acting user and starts pending review. }
         app_type_id: { type: string }
         source_issue_id: { type: string, description: Source Bug for an explicit conversion. Must be visible and belong to the Test Case project. }
         suite_id: { type: string }
@@ -8204,8 +8291,8 @@ components:
         requirement_id: { type: string }
         requirement_ids: { type: array, items: { type: string } }
         reviewer_id: { type: string }
-        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
-        review_history: { type: array, items: { type: object, additionalProperties: true } }
+        review_status: { type: string, enum: [not_requested, pending], description: Assigned reviewers always start with pending review. Decisions must use the review endpoint. }
+        review_history: { type: array, items: { type: object, additionalProperties: true }, description: Server maintained. Client values are ignored. }
         ai_quality_score: { type: number }
         steps: { type: array, items: { type: object, additionalProperties: true } }
     UpdateTestCaseRequest:
@@ -8233,8 +8320,8 @@ components:
         requirement_id: { type: string }
         requirement_ids: { type: array, items: { type: string } }
         reviewer_id: { type: string }
-        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested] }
-        review_history: { type: array, items: { type: object, additionalProperties: true } }
+        review_status: { type: string, enum: [not_requested, pending, accepted, changes_requested], description: Existing decisions may be echoed unchanged. New accepted or changes_requested decisions must use the review endpoint. }
+        review_history: { type: array, items: { type: object, additionalProperties: true }, description: Server maintained. Client values are ignored. }
         ai_quality_score: { type: number }
         steps: { type: array, items: { type: object, additionalProperties: true } }
     TestStep:

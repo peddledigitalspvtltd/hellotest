@@ -1229,6 +1229,16 @@
   }
 }
 
+.project-metrics-status {
+  align-items: center;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  font-size: 0.875rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .projects-view-evidence-button,
   .project-risk-open-button {

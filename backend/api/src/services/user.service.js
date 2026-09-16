@@ -2,7 +2,7 @@ const db = require("../db");
 const obsDb = require("../obsDb");
 const { randomUUID: uuid } = require("crypto");
 const workspaceTransactionService = require("./workspaceTransaction.service");
-const { hashPassword, verifyPassword } = require("../utils/token");
+const { hashPasswordAsync, verifyPasswordAsync } = require("../utils/token");
 
 const normalizeEmail = (email) => {
   return email.toLowerCase().trim();
@@ -198,7 +198,7 @@ const normalizeAvatarDataUrl = (value) => {
 const isAdminRole = (role) => String(role?.name || "").trim().toLowerCase() === "admin";
 
 exports.createUser = async ({ email, password, password_hash, name, role_id }) => {
-  const resolvedPasswordHash = password ? hashPassword(password) : password_hash;
+  const resolvedPasswordHash = password ? await hashPasswordAsync(password) : password_hash;
 
   if (!email || !resolvedPasswordHash || !role_id) {
     throw new Error("Missing required fields");
@@ -333,7 +333,7 @@ exports.updateUser = async (id, data) => {
     data.name !== undefined
       ? normalizeName(data.name)
       : existing.name;
-  const nextPasswordHash = data.password ? hashPassword(data.password) : data.password_hash;
+  const nextPasswordHash = data.password ? await hashPasswordAsync(data.password) : data.password_hash;
 
   const updateUserStatement = db.prepare(`
     UPDATE users
@@ -397,7 +397,7 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
     throw error;
   }
 
-  if (!verifyPassword(current_password, user.password_hash)) {
+  if (!await verifyPasswordAsync(current_password, user.password_hash)) {
     const error = new Error("Current password is incorrect");
     error.statusCode = 400;
     throw error;
@@ -407,7 +407,7 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
     UPDATE users
     SET password_hash = ?, must_change_password = FALSE
     WHERE id = ?
-  `).run(hashPassword(new_password), id);
+  `).run(await hashPasswordAsync(new_password), id);
 
   return { updated: true };
 };
@@ -553,7 +553,7 @@ const resolveImportPasswordHash = (row) => {
     throw new Error("Each imported user must include a password or password hash.");
   }
 
-  return hashPassword(password);
+  return hashPasswordAsync(password);
 };
 
 exports.bulkImportUsers = async ({ rows = [], default_role_id, created_by, transaction_id } = {}) => {
@@ -627,7 +627,7 @@ exports.bulkImportUsers = async ({ rows = [], default_role_id, created_by, trans
       }
 
       const roleId = await resolveImportRoleId(row, defaultRoleId);
-      const password_hash = resolveImportPasswordHash(row);
+      const password_hash = await resolveImportPasswordHash(row);
       const response = await exports.createUser({
         email,
         password_hash,

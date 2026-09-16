@@ -14,8 +14,10 @@ const selectedIds = (value, field) => {
   return ids;
 };
 const latestStatusSql = `(SELECT status FROM execution_results er WHERE er.test_case_id = tc.id ORDER BY er.created_at DESC, er.id DESC LIMIT 1)`;
+const aiPendingSql = alias => `(NULLIF(${alias}.ai_generation_source, '') IS NOT NULL AND ${alias}.ai_generation_review_status = 'pending')`;
+const pendingReviewSql = alias => `(${alias}.review_status = 'pending' OR (${aiPendingSql(alias)} AND COALESCE(${alias}.review_status, 'not_requested') NOT IN ('accepted', 'changes_requested')))`;
 const workflowStatusSql = (includeExecution) => `CASE
-  WHEN tc.ai_generation_source = 'scheduler' AND tc.ai_generation_review_status = 'pending' THEN 'ai-generated'
+  WHEN ${aiPendingSql('tc')} AND ${pendingReviewSql('tc')} THEN 'ai-generated'
   WHEN tc.review_status = 'pending' THEN 'pending-review'
   ${includeExecution ? `WHEN ${latestStatusSql} IN ('failed', 'blocked') THEN 'failed' WHEN ${latestStatusSql} = 'passed' THEN 'passed'` : ''}
   WHEN tc.automated = 'yes' THEN 'automated'
@@ -26,6 +28,16 @@ const buildScope = (query = {}) => {
   const picker = query.projection === 'picker';
   const where = ['1 = 1'];
   const params = [];
+  if (query.review_queue !== undefined) {
+    if (query.review_queue !== 'mine' || typeof query.review_user_id !== 'string' || !query.review_user_id.trim()) {
+      throw Object.assign(new Error('review_queue must be mine and requires an authenticated reviewer.'), { statusCode: 400 });
+    }
+    // Only the authenticated route supplies review_user_id. Explicit reviewer
+    // assignments win over creator fallback for older unassigned AI drafts.
+    where.push(pendingReviewSql('tc'));
+    where.push(`(tc.reviewer_id = ? OR (NULLIF(tc.reviewer_id, '') IS NULL AND ${aiPendingSql('tc')} AND tc.created_by = ?))`);
+    params.push(query.review_user_id, query.review_user_id);
+  }
   for (const [field, expression] of [
     ['app_type_id', 'tc.app_type_id = ?'],
     ['project_id', 'tc.app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)'],
@@ -196,6 +208,13 @@ exports.listPage = async (query = {}) => {
 };
 
 const percent = (n, total) => total ? Math.round(Number(n) / Number(total) * 100) : 0;
+exports.getReviewSummary = async ({ project_id, app_type_id, review_user_id } = {}) => {
+  // Button availability is independent of search, loaded pages, modules and
+  // execution metrics. Count both kinds of pending review in one cheap read.
+  const { where, params } = buildScope({ project_id, app_type_id, review_queue: 'mine', review_user_id });
+  const row = await db.prepare(`SELECT COUNT(*)::int AS pending FROM test_cases tc WHERE ${where}`).get(...params);
+  return { pending: Number(row?.pending || 0) };
+};
 exports.getMetrics = async (query = {}) => {
   const { where, params } = buildScope(query);
   const execution = yes(query.include_execution);
@@ -229,7 +248,7 @@ exports.getMetrics = async (query = {}) => {
     COUNT(*) FILTER (WHERE latest_finalized = 'passed')::int AS latest_passed,
     COALESCE(SUM(finalized),0)::int AS finalized, COALESCE(SUM(passed),0)::int AS passed,
     COALESCE(SUM(duration_sum),0)::float8 AS duration_sum, COALESCE(SUM(duration_count),0)::int AS duration_count,
-    COUNT(*) FILTER (WHERE review_status = 'pending' OR (ai_generation_source = 'scheduler' AND ai_generation_review_status = 'pending'))::int AS pending_review,
+    COUNT(*) FILTER (WHERE ${pendingReviewSql('f')})::int AS pending_review,
     COUNT(*) FILTER (WHERE NOT covered OR NOT executable OR latest_status IN ('failed','blocked') OR (COALESCE(priority,3) <= 2 AND automated = 'no'))::int AS risk
     FROM facts f GROUP BY GROUPING SETS ((module_id), ()))
     SELECT rollups.*, (SELECT COUNT(DISTINCT d.issue_id)::int FROM test_case_defects d JOIN scoped ds ON ds.id = d.test_case_id

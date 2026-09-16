@@ -66,6 +66,8 @@ High-value overrides:
   HELLOTEST_FRONTEND_IMAGE       Frontend image ref.
   HELLOTEST_TESTENGINE_IMAGE     Test Engine image ref.
   HELLOTEST_MOBILE_ENGINE_IMAGE  Mobile Engine image ref.
+  MINIO_IMAGE                   MinIO image ref.
+  API_STARTUP_TIMEOUT_MS        API initialization deadline. Default: 180000.
 
 Examples:
   ./hellotest.sh config --stack local
@@ -218,11 +220,13 @@ resolve_defaults() {
   FRONTEND_PORT="${FRONTEND_PORT:-8080}"
   HELLOTEST_ADMIN_PORT="${HELLOTEST_ADMIN_PORT:-8081}"
   API_PORT="${API_PORT:-3000}"
+  API_STARTUP_TIMEOUT_MS="${API_STARTUP_TIMEOUT_MS:-180000}"
   HELLOTEST_HTTP_PORT="${HELLOTEST_HTTP_PORT:-80}"
   TESTENGINE_PORT="${TESTENGINE_PORT:-4301}"
   MOBILE_ENGINE_PORT="${MOBILE_ENGINE_PORT:-4312}"
   REDIS_PORT="${REDIS_PORT:-6379}"
   STORAGE_PROVIDER="${STORAGE_PROVIDER:-minio}"
+  MINIO_IMAGE="${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}"
   MINIO_ENDPOINT="${MINIO_ENDPOINT:-minio}"
   MINIO_PORT="${MINIO_PORT:-9000}"
   MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
@@ -341,10 +345,12 @@ write_env_file() {
     printf 'HELLOTEST_ADMIN_PORT=%s\n' "$HELLOTEST_ADMIN_PORT"
     printf 'ADMIN_PORTAL_PORT=%s\n' "$HELLOTEST_ADMIN_PORT"
     printf 'API_PORT=%s\n' "$API_PORT"
+    printf 'API_STARTUP_TIMEOUT_MS=%s\n' "$API_STARTUP_TIMEOUT_MS"
     printf 'TESTENGINE_PORT=%s\n' "$TESTENGINE_PORT"
     printf 'MOBILE_ENGINE_PORT=%s\n' "$MOBILE_ENGINE_PORT"
     printf 'REDIS_PORT=%s\n' "$REDIS_PORT"
     printf 'STORAGE_PROVIDER=%s\n' "$STORAGE_PROVIDER"
+    printf 'MINIO_IMAGE=%s\n' "$MINIO_IMAGE"
     printf 'MINIO_ENDPOINT=%s\n' "$MINIO_ENDPOINT"
     printf 'MINIO_PORT=%s\n' "$MINIO_PORT"
     printf 'MINIO_USE_SSL=%s\n' "$MINIO_USE_SSL"
@@ -399,6 +405,17 @@ print_redacted_env_file() {
 
 compose() {
   compose_cmd --env-file "$RESOLVED_ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
+
+prepare_runtime_images() {
+  [ "$SKIP_IMAGE_PULL" = "0" ] || return 0
+
+  info "Checking runtime images before building"
+  # Resolve image-only dependencies first so a failed pull does not waste a
+  # full source build. Keep cached images and the caller's service scope.
+  if ! compose pull --ignore-buildable --include-deps --policy missing "$@"; then
+    die "Runtime images could not be prepared. Resolve the pull error above and rerun; no build or startup was attempted."
+  fi
 }
 
 build_images() {
@@ -470,6 +487,7 @@ confirm_deploy() {
 run_up() {
   ensure_docker
   if [ "$BUILD_COMPOSE" = "1" ]; then
+    prepare_runtime_images "$@"
     if [ "$NO_CACHE" = "1" ]; then
       compose build --no-cache "$@"
       compose up -d "$@"
@@ -497,6 +515,7 @@ run_deploy() {
   ensure_docker
 
   if [ "$BUILD_COMPOSE" = "1" ]; then
+    prepare_runtime_images "$@"
     if [ "$NO_CACHE" = "1" ]; then
       compose build --no-cache "$@"
       compose up -d --force-recreate "$@"

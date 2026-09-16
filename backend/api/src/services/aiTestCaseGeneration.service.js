@@ -472,6 +472,8 @@ async function generateCasesForRequirement({
       steps: candidate.steps || [],
       ai_generation_source: "scheduler",
       ai_generation_review_status: "pending",
+      reviewer_id: job.created_by,
+      review_status: "pending",
       ai_generation_job_id: job.id,
       source_idempotency_key: `ai-job:${job.id}:requirement:${requirement.id}:case:${candidateIndex}`,
       ai_generated_at: new Date().toISOString(),

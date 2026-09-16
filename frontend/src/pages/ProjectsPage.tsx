@@ -64,6 +64,7 @@ import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { useWorkspaceData } from "../hooks/useWorkspaceData";
+import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { useAuth } from "../auth/AuthContext";
 import { formatAuditTimestamp } from "../lib/auditDisplay";
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
@@ -150,6 +151,7 @@ type ProjectHealthTone = "success" | "warning" | "danger" | "neutral";
 
 type ProjectPortfolioItem = {
   project: Project;
+  metricsReady: boolean;
   memberCount: number;
   memberNames: string[];
   memberUserIds: string[];
@@ -632,22 +634,27 @@ export function ProjectsPage() {
   const canDeleteAttachments = hasPermission(session, "attachment.delete", selectedProjectId);
   const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canManageUsers);
   const domainMetadataQuery = useDomainMetadata();
-  const [loadProjectMetrics, setLoadProjectMetrics] = useState(false);
+  const [focusedProjectId, setFocusedProjectId] = useState("");
+  const [section, setSection] = useState<ProjectSection>("details");
+  const { can } = useCapabilityAccess(focusedProjectId || null);
   const { users, roles, projectMembers, appTypes, requirements, testSuites, testCases, executions, executionResults } = useWorkspaceData({
+    projectId: focusedProjectId,
+    users: Boolean(focusedProjectId && section === "members"),
+    roles: Boolean(focusedProjectId && section === "members"),
+    projectMembers: Boolean(focusedProjectId && section === "members"),
+    appTypes: Boolean(focusedProjectId),
     projects: false,
     issues: false,
-    requirements: loadProjectMetrics,
-    testSuites: loadProjectMetrics,
-    testCases: loadProjectMetrics,
-    executions: loadProjectMetrics,
-    executionResults: loadProjectMetrics,
+    requirements: false,
+    testSuites: false,
+    testCases: false,
+    executions: false,
+    executionResults: false,
     testCasesProjection: "summary"
   });
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const canViewProjectAutomationCoverage = hasPermission(session, "automation.analytics.view", selectedProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.analytics"]);
-  const [focusedProjectId, setFocusedProjectId] = useState("");
-  const [section, setSection] = useState<ProjectSection>("details");
   const [traceabilityAppTypeId, setTraceabilityAppTypeId] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
@@ -683,19 +690,25 @@ export function ProjectsPage() {
   const projectAttachmentMetaQuery = useQuery({
     queryKey: ["project-attachment-meta"],
     queryFn: api.attachments.meta,
-    enabled: Boolean(session && canCreateAttachments),
+    enabled: Boolean((isCreateModalOpen || (focusedProjectId && section === "attachments")) && can("attachment.view") && canCreateAttachments),
     staleTime: 5 * 60_000
   });
   const projectCatalogQuery = useQuery({
     queryKey: ["projects", "catalog"],
-    queryFn: api.projects.catalog,
+    queryFn: ({ signal }) => api.projects.catalog({ signal }),
     enabled: Boolean(session),
     staleTime: 30_000
   });
   const portfolioAnalyticsQuery = useQuery({
     queryKey: ["projects", "portfolio-analytics"],
-    queryFn: api.projects.portfolioAnalytics,
-    enabled: Boolean(session),
+    queryFn: ({ signal }) => api.projects.portfolioAnalytics({ signal }),
+    enabled: Boolean(session && projectCatalogQuery.isSuccess),
+    staleTime: 30_000
+  });
+  const projectDetailsQuery = useQuery({
+    queryKey: ["projects", "detail", focusedProjectId],
+    queryFn: ({ signal }) => api.projects.get(focusedProjectId, { signal }),
+    enabled: Boolean(focusedProjectId && can("project.view", focusedProjectId)),
     staleTime: 30_000
   });
   const projectCreationUsersQuery = useQuery({
@@ -713,7 +726,7 @@ export function ProjectsPage() {
   const integrationsQuery = useQuery({
     queryKey: ["integrations", selectedProjectId],
     queryFn: () => api.integrations.list(),
-    enabled: Boolean(session)
+    enabled: Boolean(focusedProjectId && section === "details" && canSyncProjects && can("integration.view"))
   });
   const projectSyncTransactionsQuery = useQuery({
     queryKey: ["project-sync-transactions", focusedProjectId || selectedProjectId],
@@ -722,17 +735,11 @@ export function ProjectsPage() {
       category: "backup",
       limit: 20
     }),
-    enabled: Boolean((focusedProjectId || selectedProjectId) && session)
+    enabled: Boolean(focusedProjectId && section === "details" && canSyncProjects && can("transaction.view"))
   });
 
   const projectItems = asArray(projectCatalogQuery.data);
-  const isProjectCatalogLoading = projectCatalogQuery.isPending || portfolioAnalyticsQuery.isPending;
-
-  useEffect(() => {
-    if (!projectCatalogQuery.data?.some((project) => project.has_access !== false) || loadProjectMetrics) return;
-    const timer = window.setTimeout(() => setLoadProjectMetrics(true), 120);
-    return () => window.clearTimeout(timer);
-  }, [loadProjectMetrics, projectCatalogQuery.data]);
+  const isProjectCatalogLoading = projectCatalogQuery.isPending;
 
   useEffect(() => {
     if (!appTypeDropdownOptions.length) {
@@ -755,8 +762,11 @@ export function ProjectsPage() {
     [projectItems, selectedProjectId]
   );
   const focusedProject = useMemo(
-    () => projectItems.find((project) => project.has_access !== false && String(project.id) === String(focusedProjectId)) || null,
-    [focusedProjectId, projectItems]
+    () => {
+      const catalogProject = projectItems.find((project) => project.has_access !== false && String(project.id) === String(focusedProjectId));
+      return catalogProject ? { ...catalogProject, ...(projectDetailsQuery.data?.id === focusedProjectId ? projectDetailsQuery.data : {}) } : null;
+    },
+    [focusedProjectId, projectItems, projectDetailsQuery.data]
   );
   const scopedProject = focusedProject || selectedProject;
   const projectId = scopedProject?.id || "";
@@ -1107,6 +1117,7 @@ export function ProjectsPage() {
         : "No applications";
       const baseItem = {
         project,
+        metricsReady: Boolean(exactMetric),
         memberCount: exactMetric?.counts.members ?? memberCountByProjectId[project.id] ?? 0,
         memberNames,
         memberUserIds: exactMetric?.members.map((member) => member.user_id) || Array.from(projectMemberUserIds),
@@ -1118,7 +1129,7 @@ export function ProjectsPage() {
         testCaseCount: exactMetric?.counts.cases ?? project.case_count ?? testCaseCountByProjectId[project.id] ?? 0,
         bugCount: exactMetric?.bug_count ?? project.bug_count ?? 0,
         openBugCount: exactMetric?.open_bug_count ?? 0,
-        suiteCount: testSuiteCountByProjectId[project.id] || 0,
+        suiteCount: exactMetric?.counts.suites ?? testSuiteCountByProjectId[project.id] ?? 0,
         coverage,
         automationCoverage,
         passCoverage,
@@ -1368,13 +1379,13 @@ export function ProjectsPage() {
   const traceabilityModulesQuery = useQuery({
     queryKey: ["project-traceability-modules", projectId, traceabilityAppTypeId],
     queryFn: () => api.testCaseModules.list({ app_type_id: traceabilityAppTypeId }),
-    enabled: Boolean(projectId && traceabilityAppTypeId && loadProjectMetrics),
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && traceabilityAppTypeId && can("testcase.view", projectId)),
     staleTime: 30_000
   });
   const traceabilitySprintsQuery = useQuery({
     queryKey: ["project-traceability-sprints", projectId],
     queryFn: () => api.requirementIterations.list({ project_id: projectId }),
-    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && can("requirement_iteration.view", projectId)),
     staleTime: 30_000
   });
   const traceabilityRequirementsQuery = useInfiniteQuery({
@@ -1390,7 +1401,7 @@ export function ProjectsPage() {
       const cursor = getVerifiedNextPageCursor(lastPage);
       return cursor && !pageParams.includes(cursor) ? cursor : undefined;
     },
-    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && can("requirement.view", projectId)),
     staleTime: 30_000
   });
   const traceabilityCasesQuery = useInfiniteQuery({
@@ -1406,7 +1417,7 @@ export function ProjectsPage() {
       const cursor = getVerifiedNextPageCursor(lastPage);
       return cursor && !pageParams.includes(cursor) ? cursor : undefined;
     },
-    enabled: Boolean(projectId && focusedProject && traceabilityAppTypeId && section === "traceability" && loadProjectMetrics),
+    enabled: Boolean(projectId && focusedProject && traceabilityAppTypeId && section === "traceability" && can("testcase.view", projectId)),
     staleTime: 30_000
   });
   const traceabilityBugsQuery = useInfiniteQuery({
@@ -1422,7 +1433,7 @@ export function ProjectsPage() {
       const cursor = getVerifiedNextPageCursor(lastPage);
       return cursor && !pageParams.includes(cursor) ? cursor : undefined;
     },
-    enabled: Boolean(projectId && focusedProject && section === "traceability" && loadProjectMetrics),
+    enabled: Boolean(projectId && focusedProject && section === "traceability" && can("feedback.view", projectId)),
     staleTime: 30_000
   });
   const traceabilityRequirements = useMemo(
@@ -1660,6 +1671,7 @@ export function ProjectsPage() {
       queryClient.setQueryData<Project[]>(["projects", "catalog"], (current) =>
         current?.map((project) => project.id === id ? { ...project, ...input } : project)
       );
+      queryClient.setQueryData<Project>(["projects", "detail", id], (current) => current ? { ...current, ...input } : current);
       setProjectDetailsDraft(input);
       setMessageTone("success");
       setMessage("Project details updated.");
@@ -1898,7 +1910,7 @@ export function ProjectsPage() {
 
   const handleProjectDetailsSave = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!focusedProject || !canManageProjects || !isProjectDetailsDirty || updateProjectDetails.isPending) return;
+    if (!focusedProject || !projectDetailsQuery.isSuccess || !canManageProjects || !isProjectDetailsDirty || updateProjectDetails.isPending) return;
 
     const name = projectDetailsDraft.name.trim();
     if (!name) {
@@ -2254,7 +2266,7 @@ export function ProjectsPage() {
       sortValue: (item) => item.readinessScore,
       render: (item) => item.project.has_access === false ? (
         <span className="project-locked-list-label"><IconLock aria-hidden="true" size={14} /> Locked</span>
-      ) : (
+      ) : !item.metricsReady ? "Metrics pending" : (
         <div className="projects-list-status-cell">
           <span className={`project-health-badge ${item.healthTone}`}>{item.healthLabel}</span>
           <strong>{item.readinessScore}%</strong>
@@ -2268,7 +2280,7 @@ export function ProjectsPage() {
       width: 240,
       minWidth: 164,
       sortValue: (item) => item.appTypeCount,
-      render: (item) => item.project.has_access === false ? "—" : (
+      render: (item) => item.project.has_access === false ? "—" : !item.metricsReady ? "—" : (
         <div className="projects-list-meta-cell">
           <strong>{item.appTypeCount} applications</strong>
           <span>{item.suiteCount} suites / {item.requirementCount} stories / {item.testCaseCount} cases</span>
@@ -2282,7 +2294,7 @@ export function ProjectsPage() {
       width: 260,
       minWidth: 180,
       sortValue: (item) => item.memberCount,
-      render: (item) => item.project.has_access === false ? "—" : item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"
+      render: (item) => item.project.has_access === false || !item.metricsReady ? "—" : item.memberNames.length ? item.memberNames.join(", ") : "No members assigned"
     },
     {
       key: "coverage",
@@ -2290,7 +2302,7 @@ export function ProjectsPage() {
       width: 220,
       minWidth: 160,
       sortValue: (item) => item.coverage.coveragePercent,
-      render: (item) => item.project.has_access === false ? "—" : (
+      render: (item) => item.project.has_access === false ? "—" : !item.metricsReady ? "—" : (
         <div className="projects-list-meta-cell">
           <span>Story {item.coverage.coveragePercent}%</span>
           <span>Auto {item.automationCoverage.coveragePercent}%</span>
@@ -2304,7 +2316,7 @@ export function ProjectsPage() {
       width: 220,
       minWidth: 160,
       sortValue: (item) => item.latestExecution?.created_at || item.latestExecution?.started_at || "",
-      render: (item) => item.project.has_access === false ? "—" : (
+      render: (item) => item.project.has_access === false ? "—" : !item.metricsReady ? "—" : (
         <div className="projects-list-meta-cell">
           <strong>{item.latestRunLabel}</strong>
           <span>{item.latestExecution?.status || "No execution"} / {item.latestFailedCount} failed</span>
@@ -2348,7 +2360,7 @@ export function ProjectsPage() {
         description="Create and govern project workspaces, application scope, membership, traceability, and portfolio quality from one place."
       />
 
-      {!focusedProject ? (
+      {!focusedProject && portfolioAnalyticsQuery.data ? (
         <>
           <section className="projects-command-card projects-command-card--evidence" aria-label="Portfolio health evidence">
             <div className="projects-command-insight">
@@ -2438,6 +2450,21 @@ export function ProjectsPage() {
             ) : null}
           </section>
         </>
+      ) : null}
+
+      {!portfolioAnalyticsQuery.data && projectCatalogQuery.isSuccess ? (
+        <div className="project-metrics-status" role="status">
+          {portfolioAnalyticsQuery.isError ? <>
+            <span>Project metrics could not be loaded. You can still open and manage projects.</span>
+            <button className="ghost-button" onClick={() => void portfolioAnalyticsQuery.refetch()} type="button">Retry metrics</button>
+          </> : <span>Updating project metrics… You can open a project while these load.</span>}
+        </div>
+      ) : null}
+      {projectCatalogQuery.isError ? (
+        <div className="empty-state compact" role="alert">
+          <span>Projects could not be loaded.</span>
+          <button className="ghost-button" onClick={() => void projectCatalogQuery.refetch()} type="button">Retry projects</button>
+        </div>
       ) : null}
 
       <WorkspaceMasterDetail
@@ -2620,7 +2647,7 @@ export function ProjectsPage() {
 	                              </div>
                             </div>
                             <div className="project-card-top-actions" onClick={(event) => event.stopPropagation()}>
-                              <span className={`project-health-badge ${isLocked ? "neutral" : item.healthTone}`}>{isLocked ? "Locked" : item.healthLabel}</span>
+                              <span className={`project-health-badge ${isLocked ? "neutral" : item.healthTone}`}>{isLocked ? "Locked" : item.metricsReady ? item.healthLabel : "Metrics pending"}</span>
                               {!isLocked ? (
                                 <CatalogActionMenu
                                   actions={getProjectActionItems(item)}
@@ -2642,11 +2669,12 @@ export function ProjectsPage() {
                           </div>
                         ) : <>
                         <CatalogCardDescription
-                          fallback={item.insight || "No project description captured yet."}
+                          fallback={item.metricsReady ? item.insight || "No project description captured yet." : "Open the project to view its details."}
                           profile="project"
                           value={project.description}
                         />
 
+                        {item.metricsReady ? <>
                         <div className="project-card-progress-stack" aria-label={`${project.name} coverage summary`}>
                           <ProjectProgressBar
                             detail={requirementCoverageDetail}
@@ -2668,6 +2696,7 @@ export function ProjectsPage() {
                           <TileCardMetric label="Test cases" tone={item.testCaseCount ? "success" : "neutral"} value={item.testCaseCount} />
                           <TileCardMetric label="Bugs" tone={item.bugCount ? "danger" : "success"} value={item.bugCount} />
                         </div>
+                        </> : <p className="project-metrics-status">{portfolioAnalyticsQuery.isError ? "Metrics unavailable" : "Loading scope and coverage metrics…"}</p>}
                         </>}
 
                         <div className="project-card-actions" aria-hidden="true" />
@@ -2702,7 +2731,7 @@ export function ProjectsPage() {
                 />
               ) : null
             ) : null}
-            {!isProjectCatalogLoading && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, applications, and the initial team in one flow.</div> : null}
+            {projectCatalogQuery.isSuccess && !projectItems.length ? <div className="empty-state compact">No projects yet. Create the first project to add scope, applications, and the initial team in one flow.</div> : null}
             {!isProjectCatalogLoading && projectItems.length > 0 && !filteredProjectItems.length ? <div className="empty-state compact">No projects match the current search or filters.</div> : null}
           </Panel>
         )}
@@ -2724,13 +2753,18 @@ export function ProjectsPage() {
                     onChange={setSection}
                     items={[
                       { value: "details", label: "Project details", icon: <IconFileDescription aria-hidden="true" size={17} stroke={1.9} /> },
-                      { value: "members", label: "Members", meta: `${scopedMembers.length}`, icon: <IconUsers aria-hidden="true" size={17} stroke={1.9} /> },
+                      { value: "members", label: "Members", meta: selectedPortfolioMetric ? `${selectedPortfolioMetric.counts.members}` : "—", icon: <IconUsers aria-hidden="true" size={17} stroke={1.9} /> },
                       { value: "applications", label: "Applications", meta: `${scopedAppTypes.length}`, icon: <IconApps aria-hidden="true" size={17} stroke={1.9} /> },
                       { value: "attachments", label: "Attachments", icon: <IconPaperclip aria-hidden="true" size={17} stroke={1.9} /> },
                       { value: "traceability", label: "Traceability", meta: traceabilityAppTypeId ? "Live" : "—", icon: <IconGitBranch aria-hidden="true" size={17} stroke={1.9} /> }
                     ]}
                   />
                   {section === "details" ? <div className="detail-stack">
+                    {projectDetailsQuery.isLoading ? <LoadingState label="Loading project details" /> : null}
+                    {projectDetailsQuery.isError ? <div className="project-metrics-status" role="alert">
+                      <span>Project details could not be loaded.</span>
+                      <button className="ghost-button" onClick={() => void projectDetailsQuery.refetch()} type="button">Retry details</button>
+                    </div> : null}
                     <form className="project-details-edit-form" onSubmit={handleProjectDetailsSave}>
                       <div className="project-details-edit-heading">
                         <div>
@@ -2742,7 +2776,7 @@ export function ProjectsPage() {
                       <div className="project-details-edit-fields">
                         <FormField label="Project name" inputId="project-details-name" required>
                           <input
-                            disabled={!canManageProjects || updateProjectDetails.isPending}
+                            disabled={!canManageProjects || !projectDetailsQuery.isSuccess || updateProjectDetails.isPending}
                             id="project-details-name"
                             onChange={(event) => setProjectDetailsDraft((current) => ({ ...current, name: event.target.value }))}
                             value={projectDetailsDraft.name}
@@ -2760,7 +2794,7 @@ export function ProjectsPage() {
                             aria-label="Project description"
                             appearance="canonical"
                             className="project-details-description-editor"
-                            disabled={!canManageProjects || updateProjectDetails.isPending}
+                            disabled={!canManageProjects || !projectDetailsQuery.isSuccess || updateProjectDetails.isPending}
                             id="project-details-description"
                             onChange={(description) => setProjectDetailsDraft((current) => ({ ...current, description }))}
                             placeholder="Describe the goals, scope, systems, and intended quality outcomes..."
@@ -2786,7 +2820,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectSection("members")}
                       type="button"
                     >
-                      <strong>{scopedMembers.length}</strong>
+                      <strong>{selectedPortfolioMetric?.counts.members ?? "—"}</strong>
                       <span>Members</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
@@ -2806,7 +2840,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectWorkspacePage("/backlog")}
                       type="button"
                     >
-                      <strong>{selectedProjectRequirementCount}</strong>
+                      <strong>{selectedPortfolioMetric ? selectedProjectRequirementCount : "—"}</strong>
                       <span>Stories</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
@@ -2816,7 +2850,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectWorkspacePage("/test-cases")}
                       type="button"
                     >
-                      <strong>{selectedProjectTestCaseCount}</strong>
+                      <strong>{selectedPortfolioMetric ? selectedProjectTestCaseCount : "—"}</strong>
                       <span>Test cases</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
@@ -2826,7 +2860,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectWorkspacePage("/issues")}
                       type="button"
                     >
-                      <strong>{selectedProjectBugCount}</strong>
+                      <strong>{selectedPortfolioMetric ? selectedProjectBugCount : "—"}</strong>
                       <span>Total Bugs</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
@@ -2836,7 +2870,7 @@ export function ProjectsPage() {
                       onClick={() => openProjectWorkspacePage("/executions")}
                       type="button"
                     >
-                      <strong>{`${selectedProjectPassCoverage.coveragePercent}%`}</strong>
+                      <strong>{selectedPortfolioMetric ? `${selectedProjectPassCoverage.coveragePercent}%` : "—"}</strong>
                       <span>
                         {selectedProjectPassCoverage.totalCases
                           ? `Pass rate · ${formatPassCoverageDetail(selectedProjectPassCoverage)}`

@@ -611,6 +611,12 @@ exports.acceptGeneratedTestCases = async ({
       gherkin_document: candidate.gherkin_document,
       parameter_values: candidate.parameter_values,
       steps: candidate.steps,
+      // Accepting a generated draft into the library is separate from its
+      // formal review. The person saving it owns that review by default.
+      ai_generation_source: "interactive",
+      ai_generation_review_status: "pending",
+      reviewer_id: created_by,
+      review_status: "pending",
       created_by
     });
 

@@ -139,3 +139,33 @@ test('picker exact-ID and Suite selections stay parameterized and cannot mean th
   assert.throws(() => svc.buildScope({ ids: {} }), { statusCode: 400 });
   assert.throws(() => svc.buildScope({ automated: 'sometimes' }), { statusCode: 400 });
 });
+
+test('review filters combine manual and AI pending states with assigned ownership and safe legacy fallback', () => {
+  const svc = loadService({});
+  const scope = svc.buildScope({ project_id: 'project', app_type_id: 'app', review_queue: 'mine', review_user_id: "reviewer' OR TRUE --" });
+  assert.match(scope.where, /tc\.review_status = 'pending'/);
+  assert.match(scope.where, /NOT IN \('accepted', 'changes_requested'\)/);
+  assert.match(scope.where, /tc\.reviewer_id = \? OR \(NULLIF\(tc\.reviewer_id, ''\) IS NULL/);
+  assert.match(scope.where, /tc\.created_by = \?/);
+  assert.doesNotMatch(scope.where, /OR TRUE --|source = 'scheduler'/);
+  assert.equal(scope.params.filter(value => value === "reviewer' OR TRUE --").length, 2);
+  assert.throws(() => svc.buildScope({ review_queue: 'all', review_user_id: 'reviewer' }), { statusCode: 400 });
+  assert.throws(() => svc.buildScope({ review_queue: 'mine' }), { statusCode: 400 });
+});
+
+test('pending-review button counts all scoped cases without catalog filters or detail reads', async () => {
+  const calls = [];
+  const svc = loadService({ prepare: sql => ({ get: async (...params) => { calls.push({ sql, params }); return { pending: 70 }; } }) });
+  const result = await svc.getReviewSummary({ project_id: 'project', app_type_id: 'app', review_user_id: 'reviewer', search: 'invisible', module_id: 'one', page_size: 1 });
+  assert.equal(result.pending, 70);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /COUNT\(\*\)::int AS pending/);
+  assert.doesNotMatch(calls[0].sql, /LIMIT|OFFSET|execution_results|test_steps|test_case_module_cases|description|ILIKE/);
+  assert.ok(!calls[0].params.includes('invisible'));
+});
+
+test('review cursors cannot cross reviewers even within the same project', async () => {
+  const svc = loadService({ prepare: sql => ({ all: async () => sql.includes('cursor_activity') ? [{ id: 'b', cursor_activity: '2026-01-01' }, { id: 'a', cursor_activity: '2026-01-01' }] : [] }) });
+  const first = await svc.listPage({ project_id: 'project', review_queue: 'mine', review_user_id: 'reviewer-a', page_size: 1, include_total: false });
+  await assert.rejects(svc.listPage({ project_id: 'project', review_queue: 'mine', review_user_id: 'reviewer-b', page_size: 1, include_total: false, cursor: first.next_cursor }), { statusCode: 400 });
+});

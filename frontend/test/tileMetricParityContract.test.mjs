@@ -207,7 +207,7 @@ test("execution-result evidence is project scoped, authorized, and bounded", asy
   assert.match(api, /list: \(query\?: \{ project_id\?: string;/);
   assert.match(executions, /executionResults\.list\(\{ project_id: projectId, limit: 5000 \}\)/);
   assert.match(design, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId/);
-  assert.match(shared, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, limit: 5000 \}, \{ signal \}\)/);
+  assert.match(shared, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, limit: 5000, projection: "summary" \}, \{ signal \}\)/);
   assert.match(route, /accessibleProjectIds/);
   assert.match(route, /projectService\.getProject\(scopedProjectId, req\.user\.id\)/);
   assert.match(route, /A project, execution, app type, or test case scope is required/);

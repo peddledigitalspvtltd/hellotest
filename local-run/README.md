@@ -59,6 +59,23 @@ Seed login:
 
 ## Source Build vs Image Run
 
+From the repository root, build and start with:
+
+```bash
+TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
+```
+
+The operator checks missing runtime images before building application images.
+An unavailable registry image stops the command before a lengthy rebuild.
+MinIO uses `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; the same release
+supports both Intel and Apple Silicon. Set `MINIO_IMAGE` to use a private mirror.
+Existing MinIO data volumes and credentials are preserved.
+
+The API allows up to three minutes for database initialization before startup
+fails. It logs each initialization phase and stays unready until setup completes.
+Set `API_STARTUP_TIMEOUT_MS` (10000–600000) to adjust this deadline; Compose uses
+the same duration as its healthcheck startup grace period.
+
 Default source build:
 
 ```bash

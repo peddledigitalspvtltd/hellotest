@@ -63,8 +63,9 @@ import { uploadExecutionAttachment } from "../lib/executionAttachments";
 import { CaseRunParameterContext } from "../components/CaseRunParameterContext";
 import { resolveExecutionParameterContext } from "../lib/executionParameterContext";
 import { RunDataSetup } from "../components/RunDataSetup";
-import { TestCasePicker } from "../components/TestCasePicker";
+import { TestCasePicker, type TestCaseSelectionResolution } from "../components/TestCasePicker";
 import { runCaseReferences, runPickerIdBatches, retainEligibleRunCases, loadRunPickerCaseBatch } from "../lib/runPickerCases";
+import { clearCreateRunNavigation, createRunDeliveryUpdates, createRunSelectionReadiness, deriveCreateRunDelivery, readCreateRunNavigation, type CreateRunNavigationPrefill } from "../lib/createRunNavigation";
 import { expandSelectedSuiteIds } from "../lib/runDataTemplate";
 import { RunContextLinks } from "../components/RunContextLinks";
 import { RunConfigurationDialog, type RunConfigurationResource } from "../components/RunConfigurationDialog";
@@ -1379,12 +1380,13 @@ export function ExecutionsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const hasCreateExecutionDeepLink = searchParams.get("create") === "1";
+  const createRunNavigation = useMemo(() => readCreateRunNavigation(location.state), [location.state]);
   const { session } = useAuth();
   const { getPrompt } = useAiPromptRegistry(Boolean(session));
   const [projectId, setProjectId] = useCurrentProject();
   const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const { can } = useCapabilityAccess(projectId);
+  const { can, isLoading: isCapabilityAccessLoading } = useCapabilityAccess(projectId);
   const canCreateManualRuns = can("run.create")
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
   const canExecuteRuns = can("run.execute")
@@ -1433,6 +1435,7 @@ export function ExecutionsPage() {
   const [selectedSuiteIds, setSelectedSuiteIds] = useState<string[]>([]);
   const [selectedDirectCaseIds, setSelectedDirectCaseIds] = useState<string[]>([]);
   const [resolvedDirectCases, setResolvedDirectCases] = useState<TestCase[]>([]);
+  const [directCaseResolution, setDirectCaseResolution] = useState<TestCaseSelectionResolution | null>(null);
   const [isCreateExecutionModalOpen, setIsCreateExecutionModalOpen] = useState(false);
   const [isCreateScheduleModalOpen, setIsCreateScheduleModalOpen] = useState(false);
   const [scheduleModalMode, setScheduleModalMode] = useState<"create" | "edit">("create");
@@ -1442,6 +1445,13 @@ export function ExecutionsPage() {
   const processedCreateExecutionDeepLinkRef = useRef("");
   const openedCreateExecutionDeepLinkRef = useRef("");
   const deliveryPrefillEditedRef = useRef({ release: false, sprint: false });
+  const navigationRunScopeRef = useRef<{ projectId: string; appTypeId: string } | null>(null);
+  const [pendingNavigationDelivery, setPendingNavigationDelivery] = useState<CreateRunNavigationPrefill | null>(null);
+  const clearCreateExecutionDeepLink = useCallback(() => {
+    if (!hasCreateExecutionDeepLink && !readCreateRunNavigation(location.state)) return;
+    const cleared = clearCreateRunNavigation(location.search, location.state);
+    navigate({ pathname: location.pathname, search: cleared.search, hash: location.hash }, { replace: true, state: cleared.state });
+  }, [hasCreateExecutionDeepLink, location.hash, location.pathname, location.search, location.state, navigate]);
 
   useEffect(() => {
     if (!canUseRunAi && executionCreateMode === "smart") {
@@ -1633,8 +1643,8 @@ export function ExecutionsPage() {
   });
   const requirementsQuery = optionalQueryView(useQuery({
     queryKey: ["requirements", projectId],
-    queryFn: () => api.requirements.list({ project_id: projectId }),
-    enabled: (can("requirement.view")) && Boolean(projectId && (selectedExecutionId || (isCreateExecutionModalOpen && executionCreateMode === "smart"))),
+    queryFn: ({ signal }) => api.requirements.list({ project_id: projectId }, { signal }),
+    enabled: (can("requirement.view")) && Boolean(projectId && (selectedExecutionId || (isCreateExecutionModalOpen && (executionCreateMode === "smart" || pendingNavigationDelivery)))),
     staleTime: 60_000
   }), can("requirement.view"));
   const shouldLoadExecutionDeliveryScope = Boolean(
@@ -1685,9 +1695,11 @@ export function ExecutionsPage() {
   }), can("suite.view"));
   const executionResultsQuery = optionalQueryView(useQuery({
     queryKey: ["execution-results", selectedExecutionId, projectId],
-    queryFn: () => api.executionResults.list({ execution_id: selectedExecutionId }),
+    queryFn: ({ signal }) => api.executionResults.list({ execution_id: selectedExecutionId }, { signal }),
     enabled: (can("result.view")) && Boolean(selectedExecutionId),
-    refetchInterval: EXECUTION_POLL_INTERVAL_MS
+    refetchInterval: () => ["queued", "running", "retrying"].includes(String(selectedExecutionQuery.data?.status || ""))
+      ? EXECUTION_POLL_INTERVAL_MS
+      : false
   }), can("result.view"));
   const allExecutionResultsQuery = optionalQueryView(useQuery({
     queryKey: ["execution-results", "all", projectId],
@@ -1698,6 +1710,13 @@ export function ExecutionsPage() {
       ? EXECUTION_POLL_INTERVAL_MS
       : false
   }), can("result.view"));
+  useEffect(() => {
+    // Fetch the final outcomes once when a run finishes before stopping polling.
+    const status = selectedExecutionQuery.data?.status;
+    if (selectedExecutionId && status && !["queued", "running", "retrying"].includes(status)) {
+      void queryClient.invalidateQueries({ queryKey: ["execution-results", selectedExecutionId, projectId], exact: true });
+    }
+  }, [selectedExecutionId, selectedExecutionQuery.data?.status, projectId, queryClient]);
   const integrationsQuery = optionalQueryView(useQuery({
     queryKey: ["integrations", "llm", projectId],
     queryFn: () => api.integrations.list({ type: "llm", is_active: true }),
@@ -2081,6 +2100,9 @@ export function ExecutionsPage() {
   };
 
   const closeExecutionBuilder = () => {
+    navigationRunScopeRef.current = null;
+    clearCreateExecutionDeepLink();
+    setPendingNavigationDelivery(null);
     smartExecutionBuilderSessionRef.current += 1;
     closeCreateExecutionModal();
     setSelectedDirectCaseIds([]);
@@ -2178,6 +2200,8 @@ export function ExecutionsPage() {
   };
 
   const handleExecutionProjectChange = (value: string) => {
+    navigationRunScopeRef.current = null;
+    setPendingNavigationDelivery(null);
     setProjectId(value);
     setSelectedSuiteIds([]);
     setSelectedDirectCaseIds([]);
@@ -2190,6 +2214,8 @@ export function ExecutionsPage() {
   };
 
   const handleExecutionAppTypeChange = (value: string) => {
+    navigationRunScopeRef.current = null;
+    setPendingNavigationDelivery(null);
     setAppTypeId(value);
     setSelectedSuiteIds([]);
     setSelectedDirectCaseIds([]);
@@ -2254,37 +2280,36 @@ export function ExecutionsPage() {
       return;
     }
 
-    const requestedProjectId = String(searchParams.get("project") || "").trim();
+    const requestedProjectId = createRunNavigation?.projectId || String(searchParams.get("project") || "").trim();
     const requestedReleaseId = String(searchParams.get("release_id") || "").trim();
-    const requestedReleaseToken = String(searchParams.get("release") || "").trim();
+    const requestedReleaseToken = createRunNavigation?.release || String(searchParams.get("release") || "").trim();
     const requestedSprintId = String(searchParams.get("sprint_id") || "").trim();
-    const requestedSprintToken = String(searchParams.get("sprint") || "").trim();
+    const requestedSprintToken = createRunNavigation?.sprint || String(searchParams.get("sprint") || "").trim();
     const requestedModeToken = String(searchParams.get("mode") || "manual").trim().toLowerCase();
     const requestedMode: ExecutionStartMode = requestedModeToken === "local" || requestedModeToken === "remote"
       ? requestedModeToken
       : "manual";
     const deepLinkSignature = [
+      location.key,
       requestedProjectId,
       requestedReleaseId,
       requestedReleaseToken,
       requestedSprintId,
       requestedSprintToken,
-      requestedMode
+      requestedMode,
+      createRunNavigation?.appTypeId || ""
     ].join("\u0000");
 
     if (processedCreateExecutionDeepLinkRef.current === deepLinkSignature) return;
-    if (projectsQuery.isPending || featureFlagsQuery.isPending) return;
+    if (featureFlagsQuery.isPending || isCapabilityAccessLoading) return;
+    if (projectsQuery.isPending && (!projectId || (requestedProjectId && requestedProjectId !== projectId)) && can("workspace.view")) return;
 
     if (requestedProjectId && requestedProjectId !== projectId) {
       if (!projects.some((project) => String(project.id) === requestedProjectId)) {
         processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
         setMessageTone("error");
         setMessage("The requested project is unavailable. Select an accessible project before creating this run.");
-        setSearchParams((previous) => {
-          const next = new URLSearchParams(previous);
-          ["create", "project", "release_id", "release", "sprint_id", "sprint", "mode"].forEach((key) => next.delete(key));
-          return next;
-        }, { replace: true });
+        clearCreateExecutionDeepLink();
         return;
       }
 
@@ -2297,6 +2322,23 @@ export function ExecutionsPage() {
       if (!fallbackProjectId) return;
       handleExecutionProjectChange(fallbackProjectId);
       return;
+    }
+
+    if (createRunNavigation && openedCreateExecutionDeepLinkRef.current !== deepLinkSignature) {
+      const isCurrentScope = createRunNavigation.projectId === projectId && createRunNavigation.appTypeId === appTypeId;
+      if (!isCurrentScope && appTypesQuery.isPending && can("app_type.view")) return;
+      const requestedApp = appTypes.find(item => item.id === createRunNavigation.appTypeId && item.project_id === projectId);
+      if ((!requestedApp && !isCurrentScope) || !can("testcase.view")) {
+        processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
+        setMessageTone("error");
+        setMessage(!requestedApp ? "The requested application is unavailable. Select an accessible application before creating this run." : "Permission required: testcase.view");
+        clearCreateExecutionDeepLink();
+        return;
+      }
+      if (requestedApp && appTypeId !== requestedApp.id) {
+        handleExecutionAppTypeChange(requestedApp.id);
+        return;
+      }
     }
 
     const deliveryScopePrefill = resolveDeliveryScopePrefill({
@@ -2317,9 +2359,33 @@ export function ExecutionsPage() {
       || executionDomainMetadataQuery.isPending;
     const wasOpened = openedCreateExecutionDeepLinkRef.current === deepLinkSignature;
     if (!wasOpened) {
+      const hasModeAccess = requestedMode === "local" ? canRunLocalAutomation : requestedMode === "remote" ? canRunRemoteAutomation : canCreateManualRuns;
+      if (!hasModeAccess) {
+        processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
+        openExecutionBuilder(requestedMode);
+        clearCreateExecutionDeepLink();
+        return;
+      }
       openedCreateExecutionDeepLinkRef.current = deepLinkSignature;
       deliveryPrefillEditedRef.current = { release: false, sprint: false };
       setExecutionCreateMode("manual");
+      if (createRunNavigation) {
+        navigationRunScopeRef.current = { projectId, appTypeId };
+        setSelectedSuiteIds([]);
+        setSelectedDirectCaseIds(createRunNavigation.testCaseIds);
+        setResolvedDirectCases([]);
+        setDirectCaseResolution(null);
+        setExecutionName("");
+        setExecutionStartDate("");
+        setExecutionEndDate("");
+        setExecutionBuild("");
+        setExecutionHookDraft(emptyExecutionHookDraft());
+        setExecutionParallelEnabled(false);
+        setExecutionParallelCount(1);
+        setSelectedExecutionAssigneeIds([]);
+        resetExecutionContextSelection();
+        setPendingNavigationDelivery(canViewDeliveryScopes && can("requirement.view") && (!createRunNavigation.release || !createRunNavigation.sprint) ? createRunNavigation : null);
+      }
       setExecutionRelease(requestedReleaseToken);
       setExecutionSprint(requestedSprintToken);
       openExecutionBuilder(requestedMode);
@@ -2329,12 +2395,18 @@ export function ExecutionsPage() {
     processedCreateExecutionDeepLinkRef.current = deepLinkSignature;
     if (!deliveryPrefillEditedRef.current.release) setExecutionRelease(deliveryScopePrefill.release);
     if (!deliveryPrefillEditedRef.current.sprint) setExecutionSprint(deliveryScopePrefill.sprint);
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      ["create", "project", "release_id", "release", "sprint_id", "sprint", "mode"].forEach((key) => next.delete(key));
-      return next;
-    }, { replace: true });
+    clearCreateExecutionDeepLink();
   }, [
+    appTypeId,
+    appTypes,
+    appTypesQuery.isPending,
+    can,
+    canCreateManualRuns,
+    canRunLocalAutomation,
+    canRunRemoteAutomation,
+    clearCreateExecutionDeepLink,
+    createRunNavigation,
+    location.key,
     executionDomainMetadataQuery.data?.jira?.sprints,
     executionDomainMetadataQuery.data?.jira?.versions,
     executionDomainMetadataQuery.isPending,
@@ -2345,6 +2417,7 @@ export function ExecutionsPage() {
     canViewDeliveryScopes,
     featureFlagsQuery.isPending,
     hasCreateExecutionDeepLink,
+    isCapabilityAccessLoading,
     projectId,
     projects,
     projectsQuery.isPending,
@@ -2352,6 +2425,37 @@ export function ExecutionsPage() {
     setProjectId,
     setSearchParams
   ]);
+
+  useEffect(() => {
+    if (!pendingNavigationDelivery) return;
+    if (!isCreateExecutionModalOpen || pendingNavigationDelivery.projectId !== projectId || pendingNavigationDelivery.appTypeId !== appTypeId
+      || !canViewDeliveryScopes || !can("requirement.view") || !selectedDirectCaseIds.length) {
+      setPendingNavigationDelivery(null);
+      return;
+    }
+    const selectionReadiness = createRunSelectionReadiness(selectedDirectCaseIds, resolvedDirectCases, directCaseResolution);
+    if (selectionReadiness === "unavailable") {
+      setPendingNavigationDelivery(null);
+      setMessageTone("error");
+      setMessage("Some selected cases could not be loaded. Retry the selection lookup or configure Release and Sprint manually.");
+      return;
+    }
+    const requiredQueries = [requirementsQuery, executionReleasesQuery, executionIterationsQuery];
+    const failed = requiredQueries.find(query => query.isError && !query.data);
+    if (failed) {
+      setPendingNavigationDelivery(null);
+      showError(failed.error, "Some run options could not be filled automatically. You can continue configuring this run.");
+      return;
+    }
+    if (requiredQueries.some(query => !query.data) || selectionReadiness === "pending") return;
+    const derived = deriveCreateRunDelivery(selectedDirectCaseIds, resolvedDirectCases, requirements, executionReleases, executionIterations);
+    const updates = createRunDeliveryUpdates(pendingNavigationDelivery, deliveryPrefillEditedRef.current, derived);
+    if (updates.release !== undefined) setExecutionRelease(updates.release);
+    if (updates.sprint !== undefined) setExecutionSprint(updates.sprint);
+    setPendingNavigationDelivery(null);
+  }, [appTypeId, can, canViewDeliveryScopes, directCaseResolution, executionIterations, executionIterationsQuery.data, executionIterationsQuery.isError,
+    executionReleases, executionReleasesQuery.data, executionReleasesQuery.isError, isCreateExecutionModalOpen, pendingNavigationDelivery,
+    projectId, requirements, requirementsQuery.data, requirementsQuery.isError, resolvedDirectCases, selectedDirectCaseIds]);
 
   const handleToggleSmartExecutionRequirement = (requirementId: string) => {
     setSelectedSmartRequirementIds((current) =>
@@ -2443,7 +2547,8 @@ export function ExecutionsPage() {
   };
 
   useEffect(() => {
-    if (appTypesQuery.isPending) {
+    if (isCreateExecutionModalOpen && navigationRunScopeRef.current?.projectId === projectId && navigationRunScopeRef.current.appTypeId === appTypeId) return;
+    if (appTypesQuery.isPending || (hasCreateExecutionDeepLink && createRunNavigation)) {
       return;
     }
 
@@ -2473,7 +2578,7 @@ export function ExecutionsPage() {
       resetExecutionContextSelection();
       resetSmartExecutionPreview();
     }
-  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, resetExecutionContextSelection, resetSmartExecutionPreview, setAppTypeId]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, createRunNavigation, hasCreateExecutionDeepLink, isCreateExecutionModalOpen, projectId, resetExecutionContextSelection, resetSmartExecutionPreview, setAppTypeId]);
 
   useEffect(() => {
     if (!integrations.length) {
@@ -6194,7 +6299,7 @@ export function ExecutionsPage() {
     ? selectedDirectCaseIds.filter(id => resolvedDirectCaseById.get(id)?.automated !== "yes").length : 0;
   const directCaseSelectionMessage = ineligibleDirectCaseCount
     ? `${ineligibleDirectCaseCount} selected direct ${ineligibleDirectCaseCount === 1 ? "case is" : "cases are"} not confirmed automated. Choose Manual or remove these cases to create an automated run.` : "";
-  const isResolvingDeliveryPrefill = canViewDeliveryScopes && hasCreateExecutionDeepLink && Boolean(searchParams.get("release_id") || searchParams.get("sprint_id"));
+  const isResolvingDeliveryPrefill = Boolean(pendingNavigationDelivery) || (canViewDeliveryScopes && hasCreateExecutionDeepLink && Boolean(searchParams.get("release_id") || searchParams.get("sprint_id")));
   const canCreateExecution = canCreateSelectedRunMode && !isResolvingSmartRunCases && !isResolvingDeliveryPrefill && !ineligibleDirectCaseCount && (
     executionCreateMode === "smart"
       ? Boolean(canUseRunAi && can("testcase.view") && projectId && appTypeId && hasCurrentSmartExecutionPreview && selectedSmartExecutableCaseIds.length)
@@ -9866,6 +9971,7 @@ export function ExecutionsPage() {
           isPreviewingSmartExecution={previewSmartExecution.isPending}
           isSubmitting={createExecution.isPending}
           isResolvingCases={isResolvingSmartRunCases}
+          isPreparingDeliveryOptions={Boolean(pendingNavigationDelivery)}
           caseResolutionError={runCaseResolutionError}
           onRetryCaseResolution={() => { runPickerCaseQueries.forEach(query => void query.refetch()); }}
           directCaseSelectionMessage={directCaseSelectionMessage}
@@ -9929,6 +10035,7 @@ export function ExecutionsPage() {
           selectedDirectCaseIds={selectedDirectCaseIds}
           onDirectCaseSelectionChange={(ids, items) => { setSelectedDirectCaseIds(ids); setResolvedDirectCases(items); }}
           onDirectCaseItemsResolved={setResolvedDirectCases}
+          onDirectCaseResolutionChange={setDirectCaseResolution}
           selectedSmartExecutionCaseIds={selectedSmartExecutionCaseIds}
           smartExecutionAdditionalContext={smartExecutionAdditionalContext}
           smartExecutionIntegrationId={smartExecutionIntegrationId}
@@ -12416,6 +12523,7 @@ export function ExecutionCreateModal({
   selectedDirectCaseIds = [],
   onDirectCaseSelectionChange,
   onDirectCaseItemsResolved,
+  onDirectCaseResolutionChange,
   directCaseSelectionMessage,
   executionName,
   selectedEnvironmentId,
@@ -12472,6 +12580,7 @@ export function ExecutionCreateModal({
   isPreviewingSmartExecution,
   isSubmitting,
   isResolvingCases = false,
+  isPreparingDeliveryOptions = false,
   caseResolutionError,
   onRetryCaseResolution,
   onClose,
@@ -12502,6 +12611,7 @@ export function ExecutionCreateModal({
   selectedDirectCaseIds?: string[];
   onDirectCaseSelectionChange?: (ids: string[], items: TestCase[]) => void;
   onDirectCaseItemsResolved?: (items: TestCase[]) => void;
+  onDirectCaseResolutionChange?: (resolution: TestCaseSelectionResolution) => void;
   directCaseSelectionMessage?: string;
   executionName: string;
   selectedEnvironmentId: string;
@@ -12558,6 +12668,7 @@ export function ExecutionCreateModal({
   isPreviewingSmartExecution: boolean;
   isSubmitting: boolean;
   isResolvingCases?: boolean;
+  isPreparingDeliveryOptions?: boolean;
   caseResolutionError?: unknown;
   onRetryCaseResolution?: () => void;
   onClose: () => void;
@@ -12734,7 +12845,7 @@ export function ExecutionCreateModal({
                 <ProjectDropdown
                   ariaLabel="Select a project"
                   onChange={onProjectChange}
-                  projects={projects}
+                  projects={!projectId || projects.some(project => project.id === projectId) ? projects : [...projects, { id: projectId, name: projectId }]}
                   value={projectId}
                 />
               </FormField>
@@ -12745,12 +12856,12 @@ export function ExecutionCreateModal({
                   disabled={!projectId}
                   emptyLabel={!projectId ? "Select a project first" : "No app types available"}
                   onChange={onAppTypeChange}
-                  options={appTypes.map((appType) => ({
+                  options={[...appTypes.map((appType) => ({
                     value: appType.id,
                     label: appType.name,
                     type: appType.type,
                     isUnified: appType.is_unified
-                  }))}
+                  })), ...(!appTypeId || appTypes.some(appType => appType.id === appTypeId) ? [] : [{ value: appTypeId, label: appTypeId }])]}
                   placeholder="Select app type"
                   value={appTypeId}
                 />
@@ -13291,18 +13402,21 @@ export function ExecutionCreateModal({
                 </div>
               </div>
             ) : (
-              <section className="execution-suite-selection" aria-label="Available suites">
+              <section className="execution-suite-selection" aria-label="Run test case and suite selection">
                 {onDirectCaseSelectionChange ? <TestCasePicker
                   projectId={projectId}
                   appTypeId={appTypeId}
                   selectedIds={selectedDirectCaseIds}
                   onChange={onDirectCaseSelectionChange}
                   onItemsResolved={onDirectCaseItemsResolved}
+                  onSelectionResolutionChange={onDirectCaseResolutionChange}
                   initialItems={libraryCases}
                   filters={executionStartMode === "manual" ? undefined : { automated: "yes" }}
                   disabled={isSubmitting}
-                  heading="Direct test cases"
+                  heading="Test Case Selection"
                   emptyMessage="No test cases match the current scope."
+                  presentation="inline"
+                  selectionContext="run"
                   allowReorder
                 /> : null}
                 <SuiteScopePicker
@@ -13353,6 +13467,7 @@ export function ExecutionCreateModal({
             </main>
           </div>
 
+          {isPreparingDeliveryOptions ? <p className="inline-message" role="status">Preparing Release and Sprint options… You can continue configuring this run.</p> : null}
           {directCaseSelectionMessage ? <div className="hierarchy-filter-scope-note" role="alert">{directCaseSelectionMessage}</div> : null}
           {isResolvingCases ? <div className="hierarchy-filter-scope-note" role={caseResolutionError ? "alert" : "status"}>{caseResolutionError ? <>{caseResolutionError instanceof Error ? caseResolutionError.message : "Selected case details could not be loaded."} <button type="button" className="ghost-button compact" onClick={onRetryCaseResolution}>Retry case details</button></> : "Checking the selected cases for this run mode…"}</div> : null}
           <div className="execution-run-builder-footer">

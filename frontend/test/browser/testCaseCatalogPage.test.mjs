@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '/src/auth/AuthContext';
 import { LocalizationProvider } from '/src/context/LocalizationContext';
 import { TestCasesPage } from '/src/pages/TestCasesPage';
+import { ExecutionsPage } from '/src/pages/ExecutionsPage';
 import { api, sessionStorage } from '/src/lib/api';
 import { setCurrentScope } from '/src/hooks/useCurrentProject';
 import '/src/styles.css';
@@ -28,7 +29,7 @@ const session={token:'test-case-catalog-browser',user:{id:'reviewer',name:'QA Re
 sessionStorage.write(session);setCurrentScope('case-project','case-app');
 localStorage.setItem('hellotest.default_catalog_view_mode','tile');
 window.calls={all:[],catalog:[],metrics:[],headers:[],moduleChildren:[],authoring:[]};
-window.pauseContinuation=true;window.pauseAuthoring=true;
+window.pauseContinuation=true;window.pauseAuthoring=true;window.suiteCreates=[];window.suiteAssignments=[];window.runCreates=[];
 function stub(object,prefix=''){
  for(const [key,value] of Object.entries(object)){
   const path=prefix?prefix+'.'+key:key;
@@ -44,6 +45,7 @@ const flags={flags:new Proxy({},{get:()=>true})};
 api.featureFlags.snapshot=async()=>flags;
 api.metadata.domain=async()=>({test_cases:{default_status:'active',default_automated:'no',statuses:[{value:'active',label:'Active'}]},jira:{sprints:[],versions:[]}});
 api.projects.list=async()=>[{id:'case-project',name:'Catalog project'}];
+api.metadata.workspaceScopes=async()=>({projects:[{id:'case-project',name:'Catalog project',has_access:true}]});
 api.appTypes.list=async()=>[{id:'case-app',project_id:'case-project',name:'Web application',type:'web'}];
 const cases=Array.from({length:95},(_,index)=>{
  const n=index+1;
@@ -52,7 +54,7 @@ const cases=Array.from({length:95},(_,index)=>{
   automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'not_requested',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,
   created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
 });
-function matching(input){return cases.filter(item=>(!input.unassigned_module||!item.module_ids.length)&&(!input.search||[item.title,item.description,item.display_id].join(' ').toLowerCase().includes(input.search.toLowerCase())))}
+function matching(input){return cases.filter(item=>(!input.ids||input.ids.split(',').includes(item.id))&&(!input.module_id||item.module_ids.includes(input.module_id))&&(!input.status||item.status===input.status)&&(!input.unassigned_module||!item.module_ids.length)&&(!input.search||[item.title,item.description,item.display_id].join(' ').toLowerCase().includes(input.search.toLowerCase())))}
 function paginate(items,input){const offset=Number(input.cursor||0),page=items.slice(offset,offset+input.page_size),next=offset+page.length;return {items:page,next_cursor:next<items.length?String(next):null,is_last:next>=items.length}}
 api.testCases.listPage=async(input)=>{
  window.calls.catalog.push(structuredClone(input));
@@ -61,17 +63,24 @@ api.testCases.listPage=async(input)=>{
  return paginate(matching(input),input);
 };
 const health=count=>({count,traceabilityPercent:0,executablePercent:100,automationPercent:0,summaryComplete:true,unknownSummaryCount:0,executionPercent:0,passRatePercent:null,latestPassRatePercent:null,stabilityPercent:null,averageExecutionMs:null,executionDurationSampleCount:0,pendingReviewCount:0,defectCount:0,defectDensity:0,riskCount:0});
+api.testCases.listPicker=async input=>api.testCases.listPage({...input,projection:"picker"});
 api.testCases.metrics=async(input)=>{window.calls.metrics.push(structuredClone(input));return {coverage:{total:95,covered:1,automated:0,automationKnown:95,withHistory:0,withSuites:0},catalog:{total:95,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'case-module':health(35)},unassigned:health(60)}};
 api.testCaseModules.list=async(input)=>{window.calls.headers.push(structuredClone(input));return [{id:'case-module',app_type_id:'case-app',name:'Payments module',test_case_count:35,test_case_ids:[],requirement_ids:[]}]};
 api.testCaseModules.listCases=async(id,input)=>{window.calls.moduleChildren.push({id,...structuredClone(input)});return paginate(cases.filter(item=>item.module_ids.includes(id)),input)};
 api.requirements.list=async(input)=>{window.calls.authoring.push({path:'requirements.list',input});if(window.pauseAuthoring)await new Promise(resolve=>{window.releaseAuthoring=resolve});return [{id:'story-run',project_id:'case-project',title:'Checkout Story',priority:3,status:'active',iteration_id:'sprint-run',sprint:'Sprint Alpha',fix_version:'Release Alpha',labels:[],gherkin_scenarios:[],test_case_ids:['case-60']}]};
 api.requirementReleases.list=async(input)=>{window.calls.authoring.push({path:'requirementReleases.list',input});return [{id:'release-run',project_id:'case-project',name:'Release Alpha',fix_version:'Release Alpha',requirement_ids:['story-run'],sprint_ids:['sprint-run']}]};
 api.requirementIterations.list=async(input)=>{window.calls.authoring.push({path:'requirementIterations.list',input});return [{id:'sprint-run',project_id:'case-project',name:'Sprint Alpha',requirement_ids:['story-run']}]};
+api.testSuites.list=async()=>[{id:'scope-suite',project_id:'case-project',app_type_id:'case-app',name:'Related Suite',test_case_ids:['case-60'],test_case_count:1}];
+api.testSuites.create=async input=>{window.suiteCreates.push(input);return{id:'created-suite'}};
+api.testSuites.assignTestCases=async(id,ids)=>{window.suiteAssignments.push({id,ids});return{updated:true}};
+api.executions.get=async id=>({id,name:'Created run',status:'queued',project_id:'case-project',app_type_id:'case-app',test_case_ids:[],case_snapshots:[],step_snapshots:[],suite_ids:[]});
+api.executions.create=async input=>{window.runCreates.push(input);return{id:'created-run'}};
+api.executions.parameterPlan=async input=>({case_count:input.test_case_ids?.length||0,suite_count:input.suite_ids?.length||0,expected_instance_count:input.test_case_ids?.length||0,parameters:[]});
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
 // AppShell resolves workspace features before opening a catalog route.
 client.setQueryData(['feature-flags'],flags);
-const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>},{path:'/away',element:<h1>Away from Test Cases</h1>}],{initialEntries:['/test-cases']});
-window.fixtureNavigate=to=>router.navigate(to);
+const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>},{path:'/executions',element:<ExecutionsPage/>},{path:'/away',element:<h1>Away from Test Cases</h1>}],{initialEntries:['/test-cases']});
+window.fixtureNavigate=to=>router.navigate(to);window.fixtureLocation=()=>router.state.location;
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId="reviewer"><main style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
 
@@ -83,7 +92,7 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   await writeFile(html,`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>.test-case-library-scroll{height:560px!important;max-height:560px!important;flex:none!important}.test-case-library-scroll>.tile-browser-pane-scroll{height:100%;overflow-y:auto}</style></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
   browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
-  const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});
+  const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'no-preference'});
   const unexpectedRequests=[];await context.route('**/api/**',route=>{unexpectedRequests.push(route.request().method()+' '+new URL(route.request().url()).pathname);return route.fulfill({status:500,contentType:'application/json',body:'{"message":"Unexpected fixture request"}'})});
   const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(10000);
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
@@ -124,20 +133,44 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   await page.screenshot({path:artifacts+'/test-cases-server-search.png'});
 
   await cards.getByRole('checkbox').check();
+  await page.getByRole('button',{name:'Create Suite',exact:true}).click();
+  const suite=page.getByRole('dialog',{name:'Create Suite',exact:true});
+  await suite.getByRole('textbox',{name:'Suite name'}).fill('Shared suite from Test Cases');
+  assert.equal(await suite.locator('.test-case-picker--inline').count(),1);
+  assert.equal(await suite.locator('.test-case-picker-filters, .test-case-picker-selection').count(),0);
+  const suitePicker=suite.locator('.test-case-picker');
+  await suitePicker.getByRole('checkbox',{name:'Remove TC-60 from the new suite',exact:true}).waitFor();
+  await suitePicker.getByRole('checkbox',{name:'Add TC-1 to the new suite',exact:true}).check();
+  await suitePicker.getByRole('button',{name:'Move Checkout coverage 01 up',exact:true}).click();
+  await suite.getByRole('button',{name:'Create Suite',exact:true}).click();
+  await suite.waitFor({state:'hidden'});
+  assert.equal(await page.evaluate(()=>window.suiteCreates[0].name),'Shared suite from Test Cases');
+  assert.deepEqual(await page.evaluate(()=>window.suiteAssignments[0].ids),['case-1','case-60']);
+  await cards.getByRole('checkbox').check();
   await page.getByRole('button',{name:'Run manually',exact:true}).click();
   await page.waitForFunction(()=>typeof window.releaseAuthoring==='function');
-  const run=page.getByRole('dialog',{name:'Create run'});
+  const run=page.getByRole('dialog',{name:'Create New Execution Run',exact:true});
   await run.waitFor();
+  assert.equal(await page.evaluate(()=>window.fixtureLocation().pathname),'/executions','Manual action invokes the canonical execution route');
+  assert.equal(await run.locator('.test-case-picker--inline').count(),1);
+  await run.getByRole('checkbox',{name:'Remove TC-60 from the new run',exact:true}).waitFor();
   assert.equal(await run.getByText('Preparing Release and Sprint options… You can continue configuring this run.',{exact:true}).isVisible(),true);
-  await run.getByLabel('Run name',{exact:true}).fill('Edited while options load');
+  await run.getByLabel('Run Name',{exact:true}).fill('Edited while options load');
   assert.equal(await run.getByRole('button',{name:'Create Manual Run',exact:true}).isDisabled(),true);
   await run.locator('form').evaluate(form=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
-  assert.equal((await page.evaluate(()=>window.calls.all)).some(call=>call.path==='executions.create'),false);
+  assert.equal(await page.evaluate(()=>window.runCreates.length),0);
   calls=await page.evaluate(()=>window.calls);assert.equal(calls.authoring.filter(call=>call.path==='requirements.list').length,1);assert.equal(calls.authoring.filter(call=>call.path==='requirementReleases.list').length,1);assert.equal(calls.authoring.filter(call=>call.path==='requirementIterations.list').length,1);
   await page.evaluate(()=>{window.pauseAuthoring=false;window.releaseAuthoring()});
   await page.waitForFunction(()=>document.querySelector('.execution-create-modal select') && !document.body.innerText.includes('Preparing Release and Sprint options…'));
-  assert.equal(await run.getByLabel('Run name',{exact:true}).inputValue(),'Edited while options load');assert.equal(await run.getByLabel('Release',{exact:true}).inputValue(),'Release Alpha');assert.equal(await run.getByLabel('Sprint',{exact:true}).inputValue(),'Sprint Alpha');
+  assert.equal(await run.getByLabel('Run Name',{exact:true}).inputValue(),'Edited while options load');assert.equal(await run.getByLabel('Release',{exact:true}).inputValue(),'Release Alpha');assert.equal(await run.getByLabel('Sprint',{exact:true}).inputValue(),'Sprint Alpha');
   await page.screenshot({path:artifacts+'/test-cases-lazy-run-prefill.png'});
+  assert.equal(await page.evaluate(()=>window.fixtureLocation().state?.createRun),undefined,'Consumed navigation selection cannot reopen a cancelled or saved dialog');
+  const runPicker=run.locator('.test-case-picker--inline');
+  await runPicker.getByRole('checkbox',{name:'Add TC-1 to the new run',exact:true}).check();
+  await runPicker.getByRole('button',{name:'Move Checkout coverage 01 up',exact:true}).click();
+  await run.getByRole('button',{name:'Create Manual Run',exact:true}).click();
+  await page.waitForFunction(()=>window.runCreates.length===1);
+  assert.deepEqual(await page.evaluate(()=>{const input=window.runCreates[0];return {cases:input.test_case_ids,suites:input.suite_ids,name:input.name,release:input.release,sprint:input.sprint,mode:input.execution_mode}}),{cases:['case-1','case-60'],suites:[],name:'Edited while options load',release:'Release Alpha',sprint:'Sprint Alpha',mode:'manual'});
   assert.deepEqual(errors,[]);assert.deepEqual(unexpectedRequests,[]);
  }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
 });

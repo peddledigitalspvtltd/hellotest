@@ -58,9 +58,16 @@ validate_compose_contract() {
       const api = config.services?.api;
       const minio = config.services?.minio;
       if (!api || !minio) throw new Error("api and minio services are required");
+      const expectedMinioImage = process.env.MINIO_IMAGE || "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z";
+      if (minio.image !== expectedMinioImage) throw new Error("minio must use its pinned Quay image or the configured MINIO_IMAGE override");
       const apiProbe = JSON.stringify(api.healthcheck?.test || []);
       const minioProbe = JSON.stringify(minio.healthcheck?.test || []);
       if (!apiProbe.includes("/health/ready")) throw new Error("api healthcheck must use /health/ready");
+      const startupTimeoutMs = Number(process.env.API_STARTUP_TIMEOUT_MS || 180000);
+      if (Number(api.environment?.API_STARTUP_TIMEOUT_MS) !== startupTimeoutMs) throw new Error("api must receive its configured startup timeout");
+      const grace = String(api.healthcheck?.start_period || "");
+      const graceMs = [...grace.matchAll(/([\d.]+)(ms|s|m|h)/g)].reduce((total, match) => total + Number(match[1]) * ({ ms: 1, s: 1000, m: 60000, h: 3600000 }[match[2]]), 0);
+      if (graceMs < startupTimeoutMs) throw new Error("api healthcheck grace period must cover its startup timeout");
       if (!minioProbe.includes("/minio/health/ready")) throw new Error("minio readiness healthcheck is required");
       if (api.depends_on?.minio?.condition !== "service_healthy") throw new Error("api must wait for healthy minio");
       if (process.argv[1] === "true" && String(api.environment?.ENABLE_OBSERVABILITY) !== "true") {
@@ -231,5 +238,7 @@ HELLOTEST_ISOLATED_OUT_DIR="$VALIDATION_TMP_DIR/isolated" \
 grep -F '/health/ready' "$VALIDATION_TMP_DIR/isolated/docker-compose.isolated.yml" >/dev/null \
   || fail "generated isolated Compose API must use the readiness endpoint"
 pass "generated isolated Compose contract"
+
+"$SCRIPT_DIR/test-hellotest-startup.sh"
 
 echo "Deployment contract validation completed without starting services."

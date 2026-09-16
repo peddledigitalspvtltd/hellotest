@@ -84,7 +84,8 @@ function casePayload(run, finding, user, key) {
     status: 'draft', automated: 'no', automation_status: 'not_automated', authoring_mode: 'structured',
     test_case_type: run.agent_type === 'api_tests' ? 'integration' : 'functional',
     steps, labels: ['repository-agent', run.agent_type], source_idempotency_key: key,
-    review_status: 'not_requested', created_by: user.id, updated_by: user.id, author_id: user.id
+    ai_generation_source: 'repository', ai_generation_review_status: 'pending',
+    reviewer_id: user.id, review_status: 'pending', created_by: user.id, updated_by: user.id, author_id: user.id
   };
 }
 async function publishRun(id, input, user) {

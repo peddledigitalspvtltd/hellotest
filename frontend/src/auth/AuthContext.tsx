@@ -25,43 +25,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const sessionRequestVersion = useRef(0);
+  const pendingSessionRefresh = useRef<{ snapshot: string; promise: Promise<void> } | null>(null);
 
-  const refreshSession = async () => {
-    const requestVersion = ++sessionRequestVersion.current;
+  const refreshSession = (): Promise<void> => {
     const stored = sessionStorage.read();
     const storedSnapshot = JSON.stringify(stored);
+    if (pendingSessionRefresh.current?.snapshot === storedSnapshot) {
+      return pendingSessionRefresh.current.promise;
+    }
+    const requestVersion = ++sessionRequestVersion.current;
     const isCurrentRefresh = () => requestVersion === sessionRequestVersion.current && JSON.stringify(sessionStorage.read()) === storedSnapshot;
 
     if (!stored) {
       setSession(null);
       setIsLoading(false);
-      return;
+      return Promise.resolve();
     }
 
-    try {
-      const next = await api.auth.session();
-      if (!isCurrentRefresh()) return;
-      sessionStorage.write(next);
-      setSession(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
-      setError(null);
-    } catch (err) {
-      // The API may already have cleared this same session after a 401. That
-      // expiration still needs to reach React, while a replacement session wins.
-      const current = sessionStorage.read();
-      if (requestVersion !== sessionRequestVersion.current || (current !== null && JSON.stringify(current) !== storedSnapshot)) return;
-      const errorMessage = err instanceof Error ? err.message : "Session verification failed";
-      setError(errorMessage);
-      const status = Number((err as { status?: number })?.status);
-      // A temporary outage must not discard the signed-in user's open forms.
-      // Only a confirmed expired/deleted identity (or API-cleared session)
-      // ends authentication. The API still checks every actual operation.
-      if (current === null || status === 401 || status === 404) {
-        sessionStorage.clear();
-        setSession(null);
+    const promise = (async () => {
+      try {
+        const next = await api.auth.session();
+        if (!isCurrentRefresh()) return;
+        sessionStorage.write(next);
+        setSession(current => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+        setError(null);
+      } catch (err) {
+        // The API may already have cleared this same session after a 401. That
+        // expiration still needs to reach React, while a replacement session wins.
+        const current = sessionStorage.read();
+        if (requestVersion !== sessionRequestVersion.current || (current !== null && JSON.stringify(current) !== storedSnapshot)) return;
+        const errorMessage = err instanceof Error ? err.message : "Session verification failed";
+        setError(errorMessage);
+        const status = Number((err as { status?: number })?.status);
+        // A temporary outage must not discard the signed-in user's open forms.
+        // Only a confirmed expired/deleted identity (or API-cleared session)
+        // ends authentication. The API still checks every actual operation.
+        if (current === null || status === 401 || status === 403 || status === 404) {
+          sessionStorage.clear();
+          setSession(null);
+        }
+      } finally {
+        if (requestVersion === sessionRequestVersion.current) setIsLoading(false);
       }
-    } finally {
-      if (requestVersion === sessionRequestVersion.current) setIsLoading(false);
-    }
+    })();
+    pendingSessionRefresh.current = { snapshot: storedSnapshot, promise };
+    void promise.finally(() => {
+      if (pendingSessionRefresh.current?.promise === promise) pendingSessionRefresh.current = null;
+    });
+    return promise;
   };
 
   useEffect(() => {
@@ -82,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setAuthenticatedSession = (next: SessionPayload) => {
     sessionRequestVersion.current += 1;
+    pendingSessionRefresh.current = null;
     sessionStorage.write(next);
     setSession(next);
     setIsLoading(false);
@@ -155,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     logout() {
       sessionRequestVersion.current += 1;
+      pendingSessionRefresh.current = null;
       sessionStorage.clear();
       setSession(null);
       setError(null);

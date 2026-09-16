@@ -58,7 +58,7 @@ test("Projects expands its title and description in the canonical page header", 
 
 test("page identity remains visible when catalog pages open focused record workspaces", async () => {
   const guardedPages = [
-    ["ProjectsPage", "{!focusedProject ? ("],
+    ["ProjectsPage", "{!focusedProject && portfolioAnalyticsQuery.data ? ("],
     ["RequirementsPage", "{!isRequirementWorkspaceOpen ? ("],
     ["TestCasesPage", "{!isCaseWorkspaceOpen ? ("],
     ["IssuesPage", "{!(isCreating || selectedItem) ? ("]

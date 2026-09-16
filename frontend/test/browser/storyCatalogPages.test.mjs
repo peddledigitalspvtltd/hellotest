@@ -49,6 +49,7 @@ api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});
 api.projects.list=async()=>[{id:'story-project',name:'Story catalog fixture',display_id:'PRJ-1'}];
 api.appTypes.list=async()=>[{id:'story-app',project_id:'story-project',name:'Web',type:'web'}];
 api.metadata.domain=async()=>({requirements:{default_status:'open',statuses:[{value:'open',label:'Open',category_key:'new'}]},jira:{sprints:[],versions:[]}});
+api.requirements.createMetadata=async()=>({fields:[],core_fields:[],required_fields:[],current_values:{},workflow_statuses:{statuses:['open'],default_status:'open'}});
 const stories=Array.from({length:60},(_,index)=>{
  const n=index+1;
  return {id:'story-'+n,display_id:'ST-'+n,project_id:'story-project',app_type_id:'story-app',
@@ -190,4 +191,46 @@ test('Stories and Backlog load independent metrics and scroll pages without stal
     await browser?.close();
     await Promise.allSettled([unlink(html),unlink(tsx)]);
   }
+});
+
+test('Story creation and filter overlays escape transformed and elevated page containers', {timeout:60000}, async()=>{
+  const name='story-overlay-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
+  const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-story-overlays';let browser;
+  try {
+    await writeFile(html,`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
+    browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+    for(const width of [1440,390]) {
+      const context=await browser.newContext({viewport:{width,height:900},reducedMotion:'reduce'});
+      const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+      await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
+      await page.locator('.story-catalog-test-scroll').evaluate(node=>{
+        node.style.transform='translateZ(0)';node.style.isolation='isolate';
+        node.style.height='700px';node.style.marginTop='60px';
+      });
+      await page.getByRole('button',{name:'Create Story',exact:true}).click();
+      const dialog=page.getByRole('dialog',{name:'Create Story',exact:true});
+      await dialog.getByRole('textbox',{name:'Story Title'}).fill('Overlay retains draft');
+      const bounds=await dialog.boundingBox();
+      assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1&&bounds.y>=0&&bounds.y+bounds.height<=901,'Create Story stays inside the viewport');
+      assert.equal(await dialog.evaluate(node=>node.parentElement.parentElement===document.body),true,'The modal escapes page transforms and clipping');
+      assert.equal(await dialog.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.left+r.width/2,r.top+35))}),true,'The header remains above page content');
+      await page.screenshot({path:`${artifacts}/create-story-${width}.png`});
+      await page.keyboard.press('Escape');
+      assert.equal(await dialog.count(),0);
+      await page.locator('.story-catalog-test-scroll').evaluate(node=>{node.style.position='relative';node.style.zIndex='2200';});
+      const trigger=page.getByRole('button',{name:'Open filters',exact:true});
+      await trigger.click();
+      const filters=page.getByRole('dialog',{name:'Filter Stories',exact:true});
+      await filters.getByRole('combobox',{name:'Priority',exact:true}).selectOption('2');
+      assert.equal(await filters.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.left+r.width/2,r.top+30))}),true,'Filter popup paints above its owning page stacking context');
+      const filterBounds=await filters.boundingBox();
+      assert.ok(filterBounds.x>=0&&filterBounds.x+filterBounds.width<=width+1&&filterBounds.y>=0&&filterBounds.y+filterBounds.height<=901,'Filter popup stays inside the viewport');
+      await page.screenshot({path:`${artifacts}/story-filters-${width}.png`});
+      await page.keyboard.press('Escape');
+      assert.equal(await filters.count(),0);
+      assert.equal(await page.getByRole('button',{name:'Open filters (1 active)',exact:true}).evaluate(node=>document.activeElement===node),true,'Escape returns focus to the filter trigger');
+      assert.deepEqual(errors,[]);await context.close();
+    }
+  } finally {await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]);}
 });

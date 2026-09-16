@@ -53,7 +53,7 @@ test("portfolio analytics uses complete accessible-project evidence and preserve
     readSource("../src/services/settings.service.js")
   ]);
 
-  assert.match(service, /projectService\.getProjectCatalog\(userId\)/);
+  assert.match(service, /projectService\.getProjectCatalog\(userId, \{ projection: "summary" \}\)/);
   assert.match(service, /project\.has_access !== false/);
   assert.match(service, /FROM requirements WHERE requirements\.project_id IN/);
   assert.match(service, /FROM test_cases JOIN app_types/);

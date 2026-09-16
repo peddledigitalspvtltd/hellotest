@@ -5805,7 +5805,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 <span>Create Story</span>
               </button>
               <button
-                className="catalog-selection-button requirement-ai-complete-button"
+                className="primary-button catalog-selection-button requirement-ai-action-button requirement-ai-complete-button"
                 disabled={!canUseRequirementAi || !canUpdateRequirements || deleteSelectedRequirementIds.length !== 1}
                 onClick={() => openRequirementOptimization(deleteSelectedRequirementIds)}
                 title={deleteSelectedRequirementIds.length === 1 ? "Complete the selected Story with AI" : "Select exactly one Story to use AI Complete Story"}
@@ -5815,7 +5815,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 <span>AI Complete Story</span>
               </button>
               {workspaceMode !== "backlog" ? <button
-                className="catalog-selection-button requirement-ai-test-button"
+                className="primary-button catalog-selection-button requirement-ai-action-button requirement-ai-test-button"
                 disabled={!canUseRequirementAi || !canCreateTestCases || deleteSelectedRequirementIds.length !== 1 || !isStoryAssignedToSprint(selectedRequirementRecords[0]) || !appTypeId}
                 onClick={() => openRequirementAiStudio(deleteSelectedRequirementIds[0])}
                 title={deleteSelectedRequirementIds.length !== 1 ? "Select exactly one Story to use AI Test Cases Generation" : !isStoryAssignedToSprint(selectedRequirementRecords[0]) ? "Assign this Story to a Sprint before generating Test Cases" : "Open AI Test Cases Generation for the selected Story"}
@@ -6230,7 +6230,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         detailView={(
           <Panel
             actions={(
-              <div className="panel-head-actions-row">
+              <div className="panel-head-actions-row requirement-detail-actions">
                 <WorkspaceBackButton label="Back to Story tiles" onClick={closeRequirementDetail} />
                 {selectedRequirement ? (
                   <>
@@ -6239,7 +6239,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       <span>New Test Case</span>
                     </button> : null}
                     <button
-                      className="ghost-button requirement-detail-ai-action requirement-detail-ai-complete"
+                      className="primary-button requirement-detail-ai-action requirement-detail-ai-complete"
                       disabled={!canUseRequirementAi || !canUpdateRequirements || previewRequirementOptimization.isPending}
                       onClick={() => openRequirementOptimization([selectedRequirement.id])}
                       type="button"
@@ -6258,7 +6258,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       <span>{previewStoryGrooming.isPending && storyGroomingMutationMatchesSelection ? "Grooming…" : "AI Groom Story"}</span>
                     </button>
                     {selectedRequirementHasSprint ? <button
-                      className="ghost-button requirement-detail-ai-action requirement-detail-ai-test"
+                      className="primary-button requirement-detail-ai-action requirement-detail-ai-test"
                       disabled={!canUseRequirementAi || !canCreateTestCases || !appTypeId}
                       onClick={() => openRequirementAiStudio(selectedRequirement.id)}
                       title={appTypeId ? "Open AI Test Cases Generation for this Story" : "Select an app type before using AI Test Cases Generation"}
@@ -6671,7 +6671,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         isDetailOpen={Boolean(selectedRequirement)}
       />
 
-      {isCreateModalOpen ? (
+      {isCreateModalOpen ? createPortal(
         <div className="modal-backdrop story-create-backdrop" onClick={closeCreateRequirementModal} role="presentation">
           <div
             aria-labelledby="create-requirement-title"
@@ -6880,7 +6880,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
 
       {isCreateIterationModalOpen ? (

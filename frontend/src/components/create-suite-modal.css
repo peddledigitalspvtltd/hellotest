@@ -14,7 +14,7 @@
   --create-suite-subtle: var(--hellotest-dialog-surface-subtle, #f7f8f9);
   align-items: center !important;
   padding: 24px !important;
-  overflow: hidden !important;
+  overflow: clip !important;
 }
 
 .modal-backdrop > .suite-authoring-modal {
@@ -27,7 +27,7 @@
   gap: 0 !important;
   margin: auto !important;
   padding: 0 !important;
-  overflow: hidden !important;
+  overflow: clip !important;
   color: var(--create-suite-ink) !important;
   background: var(--create-suite-surface) !important;
   border: 1px solid var(--create-suite-border) !important;
@@ -38,6 +38,12 @@
 .suite-authoring-modal,
 .suite-authoring-modal * {
   box-sizing: border-box;
+}
+
+/* Keep focus navigation inside the scrolling body without moving the frame. */
+.modal-backdrop > .modal-card.suite-authoring-modal,
+.modal-card.suite-authoring-modal > .suite-modal-form {
+  overflow: clip !important;
 }
 
 .suite-authoring-backdrop .suite-authoring-modal .suite-create-header {
@@ -263,6 +269,13 @@
 .suite-authoring-modal .suite-reference-config .requirement-label-picker {
   width: 100%;
   min-width: 0;
+}
+
+.suite-authoring-modal .canonical-labels-field {
+  --canonical-authoring-surface: var(--create-suite-surface);
+  --canonical-authoring-ink: var(--create-suite-ink);
+  --canonical-authoring-text: var(--create-suite-muted);
+  --canonical-authoring-border: var(--create-suite-border);
 }
 
 .suite-authoring-modal .suite-reference-advanced {

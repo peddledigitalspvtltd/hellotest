@@ -29,6 +29,7 @@ test("test case restore preserves review history, dataset limits, revision check
     id: "case-1",
     app_type_id: "app-1",
     display_id: "TC-42",
+    reviewer_id: "assigned-reviewer",
     review_history: [{ id: "review-1", status: "accepted" }]
   };
   const restored = { ...existing, title: "Restored checkout" };
@@ -47,8 +48,8 @@ test("test case restore preserves review history, dataset limits, revision check
         loadCount += 1;
         return loadCount === 1 ? existing : restored;
       },
-      updateTestCase: async (testCaseId, payload) => {
-        calls.push(["update-case", testCaseId, payload]);
+      updateTestCase: async (testCaseId, payload, options) => {
+        calls.push(["update-case", testCaseId, payload, options]);
       }
     },
     versions: {
@@ -83,22 +84,21 @@ test("test case restore preserves review history, dataset limits, revision check
   });
 
   const update = calls.find(([name]) => name === "update-case");
-  assert.deepEqual(update.slice(1, 3), ["case-1", {
+  assert.deepEqual(update.slice(1), ["case-1", {
     title: "Restored checkout",
     test_data_set_ids: ["dataset-1"],
     expected_revision: 7,
-    review_status: "not_requested",
-    review_history: [
-      { id: "review-1", status: "accepted" },
-      {
-        id: "review-restore-1",
-        status: "changes_requested",
-        comment: "Restored from revision 6; human review is required.",
-        user_id: "user-1",
-        created_at: "2026-08-28T12:00:00.000Z"
-      }
-    ],
+    reviewer_id: "assigned-reviewer",
+    review_status: "pending",
     updated_by: "user-1"
+  }, {
+    reviewHistoryEntry: {
+      id: "review-restore-1",
+      status: "pending",
+      comment: "Restored from revision 6; human review is required.",
+      user_id: "user-1",
+      created_at: "2026-08-28T12:00:00.000Z"
+    }
   }]);
 
   const audit = calls.find(([name]) => name === "audit")[1];

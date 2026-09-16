@@ -309,6 +309,8 @@ test('generated test payload uses supported authoring and step schemas and escap
     const payload = publisher.casePayload(run({ agent_type }), finding, user, 'idempotency');
     assert.equal(payload.authoring_mode, 'structured'); assert.equal(payload.status, 'draft'); assert.equal(payload.automated, 'no');
     assert.equal(payload.source_idempotency_key, 'idempotency');
+    assert.equal(payload.reviewer_id, user.id); assert.equal(payload.review_status, 'pending');
+    assert.equal(payload.ai_generation_source, 'repository'); assert.equal(payload.ai_generation_review_status, 'pending');
     assert.ok(payload.description.includes('src/users.ts:12'));
     assert.ok(!payload.steps.some(step => step.action.includes('<script>')));
     for (const step of payload.steps) assert.equal(normalizeTestStepType(step.step_type), step.step_type);
@@ -350,6 +352,8 @@ test('generated API drafts pass the actual Test Case service normalization and p
   await actualCases.createTestCase(payload);
   assert.equal(persistedCases.length, 1); assert.equal(persistedCases[0].authoring_mode, 'structured');
   assert.equal(persistedCases[0].automated, 'no'); assert.equal(persistedCases[0].status, 'draft');
+  assert.equal(persistedCases[0].reviewer_id, user.id); assert.equal(persistedCases[0].review_status, 'pending');
+  assert.equal(persistedCases[0].ai_generation_source, 'repository'); assert.equal(persistedCases[0].ai_generation_review_status, 'pending');
   const request = persistedSteps.find(step => step.step_type === 'api').api_request;
   assert.equal(request.method, 'GET'); assert.equal(request.url, '@r.base_url/users/@t.user_id?active=@t.active');
   assert.equal(request.body, null); assert.deepEqual(request.validations, [{ kind: 'status', target: null, expected: '200' }]);

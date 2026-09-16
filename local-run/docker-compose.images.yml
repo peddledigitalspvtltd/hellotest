@@ -40,7 +40,7 @@ services:
       - hellotest-local-qdrant-data:/qdrant/storage
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
     container_name: hellotest-local-minio
     command: server /data --console-address ":9001"
     ports:
@@ -89,6 +89,7 @@ services:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     environment:
       APP_MODE: ${APP_MODE:-local}
+      API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -134,6 +135,7 @@ services:
       - knowledge-parser
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health/ready >/dev/null 2>&1 || exit 1"]
+      start_period: ${API_STARTUP_TIMEOUT_MS:-180000}ms
       interval: 15s
       timeout: 5s
       retries: 10

@@ -8,6 +8,7 @@ const { INTEGRATION_TYPE_OPTIONS } = require("../domain/catalog");
 const clientIp = (req) => req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || null;
 
 module.exports = async function (fastify) {
+  fastify.addHook("onClose", () => adminPortalService.stopPerformanceIndexing());
   fastify.get("/admin-portal/status", () => adminPortalService.getPublicStatus());
 
   fastify.post("/admin-portal/auth/login", async (req) => {
@@ -33,6 +34,19 @@ module.exports = async function (fastify) {
 
   fastify.post("/admin-portal/setup/schema", { preHandler: [fastify.requireAdmin] }, async (req) =>
     adminPortalService.applySchema({ actorId: req.user.id, ipAddress: clientIp(req) }));
+
+  fastify.get("/admin-portal/setup/performance-indexing", { preHandler: [fastify.requireAdmin] }, async (_req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return adminPortalService.getPerformanceIndexing();
+  });
+
+  fastify.post("/admin-portal/setup/performance-indexing", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    if (req.body != null && (typeof req.body !== "object" || Array.isArray(req.body) || Object.keys(req.body).length)) {
+      throw Object.assign(new Error("Performance indexing accepts no parameters."), { statusCode: 400 });
+    }
+    reply.code(202).header("Cache-Control", "no-store");
+    return adminPortalService.startPerformanceIndexing({ actorId: req.user.id, ipAddress: clientIp(req) });
+  });
 
   fastify.get("/admin-portal/setup/sample-data", { preHandler: [fastify.requireAdmin] }, () =>
     adminPortalService.getSampleCatalog());

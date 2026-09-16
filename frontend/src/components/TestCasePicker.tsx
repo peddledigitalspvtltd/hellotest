@@ -6,7 +6,9 @@ import { api } from "../lib/api";
 import { richTextToPlainText } from "./RichTextEditor";
 import type { TestCase } from "../types";
 import { HierarchyAutoLoadSentinel } from "./HierarchyLoadMoreButton";
-import { TestCaseIcon } from "./AppIcons";
+import { SelectionToggleIcon, TestCaseIcon } from "./AppIcons";
+import { CatalogSearchFilter } from "./CatalogSearchFilter";
+import { StatusBadge } from "./StatusBadge";
 import "./TestCasePicker.css";
 
 export type TestCasePickerFilters = {
@@ -18,6 +20,13 @@ export type TestCasePickerFilters = {
   shared_step_group_id?: string;
   automated?: "yes" | "no";
   status?: string;
+};
+
+export type TestCaseSelectionResolution = {
+  selectionKey: string;
+  pending: boolean;
+  error: unknown;
+  unavailableIds: string[];
 };
 
 export type TestCasePickerProps = {
@@ -32,7 +41,10 @@ export type TestCasePickerProps = {
   emptyMessage?: string;
   filters?: TestCasePickerFilters;
   allowReorder?: boolean;
+  presentation?: "default" | "inline";
+  selectionContext?: "module" | "run" | "suite";
   onItemsResolved?: (selectedItems: TestCase[]) => void;
+  onSelectionResolutionChange?: (resolution: TestCaseSelectionResolution) => void;
 };
 
 const PAGE_SIZE = 25;
@@ -49,10 +61,11 @@ export function TestCasePicker(props: TestCasePickerProps) {
 function ScopedTestCasePicker({
   projectId, appTypeId, selectedIds, onChange, multiple = true, disabled = false,
   initialItems = EMPTY_ITEMS, heading = "Test cases", emptyMessage = "No test cases match this search.",
-  filters, allowReorder = false, onItemsResolved
+  filters, allowReorder = false, presentation = "default", selectionContext = "module", onItemsResolved, onSelectionResolutionChange
 }: TestCasePickerProps) {
   const controlId = useId();
   const viewport = useRef<HTMLDivElement>(null);
+  const selectVisibleRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -60,6 +73,7 @@ function ScopedTestCasePicker({
   const [statusFilter, setStatusFilter] = useState("");
   const [knownItems, setKnownItems] = useState(() => new Map(initialItems.map(item => [item.id, item])));
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedIndexById = useMemo(() => new Map(selectedIds.map((id, index) => [id, index])), [selectedIds]);
   const selectedIdsKey = JSON.stringify(selectedIds);
   const filterKey = JSON.stringify([
     filters?.module_id, filters?.suite_id, filters?.requirement_id,
@@ -168,8 +182,42 @@ function ScopedTestCasePicker({
     resolvedCallback.current?.(selectedItems);
   }, [selectedItems]);
 
+  const resolutionCallback = useRef(onSelectionResolutionChange);
+  resolutionCallback.current = onSelectionResolutionChange;
+  const resolvedLookupIds = useMemo(() => new Set(selectedLookup.data?.map(item => item.id) || []), [selectedLookup.data]);
+  const unavailableIds = selectedLookup.isSuccess
+    ? missingIds.filter(id => !resolvedLookupIds.has(id))
+    : [];
+  const unavailableIdsKey = JSON.stringify(unavailableIds);
+  useEffect(() => {
+    resolutionCallback.current?.({
+      selectionKey: selectedIdsKey,
+      pending: Boolean(missingIds.length && (selectedLookup.isPending || selectedLookup.isFetching)),
+      error: missingIds.length ? selectedLookup.error : null,
+      unavailableIds: JSON.parse(unavailableIdsKey)
+    });
+  }, [selectedIdsKey, missingIdsKey, selectedLookup.isPending, selectedLookup.isFetching, selectedLookup.error, unavailableIdsKey]);
+
   useLayoutEffect(() => { if (viewport.current) viewport.current.scrollTop = 0; }, [scopeKey]);
   const isChangingSearch = search.trim() !== debouncedSearch || catalog.isPlaceholderData;
+  const isInline = presentation === "inline";
+  const hasLocalFilter = Boolean(debouncedSearch || moduleFilter || statusFilter);
+  const inlineRows = useMemo(() => {
+    const visibleById = new Map(items.map(item => [item.id, item]));
+    // In the unfiltered list, retain the complete selection in its saved order,
+    // including selections from another page. Filtering never drops selections.
+    const selected = selectedIds
+      .filter(id => !hasLocalFilter || visibleById.has(id))
+      .map(id => ({ id, item: itemById.get(id) }));
+    return [...selected, ...items.filter(item => !selectedIdSet.has(item.id)).map(item => ({ id: item.id, item }))];
+  }, [hasLocalFilter, items, itemById, selectedIdsKey, selectedIdSet]);
+  const visibleIds = useMemo(() => isInline ? inlineRows.map(row => row.id) : items.map(item => item.id), [inlineRows, isInline, items]);
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds]);
+  const visibleSelectedCount = visibleIds.filter(id => selectedIdSet.has(id)).length;
+  const allVisibleSelected = Boolean(visibleIds.length) && visibleSelectedCount === visibleIds.length;
+  useEffect(() => {
+    if (selectVisibleRef.current) selectVisibleRef.current.indeterminate = visibleSelectedCount > 0 && !allVisibleSelected;
+  }, [allVisibleSelected, visibleSelectedCount]);
   const commitSelection = (ids: string[]) => {
     if (disabled) return;
     const next = [...new Set(ids)];
@@ -186,38 +234,51 @@ function ScopedTestCasePicker({
     commitSelection(next);
   };
 
-  return <section className="test-case-picker" aria-labelledby={`${controlId}-heading`}>
+  const filterFields = <>
+    {!filters?.module_id ? <label>Current module<select aria-label="Filter test cases by module" value={moduleFilter} disabled={disabled} onChange={event => setModuleFilter(event.target.value)}>
+      <option value="">All modules</option>
+      <option value="__unassigned__">Unassigned module</option>
+      {(modules.data || []).map(module => <option key={module.id} value={module.id}>{module.display_id ? `${module.display_id} · ` : ""}{module.name}</option>)}
+    </select></label> : null}
+    {!filters?.status ? <label>Status<select aria-label="Filter test cases by status" value={statusFilter} disabled={disabled} onChange={event => setStatusFilter(event.target.value)}>
+      <option value="">All statuses</option>
+      {(metadata.data?.test_cases?.statuses || []).map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
+    </select></label> : null}
+    {isInline ? <button className="ghost-button" type="button" disabled={disabled || (!moduleFilter && !statusFilter)} onClick={() => { setModuleFilter(""); setStatusFilter(""); }}>Clear filters</button> : null}
+    {modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
+  </>;
+
+  return <section className={`test-case-picker${isInline ? " test-case-picker--inline" : ""}`} aria-labelledby={`${controlId}-heading`}>
     <header className="test-case-picker-heading">
       <strong id={`${controlId}-heading`}>{heading}</strong>
       <span aria-live="polite">{selectedIds.length} selected</span>
     </header>
-    <div className="test-case-picker-toolbar">
-      <label className="test-case-picker-search">
+    <div className="test-case-picker-toolbar" onKeyDown={event => {
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement && event.target.type === "search") event.preventDefault();
+    }}>
+      {isInline ? <CatalogSearchFilter
+        value={search} onChange={setSearch} onOpenChange={setFiltersOpen}
+        placeholder="Search ID or title…" ariaLabel="Search test cases" type="search"
+        activeFilterCount={Number(Boolean(moduleFilter)) + Number(Boolean(statusFilter))}
+        title="Filter Test Cases" disabled={disabled}
+      ><div className="test-case-picker-filter-fields">{filterFields}</div></CatalogSearchFilter> : <label className="test-case-picker-search">
         <IconSearch aria-hidden="true" size={17} />
         <span className="sr-only">Search test cases</span>
         <input type="search" value={search} disabled={disabled} placeholder="Search test cases…" onChange={event => setSearch(event.target.value)} />
-      </label>
+      </label>}
       {multiple ? <button className="ghost-button" type="button"
-        disabled={disabled || isChangingSearch || !items.length || items.every(item => selectedIdSet.has(item.id))}
-        onClick={() => commitSelection([...selectedIds, ...items.map(item => item.id)])}>Select shown</button> : null}
-      <button className="ghost-button" type="button" disabled={disabled || !selectedIds.length} onClick={() => commitSelection([])}>Clear</button>
+        aria-label={isInline ? "Select all visible Test Cases" : undefined}
+        disabled={disabled || isChangingSearch || !visibleIds.length || allVisibleSelected}
+        onClick={() => commitSelection([...selectedIds, ...visibleIds])}>{isInline ? <><SelectionToggleIcon checked /><span className="test-case-picker-select-wide">Select all visible</span><span className="test-case-picker-select-compact" aria-hidden="true">Select all</span></> : "Select shown"}</button> : null}
+      <button className="ghost-button" type="button" disabled={disabled || !selectedIds.length} onClick={() => commitSelection([])}>{isInline ? <SelectionToggleIcon checked={false} /> : null}Clear</button>
     </div>
-    <details className="test-case-picker-filters" onToggle={event => setFiltersOpen(event.currentTarget.open)}>
+    {!isInline ? <details className="test-case-picker-filters" onToggle={event => setFiltersOpen(event.currentTarget.open)}>
       <summary>Filters{moduleFilter || statusFilter ? " · Active" : ""}</summary>
       <div>
-        {!filters?.module_id ? <label>Current module<select aria-label="Filter test cases by module" value={moduleFilter} disabled={disabled} onChange={event => setModuleFilter(event.target.value)}>
-          <option value="">All modules</option>
-          <option value="__unassigned__">Unassigned module</option>
-          {(modules.data || []).map(module => <option key={module.id} value={module.id}>{module.display_id ? `${module.display_id} · ` : ""}{module.name}</option>)}
-        </select></label> : null}
-        {!filters?.status ? <label>Status<select aria-label="Filter test cases by status" value={statusFilter} disabled={disabled} onChange={event => setStatusFilter(event.target.value)}>
-          <option value="">All statuses</option>
-          {(metadata.data?.test_cases?.statuses || []).map(status => <option key={status.value} value={status.value}>{status.label}</option>)}
-        </select></label> : null}
+        {filterFields}
       </div>
-      {modules.isError ? <p role="alert">Module filters couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void modules.refetch()}>Retry modules</button></p> : null}
-    </details>
-    {selectedIds.length ? <details className="test-case-picker-selection" open={allowReorder || undefined}>
+    </details> : null}
+    {!isInline && selectedIds.length ? <details className="test-case-picker-selection" open={allowReorder || undefined}>
       <summary>Selected test cases · {selectedIds.length}</summary>
       <ol>
         {selectedIds.map((id, index) => {
@@ -238,11 +299,33 @@ function ScopedTestCasePicker({
       {selectedLookup.isLoading ? <p role="status">Loading selected test case names…</p> : null}
       {selectedLookup.isError ? <p role="alert">Selected names couldn't be loaded. Your selection is retained. <button className="ghost-button" type="button" onClick={() => void selectedLookup.refetch()}>Retry selected cases</button></p> : null}
     </details> : null}
-    <div className="test-case-picker-results" ref={viewport} aria-busy={catalog.isFetching || isChangingSearch}>
+    <div className="test-case-picker-results" ref={viewport} aria-busy={catalog.isFetching || isChangingSearch} role={isInline ? "table" : undefined} aria-label={isInline ? `Test Cases available for this ${selectionContext}` : undefined}>
+      {isInline ? <div className="test-case-picker-inline-header" role="row">
+        <span role="columnheader"><input aria-label="Select all visible Test Cases" ref={selectVisibleRef} type="checkbox" checked={allVisibleSelected} disabled={disabled || isChangingSearch || !visibleIds.length} onChange={event => commitSelection(event.target.checked ? [...selectedIds, ...visibleIds] : selectedIds.filter(id => !visibleIdSet.has(id)))} /></span>
+        <span role="columnheader">Test Case</span><span role="columnheader">Status</span><span role="columnheader">Order</span>
+      </div> : null}
       {catalog.isLoading ? <p className="test-case-picker-status" role="status">Loading test cases…</p> : null}
       {catalog.isError && !items.length ? <p className="test-case-picker-status" role="alert">Test cases couldn't be loaded. <button className="ghost-button" type="button" onClick={() => void catalog.refetch()}>Retry test cases</button></p> : null}
       {!catalog.isLoading && !catalog.isError && !items.length ? <p className="test-case-picker-status">{emptyMessage}</p> : null}
-      {items.map(item => <label className={`test-case-picker-row${selectedIdSet.has(item.id) ? " is-selected" : ""}`} key={item.id}>
+      {isInline ? inlineRows.map(({ id, item }) => {
+        const index = selectedIndexById.get(id) ?? -1;
+        const selected = index >= 0;
+        const label = item?.title || id;
+        return <div className={`test-case-picker-row${selected ? " is-selected" : ""}`} key={id} role="row" onClick={event => {
+          if (isChangingSearch || (event.target instanceof Element && event.target.closest("button, input"))) return;
+          toggle(id);
+        }}>
+          <span role="cell"><input aria-label={`${selected ? "Remove" : "Add"} ${item?.display_id || id} ${selected ? "from" : "to"} the new ${selectionContext}`} type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selected} disabled={disabled || isChangingSearch} onChange={() => toggle(id)} /></span>
+          <span className="test-case-picker-copy" role="cell"><span className="test-case-picker-id"><TestCaseIcon size={15} strokeWidth={1.8} />{item?.display_id || id}</span><strong>{label}</strong></span>
+          <span className="test-case-picker-inline-status" role="cell">{item?.status ? <StatusBadge value={item.status} /> : "—"}</span>
+          <span className="test-case-picker-inline-order" role="cell">
+            {selected ? <><span aria-label={`Selection position ${index + 1}`}>{index + 1}</span>{allowReorder && multiple ? <>
+              <button type="button" className="ghost-button" aria-label={`Move ${label} up`} disabled={disabled || index === 0} onClick={() => move(index, -1)}><IconChevronUp aria-hidden="true" size={16} /></button>
+              <button type="button" className="ghost-button" aria-label={`Move ${label} down`} disabled={disabled || index === selectedIds.length - 1} onClick={() => move(index, 1)}><IconChevronDown aria-hidden="true" size={16} /></button>
+            </> : null}</> : "—"}
+          </span>
+        </div>;
+      }) : items.map(item => <label className={`test-case-picker-row${selectedIdSet.has(item.id) ? " is-selected" : ""}`} key={item.id}>
         <input type={multiple ? "checkbox" : "radio"} name={`${controlId}-case`} checked={selectedIdSet.has(item.id)} disabled={disabled || isChangingSearch} onChange={() => toggle(item.id)} />
         <span className="test-case-picker-copy">
           <span className="test-case-picker-id"><TestCaseIcon size={15} strokeWidth={1.8} />{item.display_id || item.id}</span>
@@ -251,6 +334,9 @@ function ScopedTestCasePicker({
           {item.labels?.length ? <small>{item.labels.join(" · ")}</small> : null}
         </span>
       </label>)}
+      {isInline && selectedLookup.isLoading ? <p className="test-case-picker-status" role="status">Loading selected test case names…</p> : null}
+      {isInline && selectedLookup.isError ? <p className="test-case-picker-status" role="alert">Selected names couldn't be loaded. Your selection is retained. <button className="ghost-button" type="button" onClick={() => void selectedLookup.refetch()}>Retry selected cases</button></p> : null}
+      {unavailableIds.length ? <p className="test-case-picker-status" role="alert">{unavailableIds.length} selected Test Case{unavailableIds.length === 1 ? " is" : "s are"} unavailable in this scope. Remove the unavailable selection or choose another case.</p> : null}
       {isChangingSearch ? <p className="test-case-picker-status" role="status">Searching test cases…</p> : null}
       {catalog.isError && items.length && !catalog.isFetchNextPageError ? <p className="test-case-picker-status" role="alert">Search couldn't be updated. <button className="ghost-button" type="button" onClick={() => void catalog.refetch()}>Retry search</button></p> : null}
       {catalog.hasNextPage && !isChangingSearch ? <HierarchyAutoLoadSentinel

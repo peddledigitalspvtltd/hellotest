@@ -128,8 +128,28 @@ test("manual build preparation creates a separate linked case and copies module 
   assert.equal(result.test_case_id, "automation-output");
   assert.equal(result.source_test_case_id, "manual");
   assert.equal(created[0].manual_test_case_ids[0], "manual");
+  assert.equal(created[0].ai_generation_source, undefined, "manual recorder preparation is not an AI generation");
   assert.equal(source.automated, "no");
   assert.deepEqual(moduleWrites[0].args, ["automation-output", "manual"]);
+});
+
+test("AI build preparation assigns the creator to new clone review without reopening an existing target", async () => {
+  const created = [];
+  let existing = null;
+  const service = loadService("../src/services/automationCasePreparation.service.js", {
+    "../db": { prepare: () => ({ get: async () => existing, all: async () => sourceSteps, run: async () => ({ changes: 1 }) }) },
+    "./testCase.service": { getTestCase: async () => source, createTestCase: async input => { created.push(input); return { id: "new-ai-target" }; } }
+  });
+  await service.prepareAutomationTarget({ testCaseId: "manual", createdBy: "generator", aiGenerated: true });
+  assert.equal(created[0].reviewer_id, "generator");
+  assert.equal(created[0].review_status, "pending");
+  assert.equal(created[0].ai_generation_source, "interactive");
+  assert.equal(created[0].ai_generation_review_status, "pending");
+  existing = { id: "accepted-target", review_status: "accepted", ai_generation_review_status: "accepted" };
+  const result = await service.prepareAutomationTarget({ testCaseId: "manual", createdBy: "generator", aiGenerated: true });
+  assert.equal(result.test_case_id, "accepted-target");
+  assert.equal(created.length, 1);
+  assert.equal(existing.review_status, "accepted");
 });
 
 test("recording never falls back to an unrelated linked step at the same position", async () => {

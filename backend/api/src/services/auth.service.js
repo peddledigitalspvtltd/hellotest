@@ -5,7 +5,7 @@ const integrationService = require("./integration.service");
 const { getEmailSenderProfile, sendMail } = require("./email.service");
 const { DEFAULT_ROLE_PERMISSIONS } = require("../security/permissions.catalog");
 const { WORKSPACE_ONLY_PERMISSION_CODES } = require("./permission.service");
-const { hashPassword, passwordNeedsRehash, verifyPassword, createToken, verifyToken } = require("../utils/token");
+const { hashPasswordAsync, passwordNeedsRehash, verifyPasswordAsync, createToken, verifyToken } = require("../utils/token");
 const { resolveSecret } = require("../security/runtimeSecrets");
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
@@ -48,38 +48,30 @@ const generatePlaceholderPassword = () => {
   return `${crypto.randomUUID()}-${crypto.randomUUID()}`;
 };
 
-const getSessionRole = async (id) => {
-  const row = await db.prepare(`
-    SELECT COALESCE(users.is_workspace_admin, FALSE) AS is_workspace_admin
-    FROM users
-    WHERE users.id = ?
-  `).get(id);
-
-  return row?.is_workspace_admin ? "admin" : "member";
-};
-
 const getSessionPermissionProfile = async (id, role) => {
   if (role === "admin") {
     const permissions = DEFAULT_ROLE_PERMISSIONS.admin || [];
     return { permissions, workspacePermissions: permissions, projectPermissions: {} };
   }
 
-  const workspaceRows = await db.prepare(`
-    SELECT DISTINCT permissions.code
+  // Read the live grants together. No session-level cache is used, so revoking a
+  // role or project membership takes effect on the next session refresh.
+  const permissionRows = await db.prepare(`
+    SELECT DISTINCT NULL::TEXT AS project_id, permissions.code
     FROM users
     JOIN role_permissions ON role_permissions.role_id = users.default_role_id
     JOIN permissions ON permissions.id = role_permissions.permission_id
     WHERE users.id = ?
-    ORDER BY permissions.code ASC
-  `).all(id);
-  const projectRows = await db.prepare(`
+    UNION ALL
     SELECT project_members.project_id, permissions.code
     FROM project_members
     JOIN role_permissions ON role_permissions.role_id = project_members.role_id
     JOIN permissions ON permissions.id = role_permissions.permission_id
     WHERE project_members.user_id = ?
-    ORDER BY project_members.project_id ASC, permissions.code ASC
-  `).all(id);
+    ORDER BY project_id ASC, code ASC
+  `).all(id, id);
+  const workspaceRows = permissionRows.filter((row) => row.project_id === null);
+  const projectRows = permissionRows.filter((row) => row.project_id !== null);
   const workspacePermissions = workspaceRows
     .map((row) => row.code)
     .filter((code) => WORKSPACE_ONLY_PERMISSION_CODES.has(code));
@@ -111,8 +103,12 @@ const selectUserForSession = async (id) => {
     return null;
   }
 
+  if (user.status === "suspended") {
+    throw createError("This account is suspended. Contact a workspace administrator.", 403);
+  }
+
   const { is_workspace_admin, ...rest } = user;
-  const role = await getSessionRole(id);
+  const role = is_workspace_admin ? "admin" : "member";
   const permissionProfile = await getSessionPermissionProfile(id, role);
 
   return {
@@ -418,7 +414,7 @@ exports.requestSignupCode = async ({ email, password, name }) => {
     purpose: "signup",
     payload: {
       name: normalizeName(name),
-      password_hash: hashPassword(password)
+      password_hash: await hashPasswordAsync(password)
     }
   });
 };
@@ -487,7 +483,7 @@ exports.login = async ({ email, password }) => {
     throw createError("This account is suspended. Contact a workspace administrator.", 403);
   }
 
-  const isPasswordValid = verifyPassword(password, user.password_hash);
+  const isPasswordValid = await verifyPasswordAsync(password, user.password_hash);
 
   if (!isPasswordValid) {
     throw createError("Invalid credentials", 401);
@@ -495,10 +491,18 @@ exports.login = async ({ email, password }) => {
 
   const sessionUser = await selectUserForSession(user.id);
 
-  if (passwordNeedsRehash(user.password_hash)) {
-    await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(hashPassword(password), user.id);
-  } else {
-    await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
+  if (!sessionUser) {
+    throw createError("Invalid credentials", 401);
+  }
+
+  // Password work runs off the event loop. A reset may complete while it runs;
+  // compare the verified credential in the existing write before issuing a token.
+  // This also prevents a legacy upgrade from overwriting a replacement password.
+  const loginUpdate = passwordNeedsRehash(user.password_hash)
+    ? await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ?").run(await hashPasswordAsync(password), user.id, user.password_hash)
+    : await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ?").run(user.id, user.password_hash);
+  if (!loginUpdate.changes) {
+    throw createError("Invalid credentials", 401);
   }
 
   return {
@@ -554,7 +558,7 @@ exports.loginWithGoogle = db.transaction(async ({ idToken }) => {
   `).run(
     id,
     normalizedEmail,
-    hashPassword(generatePlaceholderPassword()),
+    await hashPasswordAsync(generatePlaceholderPassword()),
     googleProfile.name,
     googleProfile.sub
   );
@@ -593,7 +597,7 @@ exports.requestPasswordResetCode = async ({ email, newPassword }) => {
     email: normalizedEmail,
     purpose: "password_reset",
     payload: {
-      password_hash: hashPassword(newPassword)
+      password_hash: await hashPasswordAsync(newPassword)
     }
   });
 };

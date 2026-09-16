@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { writeFile, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 const require = createRequire(import.meta.url);
@@ -14,31 +14,36 @@ const session={token:'run-picker-fixture',user:{id:'reviewer',role:'admin',name:
 sessionStorage.write(session);localStorage.setItem('hellotest.current_project_id','project');localStorage.setItem('hellotest.current_app_type_by_project',JSON.stringify({project:'app'}));localStorage.setItem('hellotest.default_catalog_view_mode','tile');document.documentElement.dataset.sidebar='collapsed';
 window.calls=[];window.saved=[];
 for(const [resource,group] of Object.entries(api))if(group&&typeof group==='object')for(const [method,value]of Object.entries(group))if(typeof value==='function')group[method]=async(...args)=>{window.calls.push({resource,method,args});return [];};
-const cases=Array.from({length:60},(_,index)=>({id:'case-'+(index+1),display_id:'TC-'+(index+1),title:'Run picker case '+(index+1),description:'A short saved case description.',project_id:'project',app_type_id:'app',suite_id:null,suite_ids:[],requirement_id:null,priority:2,status:'approved',automated:index===0?'no':'yes'}));
+const cases=Array.from({length:60},(_,index)=>({id:'case-'+(index+1),display_id:'TC-'+(index+1),title:'Run picker case '+(index+1),description:'A short saved case description.',project_id:'project',app_type_id:'app',suite_id:null,suite_ids:[],module_ids:index>=30?['advanced-module']:[],requirement_id:null,priority:2,status:'approved',automated:index===0?'no':'yes'}));
 const project={id:'project',name:'Run picker project',app_type_ids:['app']};const app={id:'app',project_id:'project',name:'Web app',type:'web'};
 const suites=[{id:'suite',project_id:'project',app_type_id:'app',name:'Checkout suite',parent_id:null,test_case_ids:[],test_case_count:60}];
 let pauseFirst=!params.has('prefill');let failContinuation=true;
 const firstReady=new Promise(resolve=>{window.releaseFirstCases=()=>{pauseFirst=false;resolve()};});
 const releaseReady=params.has('prefill')?new Promise(resolve=>{window.releaseDelivery=resolve;}):Promise.resolve();
-const page=async query=>{window.calls.push({resource:'testCases',method:'picker',args:[query]});if(pauseFirst&&!query.ids)await firstReady;if(query.cursor==='25'&&failContinuation){failContinuation=false;throw new Error('One interrupted case page');}let scoped=cases;if(query.ids){const ids=new Set(query.ids.split(','));scoped=scoped.filter(item=>ids.has(item.id));}if(query.automated)scoped=scoped.filter(item=>item.automated===query.automated);if(query.search)scoped=scoped.filter(item=>item.title.toLowerCase().includes(query.search.toLowerCase()));const offset=Number(query.cursor||0),size=Math.min(query.page_size||25,25);return {items:scoped.slice(offset,offset+size),next_cursor:offset+size<scoped.length?String(offset+size):null,is_last:offset+size>=scoped.length};};
-api.auth.session=async()=>session;api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.settings.getLocalization=async()=>({strings:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});api.metadata.domain=async()=>({});api.projects.list=async()=>[project];api.appTypes.list=async()=>[app];
+const sessionReady=params.has('prefill')?new Promise(resolve=>{window.releaseSession=resolve;}):Promise.resolve();
+const page=async query=>{window.calls.push({resource:'testCases',method:'picker',args:[query]});if(pauseFirst&&!query.ids)await firstReady;if(query.cursor==='25'&&failContinuation){failContinuation=false;throw new Error('One interrupted case page');}let scoped=cases;if(query.ids){const ids=new Set(query.ids.split(','));scoped=scoped.filter(item=>ids.has(item.id));}if(query.automated)scoped=scoped.filter(item=>item.automated===query.automated);if(query.module_id)scoped=scoped.filter(item=>item.module_ids.includes(query.module_id));if(query.status)scoped=scoped.filter(item=>item.status===query.status);if(query.search)scoped=scoped.filter(item=>item.title.toLowerCase().includes(query.search.toLowerCase()));const offset=Number(query.cursor||0),size=Math.min(query.page_size||25,25);return {items:scoped.slice(offset,offset+size),next_cursor:offset+size<scoped.length?String(offset+size):null,is_last:offset+size>=scoped.length};};
+api.auth.session=async()=>{await sessionReady;return session;};api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.settings.getLocalization=async()=>({strings:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});api.metadata.domain=async()=>({test_cases:{statuses:[{value:'approved',label:'Approved'},{value:'draft',label:'Draft'}]}});api.projects.list=async()=>[project];api.appTypes.list=async()=>[app];
+api.metadata.workspaceScopes=async()=>({projects:[project]});
 api.executions.list=async()=>[];api.executions.get=async id=>({id,name:'Created run',status:'queued',project_id:'project',app_type_id:'app',test_case_ids:[],case_snapshots:[],step_snapshots:[],suite_ids:[]});api.executions.create=async input=>{window.saved.push(input);return {id:'created-run'};};
 api.testCases.list=async()=>{window.calls.push({resource:'testCases',method:'list'});throw new Error('A full Test Case catalog must not load');};api.testCases.listPage=page;api.testCases.listPicker=page;api.testSuites.list=async query=>{window.calls.push({resource:'testSuites',method:'list',args:[query]});return suites;};
+api.testCaseModules.list=async query=>{window.calls.push({resource:'testCaseModules',method:'list',args:[query]});return [{id:'advanced-module',app_type_id:'app',name:'Advanced coverage'}];};
 api.requirementReleases.list=async()=>{await releaseReady;return [{id:'release',name:'Release 2026',fix_version:'v2026',sprint_ids:[],requirement_ids:[]}];};api.requirementIterations.list=async()=>[];
 api.executions.parameterPlan=async input=>({case_count:input.test_case_ids?.length||0,suite_count:input.suite_ids?.length||0,expected_instance_count:input.test_case_ids?.length||0,parameters:[]});
 const route=params.has('prefill')?'/executions?create=1&project=project&release_id=release':'/executions?view=suite-runs';
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[route]}><AuthProvider><div className='app-shell app-layout app-layout--workspace-wide'><aside className='sidebar is-collapsed'>Navigation</aside><main className='workspace-main main main--library-fill' data-route='/executions'><ExecutionsPage/></main></div></AuthProvider></MemoryRouter></QueryClientProvider>);
 `;
 
-test('Create Run opens before picker pages and preserves selected IDs through search, retry and hooks', { timeout: 120000 }, async () => {
+test('Create Run unified selection preserves paged choices and submitted order through filters, retry, modes and hooks', { timeout: 120000 }, async () => {
   const name = `create-run-picker-${randomUUID()}`;
   const html = new URL(`${name}.html`, root), source = new URL(`${name}.tsx`, root);
+  const artifacts=process.env.BROWSER_SCREENSHOT_DIR || "/tmp/qaira-create-run-picker";
   let browser, page;
   try {
     await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
     await writeFile(source, fixture);
+    await mkdir(artifacts,{recursive:true});
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
-    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion:'no-preference' });
     page.setDefaultTimeout(15000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/**', route => { errors.push(`Unexpected API ${route.request().url()}`); return route.abort(); });
@@ -50,27 +55,106 @@ test('Create Run opens before picker pages and preserves selected IDs through se
     const dialog = page.getByRole('dialog', { name: 'Create New Execution Run', exact: true });
     await dialog.waitFor();
     await dialog.getByLabel('Run Name', { exact: true }).fill('A run selected across pages');
-    const picker = dialog.locator('.test-case-picker').filter({ has: page.getByText('Direct test cases', { exact: true }) });
+    const picker = dialog.locator('.test-case-picker--inline').filter({ has: page.getByText('Test Case Selection', { exact: true }) });
+    const search=picker.getByRole('searchbox',{name:'Search test cases',exact:true});
+    const rowChoice=id=>picker.getByRole('checkbox',{name:`Add TC-${id} to the new run`,exact:true});
+    const selectedChoice=id=>picker.getByRole('checkbox',{name:`Remove TC-${id} from the new run`,exact:true});
+    const selectedNames=()=>picker.locator('.test-case-picker-row.is-selected .test-case-picker-copy > strong').allTextContents();
+    assert.equal(await picker.locator('details').count(),0,'filters and selected cases are integrated into the same selection panel');
     await picker.getByText('Loading test cases…', { exact: true }).waitFor();
     assert.equal(await picker.locator('.test-case-picker-row').count(), 0);
     await page.evaluate(() => window.releaseFirstCases());
-    await picker.getByRole('checkbox', { name: /TC-1 Run picker case 1 / }).check();
+    await rowChoice(1).check();
     assert.equal(await picker.locator('.test-case-picker-row').count(), 25);
+    const toolbarGeometry=async()=>picker.locator('.test-case-picker-toolbar').evaluate(node=>{
+      const input=node.querySelector('input[type=search]').getBoundingClientRect();
+      const buttons=[...node.children].filter(child=>child.tagName==='BUTTON').map(child=>child.getBoundingClientRect());
+      return {inputWidth:input.width,inline:buttons.every(rect=>Math.abs(rect.top+rect.height/2-input.top-input.height/2)<2),within:buttons.every(rect=>rect.right<=innerWidth+1)};
+    });
+    assert.equal((await toolbarGeometry()).inline,true,'search, Select all and Clear stay on one row');
+    await picker.getByRole('button',{name:'Select all visible Test Cases',exact:true}).click();
+    assert.equal(await picker.locator('.test-case-picker-row.is-selected').count(),25);
+    await page.setViewportSize({width:1280,height:800});
+    const stableFrame = await dialog.boundingBox();
+    const movementSamples = dialog.evaluate(node => new Promise(resolve => {
+      const samples = [];
+      const started = performance.now();
+      const frame = () => {
+        const bounds = node.getBoundingClientRect();
+        const header = node.querySelector('.execution-run-builder-header').getBoundingClientRect();
+        samples.push({ top: bounds.top, bottom: bounds.bottom, scroll: node.scrollTop, headerTop: header.top });
+        if (performance.now() - started < 800) requestAnimationFrame(frame);
+        else resolve(samples);
+      };
+      frame();
+    }));
+    // Reaching a lower row used to scroll the hidden modal frame as well as the
+    // list, clipping its title. Exercise normal motion instead of masking it.
+    await picker.getByRole('button',{name:'Move Run picker case 20 down',exact:true}).click();
+    const samples = await movementSamples;
+    for (const sample of samples) {
+      assert.ok(Math.abs(sample.top-stableFrame.y)<1,'reordering keeps the modal frame in place');
+      assert.equal(sample.scroll,0,'focus navigation never scrolls the fixed modal frame');
+      assert.ok(sample.headerTop>=sample.top,'the run header remains inside the visible frame');
+      assert.ok(sample.bottom<=800,'the run dialog remains within the viewport');
+    }
+    assert.equal(await picker.getByRole('button',{name:'Move Run picker case 20 down',exact:true}).evaluate(node=>node===document.activeElement),true,'reordering retains keyboard focus on the same case');
+    await picker.getByRole('button',{name:'Move Run picker case 20 up',exact:true}).click();
+    await page.setViewportSize({width:1440,height:1000});
+    await picker.getByRole('button',{name:'Clear',exact:true}).click();
+    assert.equal(await picker.locator('.test-case-picker-row.is-selected').count(),0);
+    await rowChoice(1).check();
+    assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.resource==='testCaseModules').length),0,'module filters do not load until requested');
     const viewport = picker.locator('.test-case-picker-results');
     await viewport.evaluate(element => { element.scrollTop = element.scrollHeight; });
     await picker.getByRole('button', { name: /Retry/ }).waitFor();
     assert.equal(await picker.locator('.test-case-picker-row').count(), 25, 'a failed continuation retains the visible page');
     await picker.getByRole('button', { name: /Retry/ }).click();
     await page.waitForFunction(() => document.querySelectorAll('.execution-create-modal .test-case-picker-row').length === 50);
-    assert.equal(await picker.getByRole('checkbox', { name: /TC-1 Run picker case 1 / }).isChecked(), true);
-    await picker.getByRole('searchbox', { name: 'Search test cases', exact: true }).fill('Run picker case 51');
-    await picker.getByRole('checkbox', { name: /TC-51 Run picker case 51/ }).check();
+    assert.equal(await selectedChoice(1).isChecked(), true);
+    await search.fill('Run picker case 51');
+    await rowChoice(51).check();
     assert.equal(await picker.getByText('2 selected', { exact: true }).count(), 1);
-    assert.equal(await picker.locator('.test-case-picker-selection li').count(), 2);
+    await picker.getByRole('button',{name:'Open filters',exact:true}).click();
+    const filters=page.getByRole('dialog',{name:'Filter Test Cases',exact:true});
+    await filters.getByRole('combobox',{name:'Filter test cases by module',exact:true}).selectOption('advanced-module');
+    await filters.getByRole('combobox',{name:'Filter test cases by status',exact:true}).selectOption('approved');
+    await page.keyboard.press('Escape');await filters.waitFor({state:'hidden'});
+    assert.equal(await dialog.isVisible(),true,'Escape closes only the nested filter popup');
+    await page.waitForFunction(()=>window.calls.some(call=>call.resource==='testCases'&&call.method==='picker'&&call.args[0].module_id==='advanced-module'&&call.args[0].status==='approved'));
+    assert.equal(await selectedChoice(51).isChecked(),true);
+    await picker.getByRole('button',{name:/Open filters/}).click();
+    await filters.getByRole('button',{name:'Clear filters',exact:true}).click();
+    assert.equal(await filters.getByRole('button',{name:'Clear filters',exact:true}).isDisabled(),true);
+    await page.keyboard.press('Escape');
+    await filters.waitFor({state:'hidden'});
+    assert.equal(await dialog.isVisible(),true,'Escape after Clear disables its focused button closes only the popup');
+    assert.equal(await picker.getByRole('button',{name:'Open filters',exact:true}).evaluate(node=>node===document.activeElement),true,'closing filters restores trigger focus');
+    await search.fill('');
+    await page.waitForFunction(()=>document.querySelectorAll('.execution-create-modal .test-case-picker-row').length>=50);
+    assert.deepEqual(await selectedNames(),['Run picker case 1','Run picker case 51'],'clearing search brings retained off-page selections into the unified list');
+    await picker.getByRole('button',{name:'Move Run picker case 51 up',exact:true}).click();
+    assert.deepEqual(await selectedNames(),['Run picker case 51','Run picker case 1']);
+    assert.equal(await picker.getByRole('button',{name:'Move Run picker case 51 up',exact:true}).isDisabled(),true);
+    assert.equal(await picker.getByRole('button',{name:'Move Run picker case 1 down',exact:true}).isDisabled(),true);
+    await picker.getByRole('button',{name:'Move Run picker case 51 down',exact:true}).click();
+    await picker.getByRole('button',{name:'Move Run picker case 51 up',exact:true}).click();
+    for(const width of [1440,390]){
+      await page.setViewportSize({width,height:1000});
+      for(const theme of ['light','dark']){
+        await page.evaluate(theme=>document.documentElement.setAttribute('data-theme',theme),theme);
+        await picker.locator('.test-case-picker-toolbar').scrollIntoViewIfNeeded();
+        const geometry=await toolbarGeometry();
+        assert.equal(geometry.inline,true,`${width}/${theme}: search and selection controls remain inline`);
+        assert.equal(geometry.within,true);assert.ok(geometry.inputWidth>70,`${width}/${theme}: search remains usable`);
+        await page.screenshot({path:`${artifacts}/selection-${width}-${theme}.png`,animations:'disabled'});
+      }
+    }
+    await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
     await dialog.getByLabel('Run mode', { exact: true }).selectOption('local');
     await dialog.getByText(/1 selected direct case is not confirmed automated/).waitFor();
     assert.equal(await dialog.getByRole('button', { name: 'Create Local Run', exact: true }).isDisabled(), true);
-    assert.equal(await picker.locator('.test-case-picker-selection li').count(), 2, 'switching run modes retains choices and explains incompatible cases');
+    assert.deepEqual(await selectedNames(),['Run picker case 51','Run picker case 1'],'switching run modes retains selected cases and order while explaining incompatibility');
     await dialog.locator('form.execution-create-form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(await page.evaluate(() => window.saved.length), 0, 'submitting the form cannot bypass mode eligibility');
     await dialog.getByLabel('Run mode', { exact: true }).selectOption('manual');
@@ -80,21 +164,28 @@ test('Create Run opens before picker pages and preserves selected IDs through se
     await hookDialog.getByRole('checkbox', { name: /TC-40 Run picker case 40/ }).check();
     await hookDialog.getByRole('button', { name: 'Add selected hooks', exact: true }).click();
     await hookDialog.waitFor({ state: 'hidden' });
-    await dialog.getByText('Run picker case 40', { exact: true }).waitFor();
+    await dialog.locator('.execution-run-hooks-workspace').getByText('Run picker case 40', { exact: true }).waitFor();
     assert.equal(await dialog.getByRole('button', { name: /Load more/i }).count(), 0);
     await dialog.getByRole('button', { name: 'Create Manual Run', exact: true }).click();
     await page.waitForFunction(() => window.saved.length === 1);
     const saved = await page.evaluate(() => window.saved[0]);
-    assert.deepEqual(saved.test_case_ids, ['case-1', 'case-51']);
+    assert.deepEqual(saved.test_case_ids, ['case-51', 'case-1'],'the reordered array is submitted as the direct execution order');
     assert.equal(saved.execution_hooks[0].target_id, 'case-40');
     assert.equal(saved.name, 'A run selected across pages');
     assert.equal(await page.evaluate(() => window.calls.filter(call => call.resource === 'testCases' && call.method === 'list').length), 0);
-    assert.equal(await page.evaluate(() => window.calls.filter(call => ['testCaseModules', 'sharedStepGroups'].includes(call.resource)).length), 0, 'opening a run does not expand unrelated module or shared-step catalogs');
+    assert.equal(await page.evaluate(() => window.calls.filter(call => call.resource==='sharedStepGroups').length), 0, 'opening a run does not expand unrelated shared-step catalogs');
+    const moduleCalls=await page.evaluate(()=>window.calls.filter(call=>call.resource==='testCaseModules'));
+    assert.equal(moduleCalls.length,1,'opening the filter popup loads only module summaries once');
+    assert.equal(moduleCalls[0].args[0].projection,'summary');
+    assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.resource==='testCases'&&call.method==='picker').every(call=>call.args[0].page_size===25&&call.args[0].include_total===false&&call.args[0].projection==='picker')),true,'case requests remain lightweight scoped pages');
 
     await page.goto(`${url}?prefill=1`);
+    await page.waitForFunction(()=>typeof window.releaseSession==='function');
+    assert.equal(await page.getByText(/Permission required:/).count(),0,'permission loading does not consume a direct create link');
+    await page.evaluate(()=>window.releaseSession());
     await dialog.waitFor();
     await dialog.getByLabel('Run Name', { exact: true }).fill('Draft retained during prefill');
-    await picker.getByRole('checkbox', { name: /TC-1 Run picker case 1 / }).check();
+    await rowChoice(1).check();
     assert.equal(await dialog.getByRole('button', { name: 'Create Manual Run', exact: true }).isDisabled(), true);
     await dialog.locator('form.execution-create-form').evaluate(form => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(await page.evaluate(() => window.saved.length), 0, 'pending delivery IDs cannot be omitted through an Enter-key submit');

@@ -1409,25 +1409,22 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
   }, []);
 
-  const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.projects.list,
-    enabled: Boolean(session)
-  });
+  const needsAutomationEditorData = view === "cases" && Boolean(selectedCaseId || isCreateAutomationOpen);
+  const needsAutomationRepository = view === "repository" || needsAutomationEditorData || isBatchAgentOpen;
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
-    queryFn: () => api.appTypes.list({ project_id: projectId }),
+    queryFn: ({ signal }) => api.appTypes.list({ project_id: projectId }, { signal }),
     enabled: Boolean(projectId && session)
   });
   const testCasesQuery = useQuery({
     queryKey: ["test-cases", "automation-workspace", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
-    enabled: Boolean(appTypeId && session)
+    queryFn: ({ signal }) => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }, { signal }),
+    enabled: Boolean(appTypeId && session && view === "cases")
   });
   const selectedAutomationCaseDetailQuery = useQuery({
     queryKey: automationCaseDetailQueryKey(projectId, selectedCaseId),
-    queryFn: () => api.testCases.get(selectedCaseId, { project_id: projectId }),
-    enabled: Boolean(projectId && selectedCaseId && session),
+    queryFn: ({ signal }) => api.testCases.get(selectedCaseId, { project_id: projectId }, { signal }),
+    enabled: Boolean(projectId && selectedCaseId && session && view === "cases"),
     staleTime: AUTOMATION_CASE_DETAIL_STALE_TIME_MS
   });
   const selectedAutomationCaseDetail = selectedAutomationCaseDetailQuery.data?.id === selectedCaseId
@@ -1441,18 +1438,19 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   );
   const learningCacheQuery = useQuery({
     queryKey: ["automation-learning-cache", "automation-workspace", projectId, appTypeId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const queryScope = appTypeId
         ? { app_type_id: appTypeId }
         : { project_id: projectId || undefined };
       const rows: AutomationLearningCacheEntry[] = [];
 
       for (let offset = 0; ; offset += REPOSITORY_PAGE_SIZE) {
+        signal.throwIfAborted();
         const page = await api.testCases.learningCache({
           ...queryScope,
           limit: REPOSITORY_PAGE_SIZE,
           offset
-        });
+        }, { signal });
         rows.push(...page);
 
         if (page.length < REPOSITORY_PAGE_SIZE) {
@@ -1462,28 +1460,39 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
       return rows;
     },
-    enabled: Boolean((projectId || appTypeId) && session)
+    enabled: Boolean((projectId || appTypeId) && session && needsAutomationRepository)
   });
   const automatedStepsQuery = useQuery({
     queryKey: ["test-steps", "automation-workspace", selectedCaseId],
-    queryFn: () => api.testSteps.list({ test_case_id: selectedCaseId }),
-    enabled: Boolean(selectedAutomationCaseDetail && session && canViewAutomationCode)
+    queryFn: ({ signal }) => api.testSteps.list({ test_case_id: selectedCaseId }, { signal }),
+    enabled: Boolean(selectedAutomationCaseDetail && session && canViewAutomationCode && view === "cases")
   });
   const executionResultsQuery = useQuery({
-    queryKey: ["execution-results", "automation-workspace", appTypeId],
-    queryFn: () => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000 }),
-    enabled: Boolean(appTypeId && session)
+    queryKey: ["execution-results", "automation-workspace", "summary", projectId, appTypeId],
+    queryFn: ({ signal }) => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, projection: "summary", limit: 5000 }, { signal }),
+    enabled: Boolean(appTypeId && session && view === "cases")
+  });
+  const selectedCaseHistoryQuery = useQuery({
+    queryKey: ["execution-results", "automation-case-history", projectId, selectedCaseId],
+    queryFn: ({ signal }) => api.executionResults.list({ project_id: projectId, test_case_id: selectedCaseId, limit: 5000 }, { signal }),
+    enabled: Boolean(selectedAutomationCaseDetail && session && view === "cases")
   });
   const suitesQuery = useQuery({
     queryKey: ["test-case-suites", appTypeId],
-    queryFn: () => api.testSuites.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId && session)
+    queryFn: ({ signal }) => api.testSuites.list({ app_type_id: appTypeId }, { signal }),
+    enabled: Boolean(appTypeId && session && needsAutomationEditorData)
   });
-  const requirementsQuery = useQuery({ queryKey: ["requirements", "automation-workspace", projectId], queryFn: () => api.requirements.list({ project_id: projectId }), enabled: Boolean(projectId && session) });
-  const modulesQuery = useQuery({ queryKey: ["test-case-modules", "automation-workspace", appTypeId], queryFn: () => api.testCaseModules.list({ app_type_id: appTypeId }), enabled: Boolean(appTypeId && session) });
+  const requirementsQuery = useQuery({ queryKey: ["requirements", "automation-workspace", projectId], queryFn: ({ signal }) => api.requirements.list({ project_id: projectId }, { signal }), enabled: Boolean(projectId && session && needsAutomationEditorData) });
+  const modulesQuery = useQuery({ queryKey: ["test-case-modules", "automation-workspace", appTypeId], queryFn: ({ signal }) => api.testCaseModules.list({ app_type_id: appTypeId }, { signal }), enabled: Boolean(appTypeId && session && needsAutomationEditorData) });
   const createSourcesQuery = useQuery({
     queryKey: ["automation-create-sources", projectId, automationCreateManualCaseIds],
-    queryFn: () => Promise.all(automationCreateManualCaseIds.map(async (id) => ({ testCase: await api.testCases.get(id, { project_id: projectId }), steps: await api.testSteps.list({ test_case_id: id }) }))),
+    queryFn: ({ signal }) => Promise.all(automationCreateManualCaseIds.map(async (id) => {
+      const [testCase, steps] = await Promise.all([
+        api.testCases.get(id, { project_id: projectId }, { signal }),
+        api.testSteps.list({ test_case_id: id }, { signal })
+      ]);
+      return { testCase, steps };
+    })),
     enabled: Boolean(isCreateAutomationOpen && automationCreateManualCaseIds.length)
   });
   useEffect(() => {
@@ -1513,21 +1522,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [automationCreateManualCaseIds, createSourcesQuery.data, isCreateAutomationOpen]);
   const testDataSetsQuery = useQuery({
     queryKey: ["test-data-sets", "automation-workspace", projectId, appTypeId],
-    queryFn: () => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }),
-    enabled: Boolean(projectId && session)
+    queryFn: ({ signal }) => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }, { signal }),
+    enabled: Boolean(projectId && session && needsAutomationEditorData)
   });
   const testEngineIntegrationsQuery = useQuery({
     queryKey: ["integrations", "testengine", projectId],
-    queryFn: () => api.integrations.list({ type: "testengine", is_active: true }),
-    enabled: Boolean(projectId && session)
+    queryFn: ({ signal }) => api.integrations.list({ type: "testengine", is_active: true }, { signal }),
+    enabled: Boolean(projectId && session && (needsAutomationEditorData || isInspectOpen))
   });
   const sharedStepGroupsQuery = useQuery({
     queryKey: ["shared-step-groups", "automation-workspace", appTypeId],
-    queryFn: () => api.sharedStepGroups.list({ app_type_id: appTypeId }),
-    enabled: Boolean(appTypeId && session)
+    queryFn: ({ signal }) => api.sharedStepGroups.list({ app_type_id: appTypeId }, { signal }),
+    enabled: Boolean(appTypeId && session && isSharedGroupLibraryOpen)
   });
 
-  const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const testCases = asArray(testCasesQuery.data);
   const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
@@ -1641,7 +1649,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const activeAutomationCaseSearchCount = automationCaseSearch.trim() ? 1 : 0;
   const areAllFilteredAutomationCasesSelected =
     Boolean(filteredAutomationCases.length) && filteredAutomationCases.every((testCase) => selectedAutomationCaseIds.includes(testCase.id));
-  const activeCaseHistory = activeCase ? historyByCaseId[activeCase.id] || [] : [];
+  const activeCaseHistory = activeCase ? asArray(selectedCaseHistoryQuery.data) : [];
   const activeCaseSuiteIds = useMemo(() => activeCase?.suite_ids || (activeCase?.suite_id ? [activeCase.suite_id] : []), [activeCase]);
   const selectedParameterSuite = suites.find((suite) => suite.id === selectedParameterSuiteId) || null;
   const automationCreateParameters = useMemo(() => buildAutomationCreateParameters({
@@ -2382,9 +2390,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     let cancelled = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
     const refreshRecorderSession = async () => {
       try {
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store" });
+        if (document.hidden) return;
+        const response = await fetch(recorderSession.status_url as string, { cache: "no-store", signal: controller.signal });
 
         if (!response.ok) {
           return;
@@ -2397,14 +2408,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         }
       } catch {
         // Recorder counters are non-critical; the backend finish call is authoritative.
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void refreshRecorderSession(), 1000);
       }
     };
-    const timer = window.setInterval(() => void refreshRecorderSession(), 1000);
 
     void refreshRecorderSession();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      controller.abort();
+      window.clearTimeout(timer);
     };
 	  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
 
@@ -2421,11 +2434,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     let cancelled = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
     const refreshInspectSession = async () => {
-      if (inspectLifecycleBusyRef.current) return;
       const generation = inspectSessionGenerationRef.current;
       try {
-        const next = await readInspectSessionJson<Partial<RecorderSessionResponse>>(inspectRecorderSession, "");
+        if (inspectLifecycleBusyRef.current || document.hidden) return;
+        const next = await readInspectSessionJson<Partial<RecorderSessionResponse>>(inspectRecorderSession, "", { signal: controller.signal });
         if (!cancelled && next && generation === inspectSessionGenerationRef.current) {
           setInspectRecorderSession((current) => current?.id === inspectRecorderSession.id ? { ...current, ...next } : current);
           if (next.status && next.status !== "running") {
@@ -2446,14 +2461,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           setSelectedInspectTabId("");
         }
         // A disconnected local inspector is reported by the next explicit user action.
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void refreshInspectSession(), 3000);
       }
     };
-    const timer = window.setInterval(() => void refreshInspectSession(), 3000);
 
     void refreshInspectSession();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      controller.abort();
+      window.clearTimeout(timer);
     };
   }, [inspectRecorderSession?.id, inspectRecorderSession?.status, inspectRecorderSession?.status_url]);
 
@@ -5032,10 +5049,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         title={automationPageHeader.title}
         description={automationPageHeader.description}
         meta={[
-          { label: "Automation cases", value: automatedCases.length },
-          { label: "Manual link candidates", value: manualCases.length },
-          { label: "Type unknown", value: unknownAutomationCases.length },
-          { label: "Repository objects", value: learningCache.length }
+          { label: "Automation cases", value: testCasesQuery.data ? automatedCases.length : "—" },
+          { label: "Manual link candidates", value: testCasesQuery.data ? manualCases.length : "—" },
+          { label: "Type unknown", value: testCasesQuery.data ? unknownAutomationCases.length : "—" },
+          { label: "Repository objects", value: learningCacheQuery.data ? learningCache.length : "—" }
         ]}
       />
 
@@ -5682,7 +5699,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     currentSteps={automatedSteps}
                   />
                   <div className="automation-run-history">
-                    {!activeCaseHistory.length ? <div className="empty-state compact">No run history yet.</div> : null}
+                    {selectedCaseHistoryQuery.isLoading ? <LoadingState label="Loading run history" /> : null}
+                    {selectedCaseHistoryQuery.isError ? <div className="empty-state compact" role="alert">Run history couldn’t be loaded. <button className="ghost-button compact" onClick={() => void selectedCaseHistoryQuery.refetch()} type="button">Retry</button></div> : null}
+                    {selectedCaseHistoryQuery.isSuccess && !activeCaseHistory.length ? <div className="empty-state compact">No run history yet.</div> : null}
                     {activeCaseHistory.map((result) => (
                       <article className="automation-history-row" key={result.id}>
                         <div>

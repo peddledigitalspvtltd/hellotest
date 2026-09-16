@@ -434,6 +434,7 @@ const ROUTE_PERMISSION_RULES = [
   ["PUT", "/requirement-test-cases/replace", "testcase.update"],
   ["GET", "/test-cases", "testcase.view"],
   ["GET", "/test-cases/metrics", "testcase.view"],
+  ["GET", "/test-cases/review-summary", "testcase.view"],
   ["POST", "/test-cases/resolve-requirements", "testcase.view"],
   ["GET", "/test-cases/:id", "testcase.view"],
   ["GET", "/test-cases/:id/versions", "testcase.view"],

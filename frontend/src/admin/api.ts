@@ -70,6 +70,8 @@ export const adminApi = {
   createAdmin: (input: { name: string; email: string; password: string; role_id: string }) => request<{ id: string }>("/admin-portal/users", { method: "POST", body: JSON.stringify(input) }),
   setUserStatus: (id: string, status: "active" | "suspended") => request(`/admin-portal/users/${id}/status`, { method: "PUT", body: JSON.stringify({ status }) }),
   applySchema: () => request<Overview["schema"]>("/admin-portal/setup/schema", { method: "POST" }),
+  performanceIndexing: (options?: { signal?: AbortSignal }) => request<PerformanceIndexingState>("/admin-portal/setup/performance-indexing", { signal: options?.signal, cache: "no-store" }),
+  startPerformanceIndexing: () => request<PerformanceIndexingState>("/admin-portal/setup/performance-indexing", { method: "POST" }),
   sampleCatalog: (options?: { signal?: AbortSignal }) => request<SampleCatalog>("/admin-portal/setup/sample-data", { signal: options?.signal, cache: "no-store" }),
   seedSamples: (modules: string[]) => request<SampleInstallResult>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
   dropdownCatalog: (options?: { signal?: AbortSignal }) => request<DropdownCatalog>("/admin-portal/dropdowns", { signal: options?.signal, cache: "no-store" }),
@@ -89,6 +91,15 @@ export type Overview = {
   schema: { status: string; required_tables: number; available_tables: number; missing_tables: string[] };
   metrics: Record<string, number>;
   runtime: Record<string, string | number | boolean>;
+};
+export type PerformanceIndexingState = {
+  running: boolean;
+  catalog: Array<{ name: string; label: string }>;
+  job: null | {
+    id: string; status: 'running' | 'completed' | 'partial' | 'failed' | 'interrupted';
+    started_at: string; finished_at: string | null; completed: number; error?: string;
+    indexes: Array<{ name: string; label: string; status: 'pending' | 'running' | 'created' | 'existing' | 'failed'; error?: string; existing_name?: string }>;
+  };
 };
 export type User = { id: string; name?: string; email: string; role: string; role_id?: string; role_name?: string; status?: string; created_at: string; last_login_at?: string };
 export type Role = { id: string; name: string };

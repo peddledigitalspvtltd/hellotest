@@ -178,10 +178,22 @@ exports.createExecutionResult = async (data) => {
 
 
 // Get Results (with filters)
-exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, app_type_id, run_limit, limit }) => {
+exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, app_type_id, run_limit, limit, projection }) => {
+  // Library history needs status and timing, not potentially megabytes of logs,
+  // screenshots, captured response bodies or data-row snapshots per result.
+  const summaryColumns = [
+    "id", "execution_id", "test_case_id", "test_case_title", "suite_id", "suite_name",
+    "app_type_id", "status", "duration_ms", "error", "test_data_set_id", "test_data_set_name",
+    "data_set_iteration_index", "data_set_iteration_key", "external_references", "defects",
+    "case_defects", "step_defects", "executed_by", "created_at", "started_at",
+    "timer_started_at", "ended_at", "revision"
+  ];
+  const selectedColumns = projection === "summary"
+    ? summaryColumns.map(column => `execution_results.${column}`).join(", ")
+    : "execution_results.*";
 
   let query = `
-    SELECT execution_results.*
+    SELECT ${selectedColumns}
     FROM execution_results
     ${project_id ? "JOIN executions ON executions.id = execution_results.execution_id" : ""}
     WHERE 1=1
@@ -239,7 +251,9 @@ exports.getExecutionResults = async ({ project_id, execution_id, test_case_id, a
   }
 
   const rows = await db.prepare(query).all(...params);
-  return rows.map(shapeResult);
+  return rows.map(row => projection === "summary"
+    ? { ...shapeResult(row), logs: null, detail_complete: false }
+    : shapeResult(row));
 };
 
 

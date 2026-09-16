@@ -172,6 +172,7 @@ module.exports = async function (fastify) {
       test_case_id: { required: false, type: "string" },
       app_type_id: { required: false, type: "string" },
       run_limit: { required: false, type: "string" },
+      projection: { required: false, enum: ["summary", "detail"] },
       limit: { required: false, type: "string" }
     }, req.query || {});
 
@@ -221,6 +222,7 @@ module.exports = async function (fastify) {
       test_case_id,
       app_type_id,
       run_limit: runLimit,
+      projection: req.query.projection,
       limit
     });
   });

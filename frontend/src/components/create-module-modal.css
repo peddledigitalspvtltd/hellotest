@@ -14,7 +14,7 @@
   --create-module-subtle: var(--hellotest-dialog-surface-subtle, #f7f8f9);
   align-items: center !important;
   padding: 16px !important;
-  overflow: hidden !important;
+  overflow: clip !important;
 }
 
 .modal-backdrop > .test-case-create-module-modal {
@@ -27,12 +27,17 @@
   flex: none !important;
   margin: auto !important;
   padding: 0 !important;
-  overflow: hidden !important;
+  overflow: clip !important;
   color: var(--create-module-ink) !important;
   background: var(--create-module-surface) !important;
   border: 1px solid var(--create-module-border) !important;
   border-radius: 12px !important;
   box-shadow: 0 24px 64px rgba(9, 30, 66, 0.28) !important;
+}
+
+.modal-backdrop.test-case-create-module-backdrop > .modal-card.test-case-create-module-modal {
+  padding: 0 !important;
+  overflow: clip !important;
 }
 
 .test-case-create-module-modal,
@@ -53,9 +58,67 @@
 }
 
 .test-case-create-module-modal .test-case-create-module-title {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 2px;
+  align-items: center;
+  gap: 12px;
+}
+
+.test-case-create-module-modal .test-case-create-module-title-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.test-case-create-module-modal .test-case-create-module-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.test-case-create-module-modal .test-case-create-module-title > div > p {
+  padding-left: 44px;
+}
+
+.test-case-create-module-modal .test-case-picker--inline {
+  color: var(--create-module-ink);
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-heading > strong {
+  font-size: 14px;
+  line-height: 19px;
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-heading > span {
+  padding: 4px 9px;
+  color: #0747a6;
+  background: #deebff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-toolbar,
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-results {
+  background: var(--create-module-surface);
+  border-color: var(--create-module-border);
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-results {
+  height: clamp(260px, 36vh, 390px);
+  flex: none;
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-inline-header {
+  background: var(--create-module-subtle);
+  color: var(--create-module-muted);
+}
+
+.test-case-create-module-modal .test-case-picker--inline .test-case-picker-row.is-selected {
+  background: color-mix(in srgb, #0c66e4 12%, var(--create-module-surface));
+  box-shadow: inset 3px 0 0 #0c66e4;
 }
 
 .test-case-create-module-modal .test-case-create-module-title > div {
@@ -1251,6 +1314,45 @@
 }
 
 @media (max-width: 480px) {
+  .test-case-create-module-modal .test-case-create-module-header {
+    padding: 0 12px !important;
+    gap: 8px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-header .dialog-title {
+    font-size: 18px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-title-row {
+    gap: 8px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-details,
+  .test-case-create-module-modal .test-case-create-module-picker {
+    padding: 18px 12px !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer {
+    padding: 10px 12px !important;
+    grid-template-columns: minmax(70px, 0.7fr) minmax(0, 1.3fr);
+  }
+
+  .test-case-create-module-modal .test-case-create-module-footer > .primary-button {
+    padding: 0 8px !important;
+    font-size: 12px !important;
+    gap: 5px;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option {
+    grid-template-columns: 20px minmax(0, 1fr) 28px 54px !important;
+    grid-template-areas: none !important;
+  }
+
+  .test-case-create-module-modal .test-case-create-module-requirement-option > *,
+  .test-case-create-module-modal .test-case-create-module-requirement-identity > * {
+    grid-area: auto !important;
+  }
+
   .test-case-create-module-modal .test-case-create-module-picker-heading {
     align-items: flex-start;
     flex-direction: column;

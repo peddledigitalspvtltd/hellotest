@@ -28,6 +28,14 @@
   gap: 0.2rem;
 }
 
+/* Reordering selected rows must not move the surrounding dialog's scroll
+   anchor. Wheel and touch scrolling retain the surrounding body's behavior. */
+.suite-case-picker-list--ordered,
+.suite-reference-case-table-body {
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
+
 .suite-scope-server-picker { display: grid; gap: 0.65rem; min-width: 0; }
 .suite-scope-server-picker > details > summary { cursor: pointer; font-size: 0.8rem; }
 .suite-scope-server-filters { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 0.5rem; }

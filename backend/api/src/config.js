@@ -2,7 +2,7 @@ const APP_MODES = new Set(["local", "docker", "aws", "k8s"]);
 const STORAGE_PROVIDERS = new Set(["local", "minio", "s3"]);
 const QUEUE_PROVIDERS = new Set(["redis"]);
 const KNOWLEDGE_VECTOR_PROVIDERS = new Set(["postgresql", "qdrant"]);
-const { httpConfig } = require("./runtime/httpConfig");
+const { httpConfig, readBoundedInteger } = require("./runtime/httpConfig");
 
 const normalizeBoolean = (value, fallback = false) => {
   if (value === undefined || value === null || value === "") {
@@ -94,6 +94,10 @@ if (hasExplicitObsDatabase) {
 const config = {
   appMode,
   port: normalizeNumber(process.env.PORT, 3000),
+  startupTimeoutMs: readBoundedInteger("API_STARTUP_TIMEOUT_MS", 180_000, {
+    min: 10_000,
+    max: 600_000
+  }),
   postgresUrl,
   postgres,
   obsPostgresUrl,

@@ -477,58 +477,6 @@ h6,
   stroke: currentColor !important;
 }
 
-.requirement-toolbar-actions > :is(.requirement-ai-complete-button, .requirement-ai-test-button) {
-  box-sizing: border-box;
-  display: inline-flex;
-  min-height: 32px !important;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 12px !important;
-  border-radius: 4px !important;
-  font-family: var(--hellotest-font-body) !important;
-  font-size: 11px !important;
-  font-weight: 650 !important;
-  line-height: 16px;
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.16) !important;
-}
-
-.requirement-toolbar-actions > .requirement-ai-complete-button {
-  border: 1px solid #4c3ee8 !important;
-  background: #4c3ee8 !important;
-  color: #ffffff !important;
-}
-
-.requirement-toolbar-actions > .requirement-ai-complete-button:hover:not(:disabled) {
-  border-color: #3f31d6 !important;
-  background: #3f31d6 !important;
-}
-
-.requirement-toolbar-actions > .requirement-ai-test-button {
-  border: 1px solid #675be6 !important;
-  background: #f3f1ff !important;
-  color: #3f31d6 !important;
-}
-
-.requirement-toolbar-actions > .requirement-ai-test-button:hover:not(:disabled) {
-  border-color: #4c3ee8 !important;
-  background: #e7e3ff !important;
-  color: #3124bd !important;
-}
-
-.requirement-toolbar-actions > :is(.requirement-ai-complete-button, .requirement-ai-test-button) svg {
-  color: currentColor !important;
-  stroke: currentColor !important;
-}
-
-.requirement-toolbar-actions > :is(.requirement-ai-complete-button, .requirement-ai-test-button):disabled {
-  border-color: #c8cbd3 !important;
-  background: #eef0f4 !important;
-  color: #808795 !important;
-  box-shadow: none !important;
-}
-
 .requirement-toolbar-actions > .danger,
 .requirement-toolbar-actions > .catalog-selection-button.danger {
   border-color: var(--catalog-danger-border) !important;
@@ -2274,10 +2222,8 @@ h6,
   color: #ffffff !important;
 }
 
-/* Story creation uses the same confident action treatment as Create Project.
-   Keep this scoped so selection, AI, and destructive toolbar actions preserve
-   their own visual hierarchy. */
-.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled) {
+/* Story authoring commands share one size, shape and primary action treatment. */
+.requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button):not(:disabled) {
   border-color: var(--project-create-action, #0758c9) !important;
   background: var(--project-create-action, #0758c9) !important;
   color: #ffffff !important;
@@ -2286,32 +2232,32 @@ h6,
     box-shadow 160ms ease, transform 100ms ease !important;
 }
 
-.requirement-toolbar-actions > .requirement-create-story-button:hover:not(:disabled) {
+.requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button):hover:not(:disabled) {
   border-color: var(--project-create-action-hover, #0649aa) !important;
   background: var(--project-create-action-hover, #0649aa) !important;
   color: #ffffff !important;
   box-shadow: 0 6px 14px rgba(7, 88, 201, 0.26) !important;
 }
 
-.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled):focus-visible {
+.requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button):not(:disabled):focus-visible {
   outline: 0 !important;
   box-shadow: 0 0 0 3px var(--project-create-action-ring, rgba(7, 88, 201, 0.24)),
     0 4px 12px rgba(20, 38, 75, 0.16) !important;
 }
 
-.requirement-toolbar-actions > .requirement-create-story-button:not(:disabled):active {
+.requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button):not(:disabled):active {
   transform: translateY(1px) scale(0.985) !important;
   box-shadow: 0 1px 3px rgba(20, 38, 75, 0.2) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .requirement-toolbar-actions > .requirement-create-story-button {
+  .requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button) {
     transition: none !important;
   }
 }
 
 @media (forced-colors: active) {
-  .requirement-toolbar-actions > .requirement-create-story-button:not(:disabled) {
+  .requirement-toolbar-actions > :is(.requirement-create-story-button, .requirement-ai-action-button):not(:disabled) {
     border-color: ButtonText !important;
     background: ButtonFace !important;
     color: ButtonText !important;
@@ -2518,29 +2464,18 @@ h6,
   border-radius: 4px !important;
 }
 
-.panel-head-actions-row .requirement-detail-ai-action {
-  border-color: #675be6 !important;
-  color: #3f31d6 !important;
+.panel-head-actions-row.requirement-detail-actions {
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  max-width: 100%;
+  overflow: visible !important;
 }
 
-.panel-head-actions-row .requirement-detail-ai-complete {
-  background: #4c3ee8 !important;
-  color: #ffffff !important;
-}
-
-.panel-head-actions-row .requirement-detail-ai-test {
-  background: #f3f1ff !important;
-}
-
-.panel-head-actions-row .requirement-detail-ai-action:hover:not(:disabled) {
-  border-color: #3f31d6 !important;
-  background: #e7e3ff !important;
-  color: #3124bd !important;
-}
-
-.panel-head-actions-row .requirement-detail-ai-complete:hover:not(:disabled) {
-  background: #3f31d6 !important;
-  color: #ffffff !important;
+.requirement-detail-actions > button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {

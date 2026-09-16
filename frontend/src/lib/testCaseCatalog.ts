@@ -10,6 +10,7 @@ export type TestCaseCatalogFilters = {
   run_filter?: string;
   exclude_automated?: boolean;
   include_execution?: boolean;
+  review_queue?: 'mine';
 };
 export type TestCaseCatalogRow = TestCase & { recent_results?: ExecutionResult[]; run_count?: number };
 export type TestCasePickerFilters = TestCaseCatalogFilters & {

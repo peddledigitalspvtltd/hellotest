@@ -298,7 +298,7 @@ test("project creation and catalog expose mature visibility, favorite, and locke
   assert.match(dataTable, /Math\.max\(SELECTION_COLUMN_WIDTH, Math\.round\(column\.width \|\| 0\)\)/);
   assert.match(page, /key: "favorites"[\s\S]*key: "projects"[\s\S]*key: "locked"/);
   assert.match(page, /isLocked \? <IconLock/);
-  assert.match(api, /catalog: \(\) => request<Project\[\]>\("\/projects\/catalog"\)/);
+  assert.match(api, /catalog: \(options\?: \{ signal\?: AbortSignal \}\) => request<Project\[\]>\("\/projects\/catalog\?projection=summary", \{ signal: options\?\.signal \}\)/);
   assert.match(api, /favorite: \(id: string\)/);
   assert.match(api, /unfavorite: \(id: string\)/);
   assert.match(styles, /\.project-favorite-button\.is-favorite/);
@@ -347,7 +347,7 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
     readSource("../src/pages/ProjectsPage.css")
   ]);
 
-  assert.match(api, /portfolioAnalytics: \(\) => request<ProjectPortfolioAnalytics>\("\/projects\/portfolio-analytics"\)/);
+  assert.match(api, /portfolioAnalytics: \(options\?: \{ signal\?: AbortSignal \}\) => request<ProjectPortfolioAnalytics>\("\/projects\/portfolio-analytics", \{ signal: options\?\.signal \}\)/);
   assert.match(page, /label="Projects need attention"/);
   assert.match(styles, /\.projects-command-card--evidence \.projects-command-insight \{[\s\S]*width: min\(100%, 29rem\);[\s\S]*max-width: 29rem;[\s\S]*justify-self: end;/);
   assert.match(page, /label="Execution failure cases"/);

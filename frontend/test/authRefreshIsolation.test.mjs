@@ -40,11 +40,21 @@ for(const outcome of ['success','failure']){
   });
 }
 
-test('only the latest refresh may update the same authenticated session',async()=>{
+test('overlapping refreshes share one request for the same authenticated session',async()=>{
   const view=fixture();const newer=view.render().refreshSession();
-  view.refreshes[1].resolve(makeSession('original','Latest profile'));await newer;
-  view.refreshes[0].resolve(makeSession('original','Old profile'));await flush();
+  assert.equal(view.refreshes.length,1);
+  view.refreshes[0].resolve(makeSession('original','Latest profile'));await newer;
   assert.equal(view.stored().user.name,'Latest profile');assert.equal(view.render().session.user.name,'Latest profile');
+});
+
+test('focus and visibility events share the pending refresh instead of flooding session verification',async()=>{
+  const view=fixture({browser:true});
+  view.focus();view.setVisible(true);view.tick();
+  assert.equal(view.refreshes.length,1);
+  view.refreshes[0].resolve(makeSession('original'));await flush();
+  view.focus();view.setVisible(true);view.tick();
+  assert.equal(view.refreshes.length,2);
+  view.refreshes[1].resolve(makeSession('original'));await flush();
 });
 
 for(const clearedByApi of [false,true]){
@@ -81,6 +91,12 @@ test('a deleted account ends only its own current session', async () => {
   await flush();
   assert.equal(view.stored(),null);
   assert.equal(view.render().session,null);
+});
+
+test('a confirmed suspended account ends its session instead of keeping stale grants',async()=>{
+  const view=fixture();
+  view.refreshes[0].reject(Object.assign(new Error('This account is suspended'),{status:403}));await flush();
+  assert.equal(view.stored(),null);assert.equal(view.render().session,null);
 });
 
 test('unchanged session refresh preserves object identity and never reopens the initial loading state', async () => {

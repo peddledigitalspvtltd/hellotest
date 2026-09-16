@@ -30,3 +30,45 @@
 .test-case-picker-filters label { display: grid; gap: 0.3rem; min-width: 0; flex: 1 1 10rem; font-size: 0.76rem; }
 .test-case-picker-filters select { width: 100%; min-width: 0; }
 @media (max-width: 520px) { .test-case-picker-search { flex-basis: 100%; } .test-case-picker-results { max-height: 23rem; } }
+
+.test-case-picker-filter-fields { display: grid; gap: 0.8rem; min-width: 0; }
+.test-case-picker-filter-fields > label { display: grid; gap: 0.4rem; font-size: 0.8rem; }
+.test-case-picker-filter-fields select { width: 100%; min-width: 0; }
+.test-case-picker-filter-fields > button { justify-self: end; }
+.test-case-picker--inline { flex: 0 0 auto; gap: 0; }
+.test-case-picker--inline .test-case-picker-heading { margin-bottom: 6px; }
+.test-case-picker--inline .test-case-picker-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; flex-wrap: nowrap; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 9px 9px 0 0; }
+.test-case-picker--inline .catalog-search-filter { width: 100%; min-width: 0; }
+.test-case-picker--inline .catalog-search-field { min-width: 0; min-height: 38px; }
+.test-case-picker--inline .test-case-picker-toolbar > button { min-width: 0; min-height: 30px; padding: 0 7px; white-space: nowrap; font-size: 11px; }
+.test-case-picker--inline .test-case-picker-results { min-height: 180px; max-height: 400px; border-top: 0; border-radius: 0 0 9px 9px; overscroll-behavior-y: auto; touch-action: pan-y; scroll-behavior: auto; }
+.test-case-picker--inline .test-case-picker-inline-header,
+.test-case-picker--inline .test-case-picker-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(68px, auto) 94px; align-items: center; gap: 8px; padding: 8px 10px; }
+.test-case-picker--inline .test-case-picker-inline-header { position: sticky; top: 0; z-index: 2; background: var(--surface, #f7f8f9); border-bottom: 1px solid var(--border); min-height: 34px; font-size: 10px; text-transform: uppercase; color: var(--muted); }
+.test-case-picker--inline .test-case-picker-inline-header > :last-child { text-align: center; }
+.test-case-picker--inline .test-case-picker-row { min-height: 58px; cursor: pointer; }
+.test-case-picker--inline .test-case-picker-row:focus-within { outline: 2px solid var(--accent, #0c66e4); outline-offset: -2px; }
+.test-case-picker--inline .test-case-picker-copy { gap: 2px; }
+.test-case-picker--inline .test-case-picker-id { font-size: 10px; }
+.test-case-picker--inline .test-case-picker-copy > strong { font-size: 12px; line-height: 17px; }
+.test-case-picker--inline input[type="checkbox"] { width: 17px; height: 17px; margin: 0; }
+.test-case-picker-inline-order { display: flex; align-items: center; justify-content: flex-end; gap: 2px; font-size: 11px; }
+.test-case-picker-inline-order > span { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.test-case-picker-inline-order .ghost-button { min-height: 30px; width: 30px; padding: 4px; }
+.test-case-picker-inline-status .status-badge { max-width: 100%; font-size: 10px; }
+.test-case-picker-select-compact { display: none; }
+@media (max-width: 600px) {
+  .test-case-picker--inline .test-case-picker-inline-header,
+  .test-case-picker--inline .test-case-picker-row { grid-template-columns: 20px minmax(0, 1fr) 84px; gap: 6px; }
+  .test-case-picker--inline .test-case-picker-inline-header > :nth-child(3),
+  .test-case-picker-inline-status { display: none; }
+  .test-case-picker--inline .test-case-picker-toolbar { gap: 4px; padding: 7px; }
+  .test-case-picker--inline .test-case-picker-toolbar > button { gap: 3px; min-width: 0 !important; padding: 0 5px !important; font-size: 11px !important; letter-spacing: 0 !important; }
+  .test-case-picker--inline .test-case-picker-toolbar > button svg { display: none; }
+  .test-case-picker-select-wide { display: none; }
+  .test-case-picker-select-compact { display: inline; }
+  .test-case-picker--inline .catalog-search-field input { padding-left: 8px !important; padding-right: 30px !important; font-size: 12px !important; }
+  .test-case-picker--inline .catalog-search-leading-icon { display: none; }
+  .test-case-picker-inline-order .ghost-button { width: 28px; min-height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .test-case-picker--inline .test-case-picker-results { scroll-behavior: auto; } }

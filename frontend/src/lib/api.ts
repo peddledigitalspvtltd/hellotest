@@ -540,6 +540,7 @@ async function parseApiError(response: Response) {
 }
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
+  init?.signal?.throwIfAborted();
   const method = String(init?.method || "GET").toUpperCase();
   const scopedPath = appendCurrentProjectScope(path);
   const headers = new Headers(init?.headers);
@@ -548,6 +549,9 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const canReuseRequest = method === "GET" && init?.cache !== "no-store";
+  // A component's cancellation must not abort another component's request.
+  // React Query already coalesces observers sharing the same query and signal.
+  const canSharePendingRequest = canReuseRequest && !init?.signal;
   const requestKey = canReuseRequest
     ? stableStringify({ method, path: scopedPath, session: requestSession.revision })
     : "";
@@ -559,7 +563,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
       return cached as T;
     }
 
-    const pending = inFlightClientRequests.get(requestKey);
+    const pending = canSharePendingRequest ? inFlightClientRequests.get(requestKey) : undefined;
 
     if (pending) {
       return (await pending) as T;
@@ -603,7 +607,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
 
   const pendingRequest = executeRequest();
 
-  if (canReuseRequest) {
+  if (canSharePendingRequest) {
     inFlightClientRequests.set(requestKey, pendingRequest);
   }
 
@@ -620,7 +624,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   } catch (err) {
     throw err instanceof Error ? err : new Error("HelloTest request failed");
   } finally {
-    if (canReuseRequest) {
+    if (canSharePendingRequest && inFlightClientRequests.get(requestKey) === pendingRequest) {
       inFlightClientRequests.delete(requestKey);
     }
   }
@@ -961,7 +965,7 @@ export const api = {
     snapshot: (options?: { signal?: AbortSignal; fresh?: boolean }) => request<FeatureFlagSnapshot>("/feature-flags", { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined })
   },
   metadata: {
-    domain: () => request<DomainMetadata>("/metadata/domain"),
+    domain: (options?: { signal?: AbortSignal }) => request<DomainMetadata>("/metadata/domain", { signal: options?.signal }),
     workspaceScopes: (options?: { signal?: AbortSignal }) =>
       request<{ projects: import("../types").WorkspaceProjectScope[] }>("/metadata/workspace-scopes", { signal: options?.signal })
   },
@@ -1093,9 +1097,10 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/roles/${id}`, { method: "DELETE" })
   },
   projects: {
-    list: (options?: { signal?: AbortSignal }) => request<Project[]>("/projects", { signal: options?.signal }),
-    catalog: () => request<Project[]>("/projects/catalog"),
-    portfolioAnalytics: () => request<ProjectPortfolioAnalytics>("/projects/portfolio-analytics"),
+    list: (options?: { signal?: AbortSignal }) => request<Project[]>("/projects?projection=summary", { signal: options?.signal }),
+    catalog: (options?: { signal?: AbortSignal }) => request<Project[]>("/projects/catalog?projection=summary", { signal: options?.signal }),
+    get: (id: string, options?: { signal?: AbortSignal }) => request<Project>(`/projects/${encodeURIComponent(id)}`, { signal: options?.signal }),
+    portfolioAnalytics: (options?: { signal?: AbortSignal }) => request<ProjectPortfolioAnalytics>("/projects/portfolio-analytics", { signal: options?.signal }),
     downloadPortfolioAttentionPdf: (input: DashboardStyledReportPayload) =>
       requestBlob("/projects/portfolio-attention-report.pdf", { method: "POST", body: JSON.stringify(input) }),
     create: (input: { name: string; description?: string; visibility: "private" | "public"; created_by?: string; members?: Array<{ user_id: string; role_id: string }>; app_types?: Array<{ name: string; type: AppType["type"]; is_unified?: boolean }> }) =>
@@ -1563,8 +1568,8 @@ export const api = {
       })
   },
   testCaseModules: {
-    list: (query?: { app_type_id?: string; project_id?: string; projection?: "summary" | "detail" }) =>
-      request<TestCaseModule[]>(`/test-case-modules${toQueryString(query)}`),
+    list: (query?: { app_type_id?: string; project_id?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
+      request<TestCaseModule[]>(`/test-case-modules${toQueryString(query)}`, { signal: options?.signal }),
     get: (id: string) =>
       request<TestCaseModule>(`/test-case-modules/${id}`),
     listCases: (id: string, query?: import("./testCaseCatalog").TestCaseCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
@@ -1600,7 +1605,9 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-suites/${id}`, { method: "DELETE" })
   },
   testCases: {
-    metrics: (query?: { app_type_id?: string; project_id?: string; exclude_automated?: boolean; include_execution?: boolean }) =>
+    reviewSummary: (query: { project_id?: string; app_type_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<{ pending: number }>(`/test-cases/review-summary${toQueryString(query)}`, { signal: options?.signal }),
+    metrics: (query?: import("./testCaseCatalog").TestCaseCatalogFilters & { app_type_id?: string; project_id?: string }) =>
       request<import("./testCaseCatalog").TestCaseCatalogMetrics>(`/test-cases/metrics${toQueryString(query)}`),
     list: (query?: { project_id?: string; suite_id?: string; requirement_id?: string; module_id?: string; unassigned_module?: boolean; status?: string; app_type_id?: string; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
       request<TestCase[]>(`/test-cases${toQueryString(query)}`, { signal: options?.signal }),
@@ -1610,9 +1617,9 @@ export const api = {
       request<PagedResult<TestCase>>(`/test-cases${toQueryString({ page_size: 25, ...query, projection: "picker", include_page: true, include_total: false })}`, { signal: options?.signal }),
     resolveRequirementCases: (input: { app_type_id: string; requirement_ids: string[] }) =>
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
-    get: (id: string, query?: { project_id?: string }) =>
-      request<TestCase>(`/test-cases/${id}${toQueryString(query)}`),
-    create: (input: { app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    get: (id: string, query?: { project_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<TestCase>(`/test-cases/${id}${toQueryString(query)}`, { signal: options?.signal }),
+    create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
@@ -1733,8 +1740,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number; offset?: number }) =>
-      request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`),
+    learningCache: (query?: { project_id?: string; app_type_id?: string; limit?: number; offset?: number }, options?: { signal?: AbortSignal }) =>
+      request<AutomationLearningCacheEntry[]>(`/test-cases/automation/learning-cache${toQueryString(query)}`, { signal: options?.signal }),
     repositoryContext: (query?: { project_id?: string; app_type_id?: string; limit?: number }) =>
       request<ObjectRepositoryContext>(`/test-cases/automation/repository-context${toQueryString(query)}`),
     exportLearningCacheCsv: (query: { app_type_id: string }) =>
@@ -1905,7 +1912,7 @@ export const api = {
       }),
     update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
       request<{ updated: boolean; revision: number }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    review: (id: string, input: { review_status: "pending" | "accepted" | "changes_requested"; comment?: string }) =>
+    review: (id: string, input: { review_status: "accepted" | "changes_requested"; comment?: string; expected_updated_at?: string; expected_revision?: number }) =>
       request<{ updated: boolean; review: NonNullable<TestCase["review_history"]>[number] }>(`/test-cases/${id}/review`, {
         method: "POST",
         body: JSON.stringify(input)
@@ -1975,8 +1982,8 @@ export const api = {
       })
   },
   testSteps: {
-    list: (query?: { test_case_id?: string; test_case_ids?: string }) =>
-      request<TestStep[]>(`/test-steps${toQueryString(query)}`),
+    list: (query?: { test_case_id?: string; test_case_ids?: string }, options?: { signal?: AbortSignal }) =>
+      request<TestStep[]>(`/test-steps${toQueryString(query)}`, { signal: options?.signal }),
     runApiRequest: (input: { api_request: TestStep["api_request"] }) =>
       request<ApiRequestPreview>("/test-steps/run-api-request", {
         method: "POST",
@@ -2050,8 +2057,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-configurations/${id}`, { method: "DELETE" })
   },
   testDataSets: {
-    list: (query?: { project_id?: string; app_type_id?: string }) =>
-      request<TestDataSet[]>(`/test-data-sets${toQueryString(query)}`),
+    list: (query?: { project_id?: string; app_type_id?: string }, options?: { signal?: AbortSignal }) =>
+      request<TestDataSet[]>(`/test-data-sets${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { project_id: string; app_type_id?: string; name: string; description?: string; mode: TestDataSetMode; columns?: string[]; rows?: Array<Record<string, string>> }) =>
       request<{ id: string }>("/test-data-sets", { method: "POST", body: JSON.stringify(input) }),
     update: (id: string, input: Partial<{ project_id: string; app_type_id: string; name: string; description: string; mode: TestDataSetMode; columns: string[]; rows: Array<Record<string, string>> }>) =>
@@ -2269,7 +2276,7 @@ export const api = {
     ensure: (input: ExecutionCaseIdentity) => request<ExecutionResult>("/execution-results/ensure", { method: "POST", body: JSON.stringify(input) }),
     transition: (input: ExecutionCaseIdentity & { action: ExecutionCaseLifecycleAction; expected_revision?: number; expected_result_id?: string }) =>
       request<ExecutionResult>("/execution-results/lifecycle", { method: "POST", body: JSON.stringify(input) }),
-    list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number }, options?: { signal?: AbortSignal }) =>
+    list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
       request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`, { signal: options?.signal }),
     releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; run_limit?: number; result_limit?: number }) =>
       request<ReleaseReadinessExecutionEvidence>(`/execution-results/release-readiness${toQueryString(query)}`),
@@ -2286,16 +2293,16 @@ export const api = {
       request<WorkspaceTransaction[]>(`/workspace-transactions${toQueryString(query)}`, { signal: options?.signal }),
     events: (id: string, options?: { signal?: AbortSignal }) =>
       request<WorkspaceTransactionEvent[]>(`/workspace-transactions/${id}/events`, { signal: options?.signal }),
-    artifacts: (id: string) =>
-      request<WorkspaceTransactionArtifact[]>(`/workspace-transactions/${id}/artifacts`),
+    artifacts: (id: string, options?: { signal?: AbortSignal }) =>
+      request<WorkspaceTransactionArtifact[]>(`/workspace-transactions/${id}/artifacts`, { signal: options?.signal }),
     downloadArtifact: (transactionId: string, artifactId: string) =>
       requestBlob(`/workspace-transactions/${transactionId}/artifacts/${artifactId}/download`),
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/workspace-transactions/${id}`, { method: "DELETE" })
   },
   opsTelemetry: {
-    snapshot: (query: { project_id: string; service_name?: string; event_type?: string; status?: string; execution_id?: string; search?: string; limit?: number }) =>
-      request<import("../types").OpsTelemetrySnapshot>(`/ops-telemetry/snapshot${toQueryString(query)}`),
+    snapshot: (query: { project_id: string; service_name?: string; event_type?: string; status?: string; execution_id?: string; search?: string; limit?: number }, options?: { signal?: AbortSignal }) =>
+      request<import("../types").OpsTelemetrySnapshot>(`/ops-telemetry/snapshot${toQueryString(query)}`, { signal: options?.signal }),
     clearLogs: (query?: { project_id?: string }) =>
       request<{ cleared: boolean; deleted: number; events_path: string }>(`/ops-telemetry/logs${toQueryString(query)}`, {
         method: "DELETE"

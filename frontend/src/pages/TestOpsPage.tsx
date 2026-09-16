@@ -216,30 +216,25 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     setView(initialView);
   }, [initialView]);
 
-  const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.projects.list,
-    enabled: Boolean(session)
-  });
   const appTypesQuery = useQuery({
     queryKey: ["app-types", projectId],
-    queryFn: () => api.appTypes.list({ project_id: projectId }),
-    enabled: Boolean(projectId && session)
+    queryFn: ({ signal }) => api.appTypes.list({ project_id: projectId }, { signal }),
+    enabled: Boolean(projectId && session && view === "automation-builder")
   });
   const integrationsQuery = useQuery({
     queryKey: ["integrations", "testops"],
-    queryFn: () => api.integrations.list({ is_active: true }),
-    enabled: Boolean(session)
+    queryFn: ({ signal }) => api.integrations.list({ is_active: true }, { signal }),
+    enabled: Boolean(session && (view === "automation-builder" || view === "ops-telemetry"))
   });
   const transactionsQuery = useQuery({
     // Project-level batch jobs (including Story imports) do not always belong to
     // an app type, so TestOps must not hide them behind the app-type filter.
     queryKey: ["workspace-transactions", "testops", projectId],
-    queryFn: () => api.workspaceTransactions.list({
+    queryFn: ({ signal }) => api.workspaceTransactions.list({
       project_id: projectId || undefined,
       limit: 300
-    }),
-    enabled: Boolean(projectId && session && canUseBatchProcesses),
+    }, { signal }),
+    enabled: Boolean(projectId && session && canUseBatchProcesses && (view === "batch-process" || view === "automation-builder")),
     refetchInterval: (query) =>
       Array.isArray(query.state.data) && query.state.data.some((transaction) => ["queued", "running"].includes(transaction.status))
         ? 15_000
@@ -247,38 +242,40 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   });
   const testCasesQuery = useQuery({
     queryKey: ["test-cases", "automation-builder", appTypeId],
-    queryFn: () => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }),
+    queryFn: ({ signal }) => api.testCases.list({ app_type_id: appTypeId, projection: "summary" }, { signal }),
     enabled: Boolean(appTypeId && session && view === "automation-builder" && (canBuildAutomation || canUseRecorder))
   });
   const learningCacheQuery = useQuery({
     queryKey: ["automation-learning-cache", projectId, appTypeId],
-    queryFn: () => api.testCases.learningCache({
+    queryFn: ({ signal }) => api.testCases.learningCache({
       project_id: projectId || undefined,
       app_type_id: appTypeId || undefined,
       limit: 25
-    }),
+    }, { signal }),
     enabled: Boolean((projectId || appTypeId) && session && view === "automation-builder" && canViewAutomationLearning)
   });
+  const selectedTransactionStatus = transactionsQuery.data?.find((transaction) => transaction.id === selectedTransactionId)?.status;
+  const selectedTransactionIsRunning = ["queued", "running"].includes(selectedTransactionStatus || "");
   const transactionEventsQuery = useQuery({
-    queryKey: ["workspace-transaction-events", "testops", selectedTransactionId],
-    queryFn: () => api.workspaceTransactions.events(selectedTransactionId),
-    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses),
-    refetchInterval: 15_000
+    // Include status so completion fetches the final records before polling stops.
+    queryKey: ["workspace-transaction-events", "testops", selectedTransactionId, selectedTransactionStatus],
+    queryFn: ({ signal }) => api.workspaceTransactions.events(selectedTransactionId, { signal }),
+    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses && view === "batch-process"),
+    refetchInterval: selectedTransactionIsRunning ? 15_000 : false
   });
   const transactionArtifactsQuery = useQuery({
-    queryKey: ["workspace-transaction-artifacts", "testops", selectedTransactionId],
-    queryFn: () => api.workspaceTransactions.artifacts(selectedTransactionId),
-    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses),
-    refetchInterval: 15_000
+    queryKey: ["workspace-transaction-artifacts", "testops", selectedTransactionId, selectedTransactionStatus],
+    queryFn: ({ signal }) => api.workspaceTransactions.artifacts(selectedTransactionId, { signal }),
+    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses && view === "batch-process"),
+    refetchInterval: selectedTransactionIsRunning ? 15_000 : false
   });
 
-  const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const integrations = asArray(integrationsQuery.data);
   const testCases = asArray(testCasesQuery.data);
 
   useEffect(() => {
-    if (appTypesQuery.isPending) {
+    if (view !== "automation-builder" || appTypesQuery.isPending) {
       return;
     }
 
@@ -301,7 +298,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       setSelectedCaseIds([]);
       setRecorderSession(null);
     }
-  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId]);
+  }, [appTypeId, appTypes, appTypesQuery.isPending, projectId, setAppTypeId, view]);
 
   const manualCases = useMemo(() => testCases.filter(isManualCase), [testCases]);
   const unknownAutomationCases = useMemo(
@@ -538,7 +535,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const opsIntegration = resolveScopedIntegration(integrations, "ops", projectId);
   const opsTelemetryQuery = useQuery({
     queryKey: ["ops-telemetry", projectId],
-    queryFn: () => api.opsTelemetry.snapshot({ project_id: projectId, limit: 150 }),
+    queryFn: ({ signal }) => api.opsTelemetry.snapshot({ project_id: projectId, limit: 150 }, { signal }),
     enabled: Boolean(session && projectId && view === "ops-telemetry" && (opsIntegration || testEngineIntegration)),
     refetchInterval: 10_000
   });
@@ -571,9 +568,12 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     }
 
     let cancelled = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
     const refreshRecorderSession = async () => {
       try {
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store" });
+        if (document.hidden) return;
+        const response = await fetch(recorderSession.status_url as string, { cache: "no-store", signal: controller.signal });
 
         if (!response.ok) {
           return;
@@ -586,14 +586,16 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         }
       } catch {
         // Live recorder counters are best-effort and should not interrupt the recorder.
+      } finally {
+        if (!cancelled) timer = window.setTimeout(() => void refreshRecorderSession(), 1000);
       }
     };
-    const timer = window.setInterval(() => void refreshRecorderSession(), 1000);
 
     void refreshRecorderSession();
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      controller.abort();
+      window.clearTimeout(timer);
     };
   }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
 

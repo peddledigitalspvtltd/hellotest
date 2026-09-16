@@ -374,8 +374,29 @@ exports.createProject = async ({ name, description, visibility, created_by, memb
   };
 };
 
-exports.getProjectCatalog = async (userId) => {
+exports.getProjectCatalog = async (userId, { projection } = {}) => {
   if (!userId) throw new Error("User is required");
+
+  // Browsing must not scan every project's requirements, cases and Bugs. Exact
+  // metrics have their own endpoint and project details are fetched on open.
+  if (projection === "summary") {
+    return db.prepare(`
+      WITH catalog AS (
+        SELECT p.id, p.display_id, p.name, p.description, p.visibility,
+          p.created_by, p.created_at,
+          EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?) AS has_access,
+          EXISTS (SELECT 1 FROM project_favorites pf WHERE pf.project_id = p.id AND pf.user_id = ?) AS is_favorite
+        FROM projects p
+      )
+      SELECT catalog.id, catalog.display_id, catalog.name,
+        CASE WHEN catalog.has_access THEN LEFT(catalog.description, 1024) ELSE NULL END AS description,
+        catalog.visibility,
+        CASE WHEN catalog.has_access THEN catalog.created_by ELSE NULL END AS created_by,
+        catalog.created_at, catalog.has_access, catalog.is_favorite
+      FROM catalog
+      ORDER BY catalog.created_at DESC, catalog.id
+    `).all(userId, userId);
+  }
 
   return db.prepare(`
     WITH catalog AS (
@@ -447,7 +468,19 @@ exports.unfavoriteProject = async (projectId, userId) => {
 };
 
 // Get projects filtered by user membership
-exports.getProjects = async (userId = null) => {
+exports.getProjects = async (userId = null, { projection } = {}) => {
+  if (projection === "summary") {
+    return db.prepare(`
+      SELECT p.id, p.display_id, p.name, LEFT(p.description, 1024) AS description,
+        p.visibility, p.created_by, p.created_at
+      FROM projects p
+      ${userId ? `WHERE EXISTS (
+        SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = ?
+      )` : ""}
+      ORDER BY p.created_at DESC, p.id
+    `).all(...(userId ? [userId] : []));
+  }
+
   if (!userId) {
     return db.prepare(`
       SELECT

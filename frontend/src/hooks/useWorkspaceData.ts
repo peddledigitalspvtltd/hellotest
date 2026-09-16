@@ -21,6 +21,7 @@ type WorkspaceResource =
   | "executionResults";
 
 type WorkspaceDataOptions = Partial<Record<WorkspaceResource, boolean>> & {
+  projectId?: string | null;
   issuesProjection?: "summary" | "detail";
   testCasesProjection?: "summary" | "detail";
 };
@@ -79,7 +80,8 @@ export function useWorkspaceResource<TItem>(
 }
 
 export function useWorkspaceData(options: WorkspaceDataOptions = {}) {
-  const [projectId] = useCurrentProject();
+  const [currentProjectId] = useCurrentProject();
+  const projectId = options.projectId === undefined ? currentProjectId : options.projectId || "";
   const { can } = useCapabilityAccess(projectId);
   const requested = (resource: WorkspaceResource) => options[resource] !== false;
   const available = (resource: WorkspaceResource) => {

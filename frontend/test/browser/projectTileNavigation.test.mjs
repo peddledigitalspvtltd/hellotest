@@ -23,7 +23,11 @@ sessionStorage.write(session);setCurrentScope('commerce','web');
 function stub(value){for(const [key,entry] of Object.entries(value)){if(typeof entry==='function')value[key]=async()=>[];else if(entry&&typeof entry==='object')stub(entry)}}stub(api);
 api.auth.session=async()=>session;api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.metadata.domain=async()=>({});api.notifications.unreadCount=async()=>({total:0,by_preference:{}});
 const projects=[{id:'commerce',name:'Commerce platform',description:'Commerce project',has_access:true},{id:'payments',name:'Payments experience',description:'Payments project',has_access:true},{id:'reports',name:'Reports workspace',description:'Reports project',has_access:true},{id:'private',name:'Private project',has_access:false}];
-api.metadata.workspaceScopes=async()=>({projects:await api.projects.list()});api.projects.list=async()=>projects.filter(p=>p.has_access);api.projects.catalog=async()=>projects;api.projects.portfolioAnalytics=async()=>({projects:[],configuration:{}});
+api.metadata.workspaceScopes=async()=>({projects:await api.projects.list()});api.projects.list=async()=>projects.filter(p=>p.has_access);api.projects.catalog=async()=>projects;
+window.detailRequests=[];window.collectionRequests=[];window.metricsPending=false;
+api.projects.get=async(id)=>{window.detailRequests.push(id);return projects.find(project=>project.id===id)};
+api.projects.portfolioAnalytics=async()=>{window.metricsPending=true;return new Promise((resolve,reject)=>{window.finishMetrics=()=>{window.metricsPending=false;resolve({projects:[],configuration:{}})};window.failMetrics=()=>{window.metricsPending=false;reject(new Error('Metrics unavailable'))}})};
+for(const resource of ['requirements','testSuites','testCases','executions','executionResults','projectMembers'])api[resource].list=async()=>{window.collectionRequests.push(resource);return []};
 api.appTypes.list=async({project_id})=>[{id:project_id==='commerce'?'web':project_id+'-app',project_id,name:'Web app',type:'web'}];
 window.flagRequests=0;let available=true;
 api.featureFlags.snapshot=async()=>{window.flagRequests++;if(window.flagRequests>1)await new Promise(resolve=>setTimeout(resolve,500));return {flags:new Proxy({'hellotest.ops.projects':available},{get:(target,key)=>key in target?target[key]:true})}};
@@ -32,7 +36,7 @@ window.refreshFlags=async(value)=>{available=value;await client.invalidateQuerie
 const router=createMemoryRouter([{path:'/',element:<AppShell/>,children:[{path:'projects',element:<ProjectsPage/>}]}],{initialEntries:['/projects']});
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId={session.user.id}><RouterProvider router={router}/></LocalizationProvider></AuthProvider></QueryClientProvider>);`;
 
-test('project tiles open on the first click without unmounting the page or flashing a scope loader', {timeout:30000}, async()=>{
+test('project tiles open on the first click without unmounting the page or flashing a scope loader', {timeout:60000}, async()=>{
  let browser;
  try {
   await writeFile(new URL(`${name}.tsx`,root),fixture);
@@ -42,9 +46,13 @@ test('project tiles open on the first click without unmounting the page or flash
   page.setDefaultTimeout(5000);
   const errors=[];page.on('pageerror',error=>{errors.push(error.message);console.error(error.message)});
   await page.route('**/api/**',route=>{errors.push('Unexpected API request: '+route.request().url());return route.abort()});
-  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`,{waitUntil:'domcontentloaded',timeout:20000});
   const tile=title=>page.locator('article.project-catalog-card').filter({has:page.getByRole('heading',{name:title,exact:true})});
   await tile('Payments experience').waitFor();
+  await page.waitForFunction(()=>window.metricsPending);
+  assert.deepEqual(await page.evaluate(()=>window.detailRequests),[],'browsing never requests full project details');
+  assert.deepEqual(await page.evaluate(()=>window.collectionRequests),[],'portfolio metrics replace full scope collection downloads');
+  assert.equal(await tile('Payments experience').getByText('Metrics pending',{exact:true}).count(),1,'unavailable metrics are not shown as zero or healthy');
   await page.evaluate(()=>{
     window.projectRoot=document.querySelector('.projects-page');window.removedProjectRoots=0;window.capabilityLoaders=0;
     window.projectObserver=new MutationObserver(records=>{
@@ -59,9 +67,22 @@ test('project tiles open on the first click without unmounting the page or flash
   await tile('Payments experience').click();
   await page.getByRole('tablist',{name:'Project detail sections'}).waitFor();
   await page.waitForFunction(()=>localStorage.getItem('hellotest.current_project_id')==='payments');
+  await page.waitForFunction(()=>window.detailRequests.includes('payments'));
   await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,650)));
   assert.equal(await page.getByRole('tablist',{name:'Project detail sections'}).count(),1,'first click keeps project details open after scope requests settle');
   assert.equal(await page.getByRole('textbox',{name:'Project name',exact:true}).inputValue(),'Payments experience');
+  assert.deepEqual(await page.evaluate(()=>window.detailRequests),['payments'],'opening only fetches the selected project');
+  assert.equal(await page.evaluate(()=>window.metricsPending),true,'slow metrics do not delay project navigation');
+  assert.deepEqual(await page.evaluate(()=>window.collectionRequests),[],'project details do not preload unrelated collection tabs');
+  await page.getByRole('tab',{name:/Members/}).click();
+  await page.waitForFunction(()=>window.collectionRequests.includes('projectMembers'));
+  assert.deepEqual(await page.evaluate(()=>window.collectionRequests),['projectMembers'],'member data loads only after its tab opens');
+  await page.evaluate(()=>window.failMetrics());
+  await page.getByRole('button',{name:'Retry metrics',exact:true}).waitFor();
+  assert.equal(await page.getByRole('tablist',{name:'Project detail sections'}).count(),1,'metrics failure preserves the open project');
+  await page.getByRole('button',{name:'Retry metrics',exact:true}).click();
+  await page.waitForFunction(()=>window.metricsPending);
+  await page.evaluate(()=>window.finishMetrics());
   assert.deepEqual(await page.evaluate(()=>({removed:window.removedProjectRoots,loaders:window.capabilityLoaders,requests:window.flagRequests})),{removed:0,loaders:0,requests:originalRequests});
   await page.getByRole('button',{name:'Back to projects list',exact:true}).click();
   await page.getByRole('checkbox',{name:'Select Reports workspace',exact:true}).check();

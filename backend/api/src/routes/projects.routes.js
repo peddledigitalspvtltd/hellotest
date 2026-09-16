@@ -23,12 +23,12 @@ module.exports = async function (fastify) {
   // Get only projects user is a member of
   fastify.get("/projects", async (req) => {
     await fastify.authenticate(req);
-    return service.getProjects(req.user.id);
+    return service.getProjects(req.user.id, { projection: req.query?.projection });
   });
 
   fastify.get("/projects/catalog", async (req) => {
     await fastify.authenticate(req);
-    return service.getProjectCatalog(req.user.id);
+    return service.getProjectCatalog(req.user.id, { projection: req.query?.projection });
   });
 
   fastify.get("/projects/portfolio-analytics", async (req) => {

@@ -277,7 +277,7 @@ export type ProjectPortfolioAnalyticsItem = {
   project_id: string;
   display_id: string;
   name: string;
-  counts: { members: number; app_types: number; stories: number; modules: number; cases: number; bugs: number; open_bugs: number };
+  counts: { members: number; app_types: number; stories: number; modules: number; cases: number; suites?: number; bugs: number; open_bugs: number };
   members: Array<{ user_id: string; name: string }>;
   app_types: AppType[];
   story_coverage: { total: number; covered: number; percent: number };
@@ -2064,8 +2064,8 @@ export type TestCase = {
   review_status?: TestCaseReviewStatus | null;
   review_history?: TestCaseReviewEvent[];
   ai_quality_score?: number | null;
-  ai_generation_source?: "scheduler" | null;
-  ai_generation_review_status?: "pending" | "accepted" | null;
+  ai_generation_source?: "scheduler" | "interactive" | "repository" | null;
+  ai_generation_review_status?: "pending" | "accepted" | "rejected" | null;
   ai_generation_job_id?: string | null;
   ai_generated_at?: string | null;
   step_count?: number;
@@ -3506,6 +3506,7 @@ export type ExecutionStepSnapshot = {
 };
 
 export type ExecutionResult = {
+  detail_complete?: boolean;
   id: string;
   execution_id: string;
   test_case_id: string;

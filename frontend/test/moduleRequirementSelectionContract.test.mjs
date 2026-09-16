@@ -78,7 +78,10 @@ test("selecting Requirements auto-selects every app-scoped linked Test Case with
   assert.match(modal, /const \[excludedAutoCaseIds, setExcludedAutoCaseIds\]/);
   assert.match(modal, /const \[linkedCasesByRequirement, setLinkedCasesByRequirement\]/);
   assert.match(modal, /selectedRequirementIds\.flatMap\([\s\S]*linkedCasesByRequirement\[requirementId\]/);
-  assert.match(modal, /const selectedIds = useMemo\(\(\) => \[\.\.\.new Set\(\[[\s\S]*manualSelectedCaseIds[\s\S]*activeAutoLinkedCaseIds/);
+  assert.match(modal, /const selectedCaseMembership = useMemo\(\(\) => \[\.\.\.new Set\(\[[\s\S]*manualSelectedCaseIds[\s\S]*activeAutoLinkedCaseIds/);
+  assert.match(modal, /const selectedIds = useMemo\([\s\S]*selectedCaseOrder[\s\S]*selectedCaseMembership/);
+  assert.match(modal, /setSelectedCaseOrder\(\[\.\.\.nextIdSet\]\)/);
+  assert.match(modal, /presentation="inline"[\s\S]*allowReorder/);
   assert.match(modal, /activeAutoLinkedCaseIds\.filter\(\(testCaseId\) => !excludedAutoCaseIdSet\.has\(testCaseId\)\)/);
   assert.match(modal, /candidateTestCases\.map[\s\S]*Object\.values\(linkedCasesByRequirement\)[\s\S]*byId\.set/);
   assert.match(modal, /onSelectionChange=\{handleRequirementSelectionChange\}/);

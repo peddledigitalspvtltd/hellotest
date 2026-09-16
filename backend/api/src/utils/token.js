@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { promisify } = require("util");
 const { resolveSessionSecret } = require("../security/runtimeSecrets");
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 12;
@@ -9,6 +10,7 @@ const PASSWORD_SALT_BYTES = 16;
 const LEGACY_PASSWORD_ITERATIONS = 100_000;
 const LEGACY_PASSWORD_KEY_LENGTH = 64;
 const secret = resolveSessionSecret();
+const pbkdf2Async = promisify(crypto.pbkdf2);
 
 const base64url = (value) => Buffer.from(value).toString("base64url");
 
@@ -28,6 +30,9 @@ const validatePassword = (password) => {
 const derivePassword = ({ password, salt, iterations, keyLength }) => crypto
   .pbkdf2Sync(password, salt, iterations, keyLength, "sha256");
 
+const derivePasswordAsync = ({ password, salt, iterations, keyLength }) =>
+  pbkdf2Async(password, salt, iterations, keyLength, "sha256");
+
 exports.hashPassword = (password) => {
   validatePassword(password);
   const salt = crypto.randomBytes(PASSWORD_SALT_BYTES);
@@ -44,6 +49,20 @@ exports.hashPassword = (password) => {
     salt.toString("base64url"),
     derived.toString("base64url")
   ].join("$");
+};
+
+// Request handlers must use the asynchronous variants: keep the same password
+// work factor without blocking sessions and every other request on the event loop.
+exports.hashPasswordAsync = async (password) => {
+  validatePassword(password);
+  const salt = crypto.randomBytes(PASSWORD_SALT_BYTES);
+  const derived = await derivePasswordAsync({
+    password,
+    salt,
+    iterations: PASSWORD_ITERATIONS,
+    keyLength: PASSWORD_KEY_LENGTH
+  });
+  return [PASSWORD_ALGORITHM, PASSWORD_ITERATIONS, salt.toString("base64url"), derived.toString("base64url")].join("$");
 };
 
 const verifyModernPassword = (password, hash) => {
@@ -91,6 +110,33 @@ exports.verifyPassword = (password, hash) => {
   return String(hash || "").startsWith(`${PASSWORD_ALGORITHM}$`)
     ? verifyModernPassword(password, hash)
     : verifyLegacyPassword(password, hash);
+};
+
+exports.verifyPasswordAsync = async (password, hash) => {
+  try {
+    validatePassword(password);
+    let salt;
+    let expected;
+    let iterations;
+    if (String(hash || "").startsWith(`${PASSWORD_ALGORITHM}$`)) {
+      const [algorithm, iterationsValue, saltValue, digestValue] = String(hash).split("$");
+      if (algorithm !== PASSWORD_ALGORITHM || !iterationsValue || !saltValue || !digestValue) return false;
+      iterations = Number(iterationsValue);
+      if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 2_000_000) return false;
+      salt = Buffer.from(saltValue, "base64url");
+      expected = Buffer.from(digestValue, "base64url");
+      if (salt.length < 16 || expected.length < 16) return false;
+    } else {
+      if (!/^[0-9a-f]{128}$/i.test(String(hash || ""))) return false;
+      salt = process.env.PASSWORD_SALT || "hellotest-dev-salt";
+      expected = Buffer.from(hash, "hex");
+      iterations = LEGACY_PASSWORD_ITERATIONS;
+    }
+    const computed = await derivePasswordAsync({ password, salt, iterations, keyLength: expected.length });
+    return computed.length === expected.length && crypto.timingSafeEqual(computed, expected);
+  } catch {
+    return false;
+  }
 };
 
 exports.passwordNeedsRehash = (hash) => {

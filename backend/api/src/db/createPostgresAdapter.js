@@ -51,30 +51,41 @@ const serializeParam = (value) => {
 
 const toPgPlaceholders = (sql) => {
   let index = 0;
-  let output = "";
+  const output = [];
+  let previousNonSpace = "";
   let quote = null;
   let dollarTag = null;
+  const dollarDelimiter = /\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/y;
+  const emit = (text) => {
+    output.push(text);
+    for (let cursor = text.length - 1; cursor >= 0; cursor -= 1) {
+      if (!/\s/.test(text[cursor])) {
+        previousNonSpace = text[cursor];
+        break;
+      }
+    }
+  };
 
   for (let cursor = 0; cursor < sql.length; cursor += 1) {
     const char = sql[cursor];
     const next = sql[cursor + 1];
 
     if (dollarTag) {
-      if (sql.startsWith(dollarTag, cursor)) {
-        output += dollarTag;
+      if (char === "$" && sql.startsWith(dollarTag, cursor)) {
+        emit(dollarTag);
         cursor += dollarTag.length - 1;
         dollarTag = null;
       } else {
-        output += char;
+        emit(char);
       }
       continue;
     }
 
     if (quote) {
-      output += char;
+      emit(char);
       if (char === quote) {
         if (quote === "'" && next === "'") {
-          output += next;
+          emit(next);
           cursor += 1;
         } else {
           quote = null;
@@ -83,24 +94,25 @@ const toPgPlaceholders = (sql) => {
       continue;
     }
 
-    const dollarMatch = sql.slice(cursor).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
+    dollarDelimiter.lastIndex = cursor;
+    const dollarMatch = char === "$" ? dollarDelimiter.exec(sql) : null;
     if (dollarMatch) {
       dollarTag = dollarMatch[0];
-      output += dollarTag;
+      emit(dollarTag);
       cursor += dollarTag.length - 1;
       continue;
     }
 
     if (char === "'" || char === '"') {
       quote = char;
-      output += char;
+      emit(char);
       continue;
     }
 
     if (char === "-" && next === "-") {
       const newlineIndex = sql.indexOf("\n", cursor + 2);
       const endIndex = newlineIndex === -1 ? sql.length : newlineIndex;
-      output += sql.slice(cursor, endIndex);
+      emit(sql.slice(cursor, endIndex));
       cursor = endIndex - 1;
       continue;
     }
@@ -108,28 +120,31 @@ const toPgPlaceholders = (sql) => {
     if (char === "/" && next === "*") {
       const commentEndIndex = sql.indexOf("*/", cursor + 2);
       const endIndex = commentEndIndex === -1 ? sql.length : commentEndIndex + 2;
-      output += sql.slice(cursor, endIndex);
+      emit(sql.slice(cursor, endIndex));
       cursor = endIndex - 1;
       continue;
     }
 
     if (char === "?") {
       if (next === "|" || next === "&") {
-        output += char;
+        emit(char);
         continue;
       }
 
-      const previousNonSpace = output.match(/\S(?=\s*$)/)?.[0] || "";
-      const nextNonSpace = sql.slice(cursor + 1).match(/\S/)?.[0] || "";
+      // Never rescan the emitted prefix: large IN lists otherwise take quadratic
+      // time and block every request on the API's JavaScript thread.
+      let nextCursor = cursor + 1;
+      while (nextCursor < sql.length && /\s/.test(sql[nextCursor])) nextCursor += 1;
+      const nextNonSpace = sql[nextCursor] || "";
       const isJsonbExistsOperator = /[\w)"\]]/.test(previousNonSpace) && nextNonSpace === "'";
-      output += isJsonbExistsOperator ? char : `$${++index}`;
+      emit(isJsonbExistsOperator ? char : `$${++index}`);
       continue;
     }
 
-    output += char;
+    emit(char);
   }
 
-  return output;
+  return output.join("");
 };
 
 const createStatementName = (sql, namespace) => {

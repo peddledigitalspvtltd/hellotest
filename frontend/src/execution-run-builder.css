@@ -11,6 +11,13 @@
   background: var(--surface, #ffffff);
 }
 
+/* Hidden overflow still scrolls when a descendant receives focus. The frame
+   and form must stay fixed; the body and selection panels own scrolling. */
+.modal-backdrop > .modal-card.execution-run-builder-modal,
+.modal-card.execution-run-builder-modal > .execution-create-form {
+  overflow: clip !important;
+}
+
 .execution-run-builder-header {
   min-height: 58px;
   align-items: center !important;

@@ -150,6 +150,7 @@ module.exports = async function (fastify) {
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
       review_history: { required: false, type: "array" },
+      ai_generation_source: { required: false, type: "string", enum: ["interactive"] },
       ai_quality_score: { required: false, type: "number" },
       steps: { required: false, type: "array" }
     }, req.body);
@@ -211,9 +212,20 @@ module.exports = async function (fastify) {
       await fastify.requirePermission("data.view", { projectId: dataProjectId })(req);
     }
 
+    if (!req.body.ai_generation_source && ["accepted", "changes_requested"].includes(req.body.review_status)) {
+      throw Object.assign(new Error("Create the test case before submitting a reviewer decision"), { statusCode: 403 });
+    }
     return service.createTestCase({
       ...req.body,
+      ai_generation_source: req.body.ai_generation_source || null,
+      ai_generation_review_status: req.body.ai_generation_source ? "pending" : null,
+      ai_generation_job_id: null,
+      ai_generated_at: req.body.ai_generation_source ? new Date().toISOString() : null,
+      reviewer_id: req.body.reviewer_id || (req.body.ai_generation_source ? req.user.id : null),
+      review_status: req.body.ai_generation_source || req.body.reviewer_id?.trim() ? "pending" : "not_requested",
+      review_history: [],
       author_id: req.body.author_id || req.user.id,
+      updated_by: req.user.id,
       created_by: req.user.id
     });
   });
@@ -831,6 +843,19 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.get("/test-cases/review-summary", async (req, reply) => {
+    await fastify.authenticate(req);
+    const { project_id, app_type_id } = req.query;
+    const scopedProjectId = await resolveTestCaseListProjectId({ project_id, app_type_id });
+    if (!scopedProjectId) {
+      throw Object.assign(new Error("project_id or app_type_id is required for pending reviews"), { statusCode: 400 });
+    }
+    await projectService.getProject(scopedProjectId, req.user.id);
+    await fastify.requirePermission("testcase.view", { projectId: scopedProjectId })(req);
+    reply.header("Cache-Control", "no-store");
+    return catalogService.getReviewSummary({ project_id: scopedProjectId, app_type_id, review_user_id: req.user.id });
+  });
+
   fastify.get("/test-cases/metrics", async (req) => {
     await fastify.authenticate(req);
     const scopedProjectId = await resolveTestCaseListProjectId(req.query);
@@ -844,7 +869,8 @@ module.exports = async function (fastify) {
       await fastify.requirePermission("run.view", { projectId: scopedProjectId })(req);
       await fastify.requirePermission("result.view", { projectId: scopedProjectId })(req);
     }
-    return catalogService.getMetrics({ ...req.query, project_id: scopedProjectId || req.query.project_id });
+    return catalogService.getMetrics({ ...req.query, project_id: scopedProjectId || req.query.project_id,
+      review_user_id: req.query.review_queue ? req.user.id : undefined });
   });
 
   fastify.get("/test-cases", async (req) => {
@@ -863,6 +889,7 @@ module.exports = async function (fastify) {
 
     const filters = {
       ...req.query,
+      review_user_id: req.query.review_queue ? req.user.id : undefined,
       project_id: scopedProjectId || project_id,
       suite_id, requirement_id, module_id, status, app_type_id,
       unassigned_module: unassigned_module === true || unassigned_module === "true"
@@ -871,7 +898,7 @@ module.exports = async function (fastify) {
       await fastify.requirePermission("run.view", { projectId: scopedProjectId })(req);
       await fastify.requirePermission("result.view", { projectId: scopedProjectId })(req);
     }
-    if (req.query.projection === "picker" || shouldPaginate(req.query)) return catalogService.listPage(filters);
+    if (req.query.review_queue !== undefined || req.query.projection === "picker" || shouldPaginate(req.query)) return catalogService.listPage(filters);
     return service.getTestCases(filters);
   });
 
@@ -1341,14 +1368,17 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
-      review_status: { required: true, type: "string", enum: ["pending", "accepted", "changes_requested"] },
-      comment: { required: false, type: "string" }
+      review_status: { required: true, type: "string", enum: ["accepted", "changes_requested"] },
+      comment: { required: false, type: "string" },
+      expected_updated_at: { required: false, type: "string" },
+      expected_revision: { required: false, type: "number" }
     }, req.body || {});
 
-    await ensureTestCasePermission(fastify, req, "testcase.update");
+    const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.update");
 
     return service.reviewTestCase(req.params.id, {
       ...req.body,
+      expected_updated_at: req.body?.expected_updated_at ?? testCase.updated_at,
       reviewed_by: req.user.id
     });
   });
@@ -1356,17 +1386,25 @@ module.exports = async function (fastify) {
   fastify.post("/test-cases/:id/accept-generated", async (req) => {
     await fastify.authenticate(req);
 
-    await ensureTestCasePermission(fastify, req, "testcase.update");
+    const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.update");
 
-    return service.acceptGeneratedTestCase(req.params.id);
+    return service.acceptGeneratedTestCase(req.params.id, {
+      ...req.body,
+      expected_updated_at: req.body?.expected_updated_at ?? testCase.updated_at,
+      reviewed_by: req.user.id
+    });
   });
 
   fastify.delete("/test-cases/:id/reject-generated", async (req) => {
     await fastify.authenticate(req);
 
-    await ensureTestCasePermission(fastify, req, "testcase.delete");
+    const { testCase } = await ensureTestCasePermission(fastify, req, "testcase.delete");
 
-    return service.rejectGeneratedTestCase(req.params.id);
+    return service.rejectGeneratedTestCase(req.params.id, {
+      ...req.body,
+      expected_updated_at: req.body?.expected_updated_at ?? testCase.updated_at,
+      reviewed_by: req.user.id
+    });
   });
 
   fastify.delete("/test-cases/:id", async (req) => {

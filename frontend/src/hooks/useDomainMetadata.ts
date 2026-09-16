@@ -4,9 +4,9 @@ import { api } from "../lib/api";
 export function useDomainMetadata() {
   return useQuery({
     queryKey: ["domain-metadata"],
-    queryFn: api.metadata.domain,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    queryFn: ({ signal }) => api.metadata.domain({ signal }),
+    staleTime: 5 * 60_000,
+    // Refresh after an administrator edits dropdown values in another tab.
     refetchOnWindowFocus: "always"
   });
 }

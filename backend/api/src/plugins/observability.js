@@ -375,6 +375,8 @@ async function observabilityPlugin(fastify) {
     reply.header("traceparent", traceContext.traceparent);
 
     reply.raw.once("close", () => {
+      // A normal response may emit close before the async onResponse hook runs.
+      if (reply.raw.writableFinished) return;
       if (!finalizeInflight(request)) return;
       metricsState.aborted += 1;
       request.log.warn({

@@ -19,9 +19,9 @@ const invalidationsFor = (file, callback) => {
     if (ts.isCallExpression(node) && node.expression.getText(tree) === 'queryClient.invalidateQueries') {
       const argument = node.arguments[0].getText(tree);
       const exports={};
-      new Function('exports','projectId','appTypeId','selectedTestCaseId','executionId','sprintChildrenPrefix','moduleChildrenPrefix',
+      new Function('exports','projectId','appTypeId','selectedTestCaseId','executionId','sprintChildrenPrefix','moduleChildrenPrefix','reviewSummaryQueryKey',
         ts.transpileModule('export const options='+argument,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
-      )(exports,'project','app','case','run',['sprint-requirement-children','project'],['test-case-module-children','project','app']);
+      )(exports,'project','app','case','run',['sprint-requirement-children','project'],['test-case-module-children','project','app'],['test-case-review-summary','reader','project','app']);
       options.push(exports.options);
     }
     ts.forEachChild(node,collect);

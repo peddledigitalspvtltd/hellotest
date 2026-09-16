@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconArrowRight, IconCheck, IconDatabase, IconRefresh, IconSearch, IconAlertCircle, IconLayersIntersect } from '@tabler/icons-react';
 import { adminApi, type Overview, type SampleCatalog, type SampleInstallResult } from './api';
 import { SetupRoles } from './SetupRoles';
+import { PerformanceIndexing } from './PerformanceIndexing';
 import './sample-data-setup.css';
 
 type Props = { schema: Overview['schema']; notify: (message: string, tone?: 'success' | 'error') => void; refresh: () => void };
@@ -21,6 +22,7 @@ export function SampleDataSetup({ schema, notify, refresh }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'schema' | 'samples' | null>(null);
+  const [indexing, setIndexing] = useState(false);
   const [reload, setReload] = useState(0);
   const [result, setResult] = useState<SampleInstallResult | null>(null);
   const initialized = useRef(false);
@@ -71,7 +73,7 @@ export function SampleDataSetup({ schema, notify, refresh }: Props) {
     finally { if (mounted.current) setBusy(null); }
   };
   return <div className="sample-setup">
-    <section className="surface sample-schema"><div className="sample-schema-icon"><IconDatabase size={23} aria-hidden="true" /></div><div><p className="kicker">Foundation</p><h3>Shared database schema</h3><p>{schema.missing_tables.length ? `${schema.missing_tables.length} required tables need attention.` : 'Database, permissions and audit tables are ready.'}</p></div><span className="safe-chip">{schema.available_tables}/{schema.required_tables} tables</span><button className="secondary-button" disabled={Boolean(busy)} onClick={() => void applySchema()} type="button">{busy === 'schema' ? <LoadingState label="Validating schema" /> : <IconRefresh size={16} aria-hidden="true" />}{busy === 'schema' ? 'Validating…' : 'Validate schema'}</button></section>
+    <section className="surface sample-schema"><div className="sample-schema-icon"><IconDatabase size={23} aria-hidden="true" /></div><div><p className="kicker">Foundation</p><h3>Shared database schema</h3><p>{schema.missing_tables.length ? `${schema.missing_tables.length} required tables need attention.` : 'Database, permissions and audit tables are ready.'}</p></div><span className="safe-chip">{schema.available_tables}/{schema.required_tables} tables</span><button className="secondary-button" disabled={Boolean(busy) || indexing} onClick={() => void applySchema()} type="button">{busy === 'schema' ? <LoadingState label="Validating schema" /> : <IconRefresh size={16} aria-hidden="true" />}{busy === 'schema' ? 'Validating…' : 'Validate schema'}</button><PerformanceIndexing disabled={Boolean(busy) || schema.status !== 'ready'} onRunningChange={setIndexing} /></section>
     <SetupRoles roles={catalog?.roles || []} />
     <section className="surface sample-intro"><div><p className="kicker">Explore the product</p><h3>Module sample data</h3><p>Bring Commerce Launchpad to life with connected stories, tests, evidence and insights across Web, API and Mobile.</p></div><div className="sample-stats" aria-label="Sample coverage"><div><strong>{modules.length || '—'}</strong><span>module groups</span></div><div><strong>{modules.reduce((sum, module) => sum + module.features.length, 0) || '—'}</strong><span>feature examples</span></div><div><strong>{installed}/{modules.length}</strong><span>fully installed</span></div></div></section>
     {error ? <div className="sample-message is-error" role="alert"><IconAlertCircle size={20} aria-hidden="true" /><div><strong>{catalog ? 'The request could not be completed' : 'Sample catalog is unavailable'}</strong><p>{error}</p></div><button className="secondary-button" disabled={Boolean(busy)} onClick={() => setReload(value => value + 1)} type="button">Reload catalog</button></div> : null}

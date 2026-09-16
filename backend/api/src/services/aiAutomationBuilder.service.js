@@ -2746,7 +2746,7 @@ const buildCaseCore = async ({
     throw new Error("Add manual steps before building automation");
   }
 
-  const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by });
+  const preparedTarget = await automationCasePreparationService.prepareAutomationTarget({ testCaseId: test_case_id, createdBy: created_by, aiGenerated: true });
   if (preparedTarget.test_case_id !== test_case_id) {
     test_case_id = preparedTarget.test_case_id;
     testCase = await selectCaseWithScope.get(test_case_id);

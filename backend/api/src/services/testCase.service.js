@@ -418,8 +418,8 @@ const normalizeAiGenerationSource = (value) => {
     return null;
   }
 
-  if (normalized !== "scheduler") {
-    throw new Error("ai_generation_source must be 'scheduler' when provided");
+  if (!["scheduler", "interactive", "repository"].includes(normalized)) {
+    throw new Error("ai_generation_source must be scheduler, interactive, or repository when provided");
   }
 
   return normalized;
@@ -432,8 +432,8 @@ const normalizeAiGenerationReviewStatus = (value, source) => {
     return null;
   }
 
-  if (!["pending", "accepted"].includes(normalized)) {
-    throw new Error("ai_generation_review_status must be 'pending' or 'accepted'");
+  if (!["pending", "accepted", "rejected"].includes(normalized)) {
+    throw new Error("ai_generation_review_status must be pending, accepted, or rejected");
   }
 
   return normalized;
@@ -478,6 +478,45 @@ const normalizeReviewHistory = (value) => {
       created_at: normalizeIsoDateTime(entry.created_at) || new Date().toISOString()
     }));
 };
+
+const reviewError = (message, statusCode = 409) => Object.assign(new Error(message), { statusCode });
+
+const isAiReviewPending = (testCase) => Boolean(
+  normalizeText(testCase.ai_generation_source)
+  && testCase.ai_generation_review_status === "pending"
+  && !["accepted", "changes_requested"].includes(testCase.review_status)
+);
+
+const assertReviewOwner = (testCase, actorId) => {
+  const reviewerId = normalizeText(testCase.reviewer_id)
+    || (isAiReviewPending(testCase) ? normalizeText(testCase.created_by) : null);
+  if (!actorId || !reviewerId || reviewerId !== actorId) {
+    throw reviewError("Only the assigned reviewer can review this test case", 403);
+  }
+};
+
+const assertPendingReview = (testCase, generatedOnly = false) => {
+  if (generatedOnly ? !isAiReviewPending(testCase) : testCase.review_status !== "pending" && !isAiReviewPending(testCase)) {
+    throw reviewError("This test case is no longer pending review. Refresh the review queue.");
+  }
+};
+
+const assertReviewTimestamp = (testCase, expectedUpdatedAt) => {
+  if (expectedUpdatedAt === undefined) return;
+  const expectedTime = new Date(expectedUpdatedAt).getTime();
+  if (!Number.isFinite(expectedTime)) throw reviewError("expected_updated_at must be a valid timestamp", 400);
+  if (new Date(testCase.updated_at).getTime() !== expectedTime) {
+    throw reviewError("This test case changed after it was loaded. Refresh before reviewing.");
+  }
+};
+
+const reviewStateKey = (testCase) => JSON.stringify([
+  testCase.reviewer_id || null,
+  testCase.review_status || "not_requested",
+  testCase.ai_generation_source || null,
+  testCase.ai_generation_review_status || null,
+  testCase.updated_at ? new Date(testCase.updated_at).getTime() : null
+]);
 
 const normalizeAiQualityScore = (value) => {
   if (value === undefined || value === null || value === "") {
@@ -1152,18 +1191,14 @@ const createPersistablePayload = async ({
   let resolvedAppTypeId = normalizeText(app_type_id);
   const resolvedSuiteIds = normalizeTextList([suite_id, ...suite_ids]);
   const resolvedRequirementIds = normalizeTextList([requirement_id, ...requirement_ids]);
-  const resolvedReviewerId = normalizeText(reviewer_id);
   const resolvedAiGenerationSource = normalizeAiGenerationSource(ai_generation_source);
-  const resolvedAiGenerationReviewStatus = normalizeAiGenerationReviewStatus(
-    ai_generation_review_status,
-    resolvedAiGenerationSource
-  );
 
   const appType = await ensureAppTypeExists(resolvedAppTypeId);
   resolvedAppTypeId = await ensureSuitesMatchAppType(resolvedSuiteIds, resolvedAppTypeId);
   const resolvedAppType = resolvedAppTypeId !== appType?.id ? await ensureAppTypeExists(resolvedAppTypeId) : appType;
   const linkedRequirements = await ensureRequirementsExist(resolvedRequirementIds, resolvedAppType?.project_id || null);
   const resolvedCreatorId = normalizeText(created_by);
+  const resolvedReviewerId = normalizeText(reviewer_id) || (resolvedAiGenerationSource ? resolvedCreatorId : null);
 
   if (!resolvedCreatorId) {
     const error = new Error("Test case creator is required");
@@ -1183,8 +1218,16 @@ const createPersistablePayload = async ({
     appTypeId: resolvedAppTypeId,
     automated: normalizedAutomated
   });
-  const resolvedReviewStatus = normalizeReviewStatus(review_status, resolvedReviewerId);
-  const resolvedStatus = resolvedAiGenerationSource || resolvedReviewStatus === "pending"
+  const resolvedReviewStatus = normalizeReviewStatus(
+    (resolvedAiGenerationSource && review_status === "not_requested" ? "pending" : review_status)
+      || (ai_generation_review_status === "accepted" ? "accepted" : ai_generation_review_status === "rejected" ? "changes_requested" : null),
+    resolvedReviewerId
+  );
+  const resolvedAiGenerationReviewStatus = normalizeAiGenerationReviewStatus(
+    resolvedReviewStatus === "accepted" ? "accepted" : resolvedReviewStatus === "changes_requested" ? "rejected" : ai_generation_review_status || "pending",
+    resolvedAiGenerationSource
+  );
+  const resolvedStatus = resolvedReviewStatus === "pending"
     ? "draft"
     : resolvedReviewStatus === "accepted"
       ? "ready"
@@ -1791,7 +1834,7 @@ exports.getTestCase = async (id) => {
   return hydrateSuiteIds(testCase);
 };
 
-exports.updateTestCase = async (id, data) => {
+exports.updateTestCase = async (id, data, { reviewHistoryEntry } = {}) => {
   const existing = await exports.getTestCase(id);
 
   const requestedSuiteIds = data.suite_ids !== undefined
@@ -1829,10 +1872,14 @@ exports.updateTestCase = async (id, data) => {
   const requestedReviewerId = data.reviewer_id !== undefined ? normalizeText(data.reviewer_id) : existing.reviewer_id || null;
   await ensureReviewerExists(requestedReviewerId, finalAppType?.project_id || null);
   const existingReviewStatus = normalizeReviewStatus(existing.review_status, existing.reviewer_id || null, "not_requested");
-  const nextReviewStatus = data.review_status !== undefined
-    ? normalizeReviewStatus(data.review_status, requestedReviewerId, existingReviewStatus)
-    : data.reviewer_id !== undefined
-      ? requestedReviewerId ? "pending" : "not_requested"
+  const reviewerChanged = requestedReviewerId !== (existing.reviewer_id || null);
+  if (["accepted", "changes_requested"].includes(data.review_status) && data.review_status !== existingReviewStatus) {
+    throw reviewError("Use the review action to approve a test case or request changes", 403);
+  }
+  const nextReviewStatus = reviewerChanged
+    ? requestedReviewerId ? "pending" : "not_requested"
+    : data.review_status !== undefined
+      ? normalizeReviewStatus(data.review_status, requestedReviewerId, existingReviewStatus)
       : existingReviewStatus;
 
   const payload = {
@@ -1865,9 +1912,10 @@ exports.updateTestCase = async (id, data) => {
     status: data.status !== undefined ? normalizeStatus(data.status) : existing.status || DEFAULT_STATUS,
     reviewer_id: requestedReviewerId,
     review_status: nextReviewStatus,
-    review_history: data.review_history !== undefined
-      ? normalizeReviewHistory(data.review_history)
-      : normalizeReviewHistory(existing.review_history),
+    review_history: [
+      ...normalizeReviewHistory(existing.review_history),
+      ...normalizeReviewHistory(reviewHistoryEntry ? [reviewHistoryEntry] : [])
+    ],
     ai_quality_score: data.ai_quality_score !== undefined
       ? normalizeAiQualityScore(data.ai_quality_score)
       : normalizeAiQualityScore(existing.ai_quality_score),
@@ -1905,6 +1953,11 @@ exports.updateTestCase = async (id, data) => {
   }
 
   const executeUpdate = db.transaction(async () => {
+    const current = await db.prepare("SELECT * FROM test_cases WHERE id = ? FOR UPDATE").get(id);
+    if (!current) throw reviewError("Test case not found", 404);
+    if (reviewStateKey(current) !== reviewStateKey(existing)) {
+      throw reviewError("The test case review changed while saving. Refresh before editing.");
+    }
     await testCaseVersionService.assertExpectedRevision(id, data.expected_revision);
     await testCaseVersionService.capture({
       testCase: existing,
@@ -1939,6 +1992,12 @@ exports.updateTestCase = async (id, data) => {
       payload.updated_by,
       id
     );
+    if (existing.ai_generation_source && (reviewerChanged || payload.review_status !== existingReviewStatus)) {
+      await updateGeneratedReviewState.run(
+        payload.review_status === "accepted" ? "accepted" : payload.review_status === "changes_requested" ? "rejected" : "pending",
+        id
+      );
+    }
 
     if (data.manual_test_case_ids !== undefined || data.manual_test_case_id !== undefined || data.automated !== undefined) {
       await syncAutomationCaseLinks(id, payload.manual_test_case_ids);
@@ -2025,36 +2084,48 @@ exports.updateTestCase = async (id, data) => {
   return { updated: true };
 };
 
-exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}) => {
-  const existing = await exports.getTestCase(id);
-  const resolvedStatus = normalizeReviewStatus(review_status, existing.reviewer_id || null, null);
-
-  if (!["pending", "accepted", "changes_requested"].includes(resolvedStatus)) {
-    throw new Error("Review action must be pending, accepted, or changes_requested");
+const applyReviewDecision = async (id, { review_status, comment, reviewed_by, expected_updated_at, expected_revision } = {}, { generatedOnly = false } = {}) => {
+  if (!["accepted", "changes_requested"].includes(review_status)) {
+    throw reviewError("Review action must be accepted or changes_requested", 400);
   }
-
   const reviewedBy = normalizeText(reviewed_by);
-  const history = normalizeReviewHistory(existing.review_history);
-  const entry = {
-    id: uuid(),
-    status: resolvedStatus,
-    comment: normalizeText(comment),
-    user_id: reviewedBy,
-    created_at: new Date().toISOString()
-  };
-  history.push(entry);
-
-  const nextStatus = resolvedStatus === "accepted" ? "ready" : resolvedStatus === "changes_requested" || resolvedStatus === "pending" ? "draft" : existing.status || DEFAULT_STATUS;
-
-  await db.prepare(`
-    UPDATE test_cases
-    SET review_status = ?, status = ?, review_history = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(resolvedStatus, nextStatus, history, reviewedBy || existing.updated_by || existing.created_by || null, id);
-
+  const result = await db.transaction(async () => {
+    // Hold the row lock through ownership, stale-state checks and the decision so
+    // a concurrent review or reviewer reassignment cannot overwrite this result.
+    const current = await db.prepare("SELECT * FROM test_cases WHERE id = ? FOR UPDATE").get(id);
+    if (!current) throw reviewError("Test case not found", 404);
+    assertReviewOwner(current, reviewedBy);
+    assertPendingReview(current, generatedOnly);
+    assertReviewTimestamp(current, expected_updated_at);
+    await testCaseVersionService.assertExpectedRevision(id, expected_revision);
+    const existing = await hydrateSuiteIds(current);
+    const entry = {
+      id: uuid(),
+      status: review_status,
+      comment: normalizeText(comment),
+      user_id: reviewedBy,
+      created_at: new Date().toISOString()
+    };
+    const history = [...normalizeReviewHistory(current.review_history), entry];
+    const nextStatus = review_status === "accepted" ? "ready" : "draft";
+    const aiReviewStatus = current.ai_generation_source
+      ? review_status === "accepted" ? "accepted" : "rejected"
+      : null;
+    await testCaseVersionService.capture({
+      testCase: existing,
+      createdBy: reviewedBy,
+      nextSnapshot: { ...await testCaseVersionService.buildSnapshot(existing), review_status, status: nextStatus }
+    });
+    await db.prepare(`
+      UPDATE test_cases
+      SET review_status = ?, status = ?, ai_generation_review_status = ?, review_history = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(review_status, nextStatus, aiReviewStatus, history, reviewedBy, id);
+    return { existing, entry };
+  })();
+  const { existing, entry } = result;
   const appType = existing.app_type_id ? await selectAppType.get(existing.app_type_id) : null;
   const recipientId = normalizeText(existing.author_id) || normalizeText(existing.created_by);
-
   if (recipientId && recipientId !== reviewedBy) {
     try {
       await notificationService.createNotification({
@@ -2062,8 +2133,8 @@ exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}
         project_id: appType?.project_id || null,
         target_url: `/test-cases?case=${encodeURIComponent(existing.display_id || id)}`,
         type: "test_case_review_result",
-        title: resolvedStatus === "accepted" ? "Test case review accepted" : "Test case review updated",
-        message: `${existing.title || "A test case"} was marked ${resolvedStatus.replace(/_/g, " ")}.`
+        title: review_status === "accepted" ? "Test case review accepted" : "Test case review updated",
+        message: `${existing.title || "A test case"} was marked ${review_status.replace(/_/g, " ")}.`
       });
     } catch (error) {
       console.warn("Unable to create test case review result notification", {
@@ -2073,9 +2144,10 @@ exports.reviewTestCase = async (id, { review_status, comment, reviewed_by } = {}
       });
     }
   }
-
   return { updated: true, review: entry };
 };
+
+exports.reviewTestCase = (id, data) => applyReviewDecision(id, data);
 
 exports.deleteTestCase = async (id) => {
   await exports.getTestCase(id);
@@ -2092,29 +2164,23 @@ exports.deleteTestCase = async (id) => {
   return { deleted: true };
 };
 
-exports.acceptGeneratedTestCase = async (id) => {
-  const testCase = await exports.getTestCase(id);
-
-  if (testCase.ai_generation_source !== "scheduler" || testCase.ai_generation_review_status !== "pending") {
-    throw new Error("Only pending scheduler-generated test cases can be accepted");
-  }
-
-  await db.prepare(`
-    UPDATE test_cases
-    SET ai_generation_review_status = 'accepted',
-        status = 'ready',
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(id);
+exports.acceptGeneratedTestCase = async (id, { reviewed_by, expected_updated_at, expected_revision } = {}) => {
+  await applyReviewDecision(id, { review_status: "accepted", reviewed_by, expected_updated_at, expected_revision }, { generatedOnly: true });
   return { accepted: true };
 };
 
-exports.rejectGeneratedTestCase = async (id) => {
-  const testCase = await exports.getTestCase(id);
-
-  if (testCase.ai_generation_source !== "scheduler" || testCase.ai_generation_review_status !== "pending") {
-    throw new Error("Only pending scheduler-generated test cases can be rejected");
-  }
-
-  return exports.deleteTestCase(id);
+exports.rejectGeneratedTestCase = async (id, { reviewed_by, expected_updated_at, expected_revision } = {}) => {
+  return db.transaction(async () => {
+    const current = await db.prepare("SELECT * FROM test_cases WHERE id = ? FOR UPDATE").get(id);
+    if (!current) throw reviewError("Test case not found", 404);
+    assertReviewOwner(current, normalizeText(reviewed_by));
+    assertPendingReview(current, true);
+    assertReviewTimestamp(current, expected_updated_at);
+    await testCaseVersionService.assertExpectedRevision(id, expected_revision);
+    await deleteStepsForTestCase.run(id);
+    await deleteRequirementMappings.run(id);
+    await deleteSuiteMappings.run(id);
+    await deleteTestCaseRecord.run(id);
+    return { deleted: true };
+  })();
 };

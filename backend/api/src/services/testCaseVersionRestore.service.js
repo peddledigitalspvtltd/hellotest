@@ -21,18 +21,17 @@ const createRestoreVersion = ({
       ? version.content.test_data_set_ids.slice(0, 1)
       : [],
     expected_revision: expectedRevision,
-    review_status: "not_requested",
-    review_history: [
-      ...(Array.isArray(existing.review_history) ? existing.review_history : []),
-      {
+    reviewer_id: existing.reviewer_id || userId,
+    review_status: "pending",
+    updated_by: userId
+  }, {
+    reviewHistoryEntry: {
         id: createId(),
-        status: "changes_requested",
+        status: "pending",
         comment: `Restored from revision ${Number(revision)}; human review is required.`,
         user_id: userId,
         created_at: now()
-      }
-    ],
-    updated_by: userId
+    }
   });
 
   const versionHistory = await versions.list(testCaseId);

@@ -14,7 +14,7 @@ const copyModuleMembership = db.prepare(`
   ON CONFLICT DO NOTHING
 `);
 
-exports.prepareAutomationTarget = async ({ testCaseId, createdBy, targetStepId } = {}) => {
+exports.prepareAutomationTarget = async ({ testCaseId, createdBy, targetStepId, aiGenerated = false } = {}) => {
   const source = await testCaseService.getTestCase(testCaseId);
   if (source.automated === "yes") {
     if (targetStepId && !(await selectSteps.all(source.id)).some(step => step.id === targetStepId)) throw Object.assign(new Error("The selected recorder target step does not belong to this test case."), { statusCode: 400 });
@@ -24,7 +24,15 @@ exports.prepareAutomationTarget = async ({ testCaseId, createdBy, targetStepId }
   const sourceStepIndex = targetStepId ? sourceSteps.findIndex((step) => step.id === targetStepId) : -1;
   if (targetStepId && sourceStepIndex < 0) throw Object.assign(new Error("The selected recorder target step does not belong to this test case."), { statusCode: 400 });
   const existing = await selectPreparedCase.get(source.app_type_id, `automation-builder:${source.id}`);
-  const prepared = existing || await testCaseService.createTestCase(buildAutomationCaseBlueprint({ source, steps: sourceSteps, createdBy }));
+  const prepared = existing || await testCaseService.createTestCase({
+    ...buildAutomationCaseBlueprint({ source, steps: sourceSteps, createdBy }),
+    ...(aiGenerated ? {
+      ai_generation_source: "interactive",
+      ai_generation_review_status: "pending",
+      reviewer_id: createdBy,
+      review_status: "pending"
+    } : {})
+  });
   const targetSteps = targetStepId ? await selectSteps.all(prepared.id) : [];
   const sourceStep = sourceSteps[sourceStepIndex];
   const sameStep = step => step.action === sourceStep.action && step.expected_result === sourceStep.expected_result

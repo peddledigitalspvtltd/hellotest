@@ -167,6 +167,9 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     assert.match(await metrics.innerText(),/60/);assert.match(await metrics.innerText(),/120/);assert.match(await metrics.innerText(),/75%/);
     await page.getByRole('button',{name:'Create Suite',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Suite'});await dialog.waitFor();
+    const suitePicker=dialog.locator('.test-case-picker--inline');
+    await suitePicker.getByText('Test Case Selection',{exact:true}).waitFor();
+    assert.equal(await suitePicker.locator('details').count(),0,'Suite uses a single selection list without separate filter or selected-case disclosures');
     await dialog.getByRole('textbox',{name:'Suite name'}).fill('Fast reusable suite');
     assert.equal(await dialog.getByRole('button',{name:'Create Suite',exact:true}).isEnabled(),true,'Form is usable while first picker page remains pending');
     assert.equal(await page.locator('.screen-loading-overlay').count(),0);
@@ -176,14 +179,82 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     await page.screenshot({path:artifacts+'/create-suite-first-page-pending.png'});
     await page.evaluate(()=>{window.holdFirst=false;window.releaseFirst()});
     await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length===25);
-    await dialog.getByRole('searchbox',{name:'Search test cases'}).fill('remote');
+    await suitePicker.getByRole('button',{name:'Select all visible Test Cases',exact:true}).click();
+    assert.equal(await suitePicker.locator('.test-case-picker-row.is-selected').count(),25,'Select all adds only currently visible cases');
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.setViewportSize({width:1280,height:800});
+    const suiteFrame=await dialog.boundingBox();
+    const suiteMovement=dialog.evaluate(node=>new Promise(resolve=>{
+      const samples=[],started=performance.now();
+      const frame=()=>{
+        const bounds=node.getBoundingClientRect(),header=node.querySelector('.suite-create-header').getBoundingClientRect();
+        samples.push({top:bounds.top,bottom:bounds.bottom,scroll:node.scrollTop,headerTop:header.top});
+        if(performance.now()-started<800)requestAnimationFrame(frame);else resolve(samples);
+      };frame();
+    }));
+    await suitePicker.getByRole('button',{name:'Move Checkout case 20 down',exact:true}).click();
+    for(const sample of await suiteMovement){
+      assert.ok(Math.abs(sample.top-suiteFrame.y)<1,'Suite frame stays fixed while navigating lower rows');
+      assert.equal(sample.scroll,0,'Suite frame does not scroll when a lower arrow receives focus');
+      assert.ok(sample.headerTop>=sample.top&&sample.bottom<=800,'Suite title remains visible within the viewport');
+    }
+    assert.equal(await suitePicker.getByRole('button',{name:'Move Checkout case 20 down',exact:true}).evaluate(node=>node===document.activeElement),true,'Reordering retains focus on the selected case arrow');
+    await page.setViewportSize({width:1440,height:1000});
+    await suitePicker.getByRole('button',{name:'Clear',exact:true}).click();
+    assert.equal(await suitePicker.locator('.test-case-picker-row.is-selected').count(),0);
+    await suitePicker.getByRole('checkbox',{name:'Add TC-1 to the new suite',exact:true}).check();
+    await suitePicker.locator('.test-case-picker-results').evaluate(node=>node.scrollTop=node.scrollHeight-node.clientHeight);
+    await page.waitForFunction(()=>typeof window.releaseNext==='function');
+    assert.equal(await suitePicker.locator('.test-case-picker-row').count(),25,'Scrolling requests one continuation without draining the catalog');
+    await page.evaluate(()=>{window.holdNext=false;window.releaseNext()});
+    await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length===50);
+    await suitePicker.getByRole('checkbox',{name:'Add TC-26 to the new suite',exact:true}).check();
+    await suitePicker.getByRole('searchbox',{name:'Search test cases'}).fill('remote');
     await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length===1);
-    await dialog.locator('.test-case-picker-row').getByRole('checkbox').check();
-    await page.screenshot({path:artifacts+'/create-suite-selected.png'});
+    await suitePicker.getByRole('checkbox',{name:'Add TC-60 to the new suite',exact:true}).check();
+    assert.match(await suitePicker.locator('.test-case-picker-heading').innerText(),/3 selected/,'Search retains selected cases outside its results');
+    await suitePicker.getByRole('button',{name:'Open filters',exact:true}).click();
+    const suiteFilters=page.getByRole('dialog',{name:'Filter Test Cases',exact:true});await suiteFilters.waitFor();
+    await suiteFilters.getByRole('combobox',{name:'Filter test cases by module'}).selectOption('module-remote');
+    await suiteFilters.getByRole('combobox',{name:'Filter test cases by status'}).selectOption('ready');
+    await page.waitForFunction(()=>window.calls.pages.some(input=>input.module_id==='module-remote'&&input.status==='ready'));
+    await suiteFilters.getByRole('button',{name:'Clear filters',exact:true}).click();
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.isVisible(),true,'Closing nested filters leaves Suite creation open');
+    await suitePicker.getByRole('searchbox',{name:'Search test cases'}).fill('');
+    await suitePicker.getByRole('checkbox',{name:'Remove TC-1 from the new suite',exact:true}).waitFor();
+    await suitePicker.getByRole('button',{name:'Move Remote boundary case up',exact:true}).click();
+    await suitePicker.getByRole('button',{name:'Move Remote boundary case up',exact:true}).click();
+    await suitePicker.getByRole('button',{name:'Move Remote boundary case down',exact:true}).click();
+    await suitePicker.getByRole('button',{name:'Move Remote boundary case up',exact:true}).click();
+    assert.deepEqual(await suitePicker.locator('.test-case-picker-row.is-selected .test-case-picker-id').allTextContents(),['TC-60','TC-1','TC-26'],'Both arrow directions update the shared ordered selection');
+    for(const width of [1440,390]){
+      await page.setViewportSize({width,height:width===390?844:1000});
+      if(width===390){
+        const body=dialog.locator('.suite-modal-body');await body.evaluate(node=>node.scrollTop=0);
+        const bounds=await body.boundingBox();await page.mouse.move(bounds.x+bounds.width-8,bounds.y+60);await page.mouse.wheel(0,240);
+        await page.waitForFunction(()=>document.querySelector('.suite-authoring-modal .suite-modal-body').scrollTop>0);
+        assert.equal(await dialog.evaluate(node=>node.scrollTop),0,'Mobile wheel scrolls Suite content, keeping its frame fixed');
+      }
+      for(const theme of ['light','dark']){
+        await page.evaluate(theme=>document.documentElement.setAttribute('data-theme',theme),theme);
+        await suitePicker.locator('.test-case-picker-toolbar').scrollIntoViewIfNeeded();
+        const geometry=await suitePicker.locator('.test-case-picker-toolbar').evaluate(node=>{
+          const input=node.querySelector('input').getBoundingClientRect();
+          const select=node.querySelector('button[aria-label="Select all visible Test Cases"]').getBoundingClientRect();
+          const clear=[...node.querySelectorAll('button')].find(button=>button.textContent==='Clear').getBoundingClientRect();
+          return{inline:Math.abs(input.y+input.height/2-select.y-select.height/2)<2&&Math.abs(input.y+input.height/2-clear.y-clear.height/2)<2,inputWidth:input.width,within:input.left>=0&&clear.right<=innerWidth+1};
+        });
+        assert.equal(geometry.inline,true,`${width}/${theme}: suite search, Select all and Clear stay inline`);
+        assert.equal(geometry.within,true);assert.ok(geometry.inputWidth>70,`${width}/${theme}: suite search remains usable`);
+        await page.screenshot({path:`${artifacts}/create-suite-${width}-${theme}.png`,animations:'disabled'});
+      }
+    }
+    await page.setViewportSize({width:1440,height:1000});await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
     await dialog.getByRole('button',{name:'Create Suite',exact:true}).click();
     await page.waitForFunction(()=>window.calls.assign.length===1);
     assert.equal(await page.evaluate(()=>window.calls.create[0].name),'Fast reusable suite');
-    assert.deepEqual(await page.evaluate(()=>window.calls.assign[0][1]),['case-60'],'Create saves selection beyond initial page');
+    assert.deepEqual(await page.evaluate(()=>window.calls.assign[0][1]),['case-60','case-1','case-26'],'Create saves the arrow order across loaded pages and server search');
 
     await page.goto(base+'?mode=design-run');
     await page.getByRole('checkbox',{name:'Select Test Suite Checkout regression',exact:true}).check();

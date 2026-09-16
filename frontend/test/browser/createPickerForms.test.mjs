@@ -29,7 +29,7 @@ const session={token:'test-case-catalog-browser',user:{id:'reviewer',name:'QA Re
 sessionStorage.write(session);setCurrentScope('case-project','case-app');
 localStorage.setItem('hellotest.default_catalog_view_mode','tile');
 window.calls={all:[],catalog:[],metrics:[],headers:[],moduleChildren:[],authoring:[]};
-window.pauseContinuation=false;window.pauseAuthoring=false;window.pausePicker=true;window.pickerCalls=[];window.created=[];window.assigned=[];
+window.pauseContinuation=false;window.pauseAuthoring=false;window.pausePicker=true;window.pickerCalls=[];window.created=[];window.assigned=[];window.failAssignment=true;
 function stub(object,prefix=''){
  for(const [key,value] of Object.entries(object)){
   const path=prefix?prefix+'.'+key:key;
@@ -53,7 +53,7 @@ const cases=Array.from({length:95},(_,index)=>{
   automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'not_requested',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,
   created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
 });
-function matching(input){return cases.filter(item=>(!input.unassigned_module||!item.module_ids.length)&&(!input.search||[item.title,item.description,item.display_id].join(' ').toLowerCase().includes(input.search.toLowerCase())))}
+function matching(input){return cases.filter(item=>(!input.unassigned_module||!item.module_ids.length)&&(!input.module_id||item.module_ids.includes(input.module_id))&&(!input.status||item.status===input.status)&&(!input.search||[item.title,item.description,item.display_id].join(' ').toLowerCase().includes(input.search.toLowerCase())))}
 function paginate(items,input){const offset=Number(input.cursor||0),page=items.slice(offset,offset+input.page_size),next=offset+page.length;return {items:page,next_cursor:next<items.length?String(next):null,is_last:next>=items.length}}
 api.testCases.listPage=async(input)=>{
  if(input.projection==="picker"){
@@ -75,9 +75,10 @@ api.requirementReleases.list=async(input)=>{window.calls.authoring.push({path:'r
 api.requirementIterations.list=async(input)=>{window.calls.authoring.push({path:'requirementIterations.list',input});return [{id:'sprint-run',project_id:'case-project',name:'Sprint Alpha',requirement_ids:['story-run']}]};
 
 api.testCases.listPicker=async input=>api.testCases.listPage({...input,projection:'picker'});
-api.requirements.listPage=async()=>({items:[],is_last:true,next_cursor:null});
+api.requirements.listPage=async()=>({items:[{id:'story-run',display_id:'STORY-1',project_id:'case-project',title:'Checkout Story',priority:3,status:'active'}],is_last:true,next_cursor:null});
+api.testCases.resolveRequirementCases=async()=>[cases[59]];
 api.testCaseModules.create=async input=>{window.created.push(input);return {id:'created-module'}};
-api.testCaseModules.assignCases=async(id,ids)=>{window.assigned.push({id,ids});return {updated:true,assigned:ids.length}};
+api.testCaseModules.assignCases=async(id,ids)=>{window.assigned.push({id,ids});if(window.failAssignment){window.failAssignment=false;throw new Error('Assignment temporarily unavailable')}return {updated:true,assigned:ids.length}};
 api.testSuites.list=async()=>[{id:'scope-suite',app_type_id:'case-app',name:'Related Suite',test_case_ids:['case-60']}];
 api.issues.createMetadata=async()=>({fields:[],core_fields:[],required_fields:[],current_values:{},workflow_statuses:{statuses:['open'],default_status:'open'}});
 api.issues.editMetadata=api.issues.createMetadata;
@@ -101,7 +102,7 @@ test('Module and Bug forms stay editable during picker loading and preserve remo
   await writeFile(html,`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
   browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
-  const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'no-preference'});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.stack));page.setDefaultTimeout(10000);
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5186'}/${name}.html`);
   await page.getByRole('button',{name:'Create Module',exact:true}).click();
@@ -115,13 +116,85 @@ test('Module and Bug forms stay editable during picker loading and preserve remo
   await page.screenshot({path:artifacts+'/module-form-loading-picker.png'});
   await page.evaluate(()=>{window.pausePicker=false;window.releasePicker()});
   const picker=module.locator('.test-case-picker');
+  assert.equal(await picker.locator('.test-case-picker-filters, .test-case-picker-selection').count(),0,'filters and selections live in the unified selection panel');
+  const headingLayout=await module.locator('.test-case-create-module-title').evaluate(node=>{
+    const icon=node.querySelector('.test-case-create-module-title-icon').getBoundingClientRect();
+    const title=node.querySelector('h2').getBoundingClientRect();
+    return {inline:icon.right<=title.left,aligned:Math.abs((icon.top+icon.height/2)-(title.top+title.height/2))<1};
+  });
+  assert.deepEqual(headingLayout,{inline:true,aligned:true});
   await picker.locator('.test-case-picker-row').first().getByRole('checkbox').check();
+  await module.getByRole('checkbox',{name:'Add STORY-1 to the new module',exact:true}).check();
+  await picker.getByRole('button',{name:'Move Distant boundary coverage up',exact:true}).waitFor();
   await picker.getByRole('searchbox',{name:'Search test cases'}).fill('distant boundary');
-  await picker.locator('.test-case-picker-row').filter({hasText:'Distant boundary coverage'}).getByRole('checkbox').check();
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length===1);
+  await picker.getByRole('button',{name:'Move Distant boundary coverage up',exact:true}).click();
+  assert.equal(await picker.getByRole('button',{name:'Move Distant boundary coverage up',exact:true}).isDisabled(),true,'reorder uses the whole retained selection across search');
+  await module.getByRole('checkbox',{name:'Remove STORY-1 from the new module',exact:true}).uncheck();
+  assert.match(await picker.locator('.test-case-picker-heading').innerText(),/1 selected/,'reordering an automatic selection does not convert it into a manual choice');
+  await module.getByRole('checkbox',{name:'Add STORY-1 to the new module',exact:true}).check();
   assert.match(await picker.locator('.test-case-picker-heading').innerText(),/2 selected/);
+  await picker.getByRole('searchbox',{name:'Search test cases'}).fill('');
+  await page.waitForFunction(()=>document.querySelectorAll('.test-case-picker-row').length>1&&!document.querySelector('.test-case-picker-inline-header input').disabled);
+  const selectVisible=picker.getByRole('checkbox',{name:'Select all visible Test Cases',exact:true});
+  await selectVisible.check();
+  await page.setViewportSize({width:1280,height:800});
+  const moduleFrame=await module.boundingBox();
+  const moduleMovement=module.evaluate(node=>new Promise(resolve=>{
+    const samples=[],started=performance.now();
+    const frame=()=>{
+      const bounds=node.getBoundingClientRect(),header=node.querySelector('.test-case-create-module-header').getBoundingClientRect();
+      samples.push({top:bounds.top,bottom:bounds.bottom,scroll:node.scrollTop,headerTop:header.top});
+      if(performance.now()-started<800)requestAnimationFrame(frame);else resolve(samples);
+    };frame();
+  }));
+  await picker.getByRole('button',{name:'Move Checkout coverage 20 down',exact:true}).click();
+  for(const sample of await moduleMovement){
+    assert.ok(Math.abs(sample.top-moduleFrame.y)<1,'Module frame stays fixed while navigating a lower reorder arrow');
+    assert.equal(sample.scroll,0,'Module focus navigation never scrolls its fixed frame');
+    assert.ok(sample.headerTop>=sample.top&&sample.bottom<=800,'Module title remains inside its visible dialog');
+  }
+  assert.equal(await picker.getByRole('button',{name:'Move Checkout coverage 20 down',exact:true}).evaluate(node=>node===document.activeElement),true,'Module reordering retains focus on the same case');
+  await page.setViewportSize({width:1440,height:1000});
+  await selectVisible.check();
+  await selectVisible.uncheck();
+  assert.match(await picker.locator('.test-case-picker-heading').innerText(),/0 selected/,'header uncheck removes every visible row including selected cases from another page');
+  assert.equal(await picker.getByRole('button',{name:'Clear',exact:true}).isDisabled(),true);
+  await picker.getByRole('searchbox',{name:'Search test cases'}).fill('distant boundary');
+  await picker.getByRole('checkbox',{name:'Add TC-60 to the new module',exact:true}).check();
+  await picker.getByRole('searchbox',{name:'Search test cases'}).fill('');
+  await picker.getByRole('checkbox',{name:'Add TC-1 to the new module',exact:true}).check();
+  await picker.getByRole('button',{name:'Open filters',exact:true}).click();
+  const filters=page.getByRole('dialog',{name:'Filter Test Cases',exact:true});
+  await filters.getByRole('combobox',{name:'Filter test cases by module',exact:true}).selectOption('case-module');
+  await page.keyboard.press('Escape');
+  assert.equal(await module.count(),1,'closing nested filters keeps Create module open');
+  const inlineLayout=await picker.locator('.test-case-picker-toolbar').evaluate(node=>{
+    const search=node.querySelector('input').getBoundingClientRect();
+    return [...node.children].filter(child=>child.tagName==='BUTTON').every(child=>Math.abs(child.getBoundingClientRect().top-search.top)<15);
+  });
+  assert.equal(inlineLayout,true,'Select and Clear remain next to search');
+  await page.screenshot({path:artifacts+'/module-unified-selection.png'});
+  for(const width of [390,320]){
+    await page.setViewportSize({width,height:844});
+    await picker.getByRole('searchbox',{name:'Search test cases'}).scrollIntoViewIfNeeded();
+    const bounds=await module.boundingBox();
+    assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1,'module dialog fits narrow viewports');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'module has no horizontal page overflow');
+    await page.screenshot({path:artifacts+'/module-unified-selection-'+width+'.png'});
+  }
+  await page.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
+  await page.screenshot({path:artifacts+'/module-unified-selection-320-dark.png'});
+  await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
+  await page.setViewportSize({width:1440,height:1000});
   await module.getByRole('button',{name:'Create module',exact:true}).click();
   await page.waitForFunction(()=>window.assigned.length===1);
-  assert.deepEqual((await page.evaluate(()=>window.assigned))[0].ids,['case-1','case-60']);
+  await module.getByRole('button',{name:'Retry assignment',exact:true}).waitFor();
+  assert.deepEqual((await page.evaluate(()=>window.assigned))[0].ids,['case-60','case-1']);
+  await module.getByRole('button',{name:'Retry assignment',exact:true}).click();
+  await page.waitForFunction(()=>window.assigned.length===2);
+  assert.deepEqual((await page.evaluate(()=>window.assigned))[1].ids,['case-60','case-1'],'retry retains the exact selection order');
+  assert.equal((await page.evaluate(()=>window.created)).length,1,'assignment retry never duplicates the module');
   assert.equal((await page.evaluate(()=>window.calls.all)).some(c=>c.path==='testCases.list'),false);
 
   await page.evaluate(()=>{window.pausePicker=true;window.releasePicker=undefined;window.fixtureNavigate('/issues?create=1')});

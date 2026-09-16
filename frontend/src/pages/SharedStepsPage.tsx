@@ -241,7 +241,7 @@ export function SharedStepsPage() {
     canViewTestCases, Boolean(appTypeId && linkedPreviewCaseId)
   );
   const executionResultsQuery = useWorkspaceResource(
-    ["shared-steps-execution-results", appTypeId], signal => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000 }, { signal }),
+    ["shared-steps-execution-results", appTypeId, "summary"], signal => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000, projection: "summary" }, { signal }),
     canViewRunHistory, Boolean(appTypeId)
   );
   const suitesQuery = useWorkspaceResource(

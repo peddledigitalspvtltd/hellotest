@@ -33,6 +33,8 @@ const fastify = Fastify({
     disableRequestLogging: true
   }),
   genReqId: () => generateRequestId(),
+  // Schema initialization can exceed Fastify's 10-second plugin default on a cold database.
+  pluginTimeout: config.startupTimeoutMs,
   requestTimeout: config.http.requestTimeoutMs,
   connectionTimeout: config.http.connectionTimeoutMs,
   keepAliveTimeout: config.http.keepAliveTimeoutMs,
@@ -92,10 +94,17 @@ fastify.register(require("./plugins/observability"));
 fastify.register(require("./plugins/validator"));
 fastify.register(require("./plugins/accessControl"));
 fastify.register(require("./routes"));
-fastify.addHook("onReady", async () => {
-  await ensureMainRuntimeSchema();
-  await ensureObsRuntimeSchema();
-  await adminPortalService.ensureAdminFoundation();
+fastify.addHook("onReady", async function bootstrapRuntime() {
+  for (const [phase, initialize] of [
+    ["main schema", ensureMainRuntimeSchema],
+    ["observability schema", ensureObsRuntimeSchema],
+    ["admin foundation", () => adminPortalService.ensureAdminFoundation()]
+  ]) {
+    const startedAt = Date.now();
+    fastify.log.info({ phase }, "API initialization started");
+    await initialize();
+    fastify.log.info({ phase, durationMs: Date.now() - startedAt }, "API initialization completed");
+  }
 });
 fastify.register(require("./plugins/backgroundTasks"));
 

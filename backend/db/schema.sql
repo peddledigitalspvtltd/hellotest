@@ -1396,12 +1396,12 @@ ON CONFLICT (automation_test_case_id, manual_test_case_id) DO NOTHING;
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_source_check;
 ALTER TABLE test_cases
   ADD CONSTRAINT test_cases_ai_generation_source_check
-  CHECK (ai_generation_source IS NULL OR ai_generation_source IN ('scheduler'));
+  CHECK (ai_generation_source IS NULL OR ai_generation_source IN ('scheduler', 'interactive', 'repository'));
 
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_ai_generation_review_status_check;
 ALTER TABLE test_cases
   ADD CONSTRAINT test_cases_ai_generation_review_status_check
-  CHECK (ai_generation_review_status IS NULL OR ai_generation_review_status IN ('pending', 'accepted'));
+  CHECK (ai_generation_review_status IS NULL OR ai_generation_review_status IN ('pending', 'accepted', 'rejected'));
 
 ALTER TABLE test_cases DROP CONSTRAINT IF EXISTS test_cases_review_status_check;
 ALTER TABLE test_cases

@@ -12,12 +12,34 @@ function fixture(){
   const localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,String(value)),removeItem:key=>storage.delete(key)};
   const window={localStorage,__HELLOTEST_CONFIG__:{API_BASE_URL:'http://fixture.test/api'},location:{assign:path=>redirects.push(path)}};
   const exports={};
-  const fetch=(url,options)=>new Promise(resolve=>requests.push({url,options,reply:(body,status=200)=>resolve(new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}}))}));
+  const fetch=(url,options)=>new Promise((resolve,reject)=>{
+    options.signal?.addEventListener('abort',()=>reject(options.signal.reason),{once:true});
+    requests.push({url,options,reply:(body,status=200)=>resolve(new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}}))});
+  });
   const require=name=>name==='./currentScope'?{appendCurrentProjectScope:path=>path,readCurrentProjectId:()=>''}:{consumeKnowledgeAssistantStream:async()=>({}),KnowledgeStreamError:class extends Error{}};
   new Function('require','exports','window','fetch','Headers','Response','AbortSignal',compiled)(require,exports,window,fetch,Headers,Response,AbortSignal);
   return {...exports,requests,redirects,localStorage};
 }
 const list=view=>view.api.appTypes.list({project_id:'project'});
+
+test('cancelling one screen cannot cancel another caller loading the same resource',async()=>{
+  const view=fixture();view.sessionStorage.write(session());
+  const controller=new AbortController();
+  const cancelled=view.api.appTypes.list({project_id:'project'},{signal:controller.signal});
+  const survivor=list(view);
+  assert.equal(view.requests.length,2);
+  const rejected=assert.rejects(cancelled,error=>error.name==='AbortError');
+  controller.abort();await rejected;
+  assert.equal(view.requests[1].options.signal.aborted,false);
+  view.requests[1].reply([{id:'survivor'}]);assert.deepEqual(await survivor,[{id:'survivor'}]);
+});
+
+test('already cancelled callers do not read cached data or start another request',async()=>{
+  const view=fixture();view.sessionStorage.write(session());
+  const first=list(view);view.requests[0].reply([]);await first;
+  await assert.rejects(view.api.appTypes.list({project_id:'project'},{signal:AbortSignal.abort()}),error=>error.name==='AbortError');
+  assert.equal(view.requests.length,1);
+});
 
 test('same-session requests deduplicate and cache; a successful mutation invalidates the response cache',async()=>{
   const view=fixture();view.sessionStorage.write(session());

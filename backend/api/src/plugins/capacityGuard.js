@@ -64,6 +64,7 @@ async function capacityGuardPlugin(fastify, options = {}) {
     request.capacityAdmission = { large, released: false };
     state.active += 1;
     if (large) state.activeLarge += 1;
+    reply.raw.once("close", () => release(request));
   });
 
   fastify.addHook("onResponse", async (request) => release(request));

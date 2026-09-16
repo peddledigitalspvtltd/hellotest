@@ -17,6 +17,7 @@ export function CatalogSearchFilter({
   subtitle,
   filterIcon,
   disabled = false,
+  onOpenChange,
   children
 }: {
   value: string;
@@ -29,6 +30,7 @@ export function CatalogSearchFilter({
   subtitle?: string;
   filterIcon?: ReactNode;
   disabled?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -69,7 +71,15 @@ export function CatalogSearchFilter({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
-      if (!(target instanceof Node) || (!popoverRef.current?.contains(target) && !buttonRef.current?.contains(target))) {
+      const trigger = buttonRef.current;
+      // Disabling the focused Clear button can send focus back to the page.
+      // This popup still owns Escape unless its dialog has become inactive.
+      const lostControlFocus = event.key === "Escape"
+        && (target === document.body || target === document.documentElement)
+        && trigger?.isConnected
+        && trigger.getAttribute("aria-expanded") === "true"
+        && !trigger.closest("[inert], [aria-hidden='true']");
+      if (!(target instanceof Node) || (!popoverRef.current?.contains(target) && !trigger?.contains(target) && !lostControlFocus)) {
         return;
       }
 
@@ -77,7 +87,7 @@ export function CatalogSearchFilter({
         event.preventDefault();
         event.stopPropagation();
         setIsOpen(false);
-        buttonRef.current?.focus();
+        trigger?.focus({ preventScroll: true });
       } else if (event.key === "Tab") {
         const targets = focusableTargets();
         const first = targets[0];
@@ -100,6 +110,11 @@ export function CatalogSearchFilter({
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+    return () => { if (isOpen) onOpenChange?.(false); };
+  }, [isOpen, onOpenChange]);
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -150,6 +165,14 @@ export function CatalogSearchFilter({
         ? Math.max(POPOVER_VIEWPORT_PADDING, anchorRect.top - POPOVER_TRIGGER_GAP - effectiveHeight)
         : Math.min(anchorRect.bottom + POPOVER_TRIGGER_GAP, viewportHeight - POPOVER_VIEWPORT_PADDING - effectiveHeight);
 
+      // The portal escapes scroll clipping, but must also clear its owning
+      // dialog's stacking context (including nested dialogs).
+      let zIndex = 1300;
+      for (let ancestor: HTMLElement | null = button; ancestor; ancestor = ancestor.parentElement) {
+        const ancestorZIndex = Number.parseInt(window.getComputedStyle(ancestor).zIndex, 10);
+        if (Number.isFinite(ancestorZIndex)) zIndex = Math.max(zIndex, ancestorZIndex + 1);
+      }
+
       setPopoverStyle({
         left,
         maxHeight,
@@ -157,7 +180,8 @@ export function CatalogSearchFilter({
         position: "fixed",
         right: "auto",
         top,
-        width: popoverWidth
+        width: popoverWidth,
+        zIndex
       });
     };
 

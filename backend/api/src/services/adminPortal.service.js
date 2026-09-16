@@ -4,7 +4,7 @@ const { config } = require("../config");
 const { reapplyRuntimeSchema } = require("../db/bootstrap");
 const authService = require("./auth.service");
 const featureFlagService = require("./featureFlag.service");
-const { hashPassword, verifyPassword } = require("../utils/token");
+const { hashPassword } = require("../utils/token");
 const { isProduction, validateProductionSecret } = require("../security/runtimeSecrets");
 
 const BOOTSTRAP_EMAIL = "bootstrap.admin@hellotest.local";
@@ -162,23 +162,23 @@ exports.getPublicStatus = async () => {
 exports.login = async ({ username, password }) => {
   const normalizedIdentity = String(username || "").trim().toLowerCase();
   const user = await db.prepare(`
-    SELECT id, email, password_hash, status, is_workspace_admin
+    SELECT id, email
     FROM users
     WHERE LOWER(COALESCE(username, '')) = ? OR LOWER(email) = ?
     LIMIT 1
   `).get(normalizedIdentity, normalizedIdentity);
 
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  if (!user) {
     throw createError("Invalid administrator credentials", 401);
   }
-  if (user.status === "suspended") {
-    throw createError("This administrator account is suspended", 403);
-  }
-  if (!user.is_workspace_admin) {
+
+  // Authenticate once using the shared asynchronous password verifier, then use
+  // the fresh session role to enforce access to the administration portal.
+  const session = await authService.login({ email: user.email, password });
+  if (session.user.role !== "admin") {
     throw createError("Workspace administrator access is required", 403);
   }
 
-  const session = await authService.login({ email: user.email, password });
   await recordAudit({ actorId: user.id, action: "admin.login", targetType: "session", summary: "Administrator signed in to the control plane." });
   return session;
 };
@@ -218,6 +218,10 @@ exports.getOverview = async () => {
     }
   };
 };
+
+exports.getPerformanceIndexing = () => require("./performanceIndexing.service").status();
+exports.startPerformanceIndexing = (actor) => require("./performanceIndexing.service").start(actor);
+exports.stopPerformanceIndexing = () => require("./performanceIndexing.service").close();
 
 exports.applySchema = async ({ actorId, ipAddress }) => {
   const roles = await reapplyRuntimeSchema();

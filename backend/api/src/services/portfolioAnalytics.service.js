@@ -97,7 +97,9 @@ const timestamp = (value) => {
 const groupBy = (items, key) => items.reduce((map, item) => {
   const value = item[key];
   if (!value) return map;
-  map.set(value, [...(map.get(value) || []), item]);
+  const group = map.get(value);
+  if (group) group.push(item);
+  else map.set(value, [item]);
   return map;
 }, new Map());
 const addToSetMap = (map, key, value) => {
@@ -115,9 +117,29 @@ const rankImpact = (impactMap, detailMap, limit) => ({
     .slice(0, limit)
 });
 
+// Keep this report from occupying the whole API database pool while people
+// sign in, navigate or edit records. Rows remain in the input query order.
+const readPortfolioRows = async (readers) => {
+  const rows = new Array(readers.length);
+  let next = 0;
+  let failure;
+  await Promise.all(Array.from({ length: Math.min(3, readers.length) }, async () => {
+    while (!failure && next < readers.length) {
+      const index = next++;
+      try {
+        rows[index] = await readers[index]();
+      } catch (error) {
+        failure = error;
+      }
+    }
+  }));
+  if (failure) throw failure;
+  return rows;
+};
+
 const buildPortfolioAnalytics = async (userId) => {
   const [catalog, preferences] = await Promise.all([
-    projectService.getProjectCatalog(userId),
+    projectService.getProjectCatalog(userId, { projection: "summary" }),
     settingsService.getWorkspacePreferences(userId)
   ]);
   const projects = catalog.filter((project) => project.has_access !== false);
@@ -142,21 +164,63 @@ const buildPortfolioAnalytics = async (userId) => {
 
   const projectIds = projects.map((project) => project.id);
   const placeholders = projectIds.map(() => "?").join(", ");
-  const [appTypes, members, requirements, modules, testCases, caseRequirements, caseModules, executions, results, attachments, comments, bugs, bugRequirements, bugCases] = await Promise.all([
-    db.prepare(`SELECT id, project_id, name, type, is_unified FROM app_types WHERE project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT project_members.project_id, project_members.user_id, users.name FROM project_members LEFT JOIN users ON users.id = project_members.user_id WHERE project_members.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT requirements.id, requirements.project_id, requirements.display_id, requirements.title, EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id) AS is_covered FROM requirements WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT test_case_modules.id, test_case_modules.name, app_types.project_id FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT test_cases.id, test_cases.title, test_cases.automated, test_cases.automation_status, app_types.project_id FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT requirement_test_cases.test_case_id, requirement_test_cases.requirement_id FROM requirement_test_cases JOIN requirements ON requirements.id = requirement_test_cases.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT test_case_module_cases.test_case_id, test_case_module_cases.module_id FROM test_case_module_cases JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT * FROM executions WHERE project_id IN (${placeholders}) ORDER BY created_at DESC`).all(...projectIds),
-    db.prepare(`SELECT execution_results.*, executions.project_id FROM execution_results JOIN executions ON executions.id = execution_results.execution_id WHERE executions.project_id IN (${placeholders}) ORDER BY execution_results.created_at DESC`).all(...projectIds),
-    db.prepare(`SELECT project_id, entity_type, entity_id, mime_type FROM attachments WHERE project_id IN (${placeholders}) AND entity_type IN ('execution', 'execution_result')`).all(...projectIds),
-    db.prepare(`SELECT project_id, entity_type, entity_id FROM entity_comments WHERE project_id IN (${placeholders}) AND entity_type IN ('execution', 'execution_result') AND BTRIM(body) <> ''`).all(...projectIds),
-    db.prepare(`SELECT id, project_id, display_id, title, status, severity, priority, linked_test_case_ids, linked_module_ids, linked_requirement_ids FROM feedback WHERE project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT requirement_defects.issue_id AS bug_id, requirement_defects.requirement_id FROM requirement_defects JOIN requirements ON requirements.id = requirement_defects.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
-    db.prepare(`SELECT test_case_defects.issue_id AS bug_id, test_case_defects.test_case_id FROM test_case_defects JOIN test_cases ON test_cases.id = test_case_defects.test_case_id JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds)
+  // Only one run per project contributes to the portfolio. Prefer the newest
+  // run with finalized outcomes, preserving the existing metric definition.
+  const executions = await db.prepare(`
+    SELECT e.id, e.project_id, e.name, e.status, e.trigger,
+      e.created_at, e.started_at, e.ended_at, e.duration_ms
+    FROM projects p
+    JOIN executions e ON e.id = COALESCE(
+      (SELECT candidate.id FROM executions candidate
+       WHERE candidate.project_id = p.id AND EXISTS (
+         SELECT 1 FROM execution_results r WHERE r.execution_id = candidate.id
+           AND LOWER(r.status) IN ('passed', 'failed', 'blocked')
+       ) ORDER BY candidate.created_at DESC NULLS LAST, candidate.id DESC LIMIT 1),
+      (SELECT candidate.id FROM executions candidate
+       WHERE candidate.project_id = p.id
+       ORDER BY candidate.created_at DESC NULLS LAST, candidate.id DESC LIMIT 1)
+    )
+    WHERE p.id IN (${placeholders})
+  `).all(...projectIds);
+  const executionIds = executions.map((execution) => execution.id);
+  const runPlaceholders = executionIds.map(() => "?").join(", ") || "NULL";
+  const relevantEvidence = `(
+    (entity_type = 'execution' AND entity_id IN (${runPlaceholders})) OR
+    (entity_type = 'execution_result' AND entity_id IN (
+      SELECT id FROM execution_results WHERE execution_id IN (${runPlaceholders})
+        AND LOWER(status) IN ('passed', 'failed', 'blocked')
+    ))
+  )`;
+  const evidenceArgs = [...projectIds, ...executionIds, ...executionIds];
+  const [appTypes, members, requirements, modules, testCases, caseRequirements, caseModules, results, attachments, comments, bugs, bugRequirements, bugCases, suiteCounts] = await readPortfolioRows([
+    () => db.prepare(`SELECT id, project_id, name, type, is_unified FROM app_types WHERE project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT project_members.project_id, project_members.user_id, users.name FROM project_members LEFT JOIN users ON users.id = project_members.user_id WHERE project_members.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT requirements.id, requirements.project_id, requirements.display_id, requirements.title, EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id) AS is_covered FROM requirements WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT test_case_modules.id, test_case_modules.name, app_types.project_id FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT test_cases.id, test_cases.title, test_cases.automated, test_cases.automation_status, app_types.project_id FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT requirement_test_cases.test_case_id, requirement_test_cases.requirement_id FROM requirement_test_cases JOIN requirements ON requirements.id = requirement_test_cases.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT test_case_module_cases.test_case_id, test_case_module_cases.module_id FROM test_case_module_cases JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`
+      WITH latest_case_results AS (
+        SELECT DISTINCT ON (e.project_id, r.test_case_id)
+          r.id, r.execution_id, r.test_case_id, r.status, r.created_at, e.project_id
+        FROM execution_results r JOIN executions e ON e.id = r.execution_id
+        WHERE e.project_id IN (${placeholders}) AND LOWER(r.status) IN ('passed', 'failed', 'blocked')
+        ORDER BY e.project_id, r.test_case_id, r.created_at DESC NULLS LAST, r.id DESC
+      )
+      SELECT * FROM latest_case_results
+      UNION
+      SELECT r.id, r.execution_id, r.test_case_id, r.status, r.created_at, e.project_id
+      FROM execution_results r JOIN executions e ON e.id = r.execution_id
+      WHERE r.execution_id IN (${runPlaceholders}) AND LOWER(r.status) IN ('passed', 'failed', 'blocked')
+      ORDER BY created_at DESC NULLS LAST, id DESC
+    `).all(...projectIds, ...executionIds),
+    () => db.prepare(`SELECT DISTINCT project_id, entity_type, entity_id, mime_type FROM attachments WHERE project_id IN (${placeholders}) AND ${relevantEvidence} AND (LOWER(mime_type) LIKE 'image/%' OR LOWER(mime_type) LIKE 'video/%')`).all(...evidenceArgs),
+    () => db.prepare(`SELECT DISTINCT project_id, entity_type, entity_id FROM entity_comments WHERE project_id IN (${placeholders}) AND ${relevantEvidence} AND BTRIM(body) <> ''`).all(...evidenceArgs),
+    () => db.prepare(`SELECT id, project_id, display_id, title, status, severity, priority, linked_test_case_ids, linked_module_ids, linked_requirement_ids FROM feedback WHERE project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT requirement_defects.issue_id AS bug_id, requirement_defects.requirement_id FROM requirement_defects JOIN requirements ON requirements.id = requirement_defects.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT test_case_defects.issue_id AS bug_id, test_case_defects.test_case_id FROM test_case_defects JOIN test_cases ON test_cases.id = test_case_defects.test_case_id JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT app_types.project_id, COUNT(*)::INTEGER AS total FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id IN (${placeholders}) GROUP BY app_types.project_id`).all(...projectIds)
   ]);
 
   const appTypesByProject = groupBy(appTypes, "project_id");
@@ -167,6 +231,7 @@ const buildPortfolioAnalytics = async (userId) => {
   const executionsByProject = groupBy(executions, "project_id");
   const resultsByProject = groupBy(results, "project_id");
   const bugsByProject = groupBy(bugs, "project_id");
+  const suiteCountByProject = new Map(suiteCounts.map(row => [row.project_id, row.total]));
   const requirementById = new Map(requirements.map((item) => [item.id, item]));
   const moduleById = new Map(modules.map((item) => [item.id, item]));
   const caseById = new Map(testCases.map((item) => [item.id, item]));
@@ -307,6 +372,7 @@ const buildPortfolioAnalytics = async (userId) => {
         stories: projectRequirements.length,
         modules: projectModules.length,
         cases: projectCases.length,
+        suites: suiteCountByProject.get(project.id) || 0,
         bugs: projectBugs.length,
         open_bugs: openBugs.length
       },

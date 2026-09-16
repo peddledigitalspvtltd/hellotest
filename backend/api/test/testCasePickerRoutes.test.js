@@ -18,6 +18,7 @@ async function fixture() {
       };
       if (name === '../services/testCaseCatalog.service') return {
         listPage: async query => { calls.push({ kind: 'picker', query }); return { items: [], is_last: true, next_cursor: null }; },
+        getReviewSummary: async query => { calls.push({ kind: 'reviews', query }); return { pending: 51 }; },
         getMetrics: async () => assert.fail('Picker must not fetch metrics')
       };
       if (name === '../services/testCaseScope.service') return {
@@ -53,6 +54,28 @@ test('picker projection automatically uses one bounded endpoint and only require
   assert.equal(calls[0].query.project_id, 'project');
   assert.equal(calls[0].query.ids, 'chosen');
   assert.deepEqual(permissions, [{ code: 'testcase.view', projectId: 'project' }]);
+});
+
+test('review queue and summary derive identity from the session and preserve scoped access', async () => {
+  const { handlers, calls, permissions, state, req } = await fixture();
+  const headers = {};
+  const reply = { header: (name, value) => { headers[name] = value; } };
+  const summary = handlers.get('GET /test-cases/review-summary');
+  assert.deepEqual(await summary(req({ app_type_id: 'app', review_user_id: 'other', reviewer_id: 'other', search: 'hide rows' }), reply), { pending: 51 });
+  assert.equal(calls[0].query.review_user_id, 'member');
+  assert.equal(calls[0].query.project_id, 'project');
+  assert.equal(calls[0].query.search, undefined);
+  assert.equal(headers['Cache-Control'], 'no-store');
+  await handlers.get('GET /test-cases')(req({ app_type_id: 'app', review_queue: 'mine', review_user_id: 'other' }));
+  assert.equal(calls[1].kind, 'picker', 'Review requests always use bounded pagination');
+  assert.equal(calls[1].query.review_user_id, 'member');
+  assert.ok(permissions.every(item => item.code === 'testcase.view' && item.projectId === 'project'));
+  await assert.rejects(summary(req({}), reply), { statusCode: 400 });
+  state.denied = 'testcase.view';
+  await assert.rejects(summary(req({ project_id: 'project' }), reply), { statusCode: 403 });
+  state.authenticated = false;
+  await assert.rejects(summary(req({ project_id: 'project' }), reply), { statusCode: 401 });
+  assert.equal(calls.length, 2, 'Denied requests never read pending reviews');
 });
 
 test('picker identity selections cannot bypass authentication, project scoping, or Test Case permission', async () => {

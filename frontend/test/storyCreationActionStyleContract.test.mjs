@@ -19,8 +19,8 @@ test("Story creation and submit actions reuse the Create Project action palette"
 
   assert.match(toolbar, /requirement-create-story-button/);
   assert.match(toolbar, /onClick=\{\(\) => openCreateRequirementModal\(\)\}/);
-  assert.match(catalogStyles, /\.requirement-toolbar-actions > \.requirement-create-story-button:not\(:disabled\)[\s\S]*?var\(--project-create-action, #0758c9\)/);
-  assert.match(catalogStyles, /\.requirement-toolbar-actions > \.requirement-create-story-button:hover:not\(:disabled\)[\s\S]*?var\(--project-create-action-hover, #0649aa\)/);
+  assert.match(catalogStyles, /\.requirement-toolbar-actions > :is\(\.requirement-create-story-button, \.requirement-ai-action-button\):not\(:disabled\)[\s\S]*?var\(--project-create-action, #0758c9\)/);
+  assert.match(catalogStyles, /\.requirement-toolbar-actions > :is\(\.requirement-create-story-button, \.requirement-ai-action-button\):hover:not\(:disabled\)[\s\S]*?var\(--project-create-action-hover, #0649aa\)/);
   assert.match(storySubmit, /var\(--project-create-action, #0758c9\)/);
   assert.match(storySubmit, /var\(--project-create-action-hover, #0649aa\)/);
   assert.doesNotMatch(storySubmit, /#000000/);
