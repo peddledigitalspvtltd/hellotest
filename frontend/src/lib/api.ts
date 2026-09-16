@@ -2162,6 +2162,19 @@ export const api = {
       request<{ id: string }>(`/execution-schedules/${id}/run`, { method: "POST" }),
     delete: (id: string) => request<{ deleted: boolean }>(`/execution-schedules/${id}`, { method: "DELETE" })
   },
+  repositoryInspection: {
+    localAgentSetup: async (input: { project_id: string; origin: string; agent_token: string }, options?: { signal?: AbortSignal }) => {
+      const setup = await request<{ download_url: string; expires_at: string }>("/repository-inspection/local-agent/setup", { method: "POST", body: JSON.stringify(input), signal: options?.signal });
+      return { ...setup, download_url: new URL(`${API_BASE_URL.replace(/\/$/, "")}/${setup.download_url.replace(/^\//, "")}`, window.location.origin).href };
+    },
+    capabilities: (projectId: string, options?: { signal?: AbortSignal }) =>
+      request<{ remote: { available: boolean; reason: string | null }; local: { base_url: string; setup_command: string } }>(`/repository-inspection/capabilities${toQueryString({ project_id: projectId })}`, { signal: options?.signal, cache: "no-store" }),
+    start: async (input: { project_id: string; app_type_id?: string; start_url?: string }) => {
+      const session = await request<RecorderSessionResponse>("/repository-inspection/sessions", { method: "POST", body: JSON.stringify(input) }, 90_000);
+      const resolve = (path: string | null | undefined) => path ? new URL(`${API_BASE_URL.replace(/\/$/, "")}/${path.replace(/^\//, "")}`, window.location.origin).href : undefined;
+      return { ...session, recorder_mode: "remote" as const, status_url: resolve(session.status_url), live_view_url: resolve(session.live_view_url) };
+    }
+  },
   repositoryAgents: {
     catalog: (options?: { signal?: AbortSignal }) =>
       request<RepositoryAgentCatalog>("/repository-agents", { signal: options?.signal }),

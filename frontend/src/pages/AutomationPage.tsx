@@ -22,6 +22,8 @@ import { Panel } from "../components/Panel";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { RepositoryInspectBrowser } from "../components/RepositoryInspectBrowser";
+import { RepositoryAgentSetup, RepositoryAgentStatus, RepositoryInspectSessionControls, type InspectSessionMode } from "../components/RepositoryInspectControls";
+import { useRepositoryInspectAgent, type RepositoryLocalAgent } from "../hooks/useRepositoryInspectAgent";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
@@ -148,12 +150,6 @@ type RecorderTab = {
   title: string | null;
   url: string;
   active?: boolean;
-};
-
-type LocalInspectRuntime = {
-  publicBaseUrl: string;
-  label: string;
-  reusableSessions: number;
 };
 
 type RecorderInspectResult = {
@@ -782,6 +778,7 @@ async function readRecorderJson<T>(url: string, options?: RequestInit) {
   const response = await fetch(url, {
     ...options,
     cache: "no-store",
+    signal: options?.signal || AbortSignal.timeout(30_000),
     headers
   });
 
@@ -803,33 +800,12 @@ async function readInspectSessionJson<T>(session: RecorderSessionResponse, path:
   return readRecorderJson<T>(request.url, request.options);
 }
 
-const LOCAL_INSPECT_RUNTIMES = [
-  { publicBaseUrl: "http://localhost:4311", label: "local recorder" },
-  { publicBaseUrl: "http://localhost:4301", label: "Docker Test Engine" }
-];
-
-async function discoverLocalInspectRuntime() {
-  for (const runtime of LOCAL_INSPECT_RUNTIMES) {
-    try {
-      const sessions = await readRecorderJson<{ items?: RecorderSessionResponse[] }>(
-        `${runtime.publicBaseUrl}/api/v1/recorder/sessions`
-      );
-      const reusableSessions = (sessions?.items || []).filter((item) =>
-        item.status === "running" && item.purpose === "repository-inspect"
-      ).length;
-      return { ...runtime, reusableSessions };
-    } catch {
-      // The local recorder is optional until inspection is requested.
-    }
-  }
-
-  return null;
-}
-
-function connectLocalInspectSession(runtime: LocalInspectRuntime, session: RecorderSessionResponse) {
+function connectLocalInspectSession(runtime: RepositoryLocalAgent, session: RecorderSessionResponse) {
   return {
     ...session,
     purpose: "repository-inspect" as const,
+    recorder_mode: "local" as const,
+    inspector_agent_token: runtime.token,
     engine_base_url: runtime.publicBaseUrl,
     status_url: `${runtime.publicBaseUrl}/api/v1/recorder/sessions/${encodeURIComponent(session.id)}`,
     live_view_url: session.live_view_path
@@ -1150,6 +1126,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const canUseAutomationBuilder = canEditAutomationCode;
   const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data, projectId);
+  const canInspectRepository = hasPermission(session, "automation.repository.manage", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.object_repository"]);
   const canUseMobileAppium = hasPermission(session, "mobile.manage", projectId)
     && isAutomationWorkspaceEnabled
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
@@ -1286,6 +1264,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [repositoryConfigDrawerWidth, setRepositoryConfigDrawerWidth] = useState(REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH);
   const [isInspectOpen, setIsInspectOpen] = useState(false);
   const [isInspectBrowserMaximized, setIsInspectBrowserMaximized] = useState(false);
+  const inspectAgent = useRepositoryInspectAgent(view === "repository" && Boolean(session) && canInspectRepository, projectId);
+  const inspectCapabilities = useQuery({
+    queryKey: ["repository-inspection-capabilities", projectId],
+    queryFn: ({ signal }) => api.repositoryInspection.capabilities(projectId, { signal }),
+    enabled: view === "repository" && Boolean(session && projectId) && canInspectRepository,
+    staleTime: 30_000,
+    retry: false
+  });
+  const recommendedInspectMode: InspectSessionMode = inspectAgent.state === "connected" ? "local" : "remote";
+  const [inspectSessionMode, setInspectSessionMode] = useState<InspectSessionMode>("remote");
   const [inspectReviewTab, setInspectReviewTab] = useState<RepositoryInspectReviewTab>("candidates");
   const [inspectTabs, setInspectTabs] = useState<RecorderTab[]>([]);
   const [selectedInspectTabId, setSelectedInspectTabId] = useState("");
@@ -1294,7 +1282,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [isInspectingLiveField, setIsInspectingLiveField] = useState(false);
   const [inspectMessage, setInspectMessage] = useState("");
   const closeRepositoryInspector = () => {
-    if (isInspectingLiveField) void stopLiveInspect().catch(() => null);
+    if (inspectLifecycleBusyRef.current) {
+      // A browser that finishes starting after dismissal is closed by the
+      // generation check in launchInspectBrowser.
+      ++inspectSessionGenerationRef.current;
+    } else {
+      void closeInspectBrowser().catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to close inspection browser."));
+    }
     clearInspectHighlights();
     setIsInspectBrowserMaximized(false);
     setIsInspectOpen(false);
@@ -2030,6 +2024,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [selectedScreenName, syncRepositorySearchParams]);
 
   const openRepositoryInspect = (page: typeof activePageObject = activePageObject) => {
+    if (inspectCapabilities.isError) void inspectCapabilities.refetch();
     const targetPage = page || activePageObject;
     if (targetPage?.screenName) {
       if (targetPage.screenName !== selectedScreenName) {
@@ -2434,13 +2429,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
 
     let cancelled = false;
+    let consecutiveFailures = 0;
     let timer: number | undefined;
     const controller = new AbortController();
     const refreshInspectSession = async () => {
       const generation = inspectSessionGenerationRef.current;
       try {
-        if (inspectLifecycleBusyRef.current || document.hidden) return;
-        const next = await readInspectSessionJson<Partial<RecorderSessionResponse>>(inspectRecorderSession, "", { signal: controller.signal });
+        if (inspectLifecycleBusyRef.current || document.hidden || !navigator.onLine) return;
+        const next = await readInspectSessionJson<Partial<RecorderSessionResponse>>(inspectRecorderSession, "", { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) });
+        consecutiveFailures = 0;
         if (!cancelled && next && generation === inspectSessionGenerationRef.current) {
           setInspectRecorderSession((current) => current?.id === inspectRecorderSession.id ? { ...current, ...next } : current);
           if (next.status && next.status !== "running") {
@@ -2452,15 +2449,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           }
         }
       } catch (error) {
-        if (!cancelled && generation === inspectSessionGenerationRef.current && [404, 410].includes(Number((error as { status?: number })?.status))) {
+        consecutiveFailures += 1;
+        const unavailable = [401, 403, 404, 410].includes(Number((error as { status?: number })?.status));
+        if (!cancelled && generation === inspectSessionGenerationRef.current && (unavailable || consecutiveFailures >= 2)) {
           ++inspectTabRequestRef.current;
           setInspectRecorderSession((current) => current?.id === inspectRecorderSession.id ? { ...current, status: "stopped" } : current);
           setIsInspectingLiveField(false);
           setInspectTabs([]);
           selectedInspectTabIdRef.current = "";
           setSelectedInspectTabId("");
+          setInspectMessage(unavailable ? "This browser session expired or is no longer available. Your selected fields are retained. Open a new session to continue." : "The browser connection was lost. Your selected fields are retained. Reconnect your local agent or open a remote browser session.");
         }
-        // A disconnected local inspector is reported by the next explicit user action.
       } finally {
         if (!cancelled) timer = window.setTimeout(() => void refreshInspectSession(), 3000);
       }
@@ -3975,7 +3974,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       if (options?.inspectAfterSave) {
         setIsInspectOpen(true);
         setInspectReviewTab("candidates");
-        setInspectMessage("Screen saved. Launch or reuse the local browser to inspect fields, or extract fields from supplied DOM evidence.");
+        setInspectMessage("Screen saved. Choose a local or remote browser session to inspect fields, or extract fields from supplied DOM evidence.");
         showSuccess("Screen created. Continue by capturing and reviewing its repository fields.");
       } else {
         setIsInspectOpen(false);
@@ -4639,11 +4638,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
   };
 
-  const launchInspectBrowser = async () => {
+  const launchInspectBrowser = async (requestedMode: InspectSessionMode = recommendedInspectMode) => {
+    if (!canInspectRepository) throw new Error("Object repository management permission is required to inspect a browser.");
     if (inspectLifecycleBusyRef.current) return inspectSessionRef.current;
     inspectLifecycleBusyRef.current = true;
     setIsLaunchingInspectBrowser(true);
-    setInspectMessage("Connecting to the local inspection browser…");
+    setInspectMessage(requestedMode === "local" ? "Connecting to your local inspection agent…" : "Starting a remote inspection browser in the Test Engine…");
     let generation = inspectSessionGenerationRef.current;
     try {
       const currentSession = inspectSessionRef.current;
@@ -4659,15 +4659,33 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
       generation = ++inspectSessionGenerationRef.current;
       setIsInspectingLiveField(false);
-      const runtime = await discoverLocalInspectRuntime();
-      if (!runtime) throw new Error("No local HelloTest recorder was found on localhost:4311 or localhost:4301. Start the local recorder or Test Engine, then reopen the browser.");
-      const session = await readRecorderJson<RecorderSessionResponse>(`${runtime.publicBaseUrl}/api/v1/recorder/sessions`, {
-        method: "POST",
-        body: JSON.stringify({ start_url: screenUrlDraft || undefined, reuse_existing: true, purpose: "repository-inspect" })
-      });
-      if (!session) throw new Error("The local recorder did not return an inspection browser session.");
-      const connectedSession = connectLocalInspectSession(runtime, session);
-      if (generation !== inspectSessionGenerationRef.current) return null;
+      let connectedSession: RecorderSessionResponse;
+      if (requestedMode === "local") {
+        const runtime = await inspectAgent.check();
+        if (!runtime) {
+          inspectAgent.openSetup();
+          throw new Error("Connect your local inspection agent, or choose a remote browser session.");
+        }
+        const session = await readRecorderJson<RecorderSessionResponse>(`${runtime.publicBaseUrl}/api/v1/recorder/sessions`, {
+          method: "POST",
+          headers: { "X-HelloTest-Agent-Token": runtime.token },
+          body: JSON.stringify({ start_url: screenUrlDraft || undefined, reuse_existing: false, purpose: "repository-inspect" }),
+          signal: AbortSignal.timeout(90_000)
+        });
+        if (!session) throw new Error("The local agent did not return an inspection browser session.");
+        connectedSession = connectLocalInspectSession(runtime, session);
+      } else {
+        connectedSession = await api.repositoryInspection.start({
+          project_id: activeRepositoryProjectId || projectId,
+          app_type_id: activeRepositoryAppTypeId || appTypeId || undefined,
+          start_url: screenUrlDraft || undefined
+        });
+      }
+      if (generation !== inspectSessionGenerationRef.current) {
+        await stopRepositoryInspectSession(connectedSession, readRecorderJson).catch(() => null);
+        return null;
+      }
+      setInspectSessionMode(requestedMode);
       inspectSessionRef.current = connectedSession;
       setInspectRecorderSession(connectedSession);
       selectedInspectTabIdRef.current = "";
@@ -4780,7 +4798,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     const baseUrl = getRecorderEngineBaseUrl(targetSession);
 
     if (!targetSession?.id || !baseUrl) {
-      throw new Error("Local recorder browser is not available.");
+      throw new Error("Inspection browser is not available. Connect a local or remote session first.");
     }
 
     const tabs = await loadInspectTabs(targetSession);
@@ -5026,8 +5044,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   useEffect(() => () => {
     ++inspectSessionGenerationRef.current;
     ++inspectTabRequestRef.current;
+    const previous = inspectSessionRef.current;
+    inspectSessionRef.current = null;
+    if (previous?.status === "running") void stopRepositoryInspectSession(previous, readRecorderJson).catch(() => null);
+    setInspectRecorderSession(null);
+    setIsInspectOpen(false);
+    setIsInspectingLiveField(false);
+    setInspectTabs([]);
+    setSelectedInspectTabId("");
     if (highlightClearTimerRef.current) window.clearTimeout(highlightClearTimerRef.current);
-  }, []);
+  }, [projectId, view, canInspectRepository, session?.user.id]);
 
   const batchAgentDialogRef = useDialogFocus<HTMLDivElement>({ active: isBatchAgentOpen, closeDisabled: scheduleAiAutomation.isPending, onClose: () => setIsBatchAgentOpen(false) });
   const automationPageHeader = view === "repository"
@@ -5752,7 +5778,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <AddIcon />
                   <span>New screen</span>
                 </button>
-	                <button className="ghost-button" disabled={!activePageObject} onClick={() => openRepositoryInspect(activePageObject)} type="button">
+	                <button className="ghost-button" disabled={!activePageObject || !canInspectRepository} onClick={() => openRepositoryInspect(activePageObject)} type="button">
 	                  <MousePointerIcon />
 	                  <span>Inspect selected</span>
 	                </button>
@@ -5768,6 +5794,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <TrashIcon size={16} />
                   <span>{deleteRepositoryScreen.isPending ? "Checking..." : "Delete screen"}</span>
                 </button>
+                {canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : null}
               </div>
             )}
           >
@@ -5884,7 +5911,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </div>
                       <div className="testops-action-row">
                         <button className="primary-button" disabled={saveRepositoryScreenEvidence.isPending} onClick={() => saveRepositoryScreenEvidence.mutate()} type="button"><LayersIcon /><span>{saveRepositoryScreenEvidence.isPending ? "Saving..." : "Save screen"}</span></button>
-	                        <button className="ghost-button" onClick={() => openRepositoryInspect(activePageObject)} type="button"><MousePointerIcon /><span>Inspect screen</span></button>
+	                        <button className="ghost-button" disabled={!canInspectRepository} onClick={() => openRepositoryInspect(activePageObject)} type="button"><MousePointerIcon /><span>Inspect screen</span></button>
 	                        <button className="ghost-button" disabled={(!screenDomDraft && !screenScreenshotDraft) || extractRepositoryFields.isPending} onClick={() => {
 	                          openRepositoryInspect(activePageObject);
 	                          extractRepositoryFields.mutate();
@@ -6268,32 +6295,35 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	            </div>
 	          ) : null}
 
+          {canInspectRepository ? <RepositoryAgentSetup connection={inspectAgent} /> : null}
 	          {isInspectOpen ? (
             <div className="modal-backdrop" role="presentation">
               <div className={`dialog object-repository-inspector${isInspectBrowserMaximized ? " is-browser-maximized" : ""}`} ref={repositoryInspectorRef} role="dialog" aria-modal="true" aria-label="Object repository inspector" tabIndex={-1}>
                 <div className="dialog-header object-repository-inspector-header">
                   <div className="object-repository-inspector-title">
                     <h2>HelloTest Live builder</h2>
-                    <span className={inspectRecorderSession?.status === "running" ? "is-connected" : ""}>{inspectRecorderSession?.status === "running" ? "Connected" : "Offline"}</span>
+                    <span className={inspectRecorderSession?.status === "running" ? "is-connected" : ""}>{inspectRecorderSession?.status === "running" ? `${inspectSessionMode === "local" ? "Local" : "Remote"} session connected` : "Choose a browser session"}</span>
                   </div>
                   <div className="object-repository-inspector-toolbar" aria-label="Inspector controls">
-                    <button
-                      aria-label={inspectRecorderSession?.status === "running" ? "Close browser" : isLaunchingInspectBrowser ? "Connecting browser" : "Use browser"}
-                      title={inspectRecorderSession?.status === "running" ? "Close browser" : "Use browser"}
-                      className="ghost-button compact"
-                      disabled={isLaunchingInspectBrowser || isClosingInspectBrowser}
-                      onClick={() => void (inspectRecorderSession?.status === "running" ? closeInspectBrowser() : launchInspectBrowser()).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to update inspect browser."))}
-                      type="button"
-                    >
-                      <MousePointerIcon />
-                      <span>{isClosingInspectBrowser ? "Closing…" : inspectRecorderSession?.status === "running" ? "Close browser" : isLaunchingInspectBrowser ? "Connecting…" : "Use browser"}</span>
-                    </button>
+                    <RepositoryInspectSessionControls
+                      mode={inspectSessionMode}
+                      recommendedMode={recommendedInspectMode}
+                      localConnected={inspectAgent.state === "connected"}
+                      remoteAvailable={inspectCapabilities.data?.remote.available === true}
+                      remoteReason={inspectCapabilities.error instanceof Error ? inspectCapabilities.error.message : inspectCapabilities.data?.remote.reason || (inspectCapabilities.isFetching ? "Checking remote browser availability…" : undefined)}
+                      busy={isLaunchingInspectBrowser || isClosingInspectBrowser}
+                      disabled={!canInspectRepository}
+                      running={inspectRecorderSession?.status === "running"}
+                      onStart={mode => void launchInspectBrowser(mode).catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start inspection browser."))}
+                      onClose={() => void closeInspectBrowser().catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to close inspection browser."))}
+                      onSetup={inspectAgent.openSetup}
+                    />
                     <button
                       aria-label={isInspectingLiveField ? "Stop selecting fields" : "Select fields"}
                       title={isInspectingLiveField ? "Stop selecting fields" : "Select fields"}
                       aria-pressed={isInspectingLiveField}
                       className={isInspectingLiveField ? "primary-button compact is-active" : "primary-button compact"}
-                      disabled={saveInspectedScreenFields.isPending || isClosingInspectBrowser || (!inspectRecorderSession?.id && isLaunchingInspectBrowser)}
+                      disabled={!canInspectRepository || saveInspectedScreenFields.isPending || isClosingInspectBrowser || (!inspectRecorderSession?.id && isLaunchingInspectBrowser)}
                       onClick={() => void (isInspectingLiveField ? stopLiveInspect() : startLiveInspect()).catch((error) => setInspectMessage(error instanceof Error ? error.message : "Unable to update inspect mode."))}
                       type="button"
                     >
@@ -6330,6 +6360,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         isRefreshingTabs={isRefreshingInspectTabs}
                         sessionId={inspectRecorderSession?.status === "running" ? inspectRecorderSession.id : ""}
                         liveUrl={inspectRecorderSession?.status === "running" ? inspectRecorderLiveUrl : ""}
+                        emptyMessage={inspectCapabilities.isError ? "Remote browser availability could not be checked. Reopen the inspector to retry, or connect your local agent from the browser session menu." : inspectCapabilities.data?.remote.available === false && inspectAgent.state !== "connected" ? `${inspectCapabilities.data.remote.reason || "Remote browser is unavailable."} Choose Local session to connect an agent on this computer.` : undefined}
                       />
                       {focusedInspectField && focusedInspectPrimaryLocator ? (
                         <div className="object-repository-browser-locator-dock has-selection" aria-live="polite">

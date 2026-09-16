@@ -18,6 +18,8 @@ const scenario = new URLSearchParams(location.search).get("scenario") || "";
 window.readinessCalls = [];
 window.readinessDenyBugs = scenario === "restricted";
 window.readinessFailBugs = false;
+window.readinessFailFlags = false;
+window.readinessContextCalls = [];
 const call = (kind, input) => window.readinessCalls.push({ kind, input });
 const session = {
   token: "fixture",
@@ -28,6 +30,10 @@ const session = {
     role: "admin",
   },
 };
+if (scenario === "release-denied") {
+  session.user.role = "member";
+  session.user.project_permissions = { project: ["dashboard.view", "requirement.view", "testcase.view", "suite.view", "run.view", "result.view", "feedback.view", "project.view", "quality_insight.view"] };
+}
 sessionStorage.write(session);
 setCurrentScope("project", "app");
 for (const methods of Object.values(api))
@@ -35,7 +41,9 @@ for (const methods of Object.values(api))
     for (const [name, value] of Object.entries(methods))
       if (typeof value === "function") methods[name] = async () => [];
 api.auth.session = async () => session;
-api.featureFlags.snapshot = async () => ({
+api.featureFlags.snapshot = async () => {
+  if (window.readinessFailFlags) throw new Error("Isolated policy refresh failure");
+  return ({
   flags: Object.fromEntries(
     [
       "hellotest.ops.projects",
@@ -51,7 +59,7 @@ api.featureFlags.snapshot = async () => ({
       x === "hellotest.manual.bugs" ? !window.readinessDenyBugs : true,
     ]),
   ),
-});
+});};
 api.settings.getWorkspacePreferences = async () => ({ preferences: {} });
 api.projects.list = async () => [
   { id: "project", name: "Commerce platform", key: "CP" },
@@ -123,6 +131,15 @@ const runs = [
     status: "running",
     created_at: date,
     started_at: date,
+    build: "candidate-42",
+    test_environment: { id: "env-saved", name: "Saved staging", snapshot: { variables: { secret: "SENSITIVE_FIXTURE_MARKER" } } },
+    test_configuration: { id: "config-saved", name: "Saved Chromium 128", snapshot: null },
+  },
+  {
+    id: "r2", project_id: "project", name: "Planned Firefox confirmation", release: "Autumn 2026", sprint: "Sprint 24",
+    test_case_ids: ["c2"], case_snapshots: [{ test_case_id: "c2", expected_iterations: 1 }], status: "queued", created_at: date,
+    test_environment: { id: "deleted-env", name: "Archived staging", snapshot: null },
+    test_configuration: { id: "deleted-config", name: "Archived Firefox", snapshot: null },
   },
 ];
 const results = [
@@ -196,12 +213,12 @@ api.issues.listPage = async (input) => {
     scenario === "empty" || input.project_id !== "project" ? [] : bugs,
   );
 };
-api.requirementReleases.get = async () => scenario === "linked" ? {id:"linked",project_id:"project",fix_version:"Autumn 2026",requirement_count:1,requirements:[{...stories[1],fix_version:null}]} : ({
+api.requirementReleases.get = async id => {window.readinessContextCalls.push(id);return scenario === "linked" ? {id:"linked",project_id:"project",fix_version:"Autumn 2026",requirement_count:1,requirements:[{...stories[1],fix_version:null}]} : ({
   id: "wrong",
   project_id: "other-project",
   fix_version: "Private release",
   requirements: [],
-});
+});};
 api.ai.qualityInsights = async (input) => {
   call("ai", input);
   return new Promise(
@@ -225,9 +242,10 @@ api.executionResults.releaseReadiness = async (input) => {
       scenario === "empty" || input.project_id !== "project" ? [] : results,
     complete: true,
     reasons: [],
-    runs_scanned: 1,
+    runs_scanned: 2,
     results_scanned: 4,
     candidate_results: 4,
+    evaluated_at: date,
     limits: { runs: 10, results: 300, results_per_run: 300 },
   };
 };
@@ -248,7 +266,7 @@ createRoot(document.getElementById("root")).render(
   <MemoryRouter
     initialEntries={[
       "/release-readiness?release=Autumn%202026" +
-        (scenario === "wrong" ? "&release_id=wrong" : scenario === "linked" ? "&release_id=linked" : ""),
+        (scenario === "wrong" ? "&release_id=wrong" : scenario === "linked" || scenario === "release-denied" ? "&release_id=linked" : ""),
     ]}
   >
     <QueryClientProvider

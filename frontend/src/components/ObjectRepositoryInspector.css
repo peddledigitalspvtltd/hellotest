@@ -235,3 +235,43 @@
   .repository-browser-command-row { padding-right: 28px; }
   .object-repository-inspector.is-browser-maximized .object-repository-inspector-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 }
+.repository-agent-status { gap: 7px; white-space: nowrap; min-height: 34px; max-height: 38px; align-self: center; }
+.repository-agent-status small { color: var(--text-secondary); font-size: 11px; }
+.repository-agent-status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-secondary); }
+.repository-agent-status.is-connected .repository-agent-status-dot { background: var(--success, #15803d); }
+.repository-session-controls, .repository-session-split { display: inline-flex; min-width: 0; align-items: stretch; }
+.repository-session-split > button:first-child { border-start-end-radius: 0; border-end-end-radius: 0; }
+.repository-session-split .repository-session-toggle { border-inline-start: 0; border-start-start-radius: 0; border-end-start-radius: 0; padding-inline: 7px; }
+.repository-session-menu {
+  position: fixed; z-index: 15050; width: 330px; max-width: calc(100vw - 24px);
+  padding: 5px; border: 1px solid var(--border, #d8dee9); border-radius: 9px;
+  background: var(--surface, #fff); color: var(--text-primary, #172033);
+  box-shadow: 0 12px 36px #10203926; overflow: auto;
+}
+.repository-session-menu > button { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; border-radius: 5px; padding: 11px; text-align: left; color: inherit; background: transparent; cursor: pointer; }
+.repository-session-menu > button:hover, .repository-session-menu > button:focus-visible { background: color-mix(in srgb, var(--primary, #2563eb) 8%, var(--surface, #fff)); }
+.repository-session-menu > button:disabled { opacity: .55; cursor: not-allowed; }
+.repository-session-menu > button > svg { flex-shrink: 0; margin-top: 2px; }
+.repository-session-menu > button > span { display: grid; min-width: 0; gap: 5px; }
+.repository-session-menu strong { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.repository-session-menu strong small { color: var(--primary, #2563eb); font-size: 10px; font-weight: 550; }
+.repository-session-menu button span > span { font-size: 11px; line-height: 1.45; color: var(--text-secondary, #637086); }
+.repository-agent-setup-backdrop { z-index: 15100; }
+.modal-backdrop.repository-agent-setup-backdrop > .modal-card.repository-agent-setup { width: min(640px, calc(100vw - 24px)); padding: 0 !important; gap: 0 !important; }
+.repository-agent-setup.modal-card .dialog-header { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; justify-content: space-between; padding: 20px !important; gap: 12px; flex: 0 0 auto; align-items: flex-start; border-bottom: 1px solid var(--border-subtle); }
+.repository-agent-setup.modal-card .dialog-header > div { min-width: 0; }
+.repository-agent-setup.modal-card .dialog-header > button { flex-shrink: 0; }
+.repository-agent-setup h2 { margin: 0; font-size: 17px; }
+.repository-agent-setup p { font-size: 12px; line-height: 1.6; margin: 6px 0 0; color: var(--text-secondary); }
+.repository-agent-setup-body { min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
+.repository-agent-connection { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px; background: var(--surface-subtle); }
+.repository-agent-connection > svg { flex-shrink: 0; }
+.repository-agent-connection strong { font-size: 13px; }
+.repository-agent-connection.is-connected > svg { color: var(--success, #15803d); }
+.repository-agent-setup ol { padding-left: 20px; font-size: 12px; line-height: 1.65; }
+.repository-agent-setup li + li { margin-top: 8px; }
+.repository-agent-command-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.repository-agent-command-heading label { display: grid; gap: 5px; font-size: 11px; color: var(--text-secondary); }
+.repository-agent-command-heading select { min-height: 30px; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); border-radius: 5px; padding-inline: 8px; }
+.repository-agent-command { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-subtle); font-size: 11px; line-height: 1.6; user-select: all; }
+.repository-agent-setup .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border-subtle); flex: 0 0 auto; }

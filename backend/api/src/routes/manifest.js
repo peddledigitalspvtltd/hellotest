@@ -47,6 +47,7 @@ const routeModules = [
   { area: "ops", module: require("./opsTelemetry.routes") },
   { area: "connect", module: require("./aiKnowledge.routes") },
   { area: "connect", module: require("./aiPromptTemplates.routes") },
+  { area: "automation", module: require("./repositoryInspection.routes") },
   { area: "automation", module: require("./localAgent.routes") }
 ];
 

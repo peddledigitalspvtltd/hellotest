@@ -1,9 +1,13 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { chromium } from "playwright";
+import { constantTimeSecretMatches, extractTestEngineSecrets, resolveTestEngineSharedSecret } from "./testEngineSecurity.js";
+import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
+import { createInspectionProxy } from "./inspectionProxy.js";
 const sessions = new Map();
+let inspectionSessionsStarting = 0;
 const inspectResults = new Map();
 const REPOSITORY_HIGHLIGHT_DURATION_MS = 1_000;
 const REPOSITORY_VALIDATION_FIELD_LIMIT = 80;
@@ -613,7 +617,8 @@ const attachPageCapture = (session, page, logger) => {
     });
 };
 const resolveActivePage = async (session) => {
-    const page = session.context.pages().filter((candidate) => !candidate.isClosed()).at(-1);
+    const pages = session.context.pages().filter((candidate) => !candidate.isClosed());
+    const page = pages.find((candidate) => getRecorderPageId(candidate) === session.active_page_id) || pages.at(-1);
     return page || session.context.newPage();
 };
 const resolveRecorderPage = async (session, pageId) => {
@@ -623,8 +628,9 @@ const resolveRecorderPage = async (session, pageId) => {
         if (match) {
             return match;
         }
+        throw new Error("The selected browser tab is no longer open. Refresh the tab list.");
     }
-    return pages.at(-1) || session.context.newPage();
+    return resolveActivePage(session);
 };
 const serializeRecorderPage = async (page) => ({
     id: getRecorderPageId(page),
@@ -1258,6 +1264,7 @@ const readRecorderToken = (request) => {
 const requireRecorderToken = (request, session) => readRecorderToken(request) === session.live_token;
 const renderLiveViewHtml = (session) => {
     const sessionId = JSON.stringify(session.id);
+    const inspectMode = session.purpose === "repository-inspect";
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -1308,6 +1315,42 @@ const renderLiveViewHtml = (session) => {
       margin-left: auto;
       max-width: 230px;
     }
+    .inspect-view header {
+      min-height: 38px;
+      padding: 3px 8px;
+      gap: 6px 10px;
+    }
+    .inspect-view .commandbar {
+      margin-left: auto;
+      justify-content: flex-end;
+      gap: 4px;
+    }
+    .inspect-view header > .status {
+      order: -1;
+      margin-left: 0;
+      margin-right: auto;
+      max-width: min(220px, 30vw);
+    }
+    .inspect-view #dimensionText { display: none; }
+    .inspect-view button,
+    .inspect-view .more-controls > summary {
+      min-height: 30px;
+      padding: 5px 9px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .inspect-view .action-panel {
+      padding: 5px 8px;
+    }
+    .inspect-view .action-form input {
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    .embedded-inspect header,
+    .embedded-inspect .action-panel { display: none !important; }
     #statusText {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1566,16 +1609,16 @@ const renderLiveViewHtml = (session) => {
     }
   </style>
 </head>
-<body>
+<body class="${inspectMode ? "inspect-view" : "recorder-view"}">
   <header>
-    <div class="brand" title="Session ${session.id.slice(0, 8)} · ${session.display_mode.replace(/-/g, " ")}">
+    ${inspectMode ? "" : `<div class="brand" title="Session ${session.id.slice(0, 8)} · ${session.display_mode.replace(/-/g, " ")}">
       <strong>HelloTest Live builder</strong>
-    </div>
+    </div>`}
     <nav class="commandbar" aria-label="Browser controls">
     <button id="addressToggle" aria-controls="actionPanel" aria-expanded="false" type="button">Go</button>
     <button id="typeToggle" aria-controls="actionPanel" aria-expanded="false" class="secondary" type="button">Type</button>
-    <button class="secondary" data-key="Enter" type="button">Enter</button>
     <button class="secondary" data-key="Tab" type="button">Tab</button>
+    <button class="secondary" data-key="Enter" type="button">Enter</button>
     <details class="more-controls" id="moreControls">
       <summary>More</summary>
       <div class="more-menu">
@@ -1612,7 +1655,21 @@ const renderLiveViewHtml = (session) => {
   </main>
   <script>
     const sessionId = ${sessionId};
+    const inspectMode = ${JSON.stringify(inspectMode)};
     const token = new URLSearchParams(window.location.search).get("token") || "";
+    const selectedPageId = new URLSearchParams(window.location.search).get("page_id") || "";
+    const parentFrameId = new URLSearchParams(window.location.search).get("parent_frame") || "";
+    const parentOrigin = (() => {
+      const value = new URLSearchParams(window.location.search).get("parent_origin") || "";
+      try {
+        const url = new URL(value);
+        return /^https?:$/.test(url.protocol) && url.origin === value ? value : "";
+      } catch { return ""; }
+    })();
+    const embeddedInspect = inspectMode && new URLSearchParams(window.location.search).get("embedded") === "repository-inspect"
+      && Boolean(parentOrigin) && Boolean(parentFrameId) && window.parent !== window;
+    if (embeddedInspect) document.body.classList.add("embedded-inspect");
+    const readyStatus = inspectMode ? "Ready" : "Live";
     const screen = document.getElementById("screen");
     const screenContext = screen.getContext("2d", { alpha: false });
     const viewport = screen.parentElement;
@@ -1636,6 +1693,18 @@ const renderLiveViewHtml = (session) => {
     let clickMarkerTimer = null;
     let actualSize = false;
     let lastInputError = "";
+    let statusError = "";
+    let lastReportedState = "";
+    const reportState = () => {
+      if (!embeddedInspect) return;
+      const state = { type: "hellotest:recorder:state", session_id: sessionId, frame_id: parentFrameId,
+        width: screen.width || 0, height: screen.height || 0, actual_size: actualSize,
+        pending: pendingInputs, error: lastInputError || statusError || "" };
+      const serialized = JSON.stringify(state);
+      if (serialized === lastReportedState) return;
+      lastReportedState = serialized;
+      window.parent.postMessage(state, parentOrigin);
+    };
 
     const resizeScreen = () => {
       if (!screen.width || !screen.height) return;
@@ -1644,19 +1713,23 @@ const renderLiveViewHtml = (session) => {
       const scale = actualSize ? 1 : Math.min(1, availableWidth / screen.width, availableHeight / screen.height);
       screen.style.width = Math.max(1, Math.floor(screen.width * scale)) + "px";
       screen.style.height = Math.max(1, Math.floor(screen.height * scale)) + "px";
+      reportState();
     };
 
     new ResizeObserver(resizeScreen).observe(viewport);
-    scaleToggle.addEventListener("click", () => {
-      actualSize = !actualSize;
+    const setActualSize = (value) => {
+      actualSize = value;
       scaleToggle.textContent = actualSize ? "Fit" : "100%";
       scaleToggle.setAttribute("aria-pressed", String(actualSize));
       scaleToggle.setAttribute("aria-label", actualSize ? "Fit browser to available space" : "Show browser at actual size");
       scaleToggle.title = actualSize ? "Fit the whole browser in the available space" : "Show at 100% for small text and controls";
       resizeScreen();
-    });
+      reportState();
+    };
+    scaleToggle.addEventListener("click", () => setActualSize(!actualSize));
 
-    const withToken = (path) => path + "?token=" + encodeURIComponent(token);
+    const withToken = (path) => path + "?token=" + encodeURIComponent(token)
+      + (selectedPageId ? "&page_id=" + encodeURIComponent(selectedPageId) : "");
     const streamUrl = () => withToken("/api/v1/recorder/sessions/" + encodeURIComponent(sessionId) + "/stream");
     const inputUrl = () => withToken("/api/v1/recorder/sessions/" + encodeURIComponent(sessionId) + "/input");
 
@@ -1664,6 +1737,8 @@ const renderLiveViewHtml = (session) => {
       statusText.textContent = text;
       statusText.title = text;
       statusText.classList.toggle("error", Boolean(isError));
+      statusError = isError ? text : "";
+      reportState();
     };
 
     const markInputStarted = () => {
@@ -1675,7 +1750,7 @@ const renderLiveViewHtml = (session) => {
     const markInputFinished = () => {
       pendingInputs = Math.max(0, pendingInputs - 1);
       if (!pendingInputs) {
-        setStatus(lastInputError || "Live", Boolean(lastInputError));
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       }
     };
 
@@ -1727,9 +1802,10 @@ const renderLiveViewHtml = (session) => {
 
         screenContext.drawImage(image, 0, 0, screen.width || image.width, screen.height || image.height);
         dimensionText.textContent = screen.width && screen.height ? screen.width + " x " + screen.height : "";
+        reportState();
 
         if (!pendingInputs) {
-          setStatus(lastInputError || "Live", Boolean(lastInputError));
+          setStatus(lastInputError || readyStatus, Boolean(lastInputError));
         }
       }, { once: true });
 
@@ -1760,11 +1836,11 @@ const renderLiveViewHtml = (session) => {
       const source = new EventSource(streamUrl());
 
       source.addEventListener("open", () => {
-        setStatus(lastInputError || "Live", Boolean(lastInputError));
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       });
 
       source.addEventListener("ready", () => {
-        setStatus(lastInputError || "Live", Boolean(lastInputError));
+        setStatus(lastInputError || readyStatus, Boolean(lastInputError));
       });
 
       source.addEventListener("frame", (event) => {
@@ -1910,6 +1986,24 @@ const renderLiveViewHtml = (session) => {
       }
     });
 
+    window.addEventListener("message", async (event) => {
+      if (!embeddedInspect || event.source !== window.parent || event.origin !== parentOrigin) return;
+      const message = event.data;
+      if (!message || message.type !== "hellotest:recorder:command" || message.session_id !== sessionId
+        || message.frame_id !== parentFrameId || typeof message.value !== "string") return;
+      if (message.command === "scale") {
+        if (!["fit", "actual", "toggle"].includes(message.value)) return;
+        setActualSize(message.value === "fit" ? false : message.value === "actual" ? true : !actualSize);
+        return;
+      }
+      let payload;
+      if (message.command === "navigate" && message.value.trim()) payload = { type: "goto", url: message.value.trim() };
+      else if (message.command === "type" && message.value) payload = { type: "type", text: message.value };
+      else if (message.command === "key" && ["Enter", "Tab", "Escape", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(message.value)) payload = { type: "press", key: message.value };
+      if (payload && await send(payload)) screen.focus({ preventScroll: true });
+    });
+
+    reportState();
     connectStream();
   </script>
 </body>
@@ -1921,12 +2015,13 @@ const stopSession = async (session) => {
     }
     session.stopped_at = session.stopped_at || new Date().toISOString();
     await session.context.close().catch(() => undefined);
+    await session.inspection_proxy?.close().catch(() => undefined);
     await rm(session.user_data_dir, { recursive: true, force: true }).catch(() => undefined);
 };
 const stopOrphanedSessions = async (logger) => {
     const now = Date.now();
     for (const session of sessions.values()) {
-        if (session.status !== "running" || session.paused) {
+        if (session.status !== "running" || (session.paused && session.purpose !== "repository-inspect")) {
             continue;
         }
         const lastActivity = Date.parse(session.last_activity_at || session.started_at);
@@ -1944,14 +2039,43 @@ const stopOrphanedSessions = async (logger) => {
     }
 };
 export const registerRecorderRoutes = async (app) => {
+    const agentToken = normalizeText(process.env.HELLOTEST_INSPECTOR_TOKEN);
+    const secret = resolveTestEngineSharedSecret();
+    const isPrivileged = (request) => Boolean(secret.secret && extractTestEngineSecrets(request).some(value => constantTimeSecretMatches(value, secret.secret)));
+    app.addHook("preHandler", async (request, reply) => {
+        const pathname = request.url.split("?")[0];
+        if (!pathname.startsWith("/api/v1/recorder/"))
+            return;
+        const id = request.params?.id;
+        const session = id ? sessions.get(id) : undefined;
+        const paired = Boolean(agentToken && constantTimeSecretMatches(String(request.headers["x-hellotest-agent-token"] || ""), agentToken));
+        const scoped = Boolean(session && requireRecorderToken(request, session));
+        const repositoryCreate = pathname === "/api/v1/recorder/sessions" && request.method === "POST"
+            && request.body?.purpose === "repository-inspect";
+        if ((agentToken && !paired && !scoped)
+            || (!agentToken && (repositoryCreate || session?.purpose === "repository-inspect") && !scoped && !isPrivileged(request))) {
+            reply.code(401).send({ message: agentToken ? "Pair this local inspection agent from HelloTest before connecting." : "Protected inspection session requires authorization." });
+        }
+    });
+    app.get("/api/v1/recorder/agent/status", async (_request, reply) => {
+        reply.header("cache-control", "no-store");
+        if (!agentToken) {
+            reply.code(409);
+            return { ready: false, message: "Restart the local agent using the pairing command from Object Repository." };
+        }
+        const ready = await access(chromium.executablePath()).then(() => true, () => false);
+        return { ready, service: "hellotest-inspection-agent", protocol_version: 1,
+            ...(ready ? {} : { message: "Chromium is not installed. Run the setup command again to install Playwright browsers." }) };
+    });
     const cleanupTimer = setInterval(() => {
         void stopOrphanedSessions(app.log);
     }, RECORDER_CLEANUP_INTERVAL_MS);
     app.addHook("onClose", async () => {
         clearInterval(cleanupTimer);
+        await Promise.all([...sessions.values()].map(stopSession));
     });
     app.get("/api/v1/recorder/sessions", async () => ({
-        items: [...sessions.values()].map((session) => serializeSession(session))
+        items: [...sessions.values()].filter(session => session.purpose !== "repository-inspect").map((session) => serializeSession(session))
     }));
     app.get("/api/v1/recorder/sessions/:id", async (request, reply) => {
         const params = request.params;
@@ -1980,6 +2104,39 @@ export const registerRecorderRoutes = async (app) => {
                 active: getRecorderPageId(page) === activePageId
             })))
         };
+    });
+    app.post("/api/v1/recorder/sessions/:id/tabs/activate", async (request, reply) => {
+        const params = request.params;
+        const body = request.body;
+        const session = sessions.get(params.id);
+        if (!session) {
+            reply.code(404);
+            return { message: "Recorder session not found" };
+        }
+        if (!requireRecorderToken(request, session)) {
+            reply.code(403);
+            return { message: "Recorder live view token is invalid or expired" };
+        }
+        if (session.status !== "running") {
+            reply.code(409);
+            return { message: "Recorder session is not running" };
+        }
+        const pageId = normalizeText(body?.page_id);
+        if (!pageId) {
+            reply.code(400);
+            return { message: "page_id is required" };
+        }
+        try {
+            const page = await resolveRecorderPage(session, pageId);
+            await page.bringToFront();
+            session.active_page_id = getRecorderPageId(page);
+            touchSession(session);
+            return { session_id: session.id, active_page_id: session.active_page_id, page: await serializeRecorderPage(page) };
+        }
+        catch (error) {
+            reply.code(409);
+            return { message: error instanceof Error ? error.message : "Unable to activate the selected browser tab" };
+        }
     });
     app.post("/api/v1/recorder/sessions/:id/inspect/start", async (request, reply) => {
         const params = request.params;
@@ -2304,6 +2461,7 @@ export const registerRecorderRoutes = async (app) => {
     });
     app.get("/api/v1/recorder/sessions/:id/stream", async (request, reply) => {
         const params = request.params;
+        const query = request.query;
         const session = sessions.get(params.id);
         if (!session) {
             reply.code(404);
@@ -2339,7 +2497,7 @@ export const registerRecorderRoutes = async (app) => {
             await client?.detach().catch(() => undefined);
         };
         try {
-            const page = await resolveActivePage(session);
+            const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
             touchSession(session);
             client = await session.context.newCDPSession(page);
             reply.hijack();
@@ -2402,6 +2560,7 @@ export const registerRecorderRoutes = async (app) => {
     });
     app.get("/api/v1/recorder/sessions/:id/screenshot", async (request, reply) => {
         const params = request.params;
+        const query = request.query;
         const session = sessions.get(params.id);
         if (!session) {
             reply.code(404);
@@ -2412,7 +2571,7 @@ export const registerRecorderRoutes = async (app) => {
             return { message: "Recorder live view token is invalid or expired" };
         }
         try {
-            const page = await resolveActivePage(session);
+            const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
             touchSession(session);
             const screenshot = await page.screenshot({
                 type: "jpeg",
@@ -2434,6 +2593,7 @@ export const registerRecorderRoutes = async (app) => {
     });
     app.post("/api/v1/recorder/sessions/:id/input", async (request, reply) => {
         const params = request.params;
+        const query = request.query;
         const session = sessions.get(params.id);
         if (!session) {
             reply.code(404);
@@ -2450,7 +2610,7 @@ export const registerRecorderRoutes = async (app) => {
         const body = request.body;
         const type = normalizeText(body?.type);
         try {
-            const page = await resolveActivePage(session);
+            const page = await resolveRecorderPage(session, normalizeText(query?.page_id));
             touchSession(session);
             if (type === "click") {
                 const x = normalizePositiveNumber(body?.x);
@@ -2517,10 +2677,12 @@ export const registerRecorderRoutes = async (app) => {
             }
             else if (type === "goto") {
                 const url = normalizeUrl(body?.url);
-                if (!url) {
+                if (!url || !["http:", "https:"].includes(new URL(url).protocol)) {
                     reply.code(400);
-                    return { message: "goto input requires a valid absolute URL" };
+                    return { message: "goto input requires a valid absolute HTTP(S) URL" };
                 }
+                if (session.remote_inspection)
+                    await assertRemoteInspectionUrl(url);
                 pushRecorderAction(session, {
                     type: "navigation",
                     locator: "location",
@@ -2559,7 +2721,25 @@ export const registerRecorderRoutes = async (app) => {
         const body = request.body;
         const startUrl = normalizeUrl(body?.start_url);
         const purpose = body?.purpose === "repository-inspect" ? "repository-inspect" : body?.purpose === "automation-recording" ? "automation-recording" : null;
-        const reusableSession = body?.reuse_existing === true
+        const remoteInspection = purpose === "repository-inspect" && !agentToken;
+        if (body?.start_url && !startUrl) {
+            reply.code(400);
+            return { message: "Enter a valid HTTP(S) URL." };
+        }
+        if (startUrl) {
+            try {
+                const parsed = new URL(startUrl);
+                if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password)
+                    throw new Error("Enter an HTTP(S) URL without credentials.");
+                if (remoteInspection)
+                    await assertRemoteInspectionUrl(startUrl);
+            }
+            catch (error) {
+                reply.code(400);
+                return { message: error instanceof Error ? error.message : "Invalid inspection URL" };
+            }
+        }
+        const reusableSession = purpose !== "repository-inspect" && body?.reuse_existing === true
             ? [...sessions.values()]
                 .filter((session) => session.status === "running" && (!purpose || session.purpose === purpose))
                 .sort((left, right) => Date.parse(right.last_activity_at) - Date.parse(left.last_activity_at))[0]
@@ -2594,11 +2774,32 @@ export const registerRecorderRoutes = async (app) => {
                 reused: true
             };
         }
+        if (purpose === "repository-inspect") {
+            const limit = Math.max(1, Number.parseInt(process.env.RECORDER_MAX_INSPECTION_SESSIONS || "6", 10) || 6);
+            if ([...sessions.values()].filter(session => session.status === "running" && session.purpose === purpose).length + inspectionSessionsStarting >= limit) {
+                reply.code(429);
+                return { message: "This Test Engine is at its inspection browser limit. Close an existing browser or try again shortly." };
+            }
+            inspectionSessionsStarting += 1;
+            for (const [id, previous] of sessions) {
+                if (previous.purpose === purpose && previous.status !== "running") {
+                    sessions.delete(id);
+                    for (const key of inspectResults.keys())
+                        if (key.startsWith(`${id}:`))
+                            inspectResults.delete(key);
+                }
+            }
+        }
         const id = randomUUID();
-        const userDataDir = await mkdtemp(path.join(os.tmpdir(), `hellotest-recorder-${id}-`));
+        const userDataDir = await mkdtemp(path.join(os.tmpdir(), `hellotest-recorder-${id}-`)).catch(error => {
+            if (purpose === "repository-inspect")
+                inspectionSessionsStarting -= 1;
+            throw error;
+        });
         const headless = resolveHeadlessMode();
         let context = null;
         let recorderExtensionDir = null;
+        let inspectionProxy = null;
         try {
             if (!headless && process.env.RECORDER_DISABLE_EXTENSION !== "true") {
                 recorderExtensionDir = await createRecorderExtension(userDataDir).catch((error) => {
@@ -2615,11 +2816,14 @@ export const registerRecorderRoutes = async (app) => {
                 launchArgs.push(`--disable-extensions-except=${recorderExtensionDir}`);
                 launchArgs.push(`--load-extension=${recorderExtensionDir}`);
             }
+            if (remoteInspection)
+                inspectionProxy = await createInspectionProxy();
             context = await chromium.launchPersistentContext(userDataDir, {
                 headless,
                 ignoreHTTPSErrors: true,
                 viewport: headless ? { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT } : null,
-                args: launchArgs
+                args: remoteInspection ? [...launchArgs, "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"] : launchArgs,
+                ...(inspectionProxy ? { proxy: { server: inspectionProxy.server, bypass: "<-loopback>" }, serviceWorkers: "block" } : {})
             });
             const capture = {
                 actions: true,
@@ -2641,6 +2845,8 @@ export const registerRecorderRoutes = async (app) => {
                 start_url: startUrl,
                 user_data_dir: userDataDir,
                 live_token: randomUUID(),
+                remote_inspection: remoteInspection,
+                inspection_proxy: inspectionProxy,
                 display_mode: headless ? "browser-live-view" : "local-browser-with-live-view",
                 last_activity_at: new Date().toISOString(),
                 context,
@@ -2702,6 +2908,7 @@ export const registerRecorderRoutes = async (app) => {
         }
         catch (error) {
             await context?.close().catch(() => undefined);
+            await inspectionProxy?.close().catch(() => undefined);
             await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
             const failure = buildBrowserUnavailableResponse(error);
             reply.code(failure.code === "RECORDER_START_FAILED" ? 500 : 503);
@@ -2709,6 +2916,10 @@ export const registerRecorderRoutes = async (app) => {
                 ...failure,
                 recoverable: true
             };
+        }
+        finally {
+            if (purpose === "repository-inspect")
+                inspectionSessionsStarting -= 1;
         }
     });
     app.post("/api/v1/recorder/sessions/:id/stop", async (request, reply) => {

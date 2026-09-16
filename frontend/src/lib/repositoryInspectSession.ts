@@ -4,21 +4,26 @@ export type InspectBrowserTab = { id: string | null; url: string; title: string 
 type RecorderRead = <T>(url: string, options?: RequestInit) => Promise<T | null>;
 
 export function inspectSessionRequest(session: RecorderSessionResponse, path = "", options: RequestInit = {}) {
-  const source = session.status_url || session.live_view_url || session.engine_base_url || "";
-  const origin = source.match(/^(https?:\/\/[^/]+)/i)?.[1];
-  if (!session.id || !origin) throw new Error("Connect an inspection browser first.");
+  const source = session.status_url || (session.engine_base_url ? `${session.engine_base_url.replace(/\/$/, "")}/api/v1/recorder/sessions/${encodeURIComponent(session.id)}` : "");
+  if (!session.id || !source) throw new Error("Connect an inspection browser first.");
+  const endpoint = new URL(source, typeof window === "undefined" ? undefined : window.location.origin);
+  if (!/^https?:$/.test(endpoint.protocol)) throw new Error("The inspection browser returned an invalid session address.");
   const headers = new Headers(options.headers);
+  if (session.recorder_mode === "local" && session.inspector_agent_token) headers.set("X-HelloTest-Agent-Token", session.inspector_agent_token);
   for (const url of [session.live_view_url, session.live_view_path, session.status_url]) {
     if (!url) continue;
-    const token = new URL(url, origin).searchParams.get("token");
+    const token = new URL(url, endpoint).searchParams.get("token");
     if (token) { headers.set("X-HelloTest-Recorder-Token", token); break; }
   }
-  return { url: `${origin}/api/v1/recorder/sessions/${encodeURIComponent(session.id)}${path}`, options: { ...options, headers } };
+  const suffix = new URL(`https://inspection.invalid${path || "/"}`);
+  endpoint.pathname = endpoint.pathname.replace(/\/$/, "") + (path ? suffix.pathname : "");
+  suffix.searchParams.forEach((value, key) => endpoint.searchParams.set(key, value));
+  return { url: endpoint.href, options: { ...options, headers } };
 }
 
 export function buildInspectLiveUrl(session: RecorderSessionResponse | null, pageId: string, revision: number) {
   if (!session?.live_view_url || session.status !== "running") return "";
-  const url = new URL(session.live_view_url);
+  const url = new URL(session.live_view_url, typeof window === "undefined" ? undefined : window.location.origin);
   if (pageId) url.searchParams.set("page_id", pageId);
   else url.searchParams.delete("page_id");
   url.searchParams.set("refresh", String(revision));

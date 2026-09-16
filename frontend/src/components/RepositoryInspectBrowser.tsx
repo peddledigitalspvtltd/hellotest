@@ -7,7 +7,7 @@ import "./ObjectRepositoryInspector.css";
 const EMPTY_STATE: RepositoryBrowserState = { width: 0, height: 0, actualSize: false, pending: 0, error: "" };
 const EXTRA_KEYS = ["Escape", "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
-export function RepositoryInspectBrowser({ tabs, selectedTabId, onSelectTab, onRefreshTabs, isRefreshingTabs, sessionId, liveUrl }: {
+export function RepositoryInspectBrowser({ tabs, selectedTabId, onSelectTab, onRefreshTabs, isRefreshingTabs, sessionId, liveUrl, emptyMessage }: {
   tabs: Array<{ id: string | null; title: string | null; url: string; active?: boolean }>;
   selectedTabId: string;
   onSelectTab: (tabId: string) => void;
@@ -15,6 +15,7 @@ export function RepositoryInspectBrowser({ tabs, selectedTabId, onSelectTab, onR
   isRefreshingTabs: boolean;
   sessionId: string;
   liveUrl: string;
+  emptyMessage?: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -153,7 +154,7 @@ export function RepositoryInspectBrowser({ tabs, selectedTabId, onSelectTab, onR
     </form> : null}
     {browserState.error ? <div className="repository-browser-error" role="alert">{browserState.error}</div> : null}
     <div className="repository-browser-viewport" id="repository-browser-viewport" role="tabpanel" aria-label={selectedTab?.title || "Browser page"} aria-busy={isRefreshingTabs}>
-      {frameUrl ? <iframe ref={iframeRef} src={frameUrl} title="Inspect browser live view" /> : <div className="empty-state compact">Use browser to start inspecting this page.</div>}
+      {frameUrl ? <iframe ref={iframeRef} src={frameUrl} title="Inspect browser live view" /> : <div className="empty-state compact">{emptyMessage || "Choose a local session or a remote browser to start inspecting this page."}</div>}
     </div>
   </div>;
 }

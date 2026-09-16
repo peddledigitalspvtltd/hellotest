@@ -2263,6 +2263,8 @@ export type AutomationBuildResponse = {
 
 export type RecorderSessionResponse = {
   id: string;
+  recorder_mode?: "local" | "remote";
+  inspector_agent_token?: string;
   purpose?: "automation-recording" | "repository-inspect" | null;
   status: "running" | "stopped" | "failed";
   reused?: boolean;

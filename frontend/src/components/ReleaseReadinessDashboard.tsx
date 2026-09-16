@@ -8,9 +8,13 @@ import {
   IconCheck,
   IconChevronDown,
   IconClock,
+  IconDownload,
+  IconEye,
   IconGitBranch,
   IconListCheck,
   IconRefresh,
+  IconRocket,
+  IconSearch,
   IconShieldCheck,
   IconSparkles,
   IconTestPipe,
@@ -92,6 +96,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     "hellotest.manual.requirements",
   );
   const canCases = allowed("testcase.view", "hellotest.manual.test_cases");
+  const canReleaseContext = canStories && hasPermission(session, "requirement_iteration.view", projectId);
   const canBugs = allowed("feedback.view", "hellotest.manual.bugs");
   const canRuns =
     allowed("run.view", "hellotest.manual.runs") &&
@@ -104,9 +109,15 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   const sprint = searchParams.get("sprint") || "";
   const [view, setView] = useState<View>("review");
   const [actionLimit, setActionLimit] = useState(6);
+  const [storyLimit, setStoryLimit] = useState(25);
+  const [evidenceSearch, setEvidenceSearch] = useState("");
+  const [evidenceFilters, setEvidenceFilters] = useState<Record<View, string>>({ review: "all", stories: "all", runs: "all" });
+  const [selectedStoryId, setSelectedStoryId] = useState("");
+  const [selectedCheckId, setSelectedCheckId] = useState("");
   const [aiScope, setAiScope] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const tabId = useId();
+  useEffect(() => { setStoryLimit(25); setActionLimit(6); }, [evidenceSearch, evidenceFilters, releaseId, requestedRelease, sprint]);
   const projects = useQuery({
     queryKey: ["release-review-projects", authorizationKey],
     queryFn: () => api.projects.list(),
@@ -116,7 +127,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
   const context = useQuery({
     queryKey: ["release-review-context", authorizationKey, projectId, releaseId],
     queryFn: () => api.requirementReleases.get(releaseId),
-    enabled: Boolean(releaseId && canStories),
+    enabled: Boolean(releaseId && canReleaseContext),
     staleTime: 30_000,
     retry: 1,
   });
@@ -126,7 +137,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       : null;
   const invalidContext = Boolean(
     releaseId &&
-      (!canStories || context.isError || (context.data && !validContext)),
+      (!canReleaseContext || context.isError || (context.data && !validContext)),
   );
   const release = validContext?.fix_version || requestedRelease;
   const contextReady = !releaseId || Boolean(validContext);
@@ -137,6 +148,10 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     setDraftSprint(sprint);
     setActionLimit(6);
     setAiScope(null);
+    setEvidenceSearch("");
+    setEvidenceFilters({ review: "all", stories: "all", runs: "all" });
+    setSelectedStoryId("");
+    setSelectedCheckId("");
   }, [release, sprint, releaseId]);
   const queryDefaults = {
     initialPageParam: undefined as string | undefined,
@@ -277,6 +292,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     sources.some((item) => item.enabled && item.error) ||
     (canRuns && runsQuery.isError);
   const incomplete =
+    flags.isError ||
     sources.some((item) => !item.enabled || item.incomplete || item.error) ||
     !canRuns ||
     runsQuery.data?.complete !== true ||
@@ -401,6 +417,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             link: recordLink("/issues", "issue", issue.id),
             action: text("openDefect"),
             danger: isCriticalReadinessIssue(issue),
+            priority: isCriticalReadinessIssue(issue) ? 0 : /high/i.test(`${issue.severity || ""} ${issue.priority || ""}`) ? 1 : 4,
           }))
       : []),
     ...runs
@@ -420,6 +437,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         link: recordLink("/executions", "execution", run.execution.id),
         action: text("openRun"),
         danger: run.failed > 0,
+        priority: run.failed || run.blocked ? 1 : 3,
       })),
     ...(canStories
       ? model.hotspots
@@ -440,12 +458,13 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             link: recordLink("/stories", "requirement", story.id),
             action: text("openStory"),
             danger: !story.coverageCount && Number(story.priority || 3) <= 2,
+            priority: !story.coverageCount && Number(story.priority || 3) <= 2 ? 1 : !story.coverageCount ? 2 : 3,
           }))
       : []),
-  ];
+  ].sort((left, right) => left.priority - right.priority);
   const loading =
     flags.isPending ||
-    Boolean(releaseId && canStories && context.isPending) ||
+    Boolean(releaseId && canReleaseContext && context.isPending) ||
     (contextReady &&
       ((canStories && !validContext && storiesQuery.isPending) ||
         (canCases && casesQuery.isPending) ||
@@ -456,7 +475,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     try {
       await Promise.allSettled([
         flags.refetch(),
-        ...(releaseId && canStories ? [context.refetch()] : []),
+        ...(releaseId && canReleaseContext ? [context.refetch()] : []),
         ...(canStories && contextReady && !validContext ? [storiesQuery.refetch()] : []),
         ...(canCases && contextReady ? [casesQuery.refetch()] : []),
         ...(canBugs && contextReady ? [bugsQuery.refetch()] : []),
@@ -560,16 +579,116 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       target: "review" as View,
     },
   ];
+  const searchMatches = (...values: unknown[]) => values.join(" ").toLocaleLowerCase().includes(evidenceSearch.trim().toLocaleLowerCase());
+  const visibleActions = actions.filter(action => searchMatches(action.title, action.label, action.detail)
+    && (evidenceFilters.review === "all" || evidenceFilters.review === "urgent" && action.priority <= 1
+      || evidenceFilters.review === "critical" && action.kind === "bug" && action.priority === 0
+      || evidenceFilters.review === (action.kind === "story" ? "stories" : `${action.kind}s`)));
+  const visibleStories = model.hotspots.filter(story => searchMatches(story.title, story.displayId)
+    && (evidenceFilters.stories === "all"
+      || evidenceFilters.stories === "attention" && story.needsAttention
+      || evidenceFilters.stories === "uncovered" && !story.coverageCount
+      || evidenceFilters.stories === "priority" && !story.coverageCount && Number(story.priority || 3) <= 2
+      || evidenceFilters.stories === "failed" && (story.failedCount > 0 || story.blockedCount > 0)
+      || evidenceFilters.stories === "unassessed" && story.executedCount < story.coverageCount
+      || evidenceFilters.stories === "defects" && story.openBugCount > 0));
+  const visibleRuns = runs.filter(run => searchMatches(run.execution.name, run.execution.test_environment?.name, run.execution.test_configuration?.name)
+    && (evidenceFilters.runs === "all"
+      || evidenceFilters.runs === "failed" && run.failed > 0
+      || evidenceFilters.runs === "blocked" && (run.blocked > 0 || run.paused > 0)
+      || evidenceFilters.runs === "unassessed" && run.unassessed > 0));
+  const selectedStory = visibleStories.find(story => story.id === selectedStoryId) || visibleStories[0];
+  const selectedCheck = model.gates.find(gate => gate.id === selectedCheckId);
+  const filterOptions: Record<View, string[]> = {
+    review: ["all", "urgent", "critical", "bugs", "runs", "stories"],
+    stories: ["all", "attention", "priority", "uncovered", "failed", "unassessed", "defects"],
+    runs: ["all", "failed", "blocked", "unassessed"],
+  };
+  const visibleCount = view === "review" ? visibleActions.length : view === "stories" ? visibleStories.length : visibleRuns.length;
+  const totalCount = view === "review" ? actions.length : view === "stories" ? model.hotspots.length : runs.length;
+  const openEvidence = (target: View, filter = "all") => {
+    setView(target);
+    setEvidenceSearch("");
+    setEvidenceFilters(current => ({ ...current, [target]: filter }));
+    setActionLimit(6);
+    document.getElementById(`${tabId}-${target}`)?.focus({ preventScroll: true });
+  };
+  const inspectStory = (id: string) => {
+    setSelectedStoryId(id);
+    if (window.matchMedia("(max-width: 980px)").matches) {
+      requestAnimationFrame(() => {
+        const inspector = document.getElementById(`${tabId}-story-inspector-panel`);
+        inspector?.focus({ preventScroll: true });
+        inspector?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      });
+    }
+  };
+  const checkAvailable = (id: string) => id === "critical-defects" ? canBugs
+    : id === "priority-coverage" ? canStories && canCases
+    : id === "remaining-evidence" ? canStories && canCases && canRuns : canRuns;
+  const checkValue = (id: string, count: number | null) => !checkAvailable(id) || count === null ? "—"
+    : id === "evidence-freshness" ? text("days", { count: n(count) }) : n(count);
+  const inspectCheck = (id: string) => {
+    setSelectedCheckId(id);
+    if (id === "critical-defects") openEvidence("review", "critical");
+    else if (id === "priority-coverage") openEvidence("stories", "priority");
+    else if (id === "remaining-evidence") openEvidence("stories", "unassessed");
+    else openEvidence("runs", id === "failed-outcomes" ? "failed" : id === "blocked-evidence" ? "blocked" : "all");
+  };
+  const checksClear = model.gates.filter(gate => gate.state === "pass" && checkAvailable(gate.id)).length;
+  const latestRun = [...executions].sort((a, b) =>
+    new Date(b.started_at || b.created_at || 0).getTime() - new Date(a.started_at || a.created_at || 0).getTime())[0];
+  const exportEvidence = () => {
+    const evaluatedAt = new Date().toISOString();
+    const snapshot = {
+      schema_version: 1, evaluated_at: evaluatedAt,
+      scope: { project_id: projectId, release_id: releaseId || null, release: release || null, sprint: sprint || null },
+      assessment: { state: model.decisionState, provisional, latest_evidence_at: model.latestEvidenceAt, approval: "Human review required; this report does not approve a release." },
+      source_limits: { page_size: PAGE_SIZE, maximum_pages: MAX_PAGES, run_limit: RUN_LIMIT, result_attempt_limit: RESULT_LIMIT },
+      sources: [
+        ...sources.map(source => ({ source: source.id, available: source.enabled, status: !source.enabled ? "unavailable" : source.error ? "error" : source.incomplete ? "partial" : "complete", loaded: source.enabled ? source.loaded : null, total: source.enabled ? source.total : null })),
+        { source: "runs", available: canRuns, status: !canRuns ? "unavailable" : runsQuery.isError ? "error" : runsQuery.data?.complete ? "complete" : "partial", loaded: canRuns ? executions.length : null, total: null },
+      ],
+      metrics: {
+        story_coverage: canStories && canCases ? { percent: model.metrics.coverage, covered: model.metrics.coveredRequirementCount, stories: model.metrics.requirementCount } : null,
+        cases_assessed: canStories && canCases && canRuns ? { percent: model.metrics.completion, assessed: model.metrics.executedCaseCount, planned: model.metrics.plannedCaseCount } : null,
+        passing_outcomes: canRuns ? { percent: model.metrics.passRate, passed: model.metrics.passedCount, failed: model.metrics.failedCount, blocked: model.metrics.blockedCount } : null,
+        open_defects: canBugs ? { count: model.metrics.openBugCount, critical: model.metrics.openCriticalBugCount, high: model.metrics.openHighBugCount } : null,
+      },
+      checks: model.gates.map(gate => ({ ...gate, count: checkAvailable(gate.id) ? gate.count : null, available: checkAvailable(gate.id) })),
+      stories: canStories ? model.hotspots.map(story => ({ id: story.id, display_id: story.displayId, title: story.title, priority: story.priority,
+        test_case_ids: canCases ? story.caseIds : [], run_ids: canRuns ? story.runIds : [], open_defect_ids: canBugs ? story.openIssueIds : [],
+      })) : [],
+      runs: canRuns ? runs.map(run => ({ id: run.execution.id, name: run.execution.name, status: run.execution.status,
+        environment: run.execution.test_environment?.name || null, configuration: run.execution.test_configuration?.name || null,
+        passed: run.passed, failed: run.failed, blocked: run.blocked, unassessed: run.unassessed,
+        outcomes: run.rows.map(row => ({ id: row.id, test_case_id: row.test_case_id, status: row.status, data_set_iteration_key: row.data_set_iteration_key ?? null, data_set_iteration_index: row.data_set_iteration_index ?? null, created_at: row.created_at })),
+      })) : [],
+      open_defects: canBugs ? model.openIssues.map(issue => ({ id: issue.id, key: issue.jira_bug_key || null, title: issue.title, severity: issue.severity, priority: issue.priority })) : [],
+      methodology: text("methodologyBody"),
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `release-evidence-${evaluatedAt.slice(0, 10)}.json`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   if (!dashboardGranted || flags.data && !dashboardEnabled) return <div className="release-review"><div className="rr-empty"><h2>{t(dashboardGranted ? "access.disabledTitle" : "access.deniedTitle")}</h2><p>{t(dashboardGranted ? "access.disabledHelp" : "access.deniedHelp")}</p></div></div>;
   return (
     <div className="release-review">
       <header className="rr-header">
         <div className="rr-heading">
-          <span className="rr-eyebrow">{projectName || text("eyebrow")}</span>
-          <h1>{text("title")}</h1>
-          <p>{text("subtitle")}</p>
+          <span className="rr-page-icon"><IconRocket size={24} aria-hidden="true" /></span>
+          <div><span className="rr-eyebrow">{projectName || text("eyebrow")}</span>
+            <h1>{text("title")}</h1>
+            <p>{text("subtitle")}</p>
+          </div>
         </div>
         <div className="rr-header-actions">
+          <button className="rr-button" type="button" onClick={exportEvidence} disabled={loading || invalidContext || !flags.data} title={text("exportHelp")}>
+            <IconDownload size={17} />{text("export")}
+          </button>
           <button
             className="rr-button"
             type="button"
@@ -640,6 +759,9 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         >
           {text("apply")}
         </button>
+        {!releaseId && (release || sprint) && <button type="button" className="rr-link-button" onClick={() => {
+          const next = new URLSearchParams(searchParams); next.delete("release"); next.delete("sprint"); setSearchParams(next);
+        }}>{text("resetScope")}</button>}
         {releaseId && (
           <button
             type="button"
@@ -720,7 +842,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 <IconAlertTriangle size={25} />
               )}
             </div>
-            <div>
+            <div className="rr-decision-copy">
+              <span className="rr-section-eyebrow">{text("decisionBrief")}</span>
               <div className="rr-decision-title">
                 <h2 id={`${tabId}-decision`}>
                   {text(
@@ -739,6 +862,16 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 )}
               </p>
             </div>
+            <div className="rr-decision-status">
+              <span>{text("checks")}</span><strong>{n(checksClear)}<small> / {n(model.gates.length)}</small></strong>
+              <span>{text("checksClear")}</span>
+              <div className="rr-progress" aria-hidden="true"><span style={{ width: `${checksClear / model.gates.length * 100}%` }} /></div>
+              <span className="rr-ownership">{text("humanDecision")}</span>
+            </div>
+          </section>
+          <div className="rr-context-ribbon">
+            <div><IconGitBranch size={17} /><span>{text("appliedScope")}<strong>{release || text("allReleases")} · {sprint || text("allSprints")}</strong></span></div>
+            <div><IconTestPipe size={17} /><span>{text("latestRun")}<strong>{latestRun ? [latestRun.test_environment?.name || text("notRecorded"), latestRun.test_configuration?.name].filter(Boolean).join(" · ") : text("noRuns")}</strong></span></div>
             <div className="rr-freshness">
               <IconClock size={15} />
               <span>
@@ -750,7 +883,12 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 </strong>
               </span>
             </div>
-          </section>
+          </div>
+          {provisional && <div className="rr-notice rr-evidence-notice" role="status">
+            <IconAlertTriangle size={18} />
+            <span><strong>{text("partial")}</strong> · {text(!release && !sprint ? "scopeNeeded" : "partialHelp")}</span>
+            <a href={`#${tabId}-sources`}>{text("reviewSources")}<IconArrowRight size={15} /></a>
+          </div>}
           <div className="rr-metrics">
             {metricCards.map((card) => (
               <button
@@ -758,8 +896,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                 type="button"
                 className="rr-metric"
                 onClick={() => {
-                  setView(card.target);
-                  document.getElementById(`${tabId}-${card.target}`)?.focus();
+                  setSelectedCheckId("");
+                  openEvidence(card.target, card.label === text("metric.defects") ? "bugs" : "all");
                 }}
               >
                 <span className="rr-metric-heading">
@@ -774,6 +912,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               </button>
             ))}
           </div>
+          <div className="rr-workspace-heading"><div><span className="rr-section-eyebrow">{text("evidenceWorkspace")}</span><h2>{text("evidenceTitle")}</h2></div><span>{text("evidenceHelp")}</span></div>
           <div className="rr-workspace">
             <section className="rr-evidence">
               <div
@@ -806,6 +945,14 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                   </button>
                 ))}
               </div>
+              <div className="rr-evidence-toolbar">
+                <label className="rr-search"><IconSearch size={17} /><input type="search" aria-label={text("searchEvidence")} placeholder={text("searchEvidence")} value={evidenceSearch} onChange={event => setEvidenceSearch(event.target.value)} /></label>
+                <select aria-label={text("filterEvidence")} value={evidenceFilters[view]} onChange={event => setEvidenceFilters(current => ({ ...current, [view]: event.target.value }))}>
+                  {filterOptions[view].map(option => <option key={option} value={option}>{text(`filter.${option}`)}</option>)}
+                </select>
+                {(evidenceSearch || evidenceFilters[view] !== "all") && <button className="rr-link-button" type="button" onClick={() => { setEvidenceSearch(""); setEvidenceFilters(current => ({ ...current, [view]: "all" })); setSelectedCheckId(""); }}>{text("clearFilters")}</button>}
+                <span className="rr-filter-count" aria-live="polite">{text("matching", { shown: n(visibleCount), total: n(totalCount) })}</span>
+              </div>
               <div
                 role="tabpanel"
                 tabIndex={0}
@@ -819,9 +966,9 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                       <h2>{text("actions")}</h2>
                       <p>{text("actionsHelp")}</p>
                     </div>
-                    {actions.length ? (
+                    {visibleActions.length ? (
                       <ol className="rr-actions">
-                        {actions.slice(0, actionLimit).map((action, index) => (
+                        {visibleActions.slice(0, actionLimit).map((action, index) => (
                           <li key={action.id}>
                             <span
                               className={`rr-action-symbol ${action.danger ? "is-danger" : ""}`}
@@ -861,19 +1008,19 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                     ) : (
                       <div className="rr-empty">
                         <IconShieldCheck size={28} />
-                        <h3>{text("noActions")}</h3>
-                        <p>{text("noActionsHelp")}</p>
+                        <h3>{text(actions.length ? "noMatches" : "noActions")}</h3>
+                        <p>{text(actions.length ? "refineSearch" : "noActionsHelp")}</p>
                       </div>
                     )}
-                    {actions.length > 0 && (
+                    {visibleActions.length > 0 && (
                       <div className="rr-list-footer">
                         <span>
                           {text("actionCount", {
-                            shown: n(Math.min(actionLimit, actions.length)),
-                            total: n(actions.length),
+                            shown: n(Math.min(actionLimit, visibleActions.length)),
+                            total: n(visibleActions.length),
                           })}
                         </span>
-                        {actions.length > actionLimit && (
+                        {visibleActions.length > actionLimit && (
                           <HierarchyAutoLoadSentinel
                             isLoading={false}
                             onLoad={() => setActionLimit((value) => value + 10)}
@@ -895,7 +1042,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                       <div className="rr-empty">
                         {text("source.unavailable")}
                       </div>
-                    ) : model.hotspots.length ? (
+                    ) : visibleStories.length ? (
                       <div className="rr-story-list">
                         <div className="rr-story-head">
                           <span>{text("storyColumn")}</span>
@@ -903,8 +1050,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                           <span>{text("assessedColumn")}</span>
                           <span>{text("signalsColumn")}</span>
                         </div>
-                        {model.hotspots.map((story) => (
-                          <div className="rr-story-row" key={story.id}>
+                        {visibleStories.slice(0, storyLimit).map((story) => (
+                          <div className={`rr-story-row${selectedStory?.id === story.id ? " is-selected" : ""}`} key={story.id}>
                             <div>
                               <span className="rr-action-meta">
                                 {story.displayId}
@@ -919,12 +1066,13 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                               >
                                 {story.title}
                               </Link>
+                              <button className="rr-story-inspect" type="button" aria-pressed={selectedStory?.id === story.id} onClick={() => inspectStory(story.id)} aria-label={`${text("inspectStory")}: ${story.title}`}><IconEye size={14} />{text("inspectStory")}</button>
                             </div>
                             <div>
                               <span className="rr-mobile-label">
                                 {text("coverageColumn")}
                               </span>
-                              <strong>{n(story.coverageCount)}</strong>
+                              <strong>{canCases ? n(story.coverageCount) : "—"}</strong>
                             </div>
                             <div>
                               <span className="rr-mobile-label">
@@ -935,7 +1083,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                                 : "—"}
                             </div>
                             <div className="rr-story-signals">
-                              {!story.coverageCount && (
+                              {canCases && !story.coverageCount && (
                                 <span className="rr-badge is-warning">
                                   {text("noTests")}
                                 </span>
@@ -967,11 +1115,12 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                             </div>
                           </div>
                         ))}
+                        {visibleStories.length > storyLimit && <HierarchyAutoLoadSentinel isLoading={false} onLoad={() => setStoryLimit(value => value + 25)} progressKey={storyLimit} scopeLabel="stories" />}
                       </div>
                     ) : (
                       <div className="rr-empty">
-                        <h3>{text("noStories")}</h3>
-                        <p>{text("noStoriesHelp")}</p>
+                        <h3>{text(model.hotspots.length ? "noMatches" : "noStories")}</h3>
+                        <p>{text(model.hotspots.length ? "refineSearch" : "noStoriesHelp")}</p>
                       </div>
                     )}
                   </>
@@ -986,9 +1135,9 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                       <div className="rr-empty">
                         {text("source.unavailable")}
                       </div>
-                    ) : runs.length ? (
+                    ) : visibleRuns.length ? (
                       <div className="rr-runs">
-                        {runs.map((run) => (
+                        {visibleRuns.map((run) => (
                           <article className="rr-run" key={run.execution.id}>
                             <div className="rr-run-heading">
                               <Link
@@ -1072,8 +1221,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
                       </div>
                     ) : (
                       <div className="rr-empty">
-                        <h3>{text("noRuns")}</h3>
-                        <p>{text("noRunsHelp")}</p>
+                        <h3>{text(runs.length ? "noMatches" : "noRuns")}</h3>
+                        <p>{text(runs.length ? "refineSearch" : "noRunsHelp")}</p>
                       </div>
                     )}
                   </>
@@ -1081,29 +1230,52 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               </div>
             </section>
             <aside className="rr-sidebar">
+              {view === "stories" && selectedStory && <section className="rr-card rr-story-inspector" id={`${tabId}-story-inspector-panel`} aria-labelledby={`${tabId}-story-inspector`} tabIndex={-1}>
+                <div className="rr-inspector-heading"><IconEye size={18} /><h2 id={`${tabId}-story-inspector`}>{text("storyInspector")}</h2></div>
+                <span className="rr-action-meta">{selectedStory.displayId}{selectedStory.priority ? ` · P${selectedStory.priority}` : ""}</span>
+                <h3 aria-live="polite">{selectedStory.title}</h3>
+                <div className="rr-inspector-metrics">
+                  <div><strong>{canCases ? n(selectedStory.coverageCount) : "—"}</strong><span>{text("coverageColumn")}</span></div>
+                  <div><strong>{canCases && canRuns ? n(selectedStory.executedCount) : "—"}</strong><span>{text("assessedColumn")}</span></div>
+                  <div><strong>{canRuns ? n(selectedStory.failedCount + selectedStory.blockedCount) : "—"}</strong><span>{text("failedBlocked")}</span></div>
+                  <div><strong>{canBugs ? n(selectedStory.openBugCount) : "—"}</strong><span>{text("metric.defects")}</span></div>
+                </div>
+                {canCases && <details className="rr-inspector-links"><summary>{text("coverageColumn")}<span>{n(selectedStory.caseIds.length)}<IconChevronDown size={14} /></span></summary>
+                  {selectedStory.caseIds.length ? <ul>{selectedStory.caseIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/test-cases", "case", id)}>{model.testCases.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noTests")}</p>}
+                  {selectedStory.caseIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.caseIds.length - 5) })}</p>}
+                </details>}
+                {canRuns && <details className="rr-inspector-links"><summary>{text("tab.runs")}<span>{n(selectedStory.runIds.length)}<IconChevronDown size={14} /></span></summary>
+                  {selectedStory.runIds.length ? <ul>{selectedStory.runIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/executions", "execution", id)}>{model.executions.find(item => item.id === id)?.name || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noLinkedRuns")}</p>}
+                  {selectedStory.runIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.runIds.length - 5) })}</p>}
+                </details>}
+                {canBugs && <details className="rr-inspector-links"><summary>{text("metric.defects")}<span>{n(selectedStory.openIssueIds.length)}<IconChevronDown size={14} /></span></summary>
+                  {selectedStory.openIssueIds.length ? <ul>{selectedStory.openIssueIds.slice(0, 5).map(id => <li key={id}><Link to={recordLink("/issues", "issue", id)}>{model.openIssues.find(item => item.id === id)?.title || id}<IconArrowRight size={13} /></Link></li>)}</ul> : <p>{text("noSignal")}</p>}
+                  {selectedStory.openIssueIds.length > 5 && <p>{text("moreLinked", { count: n(selectedStory.openIssueIds.length - 5) })}</p>}
+                </details>}
+                <Link className="rr-button rr-inspector-open" to={recordLink("/stories", "requirement", selectedStory.id)}>{text("openStory")}<IconArrowRight size={15} /></Link>
+                {provisional && <p className="rr-inspector-note">{text("inspectorPartial")}</p>}
+              </section>}
               <section className="rr-card">
                 <h2>{text("checks")}</h2>
                 <p>{text("checksHelp")}</p>
                 <ul className="rr-checks">
-                  {model.gates.map((gate) => (
-                    <li key={gate.id}>
+                  {model.gates.map(gate => <li key={gate.id}>
+                    <button type="button" aria-pressed={selectedCheckId === gate.id} disabled={!checkAvailable(gate.id)} onClick={() => inspectCheck(gate.id)} aria-label={text("inspectCheck", { check: text(`check.${gate.id}`) })}>
                       <span className={`rr-check-icon is-${gate.state}`}>
-                        {gate.state === "pass" ? (
-                          <IconCheck size={16} />
-                        ) : (
-                          <IconAlertTriangle size={16} />
-                        )}
+                        {gate.state === "pass" ? <IconCheck size={16} /> : <IconAlertTriangle size={16} />}
                       </span>
-                      <div>
-                        <span>{text(`check.${gate.id}`)}</span>
-                        <small>{text(`check.${gate.state}`)}</small>
-                      </div>
-                      <strong>{n(gate.count)}</strong>
-                    </li>
-                  ))}
+                      <span className="rr-check-copy"><span>{text(`check.${gate.id}`)}</span><small>{text(!checkAvailable(gate.id) ? "source.unavailable" : gate.id === "evidence-freshness" && gate.state === "pass" ? "fresh" : `check.${gate.state}`)}</small></span>
+                      <strong>{checkValue(gate.id, gate.count)}</strong><IconArrowRight size={14} />
+                    </button>
+                  </li>)}
                 </ul>
+                {selectedCheck && <div className="rr-check-detail" aria-live="polite">
+                  <strong>{text(`check.${selectedCheck.id}`)}</strong><p>{text(`checkHelp.${selectedCheck.id}`)}</p>
+                  {provisional && <p>{text("partialHelp")}</p>}
+                  {selectedCheck.id === "remaining-evidence" && canRuns && <button className="rr-link-button" type="button" onClick={() => openEvidence("runs", "unassessed")}>{text("inspectRemainingRuns")}<IconArrowRight size={14} /></button>}
+                </div>}
               </section>
-              <section className="rr-card rr-boundary">
+              <section className="rr-card rr-boundary" id={`${tabId}-sources`} tabIndex={-1}>
                 <h2>{text("sources")}</h2>
                 <dl>
                   {sources.map((source) => (

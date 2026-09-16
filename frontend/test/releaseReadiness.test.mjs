@@ -231,3 +231,39 @@ test("old or invalid dates do not present evidence as current", () => {
     null,
   );
 });
+
+test("six observed checks keep blocked, missing and bounded evidence distinct", () => {
+  const clear = deriveReleaseReadiness(source());
+  assert.deepEqual(clear.gates.map(gate => gate.id), ["critical-defects", "failed-outcomes", "priority-coverage", "remaining-evidence", "blocked-evidence", "evidence-freshness"]);
+  assert.ok(clear.gates.every(gate => gate.state === "pass"));
+  const blocked = deriveReleaseReadiness(source({ executionResults: [row("blocked", "blocked")] }));
+  assert.deepEqual(blocked.gates.find(gate => gate.id === "blocked-evidence"), { id: "blocked-evidence", state: "block", count: 1, total: 1 });
+  assert.equal(blocked.metrics.passRate, null, "blocked evidence remains outside the assessed denominator");
+  const absent = deriveReleaseReadiness(source({ executionResults: [] }));
+  assert.equal(absent.gates.find(gate => gate.id === "blocked-evidence").state, "warning");
+  assert.equal(absent.gates.find(gate => gate.id === "evidence-freshness").count, null);
+  for (const patch of [{ evidenceComplete: false }, { testCases: [] }]) {
+    const limited = deriveReleaseReadiness(source(patch));
+    assert.ok(limited.gates.every(gate => gate.state !== "pass"), "unknown evidence never passes either new check");
+  }
+});
+
+test("freshness uses the existing fourteen-day activity boundary and retains unknown dates", () => {
+  for (const [date, expectedAge, state] of [["2026-08-27T10:00:00Z", 14, "pass"], ["2026-08-26T10:00:00Z", 15, "warning"], ["invalid", null, "warning"]]) {
+    const model = deriveReleaseReadiness(source({ executionResults: [row("dated", "passed", { created_at: date })] }));
+    assert.deepEqual(model.gates.find(gate => gate.id === "evidence-freshness"), { id: "evidence-freshness", state, count: expectedAge, total: 14 });
+  }
+});
+
+test("Story inspectors expose only exact linked cases, open defects and scoped runs", () => {
+  const model = deriveReleaseReadiness(source({
+    requirements: [{ id: "s1", fix_version: "R1", test_case_ids: ["c1", "c1"], defect_ids: ["BUG-1"] }],
+    testCases: [{ id: "c1", requirement_ids: ["s1"] }, { id: "c2", requirement_id: "s1" }, { id: "unrelated" }],
+    executions: [{ id: "run", release: "R1", test_case_ids: ["c1"] }, { id: "planned", release: "R1", direct_test_case_ids: ["c2"] }, { id: "other-release", release: "R2", test_case_ids: ["c1"] }, { id: "unrelated", release: "R1", test_case_ids: ["unrelated"] }],
+    issues: [{ id: "b1", jira_bug_key: "BUG-1", status: "Open" }, { id: "b2", linked_test_case_ids: ["c2"], status: "Open" }, { id: "closed", linked_requirement_ids: ["s1"], status_category: "done" }, { id: "unrelated", fix_version: "R1", status: "Open" }],
+    executionResults: [row("a", "passed", { data_set_iteration_key: "a" }), row("b", "passed", { data_set_iteration_key: "b" })],
+  }));
+  assert.deepEqual(model.hotspots[0].caseIds, ["c1", "c2"]);
+  assert.deepEqual(model.hotspots[0].openIssueIds, ["b1", "b2"]);
+  assert.deepEqual(model.hotspots[0].runIds, ["run", "planned"], "planned runs stay reachable before any result exists, without duplicate row links");
+});

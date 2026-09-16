@@ -4188,6 +4188,192 @@ paths:
         - bearerAuth: []
       responses:
         "200": { description: Successful response }
+  /repository-inspection/capabilities:
+    get:
+      tags: [Automation]
+      summary: Read the project's browser inspection connection options
+      description: Requires project membership and automation.view. Remote availability reflects configured Test Engine access; it is not a browser health probe.
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Remote configuration and local-agent protocol information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remote:
+                    type: object
+                    properties:
+                      available: { type: boolean }
+                      reason: { type: string, nullable: true }
+                  local:
+                    type: object
+                    properties:
+                      base_url: { type: string, format: uri }
+                      setup_requires_checkout: { type: boolean }
+                      setup_endpoint: { type: string }
+                      protocol_version: { type: integer }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /repository-inspection/sessions:
+    post:
+      tags: [Automation]
+      summary: Start an isolated remote Object Repository browser
+      description: Requires a browser login, project membership and automation.repository.manage. Uses the project's active Test Engine integration and returns app-relative proxy URLs with a two-hour session capability. Does not require the separate recorder or execution features.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                app_type_id: { type: string }
+                start_url: { type: string, format: uri, description: HTTP(S) target without embedded credentials. Private remote destinations require an administrator-configured exact-host allowlist. }
+      responses:
+        "200":
+          description: Protected inspection session; internal Test Engine URLs and credentials are omitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string }
+                  purpose: { type: string, enum: [repository-inspect] }
+                  recorder_mode: { type: string, enum: [remote] }
+                  started_at: { type: string, format: date-time }
+                  expires_at: { type: string, format: date-time }
+                  start_url: { type: string, nullable: true }
+                  status_url: { type: string }
+                  live_view_url: { type: string }
+                  display_mode: { type: string }
+                  capture: { type: object, additionalProperties: true }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "429": { $ref: "#/components/responses/ErrorResponse" }
+        "503": { $ref: "#/components/responses/ErrorResponse" }
+  /repository-inspection/local-agent/setup:
+    post:
+      tags: [Automation]
+      summary: Prepare a paired local inspection agent installer
+      description: Requires automation.repository.manage and a browser login. The application origin must match the request origin. The generated link expires in ten minutes and revalidates the originating login and project permission when downloaded.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, origin, agent_token]
+              properties:
+                project_id: { type: string }
+                origin: { type: string, format: uri, description: Exact HTTP(S) application origin with no path. }
+                agent_token: { type: string, pattern: '^[a-zA-Z0-9_-]{32,128}$', writeOnly: true }
+      responses:
+        "200":
+          description: Time-limited installer download
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_url: { type: string }
+                  expires_at: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /repository-inspection/local-agent/download:
+    get:
+      tags: [Automation]
+      summary: Download the paired Node.js local inspection installer
+      description: Uses the ten-minute setup capability, revalidates its originating login and automation.repository.manage, and serves the runtime bundled with the API. No remote Test Engine is required. The installer requires Node.js 20 and npm and installs Playwright Chromium without a repository checkout.
+      security:
+        - inspectionCapability: []
+      responses:
+        "200":
+          description: Private paired installer, served as an attachment with no-store caching
+          content:
+            text/javascript:
+              schema: { type: string }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "503": { $ref: "#/components/responses/ErrorResponse" }
+  /repository-inspection/sessions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Automation]
+      summary: Read protected browser inspection session status
+      description: Revalidates the capability's originating login, owner, project membership and repository permission on every request.
+      security:
+        - inspectionCapability: []
+        - inspectionCapabilityHeader: []
+      responses:
+        "200":
+          description: Session status with internal engine URLs and tokens removed
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /repository-inspection/sessions/{id}/*:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Automation]
+      summary: Read a protected inspection browser resource
+      description: The wildcard is restricted to live, stream, screenshot, tabs and inspect/result. Each request revalidates the original login and repository permission. Live view allows framing by the paired app origin; stream uses server-sent events.
+      security:
+        - inspectionCapability: []
+        - inspectionCapabilityHeader: []
+      parameters:
+        - { name: page_id, in: query, schema: { type: string } }
+        - { name: embedded, in: query, schema: { type: string } }
+        - { name: parent_origin, in: query, schema: { type: string } }
+        - { name: parent_frame, in: query, schema: { type: string } }
+        - { name: refresh, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Live HTML, screenshot, tab/capture JSON or screenshot event stream
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+            text/html:
+              schema: { type: string }
+            text/event-stream:
+              schema: { type: string }
+            image/jpeg:
+              schema: { type: string, format: binary }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "405": { $ref: "#/components/responses/ErrorResponse" }
+    post:
+      tags: [Automation]
+      summary: Control the protected inspection browser
+      description: The wildcard is restricted to tabs/activate, input, inspect/start, inspect/stop, inspect/validate, highlight, stop, pause and resume. Every operation revalidates the original login, owner, project and repository permission. The Test Engine validates each operation payload.
+      security:
+        - inspectionCapability: []
+        - inspectionCapabilityHeader: []
+      parameters:
+        - { name: page_id, in: query, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Browser operation result
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "405": { $ref: "#/components/responses/ErrorResponse" }
   /repository-agents:
     get:
       tags: [Agents]
@@ -5671,6 +5857,16 @@ paths:
         "200": { description: Successful response }
 components:
   securitySchemes:
+    inspectionCapability:
+      type: apiKey
+      in: query
+      name: token
+      description: Encrypted, expiring capability limited to one inspection session or one paired installer. Original login and current permissions are revalidated for every request.
+    inspectionCapabilityHeader:
+      type: apiKey
+      in: header
+      name: X-HelloTest-Recorder-Token
+      description: Header alternative to the encrypted inspection-session capability. Not a Test Engine shared secret.
     bearerAuth:
       type: http
       scheme: bearer

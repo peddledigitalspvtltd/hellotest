@@ -13,7 +13,7 @@ const declarations = ast.statements.filter((node) => ts.isVariableStatement(node
   && node.declarationList.declarations.some((declaration) => names.has(declaration.name.getText(ast))));
 const compiled = ts.transpileModule(declarations.map((node) => node.getText(ast)).join("\n"), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
-}).outputText;
+}).outputText.replaceAll("import.meta.url", JSON.stringify(new URL("../src/lib/recorder.ts", import.meta.url).href));
 
 async function setup() {
   const calls = [];
@@ -36,7 +36,7 @@ async function setup() {
   };
   const routes = new Map();
   const exported = {};
-  const context = { exports: exported, sessions: new Map([[session.id, session]]), recorderPageIds: ids, randomUUID,
+  const context = { exports: exported, process: { env: {} }, resolveTestEngineSharedSecret: () => ({ secret: null }), sessions: new Map([[session.id, session]]), recorderPageIds: ids, randomUUID,
     RECORDER_CLEANUP_INTERVAL_MS: 1000, REMOTE_TEXT_LIMIT: 4000, SCREENCAST_QUALITY: 80, SCREENCAST_EVERY_NTH_FRAME: 1,
     setInterval: () => 1, clearInterval() {}, Buffer, console
   };

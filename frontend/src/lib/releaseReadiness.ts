@@ -11,7 +11,7 @@ export type ReadinessGateState = "pass" | "warning" | "block";
 export type ReadinessGate = {
   id: string;
   state: ReadinessGateState;
-  count: number;
+  count: number | null;
   total: number;
 };
 export type RequirementHotspot = {
@@ -26,6 +26,9 @@ export type RequirementHotspot = {
   blockedCount: number;
   openBugCount: number;
   criticalBugCount: number;
+  caseIds: string[];
+  openIssueIds: string[];
+  runIds: string[];
   needsAttention: boolean;
 };
 type Input = ReleaseReadinessScope & {
@@ -305,6 +308,18 @@ export function deriveReleaseReadiness(input: Input) {
       count: metrics.unassessedCaseCount,
       total: plannedCaseIds.size,
     },
+    {
+      id: "blocked-evidence",
+      state: blockedCount ? "block" : latestCaseResults.length ? "pass" : "warning",
+      count: blockedCount,
+      total: latestCaseResults.length,
+    },
+    {
+      id: "evidence-freshness",
+      state: ageDays !== null && ageDays <= 14 ? "pass" : "warning",
+      count: ageDays,
+      total: 14,
+    },
   ].map((gate) => ({
     ...gate,
     state:
@@ -356,6 +371,12 @@ export function deriveReleaseReadiness(input: Input) {
         blockedCount,
         openBugCount: bugs.length,
         criticalBugCount: bugs.filter(isCriticalReadinessIssue).length,
+        caseIds: [...linkedCaseIds],
+        openIssueIds: bugs.map((item) => item.id),
+        runIds: unique([
+          ...executions.filter((run) => caseIdsForReadinessRun(run).some((id) => linkedCaseIds.has(id))).map((run) => run.id),
+          ...results.map((result) => result.execution_id),
+        ]),
         needsAttention:
           !linkedCaseIds.size ||
           executedCount < linkedCaseIds.size ||

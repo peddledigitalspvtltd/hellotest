@@ -347,7 +347,7 @@ const startServer = async () => {
   });
   await app.listen({
     port,
-    host: "0.0.0.0"
+    host: process.env.HOST || "0.0.0.0"
   });
 };
 

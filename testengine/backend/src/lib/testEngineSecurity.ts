@@ -163,10 +163,10 @@ export function resolveCorsPolicy(environment: NodeJS.ProcessEnv = process.env):
     || environment.CORS_ORIGINS
     || environment.CORS_ORIGIN
   );
-  const allowAnyOrigin = configured.includes("*") && !production;
+  const allowAnyOrigin = configured.includes("*") && !production && !normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN);
   const configuredOrigins = new Set(configured.filter((origin) => origin !== "*"));
 
-  if (!production) {
+  if (!production && !normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN)) {
     for (const origin of DEFAULT_LOCAL_ORIGINS) {
       configuredOrigins.add(origin);
     }
@@ -176,7 +176,7 @@ export function resolveCorsPolicy(environment: NodeJS.ProcessEnv = process.env):
     production,
     allowAnyOrigin,
     configuredOrigins,
-    allowLoopbackOrigins: !production
+    allowLoopbackOrigins: !production && !normalizeText(environment.HELLOTEST_INSPECTOR_TOKEN)
   };
 }
 
@@ -221,9 +221,12 @@ export function createCorsHook(policy: CorsPolicy) {
     reply.header("access-control-allow-methods", "GET,POST,OPTIONS");
     reply.header(
       "access-control-allow-headers",
-      "authorization,content-type,x-api-key,x-hellotest-recorder-token,x-hellotest-testengine-secret,x-testengine-secret"
+      "authorization,content-type,x-api-key,x-hellotest-recorder-token,x-hellotest-agent-token,x-hellotest-testengine-secret,x-testengine-secret"
     );
     reply.header("access-control-max-age", "600");
+    if (request.headers["access-control-request-private-network"] === "true") {
+      reply.header("access-control-allow-private-network", "true");
+    }
 
     if (request.method === "OPTIONS") {
       reply.code(204).send();

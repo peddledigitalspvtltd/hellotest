@@ -87,7 +87,13 @@ module.exports = async function (fastify) {
     if (String(req.query.release || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(release, ''))) = ?"); params.push(String(req.query.release).trim().toLowerCase()); }
     if (String(req.query.sprint || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(sprint, ''))) = ?"); params.push(String(req.query.sprint).trim().toLowerCase()); }
     const executions = await db.prepare(`SELECT id, project_id, app_type_id, name, status, release, sprint, build,
-      created_at, started_at, ended_at, start_date, end_date, direct_test_case_ids
+      created_at, started_at, ended_at, start_date, end_date, direct_test_case_ids,
+      test_environment_id, test_environment_name,
+      test_environment_snapshot->>'id' AS saved_environment_id,
+      test_environment_snapshot->>'name' AS saved_environment_name,
+      test_configuration_id, test_configuration_name,
+      test_configuration_snapshot->>'id' AS saved_configuration_id,
+      test_configuration_snapshot->>'name' AS saved_configuration_name
       FROM executions WHERE ${conditions.join(" AND ")} ORDER BY COALESCE(ended_at, started_at, created_at) DESC, id DESC LIMIT ?`).all(...params, runLimit + 1);
     const boundedExecutions = executions.slice(0, runLimit);
     let results = [];
@@ -122,7 +128,20 @@ module.exports = async function (fastify) {
       if (!snapshotsByRun.has(snapshot.execution_id)) snapshotsByRun.set(snapshot.execution_id, []);
       snapshotsByRun.get(snapshot.execution_id).push({ test_case_id: snapshot.test_case_id, expected_iterations: Number(snapshot.expected_iterations) });
     }
-    return { executions: boundedExecutions.map(execution => ({ ...execution, case_snapshots: snapshotsByRun.get(execution.id) || [] })), results: results.slice(0, resultLimit).map((item) => ({ ...item, updated_at: evidenceTime(item), defects: Array.isArray(item.defects) ? item.defects : [], external_references: Array.isArray(item.external_references) ? item.external_references : [] })), complete: reasons.length === 0, reasons, runs_scanned: boundedExecutions.length, results_scanned: Math.min(results.length, resultLimit), candidate_results: results.length, candidate_runs: executions.length, evaluated_at: new Date().toISOString(), limits: { runs: runLimit, results: resultLimit, results_per_run: resultLimit } };
+    const contextualExecutions = boundedExecutions.map(execution => {
+      const { saved_environment_id, saved_environment_name, saved_configuration_id, saved_configuration_name, ...record } = execution;
+      const environmentName = record.test_environment_name || saved_environment_name;
+      const configurationName = record.test_configuration_name || saved_configuration_name;
+      // Read only the frozen labels. Live resources may have changed or been
+      // deleted, and their variables/credentials do not belong in this summary.
+      return {
+        ...record,
+        test_environment: environmentName ? { id: record.test_environment_id || saved_environment_id || null, name: environmentName, snapshot: null } : null,
+        test_configuration: configurationName ? { id: record.test_configuration_id || saved_configuration_id || null, name: configurationName, snapshot: null } : null,
+        case_snapshots: snapshotsByRun.get(execution.id) || []
+      };
+    });
+    return { executions: contextualExecutions, results: results.slice(0, resultLimit).map((item) => ({ ...item, updated_at: evidenceTime(item), defects: Array.isArray(item.defects) ? item.defects : [], external_references: Array.isArray(item.external_references) ? item.external_references : [] })), complete: reasons.length === 0, reasons, runs_scanned: boundedExecutions.length, results_scanned: Math.min(results.length, resultLimit), candidate_results: results.length, candidate_runs: executions.length, evaluated_at: new Date().toISOString(), limits: { runs: runLimit, results: resultLimit, results_per_run: resultLimit } };
   });
 
   // CREATE RESULT

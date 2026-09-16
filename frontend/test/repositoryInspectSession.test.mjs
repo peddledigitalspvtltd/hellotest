@@ -110,9 +110,10 @@ test("reopening recovers an expired session and selects a tab from the new brows
       if (url.endsWith("/tabs")) return { active_page_id: "new-tab", tabs: [tab("new-tab", true)] };
       return {};
     },
-    discoverLocalInspectRuntime: async () => ({ publicBaseUrl: "http://localhost:4311" }),
+    recommendedInspectMode: "local", canInspectRepository: true,
+    inspectAgent: { check: async () => ({ publicBaseUrl: "http://localhost:4311", token: "pairing-token" }) },
     connectLocalInspectSession: handler("connectLocalInspectSession", {}),
-    setInspectTabs() {}, setSelectedInspectTabId() {}, setInspectPreviewRevision() {}, setInspectMessage() {}, setIsLaunchingInspectBrowser() {}, setIsInspectingLiveField() {}, setInspectRecorderSession() {}
+    setInspectSessionMode() {}, setInspectTabs() {}, setSelectedInspectTabId() {}, setInspectPreviewRevision() {}, setInspectMessage() {}, setIsLaunchingInspectBrowser() {}, setIsInspectingLiveField() {}, setInspectRecorderSession() {}
   };
   context.loadInspectTabs = handler("loadInspectTabs", context);
   const reopened = await handler("launchInspectBrowser", context)();
@@ -122,4 +123,47 @@ test("reopening recovers an expired session and selects a tab from the new brows
   assert.equal(context.inspectLifecycleBusyRef.current, false);
   assert.deepEqual(staged, [{ locator: "#kept" }]);
   assert.ok(requested.some((item) => item.url.endsWith("/new-session/tabs/activate")));
+});
+
+test("remote inspection retains the public proxy prefix and capability for every operation", async () => {
+  const remote = { ...session, recorder_mode: "remote", status_url: "https://app.hellotest.ai/api/repository-inspection/sessions/inspect-1?token=opaque-capability", live_view_url: "https://app.hellotest.ai/api/repository-inspection/sessions/inspect-1/live?token=opaque-capability" };
+  const request = inspectSessionRequest(remote, "/inspect/result?page_id=tab%2Ftwo");
+  const url = new URL(request.url);
+  assert.equal(url.origin, "https://app.hellotest.ai");
+  assert.equal(url.pathname, "/api/repository-inspection/sessions/inspect-1/inspect/result");
+  assert.equal(url.searchParams.get("token"), "opaque-capability");
+  assert.equal(url.searchParams.get("page_id"), "tab/two");
+  assert.equal(request.options.headers.get("X-HelloTest-Recorder-Token"), "opaque-capability");
+  assert.equal(request.options.headers.has("X-HelloTest-Agent-Token"), false);
+  assert.equal(inspectSessionRequest(remote).url, remote.status_url);
+});
+
+test("remote launch never discovers or contacts a browser-machine local agent", async () => {
+  const remote = { ...session, recorder_mode: "remote", id: "remote-session", status_url: "https://app.test/api/repository-inspection/sessions/remote-session?token=opaque", live_view_url: "https://app.test/api/repository-inspection/sessions/remote-session/live?token=opaque" };
+  let started;
+  const context = {
+    recommendedInspectMode: "remote", canInspectRepository: true, activeRepositoryProjectId: "project", projectId: "project", activeRepositoryAppTypeId: "app", appTypeId: "app", screenUrlDraft: "https://target.test",
+    inspectLifecycleBusyRef: { current: false }, inspectSessionRef: { current: null }, inspectSessionGenerationRef: { current: 0 }, inspectTabRequestRef: { current: 0 }, selectedInspectTabIdRef: { current: "" },
+    inspectAgent: { check: () => assert.fail("Remote launch must not probe localhost") },
+    api: { repositoryInspection: { start: async input => { started = input; return remote; } } },
+    loadRepositoryInspectTabs, stopRepositoryInspectSession,
+    readRecorderJson: async url => { assert.equal(new URL(url).origin, "https://app.test"); return new URL(url).pathname.endsWith("/tabs") ? { tabs: [tab("remote-tab", true)] } : {}; },
+    setInspectSessionMode() {}, setInspectTabs() {}, setSelectedInspectTabId() {}, setInspectPreviewRevision() {}, setInspectMessage() {}, setIsLaunchingInspectBrowser() {}, setIsInspectingLiveField() {}, setInspectRecorderSession() {}
+  };
+  context.loadInspectTabs = handler("loadInspectTabs", context);
+  const result = await handler("launchInspectBrowser", context)();
+  assert.equal(result, remote);
+  assert.deepEqual(started, { project_id: "project", app_type_id: "app", start_url: "https://target.test" });
+  assert.equal(context.selectedInspectTabIdRef.current, "remote-tab");
+});
+
+test("local inspection forwards pairing credentials only for explicitly local sessions", () => {
+  const local = { ...session, recorder_mode: "local", inspector_agent_token: "paired-secret" };
+  assert.equal(inspectSessionRequest(local, "/tabs").options.headers.get("X-HelloTest-Agent-Token"), "paired-secret");
+  assert.equal(inspectSessionRequest({ ...local, recorder_mode: "remote" }, "/tabs").options.headers.has("X-HelloTest-Agent-Token"), false);
+});
+
+test("inspection creation requires repository management without depending on execution permissions", async () => {
+  const launch = handler("launchInspectBrowser", { canInspectRepository: false, recommendedInspectMode: "remote" });
+  await assert.rejects(launch(), /Object repository management permission is required/);
 });

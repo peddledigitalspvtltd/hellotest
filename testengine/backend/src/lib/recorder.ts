@@ -1,9 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { chromium, type BrowserContext, type Locator, type Page, type Request } from "playwright";
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
+import { constantTimeSecretMatches, extractTestEngineSecrets, resolveTestEngineSharedSecret } from "./testEngineSecurity.js";
+import { assertRemoteInspectionUrl } from "./inspectionSecurity.js";
+import { createInspectionProxy } from "./inspectionProxy.js";
 
 type RecorderAction = {
   index: number;
@@ -60,6 +63,8 @@ type RecorderSession = {
   start_url: string | null;
   user_data_dir: string;
   live_token: string;
+  remote_inspection?: boolean;
+  inspection_proxy?: Awaited<ReturnType<typeof createInspectionProxy>> | null;
   display_mode: "browser-live-view" | "local-browser-with-live-view";
   active_page_id?: string | null;
   last_activity_at: string;
@@ -138,6 +143,7 @@ type RecorderLocatorValidation = {
 };
 
 const sessions = new Map<string, RecorderSession>();
+let inspectionSessionsStarting = 0;
 const inspectResults = new Map<string, RecorderInspectResult>();
 const REPOSITORY_HIGHLIGHT_DURATION_MS = 1_000;
 const REPOSITORY_VALIDATION_FIELD_LIMIT = 80;
@@ -2255,6 +2261,7 @@ const stopSession = async (session: RecorderSession) => {
 
   session.stopped_at = session.stopped_at || new Date().toISOString();
   await session.context.close().catch(() => undefined);
+  await session.inspection_proxy?.close().catch(() => undefined);
   await rm(session.user_data_dir, { recursive: true, force: true }).catch(() => undefined);
 };
 
@@ -2262,7 +2269,7 @@ const stopOrphanedSessions = async (logger: FastifyBaseLogger) => {
   const now = Date.now();
 
   for (const session of sessions.values()) {
-    if (session.status !== "running" || session.paused) {
+    if (session.status !== "running" || (session.paused && session.purpose !== "repository-inspect")) {
       continue;
     }
 
@@ -2287,16 +2294,41 @@ const stopOrphanedSessions = async (logger: FastifyBaseLogger) => {
 };
 
 export const registerRecorderRoutes = async (app: FastifyInstance) => {
+  const agentToken = normalizeText(process.env.HELLOTEST_INSPECTOR_TOKEN);
+  const secret = resolveTestEngineSharedSecret();
+  const isPrivileged = (request: FastifyRequest) => Boolean(secret.secret && extractTestEngineSecrets(request).some(value => constantTimeSecretMatches(value, secret.secret!)));
+  app.addHook("preHandler", async (request, reply) => {
+    const pathname = request.url.split("?")[0];
+    if (!pathname.startsWith("/api/v1/recorder/")) return;
+    const id = (request.params as { id?: string })?.id;
+    const session = id ? sessions.get(id) : undefined;
+    const paired = Boolean(agentToken && constantTimeSecretMatches(String(request.headers["x-hellotest-agent-token"] || ""), agentToken));
+    const scoped = Boolean(session && requireRecorderToken(request, session));
+    const repositoryCreate = pathname === "/api/v1/recorder/sessions" && request.method === "POST"
+      && (request.body as { purpose?: string })?.purpose === "repository-inspect";
+    if ((agentToken && !paired && !scoped)
+      || (!agentToken && (repositoryCreate || session?.purpose === "repository-inspect") && !scoped && !isPrivileged(request))) {
+      reply.code(401).send({ message: agentToken ? "Pair this local inspection agent from HelloTest before connecting." : "Protected inspection session requires authorization." });
+    }
+  });
+  app.get("/api/v1/recorder/agent/status", async (_request, reply) => {
+    reply.header("cache-control", "no-store");
+    if (!agentToken) { reply.code(409); return { ready: false, message: "Restart the local agent using the pairing command from Object Repository." }; }
+    const ready = await access(chromium.executablePath()).then(() => true, () => false);
+    return { ready, service: "hellotest-inspection-agent", protocol_version: 1,
+      ...(ready ? {} : { message: "Chromium is not installed. Run the setup command again to install Playwright browsers." }) };
+  });
   const cleanupTimer = setInterval(() => {
     void stopOrphanedSessions(app.log);
   }, RECORDER_CLEANUP_INTERVAL_MS);
 
   app.addHook("onClose", async () => {
     clearInterval(cleanupTimer);
+    await Promise.all([...sessions.values()].map(stopSession));
   });
 
   app.get("/api/v1/recorder/sessions", async () => ({
-    items: [...sessions.values()].map((session) => serializeSession(session))
+    items: [...sessions.values()].filter(session => session.purpose !== "repository-inspect").map((session) => serializeSession(session))
   }));
 
   app.get("/api/v1/recorder/sessions/:id", async (request, reply) => {
@@ -2987,10 +3019,11 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       } else if (type === "goto") {
         const url = normalizeUrl(body?.url);
 
-        if (!url) {
+        if (!url || !["http:", "https:"].includes(new URL(url).protocol)) {
           reply.code(400);
-          return { message: "goto input requires a valid absolute URL" };
+          return { message: "goto input requires a valid absolute HTTP(S) URL" };
         }
+        if (session.remote_inspection) await assertRemoteInspectionUrl(url);
 
         pushRecorderAction(session, {
           type: "navigation",
@@ -3027,10 +3060,19 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
   });
 
   app.post("/api/v1/recorder/sessions", async (request, reply) => {
-    const body = request.body as { start_url?: string | null; reuse_existing?: boolean; purpose?: "automation-recording" | "repository-inspect" | null; test_case?: unknown } | null;
+    const body = request.body as { start_url?: string | null; reuse_existing?: boolean; purpose?: "automation-recording" | "repository-inspect" | null; recorder_mode?: "local" | "remote"; test_case?: unknown } | null;
     const startUrl = normalizeUrl(body?.start_url);
     const purpose = body?.purpose === "repository-inspect" ? "repository-inspect" : body?.purpose === "automation-recording" ? "automation-recording" : null;
-    const reusableSession = body?.reuse_existing === true
+    const remoteInspection = purpose === "repository-inspect" && !agentToken;
+    if (body?.start_url && !startUrl) { reply.code(400); return { message: "Enter a valid HTTP(S) URL." }; }
+    if (startUrl) {
+      try {
+        const parsed = new URL(startUrl);
+        if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error("Enter an HTTP(S) URL without credentials.");
+        if (remoteInspection) await assertRemoteInspectionUrl(startUrl);
+      } catch (error) { reply.code(400); return { message: error instanceof Error ? error.message : "Invalid inspection URL" }; }
+    }
+    const reusableSession = purpose !== "repository-inspect" && body?.reuse_existing === true
       ? [...sessions.values()]
         .filter((session) => session.status === "running" && (!purpose || session.purpose === purpose))
         .sort((left, right) => Date.parse(right.last_activity_at) - Date.parse(left.last_activity_at))[0]
@@ -3069,12 +3111,29 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       };
     }
 
+    if (purpose === "repository-inspect") {
+      const limit = Math.max(1, Number.parseInt(process.env.RECORDER_MAX_INSPECTION_SESSIONS || "6", 10) || 6);
+      if ([...sessions.values()].filter(session => session.status === "running" && session.purpose === purpose).length + inspectionSessionsStarting >= limit) {
+        reply.code(429); return { message: "This Test Engine is at its inspection browser limit. Close an existing browser or try again shortly." };
+      }
+      inspectionSessionsStarting += 1;
+      for (const [id, previous] of sessions) {
+        if (previous.purpose === purpose && previous.status !== "running") {
+          sessions.delete(id);
+          for (const key of inspectResults.keys()) if (key.startsWith(`${id}:`)) inspectResults.delete(key);
+        }
+      }
+    }
     const id = randomUUID();
-    const userDataDir = await mkdtemp(path.join(os.tmpdir(), `hellotest-recorder-${id}-`));
+    const userDataDir = await mkdtemp(path.join(os.tmpdir(), `hellotest-recorder-${id}-`)).catch(error => {
+      if (purpose === "repository-inspect") inspectionSessionsStarting -= 1;
+      throw error;
+    });
     const headless = resolveHeadlessMode();
 
     let context: BrowserContext | null = null;
     let recorderExtensionDir: string | null = null;
+    let inspectionProxy: Awaited<ReturnType<typeof createInspectionProxy>> | null = null;
 
     try {
       if (!headless && process.env.RECORDER_DISABLE_EXTENSION !== "true") {
@@ -3095,11 +3154,13 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         launchArgs.push(`--load-extension=${recorderExtensionDir}`);
       }
 
+      if (remoteInspection) inspectionProxy = await createInspectionProxy();
       context = await chromium.launchPersistentContext(userDataDir, {
         headless,
         ignoreHTTPSErrors: true,
         viewport: headless ? { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT } : null,
-        args: launchArgs
+        args: remoteInspection ? [...launchArgs, "--disable-quic", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"] : launchArgs,
+        ...(inspectionProxy ? { proxy: { server: inspectionProxy.server, bypass: "<-loopback>" }, serviceWorkers: "block" as const } : {})
       });
 
       const capture = {
@@ -3123,6 +3184,8 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         start_url: startUrl,
         user_data_dir: userDataDir,
         live_token: randomUUID(),
+        remote_inspection: remoteInspection,
+        inspection_proxy: inspectionProxy,
         display_mode: headless ? "browser-live-view" : "local-browser-with-live-view",
         last_activity_at: new Date().toISOString(),
         context,
@@ -3189,6 +3252,7 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
       };
     } catch (error) {
       await context?.close().catch(() => undefined);
+      await inspectionProxy?.close().catch(() => undefined);
       await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
       const failure = buildBrowserUnavailableResponse(error);
       reply.code(failure.code === "RECORDER_START_FAILED" ? 500 : 503);
@@ -3196,6 +3260,8 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         ...failure,
         recoverable: true
       };
+    } finally {
+      if (purpose === "repository-inspect") inspectionSessionsStarting -= 1;
     }
   });
 

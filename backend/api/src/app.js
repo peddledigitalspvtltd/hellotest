@@ -12,9 +12,11 @@ const fastify = Fastify({
         "req.headers.authorization",
         "req.headers.cookie",
         "req.headers.x-api-key",
+        "req.headers.x-hellotest-recorder-token",
         "request.headers.authorization",
         "request.headers.cookie",
         "request.headers.x-api-key",
+        "request.headers.x-hellotest-recorder-token",
         "res.headers.set-cookie",
         "response.headers.set-cookie",
         "password",
@@ -74,7 +76,7 @@ fastify.register(cors, {
     }
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "traceparent", "tracestate"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "X-HelloTest-Recorder-Token", "traceparent", "tracestate"],
   exposedHeaders: ["X-Request-ID", "X-Trace-ID", "Location", "Retry-After", "traceparent"],
   credentials: true,
   maxAge: 86400
