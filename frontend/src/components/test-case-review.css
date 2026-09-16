@@ -1,0 +1,26 @@
+.test-case-review-queue-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  border: 1px solid var(--border-color, #d8e1eb);
+  border-radius: 10px;
+}
+.test-case-review-queue-banner > div { display: grid; gap: 4px; }
+.test-case-review-queue-banner > div > span { font-size: 12px; }
+.test-case-review-count { font-variant-numeric: tabular-nums; }
+.test-case-review-actions.is-icon-only .decision-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 4px;
+  justify-content: center;
+}
+.test-case-review-actions .decision-button.is-yes { color: #15703b; background: #e9f8ee; border-color: #a6ddbb; }
+.test-case-review-actions .decision-button.is-no { color: #b32936; background: #fff0f1; border-color: #f0bcc2; }
+.test-case-review-actions .decision-button:disabled { opacity: .5; cursor: wait; }
+:is([data-theme="dark"], .dark) .test-case-review-actions .decision-button.is-yes { color: #a9efbc; background: #123a2a; border-color: #286341; }
+:is([data-theme="dark"], .dark) .test-case-review-actions .decision-button.is-no { color: #ffb7bd; background: #4a202c; border-color: #843d49; }
