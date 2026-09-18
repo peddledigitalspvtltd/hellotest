@@ -1,0 +1,1073 @@
+/* Keep the reference report layout local to release readiness. */
+.release-review.rr-reference-layout {
+  --rr-layout-shadow: 0 14px 32px -23px rgba(21, 36, 58, 0.28);
+  display: block;
+  max-width: 1160px;
+  padding: 22px 34px 60px !important;
+}
+
+.release-review.rr-reference-layout .rr-button {
+  min-height: 36px;
+  gap: 7px;
+  padding: 8px 15px;
+  border-radius: 999px;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.release-review.rr-reference-layout .rr-badge {
+  border-radius: 999px;
+  padding: 4px 11px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.release-review.rr-reference-layout .rr-layout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.release-review.rr-reference-layout .rr-layout-heading {
+  min-width: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-eyebrow,
+.release-review.rr-reference-layout .rr-layout-analysis {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--rr-blue) 20%, var(--rr-bg));
+  border-radius: 999px;
+  background: var(--rr-blue-soft);
+  color: var(--rr-blue);
+  font-size: 11px;
+  line-height: 1.5;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.release-review.rr-reference-layout .rr-layout-heading h1 {
+  margin-top: 9px;
+  font-size: 25px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.release-review.rr-reference-layout .rr-layout-heading p {
+  margin-top: 5px;
+  color: var(--rr-muted);
+  font-size: 13px;
+}
+
+.release-review.rr-reference-layout .rr-layout-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.release-review.rr-reference-layout .rr-layout-actions select {
+  width: auto;
+  min-width: 0;
+  max-width: 220px;
+  height: 36px;
+  padding: 8px 30px 8px 14px;
+  border: 1px solid var(--rr-border);
+  border-radius: 999px;
+  background-color: var(--rr-bg);
+  color: var(--rr-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.release-review.rr-reference-layout > .rr-notice {
+  margin-bottom: 22px;
+  border-radius: 14px;
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 32px;
+  padding: 26px 30px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  border: 1px solid var(--rr-border);
+  border-radius: 24px;
+  background: var(--rr-bg);
+  box-shadow: var(--rr-layout-shadow);
+}
+
+.release-review.rr-reference-layout .rr-layout-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--rr-blue), #8b5dc4);
+  opacity: 0.65;
+}
+
+.release-review.rr-reference-layout .rr-layout-gauge {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+
+.release-review.rr-reference-layout .rr-layout-gauge > svg {
+  display: block;
+  width: 132px;
+  height: 132px;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-body {
+  min-width: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.release-review.rr-reference-layout .rr-layout-gauge-center strong {
+  color: var(--rr-text);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.release-review.rr-reference-layout .rr-layout-gauge-center small {
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-top h2 {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-description {
+  max-width: 640px;
+  margin-top: 6px;
+  color: var(--rr-muted);
+  font-size: 13px;
+}
+
+.release-review.rr-reference-layout .rr-layout-recommendation {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rr-blue);
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-meta {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-meta > div {
+  min-width: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-meta span,
+.release-review.rr-reference-layout .rr-layout-footer > div > span {
+  display: block;
+  color: var(--rr-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-meta strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--rr-text);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-hero-meta small {
+  display: block;
+  margin-top: 1px;
+  color: var(--rr-muted);
+  font-size: 11.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-method {
+  padding-top: 12px;
+  margin-top: 16px;
+  border-top: 1px solid var(--rr-border);
+}
+
+.release-review.rr-reference-layout .rr-layout-method > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--rr-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.release-review.rr-reference-layout .rr-layout-method > summary:hover {
+  color: var(--rr-text);
+}
+
+.release-review.rr-reference-layout .rr-layout-method > summary svg {
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.release-review.rr-reference-layout .rr-layout-method[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.release-review.rr-reference-layout .rr-layout-method p {
+  max-width: 680px;
+  margin-top: 9px;
+  color: var(--rr-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.release-review.rr-reference-layout .rr-layout-method p strong {
+  color: var(--rr-text);
+}
+
+.release-review.rr-reference-layout .rr-layout-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--rr-border);
+  border-radius: 20px;
+  background: var(--rr-bg);
+  box-shadow: var(--rr-layout-shadow);
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+}
+
+.release-review.rr-reference-layout :is(.rr-layout-method, .rr-layout-tile, .rr-layout-gate) > summary::-webkit-details-marker {
+  display: none;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--rr-soft);
+  color: var(--rr-blue);
+  flex: 0 0 34px;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-icon.is-danger,
+.release-review.rr-reference-layout .rr-layout-tile-icon.is-pass {
+  background: var(--rr-red-soft);
+  color: var(--rr-red);
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-icon.is-warning,
+.release-review.rr-reference-layout .rr-layout-tile-icon.is-blocking {
+  background: var(--rr-amber-soft);
+  color: var(--rr-amber);
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-main {
+  display: block;
+  min-width: 0;
+  flex: 1;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-main > span {
+  display: block;
+  color: var(--rr-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-main strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-text);
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-main strong small {
+  margin-left: 6px;
+  color: var(--rr-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-head > svg,
+.release-review.rr-reference-layout .rr-layout-gate > summary > svg {
+  color: var(--rr-muted);
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile[open] > summary > svg,
+.release-review.rr-reference-layout .rr-layout-gate[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-detail {
+  padding: 12px 18px 16px 64px;
+  border-top: 1px solid var(--rr-border);
+  color: var(--rr-muted);
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-tile-detail .rr-layout-method {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.release-review.rr-reference-layout .rr-layout-center-title {
+  margin: 8px 0 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-center-title h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-center-title p {
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 20px 20px 0 0;
+  background: var(--rr-bg);
+}
+
+.release-review.rr-reference-layout .rr-layout-tabs > button {
+  min-width: 0;
+  flex: 1;
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--rr-muted);
+  text-align: left;
+}
+
+.release-review.rr-reference-layout .rr-layout-tabs > button[aria-selected='true'] {
+  background: var(--rr-soft);
+  color: var(--rr-text);
+}
+
+.release-review.rr-reference-layout .rr-layout-tabs > button strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-tabs > button small {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.release-review.rr-reference-layout .rr-layout-tabpanel {
+  padding: 22px;
+  border: 1px solid var(--rr-border);
+  border-radius: 0 0 20px 20px;
+  background: var(--rr-bg);
+  box-shadow: var(--rr-layout-shadow);
+}
+
+.release-review.rr-reference-layout .rr-layout-tabpanel[hidden] {
+  display: none;
+}
+
+.release-review.rr-reference-layout .rr-layout-controls {
+  margin: 14px 0 12px;
+  color: var(--rr-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-gates {
+  display: grid;
+  gap: 10px;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate {
+  overflow: hidden;
+  border: 1px solid var(--rr-border);
+  border-radius: 16px;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  text-align: left;
+  list-style: none;
+  cursor: pointer;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate[open] > summary {
+  background: var(--rr-soft);
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-number {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid var(--rr-border);
+  border-radius: 8px;
+  background: var(--rr-soft);
+  color: var(--rr-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate > summary > strong {
+  min-width: 0;
+  flex: 1;
+  color: var(--rr-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-stat {
+  color: var(--rr-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-detail {
+  padding: 14px 16px 16px 52px;
+  border-top: 1px solid var(--rr-border);
+  color: var(--rr-muted);
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-detail .rr-progress {
+  max-width: 280px;
+  height: 6px;
+  margin: 8px 0 10px;
+  border-radius: 999px;
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-detail .rr-progress > span {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--rr-blue), #8b5dc4);
+}
+
+.release-review.rr-reference-layout .rr-layout-gate-detail > button,
+.release-review.rr-reference-layout .rr-layout-risk-card > button {
+  margin-top: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-panel {
+  margin-top: 16px;
+  border: 1px solid var(--rr-border);
+  border-radius: 18px;
+  background: var(--rr-soft);
+}
+
+.release-review.rr-reference-layout .rr-layout-panel.is-ai {
+  margin-top: 18px;
+  border-color: color-mix(in srgb, var(--rr-blue) 20%, var(--rr-bg));
+  background: color-mix(in srgb, var(--rr-blue) 5%, var(--rr-bg));
+}
+
+.release-review.rr-reference-layout .rr-layout-panel.is-risk {
+  border-left: 3px solid var(--rr-red);
+}
+
+.release-review.rr-reference-layout .rr-layout-panel.is-next {
+  border-left: 3px solid var(--rr-blue);
+}
+
+.release-review.rr-reference-layout .rr-layout-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+}
+
+.release-review.rr-reference-layout .rr-layout-panel-head h3 {
+  color: var(--rr-text);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-panel-head p {
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-panel.is-ai .rr-layout-panel-head > div {
+  position: relative;
+  min-width: 0;
+  padding-left: 46px;
+}
+
+.release-review.rr-reference-layout .rr-layout-panel.is-ai h3 > svg {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  box-sizing: content-box;
+  width: 18px;
+  height: 18px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--rr-blue-soft);
+  color: var(--rr-blue);
+  transform: translateY(-50%);
+}
+
+.release-review.rr-reference-layout .rr-layout-panel-body {
+  padding: 0 20px 20px;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-card {
+  padding: 14px 16px;
+  border: 1px solid var(--rr-border);
+  border-radius: 16px;
+  background: var(--rr-bg);
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-card > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-card > div:first-child > strong,
+.release-review.rr-reference-layout .rr-layout-risk-card > div:first-child > h3 {
+  color: var(--rr-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-card > p {
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-metrics {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-metrics strong {
+  display: block;
+  color: var(--rr-text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-metrics span {
+  display: block;
+  color: var(--rr-muted);
+  font-size: 11px;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue {
+  display: grid;
+  gap: 10px;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid var(--rr-border);
+  border-radius: 16px;
+  background: var(--rr-bg);
+  color: var(--rr-text);
+  text-align: left;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue > button:hover,
+.release-review.rr-reference-layout .rr-layout-funnel > button:hover {
+  border-color: var(--rr-blue);
+}
+
+.release-review.rr-reference-layout .rr-layout-queue > button > svg {
+  flex-shrink: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-score {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 9px;
+  background: var(--rr-amber-soft);
+  color: var(--rr-amber);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-score.is-danger {
+  background: var(--rr-red-soft);
+  color: var(--rr-red);
+}
+
+.release-review.rr-reference-layout .rr-layout-risk-score.is-clear {
+  background: var(--rr-green-soft);
+  color: var(--rr-green);
+}
+
+.release-review.rr-reference-layout .rr-layout-queue-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue-copy strong {
+  display: block;
+  color: var(--rr-text);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue-copy small {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-ownership {
+  margin-top: 16px;
+  color: var(--rr-muted);
+  font-size: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-trace-head,
+.release-review.rr-reference-layout .rr-layout-queue-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-trace-head > p {
+  flex: 1 1 300px;
+  color: var(--rr-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-segment {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--rr-border);
+  border-radius: 12px;
+  background: var(--rr-bg);
+}
+
+.release-review.rr-reference-layout .rr-layout-segment > button {
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--rr-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-segment > button[aria-pressed='true'] {
+  background: var(--rr-soft);
+  color: var(--rr-text);
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel > button {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--rr-border);
+  border-radius: 14px;
+  background: var(--rr-soft);
+  color: var(--rr-text);
+  text-align: left;
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel > button > svg {
+  display: block;
+  box-sizing: content-box;
+  padding: 8px;
+  margin-bottom: 10px;
+  border-radius: 9px;
+  background: var(--rr-blue-soft);
+  color: var(--rr-blue);
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel > button > strong {
+  display: block;
+  color: var(--rr-text);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel > button > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.release-review.rr-reference-layout .rr-layout-funnel > button > small {
+  display: block;
+  margin-top: 1px;
+  color: var(--rr-muted);
+  font-size: 10.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue-heading {
+  margin-top: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-queue-heading h3 {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-context {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.release-review.rr-reference-layout .rr-layout-context > div,
+.release-review.rr-reference-layout .rr-layout-context > article {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--rr-border);
+  border-radius: 20px;
+  background: var(--rr-bg);
+  box-shadow: var(--rr-layout-shadow);
+}
+
+.release-review.rr-reference-layout .rr-layout-context h3 {
+  color: var(--rr-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.release-review.rr-reference-layout .rr-layout-context strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-text);
+  font-size: 14px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.release-review.rr-reference-layout .rr-layout-context p {
+  padding-top: 8px;
+  color: var(--rr-muted);
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 22px;
+  margin-top: 8px;
+  border: 1px solid var(--rr-border);
+  border-radius: 20px;
+  background: var(--rr-bg);
+  box-shadow: var(--rr-layout-shadow);
+}
+
+.release-review.rr-reference-layout .rr-layout-footer > div > strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--rr-text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.release-review.rr-reference-layout .rr-layout-footer > button {
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+.release-review.rr-reference-layout .rr-layout-footer > button > svg {
+  flex-shrink: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details {
+  display: block;
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid var(--rr-border);
+  border-radius: 18px;
+  background: var(--rr-bg);
+  color: var(--rr-muted);
+  font-size: 12.5px;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details:not([open]) {
+  display: none;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: var(--rr-text);
+  font-size: 13px;
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details > * + * {
+  margin-top: 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details h3 {
+  color: var(--rr-text);
+  font-size: 14px;
+}
+
+.release-review.rr-reference-layout .rr-layout-source-details ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.release-review.rr-reference-layout .rr-layout-drilldown {
+  margin-top: 20px;
+  scroll-margin-top: 24px;
+}
+
+.release-review.rr-reference-layout .rr-layout-drilldown > header,
+.release-review.rr-reference-layout .rr-layout-drilldown > .rr-workspace-heading,
+.release-review.rr-reference-layout .rr-layout-drilldown > .rr-layout-queue-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 0 0 12px;
+}
+
+.release-review.rr-reference-layout .rr-layout-drilldown .rr-workspace {
+  min-width: 0;
+}
+
+.release-review.rr-reference-layout .rr-layout-drilldown .rr-workspace:not(:has(.rr-sidebar)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Existing app theme rules use important declarations for form controls. */
+:root[data-theme='dark'] .release-review.rr-reference-layout :is(.rr-layout-actions select, .rr-layout-queue > button) {
+  border-color: var(--rr-border) !important;
+  background: var(--rr-bg) !important;
+  color: var(--rr-text) !important;
+}
+
+:root[data-theme='dark'] .release-review.rr-reference-layout :is(.rr-layout-tabs > button, .rr-layout-segment > button, .rr-layout-recommendation) {
+  background: transparent !important;
+  color: var(--rr-muted) !important;
+}
+
+:root[data-theme='dark'] .release-review.rr-reference-layout :is(.rr-layout-tabs > button[aria-selected='true'], .rr-layout-segment > button[aria-pressed='true'], .rr-layout-funnel > button) {
+  background: var(--rr-soft) !important;
+  color: var(--rr-text) !important;
+}
+
+:root[data-theme='dark'] .release-review.rr-reference-layout .rr-layout-recommendation {
+  color: var(--rr-blue) !important;
+}
+
+@media (max-width: 1100px) {
+  .release-review.rr-reference-layout {
+    padding: 22px 24px 48px !important;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-funnel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .release-review.rr-reference-layout .rr-layout-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-tiles,
+  .release-review.rr-reference-layout .rr-layout-context {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .release-review.rr-reference-layout .rr-layout-tabs {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .release-review.rr-reference-layout {
+    padding: 18px 16px 36px !important;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-header {
+    gap: 16px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-actions {
+    width: 100%;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-actions select {
+    flex: 1 1 130px;
+    max-width: 100%;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-hero {
+    padding: 24px 20px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-tabpanel {
+    padding: 16px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-gate > summary {
+    gap: 9px;
+    padding: 13px 12px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-gate-stat {
+    max-width: 90px;
+    font-size: 11px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-gate-detail {
+    padding-left: 16px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-panel-head {
+    padding: 16px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-panel-body {
+    padding: 0 16px 16px;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-risk-card > div:first-child {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .release-review.rr-reference-layout .rr-layout-funnel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .release-review.rr-reference-layout .rr-layout-footer {
+    padding: 16px 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .release-review.rr-reference-layout :is(.rr-layout-method > summary svg, .rr-layout-tile-head > svg, .rr-layout-gate > summary > svg) {
+    transition: none;
+  }
+}
