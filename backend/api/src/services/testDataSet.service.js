@@ -160,6 +160,13 @@ exports.getTestDataSets = async ({ project_id, app_type_id }) => {
     params.push(project_id);
   }
 
+  // Application-only callers must still scope shared (NULL application)
+  // resources to the owning project; they are not workspace-global records.
+  if (!project_id && app_type_id) {
+    query += ` AND project_id = (SELECT project_id FROM app_types WHERE id = ?)`;
+    params.push(app_type_id);
+  }
+
   if (app_type_id) {
     query += ` AND (app_type_id = ? OR app_type_id IS NULL)`;
     params.push(app_type_id);

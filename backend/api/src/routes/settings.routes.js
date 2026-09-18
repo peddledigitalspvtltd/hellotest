@@ -44,7 +44,9 @@ module.exports = async function (fastify) {
       preferences: { required: true, type: "object" }
     }, req.body);
 
-    const preferenceKeys = Object.keys(req.body.preferences || {});
+    // Persistence canonicalizes preference keys. Authorize the same keys so
+    // whitespace cannot route a governed setting through the personal path.
+    const preferenceKeys = Object.keys(req.body.preferences || {}).map((key) => key.trim());
 
     if (preferenceKeys.some((key) => AI_PROMPT_PREFERENCE_KEYS.has(key))) {
       await fastify.requirePermission("ai_prompt.manage")(req);

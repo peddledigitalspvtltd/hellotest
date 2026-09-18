@@ -74,7 +74,7 @@ module.exports = async function (fastify) {
     await projectService.getProject(scopedProjectId, req.user.id);
     await fastify.requirePermission("configuration.view", { projectId: scopedProjectId })(req);
 
-    const configurations = await service.getTestConfigurations({ project_id, app_type_id });
+    const configurations = await service.getTestConfigurations({ project_id: scopedProjectId, app_type_id });
     const visible = [];
     for (const configuration of configurations) {
       try {

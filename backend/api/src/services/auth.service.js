@@ -10,6 +10,7 @@ const { resolveSecret } = require("../security/runtimeSecrets");
 
 const VERIFICATION_CODE_TTL_MINUTES = 15;
 const VERIFICATION_MAX_ATTEMPTS = 5;
+const VERIFICATION_REJECTION = Symbol("verification-rejection");
 const googleIdentityVerifier = new OAuth2Client();
 const VERIFICATION_SECRET = resolveSecret({
   names: ["VERIFICATION_CODE_SECRET", "SESSION_SECRET"],
@@ -198,6 +199,7 @@ const getPendingVerification = async ({ email, purpose }) => {
     WHERE email = ? AND purpose = ? AND consumed_at IS NULL
     ORDER BY created_at DESC
     LIMIT 1
+    FOR UPDATE
   `).get(email, purpose);
 };
 
@@ -288,17 +290,17 @@ const consumeVerificationPayload = async ({ email, purpose, code }) => {
   const verification = await getPendingVerification({ email, purpose });
 
   if (!verification) {
-    throw createError("No verification code is pending. Request a new code to continue.", 400);
+    return { [VERIFICATION_REJECTION]: createError("No verification code is pending. Request a new code to continue.", 400) };
   }
 
   if (verification.expires_at && new Date(verification.expires_at) < new Date()) {
     await clearPendingVerification({ email, purpose });
-    throw createError("This verification code has expired. Request a new code to continue.", 401);
+    return { [VERIFICATION_REJECTION]: createError("This verification code has expired. Request a new code to continue.", 401) };
   }
 
   if (verification.attempt_count >= VERIFICATION_MAX_ATTEMPTS) {
     await clearPendingVerification({ email, purpose });
-    throw createError("Too many incorrect attempts. Request a new verification code and try again.", 429);
+    return { [VERIFICATION_REJECTION]: createError("Too many incorrect attempts. Request a new verification code and try again.", 429) };
   }
 
   if (hashVerificationCode(code) !== verification.code_hash) {
@@ -311,10 +313,10 @@ const consumeVerificationPayload = async ({ email, purpose, code }) => {
     `).run(nextAttemptCount, verification.id);
 
     if (nextAttemptCount >= VERIFICATION_MAX_ATTEMPTS) {
-      throw createError("Too many incorrect attempts. Request a new verification code and try again.", 429);
+      return { [VERIFICATION_REJECTION]: createError("Too many incorrect attempts. Request a new verification code and try again.", 429) };
     }
 
-    throw createError("Invalid verification code. Double-check the 6-digit code and try again.", 401);
+    return { [VERIFICATION_REJECTION]: createError("Invalid verification code. Double-check the 6-digit code and try again.", 401) };
   }
 
   await db.prepare(`
@@ -324,6 +326,15 @@ const consumeVerificationPayload = async ({ email, purpose, code }) => {
   `).run(verification.id);
 
   return verification.payload || {};
+};
+
+// Failed attempts and expiry cleanup are durable changes, even though the HTTP
+// request is rejected. Successful consumption and its account mutation still
+// commit together; unexpected failures still roll back the entire operation.
+const verificationTransaction = (work) => async (input) => {
+  const result = await db.transaction(work)(input);
+  if (result?.[VERIFICATION_REJECTION]) throw result[VERIFICATION_REJECTION];
+  return result;
 };
 
 const verifyGoogleIdentityToken = async (idToken, expectedClientId) => {
@@ -419,7 +430,7 @@ exports.requestSignupCode = async ({ email, password, name }) => {
   });
 };
 
-exports.verifySignupCode = db.transaction(async ({ email, code }) => {
+exports.verifySignupCode = verificationTransaction(async ({ email, code }) => {
   if (!email || !code) {
     throw createError("Email and verification code are required", 400);
   }
@@ -430,6 +441,7 @@ exports.verifySignupCode = db.transaction(async ({ email, code }) => {
     purpose: "signup",
     code: code.trim()
   });
+  if (verificationPayload[VERIFICATION_REJECTION]) return verificationPayload;
 
   const existing = await db.prepare(`
     SELECT id
@@ -602,7 +614,7 @@ exports.requestPasswordResetCode = async ({ email, newPassword }) => {
   });
 };
 
-exports.verifyPasswordResetCode = db.transaction(async ({ email, code }) => {
+exports.verifyPasswordResetCode = verificationTransaction(async ({ email, code }) => {
   if (!email || !code) {
     throw createError("Email and verification code are required", 400);
   }
@@ -613,6 +625,7 @@ exports.verifyPasswordResetCode = db.transaction(async ({ email, code }) => {
     purpose: "password_reset",
     code: code.trim()
   });
+  if (verificationPayload[VERIFICATION_REJECTION]) return verificationPayload;
   const user = await db.prepare(`
     SELECT id
     FROM users

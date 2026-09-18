@@ -507,7 +507,7 @@ module.exports = async function (fastify) {
     const execution = await ensureExecutionPermission(fastify, req, "run.execute");
     await requireMobileExecutionPermission(fastify, req, execution);
 
-    return service.rerunExecution(req.params.id, req.body);
+    return service.rerunExecution(req.params.id, { ...req.body, created_by: req.user.id });
   });
 
 

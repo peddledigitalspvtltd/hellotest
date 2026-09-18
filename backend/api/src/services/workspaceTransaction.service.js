@@ -481,7 +481,7 @@ exports.listTransactions = async ({
   }
 
   query += ` ORDER BY COALESCE(workspace_transactions.updated_at, workspace_transactions.created_at) DESC, workspace_transactions.id DESC LIMIT ?`;
-  params.push(Math.max(1, Math.min(500, Number(limit) || 20)));
+  params.push(Math.max(1, Math.min(500, Math.trunc(Number(limit) || 20))));
 
   const rows = await obsDb.prepare(query).all(...params);
   return hydrateTransactions(rows);

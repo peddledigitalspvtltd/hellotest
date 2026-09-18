@@ -4,6 +4,7 @@ const displayIdService = require("./displayId.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { latestFinalizedCaseResultsCte } = require("../utils/finalizedCaseMetrics");
+const { mapWithConcurrency } = require("../utils/boundedConcurrency");
 
 const normalizeText = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
 const normalizeList = (values = []) => [...new Set((Array.isArray(values) ? values : []).map(normalizeText).filter(Boolean))];
@@ -117,38 +118,54 @@ const deriveState = (release) => {
   return release.state || "planned";
 };
 
-const hydrateRelease = async (release) => {
-  if (!release) return release;
-  const sprintIds = Array.isArray(release.sprint_ids) ? release.sprint_ids : [];
-  const sprintPlaceholders = sprintIds.map(() => "?").join(",");
+const hydrateReleases = async (releases, { includeDetails = true } = {}) => {
+  if (!releases.length) return [];
+  const selectedReleases = releases.map((release) => ({
+    id: release.id, project_id: release.project_id,
+    sprint_ids: Array.isArray(release.sprint_ids) ? release.sprint_ids : []
+  }));
+  // Hydrate the complete catalog in one query. The selected release recordset
+  // avoids one queued database read per release and retains live sprint scope.
   const items = await db.prepare(`
-    SELECT requirements.*,
+    SELECT ${includeDetails ? "requirements.*" : "requirements.id"}, selected.id AS hydration_release_id,
       CASE
         WHEN requirement_release_items.source = 'manual' THEN 'manual'
-        WHEN requirements.iteration_id IN (${sprintPlaceholders || "NULL"}) THEN 'sprint'
+        WHEN selected.sprint_ids @> jsonb_build_array(requirements.iteration_id) THEN 'sprint'
         ELSE COALESCE(requirement_release_items.source, 'manual')
       END AS release_membership_source
-    FROM requirements
+    FROM jsonb_to_recordset(?::jsonb) AS selected(id text, project_id text, sprint_ids jsonb)
+    JOIN LATERAL (
+      SELECT requirement_id FROM requirement_release_items WHERE release_id = selected.id
+      UNION
+      SELECT id FROM requirements
+      WHERE project_id = selected.project_id
+        AND iteration_id IN (SELECT value FROM jsonb_array_elements_text(selected.sprint_ids))
+    ) membership ON TRUE
+    JOIN requirements ON requirements.id = membership.requirement_id AND requirements.project_id = selected.project_id
     LEFT JOIN requirement_release_items
       ON requirements.id = requirement_release_items.requirement_id
-      AND requirement_release_items.release_id = ?
-    WHERE requirements.project_id = ?
-      AND (
-        requirement_release_items.release_id IS NOT NULL
-        ${sprintIds.length ? `OR requirements.iteration_id IN (${sprintPlaceholders})` : ""}
-      )
-    ORDER BY COALESCE(requirements.updated_at, requirements.created_at) DESC, requirements.title
-  `).all(...sprintIds, release.id, release.project_id, ...sprintIds);
-  return {
-    ...release,
-    state: deriveState(release),
-    persisted_state: release.state,
-    sprint_ids: sprintIds,
-    requirement_ids: items.map((item) => item.id),
-    requirement_count: items.length,
-    requirements: items
-  };
+      AND requirement_release_items.release_id = selected.id
+    WHERE requirement_release_items.release_id IS NOT NULL
+      OR selected.sprint_ids @> jsonb_build_array(requirements.iteration_id)
+    ORDER BY selected.id, COALESCE(requirements.updated_at, requirements.created_at) DESC, requirements.title
+  `).all(JSON.stringify(selectedReleases));
+  const itemsByRelease = new Map(releases.map((release) => [release.id, []]));
+  for (const { hydration_release_id: releaseId, ...item } of items) itemsByRelease.get(releaseId)?.push(item);
+  return releases.map((release) => {
+    const requirements = itemsByRelease.get(release.id);
+    return {
+      ...release,
+      state: deriveState(release),
+      persisted_state: release.state,
+      sprint_ids: Array.isArray(release.sprint_ids) ? release.sprint_ids : [],
+      requirement_ids: requirements.map((item) => item.id),
+      requirement_count: requirements.length,
+      requirements
+    };
+  });
 };
+
+const hydrateRelease = async (release) => release ? (await hydrateReleases([release]))[0] : release;
 
 const replaceMembership = async (release, requirementIds, sprintIds, previousStamp = null) => {
   const sourceById = await resolveMembership({ requirementIds, sprintIds, projectId: release.project_id });
@@ -307,7 +324,7 @@ exports.listReleases = async ({ project_id } = {}) => {
   }
   query += " ORDER BY CASE state WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END, target_date NULLS LAST, updated_at DESC";
   const rows = await db.prepare(query).all(...params);
-  return Promise.all(rows.map(hydrateRelease));
+  return hydrateReleases(rows);
 };
 
 exports.getRelease = async (id) => {
@@ -378,8 +395,8 @@ exports.updateRelease = async (id, data = {}) => {
   return { updated: true, release: await exports.getRelease(id) };
 };
 
-exports.getReadiness = async (id) => {
-  const release = await exports.getRelease(id);
+exports.getReadiness = async (id, { release: hydratedRelease } = {}) => {
+  const release = hydratedRelease?.id === id ? hydratedRelease : await exports.getRelease(id);
   const storyIds = release.requirement_ids;
   if (!storyIds.length) return {
     release_id: id, total_stories: 0, covered_stories: 0, test_coverage_percent: null,
@@ -481,13 +498,16 @@ exports.getReadiness = async (id) => {
 exports.listReadiness = async ({ project_id } = {}) => {
   const projectId = normalizeText(project_id);
   if (!projectId) throw new Error("project_id is required");
-  const releases = await db.prepare(`
-    SELECT id
+  const rows = await db.prepare(`
+    SELECT id, project_id, sprint_ids, fix_version
     FROM requirement_releases
     WHERE project_id = ?
     ORDER BY updated_at DESC, id ASC
   `).all(projectId);
-  return Promise.all(releases.map((release) => exports.getReadiness(release.id)));
+  const releases = await hydrateReleases(rows, { includeDetails: false });
+  // Leave database capacity available for ordinary reads and edits. The shared
+  // scheduler stops on failure and waits for already-started reads to settle.
+  return mapWithConcurrency(releases, 3, (release) => exports.getReadiness(release.id, { release }));
 };
 
 const normalizeNoteList = (value, fallback = []) => {
@@ -569,7 +589,7 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
 
 exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) => {
   const release = await exports.getRelease(id);
-  const readiness = await exports.getReadiness(id);
+  const readiness = await exports.getReadiness(id, { release });
   const storyEvaluations = (release.requirements || []).map((story) => {
     const evidence = readiness.story_metrics[story.id];
     const linkedCases = evidence?.linked_cases || 0;

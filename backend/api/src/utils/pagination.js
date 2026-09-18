@@ -21,10 +21,15 @@ const decodeCursor = (cursor) => {
 
 const encodeCursor = (offset) => Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
 
-const paginate = (items, query = {}) => {
-  const source = Array.isArray(items) ? items : [];
+const getPaginationOptions = (query = {}) => {
   const pageSize = Math.min(MAX_PAGE_SIZE, parsePositiveInteger(query.page_size ?? query.limit, DEFAULT_PAGE_SIZE));
   const offset = decodeCursor(query.cursor);
+  return { pageSize, offset };
+};
+
+const paginate = (items, query = {}) => {
+  const source = Array.isArray(items) ? items : [];
+  const { pageSize, offset } = getPaginationOptions(query);
   const pageItems = source.slice(offset, offset + pageSize);
   const nextOffset = offset + pageItems.length;
   const isLast = nextOffset >= source.length;
@@ -42,4 +47,4 @@ const shouldPaginate = (query = {}) => {
   return value === true || value === "true" || Boolean(query.cursor);
 };
 
-module.exports = { paginate, shouldPaginate };
+module.exports = { paginate, shouldPaginate, getPaginationOptions, encodeCursor };

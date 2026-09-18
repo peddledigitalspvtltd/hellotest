@@ -188,7 +188,9 @@ test("creating a named persona through role management uses its preset instead o
     all: async () => PERMISSIONS,
     run: async (...params) => {
       if (/DELETE FROM role_permissions/.test(sql)) assigned = [];
-      if (/INSERT INTO role_permissions/.test(sql)) assigned.push(PERMISSIONS.find(permission => permission.id === params[1]).code);
+      if (/INSERT INTO role_permissions/.test(sql)) {
+        for (let index = 1; index < params.length; index += 2) assigned.push(PERMISSIONS.find(permission => permission.id === params[index]).code);
+      }
       return { changes: 1 };
     }
   }));

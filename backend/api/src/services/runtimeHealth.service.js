@@ -4,6 +4,7 @@ const defaultDb = require("../db");
 const defaultObsDb = require("../obsDb");
 const defaultCache = require("../utils/cache");
 const defaultObjectStorage = require("./objectStorage.service");
+const { singleFlight } = require("../utils/singleFlight");
 
 const HEALTH_STATUSES = Object.freeze({
   READY: "ready",
@@ -338,12 +339,14 @@ function createRuntimeHealthService({
     });
   };
 
+  const requiredChecks = singleFlight(() => Promise.all([probeMainDatabase(), probeExecutionDatabase()]));
+  const optionalChecks = singleFlight(() => Promise.all([probeCache(), probeStorage(), probeDocumentExtraction(), describeTelemetry()]));
   const runChecks = async ({ includeOptional = true } = {}) => {
-    const required = [probeMainDatabase(), probeExecutionDatabase()];
-    const optional = includeOptional
-      ? [probeCache(), probeStorage(), probeDocumentExtraction(), describeTelemetry()]
-      : [];
-    const checks = await Promise.all([...required, ...optional]);
+    const [required, optional] = await Promise.all([
+      requiredChecks(),
+      includeOptional ? optionalChecks() : []
+    ]);
+    const checks = [...required, ...optional];
 
     return {
       status: aggregateStatus(checks),

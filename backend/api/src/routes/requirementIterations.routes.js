@@ -1,6 +1,7 @@
 const service = require("../services/requirementIteration.service");
 const projectService = require("../services/project.service");
 const db = require("../db");
+const { mapWithConcurrency } = require("../utils/boundedConcurrency");
 
 const HEALTH_LIMITS = Object.freeze({
   sprints: 100,
@@ -32,10 +33,13 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
   const linkedRows = requirementIds.length ? await db.prepare(`
     SELECT requirement_test_cases.requirement_id, requirement_test_cases.test_case_id
     FROM requirement_test_cases
-    WHERE requirement_test_cases.requirement_id IN (${placeholders})
+    JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id
+    LEFT JOIN app_types ON app_types.id = test_cases.app_type_id
+    WHERE (test_cases.app_type_id IS NULL OR app_types.project_id = ?)
+      AND requirement_test_cases.requirement_id IN (${placeholders})
     ORDER BY requirement_test_cases.requirement_id, requirement_test_cases.test_case_id
     LIMIT ?
-  `).all(...requirementIds, HEALTH_LIMITS.linked_cases + 1) : [];
+  `).all(iteration.project_id, ...requirementIds, HEALTH_LIMITS.linked_cases + 1) : [];
   const linksPartial = linkedRows.length > HEALTH_LIMITS.linked_cases;
   const boundedLinkedRows = linkedRows.slice(0, HEALTH_LIMITS.linked_cases);
   const linkedCaseIds = [...new Set(boundedLinkedRows.map((item) => item.test_case_id))];
@@ -52,10 +56,10 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
     SELECT DISTINCT feedback.id, feedback.status, feedback.priority, feedback.severity
     FROM requirement_defects
     JOIN feedback ON feedback.id = requirement_defects.issue_id
-    WHERE requirement_defects.requirement_id IN (${placeholders})
+    WHERE requirement_defects.requirement_id IN (${placeholders}) AND feedback.project_id = ?
     ORDER BY feedback.id
     LIMIT ?
-  `).all(...requirementIds, HEALTH_LIMITS.bugs + 1) : [];
+  `).all(...requirementIds, iteration.project_id, HEALTH_LIMITS.bugs + 1) : [];
   const bugsPartial = bugs.length > HEALTH_LIMITS.bugs;
   const boundedBugs = bugs.slice(0, HEALTH_LIMITS.bugs);
   const coveredIds = new Set(boundedLinkedRows.map((item) => item.requirement_id));
@@ -142,6 +146,9 @@ module.exports = async function (fastify) {
     if (req.query.project_id) {
       await ensureProjectAccess(req.query.project_id, req.user.id);
       await fastify.requirePermission("requirement_iteration.view", { projectId: req.query.project_id })(req);
+      for (const permission of ["requirement.view", "testcase.view", "run.view", "result.view", "feedback.view"]) {
+        await fastify.requirePermission(permission, { projectId: req.query.project_id })(req);
+      }
     } else if (req.user.role !== "admin") {
       const error = new Error("project_id is required when reading Sprint health");
       error.statusCode = 400;
@@ -151,13 +158,13 @@ module.exports = async function (fastify) {
     const iterations = await service.listIterations({ project_id: req.query.project_id });
     const matched = requestedIds.length ? iterations.filter((iteration) => requestedIds.includes(iteration.id)) : iterations;
     const selected = matched.slice(0, HEALTH_LIMITS.sprints);
-    const items = await Promise.all(selected.map(async (iteration) => buildIterationHealth(
+    const items = await mapWithConcurrency(selected, 3, async (iteration) => buildIterationHealth(
       iteration,
-      await service.listRequirements(iteration.id, { limit: HEALTH_LIMITS.stories_per_sprint + 1 })
-    )));
+      await service.listRequirements(iteration.id, { limit: HEALTH_LIMITS.stories_per_sprint + 1, projection: "health" })
+    ));
     let backlog = null;
     if (req.query.include_backlog === "true" && req.query.project_id) {
-      const backlogRequirements = await db.prepare(`SELECT * FROM requirements WHERE project_id = ? AND iteration_id IS NULL ORDER BY created_at DESC LIMIT ?`).all(req.query.project_id, HEALTH_LIMITS.stories_per_sprint + 1);
+      const backlogRequirements = await db.prepare(`SELECT id, status, priority, dev_completion_target_date, qa_completion_target_date FROM requirements WHERE project_id = ? AND iteration_id IS NULL ORDER BY created_at DESC LIMIT ?`).all(req.query.project_id, HEALTH_LIMITS.stories_per_sprint + 1);
       backlog = await buildIterationHealth({ id: "backlog", project_id: req.query.project_id, name: "Backlog", state: null }, backlogRequirements);
     }
     const foundIds = new Set(selected.map((item) => item.id));

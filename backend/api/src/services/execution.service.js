@@ -137,54 +137,6 @@ const insertExecutionSuite = db.prepare(`
   VALUES (?, ?, ?)
 `);
 
-const insertExecutionCaseSnapshot = db.prepare(`
-  INSERT INTO execution_case_snapshots (
-    execution_id,
-    test_case_id,
-    test_case_title,
-    test_case_description,
-    external_references,
-    suite_id,
-    suite_name,
-    module_id,
-    module_name,
-    priority,
-    status,
-    parameter_values,
-    parameter_template_values,
-    suite_parameter_values,
-    suite_parameter_template_values,
-    test_data_set_id,
-    test_data_set_name,
-    test_data_set_snapshot,
-    data_set_source,
-    sort_order,
-    assigned_to,
-    assigned_to_ids,
-    assignment_source
-  )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
-const insertExecutionStepSnapshot = db.prepare(`
-  INSERT INTO execution_step_snapshots (
-    execution_id,
-    test_case_id,
-    snapshot_step_id,
-    step_order,
-    action,
-    expected_result,
-    step_type,
-    automation_code,
-    api_request,
-    group_id,
-    group_name,
-    group_kind,
-    reusable_group_id
-  )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-
 const validateSuite = db.prepare(`
   SELECT id, app_type_id, name
   FROM test_suites
@@ -313,13 +265,6 @@ const selectProjectMember = db.prepare(`
   SELECT id
   FROM project_members
   WHERE project_id = ? AND user_id = ?
-`);
-
-const selectStepsForCase = db.prepare(`
-  SELECT id, step_order, action, expected_result, step_type, automation_code, api_request, group_id, group_name, group_kind, reusable_group_id
-  FROM test_steps
-  WHERE test_case_id = ?
-  ORDER BY step_order ASC, id ASC
 `);
 
 function parseJsonValue(value, fallback) {
@@ -1111,10 +1056,18 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
   const suiteContexts = await loadSuiteContexts([...suiteRows.map(row => row.suite_id), ...(options.directCases || []).map(row => row.suite_id)]);
   const resolvedAssignedTo = normalizeText(options.assignedTo) || null;
   const resolvedAssignedToIds = normalizeTextList(options.assignedToIds || (resolvedAssignedTo ? [resolvedAssignedTo] : []));
+  const casesBySuite = new Map();
+  for (const suiteRow of suiteRows) {
+    if (!casesBySuite.has(suiteRow.suite_id)) casesBySuite.set(suiteRow.suite_id, await selectCasesForSuite.all(suiteRow.suite_id));
+  }
+  const stepsByCase = await require("./executionSnapshot.repository").loadSteps([
+    ...[...casesBySuite.values()].flat().map(row => row.test_case_id),
+    ...(options.directCases || []).map(row => row.test_case_id)
+  ]);
   let sortOrder = 0;
 
   for (const suiteRow of suiteRows) {
-    const suiteCases = await selectCasesForSuite.all(suiteRow.suite_id);
+    const suiteCases = casesBySuite.get(suiteRow.suite_id);
 
     for (const suiteCase of suiteCases) {
       if (seenCaseIds.has(suiteCase.test_case_id)) {
@@ -1151,7 +1104,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         assignment_source: resolvedAssignedToIds.length ? "run" : null
       });
 
-      const steps = await selectStepsForCase.all(suiteCase.test_case_id);
+      const steps = stepsByCase.get(suiteCase.test_case_id) || [];
       Object.assign(caseSnapshots[caseSnapshots.length - 1], freezeReferencedParameterGenerators(caseSnapshots[caseSnapshots.length - 1], steps));
 
       for (const step of steps) {
@@ -1211,7 +1164,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         assignment_source: resolvedAssignedToIds.length ? "run" : null
       });
 
-      const steps = await selectStepsForCase.all(directCase.test_case_id);
+      const steps = stepsByCase.get(directCase.test_case_id) || [];
       Object.assign(caseSnapshots[caseSnapshots.length - 1], freezeReferencedParameterGenerators(caseSnapshots[caseSnapshots.length - 1], steps));
 
       for (const step of steps) {
@@ -1346,53 +1299,7 @@ async function attachDetailedScope(execution) {
   };
 }
 
-async function persistExecutionSnapshots(snapshotPayload) {
-  for (const caseSnapshot of snapshotPayload.caseSnapshots) {
-    await insertExecutionCaseSnapshot.run(
-      caseSnapshot.execution_id,
-      caseSnapshot.test_case_id,
-      caseSnapshot.test_case_title,
-      caseSnapshot.test_case_description,
-      caseSnapshot.external_references || [],
-      caseSnapshot.suite_id,
-      caseSnapshot.suite_name,
-      caseSnapshot.module_id,
-      caseSnapshot.module_name,
-      caseSnapshot.priority,
-      caseSnapshot.status,
-      caseSnapshot.parameter_values || {},
-      caseSnapshot.parameter_template_values || caseSnapshot.parameter_values || {},
-      caseSnapshot.suite_parameter_values || {},
-      caseSnapshot.suite_parameter_template_values || caseSnapshot.suite_parameter_values || {},
-      caseSnapshot.test_data_set_id || null,
-      caseSnapshot.test_data_set_name || null,
-      caseSnapshot.test_data_set_snapshot || null,
-      caseSnapshot.data_set_source || null,
-      caseSnapshot.sort_order,
-      caseSnapshot.assigned_to || null,
-      caseSnapshot.assigned_to_ids || (caseSnapshot.assigned_to ? [caseSnapshot.assigned_to] : []),
-      caseSnapshot.assignment_source || null
-    );
-  }
-
-  for (const stepSnapshot of snapshotPayload.stepSnapshots) {
-    await insertExecutionStepSnapshot.run(
-      stepSnapshot.execution_id,
-      stepSnapshot.test_case_id,
-      stepSnapshot.snapshot_step_id,
-      stepSnapshot.step_order,
-      stepSnapshot.action,
-      stepSnapshot.expected_result,
-      stepSnapshot.step_type,
-      stepSnapshot.automation_code,
-      stepSnapshot.api_request,
-      stepSnapshot.group_id,
-      stepSnapshot.group_name,
-      stepSnapshot.group_kind,
-      stepSnapshot.reusable_group_id
-    );
-  }
-}
+const persistExecutionSnapshots = require("./executionSnapshot.repository").persist;
 
 exports.createExecution = async ({
   project_id,
@@ -1911,7 +1818,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
     await db.prepare("UPDATE executions SET parameter_scope_default = ? WHERE id = ?").run(sourceExecution.parameter_scope_default || "r", nextExecutionId);
 
-    for (const [index, snapshot] of filteredCaseSnapshots.entries()) {
+    const rerunCaseSnapshots = filteredCaseSnapshots.map((snapshot, index) => {
       const parameterTemplateValues = normalizeParameterValues(snapshot.parameter_template_values || snapshot.parameter_values);
       const suiteParameterTemplateValues = normalizeParameterValues(snapshot.suite_parameter_template_values || snapshot.suite_parameter_values);
       const suiteKey = snapshot.suite_id || `case:${snapshot.test_case_id}`;
@@ -1933,50 +1840,29 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
         rerunLinkedDataSetSnapshots.set(dataSetKey, rerunCaseDataSetSnapshot);
       }
 
-      await insertExecutionCaseSnapshot.run(
-        nextExecutionId,
-        snapshot.test_case_id,
-        snapshot.test_case_title,
-        snapshot.test_case_description,
-        snapshot.external_references || [],
-        snapshot.suite_id,
-        snapshot.suite_name,
-        snapshot.module_id || null,
-        snapshot.module_name || null,
-        snapshot.priority,
-        snapshot.status,
-        materializeParameterValues(parameterTemplateValues),
-        parameterTemplateValues,
-        suiteParameterValues,
-        suiteParameterTemplateValues,
-        snapshot.test_data_set_id || rerunCaseDataSetSnapshot?.id || sourceExecution.test_data_set?.id || null,
-        snapshot.test_data_set_name || rerunCaseDataSetSnapshot?.name || sourceExecution.test_data_set?.name || null,
-        rerunCaseDataSetSnapshot,
-        rerunDataSetSource,
-        index + 1,
-        snapshot.assigned_to || rerunAssignedTo,
-        normalizeTextList(snapshot.assigned_to_ids || snapshot.assigned_to || sourceExecution.assigned_to_ids || [rerunAssignedTo]),
-        snapshot.assignment_source || "run"
-      );
-    }
-
-    for (const snapshot of filteredStepSnapshots) {
-      await insertExecutionStepSnapshot.run(
-        nextExecutionId,
-        snapshot.test_case_id,
-        uuid(),
-        snapshot.step_order,
-        snapshot.action,
-        snapshot.expected_result,
-        snapshot.step_type,
-        snapshot.automation_code,
-        snapshot.api_request,
-        snapshot.group_id,
-        snapshot.group_name,
-        snapshot.group_kind,
-        snapshot.reusable_group_id
-      );
-    }
+      return {
+        ...snapshot,
+        execution_id: nextExecutionId,
+        module_id: snapshot.module_id || null,
+        module_name: snapshot.module_name || null,
+        parameter_values: materializeParameterValues(parameterTemplateValues),
+        parameter_template_values: parameterTemplateValues,
+        suite_parameter_values: suiteParameterValues,
+        suite_parameter_template_values: suiteParameterTemplateValues,
+        test_data_set_id: snapshot.test_data_set_id || rerunCaseDataSetSnapshot?.id || sourceExecution.test_data_set?.id || null,
+        test_data_set_name: snapshot.test_data_set_name || rerunCaseDataSetSnapshot?.name || sourceExecution.test_data_set?.name || null,
+        test_data_set_snapshot: rerunCaseDataSetSnapshot,
+        data_set_source: rerunDataSetSource,
+        sort_order: index + 1,
+        assigned_to: snapshot.assigned_to || rerunAssignedTo,
+        assigned_to_ids: normalizeTextList(snapshot.assigned_to_ids || snapshot.assigned_to || sourceExecution.assigned_to_ids || [rerunAssignedTo]),
+        assignment_source: snapshot.assignment_source || "run"
+      };
+    });
+    await persistExecutionSnapshots({
+      caseSnapshots: rerunCaseSnapshots,
+      stepSnapshots: filteredStepSnapshots.map(snapshot => ({ ...snapshot, execution_id: nextExecutionId, snapshot_step_id: uuid() }))
+    });
   });
 
   await transaction();

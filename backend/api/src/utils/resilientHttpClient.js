@@ -191,6 +191,21 @@ const markSuccess = (state, policy) => {
 };
 
 const acquireCircuit = (state, policy) => {
+  // A recovering dependency gets one probe, even when its bulkhead has room.
+  if (state.circuit === "half-open") {
+    if (!state.probeInFlight) {
+      state.probeInFlight = true;
+      return;
+    }
+    state.counters.shortCircuited += 1;
+    throw serviceError(SERVICE_ERROR_CODES.CIRCUIT_OPEN, {
+      dependency: policy.dependency,
+      operation: policy.operation,
+      retryable: true,
+      statusCode: 503,
+      retryAfterSeconds: 1
+    });
+  }
   if (state.circuit !== "open") return;
   const nextProbeAt = Date.parse(state.nextProbeAt || "");
   if (Number.isFinite(nextProbeAt) && policy.now() < nextProbeAt) {
@@ -256,6 +271,13 @@ const forwardAbort = (externalSignal, controller) => {
 
 async function resilientHttpRequest(url, init = {}, options = {}) {
   const policy = normalizePolicy(url, init, options);
+  if (init.signal?.aborted) {
+    throw classifyServiceFailure(init.signal.reason, {
+      dependency: policy.dependency,
+      operation: policy.operation,
+      callerAborted: true
+    });
+  }
   if (typeof policy.fetchImpl !== "function") {
     throw serviceError(SERVICE_ERROR_CODES.CONFIGURATION, {
       dependency: policy.dependency,
@@ -319,9 +341,11 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
         const canRetry = retryableResponse && attempt < policy.maxAttempts;
 
         if (canRetry) {
-          await response.body?.cancel?.().catch(() => null);
           const delayMs = retryAfterMs ?? fullJitterDelayMs(attempt, policy.baseDelayMs, policy.maxDelayMs);
           if (delayMs < policy.deadlineMs - (policy.now() - startedAt)) {
+            // Keep the final response readable when Retry-After exceeds the
+            // remaining operation budget and another attempt cannot be made.
+            await response.body?.cancel?.().catch(() => null);
             state.counters.retries += 1;
             emit(policy, "dependency.request_retry", {
               attempt,
@@ -349,7 +373,6 @@ async function resilientHttpRequest(url, init = {}, options = {}) {
           markCircuitFailure(state, policy, error);
         } else if (policy.throwOnHttpError && !response.ok) {
           const error = responseFailure(response.status, policy, retryAfterMs);
-          state.counters.failures += 1;
           state.lastFailureAt = new Date(policy.now()).toISOString();
           state.lastFailureCode = error.code;
           state.lastUpstreamStatus = response.status;

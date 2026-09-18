@@ -65,14 +65,18 @@ const readBoundedResponseJson = async (response, options) => {
   return JSON.parse(body);
 };
 
-const cloneWithBoundedBody = async (response, options) => new Response(
-  await readBoundedResponseBuffer(response, options),
-  {
+const cloneWithBoundedBody = async (response, options) => {
+  // Fetch forbids a body for these statuses, including a zero-length Buffer.
+  // Preserve HEAD/null-body responses as well instead of inventing a stream.
+  const body = response.body === null || [204, 205, 304].includes(response.status)
+    ? null
+    : await readBoundedResponseBuffer(response, options);
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers
-  }
-);
+  });
+};
 
 /**
  * Read only a preview of a provider response. Unlike the strict bounded reader,

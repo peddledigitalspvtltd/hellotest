@@ -1,13 +1,11 @@
 const service = require("../services/auth.service");
 
 const getBearerToken = (headers) => {
-  const value = headers.authorization || "";
-
-  if (!value.startsWith("Bearer ")) {
-    throw new Error("Missing bearer token");
+  const match = /^Bearer\s+(.+)$/i.exec(headers.authorization || "");
+  if (!match?.[1]?.trim()) {
+    throw Object.assign(new Error("Missing bearer token"), { statusCode: 401 });
   }
-
-  return value.slice("Bearer ".length);
+  return match[1].trim();
 };
 
 module.exports = async function (fastify) {

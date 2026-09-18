@@ -84,6 +84,12 @@ const classifyError = (error = {}) => {
   if (PG_INPUT_CODES.has(error.code)) {
     return { statusCode: 400, code: "INVALID_DATA", message: "One or more values are invalid.", retryable: false, errorType: "postgres.input" };
   }
+  if (error.code === "57014" || error.message === "Query read timeout") {
+    return { statusCode: 503, code: "DATABASE_TIMEOUT", message: "The data service could not complete this request in time.", retryAfterSeconds: 1, retryable: true, errorType: "postgres.timeout" };
+  }
+  if (["timeout exceeded when trying to connect", "Connection terminated due to connection timeout"].includes(error.message)) {
+    return { statusCode: 503, code: "DATABASE_UNAVAILABLE", message: "The data service is temporarily unavailable.", retryAfterSeconds: 1, retryable: true, errorType: "postgres.capacity" };
+  }
   if (PG_TRANSIENT_CODES.has(error.code) || String(error.code || "").startsWith("08")) {
     return { statusCode: 503, code: "DATABASE_UNAVAILABLE", message: "The data service is temporarily unavailable.", retryAfterSeconds: 1, retryable: true, errorType: "postgres.transient" };
   }

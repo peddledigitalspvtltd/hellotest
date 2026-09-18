@@ -11,18 +11,35 @@ const proxyAdminAsset = async (req, reply, assetPath) => {
     throw error;
   }
 
-  let upstreamUrl;
+  let frontendUrl;
   try {
-    upstreamUrl = new URL(assetPath.replace(/^\/+/, ""), `${baseUrl.replace(/\/+$/, "")}/`);
+    frontendUrl = new URL(`${baseUrl.replace(/\/+$/, "")}/`);
+    if (!["http:", "https:"].includes(frontendUrl.protocol)) throw new Error("Invalid frontend protocol");
   } catch {
     const error = new Error("The administration frontend URL is invalid.");
     error.statusCode = 500;
     throw error;
   }
 
+  let upstreamUrl;
+  try {
+    upstreamUrl = new URL(assetPath.replace(/^\/+/, ""), frontendUrl);
+    // URL resolution accepts absolute schemes and backslash authorities. The
+    // public asset proxy must never become a gateway to a different service.
+    if (upstreamUrl.origin !== frontendUrl.origin
+      || !upstreamUrl.pathname.startsWith(frontendUrl.pathname)
+      || upstreamUrl.username !== frontendUrl.username
+      || upstreamUrl.password !== frontendUrl.password) {
+      throw new Error("Asset path escaped the configured frontend");
+    }
+  } catch {
+    throw Object.assign(new Error("Invalid administration asset path."), { statusCode: 400 });
+  }
+
   let response;
   try {
     response = await fetch(upstreamUrl, {
+      redirect: "error",
       headers: {
         accept: req.headers.accept || "*/*",
         "user-agent": req.headers["user-agent"] || "hellotest-admin-gateway"
@@ -61,4 +78,3 @@ module.exports = async function (fastify) {
   fastify.get("/admin/", async (req, reply) => proxyAdminAsset(req, reply, "admin.html"));
   fastify.get("/admin/*", async (req, reply) => proxyAdminAsset(req, reply, req.params["*"]));
 };
-

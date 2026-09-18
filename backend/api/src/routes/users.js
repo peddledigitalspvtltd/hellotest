@@ -47,6 +47,9 @@ module.exports = async function (fastify) {
   });
 
   fastify.put("/users/:id", { preHandler: [fastify.authenticate] }, async (req) => {
+    if (Object.hasOwn(req.body || {}, "password_hash")) {
+      throw createError("Use the password field or the password change endpoint.", 400);
+    }
     fastify.validate({
       email: { required: false, type: "string", minLength: 3 },
       password: { required: false, type: "string", minLength: 6, maxLength: 128 },

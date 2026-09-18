@@ -71,7 +71,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const release = await ensureReleaseAccess(req.params.id, req.user.id);
     await requireReadinessSources(fastify, req, release.project_id);
-    return service.getReadiness(req.params.id);
+    return service.getReadiness(req.params.id, { release });
   });
 
   fastify.post("/requirement-releases/:id/release-notes", async (req) => {

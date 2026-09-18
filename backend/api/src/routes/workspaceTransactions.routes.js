@@ -22,6 +22,10 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     const { project_id, app_type_id, category, limit, include_global } = req.query;
+    const includeGlobal = include_global === true || include_global === "true";
+    if (includeGlobal && req.user?.role !== "admin") {
+      throw createError("Workspace administrator access is required for global transactions.", 403);
+    }
     let scopedProjectId = project_id || null;
 
     if (app_type_id) {
@@ -47,7 +51,7 @@ module.exports = async function (fastify) {
       project_id: scopedProjectId || undefined,
       app_type_id: app_type_id || undefined,
       category: category || undefined,
-      include_global: include_global === true || include_global === "true",
+      include_global: includeGlobal,
       limit: limit !== undefined ? Number(limit) : undefined
     });
   });

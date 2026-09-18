@@ -294,7 +294,7 @@ exports.seedSampleData = ({ modules, actorId, ipAddress }) => require("./sampleD
 });
 
 exports.listAudit = async ({ limit = 50 } = {}) => {
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit) || 50)));
   return db.prepare(`
     SELECT admin_audit_log.*, users.name AS actor_name, users.email AS actor_email
     FROM admin_audit_log

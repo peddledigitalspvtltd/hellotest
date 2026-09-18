@@ -5,6 +5,7 @@ const { context, trace } = require("@opentelemetry/api");
 const db = require("../db");
 const obsDb = require("../obsDb");
 const { runtimeHealthService } = require("../services/runtimeHealth.service");
+const { singleFlight } = require("../utils/singleFlight");
 
 const metricsState = {
   inflight: 0,
@@ -322,7 +323,7 @@ const renderMetrics = ({ engineMetrics = null, databasePools = {}, capacityMetri
   return `${lines.join("\n")}\n`;
 };
 
-const getEngineMetrics = async () => {
+const readEngineMetrics = singleFlight(async () => {
   const sql = `
     SELECT
       COUNT(*) AS total,
@@ -334,9 +335,16 @@ const getEngineMetrics = async () => {
       COUNT(*) FILTER (WHERE status = 'failed' AND updated_at >= CURRENT_TIMESTAMP - INTERVAL '15 minutes') AS recent_failures
     FROM test_engine_jobs
   `;
-  const operation = obsDb.pool?.query
+  const result = await (obsDb.pool?.query
     ? obsDb.pool.query({ text: sql, query_timeout: METRICS_DB_QUERY_TIMEOUT_MS })
-    : obsDb.query(sql);
+    : obsDb.query(sql));
+  return result.rows[0] || {};
+});
+
+const getEngineMetrics = async () => {
+  // Scrapes bypass normal request admission. Share the actual pending query,
+  // including after a caller's deadline, so probes cannot flood a slow pool.
+  const operation = readEngineMetrics();
   let timeoutHandle;
   const timeout = new Promise((_, reject) => {
     timeoutHandle = setTimeout(() => reject(new Error(
@@ -345,9 +353,7 @@ const getEngineMetrics = async () => {
     timeoutHandle.unref?.();
   });
 
-  const result = await Promise.race([operation, timeout]).finally(() => clearTimeout(timeoutHandle));
-
-  return result.rows[0] || {};
+  return Promise.race([operation, timeout]).finally(() => clearTimeout(timeoutHandle));
 };
 
 async function observabilityPlugin(fastify) {

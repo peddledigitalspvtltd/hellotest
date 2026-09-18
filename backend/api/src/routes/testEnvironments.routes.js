@@ -54,7 +54,7 @@ module.exports = async function (fastify) {
     await projectService.getProject(scopedProjectId, req.user.id);
     await fastify.requirePermission("environment.view", { projectId: scopedProjectId })(req);
 
-    return service.getTestEnvironments({ project_id, app_type_id });
+    return service.getTestEnvironments({ project_id: scopedProjectId, app_type_id });
   });
 
   fastify.get("/test-environments/:id", async (req) => {

@@ -1,18 +1,13 @@
 const service = require("../services/notification.service");
-const { paginate } = require("../utils/pagination");
 
 module.exports = async function (fastify) {
   fastify.get("/notifications", async (req) => {
     await fastify.authenticate(req);
-    const notifications = await service.getNotifications({
+    return service.getNotificationPage({
+      ...req.query,
       user_id: req.user.id,
       status: req.query?.status
     });
-    const page = paginate(notifications, req.query);
-    return {
-      ...page,
-      unread_count: notifications.filter((notification) => notification.status !== "read").length
-    };
   });
 
   fastify.get("/notifications/unread-count", async (req) => {

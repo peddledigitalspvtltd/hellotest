@@ -1,0 +1,2601 @@
+{
+  "reviewed_at": "2026-09-18",
+  "source": "backend/api/src/routes/manifest.js",
+  "note": "Registration inventory excludes Fastify-generated HEAD operations. Route-level and global authentication, feature gates, and fastify.validate are reviewed in the linked reports; absence of a Fastify JSON schema is not treated as absence of validation.",
+  "explicit_operations": 429,
+  "route_modules": 50,
+  "routes": [
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/domainMetadata.routes.js",
+      "method": "GET",
+      "path": "/metadata/workspace-scopes"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/domainMetadata.routes.js",
+      "method": "GET",
+      "path": "/metadata/domain"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/admin.routes.js",
+      "method": "GET",
+      "path": "/admin/health"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminUi.routes.js",
+      "method": "GET",
+      "path": "/admin"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminUi.routes.js",
+      "method": "GET",
+      "path": "/admin/runtime-config.js"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminUi.routes.js",
+      "method": "GET",
+      "path": "/admin/"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminUi.routes.js",
+      "method": "GET",
+      "path": "/admin/*"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/status"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/auth/login"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/overview"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/dropdowns"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "PUT",
+      "path": "/admin-portal/dropdowns/:key"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/setup/schema"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/setup/performance-indexing"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/setup/performance-indexing"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/setup/sample-data"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/setup/sample-data"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/users"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "PUT",
+      "path": "/admin-portal/users/:id/status"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "PUT",
+      "path": "/admin-portal/feature-flags"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/integration-types"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "POST",
+      "path": "/admin-portal/integrations"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "DELETE",
+      "path": "/admin-portal/integrations/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "PUT",
+      "path": "/admin-portal/security/password"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/adminPortal.routes.js",
+      "method": "GET",
+      "path": "/admin-portal/audit"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "GET",
+      "path": "/auth/setup"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/signup/request-code"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/signup/verify"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/login/google"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/forgot-password/request-code"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "POST",
+      "path": "/auth/forgot-password/verify"
+    },
+    {
+      "area": "auth",
+      "file": "backend/api/src/routes/auth.routes.js",
+      "method": "GET",
+      "path": "/auth/session"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "POST",
+      "path": "/users"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "POST",
+      "path": "/users/import"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "GET",
+      "path": "/users"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "GET",
+      "path": "/users/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "PUT",
+      "path": "/users/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "PUT",
+      "path": "/users/:id/password"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/users.js",
+      "method": "DELETE",
+      "path": "/users/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "POST",
+      "path": "/roles"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "GET",
+      "path": "/roles"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "GET",
+      "path": "/roles/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "GET",
+      "path": "/permissions"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "GET",
+      "path": "/roles/:id/permissions"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "PUT",
+      "path": "/roles/:id/permissions"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "PUT",
+      "path": "/roles/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/roles.routes.js",
+      "method": "DELETE",
+      "path": "/roles/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "POST",
+      "path": "/projects"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "GET",
+      "path": "/projects"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "GET",
+      "path": "/projects/catalog"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "GET",
+      "path": "/projects/portfolio-analytics"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "POST",
+      "path": "/projects/portfolio-attention-report.pdf"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "PUT",
+      "path": "/projects/:id/favorite"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "DELETE",
+      "path": "/projects/:id/favorite"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "GET",
+      "path": "/projects/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "PUT",
+      "path": "/projects/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projects.routes.js",
+      "method": "DELETE",
+      "path": "/projects/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/projectSync.routes.js",
+      "method": "POST",
+      "path": "/projects/:id/sync/:provider"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/projectMembers.routes.js",
+      "method": "POST",
+      "path": "/project-members"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/projectMembers.routes.js",
+      "method": "GET",
+      "path": "/project-members"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/projectMembers.routes.js",
+      "method": "GET",
+      "path": "/project-members/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/projectMembers.routes.js",
+      "method": "PUT",
+      "path": "/project-members/:id"
+    },
+    {
+      "area": "people",
+      "file": "backend/api/src/routes/projectMembers.routes.js",
+      "method": "DELETE",
+      "path": "/project-members/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/appTypes.routes.js",
+      "method": "POST",
+      "path": "/app-types"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/appTypes.routes.js",
+      "method": "GET",
+      "path": "/app-types"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/appTypes.routes.js",
+      "method": "GET",
+      "path": "/app-types/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/appTypes.routes.js",
+      "method": "PUT",
+      "path": "/app-types/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/appTypes.routes.js",
+      "method": "DELETE",
+      "path": "/app-types/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/create-metadata"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/:id/edit-metadata"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/ai-groom-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/ai-description-rephrase"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/export"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/ai-gherkin-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/ai-create-jobs"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/ai-create-jobs/:jobId"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/ai-create-jobs"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/import"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/alm/projects"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/alm/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/import/alm"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/ai-create-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/metrics"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "GET",
+      "path": "/requirements/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "PUT",
+      "path": "/requirements/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "PUT",
+      "path": "/requirements/:id/related-requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/ai-optimize-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/generate-test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/design-test-cases-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/design-test-cases-accept"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirements.routes.js",
+      "method": "DELETE",
+      "path": "/requirements/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "GET",
+      "path": "/requirement-iterations/health"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "GET",
+      "path": "/requirement-iterations"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "POST",
+      "path": "/requirement-iterations"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "GET",
+      "path": "/requirement-iterations/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "PUT",
+      "path": "/requirement-iterations/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "POST",
+      "path": "/requirement-iterations/:id/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "GET",
+      "path": "/requirement-iterations/:id/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "PUT",
+      "path": "/requirement-iterations/:id/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "DELETE",
+      "path": "/requirement-iterations/:id/requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementIterations.routes.js",
+      "method": "DELETE",
+      "path": "/requirement-iterations/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "GET",
+      "path": "/requirement-releases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "POST",
+      "path": "/requirement-releases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "GET",
+      "path": "/requirement-releases/readiness"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "GET",
+      "path": "/requirement-releases/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "GET",
+      "path": "/requirement-releases/:id/readiness"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "POST",
+      "path": "/requirement-releases/:id/release-notes"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "PUT",
+      "path": "/requirement-releases/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "POST",
+      "path": "/requirement-releases/:id/scope"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementReleases.routes.js",
+      "method": "DELETE",
+      "path": "/requirement-releases/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback/create-metadata"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback/:id/edit-metadata"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/feedback/ai-triage-preview"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/feedback/export"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "DELETE",
+      "path": "/feedback/bulk-delete"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/feedback/ai-draft-preview"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/feedback"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback/metrics"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/feedback/:id/history"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "PUT",
+      "path": "/feedback/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "DELETE",
+      "path": "/feedback/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues/create-metadata"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues/:id/edit-metadata"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/issues/ai-triage-preview"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/issues/export"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "DELETE",
+      "path": "/issues/bulk-delete"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/issues/ai-draft-preview"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "POST",
+      "path": "/issues"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues/metrics"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "GET",
+      "path": "/issues/:id/history"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "PUT",
+      "path": "/issues/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/issues.routes.js",
+      "method": "DELETE",
+      "path": "/issues/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "POST",
+      "path": "/integrations"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "GET",
+      "path": "/integrations"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "POST",
+      "path": "/integrations/test-connection"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "GET",
+      "path": "/integrations/export"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "POST",
+      "path": "/integrations/import"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "GET",
+      "path": "/integrations/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "PUT",
+      "path": "/integrations/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/integrations.routes.js",
+      "method": "DELETE",
+      "path": "/integrations/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "GET",
+      "path": "/settings/localization"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "PUT",
+      "path": "/settings/localization"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "GET",
+      "path": "/settings/workspace-preferences"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "PUT",
+      "path": "/settings/workspace-preferences"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "GET",
+      "path": "/settings/api-keys"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "POST",
+      "path": "/settings/api-keys"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "DELETE",
+      "path": "/settings/api-keys/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/settings.routes.js",
+      "method": "DELETE",
+      "path": "/settings/api-keys/:id/permanent"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/featureFlags.routes.js",
+      "method": "GET",
+      "path": "/feature-flags"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/featureFlags.routes.js",
+      "method": "PUT",
+      "path": "/feature-flags"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "GET",
+      "path": "/notifications/unread-count"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "PUT",
+      "path": "/notifications/read-all"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "PUT",
+      "path": "/notifications/:id/read"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "DELETE",
+      "path": "/notifications/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/notifications.routes.js",
+      "method": "DELETE",
+      "path": "/notifications"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementTestCases.routes.js",
+      "method": "GET",
+      "path": "/requirement-test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/requirementTestCases.routes.js",
+      "method": "PUT",
+      "path": "/requirement-test-cases/replace"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/requirementDefects.routes.js",
+      "method": "GET",
+      "path": "/requirement-defects"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/requirementDefects.routes.js",
+      "method": "PUT",
+      "path": "/requirement-defects/replace"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/testCaseDefects.routes.js",
+      "method": "GET",
+      "path": "/test-case-defects"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/testCaseDefects.routes.js",
+      "method": "GET",
+      "path": "/test-case-defects/:testCaseId/issues"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/testCaseDefects.routes.js",
+      "method": "PUT",
+      "path": "/test-case-defects/replace"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "GET",
+      "path": "/test-case-modules"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "POST",
+      "path": "/test-case-modules"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "GET",
+      "path": "/test-case-modules/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "GET",
+      "path": "/test-case-modules/:id/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "PUT",
+      "path": "/test-case-modules/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "POST",
+      "path": "/test-case-modules/:id/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "PUT",
+      "path": "/test-case-modules/:id/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "DELETE",
+      "path": "/test-case-modules/:id/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCaseModules.routes.js",
+      "method": "DELETE",
+      "path": "/test-case-modules/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "POST",
+      "path": "/test-suites"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "GET",
+      "path": "/test-suites"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "GET",
+      "path": "/test-suites/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "PUT",
+      "path": "/test-suites/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "POST",
+      "path": "/test-suites/:id/assign-test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "PUT",
+      "path": "/test-suites/:id/assign-test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSuites.routes.js",
+      "method": "DELETE",
+      "path": "/test-suites/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/suiteTestCases.routes.js",
+      "method": "GET",
+      "path": "/suite-test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/suiteTestCases.routes.js",
+      "method": "PUT",
+      "path": "/suite-test-cases/reorder"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/import"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/export"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/learning-cache"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/repository-context"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/learning-cache/export.csv"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/automation/learning-cache/import"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/automation/learning-cache/extract-fields"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/learning-cache/:id/usage"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "PUT",
+      "path": "/test-cases/automation/learning-cache/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/automation/learning-cache"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "DELETE",
+      "path": "/test-cases/automation/learning-cache/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "DELETE",
+      "path": "/test-cases/automation/learning-cache/screens/:screenName"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/learning-cache/screens/:screenName/usage"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "PUT",
+      "path": "/test-cases/automation/learning-cache/screens/:screenName"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/automation/learning-cache/:id/ai-improve"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/automation/jobs/:transactionId"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/automation/build-batch"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/review-summary"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/metrics"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/resolve-requirements"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/:id/versions"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/:id/versions/:revision"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/versions/:revision/restore"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/automation/build"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/automation/generator-jobs"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/automation/recorder-session"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/automation/recorder-session/:sessionId/finish"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/design-test-cases-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/ai-authoring-preview"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/ai-step-rephrase"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/design-test-cases-accept"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "GET",
+      "path": "/test-cases/ai-generation-jobs"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/ai-generation-jobs"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "PUT",
+      "path": "/test-cases/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/review"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/accept-generated"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "DELETE",
+      "path": "/test-cases/:id/reject-generated"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testCases.routes.js",
+      "method": "DELETE",
+      "path": "/test-cases/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/bulk"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/bulk-delete"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "GET",
+      "path": "/test-steps"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/run-api-request"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "GET",
+      "path": "/test-steps/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "PUT",
+      "path": "/test-steps/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/move-automation"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/duplicate"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/group"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/ungroup"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "POST",
+      "path": "/test-steps/insert-shared-group"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "PUT",
+      "path": "/test-cases/:id/test-steps/reorder"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "PUT",
+      "path": "/test-steps/reorder"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/testSteps.routes.js",
+      "method": "DELETE",
+      "path": "/test-steps/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/sharedStepGroups.routes.js",
+      "method": "POST",
+      "path": "/shared-step-groups"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/sharedStepGroups.routes.js",
+      "method": "GET",
+      "path": "/shared-step-groups"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/sharedStepGroups.routes.js",
+      "method": "GET",
+      "path": "/shared-step-groups/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/sharedStepGroups.routes.js",
+      "method": "PUT",
+      "path": "/shared-step-groups/:id"
+    },
+    {
+      "area": "design",
+      "file": "backend/api/src/routes/sharedStepGroups.routes.js",
+      "method": "DELETE",
+      "path": "/shared-step-groups/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testEnvironments.routes.js",
+      "method": "POST",
+      "path": "/test-environments"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testEnvironments.routes.js",
+      "method": "GET",
+      "path": "/test-environments"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testEnvironments.routes.js",
+      "method": "GET",
+      "path": "/test-environments/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testEnvironments.routes.js",
+      "method": "PUT",
+      "path": "/test-environments/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testEnvironments.routes.js",
+      "method": "DELETE",
+      "path": "/test-environments/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testConfigurations.routes.js",
+      "method": "POST",
+      "path": "/test-configurations"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testConfigurations.routes.js",
+      "method": "GET",
+      "path": "/test-configurations"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testConfigurations.routes.js",
+      "method": "GET",
+      "path": "/test-configurations/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testConfigurations.routes.js",
+      "method": "PUT",
+      "path": "/test-configurations/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testConfigurations.routes.js",
+      "method": "DELETE",
+      "path": "/test-configurations/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "POST",
+      "path": "/test-data-sets/ai-generate-preview"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "POST",
+      "path": "/test-data-sets"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "GET",
+      "path": "/test-data-sets"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "GET",
+      "path": "/test-data-sets/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "PUT",
+      "path": "/test-data-sets/:id"
+    },
+    {
+      "area": "environment",
+      "file": "backend/api/src/routes/testDataSets.routes.js",
+      "method": "DELETE",
+      "path": "/test-data-sets/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/parameter-plan"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions/history"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/smart-plan-preview"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/manual-run-suggestion"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/local-run"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "PUT",
+      "path": "/executions/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "PUT",
+      "path": "/executions/:id/cases/:testCaseId/assignment"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "PUT",
+      "path": "/executions/:id/:level/:scopeId/assignment"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/rerun"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/start"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/cases/:testCaseId/steps/:stepId/run"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/cases/:testCaseId/ai-analysis"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions/:id/report.pdf"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions/:id/cases/:testCaseId/report.pdf"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "GET",
+      "path": "/executions/:id/report.html"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/share-report"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/cases/:testCaseId/share-report"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/complete"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executions.routes.js",
+      "method": "DELETE",
+      "path": "/executions/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "POST",
+      "path": "/execution-schedules"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "GET",
+      "path": "/execution-schedules"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "GET",
+      "path": "/execution-schedules/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "PUT",
+      "path": "/execution-schedules/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "POST",
+      "path": "/execution-schedules/:id/run"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionSchedules.routes.js",
+      "method": "DELETE",
+      "path": "/execution-schedules/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "GET",
+      "path": "/execution-results/:id/attachments"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "POST",
+      "path": "/execution-results/:id/attachments"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "DELETE",
+      "path": "/execution-results/:id/attachments/:attachmentId"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "POST",
+      "path": "/execution-results/ensure"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "POST",
+      "path": "/execution-results/lifecycle"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "GET",
+      "path": "/execution-results/release-readiness"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "POST",
+      "path": "/execution-results"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "GET",
+      "path": "/execution-results"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "GET",
+      "path": "/execution-results/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "PUT",
+      "path": "/execution-results/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "PUT",
+      "path": "/execution-results/:id/defect-links"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/executionResults.routes.js",
+      "method": "DELETE",
+      "path": "/execution-results/:id"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/attachments.routes.js",
+      "method": "GET",
+      "path": "/attachments/meta"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/attachments.routes.js",
+      "method": "GET",
+      "path": "/attachments"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/attachments.routes.js",
+      "method": "POST",
+      "path": "/attachments"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/attachments.routes.js",
+      "method": "GET",
+      "path": "/attachments/:id/download"
+    },
+    {
+      "area": "execution",
+      "file": "backend/api/src/routes/attachments.routes.js",
+      "method": "DELETE",
+      "path": "/attachments/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/comments.routes.js",
+      "method": "GET",
+      "path": "/comments"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/comments.routes.js",
+      "method": "POST",
+      "path": "/comments"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "GET",
+      "path": "/analytics/overview"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "GET",
+      "path": "/quality-dashboards"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "GET",
+      "path": "/quality-dashboards/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/quality-dashboards"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "PUT",
+      "path": "/quality-dashboards/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "DELETE",
+      "path": "/quality-dashboards/:id"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "GET",
+      "path": "/quality-dashboards/:id/report.pdf"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/quality-dashboards/:id/report.pdf"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/quality-dashboards/:id/share-report"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/analytics/jql"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/analytics/query"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/analytics/jql-batch"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/analytics/query-batch"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "POST",
+      "path": "/analytics/dashboard-design-preview"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAnalytics.routes.js",
+      "method": "GET",
+      "path": "/ai/quality-insights"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAssistance.routes.js",
+      "method": "POST",
+      "path": "/ai/rich-text-rephrase"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAssistance.routes.js",
+      "method": "POST",
+      "path": "/requirements/:id/ai-impact-preview"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAssistance.routes.js",
+      "method": "POST",
+      "path": "/test-cases/:id/ai-impact-preview"
+    },
+    {
+      "area": "workspace",
+      "file": "backend/api/src/routes/qualityAssistance.routes.js",
+      "method": "POST",
+      "path": "/executions/:id/ai-failure-clusters"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-assistant/sessions"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-assistant/sessions"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-assistant/sessions/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-workflows"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-workflows"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-workflows/api-agent-test"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-workflows/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "PUT",
+      "path": "/agentic-workflows/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "DELETE",
+      "path": "/agentic-workflows/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-workflows/:id/runs"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-workflows/:id/readiness"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-workflows/:id/executions"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "POST",
+      "path": "/agentic-workflow-runs/:id/cancel"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-workflow-runs"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/agenticWorkflows.routes.js",
+      "method": "GET",
+      "path": "/agentic-workflow-runs/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "GET",
+      "path": "/repository-agents"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "GET",
+      "path": "/repository-agents/runs"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "POST",
+      "path": "/repository-agents/runs"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "GET",
+      "path": "/repository-agents/runs/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "POST",
+      "path": "/repository-agents/runs/:id/cancel"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "POST",
+      "path": "/repository-agents/runs/:id/retry"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "POST",
+      "path": "/repository-agents/runs/:id/publish"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryAgents.routes.js",
+      "method": "GET",
+      "path": "/repository-agents/runs/:id/artifacts/:name"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineCallbacks.routes.js",
+      "method": "POST",
+      "path": "/api/testengine/callbacks/runs"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/lease"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "GET",
+      "path": "/testengine/internal/jobs/queue-stats"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "GET",
+      "path": "/testengine/internal/jobs/:id"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/:id/start"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/:id/steps/:stepId/execute"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/:id/steps/:stepId/report"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/:id/complete"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/testEngineInternal.routes.js",
+      "method": "POST",
+      "path": "/testengine/internal/jobs/:id/fail"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "POST",
+      "path": "/api/engine/runs/claim"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "GET",
+      "path": "/api/engine/runs/:runId/snapshot"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "POST",
+      "path": "/api/engine/runs/:runId/heartbeat"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "GET",
+      "path": "/api/runs/:runId/status"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "GET",
+      "path": "/api/runs/:runId/results"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "GET",
+      "path": "/api/runs/:runId/logs"
+    },
+    {
+      "area": "engine",
+      "file": "backend/api/src/routes/engine.routes.js",
+      "method": "GET",
+      "path": "/api/runs/:runId/artifacts"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/automationGenerator.routes.js",
+      "method": "POST",
+      "path": "/automation-generator/internal/jobs/lease"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/automationGenerator.routes.js",
+      "method": "GET",
+      "path": "/automation-generator/internal/jobs/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/automationGenerator.routes.js",
+      "method": "POST",
+      "path": "/automation-generator/internal/jobs/:id/run"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/workspaceTransactions.routes.js",
+      "method": "GET",
+      "path": "/workspace-transactions"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/workspaceTransactions.routes.js",
+      "method": "GET",
+      "path": "/workspace-transactions/:id/events"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/workspaceTransactions.routes.js",
+      "method": "GET",
+      "path": "/workspace-transactions/:id/artifacts"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/workspaceTransactions.routes.js",
+      "method": "GET",
+      "path": "/workspace-transactions/:id/artifacts/:artifactId/download"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/workspaceTransactions.routes.js",
+      "method": "DELETE",
+      "path": "/workspace-transactions/:id"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/opsTelemetry.routes.js",
+      "method": "GET",
+      "path": "/ops-telemetry/snapshot"
+    },
+    {
+      "area": "ops",
+      "file": "backend/api/src/routes/opsTelemetry.routes.js",
+      "method": "DELETE",
+      "path": "/ops-telemetry/logs"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge/overview"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/projects/:project_id/knowledge"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "PUT",
+      "path": "/projects/:project_id/knowledge/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge/search"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge/context-package"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/projects/:project_id/knowledge/relations"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge/relations/source/:source_id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/projects/:project_id/knowledge/relations/target/:target_id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "DELETE",
+      "path": "/projects/:project_id/knowledge/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/ingestions"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/ingestions/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/ingestions/:id/retry"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/search"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/sources"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/sources/:id/file"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "DELETE",
+      "path": "/knowledge/sources/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/collections"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/collections"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/collections/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "PUT",
+      "path": "/knowledge/collections/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "DELETE",
+      "path": "/knowledge/collections/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/collections/:id/sources"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "DELETE",
+      "path": "/knowledge/collections/:id/sources"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/assistant/integrations"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/assistant/sessions"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/assistant/sessions"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/assistant/sessions/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/sources/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "GET",
+      "path": "/knowledge/sources/:id/revisions"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "PUT",
+      "path": "/knowledge/sources/:id/security"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "PATCH",
+      "path": "/knowledge/assistant/sessions/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/assistant/sessions/:id/messages/stream"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/v1/context/retrieve"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/v1/context/retrieve-stream"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiKnowledge.routes.js",
+      "method": "POST",
+      "path": "/knowledge/assistant/sessions/:id/messages"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiPromptTemplates.routes.js",
+      "method": "GET",
+      "path": "/ai-prompt-templates"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiPromptTemplates.routes.js",
+      "method": "POST",
+      "path": "/ai-prompt-templates"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiPromptTemplates.routes.js",
+      "method": "PUT",
+      "path": "/ai-prompt-templates/:id"
+    },
+    {
+      "area": "connect",
+      "file": "backend/api/src/routes/aiPromptTemplates.routes.js",
+      "method": "DELETE",
+      "path": "/ai-prompt-templates/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "GET",
+      "path": "/repository-inspection/capabilities"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "POST",
+      "path": "/repository-inspection/sessions"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "POST",
+      "path": "/repository-inspection/local-agent/setup"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "GET",
+      "path": "/repository-inspection/local-agent/download"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "GET",
+      "path": "/repository-inspection/sessions/:id"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "GET",
+      "path": "/repository-inspection/sessions/:id/*"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/repositoryInspection.routes.js",
+      "method": "POST",
+      "path": "/repository-inspection/sessions/:id/*"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/localAgent.routes.js",
+      "method": "GET",
+      "path": "/local-agent/status"
+    },
+    {
+      "area": "automation",
+      "file": "backend/api/src/routes/localAgent.routes.js",
+      "method": "POST",
+      "path": "/local-agent/start"
+    }
+  ],
+  "infrastructure_routes": [
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/health/live"
+    },
+    {
+      "method": "GET",
+      "path": "/health/ready"
+    },
+    {
+      "method": "GET",
+      "path": "/metrics"
+    }
+  ]
+}

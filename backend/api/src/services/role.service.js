@@ -57,12 +57,12 @@ const annotateAvailability = async (permissions) => {
 const assignRolePermissions = async (id, permissions) => {
   await db.prepare(`DELETE FROM role_permissions WHERE role_id = ?`).run(id);
 
-  for (const permission of permissions) {
+  if (permissions.length) {
     await db.prepare(`
       INSERT INTO role_permissions (role_id, permission_id)
-      VALUES (?, ?)
+      VALUES ${permissions.map(() => "(?, ?)").join(", ")}
       ON CONFLICT (role_id, permission_id) DO NOTHING
-    `).run(id, permission.id);
+    `).run(...permissions.flatMap((permission) => [id, permission.id]));
   }
 };
 

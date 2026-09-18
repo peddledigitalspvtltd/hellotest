@@ -1,5 +1,6 @@
 const db = require("../db");
 const { normalizeReferenceList } = require("../utils/externalReferences");
+const testCaseScopes = require("./testCaseScope.service");
 
 const listForTestCase = db.prepare(`
   SELECT issue_id
@@ -11,25 +12,6 @@ const listForTestCase = db.prepare(`
 const deleteForTestCase = db.prepare(`
   DELETE FROM test_case_defects
   WHERE test_case_id = ?
-`);
-
-const insertMapping = db.prepare(`
-  INSERT INTO test_case_defects (test_case_id, issue_id, link_source)
-  VALUES (?, ?, ?)
-  ON CONFLICT (test_case_id, issue_id) DO UPDATE
-  SET link_source = EXCLUDED.link_source
-`);
-
-const insertAutomaticMapping = db.prepare(`
-  INSERT INTO test_case_defects (test_case_id, issue_id, link_source)
-  VALUES (?, ?, 'automatic')
-  ON CONFLICT (test_case_id, issue_id) DO NOTHING
-`);
-
-const selectIssue = db.prepare(`
-  SELECT id
-  FROM feedback
-  WHERE id = ?
 `);
 
 exports.getDefectIdsForTestCase = async (testCaseId) => {
@@ -70,36 +52,39 @@ exports.listMappings = async ({ test_case_id, issue_id }) => {
 };
 
 exports.replaceMappingsForTestCase = async (testCaseId, issueIds = []) => {
-  const testCase = await db.prepare(`
-    SELECT id
-    FROM test_cases
-    WHERE id = ?
-  `).get(testCaseId);
-
-  if (!testCase) {
-    throw new Error("Test case not found");
-  }
-
   const uniqueIds = normalizeReferenceList(issueIds);
-
-  for (const issueId of uniqueIds) {
-    const issue = await selectIssue.get(issueId);
-
-    if (!issue) {
-      throw new Error(`Issue not found: ${issueId}`);
-    }
-  }
-
   const transaction = db.transaction(async () => {
+    const testCase = await db.prepare("SELECT id FROM test_cases WHERE id = ? FOR UPDATE").get(testCaseId);
+    if (!testCase) throw Object.assign(new Error("Test Case not found"), { statusCode: 404 });
+    const [scope] = await testCaseScopes.resolveTestCaseScopes([testCaseId]);
+    if (!scope || scope.project_ids.length !== 1) {
+      throw Object.assign(new Error("The Test Case does not have a single project scope"), { statusCode: 409 });
+    }
+    const encodedIds = JSON.stringify(uniqueIds);
+    if (uniqueIds.length) {
+      const issues = await db.prepare(`
+        SELECT id, project_id FROM feedback
+        WHERE id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb)) ORDER BY id FOR SHARE
+      `).all(encodedIds);
+      const issuesById = new Map(issues.map((row) => [row.id, row]));
+      for (const issueId of uniqueIds) {
+        const issue = issuesById.get(issueId);
+        if (!issue) throw Object.assign(new Error(`Issue not found: ${issueId}`), { statusCode: 404 });
+        if (issue.project_id !== scope.project_ids[0]) {
+          throw Object.assign(new Error("Test Case and Bug must belong to the same project"), { statusCode: 403 });
+        }
+      }
+    }
     await deleteForTestCase.run(testCaseId);
-
-    for (const issueId of uniqueIds) {
-      await insertMapping.run(testCaseId, issueId, "manual");
+    if (uniqueIds.length) {
+      await db.prepare(`
+        INSERT INTO test_case_defects (test_case_id, issue_id, link_source)
+        SELECT ?, value, 'manual' FROM jsonb_array_elements_text(?::jsonb)
+        ON CONFLICT (test_case_id, issue_id) DO UPDATE SET link_source = EXCLUDED.link_source
+      `).run(testCaseId, encodedIds);
     }
   });
-
   await transaction();
-
   return { updated: true, mapped: uniqueIds.length };
 };
 
@@ -131,11 +116,12 @@ exports.syncAutomaticDefectsForTestCase = async (testCaseId, defectRefs = []) =>
       await db.prepare(`DELETE FROM test_case_defects WHERE test_case_id = ? AND link_source = 'automatic'`).run(testCaseId);
     }
 
-    let linked = 0;
-    for (const issueId of issueIds) {
-      const result = await insertAutomaticMapping.run(testCaseId, issueId);
-      linked += result.changes || 0;
-    }
+    const result = issueIds.length ? await db.prepare(`
+      INSERT INTO test_case_defects (test_case_id, issue_id, link_source)
+      SELECT ?, value, 'automatic' FROM jsonb_array_elements_text(?::jsonb)
+      ON CONFLICT (test_case_id, issue_id) DO NOTHING
+    `).run(testCaseId, JSON.stringify(issueIds)) : null;
+    const linked = result?.changes || 0;
     return { linked, retained: issueIds.length };
   });
 

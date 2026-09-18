@@ -1,3 +1,4 @@
+const issueLinks = require("./issueLink.service");
 const db = require("../db");
 const { randomUUID: uuid, createHash } = require("crypto");
 const displayIdService = require("./displayId.service");
@@ -173,28 +174,6 @@ const deriveTestCaseImpactScope = async ({ projectId, testCaseIds = [] } = {}) =
   };
 };
 
-const syncIssueLinks = async (issueId, { linked_test_case_ids = [], linked_requirement_ids = [] } = {}) => {
-  const testCaseIds = normalizeList(linked_test_case_ids);
-  const requirementIds = normalizeList(linked_requirement_ids);
-  const transaction = db.transaction(async () => {
-    await db.prepare("DELETE FROM test_case_defects WHERE issue_id = ? AND link_source = 'manual'").run(issueId);
-    await db.prepare("DELETE FROM requirement_defects WHERE issue_id = ? AND link_source = 'manual'").run(issueId);
-    for (const testCaseId of testCaseIds) {
-      const exists = await db.prepare("SELECT id FROM test_cases WHERE id = ?").get(testCaseId);
-      if (exists) {
-        await db.prepare(`INSERT INTO test_case_defects (test_case_id, issue_id, link_source) VALUES (?, ?, 'manual') ON CONFLICT (test_case_id, issue_id) DO UPDATE SET link_source = 'manual'`).run(testCaseId, issueId);
-      }
-    }
-    for (const requirementId of requirementIds) {
-      const exists = await db.prepare("SELECT id FROM requirements WHERE id = ?").get(requirementId);
-      if (exists) {
-        await db.prepare(`INSERT INTO requirement_defects (requirement_id, issue_id, link_source) VALUES (?, ?, 'manual') ON CONFLICT (requirement_id, issue_id) DO UPDATE SET link_source = 'manual'`).run(requirementId, issueId);
-      }
-    }
-  });
-  await transaction();
-};
-
 exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
   if (!project_id || !user_id || !title || !message) {
     throw new Error("Missing required fields");
@@ -265,7 +244,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
       Boolean(regression)
     );
 
-    await syncIssueLinks(id, { linked_test_case_ids, linked_requirement_ids: resolvedRequirementIds });
+    await issueLinks.replaceManualLinks({ issueId: id, projectId: project_id, testCaseIds: linked_test_case_ids, requirementIds: resolvedRequirementIds });
     await issueHistory.record({ issueId: id, actorId: user_id, after: await exports.getIssueItem(id) });
   });
   await transaction();
@@ -489,10 +468,10 @@ exports.updateIssue = async (id, data, { actorId } = {}) => db.transaction(async
     id
   );
 
-  if (Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") || Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids")) {
-    await syncIssueLinks(id, {
-      linked_test_case_ids: resolvedTestCaseIds,
-      linked_requirement_ids: resolvedRequirementIds
+  if (resolvedProjectId !== existing.project_id || Object.prototype.hasOwnProperty.call(data, "linked_test_case_ids") || Object.prototype.hasOwnProperty.call(data, "linked_requirement_ids")) {
+    await issueLinks.replaceManualLinks({
+      issueId: id, projectId: resolvedProjectId,
+      testCaseIds: resolvedTestCaseIds, requirementIds: resolvedRequirementIds
     });
   }
 

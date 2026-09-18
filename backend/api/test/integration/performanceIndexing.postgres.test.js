@@ -19,6 +19,7 @@ test("PostgreSQL builds the allowlisted indexes concurrently and reuses existing
       CREATE TABLE users(id text,email text,username text);
       CREATE TABLE project_members(user_id text,project_id text);
       CREATE TABLE app_types(id text,project_id text);
+      CREATE TABLE notifications(id text,user_id text,created_at timestamptz);
       CREATE TABLE executions(id text,project_id text,created_at timestamptz);
       CREATE TABLE execution_results(id text,test_case_id text,execution_id text,created_at timestamptz,status text,duration_ms integer);
       CREATE TABLE requirements(id text,project_id text,updated_at timestamptz,created_at timestamptz);

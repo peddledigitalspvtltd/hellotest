@@ -70,7 +70,9 @@ test("suite template to CSV data to frozen case-row executions preserves scope a
     await suites.updateTestSuite(parent.id, { parameter_values: { "s.live_suite": "PRIVATE_LIVE_SUITE" } });
     await db.prepare("INSERT INTO test_cases(id,app_type_id,suite_id,title) VALUES ('live-member', 'app', ?, 'New membership @new_member_only')").run(parent.id);
     await db.prepare("INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES (?, 'live-member', 2)").run(parent.id);
-    const frozenInput = { ...input, execution_id: created.id, test_case_ids: [], test_data_set_id: "" };
+    // Edit manifests contain the stored expanded suite selection. Sending only
+    // the original parent intentionally removes its saved child from the run.
+    const frozenInput = { ...input, suite_ids: run.suite_ids, execution_id: created.id, test_case_ids: [], test_data_set_id: "" };
     const frozenPlan = await plans.buildRunParameterPlan(frozenInput);
     assert.equal(frozenPlan.case_count, 2); assert.equal(frozenPlan.expected_instance_count, 4);
     for (const name of ["r.frozen_step_only", "r.frozen_title_only", "t.frozen_saved", "s.frozen_suite"]) assert.ok(frozenPlan.parameters.some(item => item.name === name), name);
@@ -81,7 +83,7 @@ test("suite template to CSV data to frozen case-row executions preserves scope a
     await db.prepare("INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES (?, 'new-scope', 1)").run(newSuite.id);
     await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,step_type) VALUES ('new-step', 'new-scope', 1, 'Use @new_scope_input', 'web')").run();
     const editRun = await runs.rerunExecution(created.id, { created_by: "actor" });
-    const editInput = { ...frozenInput, execution_id: editRun.id, suite_ids: [parent.id, newSuite.id] };
+    const editInput = { ...frozenInput, execution_id: editRun.id, suite_ids: [...run.suite_ids, newSuite.id] };
     const editPlan = await plans.buildRunParameterPlan(editInput);
     assert.equal(editPlan.case_count, 3); assert.equal(editPlan.expected_instance_count, 5);
     for (const name of ['r.frozen_step_only', 's.frozen_suite', 'r.new_scope_input', 'r.new_scope_title', 's.added']) assert.ok(editPlan.parameters.some(item => item.name === name), name);

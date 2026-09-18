@@ -71,7 +71,7 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseRoutes, /project_id: \{ required: true, type: "string" \}/);
   assert.match(releaseService, /sprint_ids/);
   assert.match(releaseService, /LEFT JOIN requirement_release_items/);
-  assert.match(releaseService, /requirements\.iteration_id IN/);
+  assert.match(releaseService, /iteration_id IN \(SELECT value FROM jsonb_array_elements_text\(selected\.sprint_ids\)\)/);
   assert.match(releaseService, /release_membership_source/);
   assert.match(releaseService, /UPDATE requirements[\s\S]*release = \?, fix_version = \?/);
   assert.match(releaseService, /coveredStories \/ storyIds\.length \* 30/);
@@ -87,7 +87,7 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseService, /Do not turn delivery statuses into the release narrative/);
   assert.match(releaseService, /setUTCHours\(0, 0, 0, 0\)/);
   assert.match(releaseService, /plan_date/);
-  assert.match(releaseService, /Promise\.all\(releases\.map/);
+  assert.match(releaseService, /mapWithConcurrency\(releases, 3,/);
   assert.match(releaseService, /ensureReleaseStoriesComplete/);
   assert.match(releaseService, /DELIVERY_STORIES_INCOMPLETE/);
   assert.match(storyRoutes, /\/requirements\/:id\/related-requirements/);

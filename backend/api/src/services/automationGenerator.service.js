@@ -64,7 +64,8 @@ const markRunning = obsDb.prepare(`
       started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
       lease_expires_at = ?,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'leased' AND leased_by = ?
+    AND lease_expires_at > CURRENT_TIMESTAMP
 `);
 
 const markCompleted = obsDb.prepare(`
@@ -256,8 +257,8 @@ exports.leaseNextJob = async ({ worker_id, lease_seconds } = {}) => {
 exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {}) => {
   const job = await exports.getJob(job_id);
 
-  if (!["leased", "running"].includes(job.status)) {
-    throw new Error("Automation generator job must be leased before it can run");
+  if (job.status !== "leased") {
+    throw Object.assign(new Error("Automation generator job must have an unused lease before it can run"), { statusCode: 409 });
   }
 
   const payload = job.payload || {};
@@ -270,7 +271,10 @@ exports.runLeasedJob = async ({ job_id, worker_id, agent_plan, llm_model } = {})
   };
   const leaseExpiresAt = new Date(Date.now() + DEFAULT_LEASE_SECONDS * 1000).toISOString();
 
-  await markRunning.run(serialize(runtimeState), leaseExpiresAt, job.id);
+  const started = await markRunning.run(serialize(runtimeState), leaseExpiresAt, job.id, runtimeState.worker_id);
+  if (!started.changes) {
+    throw Object.assign(new Error("Automation generator lease expired, belongs to another worker, or was already started"), { statusCode: 409 });
+  }
   await workspaceTransactionService.updateTransaction(job.transaction_id, {
     status: "running",
     description: "Local LLM agent is building automation with TestEngine assistance.",

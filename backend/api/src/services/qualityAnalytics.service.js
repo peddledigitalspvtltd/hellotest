@@ -123,8 +123,9 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     : testCases;
   const testCaseIds = new Set(scopedTestCases.map((item) => item.id));
   const plannedSuiteIds = new Set(plannedCases.map((item) => item.suite_id).filter(Boolean));
+  const primarySuiteIds = new Set(scopedTestCases.map((item) => item.suite_id).filter(Boolean));
   const scopedSuites = hasPlanningScope
-    ? suites.filter((item) => plannedSuiteIds.has(item.id) || (item.test_case_ids || []).some((id) => testCaseIds.has(id)) || scopedTestCases.some((testCase) => testCase.suite_id === item.id))
+    ? suites.filter((item) => plannedSuiteIds.has(item.id) || (item.test_case_ids || []).some((id) => testCaseIds.has(id)) || primarySuiteIds.has(item.id))
     : suites;
   const scopedResults = results.filter((item) => executionIds.has(item.execution_id) || (!hasPlanningScope && testCaseIds.has(item.test_case_id)));
   const scopedIssues = issues.filter((item) =>
@@ -371,20 +372,31 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
     metrics.openDefects ? { id: "defects", title: "Open defects", severity: metrics.criticalDefects ? "high" : "medium", description: `${metrics.openDefects} open defect(s) remain.`, action: "Confirm severity, traceability, and ownership." } : null
   ].filter(Boolean);
   const resultByCaseId = new Map(context.results.map((item) => [item.test_case_id, item]));
+  const testCaseIdsInScope = new Set(context.testCases.map((item) => item.id));
   const openIssues = context.issues.filter((item) => isOpen(item.status));
+  const defectsByRequirement = new Map();
+  const defectsByCase = new Map();
+  const indexDefects = (index, ids, issueIndex) => {
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (!index.has(id)) index.set(id, new Set());
+      index.get(id).add(issueIndex);
+    }
+  };
+  openIssues.forEach((issue, index) => {
+    indexDefects(defectsByRequirement, issue.linked_requirement_ids, index);
+    indexDefects(defectsByCase, issue.linked_test_case_ids, index);
+  });
   const traceability = context.requirements.map((requirement) => {
-    const testCaseIds = (Array.isArray(requirement.test_case_ids) ? requirement.test_case_ids : []).filter((id) => context.testCases.some((item) => item.id === id));
+    const testCaseIds = (Array.isArray(requirement.test_case_ids) ? requirement.test_case_ids : []).filter((id) => testCaseIdsInScope.has(id));
     const latestResults = testCaseIds.map((id) => resultByCaseId.get(id)).filter(Boolean);
-    const openDefects = openIssues.filter((issue) => {
-      const requirementIds = Array.isArray(issue.linked_requirement_ids) ? issue.linked_requirement_ids : [];
-      const issueCaseIds = Array.isArray(issue.linked_test_case_ids) ? issue.linked_test_case_ids : [];
-      return requirementIds.includes(requirement.id) || issueCaseIds.some((id) => testCaseIds.includes(id));
-    });
+    // A defect can link through both a story and several cases; count it once.
+    const openDefects = new Set(defectsByRequirement.get(requirement.id));
+    for (const id of testCaseIds) for (const issueIndex of defectsByCase.get(id) || []) openDefects.add(issueIndex);
     const failedOrBlocked = latestResults.filter((item) => ["failed", "blocked"].includes(lowerText(item.status))).length;
     const riskScore = (!testCaseIds.length ? 50 : 0)
       + (Number(requirement.priority || 3) <= 2 ? 20 : 0)
       + (failedOrBlocked * 15)
-      + (openDefects.length * 10);
+      + (openDefects.size * 10);
     return {
       id: requirement.id,
       key: requirement.display_id || requirement.id,
@@ -395,7 +407,7 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
       executed_count: latestResults.length,
       passed_count: latestResults.filter((item) => lowerText(item.status) === "passed").length,
       failed_or_blocked_count: failedOrBlocked,
-      open_defect_count: openDefects.length,
+      open_defect_count: openDefects.size,
       risk: riskScore >= 50 ? "high" : riskScore >= 20 ? "medium" : "low",
       risk_score: riskScore
     };

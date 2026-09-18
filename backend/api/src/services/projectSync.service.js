@@ -108,6 +108,15 @@ const selectQueuedSyncTransactions = obsDb.prepare(`
   LIMIT 6
 `);
 
+// A process-local guard only protects one API replica. Claim each transaction
+// before calling a provider so competing workers cannot push the same backup.
+const claimQueuedSyncTransaction = obsDb.prepare(`
+  UPDATE workspace_transactions
+  SET status = 'running', started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  WHERE id = ? AND category = 'backup' AND status = 'queued'
+  RETURNING *
+`);
+
 const selectPendingSyncTransaction = obsDb.prepare(`
   SELECT id
   FROM workspace_transactions
@@ -760,55 +769,58 @@ exports.queueProjectSync = async ({ project_id, provider, created_by, trigger_mo
     throw new Error(`No active ${normalizedProvider === "google_drive" ? "Google Drive" : "GitHub"} integration is linked to this project`);
   }
 
-  const pendingTransaction = await selectPendingSyncTransaction.get(integration.id);
-
-  if (pendingTransaction) {
-    return { id: pendingTransaction.id, duplicate: true };
-  }
-
-  const title = normalizedProvider === "google_drive" ? "Google Drive project backup" : "GitHub automation sync";
-  const transaction = await workspaceTransactionService.createTransaction({
-    project_id: normalizedProjectId,
-    category: "backup",
-    action: normalizedProvider === "google_drive" ? "project_artifact_backup" : "project_code_sync",
-    status: "queued",
-    title,
-    description: `${title} queued for ${project.name}.`,
-    metadata: {
-      integration_id: integration.id,
-      provider: integration.type,
+  const queued = await obsDb.transaction(async () => {
+    // Serialize the pending check and durable enqueue across replicas. The lock
+    // is transaction-scoped and covers only this integration, never provider I/O.
+    await obsDb.prepare("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))").get(`project-sync:${integration.id}`);
+    const pending = await selectPendingSyncTransaction.get(integration.id);
+    if (pending) return { id: pending.id, duplicate: true };
+    const title = normalizedProvider === "google_drive" ? "Google Drive project backup" : "GitHub automation sync";
+    const transaction = await workspaceTransactionService.createTransaction({
       project_id: normalizedProjectId,
-      trigger_mode,
-      total_items: 1,
-      processed_items: 0,
-      progress_percent: 0,
-      current_phase: "queued"
-    },
-    created_by,
-    related_kind: "integration",
-    related_id: integration.id
-  });
+      category: "backup",
+      action: normalizedProvider === "google_drive" ? "project_artifact_backup" : "project_code_sync",
+      status: "queued",
+      title,
+      description: `${title} queued for ${project.name}.`,
+      metadata: {
+        integration_id: integration.id,
+        provider: integration.type,
+        project_id: normalizedProjectId,
+        trigger_mode,
+        total_items: 1,
+        processed_items: 0,
+        progress_percent: 0,
+        current_phase: "queued"
+      },
+      created_by,
+      related_kind: "integration",
+      related_id: integration.id
+    });
+    await workspaceTransactionService.appendTransactionEvent(transaction.id, {
+      phase: "queue",
+      message: `${title} queued via ${trigger_mode === "schedule" ? "scheduled" : "manual"} sync.`,
+      details: {
+        integration_id: integration.id,
+        provider: integration.type,
+        project_id: normalizedProjectId,
+        trigger_mode
+      }
+    });
+    return { id: transaction.id, duplicate: false };
+  })();
+  if (queued.duplicate) return queued;
 
   await integrationService.mergeIntegrationConfig(integration.id, {
     last_sync_status: "queued",
-    last_sync_transaction_id: transaction.id,
+    last_sync_transaction_id: queued.id,
     next_sync_at:
       trigger_mode === "schedule"
         ? computeNextSyncAt(integration.config?.schedule_mode, new Date())
         : integration.config?.next_sync_at || null
   });
-  await workspaceTransactionService.appendTransactionEvent(transaction.id, {
-    phase: "queue",
-    message: `${title} queued via ${trigger_mode === "schedule" ? "scheduled" : "manual"} sync.`,
-    details: {
-      integration_id: integration.id,
-      provider: integration.type,
-      project_id: normalizedProjectId,
-      trigger_mode
-    }
-  });
 
-  return { id: transaction.id, duplicate: false };
+  return queued;
 };
 
 exports.processScheduledIntegrations = async () => {
@@ -852,7 +864,9 @@ exports.processQueuedSyncs = async () => {
   try {
     const queuedTransactions = await selectQueuedSyncTransactions.all();
 
-    for (const transaction of queuedTransactions) {
+    for (const queuedTransaction of queuedTransactions) {
+      const transaction = await claimQueuedSyncTransaction.get(queuedTransaction.id);
+      if (!transaction) continue;
       try {
         await runQueuedSync(transaction);
       } catch (error) {
@@ -897,6 +911,8 @@ exports.processQueuedSyncs = async () => {
 
 exports.triggerSyncProcessing = () => {
   setTimeout(() => {
-    void exports.processQueuedSyncs();
+    void exports.processQueuedSyncs().catch(error => {
+      console.error("[project-sync] Queue processing failed", { code: error?.code || "SYNC_QUEUE_FAILED" });
+    });
   }, 0);
 };

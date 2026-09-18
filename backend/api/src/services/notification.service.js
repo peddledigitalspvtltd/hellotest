@@ -1,5 +1,6 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
+const { getPaginationOptions, encodeCursor } = require("../utils/pagination");
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -85,6 +86,35 @@ exports.getNotifications = async ({ user_id, status } = {}) => {
   return (await db.prepare(query).all(...params)).map(shapeNotification);
 };
 
+exports.getNotificationPage = async ({ user_id, status, ...query } = {}) => {
+  if (!user_id) throw Object.assign(new Error("Notification user is required"), { statusCode: 400 });
+  const { pageSize, offset } = getPaginationOptions(query);
+  if (!Number.isSafeInteger(offset)) {
+    throw Object.assign(new Error("The pagination cursor is invalid or expired."), { statusCode: 400 });
+  }
+  const predicate = `user_id = ?${status ? " AND status = ?" : ""}`;
+  const params = status ? [user_id, status] : [user_id];
+  const [summary, rows] = await Promise.all([
+    db.prepare(`
+      SELECT COUNT(*)::INTEGER AS total,
+        COUNT(*) FILTER (WHERE status IS DISTINCT FROM 'read')::INTEGER AS unread_count
+      FROM notifications WHERE ${predicate}
+    `).get(...params),
+    db.prepare(`
+      SELECT * FROM notifications WHERE ${predicate}
+      ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?
+    `).all(...params, pageSize, offset)
+  ]);
+  const total = Number(summary?.total || 0);
+  const nextOffset = offset + rows.length;
+  const isLast = rows.length === 0 || nextOffset >= total;
+  return {
+    items: rows.map(shapeNotification), total,
+    next_cursor: isLast ? null : encodeCursor(nextOffset), is_last: isLast,
+    unread_count: Number(summary?.unread_count || 0)
+  };
+};
+
 exports.getUnreadSummary = async (userId) => {
   const rows = await db.prepare(`
     SELECT type, COUNT(*)::INTEGER AS count
@@ -106,16 +136,8 @@ exports.getUnreadSummary = async (userId) => {
 };
 
 exports.markRead = async (id, userId) => {
-  const notification = await db.prepare(`SELECT * FROM notifications WHERE id = ?`).get(id);
-  if (!notification) {
-    throw new Error("Notification not found");
-  }
-
-  if (userId && notification.user_id !== userId) {
-    throw new Error("Notification does not belong to the current user");
-  }
-
-  await db.prepare(`UPDATE notifications SET status = 'read' WHERE id = ?`).run(id);
+  const result = await db.prepare(`UPDATE notifications SET status = 'read' WHERE id = ? AND user_id = ?`).run(id, userId);
+  if (!result.changes) throw Object.assign(new Error("Notification not found"), { statusCode: 404 });
   return { updated: true };
 };
 

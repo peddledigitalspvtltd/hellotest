@@ -165,16 +165,16 @@ exports.getIteration = async (id) => {
   return hydrateIteration(iteration);
 };
 
-exports.listRequirements = async (id, { limit } = {}) => {
-  await exports.getIteration(id);
+exports.listRequirements = async (id, { limit, projection } = {}) => {
+  const iteration = await exports.getIterationSummary(id);
   const boundedLimit = Number.isSafeInteger(Number(limit)) && Number(limit) > 0 ? Math.min(Number(limit), 10000) : null;
   return db.prepare(`
-    SELECT requirements.*
+    SELECT ${projection === "health" ? "id, status, priority, dev_completion_target_date, qa_completion_target_date" : "requirements.*"}
     FROM requirements
-    WHERE requirements.iteration_id = ?
+    WHERE requirements.iteration_id = ? AND requirements.project_id = ?
     ORDER BY COALESCE(requirements.updated_at, requirements.created_at) DESC, requirements.title ASC
     ${boundedLimit ? "LIMIT ?" : ""}
-  `).all(...(boundedLimit ? [id, boundedLimit] : [id]));
+  `).all(...(boundedLimit ? [id, iteration.project_id, boundedLimit] : [id, iteration.project_id]));
 };
 
 exports.createIteration = async ({ project_id, name, description, goal, labels, external_references, state, start_date, end_date, assignee_id, effort_points, original_dev_id, original_qa_id, requirement_ids = [], created_by } = {}) => {

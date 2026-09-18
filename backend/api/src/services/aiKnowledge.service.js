@@ -165,15 +165,17 @@ const assertRelationEntityPermission = async (projectId, user, type) => {
 
 const filterRelationsForUser = async (projectId, relations, user) => {
   if (!user) return [];
-  const visible = [];
-  for (const relation of relations) {
-    const [canReadSource, canReadTarget] = await Promise.all([
-      canAccessRelationEntityType(projectId, user, relation.source_type),
-      canAccessRelationEntityType(projectId, user, relation.target_type)
-    ]);
-    if (canReadSource && canReadTarget) visible.push(relation);
-  }
-  return visible;
+  // Grants are scoped to an entity type, user and project, not each relation.
+  // Resolve each grant once for this read; never retain it across requests.
+  const types = [...new Set(relations.flatMap(relation => [
+    normalizeRelationEntityType(relation.source_type),
+    normalizeRelationEntityType(relation.target_type)
+  ]).filter(Boolean))];
+  const allowed = new Map(await Promise.all(types.map(async type => [
+    type, await canAccessRelationEntityType(projectId, user, type)
+  ])));
+  return relations.filter(relation => allowed.get(normalizeRelationEntityType(relation.source_type))
+    && allowed.get(normalizeRelationEntityType(relation.target_type)));
 };
 
 const assertRelationEntityInProject = async (projectId, type, id) => {

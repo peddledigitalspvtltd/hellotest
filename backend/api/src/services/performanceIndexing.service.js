@@ -7,6 +7,7 @@ const INDEX_CATALOG = Object.freeze([
   { name: "idx_hellotest_perf_users_username", table: "users", definition: "(lower(COALESCE(username, ''::text)))", label: "Administrator sign-in lookup" },
   { name: "idx_hellotest_perf_members_user_project", table: "project_members", definition: "(user_id, project_id)", label: "Project membership lookup" },
   { name: "idx_hellotest_perf_app_types_project", table: "app_types", definition: "(project_id)", label: "Application scope lookup" },
+  { name: "idx_hellotest_perf_notifications_user_latest", table: "notifications", definition: "(user_id, created_at DESC, id DESC)", label: "Recent user notifications" },
   { name: "idx_hellotest_perf_executions_project_latest", table: "executions", definition: "(project_id, created_at DESC NULLS LAST, id DESC)", label: "Recent project runs" },
   { name: "idx_hellotest_perf_results_terminal_execution", table: "execution_results", definition: "(execution_id) WHERE (lower(status) = ANY (ARRAY['passed'::text, 'failed'::text, 'blocked'::text]))", label: "Completed project run outcomes" },
   { name: "idx_hellotest_perf_results_case_latest", table: "execution_results", definition: "(test_case_id, created_at DESC, id DESC) INCLUDE (status, duration_ms)", label: "Latest test case outcomes" },

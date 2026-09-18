@@ -49,10 +49,11 @@ exports.loadRunSnapshot = async (runId) => {
 exports.heartbeatRun = async (runId, engineId) => {
   const result = await obsDb.prepare(`
     UPDATE test_engine_jobs
-    SET heartbeat_at = NOW(), leased_by = ?, updated_at = NOW()
-    WHERE engine_run_id = ?
+    SET heartbeat_at = NOW(), lease_expires_at = NOW() + INTERVAL '2 minutes', updated_at = NOW()
+    WHERE engine_run_id = ? AND leased_by = ?
+      AND status IN ('leased', 'running') AND lease_expires_at > NOW()
     RETURNING engine_run_id, status, leased_by, heartbeat_at
-  `).get(engineId, runId);
+  `).get(runId, engineId);
 
   return requireRow(result, `Run not found or heartbeat could not be stored for runId=${runId}`);
 };
@@ -90,22 +91,22 @@ exports.getRunResults = async (runId, projectId) => {
 
 exports.getRunLogs = async (runId, projectId) => {
   const row = await obsDb.prepare(`
-    SELECT runtime_state
+    SELECT runtime_state->'logs' AS logs
     FROM test_engine_jobs
     WHERE engine_run_id = ? AND project_id = ?
   `).get(runId, projectId);
 
   const data = requireRow(row, `Run logs not found for runId=${runId}`);
-  return data.runtime_state?.logs || {};
+  return data.logs || {};
 };
 
 exports.getRunArtifacts = async (runId, projectId) => {
   const row = await obsDb.prepare(`
-    SELECT runtime_state
+    SELECT runtime_state->'artifacts' AS artifacts
     FROM test_engine_jobs
     WHERE engine_run_id = ? AND project_id = ?
   `).get(runId, projectId);
 
   const data = requireRow(row, `Run artifacts not found for runId=${runId}`);
-  return data.runtime_state?.artifacts || [];
+  return data.artifacts || [];
 };

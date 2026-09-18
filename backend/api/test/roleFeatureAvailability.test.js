@@ -24,10 +24,12 @@ test('role editing retains configured grants through disable and re-enable witho
   t.mock.method(db, 'prepare', sql => ({
     get: async id => { assert.equal(id, 'custom-role'); return { id, name: 'Custom role' }; },
     all: async () => /FROM role_permissions/.test(sql) ? permissions.filter(p => assigned.includes(p.code)) : permissions,
-    run: async (id, permissionId) => {
+    run: async (id, ...permissionPairs) => {
       assert.equal(id, 'custom-role');
       if (/DELETE FROM role_permissions/.test(sql)) assigned = [];
-      else if (/INSERT INTO role_permissions/.test(sql)) assigned.push(permissions.find(p => p.id === permissionId).code);
+      else if (/INSERT INTO role_permissions/.test(sql)) {
+        for (let index = 0; index < permissionPairs.length; index += 2) assigned.push(permissions.find(p => p.id === permissionPairs[index]).code);
+      }
       else throw new Error('Unexpected mutation: ' + sql);
     }
   }));

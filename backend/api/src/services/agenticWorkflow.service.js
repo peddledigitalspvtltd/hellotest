@@ -3,6 +3,7 @@ const db = require("../db");
 const { validateWorkflowGraph } = require("../utils/agenticWorkflowGraph");
 const { readResponsePrefix } = require("../utils/boundedResponse");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
+const { mapWithConcurrency } = require("../utils/boundedConcurrency");
 
 const workflowError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode, publicMessage: message });
 
@@ -777,7 +778,7 @@ exports.listWorkflowRuns = async ({ project_id, app_type_id, workflow_id, status
 
   const rows = await db.prepare(query).all(...params);
   const execution = require("./agenticWorkflowExecution.service");
-  const runs = await Promise.all(rows.map(row => execution.reconcile(hydrateWorkflowRun(row))));
+  const runs = await mapWithConcurrency(rows, 4, row => execution.reconcile(hydrateWorkflowRun(row)));
   if (!summary_only) return runs;
   return runs.map(run => ({ ...run, summary_only: true, input_payload: {},
     workflow_snapshot: { execution_mode: run.execution_mode },

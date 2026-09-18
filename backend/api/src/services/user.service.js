@@ -296,8 +296,11 @@ exports.getUser = async (id) => {
 };
 
 exports.updateUser = async (id, data) => {
+  if (Object.hasOwn(data, "password_hash")) {
+    throw Object.assign(new Error("Password hashes cannot be supplied in profile updates."), { statusCode: 400 });
+  }
   const existing = await db.prepare(`
-    SELECT * FROM users WHERE id = ?
+    SELECT id, email FROM users WHERE id = ?
   `).get(id);
 
   if (!existing) throw new Error("User not found");
@@ -325,21 +328,22 @@ exports.updateUser = async (id, data) => {
     if (!nextRole) throw new Error("Role not found");
   }
 
-  const nextAvatarDataUrl =
-    data.avatar_data_url !== undefined
-      ? normalizeAvatarDataUrl(data.avatar_data_url)
-      : existing.avatar_data_url;
-  const nextName =
-    data.name !== undefined
-      ? normalizeName(data.name)
-      : existing.name;
-  const nextPasswordHash = data.password ? await hashPasswordAsync(data.password) : data.password_hash;
+  // Write only explicitly changed fields. A concurrent profile save must not
+  // restore credentials or administrator status read before a reset/revocation.
+  const assignments = [];
+  const values = [];
+  const assign = (column, value) => { assignments.push(`${column} = ?`); values.push(value); };
+  if (data.email) assign("email", normalizeEmail(data.email));
+  if (data.name !== undefined) assign("name", normalizeName(data.name));
+  if (data.avatar_data_url !== undefined) assign("avatar_data_url", normalizeAvatarDataUrl(data.avatar_data_url));
+  if (data.password) assign("password_hash", await hashPasswordAsync(data.password));
+  if (nextRole) {
+    assign("is_workspace_admin", isAdminRole(nextRole));
+    assign("default_role_id", nextRole.id);
+  }
+  if (!assignments.length) return { updated: true };
 
-  const updateUserStatement = db.prepare(`
-    UPDATE users
-    SET email = ?, password_hash = ?, name = ?, avatar_data_url = ?, is_workspace_admin = ?, default_role_id = ?
-    WHERE id = ?
-  `);
+  const updateUserStatement = db.prepare(`UPDATE users SET ${assignments.join(", ")} WHERE id = ?`);
   const updateMembershipRoles = db.prepare(`
     UPDATE project_members
     SET role_id = ?
@@ -347,16 +351,8 @@ exports.updateUser = async (id, data) => {
   `);
 
   const transaction = db.transaction(async () => {
-    const emailToUpdate = data.email ? normalizeEmail(data.email) : existing.email;
-    await updateUserStatement.run(
-      emailToUpdate,
-      nextPasswordHash ?? existing.password_hash,
-      nextName,
-      nextAvatarDataUrl,
-      nextRole ? isAdminRole(nextRole) : existing.is_workspace_admin,
-      nextRole?.id || existing.default_role_id || null,
-      id
-    );
+    const result = await updateUserStatement.run(...values, id);
+    if (!result.changes) throw Object.assign(new Error("User not found"), { statusCode: 404 });
 
     if (data.role_id) {
       await updateMembershipRoles.run(data.role_id, id);
@@ -403,11 +399,14 @@ exports.changeOwnPassword = async ({ id, current_password, new_password }) => {
     throw error;
   }
 
-  await db.prepare(`
+  const result = await db.prepare(`
     UPDATE users
     SET password_hash = ?, must_change_password = FALSE
-    WHERE id = ?
-  `).run(await hashPasswordAsync(new_password), id);
+    WHERE id = ? AND password_hash = ?
+  `).run(await hashPasswordAsync(new_password), id, user.password_hash);
+  if (!result.changes) {
+    throw Object.assign(new Error("The password changed while this request was being verified. Try again."), { statusCode: 409 });
+  }
 
   return { updated: true };
 };

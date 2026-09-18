@@ -26,6 +26,7 @@ import {
 
 const port = Number(process.env.PORT || 4312);
 const sessions = new Map();
+const pendingScreenshots = new WeakMap();
 const lifecycleState = { shuttingDown: false };
 const requiresProviderReadiness = () => ["1", "true", "yes", "on"]
   .includes(String(process.env.MOBILE_REQUIRE_PROVIDER_READY || "false").trim().toLowerCase());
@@ -753,6 +754,7 @@ refresh();setInterval(refresh,1000);
 });
 
 app.get("/api/v1/mobile/recorder/sessions/:id/screenshot", async (request, reply) => {
+  reply.header("cache-control", "no-store");
   const session = sessions.get(request.params.id);
   if (!session) {
     reply.code(404);
@@ -763,7 +765,17 @@ app.get("/api/v1/mobile/recorder/sessions/:id/screenshot", async (request, reply
     return session.driver_error || "Waiting for Appium device connection";
   }
   try {
-    const image = await session.driver.takeScreenshot();
+    // Multiple live viewers share an in-flight capture for this driver only.
+    // Do not retain completed frames or mix captures across recorder sessions.
+    const driver = session.driver;
+    let capture = pendingScreenshots.get(driver);
+    if (!capture) {
+      capture = Promise.resolve().then(() => driver.takeScreenshot());
+      pendingScreenshots.set(driver, capture);
+      const clear = () => { if (pendingScreenshots.get(driver) === capture) pendingScreenshots.delete(driver); };
+      void capture.then(clear, clear);
+    }
+    const image = await capture;
     reply.header("content-type", "image/png");
     return Buffer.from(image, "base64");
   } catch (error) {
