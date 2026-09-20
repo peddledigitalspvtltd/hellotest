@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import "./EvidenceFlipCard.css";
@@ -67,11 +68,14 @@ export function EvidenceFlipCard({
     return () => window.clearTimeout(timer);
   }, [autoResetMs, isFlipped]);
 
+  // React element identity changes on ordinary parent renders. Only primitive
+  // values represent a meaningful metric change that should reset the face.
+  const resetValue = typeof value === "string" || typeof value === "number" ? value : null;
   useEffect(() => {
     if (!resetOnChange) return;
     shouldRestoreFocusRef.current = false;
     setIsFlipped(false);
-  }, [caption, label, resetOnChange, value]);
+  }, [caption, label, resetOnChange, resetValue]);
 
   const showFace = (nextFlippedState: boolean) => {
     shouldRestoreFocusRef.current = true;
@@ -97,7 +101,7 @@ export function EvidenceFlipCard({
             aria-controls={evidenceId}
             aria-describedby={`${evidenceId}-value ${evidenceId}-caption`}
             aria-expanded={isFlipped}
-            aria-label={`View evidence for ${label}`}
+            aria-label={`View evidence for ${metricTitle(label)}`}
             className="project-stat-card-trigger metric-evidence-trigger"
             onClick={() => showFace(true)}
             ref={frontButtonRef}
@@ -105,7 +109,7 @@ export function EvidenceFlipCard({
             type="button"
           >
             {frontIcon ? <span className="evidence-flip-card-front-icon" aria-hidden="true">{frontIcon}</span> : null}
-            <span>{label}</span>
+            <span>{metricTitle(label)}</span>
             <strong id={`${evidenceId}-value`}>{value}</strong>
             {frontVisual ? <span aria-hidden="true" className="evidence-flip-card-front-visual">{frontVisual}</span> : null}
             <small id={`${evidenceId}-caption`}>{caption}</small>
@@ -119,7 +123,7 @@ export function EvidenceFlipCard({
           id={evidenceId}
         >
           <button
-            aria-label={`Back to ${label} metric`}
+            aria-label={`Back to ${metricTitle(label)} metric`}
             className="evidence-flip-card-back-button"
             onClick={() => showFace(false)}
             ref={backButtonRef}
@@ -133,11 +137,11 @@ export function EvidenceFlipCard({
             <span>Back</span>
           </button>
           <div className="evidence-flip-card-back-heading">
-            <span>{label}</span>
             <strong>Evidence</strong>
+            <span title={metricTitle(label)}>{metricTitle(label)}</span>
           </div>
-          <ul aria-label={`${label} evidence`} className="project-stat-evidence">
-            {evidence.slice(0, maxEvidenceItems).map((item, index) => <li key={`${label}-evidence-${index}`}>{item}</li>)}
+          <ul aria-label={`${metricTitle(label)} evidence`} className="project-stat-evidence">
+            {evidence.slice(0, maxEvidenceItems).map((item, index) => <li key={`${metricTitle(label)}-evidence-${index}`}>{item}</li>)}
             {evidence.length > maxEvidenceItems ? <li>{evidence.length - maxEvidenceItems} more evidence signal{evidence.length - maxEvidenceItems === 1 ? "" : "s"}</li> : null}
           </ul>
           {onAction ? (

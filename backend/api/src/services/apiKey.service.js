@@ -29,7 +29,7 @@ const API_KEY_SCOPES = [
   {
     value: "runs",
     label: "Runs",
-    description: "Execution, schedules, results, reports, and issue APIs."
+    description: "Execution, schedules, results, reports, and defect APIs."
   },
   {
     value: "environment",

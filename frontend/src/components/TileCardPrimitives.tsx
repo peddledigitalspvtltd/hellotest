@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { TestSuiteIcon } from "./AppIcons";
 
@@ -93,12 +94,12 @@ export function TileCardMetric({
 }) {
   return (
     <span
-      aria-label={title || `${label}: ${String(value)}`}
+      aria-label={title || `${metricTitle(label)}: ${String(value)}`}
       className={["tile-card-metric", `tone-${tone}`, className].filter(Boolean).join(" ")}
       title={title}
     >
       <strong>{value}</strong>
-      <span>{label}</span>
+      <span>{metricTitle(label)}</span>
     </span>
   );
 }
@@ -130,12 +131,12 @@ export function TileCardProgress({
   return (
     <div className={`tile-card-progress tone-${tone}`} title={title}>
       <div className="tile-card-progress-head">
-        <span>{label}</span>
+        <span>{metricTitle(label)}</span>
         <strong>{resolvedDisplayValue}</strong>
       </div>
       <div
         aria-hidden={safeValue === null ? true : undefined}
-        aria-label={safeValue === null ? undefined : title || `${label}: ${String(resolvedDisplayValue)}`}
+        aria-label={safeValue === null ? undefined : title || `${metricTitle(label)}: ${String(resolvedDisplayValue)}`}
         aria-valuemax={safeValue === null ? undefined : 100}
         aria-valuemin={safeValue === null ? undefined : 0}
         aria-valuenow={safeValue ?? undefined}

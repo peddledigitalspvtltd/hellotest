@@ -49,7 +49,7 @@ const ensureSprintStoriesComplete = async (iteration, requirementIds = null) => 
     SELECT id, display_id, title, status
     FROM requirements
     WHERE ${effectiveRequirementIds ? `id IN (${effectiveRequirementIds.map(() => "?").join(",")})` : "iteration_id = ?"}
-      AND LOWER(TRIM(COALESCE(status, ''))) NOT IN (${COMPLETED_STORY_STATUSES.map(() => "?").join(",")})
+      AND LOWER(REGEXP_REPLACE(TRIM(COALESCE(status, '')), '[ _-]+', '_', 'g')) NOT IN (${COMPLETED_STORY_STATUSES.map(() => "?").join(",")})
     ORDER BY COALESCE(updated_at, created_at) DESC, title ASC
   `).all(...(effectiveRequirementIds || [iteration.id]), ...COMPLETED_STORY_STATUSES);
   if (!incomplete.length) return;

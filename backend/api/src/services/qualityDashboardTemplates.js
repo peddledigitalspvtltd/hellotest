@@ -19,7 +19,25 @@ const widgets = {
   throughput: widget('completedRuns30d', 'Completed runs · 30 days', 'metric', 'teal'),
   moduleDistribution: widget('moduleCaseCount', 'Tests by module', 'bar', 'purple', 'module'),
   failedRunList: widget('failedRuns', 'Runs needing investigation', 'table', 'red'),
-  runTrend: widget('testRuns', 'Run activity', 'line', 'blue', 'createdWeek')
+  runTrend: widget('testRuns', 'Run activity', 'line', 'blue', 'createdWeek'),
+  stories: widget('stories', 'Total Stories'),
+  devCompletion: widget('devStoryCompletion', 'Dev Story Completion'),
+  qaCompletion: widget('qaStoryCompletion', 'QA Story Completion', 'metric', 'green'),
+  storyTestPass: widget('storyTestPassRate', 'Stories With All Tests Passed', 'metric', 'green'),
+  storyExecution: widget('storyExecutionCoverage', 'Story Testing Completion', 'donut', 'teal'),
+  storyDefects: widget('storiesWithOpenDefects', 'Stories With Open Defects', 'table', 'red'),
+  testsByStory: widget('linkedTestCases', 'Tests By Story', 'bar', 'purple', 'story'),
+  unlinkedTests: widget('unlinkedTestCases', 'Tests Without Stories', 'table', 'orange'),
+  moduleGaps: widget('unassignedModuleCases', 'Tests Without Modules', 'metric', 'orange'),
+  defectTraceability: widget('defectTraceability', 'Defect Traceability', 'donut', 'teal'),
+  linkedDefects: widget('linkedDefects', 'Linked Defect List', 'table', 'red'),
+  failedCases: widget('failedCases', 'Latest Failed Cases', 'table', 'red'),
+  blockedCases: widget('blockedCases', 'Latest Blocked Cases', 'metric', 'orange'),
+  unexecutedCases: widget('unexecutedCases', 'Tests Without Run Evidence', 'metric', 'slate'),
+  storiesBySprint: widget('stories', 'Stories By Sprint', 'column', 'blue', 'sprint'),
+  storiesByRelease: widget('stories', 'Stories By Release', 'column', 'purple', 'release'),
+  defectArrivals: widget('count', 'Defect Arrivals', 'area', 'red', 'createdMonth'),
+  storyFlow: widget('stories', 'Story Status Distribution', 'stacked-bar', 'teal')
 };
 const templates = {
   executive: {
@@ -33,6 +51,18 @@ const templates = {
   quality: {
     name: 'QA workspace', description: 'Track execution progress, investigate failures and focus the next testing cycle.',
     widgets: ['executionCompletion', 'passRate', 'throughput', 'evidenceConfidence', 'runStatus', 'moduleDistribution', 'failedRunList', 'runTrend']
+  },
+  traceability: {
+    name: 'Story Test Traceability', description: 'Follow stories through linked tests, execution outcomes, modules and defects.',
+    widgets: ['storyCoverage', 'storyTestPass', 'moduleGaps', 'unexecutedCases', 'storyExecution', 'testsByStory', 'storyDefects', 'unlinkedTests']
+  },
+  delivery: {
+    name: 'Delivery Progress', description: 'Separate development completion from QA completion and inspect sprint and release scope.',
+    widgets: ['stories', 'devCompletion', 'qaCompletion', 'storyTestPass', 'storiesBySprint', 'storiesByRelease', 'storyFlow', 'storyDefects']
+  },
+  triage: {
+    name: 'Defect And Test Triage', description: 'Review failing cases, linked defects, traceability gaps and defect arrivals.',
+    widgets: ['openDefects', 'blockedCases', 'unexecutedCases', 'moduleGaps', 'defectTraceability', 'defectArrivals', 'failedCases', 'linkedDefects']
   }
 };
 module.exports = Object.fromEntries(Object.entries(templates).map(([id, template]) => [id, { ...template, gadgets: template.widgets.map((key) => widgets[key]) }]));

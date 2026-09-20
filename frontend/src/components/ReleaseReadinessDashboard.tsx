@@ -22,6 +22,7 @@ import { hasPermission } from "../lib/permissions";
 import {
   deriveReleaseReadiness,
   isCriticalReadinessIssue,
+  readinessDeliveryLabels,
   releaseReadinessScopeOptions,
 } from "../lib/releaseReadiness";
 import { ReadinessRecordExplorer } from "./ReadinessRecordExplorer";
@@ -150,9 +151,34 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     allowed("suite.view", "hellotest.manual.suites") &&
     allowed("quality_insight.view", "hellotest.ai.quality_insights");
   const [searchParams, setSearchParams] = useSearchParams();
-  const releaseId = searchParams.get("release_id") || "";
+  const requestedReleaseId = searchParams.get("release_id") || "";
   const requestedRelease = searchParams.get("release") || "";
-  const sprint = searchParams.get("sprint") || "";
+  const requestedSprint = searchParams.get("sprint") || "";
+  const releaseCatalog = useQuery({
+    queryKey: ["release-review-release-catalog", authorizationKey, projectId],
+    queryFn: () => api.requirementReleases.list({ project_id: projectId }),
+    enabled: canReleaseContext, staleTime: 30_000, retry: 1,
+  });
+  const sprintCatalog = useQuery({
+    queryKey: ["release-review-sprint-catalog", authorizationKey, projectId],
+    queryFn: () => api.requirementIterations.list({ project_id: projectId }),
+    enabled: canReleaseContext, staleTime: 30_000, retry: 1,
+  });
+  const nativeReleases = (Array.isArray(releaseCatalog.data) ? releaseCatalog.data : []).filter(item => item.project_id === projectId);
+  const nativeSprints = (Array.isArray(sprintCatalog.data) ? sprintCatalog.data : []).filter(item => item.project_id === projectId);
+  const matchingReleases = nativeReleases.filter(item => requestedRelease && (same(item.fix_version, requestedRelease) || same(item.name, requestedRelease)));
+  const releaseId = requestedReleaseId || (matchingReleases.length === 1 ? matchingReleases[0].id : "");
+  const hasReleaseScope = Boolean(releaseId || requestedRelease.trim());
+  const matchingSprints = nativeSprints.filter(item => requestedSprint && same(item.name, requestedSprint));
+  const iterationId = hasReleaseScope ? "" : searchParams.get("iteration_id") || (matchingSprints.length === 1 ? matchingSprints[0].id : "");
+  const sprint = hasReleaseScope ? "" : nativeSprints.find(item => item.id === iterationId)?.name || requestedSprint;
+  useEffect(() => {
+    if (!hasReleaseScope || (!searchParams.has("sprint") && !searchParams.has("iteration_id"))) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("sprint");
+    next.delete("iteration_id");
+    setSearchParams(next, { replace: true, preventScrollReset: true });
+  }, [hasReleaseScope, searchParams, setSearchParams]);
   const view: View = EVIDENCE_VIEWS.includes(
     searchParams.get("evidence_view") as View,
   )
@@ -229,10 +255,11 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     releaseId &&
       (!canReleaseContext ||
         context.isError ||
+        validContext?.story_scope_visible === false ||
         (context.data && !validContext)),
   );
   const release = validContext?.fix_version || requestedRelease;
-  const contextReady = !releaseId || Boolean(validContext);
+  const contextReady = !releaseId || Boolean(validContext && validContext.story_scope_visible !== false);
   useEffect(() => {
     setActionLimit(6);
     setAiScope(null);
@@ -295,12 +322,16 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       "release-review-runs",
       authorizationKey,
       projectId,
+      releaseId,
+      iterationId,
       release,
       sprint,
     ],
     queryFn: () =>
       api.executionResults.releaseReadiness({
         project_id: projectId,
+        ...(releaseId ? { release_id: releaseId } : {}),
+        ...(iterationId ? { iteration_id: iterationId } : {}),
         ...(release ? { release } : {}),
         ...(sprint ? { sprint } : {}),
         run_limit: RUN_LIMIT,
@@ -316,10 +347,6 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         ? validContext
           ? (validContext.requirements || [])
               .filter((item) => String(item.project_id) === projectId)
-              .map((item) => ({
-                ...item,
-                fix_version: validContext.fix_version,
-              }))
           : unique(
               storiesQuery.data?.pages.flatMap((page) => page.items) || [],
             ).filter((item) => String(item.project_id) === projectId)
@@ -364,7 +391,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         storiesQuery.data?.pages[0]?.total ??
         0,
       incomplete: validContext
-        ? requirements.length < validContext.requirement_count
+        ? validContext.requirement_count === null || requirements.length < validContext.requirement_count
         : storiesQuery.data?.pages.slice(-1)[0]?.is_last === false,
       more: !validContext && storiesQuery.hasNextPage,
       fetching: storiesQuery.isFetchingNextPage,
@@ -396,6 +423,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     (canRuns && runsQuery.isError);
   const incomplete =
     flags.isError ||
+    Boolean(canReleaseContext && ((hasReleaseScope && (releaseCatalog.isPending || releaseCatalog.isError || sprintCatalog.isPending || sprintCatalog.isError)) || (!hasReleaseScope && (iterationId || requestedSprint) && (sprintCatalog.isPending || sprintCatalog.isError)))) ||
+    matchingReleases.length > 1 && !requestedReleaseId ||
     sources.some((item) => !item.enabled || item.incomplete || item.error) ||
     !canRuns ||
     runsQuery.data?.complete !== true ||
@@ -406,7 +435,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
         item.detail_complete === false && item.summary_complete !== true,
     );
   const duplicateSprint = Boolean(
-    sprint &&
+    !iterationId && sprint &&
       new Set(
         requirements
           .filter(
@@ -414,7 +443,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
               same(item.sprint, sprint) &&
               (!release || same(item.fix_version || item.release, release)),
           )
-          .map((item) => item.sprint_id)
+          .map((item) => item.iteration_id || item.sprint_id)
           .filter(Boolean),
       ).size > 1,
   );
@@ -423,6 +452,13 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       deriveReleaseReadiness({
         release,
         sprint,
+        iterationId,
+        ...readinessDeliveryLabels(validContext, nativeReleases, nativeSprints, iterationId),
+        // A legacy text-only release keeps its exact label scope. Once native
+        // membership is available, only its unambiguous aliases are accepted.
+        ...(!validContext ? { releaseAliases: undefined } : {}),
+        ...(validContext ? { scopedRequirementIds: validContext.requirement_ids || requirements.map(item => item.id) } : {}),
+        ...(releaseId || iterationId ? { scopedExecutionIds: executions.map(item => item.id) } : {}),
         requirements,
         testCases,
         issues,
@@ -433,6 +469,11 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     [
       release,
       sprint,
+      iterationId,
+      releaseId,
+      validContext,
+      releaseCatalog.data,
+      sprintCatalog.data,
       requirements,
       testCases,
       issues,
@@ -450,8 +491,19 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     scoped: Boolean(release || sprint),
   });
   const scopeOptions = useMemo(
-    () => releaseReadinessScopeOptions(requirements, executions, issues),
-    [requirements, executions, issues],
+    () => {
+      const options = releaseReadinessScopeOptions(requirements, executions, issues);
+      const releases = nativeReleases.map(item => ({value: item.id, label: nativeReleases.filter(other => same(other.fix_version,item.fix_version)).length > 1 ? `${item.name} · ${item.fix_version}` : item.fix_version}));
+      const sprints = nativeSprints.map(item => ({value: item.id, label: nativeSprints.filter(other => same(other.name,item.name)).length > 1 ? `${item.name} · ${item.display_id || item.id}` : item.name}));
+      for (const value of new Set([release, ...options.releases].filter(Boolean))) {
+        if (!nativeReleases.some(item => same(item.fix_version,value) || same(item.name,value))) releases.push({value,label:value});
+      }
+      for (const value of new Set([sprint, ...options.sprints].filter(Boolean))) {
+        if (!nativeSprints.some(item => same(item.name,value))) sprints.push({value,label:value});
+      }
+      return {releases: releases.sort((a,b) => a.label.localeCompare(b.label)), sprints: sprints.sort((a,b) => a.label.localeCompare(b.label))};
+    },
+    [requirements, executions, issues, releaseCatalog.data, sprintCatalog.data, release, sprint],
   );
   const projectName = (
     canProjects && Array.isArray(projects.data) ? projects.data : []
@@ -598,6 +650,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     try {
       await Promise.allSettled([
         flags.refetch(),
+        ...(canReleaseContext ? [releaseCatalog.refetch(), sprintCatalog.refetch()] : []),
         ...(releaseId && canReleaseContext ? [context.refetch()] : []),
         ...(canStories && contextReady && !validContext
           ? [storiesQuery.refetch()]
@@ -621,9 +674,23 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       ...(canBugs && bugsQuery.hasNextPage ? [bugsQuery.fetchNextPage()] : []),
     ]);
   const applyScope = (nextRelease: string, nextSprint: string) => {
+    if (nextRelease.trim()) nextSprint = "";
+    const selectedReleaseById = nativeReleases.find(item => item.id === nextRelease);
+    const selectedSprintById = nativeSprints.find(item => item.id === nextSprint);
+    if (selectedReleaseById) nextRelease = selectedReleaseById.fix_version;
+    if (selectedSprintById) nextSprint = selectedSprintById.name;
     const next = new URLSearchParams(searchParams);
     clearEvidenceParams(next);
     next.delete("release_id");
+    next.delete("iteration_id");
+    const selectedReleases = nativeReleases.filter(item => nextRelease.trim() && (same(item.fix_version, nextRelease) || same(item.name, nextRelease)));
+    const selectedSprints = nativeSprints.filter(item => nextSprint.trim() && same(item.name, nextSprint));
+    if (selectedReleaseById) next.set("release_id", selectedReleaseById.id);
+    else if (releaseId && same(nextRelease, release)) next.set("release_id", releaseId);
+    else if (selectedReleases.length === 1) next.set("release_id", selectedReleases[0].id);
+    if (selectedSprintById) next.set("iteration_id", selectedSprintById.id);
+    else if (iterationId && same(nextSprint, sprint)) next.set("iteration_id", iterationId);
+    else if (selectedSprints.length === 1) next.set("iteration_id", selectedSprints[0].id);
     nextRelease.trim()
       ? next.set("release", nextRelease.trim())
       : next.delete("release");
@@ -838,6 +905,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
       scope: {
         project_id: projectId,
         release_id: releaseId || null,
+        ...(iterationId ? { iteration_id: iterationId } : {}),
         release: release || null,
         sprint: sprint || null,
       },
@@ -1060,6 +1128,8 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             release={release}
             sprint={sprint}
             scopeOptions={scopeOptions}
+            releaseSelection={releaseId || release}
+            sprintSelection={iterationId || sprint}
             canStories={canStories}
             canCases={canCases}
             canRuns={canRuns}

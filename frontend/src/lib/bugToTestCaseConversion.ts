@@ -143,7 +143,7 @@ export function buildConvertedBugSteps(draft: BugToTestCaseDraft): ConvertedBugS
   }));
   const actions = draft.reproductionSteps.length
     ? draft.reproductionSteps
-    : ["Reproduce the behavior reported by the source Bug"];
+    : ["Reproduce the behavior reported by the source Defect"];
   const expectedResults = draft.expectedResults;
 
   return [
@@ -153,7 +153,7 @@ export function buildConvertedBugSteps(draft: BugToTestCaseDraft): ConvertedBugS
       expectedResult: expectedResults.length === actions.length
         ? expectedResults[index]
         : index === actions.length - 1
-          ? expectedResults.join("\n") || "The reported Bug no longer occurs"
+          ? expectedResults.join("\n") || "The reported Defect no longer occurs"
           : "",
       isPrecondition: false
     }))

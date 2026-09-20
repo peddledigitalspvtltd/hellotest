@@ -12,6 +12,9 @@ const GOVERNED_WORKSPACE_PREFERENCE_KEYS = Object.freeze([
   METRIC_FORMULA_VALUES_PREFERENCE_KEY
 ]);
 const GOVERNED_WORKSPACE_PREFERENCE_KEY_SET = new Set(GOVERNED_WORKSPACE_PREFERENCE_KEYS);
+const DEFECT_LOCALIZATION_KEYS = new Set([
+  "nav.reportIssue", "nav.feedback", "page.issues", "page.feedback", "capability.bugs.name"
+]);
 
 const normalizeLocalizationStrings = (input) => {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -21,7 +24,14 @@ const normalizeLocalizationStrings = (input) => {
   return Object.fromEntries(
     Object.entries(input)
       .filter(([key, value]) => typeof key === "string" && key.trim() && typeof value === "string")
-      .map(([key, value]) => [key.trim(), value])
+      .map(([key, value]) => {
+        const normalizedKey = key.trim();
+        // Migrate only former English module names; preserve custom labels,
+        // translations, and stable localization keys used by existing packs.
+        const normalizedValue = DEFECT_LOCALIZATION_KEYS.has(normalizedKey)
+          && /^(?:report\s+(?:an?\s+)?)?(?:issues?|bugs?)$/i.test(value.trim()) ? "Defects" : value;
+        return [normalizedKey, normalizedValue];
+      })
   );
 };
 

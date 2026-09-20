@@ -2,7 +2,13 @@
 
 .sample-mobile-install{display:none}@media(max-width:560px){.sample-schema{display:grid;grid-template-columns:44px minmax(0,1fr)}.sample-schema>.safe-chip{grid-column:2;justify-self:start}.sample-schema>.secondary-button{grid-column:1/-1;justify-content:center}.sample-setup{padding-bottom:90px}.sample-mobile-install{display:flex;align-items:center;justify-content:space-between;gap:12px;position:fixed;z-index:18;bottom:12px;left:12px;right:12px;padding:12px;border:1px solid #d1dccb;border-radius:12px;background:#fff;box-shadow:0 4px 24px #17313e24}.sample-mobile-install>span{font-size:11px;color:#486458}.sample-mobile-install .primary-button{font-size:12px}}
 
-.sample-roles { padding: 24px; }
+.sample-roles { padding: 20px 0 4px; }
+.sample-choice--roles { grid-column: 1 / -1; }
+.sample-role-details, .sample-workspace-details { margin: 4px 0 15px; color: #526c64; font-size: 12px; line-height: 1.6; }
+.sample-role-details > summary, .sample-workspace-details > summary { cursor: pointer; font-weight: 600; }
+.sample-workspace-details ul { padding-left: 20px; }
+.sample-choice .sample-blueprint-summary { color: #315e53; font-weight: 600; }
+.sample-message a { color: inherit; font-weight: 600; text-underline-offset: 3px; }
 .sample-roles-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .sample-roles-header h3 { margin: 0; font: 600 22px 'Hanken Grotesk', sans-serif; color: #203c48; }
 .sample-roles > p { color: #65777e; font-size: 12px; line-height: 1.65; }
@@ -18,3 +24,37 @@
 .sample-roles .sample-role-note { margin-bottom: 0; font-size: 11px; }
 @media (max-width: 1250px) { .sample-role-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .sample-roles { padding: 17px; } .sample-roles-header { align-items: flex-start; flex-wrap: wrap; } .sample-role-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.sample-job { padding: 22px; min-width: 0; }
+.sample-job > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sample-job > header > div { min-width: 0; }
+.sample-job .kicker { margin: 0 0 6px; }
+.sample-job h3 { margin: 0; color: #203c48; font-size: 18px; }
+.sample-job > header .safe-chip { flex-shrink: 0; }
+.sample-job-status { margin: 13px 0; color: #65777e; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.sample-job > progress { display: block; width: 100%; height: 8px; border: 0; border-radius: 8px; overflow: hidden; accent-color: #36775d; background: #eaf0e7; }
+.sample-job > progress::-webkit-progress-bar { border-radius: 8px; background: #eaf0e7; }
+.sample-job > progress::-webkit-progress-value { border-radius: 8px; background: #36775d; }
+.sample-job > progress::-moz-progress-bar { border-radius: 8px; background: #36775d; }
+.sample-job.is-failed { border-color: #e9c7bb; }
+.sample-job.is-failed h3, .sample-job.is-failed .sample-job-status { color: #964a35; }
+.sample-job-recovery { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
+.sample-job-recovery p { margin: 0; min-width: 0; font-size: 12px; color: #65777e; line-height: 1.6; overflow-wrap: anywhere; }
+.sample-job-recovery button { flex-shrink: 0; }
+.sample-job-files { margin-top: 16px; color: #315e53; font-size: 12px; }
+.sample-job-files > summary { cursor: pointer; font-weight: 600; }
+.sample-job-files ol { margin: 12px 0 0; padding: 0; list-style: none; max-height: 340px; overflow: auto; overscroll-behavior: contain; }
+.sample-job-files li { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid #e7ece4; }
+.sample-job-files li > div { display: grid; gap: 5px; min-width: 0; }
+.sample-job-files strong { color: #203c48; font-weight: 600; overflow-wrap: anywhere; }
+.sample-job-files li > div > span { color: #65777e; font-size: 11px; }
+.sample-job-files p { margin: 0; color: #964a35; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.sample-file-status { flex-shrink: 0; padding: 3px 7px; border-radius: 5px; background: #f0f4ee; color: #65777e; font-size: 10px; }
+.sample-job-files .is-completed .sample-file-status { background: #eaf1e7; color: #315e53; }
+.sample-job-files .is-failed .sample-file-status { background: #fff0e9; color: #964a35; }
+.sample-job-files .is-running .sample-file-status, .sample-job-files .is-retrying .sample-file-status { background: #eef4fa; color: #366485; }
+@media (max-width: 560px) {
+  .sample-job { padding: 17px; }
+  .sample-job > header, .sample-job-recovery { align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+  .sample-job-files li { gap: 8px; }
+}

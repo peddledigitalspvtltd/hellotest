@@ -58,11 +58,11 @@ export function ReportBugModal({
               </svg>
               <span>Back</span>
             </button>
-            <h2 id="report-bug-modal-title">Report Bug</h2>
+            <h2 id="report-bug-modal-title">Report Defect</h2>
           </div>
           <DialogCloseButton
             disabled={closeDisabled}
-            label="Close Report Bug"
+            label="Close Report Defect"
             onClick={onClose}
           />
         </header>

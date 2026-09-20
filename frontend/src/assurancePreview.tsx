@@ -78,7 +78,7 @@ function Preview() {
         <span className="is-active">AI Assurance</span>
         <span>{isStory ? "Test Cases" : "Linked Suites"}</span>
         <span>History</span>
-        <span>Linked Bugs</span>
+        <span>Linked Defects</span>
         <span>Attachments</span>
       </nav>
       <section className="assurance-preview-body">

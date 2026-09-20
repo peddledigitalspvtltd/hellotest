@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-shared-session",
+      "app_type_id": "sample-app-web",
+      "name": "Verified customer session",
+      "description": "Reusable sign-in preconditions.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Background: Verified customer session\n  Given a verified account for <email>\n  And the customer is signed in",
+      "parameter_values": {
+        "email": "alex@example.test"
+      },
+      "steps": [
+        {
+          "id": "sample-shared-session-1",
+          "step_order": 1,
+          "action": "Given a verified account for <email>",
+          "expected_result": "The account is active.",
+          "step_type": "web"
+        },
+        {
+          "id": "sample-shared-session-2",
+          "step_order": 2,
+          "action": "And the customer is signed in",
+          "expected_result": "The customer dashboard is open.",
+          "step_type": "web"
+        }
+      ],
+      "display_id": "DEMO2-SG1"
+    }
+  ]
+}

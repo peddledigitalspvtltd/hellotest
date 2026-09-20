@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-case-stock-automated",
+      "display_id": "DEMO2-T13",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v2-suite-api",
+      "title": "Inventory contract · API automation",
+      "description": "Editable API request linked to its manual contract. Configure an actual base URL before running.",
+      "automated": "yes",
+      "automation_status": "ready",
+      "manual_test_case_id": "sample-v2-case-stock-api",
+      "requirement_id": "sample-v2-req-inventory",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "parameter_values": {
+        "base_url": "https://api.staging.example.test",
+        "sku": "TRAIL-100"
+      }
+    }
+  ]
+}

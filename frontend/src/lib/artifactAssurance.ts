@@ -58,6 +58,7 @@ export function buildStoryAssuranceAnalysis(input: {
   title: string;
   description: string;
   gherkinScenarios?: string[];
+  acceptanceCriteria?: string[];
   linkedCaseCount: number;
   externalReferences?: string[];
   labels?: string[];
@@ -65,12 +66,12 @@ export function buildStoryAssuranceAnalysis(input: {
 }): AiArtifactAssuranceAnalysis {
   const title = input.title.trim();
   const description = input.description.trim();
-  const text = `${title} ${description} ${(input.gherkinScenarios || []).join(" ")}`;
+  const text = `${title} ${description} ${(input.gherkinScenarios || []).join(" ")} ${(input.acceptanceCriteria || []).join(' ')}`;
   const references = input.externalReferences || [];
   const labels = input.labels || [];
   const hasUser = includesPattern(text, /\b(user|customer|member|admin|operator|buyer|reader|patient|agent)\b/);
   const hasOutcome = includesPattern(text, /\b(so that|in order to|so i can|outcome|benefit|reduce|improve|prevent|recover|complete)\b/);
-  const hasAcceptance = (input.gherkinScenarios || []).length > 0 || includesPattern(description, /\b(acceptance criteria|scenario:)\b|\bgiven\b[\s\S]*\bwhen\b[\s\S]*\bthen\b/);
+  const hasAcceptance = (input.acceptanceCriteria || []).some(value => value.trim()) || (input.gherkinScenarios || []).length > 0 || includesPattern(description, /\b(acceptance criteria|scenario:)\b|\bgiven\b[\s\S]*\bwhen\b[\s\S]*\bthen\b/);
   const hasConstraints = includesPattern(text, /\b(error|invalid|expired|timeout|limit|boundary|failure|fallback|constraint|single-use|unauthori[sz]ed|edge)\b/);
   const hasSecurity = includesPattern(text, /\b(auth\w*|password|secure|security|privacy|token|session|permission|role)\b/);
   const hasAccessibility = includesPattern(text, /\b(accessib\w*|keyboard|screen reader|focus (?:order|state|indicator)|contrast|aria|wcag)\b/);

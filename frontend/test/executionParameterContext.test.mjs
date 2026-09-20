@@ -60,3 +60,35 @@ test("known Gherkin behavior detects angle declarations while XML request conten
   const context = resolveExecutionParameterContext({ execution: null, caseSnapshot: { test_case_title: "Checkout <customer>" }, steps: [{ id: "step", action: "Given <email> is supplied", expected_result: "Then <s.tenant> is used", api_request: { body: "<payload><message>literal</message></payload>" } }] });
   assert.deepEqual(context.unresolved, ["r.customer", "r.email", "s.tenant"]);
 });
+
+test('shared step contexts isolate group values and select protected rows for table and key/value sources', () => {
+  const caseSnapshot = { test_data_set_snapshot: { name:'Case data', mode:'table', columns:['login'], rows:[{login:'case'}], shared_rows:[{}] } };
+  for(const login of ['group-one','group-two']) {
+    const stepSnapshot = { group_kind:'reusable', shared_parameter_values:{login} };
+    const resolved = resolveExecutionParameterContext({execution:null,caseSnapshot,stepSnapshot});
+    assert.equal(resolved.values['r.login'],login);
+  }
+  assert.equal(resolveExecutionParameterContext({execution:null,caseSnapshot}).values['r.login'],'case');
+  const keyValue = {...caseSnapshot,test_data_set_snapshot:{mode:'key_value',rows:[{key:'login',value:'suite'}],shared_rows:[{'r.login':'suite'}]}};
+  assert.equal(resolveExecutionParameterContext({execution:null,caseSnapshot:keyValue,stepSnapshot:{group_kind:'reusable',shared_parameter_values:{login:'group'}}}).values['r.login'],'suite');
+  const secret = resolveExecutionParameterContext({execution:null,caseSnapshot:null,stepSnapshot:{group_kind:'reusable',shared_parameter_values:{},shared_parameter_sensitive_names:['r.login']}});
+  assert.equal(secret.entries[0].sensitive,true);
+  assert.deepEqual(secret.values,{});
+});
+
+test('frozen hierarchy displays the same protected values and sources as runtime execution', async () => {
+  const { composeScopedTestData } = await import('../../backend/api/src/utils/scopedTestData.js');
+  const { resolveParameterLayers } = await import('../../backend/api/src/utils/stepParameterResolution.js');
+  for (const override of [false,true]) {
+    const snapshot=composeScopedTestData({hierarchical:true,caseData:{mode:'table',rows:[{'t.case':'case row','r.shared':'case row'}]},
+      suiteData:{mode:'table',rows:[{'s.suite':'suite row'}]},runData:{mode:'table',rows:[{'t.case':'run row','s.suite':'run row','r.shared':'run row'}]},
+      caseOptions:{override_shared_steps:false},runOptions:{override_test_case_data:override,override_suite_data:override,override_shared_steps:override},sharedNames:new Set(['r.shared'])}).snapshot;
+    const caseSnapshot={parameter_values:{'t.default':'case default'},suite_parameter_values:{'s.default':'suite default'},test_data_set_snapshot:snapshot,test_data_options:{runtime_policy:snapshot.data_scope_policy}};
+    const execution={parameter_values:{'t.default':'run default','s.default':'run default'}};
+    const stepSnapshot={group_kind:'reusable',group_name:'Login',shared_parameter_values:{'r.shared':'group default'}};
+    const expected=resolveParameterLayers({caseValues:caseSnapshot.parameter_values,suiteValues:caseSnapshot.suite_parameter_values,runValues:execution.parameter_values,dataSet:snapshot,sharedValues:stepSnapshot.shared_parameter_values,isSharedStep:true});
+    const actual=resolveExecutionParameterContext({caseSnapshot,execution,stepSnapshot});
+    assert.deepEqual(actual.values,expected);
+    assert.equal(actual.entries.find(item=>item.name==='r.shared').sourceLabel,override?'Run data · Row 1':'Login');
+  }
+});

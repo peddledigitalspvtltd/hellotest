@@ -1,3 +1,9 @@
+import "../components/ScopedRunCreation.css";
+import { AuthoringDataSetPanel } from "../components/AuthoringDataSetPanel";
+import { TestDataSetPickerDialog } from "../components/TestDataSetPickerDialog";
+import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
+import type { TestDataOptions } from "../types";
+import { RunDataSetup } from "../components/RunDataSetup";
 import { ChangeEvent, FormEvent, Fragment, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
@@ -5,8 +11,9 @@ import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } f
 import type { InfiniteData } from "@tanstack/react-query";
 import { isPendingCaseReview, ownsCaseReview } from "../lib/testCaseReview";
 import "../components/test-case-review.css";
+import "./TestCasesPage.import.css";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IconBug as InsightBugIcon, IconChartBar, IconClipboardCheck, IconClock, IconFilter, IconInfoCircle } from "@tabler/icons-react";
+import { IconChartBar, IconClipboardCheck, IconDownload, IconFilter, IconInfoCircle } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { ArtifactAssuranceWorkspace } from "../components/ArtifactAssuranceWorkspace";
@@ -39,7 +46,8 @@ import { LoadingState } from "../components/LoadingState";
 import { MultiAssigneePicker } from "../components/MultiAssigneePicker";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
-import { QualityMetricStrip } from "../components/QualityMetricStrip";
+import { QualityMetricStrip, type QualityMetric } from "../components/QualityMetricStrip";
+import { EntityHealthButton, EntityHealthDialog } from "../components/EntityHealthDialog";
 import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { RichTextAiRephraseIcon, RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
@@ -96,7 +104,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
 import { optionalQueryView } from "../lib/optionalQueryView";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
-import {
+import { buildTestCaseImportTemplate,
   countImportedGroups,
   countImportedSuites,
   countImportedSteps,
@@ -1604,7 +1612,7 @@ function ModuleRequirementPicker({
           </div>
           {visibleOptions.map((requirement) => {
             const isChecked = selectedIds.includes(requirement.id);
-            const requirementLabel = requirement.display_id || requirement.id;
+            const requirementLabel = requirement.display_id || "Story";
             return (
               <div
                 className={isChecked
@@ -2125,6 +2133,11 @@ export function TestCasesPage() {
   const reviewActionsRef = useRef(new Set<string>());
   const reviewSuggestionSnapshotRef = useRef<TestCase | null>(null);
   const [reviewingCaseIds, setReviewingCaseIds] = useState<string[]>([]);
+  const [isBulkReviewRunning, setIsBulkReviewRunning] = useState(false);
+  const bulkReviewRunningRef = useRef(false);
+  const [isBulkReviewRejectOpen, setIsBulkReviewRejectOpen] = useState(false);
+  const [bulkReviewComment, setBulkReviewComment] = useState("");
+  const [bulkReviewError, setBulkReviewError] = useState("");
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
   const [activeTestCaseDetailTab, setActiveTestCaseDetailTab] = useState<TestCaseDetailTab>("details");
   const [searchTerm, setSearchTerm] = useState("");
@@ -2151,6 +2164,8 @@ export function TestCasesPage() {
   const [isUnassignedModuleExpanded, setIsUnassignedModuleExpanded] = useState(true);
   const [modulePageCursorsById, setModulePageCursorsById] = useState<Record<string, Array<string | null>>>({});
   const [selectedModuleIds, setSelectedModuleIds] = useState<string[]>([]);
+  const [healthModuleId, setHealthModuleId] = useState<string | null>(null);
+  useEffect(() => setHealthModuleId(null), [projectId, appTypeId, isReviewQueueOpen]);
   const [deletingModuleId, setDeletingModuleId] = useState("");
   const [renamingModuleId, setRenamingModuleId] = useState("");
   const [renamingModuleName, setRenamingModuleName] = useState("");
@@ -2177,6 +2192,7 @@ export function TestCasesPage() {
   const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
+  const [selectedExecutionDataOptions, setSelectedExecutionDataOptions] = useState<TestDataOptions>({});
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
   const [executionRelease, setExecutionRelease] = useState("");
@@ -2238,6 +2254,7 @@ export function TestCasesPage() {
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
   const [isCaseParameterDialogOpen, setIsCaseParameterDialogOpen] = useState(false);
   const [linkedDataSetDraftIds, setLinkedDataSetDraftIds] = useState<string[]>([]);
+  const [overrideSharedGroupData, setOverrideSharedGroupData] = useState(false);
   const [dataSetSearch, setDataSetSearch] = useState("");
   const [dataSetLinkDraftId, setDataSetLinkDraftId] = useState("");
   const [isDataSetLinkerOpen, setIsDataSetLinkerOpen] = useState(false);
@@ -2374,11 +2391,12 @@ export function TestCasesPage() {
   const reviewSummaryQuery = useQuery({
     queryKey: reviewSummaryQueryKey,
     queryFn: ({ signal }) => api.testCases.reviewSummary({ project_id: projectId, app_type_id: appTypeId }, { signal }),
-    enabled: canUpdateTestCases && can("testcase.view") && Boolean(reviewUserId && projectId && appTypeId),
+    enabled: can("testcase.view") && Boolean(reviewUserId && projectId && appTypeId),
     staleTime: 15_000,
     refetchInterval: 30_000
   });
   const pendingReviewCount = canUpdateTestCases ? Number(reviewSummaryQuery.data?.pending || 0) : 0;
+  const overallPendingReviewCount = Number(reviewSummaryQuery.data?.overall_pending || 0);
   const catalogFilters = useMemo(() => ({
     search: isReviewQueueOpen ? undefined : deferredSearchTerm.trim() || undefined,
     workflow_status: isReviewQueueOpen || caseStatusFilter === "all" ? undefined : caseStatusFilter,
@@ -2474,6 +2492,8 @@ export function TestCasesPage() {
     setModuleDraftInitialCaseIds([]);
     setModuleAssignmentRetry(null);
     setReviewQueueScope("");
+    setIsBulkReviewRejectOpen(false);
+    setBulkReviewComment("");
     setReviewSuggestionCaseId("");
     setReviewSuggestionError("");
     setCaseDraft(emptyCaseDraft);
@@ -3025,6 +3045,7 @@ export function TestCasesPage() {
     setSelectedExecutionEnvironmentId("");
     setSelectedExecutionConfigurationId("");
     setSelectedExecutionDataSetId("");
+    setSelectedExecutionDataOptions({});
   };
 
   const closeCreateExecutionModal = () => {
@@ -3073,6 +3094,7 @@ export function TestCasesPage() {
     setStepInsertGroupContext(null);
     setSelectedStepIds([]);
     setLinkedDataSetDraftIds([]);
+    setOverrideSharedGroupData(false);
     setDataSetSearch("");
     setIsDataSetCreatorOpen(false);
     setExpandedStepIds([]);
@@ -3172,17 +3194,6 @@ export function TestCasesPage() {
       return next;
     }, { replace: true });
   }, [appTypeId, appTypes, appTypesQuery.isPending, searchParams, setAppTypeId, setSearchParams]);
-
-  useEffect(() => {
-    if (!integrations.length) {
-      setIntegrationId("");
-      return;
-    }
-
-    if (integrationId && !integrations.some((integration) => integration.id === integrationId)) {
-      setIntegrationId("");
-    }
-  }, [integrationId, integrations]);
 
   useEffect(() => {
     if (!searchParams.get("case")) {
@@ -3389,7 +3400,7 @@ export function TestCasesPage() {
   const requirementDisplayIdById = useMemo(
     () =>
       requirements.reduce<Record<string, string>>((map, requirement) => {
-        map[requirement.id] = requirement.display_id || requirement.id;
+        map[requirement.id] = requirement.display_id || "Story";
         return map;
       }, {}),
     [requirements]
@@ -3437,7 +3448,7 @@ export function TestCasesPage() {
     });
 
     testCases.forEach((testCase) => {
-      const module = testCaseModules.find((candidate) => (testCase.module_ids || []).includes(candidate.id));
+      const module = (testCase.module_ids || []).map((id) => testCaseModules.find((candidate) => candidate.id === id)).find(Boolean);
       if (module) map.set(testCase.id, module);
     });
 
@@ -3446,7 +3457,7 @@ export function TestCasesPage() {
     // an older Forge deployment has a missing or stale test_case_ids array.
     modulePageRequests.forEach(({ module }, queryIndex) => {
       asArray(moduleCaseQueries[queryIndex]?.data?.items).forEach((testCase) => {
-        map.set(testCase.id, module);
+        if (!map.has(testCase.id)) map.set(testCase.id, module);
       });
     });
     return map;
@@ -3488,12 +3499,16 @@ export function TestCasesPage() {
     const unassignedCases: TestCase[] = [];
 
     filteredCases.forEach((testCase) => {
-      const moduleId = caseModuleById.get(testCase.id)?.id;
-      if (!moduleId) {
+      const moduleIds = [...new Set([
+        ...(testCase.module_ids || []),
+        ...testCaseModules.filter((module) => module.test_case_ids?.includes(testCase.id)).map((module) => module.id),
+        ...modulePageRequests.filter((_, index) => asArray(moduleCaseQueries[index]?.data?.items).some((item) => item.id === testCase.id)).map(({ module }) => module.id)
+      ])];
+      if (!moduleIds.length) {
         unassignedCases.push(testCase);
         return;
       }
-      casesByModuleId.set(moduleId, [...(casesByModuleId.get(moduleId) || []), testCase]);
+      moduleIds.forEach((moduleId) => casesByModuleId.set(moduleId, [...(casesByModuleId.get(moduleId) || []), testCase]));
     });
 
     const groups = testCaseModules.map((module) => ({
@@ -3502,7 +3517,7 @@ export function TestCasesPage() {
     }));
 
     return { groups, unassignedCases };
-  }, [caseModuleById, filteredCases, testCaseModules]);
+  }, [filteredCases, testCaseModules, modulePageRequests, moduleCaseQueries]);
   const visibleModuleCaseGroups = useMemo(() => moduleCaseGroups.groups.filter(({ cases }) =>
     !hasActiveCaseCatalogFilter || cases.length > 0
   ), [hasActiveCaseCatalogFilter, moduleCaseGroups.groups]);
@@ -3510,40 +3525,56 @@ export function TestCasesPage() {
     byId: new Map(testCaseModules.map((module) => [module.id, testCaseMetricsQuery.data?.modules[module.id] || deriveModuleHealth([])])),
     unassigned: testCaseMetricsQuery.data?.unassigned || deriveModuleHealth([])
   }), [testCaseMetricsQuery.data, testCaseModules]);
+  const healthModule = healthModuleId === "unassigned"
+    ? { name: "Ungrouped", health: moduleHealth.unassigned }
+    : testCaseModules.some((module) => module.id === healthModuleId)
+      ? { name: testCaseModules.find((module) => module.id === healthModuleId)!.name, health: moduleHealth.byId.get(healthModuleId!)! }
+      : null;
+  const moduleHealthMetrics = (health: ReturnType<typeof deriveModuleHealth>): QualityMetric[] => {
+    const executionUnavailable = "Run and result access is required to view execution evidence.";
+    const noCases = health.count === 0;
+    const riskAvailable = canViewExecutionInsights && canViewRequirements;
+    return [
+      { label: "Test Cases", value: health.count, tone: "info", detail: `${health.count} Test Cases in this module's current library scope.`, methodology: "Uses complete module totals from the catalog API, independent of loaded pages or search. Review mode includes only cases assigned to you for review." },
+      { label: "Latest Pass Rate", value: !canViewExecutionInsights ? "Unavailable" : health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
+        tone: !canViewExecutionInsights || health.latestPassRatePercent === null ? "neutral" : health.latestPassRatePercent >= 80 ? "success" : "warning",
+        detail: !canViewExecutionInsights ? executionUnavailable : health.latestPassRatePercent === null ? "No finalized case outcomes are available in this module." : `${health.latestPassRatePercent}% of cases with a latest finalized outcome passed.`, methodology: "Uses one latest finalized passed, failed, or blocked outcome per Test Case. Cases without a finalized outcome are excluded from the denominator." },
+      { label: "At Risk", value: riskAvailable ? health.riskCount : "Unavailable", tone: !riskAvailable ? "neutral" : health.riskCount ? "warning" : "success",
+        detail: riskAvailable ? `${health.riskCount}/${health.count} Test Cases have at least one risk signal.` : "Story and execution access is required to evaluate every risk signal.", methodology: "Counts each case once if it has no linked Story, no executable steps, a latest failed/blocked result, or Critical/High priority without automation. Signals may overlap." },
+      { label: "Pending Review", value: health.pendingReviewCount, tone: health.pendingReviewCount ? "warning" : "success",
+        detail: `${health.pendingReviewCount}/${health.count} Test Cases await review.`, methodology: "Includes pending human reviews and AI-generated cases awaiting review. Review mode limits the module scope to your assigned review queue." },
+      { label: "Story Traceability", value: !canViewRequirements ? "Unavailable" : noCases ? "No cases" : `${health.traceabilityPercent}%`, tone: "info",
+        detail: canViewRequirements ? `${health.traceabilityPercent}% of module Test Cases are linked to at least one Story.` : "Story access is required to view traceability evidence.", methodology: "Cases with a linked Story divided by Test Cases in this module. A case with multiple Story links is counted once." },
+      { label: "Executable Cases", value: noCases ? "No cases" : `${health.executablePercent}%`, tone: noCases ? "neutral" : health.executablePercent === 100 ? "success" : "warning",
+        detail: `${health.executablePercent}% of module Test Cases have authored steps.`, methodology: "Cases with at least one executable step divided by Test Cases in the module." },
+      { label: "Execution Coverage", value: !canViewExecutionInsights ? "Unavailable" : noCases ? "No cases" : `${health.executionPercent}%`, tone: "info",
+        detail: canViewExecutionInsights ? `${health.executionPercent}% of module cases have a finalized outcome.` : executionUnavailable, methodology: "Cases with a finalized passed, failed, or blocked result divided by Test Cases in this module." },
+      { label: "Automation Coverage", value: noCases ? "No cases" : `${health.automationPercent}%`, tone: "info",
+        detail: `${health.automationPercent}% of evaluated module Test Cases are automated.`, methodology: "Automated cases divided by module cases whose automation status is known (yes or no)." },
+      { label: "Average Execution", value: canViewExecutionInsights ? formatCompactDuration(health.averageExecutionMs) : "Unavailable", tone: "neutral",
+        detail: !canViewExecutionInsights ? executionUnavailable : health.executionDurationSampleCount ? `Average across ${health.executionDurationSampleCount} recent finalized result durations.` : "No finalized execution durations are available.", methodology: "Total recorded duration divided by recent finalized results with a valid duration; missing durations are excluded." },
+      { label: "Defect Density", value: !can("feedback.view") ? "Unavailable" : noCases ? "No cases" : health.defectDensity.toFixed(2), tone: !can("feedback.view") ? "neutral" : health.defectCount ? "warning" : "success",
+        detail: can("feedback.view") ? `${health.defectCount} distinct linked Defects across ${health.count} Test Cases.` : "Defect access is required to view linked Defect evidence.", methodology: "Distinct linked Defects divided by module Test Cases. Includes open and closed Defects; a Defect linked to multiple cases is counted once." }
+    ];
+  };
   const renderModuleMetrics = (health: ReturnType<typeof deriveModuleHealth>) => (
     <HierarchyQuickInsights
       count={health.count}
-      countLabel={health.count === 1 ? "Test case" : "Test cases"}
+      countLabel={health.count === 1 ? "Test Case" : "Test Cases"}
       metrics={[
         {
-          icon: <IconClock aria-hidden="true" size={13} stroke={1.8} />,
-          label: "Avg execution",
-          value: formatCompactDuration(health.averageExecutionMs),
-          tone: health.averageExecutionMs === null ? "neutral" : "success",
-          title: health.executionDurationSampleCount
-            ? `Average across ${health.executionDurationSampleCount} recent finalized result${health.executionDurationSampleCount === 1 ? "" : "s"}`
-            : "No finalized execution duration is available for this module"
+          icon: <IconChartBar aria-hidden="true" size={13} stroke={1.8} />,
+          label: "Latest Pass Rate",
+          value: !canViewExecutionInsights ? "Unavailable" : health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
+          tone: !canViewExecutionInsights || health.latestPassRatePercent === null ? "neutral" : health.latestPassRatePercent >= 80 ? "success" : health.latestPassRatePercent >= 60 ? "warning" : "danger",
+          title: canViewExecutionInsights ? "Pass rate from the latest finalized outcome for each module Test Case" : "Run and result access is required."
         },
         {
           icon: <IconClipboardCheck aria-hidden="true" size={13} stroke={1.8} />,
-          label: "Pending review",
-          value: health.pendingReviewCount,
-          tone: health.pendingReviewCount ? "warning" : "success",
-          title: "Module test cases waiting for human or AI-generation review"
-        },
-        {
-          icon: <IconChartBar aria-hidden="true" size={13} stroke={1.8} />,
-          label: "Pass rate",
-          value: health.latestPassRatePercent === null ? "No runs" : `${health.latestPassRatePercent}%`,
-          tone: health.latestPassRatePercent === null ? "neutral" : health.latestPassRatePercent >= 80 ? "success" : health.latestPassRatePercent >= 60 ? "warning" : "danger",
-          title: "Pass rate from the latest finalized outcome for each module test case"
-        },
-        {
-          icon: <InsightBugIcon aria-hidden="true" size={13} stroke={1.8} />,
-          label: "Defect density",
-          value: health.defectDensity.toFixed(2),
-          tone: health.defectDensity >= 0.5 ? "danger" : health.defectDensity > 0 ? "warning" : "success",
-          title: `${health.defectCount} distinct linked bug${health.defectCount === 1 ? "" : "s"} per ${health.count} module test case${health.count === 1 ? "" : "s"}`
+          label: "At Risk",
+          value: canViewExecutionInsights && canViewRequirements ? health.riskCount : "Unavailable",
+          tone: !canViewExecutionInsights || !canViewRequirements ? "neutral" : health.riskCount ? "warning" : "success",
+          title: canViewExecutionInsights && canViewRequirements ? `${health.riskCount}/${health.count} cases have missing Story links or steps, a failed/blocked outcome, or high priority without automation.` : "Story and execution access is required to evaluate every risk signal."
         }
       ]}
     />
@@ -3582,7 +3613,7 @@ export function TestCasesPage() {
     const entries: Array<
       | { kind: "module"; module: TestCaseModule; count: number }
       | { kind: "unassigned"; count: number }
-      | { kind: "case"; testCase: TestCase }
+      | { kind: "case"; testCase: TestCase; module?: TestCaseModule }
     > = [];
 
     if (isReviewQueueOpen) return filteredCases.map((testCase) => ({ kind: "case" as const, testCase }));
@@ -3590,7 +3621,7 @@ export function TestCasesPage() {
       entries.push({ kind: "module", module, count: cases.length });
 
       if (isModuleExpanded(module.id)) {
-        cases.forEach((testCase) => entries.push({ kind: "case", testCase }));
+        cases.forEach((testCase) => entries.push({ kind: "case", testCase, module }));
       }
     });
 
@@ -3937,6 +3968,22 @@ export function TestCasesPage() {
 
     return resolved;
   }, [mergedScopedParameterValues, parameterPreviewRevision, parameterPreviewScopeKey]);
+  const sharedGroupPreviewValues = useMemo(() => new Map(sharedStepGroups.map((group) => {
+    const dataSet = canViewTestData ? testDataSets.find((item) => item.id === group.test_data_set_id) || group.test_data_set : null;
+    const rowData = dataSet?.mode === "table"
+      ? { ...dataSet, rows: dataSet.rows.slice(group.test_data_row_index || 0, (group.test_data_row_index || 0) + 1) }
+      : dataSet;
+    const inherited = combineStepParameterValues(normalizeStepParameterValues(group.parameter_values || {}), buildDataSetParameterValues(rowData));
+    const values = overrideSharedGroupData
+      ? combineStepParameterValues(inherited, resolvedScopedParameterValues)
+      : combineStepParameterValues(inherited, visibleTestCaseParameterValues, suiteParameterValues, runPreviewParameterValues);
+    const safeValues = excludeSensitiveStepParameterValues(values, collectSensitiveDataSetParameterNames(rowData));
+    return [group.id, Object.fromEntries(Object.entries(safeValues).map(([name, value]) =>
+      [name, hasTestDataGeneratorTemplate(value) ? evaluateTestDataTemplate(value) : value]))] as const;
+  })), [canViewTestData, overrideSharedGroupData, resolvedScopedParameterValues, runPreviewParameterValues, sharedStepGroups, suiteParameterValues, testDataSets, visibleTestCaseParameterValues]);
+  const parameterValuesForStep = (step: Pick<TestStep, "reusable_group_id">) => step.reusable_group_id
+    ? sharedGroupPreviewValues.get(step.reusable_group_id) || resolvedScopedParameterValues
+    : resolvedScopedParameterValues;
   const refreshParameterPreviews = () => {
     parameterPreviewCacheRef.current.clear();
     setParameterPreviewRevision((current) => current + 1);
@@ -4127,6 +4174,7 @@ export function TestCasesPage() {
       if (lastCaseDraftSeedRef.current !== "__none__") {
         setCaseDraft(emptyCaseDraft);
         setLinkedDataSetDraftIds([]);
+    setOverrideSharedGroupData(false);
         lastCaseDraftSeedRef.current = "__none__";
       }
       return;
@@ -4163,6 +4211,7 @@ export function TestCasesPage() {
         gherkin_document: selectedTestCase.gherkin_document || ""
       });
       setLinkedDataSetDraftIds((selectedTestCase.test_data_set_ids || []).slice(0, 1));
+      setOverrideSharedGroupData(selectedTestCase.test_data_options?.override_shared_steps !== false);
       lastCaseDraftSeedRef.current = nextSeedKey;
       return;
     }
@@ -4198,6 +4247,7 @@ export function TestCasesPage() {
     setSelectedTestCaseId("");
     setCaseDraft(emptyCaseDraft);
     setLinkedDataSetDraftIds([]);
+    setOverrideSharedGroupData(false);
   }, [
     defaultTestCaseAutomated,
     defaultTestCaseStatus,
@@ -4359,6 +4409,7 @@ export function TestCasesPage() {
       || persistCaseParameterValues.isPending
       || updateTestCase.isPending
       || linkedDataSetId !== (selectedTestCase.test_data_set_ids?.[0] || "")
+      || overrideSharedGroupData !== (selectedTestCase.test_data_options?.override_shared_steps !== false)
     ) {
       return;
     }
@@ -4394,6 +4445,7 @@ export function TestCasesPage() {
     activeTestCaseParameterSeedKey,
     isCreating,
     linkedDataSetId,
+    overrideSharedGroupData,
     persistCaseParameterValues.isPending,
     selectedCaseParameterDraftScopeKey,
     selectedTestCase,
@@ -5101,7 +5153,7 @@ export function TestCasesPage() {
           authoring_mode: caseDraft.authoring_mode,
           test_case_type: caseDraft.test_case_type,
           gherkin_document: persistedGherkinDocument || null,
-          ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1) } : {}),
+          ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
           priority: Number(caseDraft.priority),
           status: caseDraft.status,
           requirement_ids: requirementIds,
@@ -5143,12 +5195,12 @@ export function TestCasesPage() {
             await queryClient.invalidateQueries({ queryKey: ["issues"] });
             lastCaseSaveNoticeRef.current = [
               lastCaseSaveNoticeRef.current,
-              `Test Case created and linked back to Bug ${activeBugConversion.bugDisplayId}.`
+              `Test Case created and linked back to Defect ${activeBugConversion.bugDisplayId}.`
             ].filter(Boolean).join(" ");
           } catch {
             lastCaseSaveNoticeRef.current = [
               lastCaseSaveNoticeRef.current,
-              `The source Bug ${activeBugConversion.bugDisplayId} link could not be updated; you can link it manually from the Bug details screen.`
+              `The source Defect ${activeBugConversion.bugDisplayId} link could not be updated; you can link it manually from the Defect details screen.`
             ].filter(Boolean).join(" ");
           }
         }
@@ -5187,7 +5239,7 @@ export function TestCasesPage() {
             authoring_mode: caseDraft.authoring_mode,
             test_case_type: caseDraft.test_case_type,
             gherkin_document: persistedGherkinDocument || null,
-            ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1) } : {}),
+            ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds.slice(0, 1), test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
             automation_status: caseDraft.automated === "yes"
               ? selectedTestCase.automated === "yes" ? existingAutomationStatus : hasMappedAutomation ? "ready" : "incomplete"
               : "not_automated",
@@ -5209,10 +5261,14 @@ export function TestCasesPage() {
             append: true
           });
         } else if (!caseDraft.module_id && selectedCaseModuleId) {
-          await removeCasesFromModule.mutateAsync({
+          const removal = await removeCasesFromModule.mutateAsync({
             id: selectedCaseModuleId,
             testCaseIds: [selectedTestCase.id]
           });
+          if (removal.retained_test_case_ids?.includes(selectedTestCase.id)) {
+            lastCaseSaveNoticeRef.current = `Test Case saved. ${removal.message || "Story-linked module membership remains. Change the Story assignment to remove it."}`;
+            setCaseDraft((current) => ({ ...current, module_id: selectedCaseModuleId }));
+          }
         }
 
         syncCachedTestCaseParameterValues(selectedTestCase.id, visibleTestCaseParameterValues);
@@ -5223,7 +5279,7 @@ export function TestCasesPage() {
         }
         clearStepSelectionIfClipboardActive();
         if (announce) {
-          showSuccess("Test case updated.");
+          showSuccess(lastCaseSaveNoticeRef.current || "Test case updated.");
         }
       }
 
@@ -5254,6 +5310,7 @@ export function TestCasesPage() {
       return false;
     }
 
+    lastCaseSaveNoticeRef.current = "";
     const didSaveCase = await handleSaveCaseDirect(false, stepOverrides);
 
     if (!didSaveCase) {
@@ -5676,7 +5733,7 @@ export function TestCasesPage() {
   };
 
   const handleSubmitReviewForCase = async (
-    testCaseId: string, reviewStatus: "accepted" | "changes_requested", comment = "", snapshot?: TestCase
+    testCaseId: string, reviewStatus: "accepted" | "changes_requested", comment = "", snapshot?: TestCase, options?: { quiet?: boolean; onError?: (message: string) => void }
   ): Promise<boolean> => {
     const testCase = snapshot || (selectedTestCase?.id === testCaseId ? selectedTestCase : testCases.find((item) => item.id === testCaseId));
     const actionScope = reviewScopeKey;
@@ -5706,8 +5763,8 @@ export function TestCasesPage() {
         ...(item.ai_generation_source ? { ai_generation_review_status: reviewStatus === "accepted" ? "accepted" as const : "rejected" as const } : {}),
         review_history: [...(item.review_history || []), ...(response.review ? [response.review] : [])]
       };
-      queryClient.setQueryData<{ pending: number }>(reviewSummaryQueryKey, (current) => current
-        ? { pending: Math.max(0, current.pending - 1) } : current);
+      queryClient.setQueryData<{ pending: number; overall_pending: number }>(reviewSummaryQueryKey, (current) => current
+        ? { ...current, pending: Math.max(0, current.pending - 1), overall_pending: Math.max(0, current.overall_pending - 1) } : current);
       for (const query of queryClient.getQueryCache().findAll({ queryKey: ["global-test-cases", appTypeId, projectId] })) {
         if (query.queryKey[4] !== reviewUserId) continue;
         const isQueue = Boolean((query.queryKey[3] as { review_queue?: string })?.review_queue);
@@ -5722,20 +5779,57 @@ export function TestCasesPage() {
         (current) => current ? { ...current, items: current.items.map(updateCase) } : current);
       if (currentReviewScopeRef.current === actionScope) {
         setSelectedActionTestCaseIds((current) => current.filter((id) => id !== testCaseId));
-        showSuccess(reviewStatus === "accepted" ? "Test case review accepted." : "Changes requested. The test case and feedback have been saved.");
+        if (!options?.quiet) showSuccess(reviewStatus === "accepted" ? "Test case review accepted." : "Changes requested. The test case and feedback have been saved.");
       }
-      void refreshCases();
+      if (!options?.quiet) void refreshCases();
       return true;
     } catch (error) {
+      options?.onError?.(error instanceof Error ? error.message : "Unable to update review status");
       if (currentReviewScopeRef.current === actionScope) {
-        showError(error, "Unable to update review status");
+        if (!options?.quiet) showError(error, "Unable to update review status");
         if (reviewSuggestionCaseId === testCaseId) setReviewSuggestionError(error instanceof Error ? error.message : "Unable to save feedback. Please retry.");
-        if ([403, 409].includes(Number((error as { status?: number })?.status))) void refreshCases();
+        if (!options?.quiet && [403, 409].includes(Number((error as { status?: number })?.status))) void refreshCases();
       }
       return false;
     } finally {
       reviewActionsRef.current.delete(actionKey);
       if (currentReviewScopeRef.current === actionScope) setReviewingCaseIds((current) => current.filter((id) => id !== testCaseId));
+    }
+  };
+
+  const selectedReviewCases = selectedActionTestCaseIds.map((id) =>
+    testCases.find((item) => item.id === id) || selectedActionCaseSnapshotsRef.current.get(id)
+  ).filter((item): item is TestCase => Boolean(item && ownsCaseReview(item, reviewUserId) && isPendingCaseReview(item)));
+
+  const handleBulkReview = async (status: "accepted" | "changes_requested") => {
+    if (!isReviewQueueOpen || !canUpdateTestCases || !selectedReviewCases.length || bulkReviewRunningRef.current) return;
+    const scope = reviewScopeKey;
+    const cases = [...selectedReviewCases];
+    const failures: string[] = [];
+    let completed = 0;
+    bulkReviewRunningRef.current = true;
+    setIsBulkReviewRunning(true);
+    setBulkReviewError("");
+    try {
+      // Preserve each selected revision and use the same assigned-reviewer endpoint
+      // as individual decisions. One request at a time bounds load for large selections.
+      for (const item of cases) {
+        if (currentReviewScopeRef.current !== scope) break;
+        if (await handleSubmitReviewForCase(item.id, status, bulkReviewComment, item, {
+          quiet: true, onError: (message) => failures.push(`${item.display_id || item.title}: ${message}`)
+        })) completed += 1;
+      }
+      if (currentReviewScopeRef.current === scope) {
+        const failed = cases.length - completed;
+        setMessageTone(failed ? "error" : "success");
+        setMessage(`${completed} Test Case${completed === 1 ? "" : "s"} ${status === "accepted" ? "approved" : "sent back for changes"}.${failed ? ` ${failed} could not be reviewed and remain selected. ${failures.slice(0, 3).join("; ")}` : ""}`);
+        setBulkReviewError(failed ? `${failed} could not be reviewed and remain selected. ${failures.slice(0, 3).join("; ")}` : "");
+        if (!failed) { setIsBulkReviewRejectOpen(false); setBulkReviewComment(""); }
+        void refreshCases();
+      }
+    } finally {
+      bulkReviewRunningRef.current = false;
+      setIsBulkReviewRunning(false);
     }
   };
 
@@ -5836,22 +5930,17 @@ export function TestCasesPage() {
     }
 
     try {
-      const response = await createSuite.mutateAsync({
+      await createSuite.mutateAsync({
         app_type_id: appTypeId,
         name: input.name,
         description: input.description,
         labels: input.labels,
         test_data_set_id: input.test_data_set_id || undefined,
+        test_data_options: input.test_data_options,
+        test_case_ids: input.selectedIds,
         parallel_enabled: canConfigureParallelAutomation ? input.parallel_enabled : false,
         parallel_count: canConfigureParallelAutomation && input.parallel_enabled ? input.parallel_count : 1
       });
-
-      if (input.selectedIds.length) {
-        await assignSuiteCases.mutateAsync({
-          id: response.id,
-          testCaseIds: input.selectedIds
-        });
-      }
 
       setIsCreateSuiteModalOpen(false);
       setSelectedActionTestCaseIds([]);
@@ -5941,6 +6030,7 @@ export function TestCasesPage() {
               parameter_values: testCase.parameter_values || undefined,
               test_case_type: testCase.test_case_type || "functional",
               test_data_set_ids: isCrossProject ? [] : (testCase.test_data_set_ids || []).slice(0, 1),
+              test_data_options: testCase.test_data_options,
               automated: canEditAutomationCode ? testCase.automated || defaultTestCaseAutomated : "no",
               priority: testCase.priority || 3,
               status: testCase.status || defaultTestCaseStatus,
@@ -6047,6 +6137,7 @@ export function TestCasesPage() {
         project_id: projectId,
         app_type_id: appTypeId,
         test_case_ids: selectedActionTestCaseIds,
+        test_data_options: selectedExecutionDataOptions,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
         test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
@@ -7152,6 +7243,7 @@ export function TestCasesPage() {
           .filter((batch) => batch.rows.length)
           .map((batch) => ({
             file_name: batch.fileName,
+            row_offset: batch.rowOffset || 0,
             import_source: batch.source,
             rows: batch.rows
           }))
@@ -7169,6 +7261,13 @@ export function TestCasesPage() {
       setIsImportModalOpen(false);
       await refreshCases();
     } catch (error) {
+      const remaining = (error as { remaining_payloads?: Array<{ batches?: Array<{ file_name?: string; import_source: TestCaseImportSourceSelection; row_offset?: number; rows: ImportedTestCaseRow[] }> }> }).remaining_payloads;
+      if (remaining?.length) {
+        setImportBatches(remaining.flatMap(payload => payload.batches || []).map((batch, index) => ({
+          id: `remaining-${Date.now()}-${index}`, fileName: batch.file_name || "Import", source: batch.import_source === "auto" ? "csv" : batch.import_source,
+          rowOffset: batch.row_offset || 0, rows: batch.rows, warnings: ["Only this unqueued portion remains. Previously accepted batches are tracked in Batch Process."]
+        })));
+      }
       showError(error, "Unable to import test cases");
     }
   };
@@ -7236,8 +7335,12 @@ export function TestCasesPage() {
           Description: testCase.description || "",
           Status: testCase.status || "",
           Priority: testCase.priority || 3,
-          Author: testCase.author?.name || testCase.author?.email || testCase.author_id || testCase.created_by || "",
+          Author: testCase.author?.email || testCase.author_id || testCase.created_by || "",
           "Test Case Type": testCase.test_case_type || "functional",
+          Reviewer: testCase.reviewer_id || "",
+          "Authoring Mode": testCase.authoring_mode || "structured",
+          "Gherkin Document": testCase.gherkin_document || "",
+          "Automation Status": canUseAutomationWorkspace ? testCase.automation_status || "not_automated" : undefined,
           Automated: canUseAutomationWorkspace ? testCase.automated || "no" : undefined,
           Labels: (testCase.labels || []).join("|"),
           "External References": (testCase.external_references || []).join("|"),
@@ -7247,9 +7350,10 @@ export function TestCasesPage() {
           Suites: (testCase.suite_ids || (testCase.suite_id ? [testCase.suite_id] : []))
             .map((id) => suiteById.get(id)?.display_id || id)
             .join("|"),
-          Modules: moduleRecords.map((module) => module.name).join("|"),
+          Modules: (exportRecord as (TestCase & { primary_module_id?: string | null }) | undefined)?.primary_module_id || (moduleRecords.length === 1 ? moduleRecords[0].name : ""),
           "Parameter Values": testCase.parameter_values || {},
           "Test Data References": dataSetIds.join("|"),
+          "Test Data Options": testCase.test_data_options || {},
           Steps: steps,
           "Shared Step Groups": sharedStepGroups
             .filter((group) => sharedGroupIds.has(group.id))
@@ -7257,6 +7361,10 @@ export function TestCasesPage() {
               id: group.id,
               name: group.name,
               description: group.description,
+              authoring_mode: group.authoring_mode,
+              gherkin_document: group.gherkin_document,
+              parameter_values: group.parameter_values,
+              ...(canViewTestData ? { test_data_set_id: group.test_data_set_id, test_data_row_index: group.test_data_row_index } : {}),
               steps: group.steps.map((step) => (
                 canViewAutomationCode ? step : stripAutomationStepFields(step)
               ))
@@ -7310,6 +7418,7 @@ export function TestCasesPage() {
         parameter_values: sourceTestCase.parameter_values || undefined,
         test_case_type: sourceTestCase.test_case_type || "functional",
         test_data_set_ids: (sourceTestCase.test_data_set_ids || []).slice(0, 1),
+        test_data_options: sourceTestCase.test_data_options,
         automated: canEditAutomationCode ? sourceTestCase.automated || defaultTestCaseAutomated : "no",
         priority: sourceTestCase.priority || 3,
         status: sourceTestCase.status || defaultTestCaseStatus,
@@ -7490,7 +7599,7 @@ export function TestCasesPage() {
 
       setAiPreviewCases(response.cases);
       setAiPreviewTone("success");
-      setAiPreviewMessage(`${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
+      setAiPreviewMessage(`${response.context_reduced ? `${response.context_reduction_reason} ` : ""}${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
       setAiPreviewTone("error");
       setAiPreviewMessage(formatAiStudioErrorMessage(error, "Unable to preview AI-generated test cases right now."));
@@ -7548,7 +7657,7 @@ export function TestCasesPage() {
       setAiCaseAuthoringPreview(response.case);
       setAiCaseAuthoringTone("success");
       setAiCaseAuthoringMessage(
-        response.case.authoring_mode === "gherkin"
+        response.context_reduced ? response.context_reduction_reason || "Reduced context was used; review against the original Story." : response.case.authoring_mode === "gherkin"
           ? "Prepared an improved Gherkin specification from the selected Story and current Test Case. Review it before applying."
           : `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the selected Story and current draft. Review before applying.`
       );
@@ -7739,7 +7848,7 @@ export function TestCasesPage() {
     }
 
     try {
-      await createGenerationJob.mutateAsync({
+      const response = await createGenerationJob.mutateAsync({
         app_type_id: appTypeId,
         requirement_ids: aiRequirementIds,
         integration_id: integrationId || undefined,
@@ -7758,7 +7867,7 @@ export function TestCasesPage() {
         queryClient.invalidateQueries({ queryKey: ["ai-test-case-generation-jobs", appTypeId] }),
         queryClient.invalidateQueries({ queryKey: ["requirements", projectId] })
       ]);
-      showSuccess("AI Test Cases Generation scheduled. Draft cases will appear in the library with accept and reject controls once processing completes.");
+      showSuccess(`${response.context_reduced ? `${response.context_reduction_reason} ` : ""}AI Test Cases Generation scheduled. Draft cases will appear in the library with accept and reject controls once processing completes.`);
     } catch (error) {
       setAiPreviewTone("error");
       setAiPreviewMessage(formatAiStudioErrorMessage(error, "Unable to schedule AI-generated test cases right now."));
@@ -8324,7 +8433,7 @@ export function TestCasesPage() {
         ...(caseDraft.authoring_mode === "gherkin" && caseDraft.gherkin_document.trim()
           ? [{
               id: `${selectedTestCaseId || "draft"}:gherkin`,
-              action: normalizeGherkinParameterReferences(caseDraft.gherkin_document),
+              action: normalizeGherkinParameterReferences(caseDraft.gherkin_document.split("\n").filter((line) => !/^\s*[@#]/.test(line)).join("\n")),
               expected_result: "",
               automation_code: "",
               api_request: null
@@ -8744,9 +8853,8 @@ export function TestCasesPage() {
   const getRequirementTitleForCase = (testCase: TestCase) => {
     const linkedRequirementId = (testCase.requirement_ids || [testCase.requirement_id]).find(Boolean);
     if (!linkedRequirementId) return "";
-    return requirementTitleById[linkedRequirementId]
-      || requirementDisplayIdById[linkedRequirementId]
-      || `Story ${linkedRequirementId}`;
+    const linked = testCase.linked_requirements?.find((story) => story.id === linkedRequirementId);
+    return linked?.title || requirementTitleById[linkedRequirementId] || "Linked Story";
   };
   const openLibraryCase = (testCaseId: string) => {
     openTestCaseWorkspace(testCaseId);
@@ -9208,9 +9316,10 @@ export function TestCasesPage() {
         header: (
           <div
             className={[
-              "test-case-module-header test-case-module-list-header",
+              "test-case-module-header test-case-module-list-header entity-health-hierarchy-header",
               draggingCaseIds.length ? (canAcceptDrop ? "is-drop-ready" : "is-drop-blocked") : ""
             ].filter(Boolean).join(" ")}
+            data-health-entity="Module"
             data-drop-label={dropLabel || undefined}
             onDragOver={(event) => {
               if (canAcceptDrop) {
@@ -9307,9 +9416,12 @@ export function TestCasesPage() {
                 </button>
               </div>
             </div>
-            {!hasCompleteModuleMetrics(module.id)
-              ? renderDeferredModuleMetrics(module.test_case_count)
-              : renderModuleMetrics(moduleHealth.byId.get(module.id)!)}
+            <div className="entity-health-ribbon">
+              {!hasCompleteModuleMetrics(module.id)
+                ? renderDeferredModuleMetrics(module.test_case_count)
+                : renderModuleMetrics(moduleHealth.byId.get(module.id)!)}
+              <EntityHealthButton entityType="Module" entityName={module.name} disabled={!testCaseMetricsQuery.data} onClick={() => setHealthModuleId(module.id)} />
+            </div>
           </div>
         ),
         content: !isCollapsed && isInitialLoading ? (
@@ -9335,7 +9447,7 @@ export function TestCasesPage() {
       isCollapsed: !isUnassignedModuleExpanded,
       rows: isUnassignedModuleExpanded ? moduleCaseGroups.unassignedCases : [],
       header: (
-        <div className="test-case-module-header test-case-module-list-header is-unassigned">
+        <div className="test-case-module-header test-case-module-list-header is-unassigned entity-health-hierarchy-header" data-health-entity="Module">
           <label className="checkbox-field" onClick={(event) => event.stopPropagation()}>
             <input
               aria-label="Select all Ungrouped test cases"
@@ -9370,9 +9482,12 @@ export function TestCasesPage() {
               <span className="sr-only">{areAllUnassignedCasesSelected ? "Clear all selected test cases" : "Select all test cases"}</span>
             </button>
           ) : null}
-          {!testCaseMetricsQuery.data
-            ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
-            : renderModuleMetrics(moduleHealth.unassigned)}
+          <div className="entity-health-ribbon">
+            {!testCaseMetricsQuery.data
+              ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
+              : renderModuleMetrics(moduleHealth.unassigned)}
+            <EntityHealthButton entityType="Module" entityName="Ungrouped" disabled={!testCaseMetricsQuery.data} onClick={() => setHealthModuleId("unassigned")} />
+          </div>
         </div>
       ),
       content: isUnassignedModuleExpanded && !moduleCaseGroups.unassignedCases.length ? (
@@ -9441,7 +9556,7 @@ export function TestCasesPage() {
           showAutomationTools={false}
           showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
-          parameterValues={resolvedScopedParameterValues}
+          parameterValues={parameterValuesForStep(step)}
           availableParameters={detectedStepParameters}
           canPaste={Boolean(copiedSteps.length)}
           canMoveDown={canMoveDown}
@@ -9495,7 +9610,7 @@ export function TestCasesPage() {
           showAutomationTools={false}
           showRecorderTools={false}
           displayLabel={usePlainCardAppearance ? `S${index + 1}` : undefined}
-          parameterValues={resolvedScopedParameterValues}
+          parameterValues={parameterValuesForStep(step)}
           availableParameters={detectedStepParameters}
           canPaste={Boolean(copiedSteps.length)}
         canMoveDown={canMoveDown}
@@ -9720,6 +9835,13 @@ export function TestCasesPage() {
   return (
     <div className={["page-content", "page-content--library-full", isCaseWorkspaceOpen ? "page-content--workspace-focus" : ""].join(" ")}>
       {confirmationDialog}
+      {healthModule && testCaseMetricsQuery.data ? <EntityHealthDialog
+        entityType="Module"
+        entityName={healthModule.name}
+        metrics={moduleHealthMetrics(healthModule.health)}
+        summary={isReviewQueueOpen ? "Scope: Test Cases assigned to you for review in this module. Metrics include all matching cases, across every page." : "Scope: non-automated Test Cases in this module. Metrics include all pages and remain independent of search and expanded cases."}
+        onClose={() => setHealthModuleId(null)}
+      /> : null}
       <PageHeader
         className={["page-header--test-cases", isCaseWorkspaceOpen ? "page-header--workspace-context" : ""].filter(Boolean).join(" ")}
         eyebrow="Test Authoring"
@@ -9753,16 +9875,12 @@ export function TestCasesPage() {
                 tone: "info" as const
               }] : []),
               {
-                label: "Avg execution",
-                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : formatCompactDuration(testCaseCatalogMetrics.averageExecutionMs),
-                detail: !canViewExecutionInsights
-                  ? "Run result access required"
-                  : isTestCaseCatalogMetricLoading
-                  ? "Loading execution time"
-                  : testCaseCatalogMetrics.executionDurationSampleCount
-                    ? `${testCaseCatalogMetrics.executionDurationSampleCount} recent finalized result${testCaseCatalogMetrics.executionDurationSampleCount === 1 ? "" : "s"}`
-                    : "No timed recent runs",
-                tone: testCaseCatalogMetrics.averageExecutionMs === null ? "neutral" : "info"
+                label: "Pending Review",
+                value: reviewSummaryQuery.isPending || reviewSummaryQuery.isError ? "—" : overallPendingReviewCount,
+                detail: reviewSummaryQuery.isError ? "Unable to load pending reviews"
+                  : reviewSummaryQuery.isPending ? "Loading pending reviews"
+                  : "All pending reviews across the selected application",
+                tone: overallPendingReviewCount ? "info" : "neutral"
               },
               {
                 label: "Recent pass rate",
@@ -9777,7 +9895,7 @@ export function TestCasesPage() {
                 tone: testCaseCatalogMetrics.recentPassRate === null ? "neutral" : "success"
               },
               {
-                label: "Critical issues",
+                label: "Failed Or Blocked Cases",
                 value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : testCaseCatalogMetrics.critical,
                 detail: !canViewExecutionInsights
                   ? "Run result access required"
@@ -10021,6 +10139,14 @@ export function TestCasesPage() {
                   }
                 ]}
               />
+              {isReviewQueueOpen && (selectedReviewCases.length > 0 || isBulkReviewRunning) ? (
+                <>
+                  <button className="ghost-button catalog-selection-button test-case-review-approve" type="button" disabled={isBulkReviewRunning || !selectedReviewCases.length}
+                    onClick={() => void handleBulkReview("accepted")}><TestCaseAcceptIcon /><span>Approve ({selectedReviewCases.length})</span></button>
+                  <button className="ghost-button catalog-selection-button danger test-case-review-reject" type="button" disabled={isBulkReviewRunning || !selectedReviewCases.length}
+                    onClick={() => { setBulkReviewError(""); setIsBulkReviewRejectOpen(true); }}><TestCaseRejectIcon /><span>Reject ({selectedReviewCases.length})</span></button>
+                </>
+              ) : (
               <button className="ghost-button catalog-selection-button" type="button"
                 disabled={!canUpdateTestCases || pendingReviewCount < 1 || reviewSummaryQuery.isError}
                 onClick={() => {
@@ -10033,6 +10159,7 @@ export function TestCasesPage() {
                 <TestCaseAcceptIcon /><span>Review Cases</span>
                 {pendingReviewCount > 0 ? <span className="test-case-review-count">{pendingReviewCount}</span> : null}
               </button>
+              )}
               <button
                 className="ghost-button catalog-selection-button"
                 disabled={!selectedActionTestCaseIds.length || !canExportTestCases}
@@ -10115,9 +10242,10 @@ export function TestCasesPage() {
                         <Fragment key={`module-${entry.module.id}`}>
                         <div
                           className={[
-                            "test-case-module-header",
+                            "test-case-module-header entity-health-hierarchy-header",
                             draggingCaseIds.length ? (canAcceptDrop ? "is-drop-ready" : "is-drop-blocked") : ""
                           ].filter(Boolean).join(" ")}
+                          data-health-entity="Module"
                           data-drop-label={dropLabel || undefined}
                           onDragOver={(event) => {
                             if (canAcceptDrop) {
@@ -10214,9 +10342,12 @@ export function TestCasesPage() {
                               </button>
                             </div>
                           </div>
-                          {!hasCompleteModuleMetrics(entry.module.id)
-                            ? renderDeferredModuleMetrics(entry.module.test_case_count)
-                            : renderModuleMetrics(moduleHealth.byId.get(entry.module.id)!)}
+                          <div className="entity-health-ribbon">
+                            {!hasCompleteModuleMetrics(entry.module.id)
+                              ? renderDeferredModuleMetrics(entry.module.test_case_count)
+                              : renderModuleMetrics(moduleHealth.byId.get(entry.module.id)!)}
+                            <EntityHealthButton entityType="Module" entityName={entry.module.name} disabled={!testCaseMetricsQuery.data} onClick={() => setHealthModuleId(entry.module.id)} />
+                          </div>
                         </div>
                         {!isCollapsed && modulePageState?.isInitialLoading ? (
                           <div className="hierarchy-children-state hierarchy-children-state--tile">
@@ -10239,7 +10370,7 @@ export function TestCasesPage() {
 
                     if (entry.kind === "unassigned") {
                       return (
-                        <div className="test-case-module-header is-unassigned" key="module-unassigned">
+                        <div className="test-case-module-header is-unassigned entity-health-hierarchy-header" data-health-entity="Module" key="module-unassigned">
                           <label className="checkbox-field">
                             <input
                               aria-label="Select all Ungrouped test cases"
@@ -10274,18 +10405,21 @@ export function TestCasesPage() {
                               <span className="sr-only">{areAllUnassignedCasesSelected ? "Clear all selected test cases" : "Select all test cases"}</span>
                             </button>
                           ) : null}
-                          {!testCaseMetricsQuery.data
-                            ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
-                            : renderModuleMetrics(moduleHealth.unassigned)}
+                          <div className="entity-health-ribbon">
+                            {!testCaseMetricsQuery.data
+                              ? renderDeferredModuleMetrics(moduleHealth.unassigned.count)
+                              : renderModuleMetrics(moduleHealth.unassigned)}
+                            <EntityHealthButton entityType="Module" entityName="Ungrouped" disabled={!testCaseMetricsQuery.data} onClick={() => setHealthModuleId("unassigned")} />
+                          </div>
                         </div>
                       );
                     }
 
                     const testCase = entry.testCase;
-                    const currentModule = caseModuleById.get(testCase.id);
+                    const currentModule = "module" in entry ? entry.module : undefined;
                     const nextEntry = moduleTileEntries[entryIndex + 1];
                     const nextModuleId = nextEntry?.kind === "case"
-                      ? caseModuleById.get(nextEntry.testCase.id)?.id
+                      ? ("module" in nextEntry ? nextEntry.module?.id : undefined)
                       : "";
                     const isLastCaseInModule = Boolean(currentModule?.id) && nextModuleId !== currentModule?.id;
                     const isSelectedForAction = selectedActionTestCaseIds.includes(testCase.id);
@@ -10293,9 +10427,10 @@ export function TestCasesPage() {
                     const history = (historyByCaseId[testCase.id] || []).slice(0, 10);
                     const latest = history[0];
                     const linkedRequirementId = (testCase.requirement_ids || [testCase.requirement_id]).find(Boolean) || "";
-                    const requirementDisplayId = linkedRequirementId ? requirementDisplayIdById[linkedRequirementId] || linkedRequirementId : "";
+                    const linkedStory = testCase.linked_requirements?.find((story) => story.id === linkedRequirementId);
+                    const requirementDisplayId = linkedRequirementId ? linkedStory?.display_id || requirementDisplayIdById[linkedRequirementId] || "Story" : "";
                     const requirementTitle = linkedRequirementId
-                      ? requirementTitleById[linkedRequirementId] || `Story ${requirementDisplayId}`
+                      ? linkedStory?.title || requirementTitleById[linkedRequirementId] || "Linked Story"
                       : "";
                     const stepCount = stepCountByCaseId[testCase.id];
                     const suiteCount = (testCase.suite_ids || []).length || 0;
@@ -10422,7 +10557,7 @@ export function TestCasesPage() {
                     ];
 
                     return (
-                      <Fragment key={testCase.id}>
+                      <Fragment key={`${currentModule?.id || "unassigned"}:${testCase.id}`}>
                       <div
                         aria-label={`Open test case ${testCase.display_id || testCase.id}: ${testCase.title}`}
                         aria-pressed={isActive}
@@ -10463,6 +10598,8 @@ export function TestCasesPage() {
                             <label className="checkbox-field test-case-delete-checkbox" onClick={(event) => event.stopPropagation()}>
 	                              <input
 	                                checked={isSelectedForAction}
+                                aria-label={`Select Test Case ${testCase.title}`}
+                                disabled={isBulkReviewRunning}
                                 onChange={(event) =>
                                   setSelectedActionTestCaseIds((current) =>
                                     event.target.checked ? [...new Set([...current, testCase.id])] : current.filter((id) => id !== testCase.id)
@@ -10492,7 +10629,7 @@ export function TestCasesPage() {
                                           <DisplayIdBadge value={requirementDisplayId} />
                                         </span>
                                       ) : null}
-		                              <strong>{requirementTitle || "No story linked"}</strong>
+		                              <strong title={requirementTitle || "No story linked"}>{requirementTitle || "No story linked"}</strong>
 		                            </p>
 		                          </div>
 		                          <div className="tile-card-title-group test-case-card-title-group test-case-card-title-group--identity">
@@ -10548,7 +10685,7 @@ export function TestCasesPage() {
                             <TileCardMetric
                               className="test-case-tile-metric"
                               label="Defect density"
-                              title={`${linkedDefectCount} distinct linked bug${linkedDefectCount === 1 ? "" : "s"} per Test Case`}
+                              title={`${linkedDefectCount} distinct linked defect${linkedDefectCount === 1 ? "" : "s"} per Test Case`}
                               tone={linkedDefectCount ? "warning" : "success"}
                               value={linkedDefectCount.toFixed(2)}
                             />
@@ -10672,7 +10809,7 @@ export function TestCasesPage() {
                         { value: "assurance", label: "Assurance", description: "Quality & impact", icon: <TestCaseSparkIcon /> },
                         { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: selectedCaseSuites.length },
                         { value: "history", label: "History", description: "Trend, runs & versions", icon: <ActivityIcon /> },
-                        { value: "defects", label: "Bugs", description: "Failure traceability", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
+                        { value: "defects", label: "Defects", description: "Failure traceability", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
                         { value: "evidence", label: "Evidence", description: "Files & attachments", icon: <JiraAttachmentIcon /> }
                       ]}
                       onChange={setActiveTestCaseDetailTab}
@@ -10818,11 +10955,11 @@ export function TestCasesPage() {
                         ) : null}
 
                         {isCreating && activeBugConversion ? (
-                          <section className="bug-conversion-map" aria-label={`Mapped fields from Bug ${activeBugConversion.bugDisplayId}`}>
+                          <section className="bug-conversion-map" aria-label={`Mapped fields from Defect ${activeBugConversion.bugDisplayId}`}>
                             <div className="bug-conversion-map-head">
                               <span className="bug-conversion-map-icon"><BugIcon /></span>
                               <span>
-                                <strong>Mapped from Bug {activeBugConversion.bugDisplayId}</strong>
+                                <strong>Mapped from Defect {activeBugConversion.bugDisplayId}</strong>
                                 <small>Review the imported regression coverage before creating the Test Case.</small>
                               </span>
                               <button
@@ -10843,7 +10980,7 @@ export function TestCasesPage() {
                               </button>
                             </div>
                             <p>
-                              Title, description, priority, labels, delivery context, preconditions, and reproduction steps were copied. The new Test Case will remain linked to the source Bug.
+                              Title, description, priority, labels, delivery context, preconditions, and reproduction steps were copied. The new Test Case will remain linked to the source Defect.
                             </p>
                             {activeBugConversion.requirementIds.length || activeBugConversion.moduleIds.length || createSuiteContextId || activeBugConversion.suiteIds.length ? (
                               <div className="bug-conversion-scope-chips" aria-label="Additional imported associations">
@@ -11267,11 +11404,11 @@ export function TestCasesPage() {
                         tone: selectedCaseHealthMetrics.passRate === null ? "neutral" : "success"
                       },
                       {
-                        label: "Linked bugs",
+                        label: "Linked defects",
                         value: selectedTestCase?.defect_ids?.length || 0,
                         detail: selectedTestCase?.defect_ids?.length
                           ? "Traceable defects"
-                          : "No linked bugs",
+                          : "No linked defects",
                         tone: selectedTestCase?.defect_ids?.length ? "danger" : "neutral"
                       }
                     ]}
@@ -11573,114 +11710,32 @@ export function TestCasesPage() {
                     summary={caseDraft.authoring_mode === "gherkin" ? "Create, link, change, or unlink reusable Test Data. Linked table rows are rendered under Gherkin Examples." : "Create or link one reusable data set. A table can carry one or many row-level execution iterations."}
                     title={caseDraft.authoring_mode === "gherkin" ? "Examples · Linked Test Data" : "Data Sets"}
                   >
-                    <div className="test-case-data-sets-workspace test-case-data-sets-workspace--compact">
-                      {!canViewTestData ? (
-                        <div className="test-case-data-set-inline-empty">
-                          <strong>Test data is unavailable</strong>
-                          <span>Test Data access and the Test Data feature are required to view or link reusable data sets.</span>
-                        </div>
-                      ) : linkedDataSet ? (
-                        <article className="test-case-data-set-card test-case-data-set-card--single">
-                          <header>
-                            <div>
-                              <span className="test-case-data-set-kicker">{caseDraft.authoring_mode === "gherkin" ? "Examples source" : linkedDataSet.mode === "table" ? "Tabular data set" : "Key-value data set"}</span>
-                              <strong>{linkedDataSet.name}</strong>
-                              {linkedDataSet.description ? <RichTextContent value={linkedDataSet.description} /> : null}
-                            </div>
-                            <div className="test-case-data-set-actions">
-                              <span className="test-case-iteration-badge">{linkedDataSetIterationCount} {linkedDataSetIterationCount === 1 ? "iteration" : "iterations"}</span>
-                              <button
-                                className="link-button"
-                                disabled={!canLinkTestDataToCurrentCase}
-                                onClick={() => {
-                                  setDataSetLinkDraftId(linkedDataSet.id);
-                                  setDataSetSearch("");
-                                  setIsDataSetLinkerOpen(true);
-                                }}
-                                type="button"
-                              >
-                                Change
-                              </button>
-                              <button
-                                aria-label={`Unlink ${linkedDataSet.name}`}
-                                className="link-button danger"
-                                disabled={!canLinkTestDataToCurrentCase}
-                                onClick={() => setLinkedDataSetDraftIds([])}
-                                type="button"
-                              >
-                                Unlink
-                              </button>
-                            </div>
-                          </header>
-                          <div className="test-case-data-set-columns" aria-label="Data set columns">
-                            {(linkedDataSet.columns || []).map((column) => <span key={column}>{column}</span>)}
-                          </div>
-                          {linkedDataSet.mode === "table" && linkedDataSet.rows.length ? (
-                            <div className="test-case-data-set-preview" tabIndex={0}>
-                              <table>
-                                <thead><tr>{linkedDataSet.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
-                                <tbody>
-                                  {(caseDraft.authoring_mode === "gherkin" ? linkedDataSet.rows : linkedDataSet.rows.slice(0, 3)).map((row, rowIndex) => (
-                                    <tr key={`${linkedDataSet.id}-${rowIndex}`}>
-                                      {linkedDataSet.columns.map((column) => <td key={column}>{row[column] || "—"}</td>)}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                              {caseDraft.authoring_mode !== "gherkin" && linkedDataSet.rows.length > 3 ? <small>Showing 3 of {linkedDataSet.rows.length} rows</small> : null}
-                            </div>
-                          ) : null}
-                        </article>
-                      ) : (
-                        <div className="test-case-data-set-inline-empty">
-                          <strong>{caseDraft.authoring_mode === "gherkin" ? "No Examples Test Data linked" : "No Data Sets Defined"}</strong>
-                          <span>
-                            <button
-                              className="link-button"
-                              disabled={!canCreateAndLinkTestData}
-                              onClick={() => {
-                                setNewDataSetDraft(emptyDataSetDraft);
-                                setIsDataSetCreatorOpen(true);
-                              }}
-                              type="button"
-                            >
-                              Create Data Set
-                            </button>
-                            <span aria-hidden="true">or</span>
-                            <button
-                              className="link-button"
-                              disabled={!canLinkTestDataToCurrentCase}
-                              onClick={() => {
-                                setDataSetLinkDraftId("");
-                                setDataSetSearch("");
-                                setIsDataSetLinkerOpen(true);
-                              }}
-                              type="button"
-                            >
-                              Link Existing Data Set
-                            </button>
-                          </span>
-                          <small>Without a linked data set, this test case executes once using its parameter defaults.</small>
-                        </div>
-                      )}
-
-                      {canViewTestData ? <div className="test-case-data-set-secondary-actions">
-                        <button className="link-button" onClick={() => setIsCaseParameterDialogOpen(true)} type="button">Manage Test Params</button>
-                        {linkedDataSet ? (
-                          <button
-                            className="link-button"
-                            disabled={!canCreateAndLinkTestData}
-                            onClick={() => {
-                              setNewDataSetDraft(emptyDataSetDraft);
-                              setIsDataSetCreatorOpen(true);
-                            }}
-                            type="button"
-                          >
-                            Create a replacement data set
-                          </button>
-                        ) : null}
-                      </div> : null}
-                    </div>
+                    <AuthoringDataSetPanel
+                      dataSet={linkedDataSet}
+                      linkedDataSetId={linkedDataSetId}
+                      isLoading={testDataSetsQuery.isLoading}
+                      error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined}
+                      onRetry={() => { void testDataSetsQuery.refetch(); }}
+                      gherkin={caseDraft.authoring_mode === "gherkin"}
+                      canView={canViewTestData}
+                      canLink={canLinkTestDataToCurrentCase}
+                      canCreate={canCreateAndLinkTestData}
+                      overrideSharedSteps={overrideSharedGroupData}
+                      onOverrideSharedStepsChange={setOverrideSharedGroupData}
+                      hasParameters={detectedStepParameters.length > 0}
+                      onDownloadTemplate={() => downloadParameterCsvTemplate(detectedStepParameters, "test-case-parameter-template.csv")}
+                      onManageParameters={() => setIsCaseParameterDialogOpen(true)}
+                      onCreate={() => {
+                        setNewDataSetDraft(emptyDataSetDraft);
+                        setIsDataSetCreatorOpen(true);
+                      }}
+                      onLink={() => {
+                        setDataSetLinkDraftId(linkedDataSet?.id || "");
+                        setDataSetSearch("");
+                        setIsDataSetLinkerOpen(true);
+                      }}
+                      onUnlink={() => setLinkedDataSetDraftIds([])}
+                    />
                   </EditorAccordionSection>
 
                   {/* Retained temporarily for backward-compatible state handling; authoring has moved to Automation. */}
@@ -12126,6 +12181,8 @@ export function TestCasesPage() {
           canCreateDataSet={canCreateAndLinkTestData}
           dataSets={testDataSets}
           isLoading={testDataSetsQuery.isLoading}
+          error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined}
+          onRetry={() => { void testDataSetsQuery.refetch(); }}
           onClose={() => {
             setIsDataSetLinkerOpen(false);
             setDataSetLinkDraftId("");
@@ -12342,6 +12399,22 @@ export function TestCasesPage() {
         />
       ) : null}
 
+      {isBulkReviewRejectOpen && isReviewQueueOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => { if (!isBulkReviewRunning) setIsBulkReviewRejectOpen(false); }}>
+          <div className="modal-card resource-modal-card" role="dialog" aria-modal="true" aria-label="Reject selected Test Cases" onClick={(event) => event.stopPropagation()}>
+            <div className="resource-modal-header"><h3>Request Changes for {selectedReviewCases.length} Test Cases</h3>
+              <button className="ghost-button" type="button" disabled={isBulkReviewRunning} onClick={() => setIsBulkReviewRejectOpen(false)}>Close</button></div>
+            <div className="form-grid review-suggestion-body">
+              {bulkReviewError ? <div className="inline-message error-message" role="alert">{bulkReviewError}</div> : null}
+              <p>Feedback is saved in each selected Test Case's review history. The cases remain available for the author to update.</p>
+              <FormField label="Comments"><textarea rows={5} placeholder="Add the changes needed before approval." value={bulkReviewComment} onChange={(event) => setBulkReviewComment(event.target.value)} disabled={isBulkReviewRunning} /></FormField>
+            </div>
+            <div className="modal-actions"><button className="ghost-button" type="button" disabled={isBulkReviewRunning} onClick={() => setIsBulkReviewRejectOpen(false)}>Cancel</button>
+              <button className="ghost-button danger test-case-review-reject" type="button" disabled={isBulkReviewRunning || !selectedReviewCases.length || !bulkReviewComment.trim()} onClick={() => void handleBulkReview("changes_requested")}>{isBulkReviewRunning ? "Saving..." : "Reject Selected"}</button></div>
+          </div>
+        </div>
+      ) : null}
+
       {reviewSuggestionCaseId ? (
         <div
           className="modal-backdrop"
@@ -12460,7 +12533,7 @@ export function TestCasesPage() {
       ) : null}
 
       {isCreateExecutionModalOpen ? (
-        <TestCaseExecutionModal
+        <TestCaseExecutionModal dataOptions={selectedExecutionDataOptions} onDataOptionsChange={setSelectedExecutionDataOptions}
           isPreparingOptions={Boolean(pendingRunBuilder)}
           appTypeId={appTypeId}
           assigneeOptions={assigneeOptions}
@@ -12536,7 +12609,7 @@ export function TestCasesPage() {
           <div
             aria-labelledby="bulk-import-title"
             aria-modal="true"
-            className="modal-card import-modal-card"
+            className="modal-card import-modal-card test-case-import-modal-card"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
@@ -12547,13 +12620,15 @@ export function TestCasesPage() {
                   <InfoTooltip
                     content={(
                       <>
-                        Queue CSV, JUnit XML, TestNG XML, or Postman collection files together. CSV imports support an <strong>external_references</strong> column for ticket links, while Postman requests import as API test cases even when the collection has no test scripts. Large imports are sent in smaller batches automatically.
+                        <p>Queue CSV, JUnit XML, TestNG XML, or Postman collections. Large files are queued in smaller batches. Track progress and download row outcomes in TestOps → Batch Process.</p>
+                        <p>The CSV template includes metadata, local and Shared Step Groups, Steps and Parameter Values. Structured fields use JSON. Use Story/Suite short IDs or exact names, one primary Module, existing dataset IDs or names, and project member emails or IDs for Author/Reviewer. Leave optional links blank. Shared group definitions create missing groups and preserve existing ones.</p>
                       </>
                     )}
                     label="Test case import information"
                   />
                 </div>
               </div>
+              <button className="ghost-button compact template-download-action" type="button" onClick={() => downloadCsvRecords("hellotest-test-case-import-template.csv", buildTestCaseImportTemplate())}><IconDownload aria-hidden="true" size={16} /><span>Download Template</span></button>
               <DialogCloseButton disabled={importTestCases.isPending} label="Close bulk import" onClick={() => {
                 setImportBatches([]);
                 setImportFileWarnings([]);
@@ -13523,7 +13598,7 @@ function TestCaseExecutionModal({
   assigneeOptions,
   selectedEnvironmentId,
   selectedConfigurationId,
-  selectedDataSetId,
+  selectedDataSetId, dataOptions, onDataOptionsChange,
   executionStartMode,
   executionStartDate,
   executionEndDate,
@@ -13568,6 +13643,7 @@ function TestCaseExecutionModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  dataOptions: TestDataOptions; onDataOptionsChange: (value: TestDataOptions) => void;
   executionStartMode: ExecutionStartMode;
   executionStartDate: string;
   executionEndDate: string;
@@ -13600,6 +13676,7 @@ function TestCaseExecutionModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [dataSetValid, setDataSetValid] = useState(!selectedDataSetId);
   const { can } = useCapabilityAccess(projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSubmitting, onClose });
   return (
@@ -13607,13 +13684,16 @@ function TestCaseExecutionModal({
       <div
         aria-labelledby="create-test-case-execution-title"
         aria-modal="true"
-        className="modal-card execution-create-modal"
+        className="modal-card execution-create-modal scoped-run-create-modal"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
-        <form className="execution-create-form" onSubmit={onSubmit}>
+        <form className="execution-create-form" onSubmit={(event) => {
+          if (!dataSetValid) { event.preventDefault(); return; }
+          onSubmit(event);
+        }}>
           <div className="execution-create-header">
             <div className="execution-create-title">
               <h2 className="dialog-title" id="create-test-case-execution-title">Create run</h2>
@@ -13622,8 +13702,11 @@ function TestCaseExecutionModal({
             <DialogCloseButton disabled={isSubmitting} label="Close create run dialog" onClick={onClose} />
           </div>
 
-          <div className="execution-create-body">
+          <div className="execution-create-body scoped-run-create-body">
+            <aside className="scoped-run-config-pane" aria-label="Run configuration">
+              <div className="scoped-run-pane-heading"><strong>Run Configuration</strong><span>Settings and reusable test data</span></div>
             {isPreparingOptions ? <p className="inline-message" role="status">Preparing Release and Sprint options… You can continue configuring this run.</p> : null}
+
             <div className="execution-create-grid">
               <FormField label="Run name">
                 <input
@@ -13642,6 +13725,9 @@ function TestCaseExecutionModal({
                 />
               </FormField>
             </div>
+
+            <RunDataSetup onValidityChange={setDataSetValid} dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange} projectId={projectId} appTypeId={appTypeId}
+              cases={testCases} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange} environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
             <div className="execution-create-grid execution-create-grid--metadata">
               {can("requirement_iteration.view") ? <FormField label="Release">
@@ -13674,7 +13760,7 @@ function TestCaseExecutionModal({
               <span>{selectedAppType || "Choose an app type"}</span>
             </div>
 
-            <ExecutionContextSelector
+            <ExecutionContextSelector hideDataSet
               appTypeId={appTypeId}
               onConfigurationChange={onConfigurationChange}
               onDataSetChange={onDataSetChange}
@@ -13685,6 +13771,8 @@ function TestCaseExecutionModal({
               selectedDataSetId={selectedDataSetId}
               selectedEnvironmentId={selectedEnvironmentId}
             />
+
+
 
             <div className="execution-create-grid">
               <RunPlanningFields
@@ -13724,6 +13812,9 @@ function TestCaseExecutionModal({
               ) : null}
             </div>
 
+            </aside>
+            <section className="scoped-run-selection-pane" aria-label="Selected test cases">
+              <div className="scoped-run-pane-heading"><strong>Selected Test Cases</strong><span>{testCases.length} selected for this run</span></div>
             <FormField label="Run scope" required>
               <div className="selection-summary-card">
                 <div className="selection-summary-header">
@@ -13744,13 +13835,14 @@ function TestCaseExecutionModal({
                 ) : null}
               </div>
             </FormField>
+            </section>
           </div>
 
           <div className="action-row execution-create-actions">
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel
             </button>
-            <button className="primary-button" disabled={!canCreateExecution || isSubmitting || isPreparingOptions} type="submit">
+            <button className="primary-button" disabled={!canCreateExecution || isSubmitting || isPreparingOptions || !dataSetValid} type="submit">
               {isSubmitting
                 ? "Creating…"
                 : executionStartMode === "local"
@@ -15037,122 +15129,6 @@ function DraftStepCard({
   );
 }
 
-function TestDataSetPickerDialog({
-  canCreateDataSet,
-  dataSets,
-  isLoading,
-  search,
-  selectedId,
-  onSearchChange,
-  onSelect,
-  onCreateNew,
-  onConfirm,
-  onClose
-}: {
-  canCreateDataSet: boolean;
-  dataSets: TestDataSet[];
-  isLoading: boolean;
-  search: string;
-  selectedId: string;
-  onSearchChange: (value: string) => void;
-  onSelect: (id: string) => void;
-  onCreateNew: () => void;
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useDialogFocus<HTMLFormElement>({ onClose });
-  const query = search.trim().toLowerCase();
-  const filteredDataSets = dataSets.filter((dataSet) => !query || [
-    dataSet.name,
-    dataSet.description || "",
-    dataSet.mode,
-    ...dataSet.columns
-  ].join(" ").toLowerCase().includes(query));
-
-  return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <form
-        aria-labelledby="link-data-set-title"
-        aria-modal="true"
-        className="modal-card test-data-set-picker-dialog"
-        onClick={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (selectedId) onConfirm();
-        }}
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <header className="test-data-set-picker-header">
-          <div>
-            <span className="eyebrow">Reusable execution data</span>
-            <h2 className="dialog-title" id="link-data-set-title">Link Existing Data Set</h2>
-            <p>Select one data set for this Test Case. Every table row becomes an independent execution iteration.</p>
-          </div>
-          <DialogCloseButton label="Close data set picker" onClick={onClose} />
-        </header>
-
-        <div className="test-data-set-picker-toolbar">
-          <label className="catalog-search test-case-data-set-search">
-            <SearchIcon />
-            <input
-              aria-label="Search existing data sets"
-              data-autofocus="true"
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search by name, description, format, or column"
-              type="search"
-              value={search}
-            />
-          </label>
-          <span className="count-pill">{filteredDataSets.length} available</span>
-        </div>
-
-        <div className="test-data-set-picker-options" role="radiogroup" aria-label="Available data sets">
-          {filteredDataSets.map((dataSet) => {
-            const iterations = dataSet.mode === "key_value" ? 1 : Math.max(1, dataSet.rows.length);
-            const isSelected = dataSet.id === selectedId;
-            return (
-              <label className={isSelected ? "test-data-set-picker-option is-selected" : "test-data-set-picker-option"} key={dataSet.id}>
-                <input checked={isSelected} name="linked-data-set" onChange={() => onSelect(dataSet.id)} type="radio" value={dataSet.id} />
-                <span className="test-data-set-picker-option-copy">
-                  <span>
-                    <strong>{dataSet.name}</strong>
-                    <small>{dataSet.app_type_id ? "Current app scope" : "Project-wide"}</small>
-                  </span>
-                  <p>{dataSet.description ? richTextToPlainText(dataSet.description) : "No description provided."}</p>
-                  <span className="test-data-set-picker-option-meta">
-                    <span>{dataSet.mode === "table" ? "Table" : "Key/value"}</span>
-                    <span>{iterations} {iterations === 1 ? "iteration" : "iterations"}</span>
-                    <span>{dataSet.columns.length} {dataSet.columns.length === 1 ? "column" : "columns"}</span>
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-          {isLoading ? <LoadingState label="Loading data sets" /> : null}
-          {!isLoading && !dataSets.length ? (
-            <div className="empty-state compact test-data-set-picker-empty">
-              <strong>No reusable data sets exist yet.</strong>
-              <span>Create one with the full Test Data editor, then it will be selected automatically.</span>
-              <button className="ghost-button" disabled={!canCreateDataSet} onClick={onCreateNew} type="button"><AddIcon /> Create Data Set</button>
-            </div>
-          ) : null}
-          {!isLoading && dataSets.length > 0 && !filteredDataSets.length ? (
-            <div className="empty-state compact">No data sets match “{search.trim()}”.</div>
-          ) : null}
-        </div>
-
-        <footer className="test-data-set-picker-footer">
-          <button className="link-button" disabled={!canCreateDataSet} onClick={onCreateNew} type="button">Create a new data set instead</button>
-          <span />
-          <button className="ghost-button" onClick={onClose} type="button">Cancel</button>
-          <button className="primary-button" disabled={!selectedId} type="submit">Link Data Set</button>
-        </footer>
-      </form>
-    </div>
-  );
-}
 
 function StepGroupModal({
   name,

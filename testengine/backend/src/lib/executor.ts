@@ -25,6 +25,7 @@ type Logger = {
 
 type ExecutionContext = {
   values: Record<string, string>;
+  capturedValues?: Record<string, string>;
 };
 
 type ApiStepExecutionResult = {
@@ -986,7 +987,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
             envelope,
             run: running,
             step,
-            context
+            context: buildInitialContext(envelope, context.capturedValues, step)
           })
         : webRunSession
           ? await executeWebStep({

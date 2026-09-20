@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "collection_id": "sample-v2-knowledge-commerce",
+      "source_id": "sample-v2-source-payments"
+    },
+    {
+      "collection_id": "sample-v2-knowledge-commerce",
+      "source_id": "sample-v2-source-api"
+    },
+    {
+      "collection_id": "sample-v2-knowledge-commerce",
+      "source_id": "sample-v2-source-repository"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import {
   composeSharedStepGherkin,
   gherkinToStructuredCase,
   mergeGherkinStepMetadata,
+  normalizeGherkinParameterReferences,
   parseSharedStepGherkin,
   resolveGherkinParameterText,
   sanitizeGherkinDocumentText,
@@ -14,6 +15,18 @@ import {
   structuredStepsToSharedGherkin,
   tokenizeGherkinInlineText
 } from "../src/lib/gherkin.ts";
+import { collectStepParameters } from "../src/lib/stepParameters.ts";
+
+test("shared Gherkin switching preserves every template parameter and its saved value key", () => {
+  const document = 'When sign in with <t.user> and <password>\nThen <s.home> appears\nAnd <r.build> is recorded';
+  const structured = sharedStepGherkinToStructuredSteps(document, { normalizeParameters: true });
+  const detected = collectStepParameters(structured.map((step, index) => ({ ...step, id: String(index) })));
+  assert.deepEqual(detected.map(({ name }) => name).sort(), ["r.build", "r.password", "s.home", "t.user"]);
+  assert.deepEqual(structured, [{ action: "sign in with @t.user and @r.password", expected_result: "@s.home appears\n@r.build is recorded" }]);
+  const roundTrip = structuredStepsToSharedGherkin(structured);
+  assert.deepEqual(sharedStepGherkinToStructuredSteps(roundTrip, { normalizeParameters: true }), structured);
+  assert.equal(normalizeGherkinParameterReferences(document).includes("<password>"), false);
+});
 
 test("reusable group fragments preserve actions, outcomes and parameter references without a scenario", () => {
   const steps = [

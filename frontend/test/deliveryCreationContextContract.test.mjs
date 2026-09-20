@@ -23,7 +23,9 @@ test("Story creation resolves editable Sprint and Release route context", async 
   assert.match(routeContext, /requestedJiraVersionCandidate\?\.released/);
   assert.match(storyDialog, /value=\{createDraft\.sprint\}[\s\S]*onChange=\{\(event\) => setCreateStorySprintSelection/);
   assert.match(storyDialog, /value=\{createStoryReleaseSelection\}[\s\S]*onChange=\{\(event\) => setCreateStoryReleaseSelection/);
-  assert.match(page, /appendRequirementReleaseScope\.mutateAsync\([\s\S]*requirement_ids: \[response\.id\]/);
+  assert.match(routeContext, /isCapabilityAccessLoading/);
+  assert.match(page, /release_id: createRequirementReleaseId \|\| undefined/);
+  assert.doesNotMatch(page, /requirement_ids: \[response\.id\]/);
 });
 
 test("Sprint creation exposes editable Release prefill and appends the new Sprint", async () => {

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v5-data-case-execution",
+      "test_data_set_id": "sample-v5-data-dataset-case",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v5-data-case-review",
+      "test_data_set_id": "sample-v5-data-dataset-case",
+      "sort_order": 1
+    }
+  ]
+}

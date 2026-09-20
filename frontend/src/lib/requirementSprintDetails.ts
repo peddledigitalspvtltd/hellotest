@@ -9,11 +9,17 @@ export type StoryDetailSprintOption = {
   end_date: string | null;
 };
 
-export const requirementSprintOptionValue = (iteration: RequirementIteration) =>
-  String(iteration.jira_sprint_id || iteration.id);
+export const isNativeRequirementSprint = (iteration: RequirementIteration) =>
+  iteration.source === "hellotest" || !iteration.jira_sprint_id;
 
-export const requirementSprintSelectionValue = (requirement?: Requirement | null) =>
-  String(requirement?.sprint_id || requirement?.iteration_id || requirement?.sprint || "");
+export const requirementSprintOptionValue = (iteration: RequirementIteration) =>
+  String(iteration.source === "hellotest" ? iteration.id : iteration.jira_sprint_id || iteration.id);
+
+export const requirementSprintSelectionValue = (requirement?: Requirement | null, iterations: RequirementIteration[] = []) => {
+  const nativeIteration = requirement?.iteration_id
+    && iterations.some(iteration => iteration.id === requirement.iteration_id && iteration.source === "hellotest");
+  return String(nativeIteration ? requirement?.iteration_id : requirement?.sprint_id || requirement?.iteration_id || requirement?.sprint || "");
+};
 
 export function getStoryDetailSprintOptions(
   iterations: RequirementIteration[],
@@ -49,14 +55,14 @@ export function resolveRequirementSprintAssignment(
   iterations: RequirementIteration[]
 ) {
   const iteration = value
-    ? iterations.find((candidate) => requirementSprintOptionValue(candidate) === value) || null
+    ? iterations.find((candidate) => candidate.id === value || requirementSprintOptionValue(candidate) === value) || null
     : null;
 
   if (!iteration) {
     return { iteration, input: { sprint: value, iteration_id: "" } };
   }
 
-  return iteration.jira_sprint_id
+  return !isNativeRequirementSprint(iteration)
     ? { iteration, input: { sprint: String(iteration.jira_sprint_id), iteration_id: "" } }
     : { iteration, input: { sprint: "", iteration_id: iteration.id } };
 }

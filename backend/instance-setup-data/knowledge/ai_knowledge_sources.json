@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-source-payments",
+      "project_id": "sample-project",
+      "source_kind": "knowledge_item",
+      "source_ref_id": "sample-v2-knowledge-payments",
+      "title": "Payment recovery rules",
+      "revision_token": "4c0d733eb41bc93a94dcdb8b222d13e95a098d222abe6b2cd4fb0f18ab542586",
+      "checksum_sha256": "4c0d733eb41bc93a94dcdb8b222d13e95a098d222abe6b2cd4fb0f18ab542586",
+      "extraction_status": "ready",
+      "extraction_strategy": "authored_text",
+      "metadata": {
+        "sample": true,
+        "provenance": "admin_sample_data",
+        "language": "en",
+        "schema_version": 2
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-source-api",
+      "project_id": "sample-project",
+      "source_kind": "knowledge_item",
+      "source_ref_id": "sample-v2-knowledge-api",
+      "title": "Commerce API contract",
+      "revision_token": "c197d997216a7927df6cd58c414969d543b007319066c330535edfd24f5e728c",
+      "checksum_sha256": "c197d997216a7927df6cd58c414969d543b007319066c330535edfd24f5e728c",
+      "extraction_status": "ready",
+      "extraction_strategy": "authored_text",
+      "metadata": {
+        "sample": true,
+        "provenance": "admin_sample_data",
+        "language": "en",
+        "schema_version": 2
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-source-repository",
+      "project_id": "sample-project",
+      "source_kind": "knowledge_item",
+      "source_ref_id": "sample-v2-knowledge-repository",
+      "title": "Repository architecture and test strategy",
+      "revision_token": "e3f0f53c650285bf06d3dd69c637f50ee74aa47792d90c8f29d6dd3b0202d261",
+      "checksum_sha256": "e3f0f53c650285bf06d3dd69c637f50ee74aa47792d90c8f29d6dd3b0202d261",
+      "extraction_status": "ready",
+      "extraction_strategy": "authored_text",
+      "metadata": {
+        "sample": true,
+        "provenance": "admin_sample_data",
+        "language": "en",
+        "schema_version": 2
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-source-hellotest",
+      "project_id": "sample-project",
+      "source_kind": "knowledge_item",
+      "source_ref_id": "sample-v3-knowledge-hellotest",
+      "title": "HelloTest core feature and acceptance-story blueprint",
+      "revision_token": "dd228dc5dee4cf2f8d46888eed4a134f241f86a7f23d47a01ae8f65aad648425",
+      "checksum_sha256": "dd228dc5dee4cf2f8d46888eed4a134f241f86a7f23d47a01ae8f65aad648425",
+      "extraction_status": "ready",
+      "extraction_strategy": "authored_text",
+      "metadata": {
+        "sample": true,
+        "schema_version": 3,
+        "provenance": "source_reviewed_feature_blueprint",
+        "execution_evidence": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

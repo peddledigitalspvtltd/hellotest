@@ -146,6 +146,7 @@ module.exports = async function (fastify) {
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
       test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
+      test_data_options: { required: false, type: "object" },
       author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
@@ -187,7 +188,7 @@ module.exports = async function (fastify) {
     }
     const requirementIds = req.body.requirement_ids || (req.body.requirement_id ? [req.body.requirement_id] : []);
     if (req.body.source_issue_id) {
-      if (!scopedProjectId) throw Object.assign(new Error("A project is required to convert a Bug to a Test Case"), { statusCode: 400 });
+      if (!scopedProjectId) throw Object.assign(new Error("A project is required to convert a Defect to a Test Case"), { statusCode: 400 });
       await fastify.requirePermission("feedback.view", { projectId: scopedProjectId })(req);
     }
     if (requirementIds.length && scopedProjectId) {
@@ -200,6 +201,9 @@ module.exports = async function (fastify) {
       scopedProjectId,
       req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
     );
+    if (req.body.test_data_options !== undefined) {
+      await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
+    }
     if (req.body.test_data_set_ids?.length) {
       const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
       const dataProjectId = dataSet.project_id;
@@ -270,6 +274,14 @@ module.exports = async function (fastify) {
       payload: req.body
     });
 
+    const importRows = [...(req.body.rows || []), ...(req.body.batches || []).flatMap(batch => batch.rows || [])];
+    if (importRows.some(row => row.shared_groups?.length)) await fastify.requirePermission("shared_step.manage", { projectId: appType.project_id })(req);
+    if (importRows.some(row => row.test_data_references || row.test_data_set_ids?.length || row.test_data_options !== undefined
+      || row.shared_groups?.some(group => group.test_data_set_id || group.test_data_row_index !== undefined))) {
+      await fastify.requirePermission("data.view", { projectId: appType.project_id })(req);
+    }
+    if (importRows.some(row => row.modules || row.module || row.module_id)) await fastify.requirePermission("testcase.update", { projectId: appType.project_id })(req);
+
     return batchProcessService.queueTestCaseImport({
       ...req.body,
       created_by: req.user.id
@@ -286,10 +298,20 @@ module.exports = async function (fastify) {
 
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
+    const canExportResource = async permission => {
+      try { await fastify.requirePermission(permission, { projectId: appType.project_id })(req); return true; }
+      catch (error) { if (error?.statusCode !== 403) throw error; return false; }
+    };
+    const [includeTestData, includeSharedGroups, includeAutomation] = await Promise.all([
+      canExportResource("data.view"), canExportResource("shared_step.view"), canExportResource("automation.code.view")
+    ]);
 
     return batchProcessService.queueTestCaseExport({
       app_type_id: req.body.app_type_id,
       test_case_ids: req.body.test_case_ids,
+      include_test_data: includeTestData,
+      include_shared_groups: includeSharedGroups,
+      include_automation: includeAutomation,
       created_by: req.user.id
     });
   });
@@ -1299,6 +1321,7 @@ module.exports = async function (fastify) {
       suite_id: { required: false, type: "string" },
       suite_ids: { required: false, type: "array", items: "string" },
       test_data_set_ids: { required: false, type: "array", items: "string", maxItems: 1 },
+      test_data_options: { required: false, type: "object" },
       author_id: { required: false, type: "string" },
       reviewer_id: { required: false, type: "string" },
       review_status: { required: false, type: "string", enum: ["not_requested", "pending", "accepted", "changes_requested"] },
@@ -1346,6 +1369,9 @@ module.exports = async function (fastify) {
       scopedProjectId,
       req.body.suite_ids || (req.body.suite_id ? [req.body.suite_id] : [])
     );
+    if (req.body.test_data_options !== undefined) {
+      await fastify.requirePermission("data.view", { projectId: scopedProjectId })(req);
+    }
     if (req.body.test_data_set_ids?.length) {
       const dataSet = await testDataSetService.getTestDataSet(req.body.test_data_set_ids[0]);
       const dataProjectId = dataSet.project_id;

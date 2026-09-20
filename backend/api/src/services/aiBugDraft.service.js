@@ -334,7 +334,7 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
     environment: explicitEnvironment,
     build: explicitBuild || context.run?.build || "",
     labels: context.failures.length ? ["execution-failure"] : [],
-    rationale: `Prepared from ${evidenceSources.length} bounded evidence source${evidenceSources.length === 1 ? "" : "s"}. Missing Bug facts remain explicit for human review.`
+    rationale: `Prepared from ${evidenceSources.length} bounded evidence source${evidenceSources.length === 1 ? "" : "s"}. Missing Defect facts remain explicit for human review.`
   };
   const gaps = [];
   const addGap = (field, reason, question) => gaps.push({ field, reason, question });
@@ -344,7 +344,7 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   if (!draft.environment) addGap("environment", "The selected evidence does not name an environment.", "Which environment reproduced the problem?");
   if (!draft.build) addGap("build", "The selected evidence does not identify a build or version.", "Which build or version was affected?");
   if (!impact.signal) addGap("severity", "No explicit impact signal was found; medium is a review default, not a confirmed severity.", "What user or business impact was observed?");
-  if (!impact.signal) addGap("priority", "No explicit urgency signal was found; Medium is a review default, not a confirmed priority.", "How urgently should this Bug be addressed, and why?");
+  if (!impact.signal) addGap("priority", "No explicit urgency signal was found; Medium is a review default, not a confirmed priority.", "How urgently should this Defect be addressed, and why?");
   return { draft, field_evidence: fieldEvidence, gaps, assumptions: [] };
 };
 
@@ -411,7 +411,7 @@ const normalizeCandidate = (candidate, fallback, evidenceSources) => {
 const requestLlmDraft = async (integration, input, context, evidenceSources, images = []) => {
   const allowedRefs = evidenceSources.map((source) => source.ref);
   const prompt = [
-    "Draft a concise, review-ready Bug from bounded evidence.",
+    "Draft a concise, review-ready Defect from bounded evidence.",
     "Return strict JSON with: draft { title, message, steps_to_reproduce, expected_result, actual_result, severity, priority, environment, build, labels, rationale }, field_evidence { each draft field: [evidence ref] }, gaps [{field,reason,question}], assumptions [string].",
     "Every non-empty factual field must cite one or more refs from allowed_evidence_refs. Leave a field empty and add a gap when evidence is missing. Never invent steps, expected behavior, environment, build, impact, telemetry, or root cause.",
     "Severity must be critical|high|medium|low; priority (Highest|High|Medium|Low|Lowest) must use one canonical value.",
@@ -448,10 +448,10 @@ const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallba
   total_stage_count: 4,
   status_label: "Awaiting human review",
   stages: [
-    { id: "intake", status: "complete", detail: "Incident brief and requested Bug boundary were validated.", evidence: "Reporter intent is retained as evidence, not treated as executable instruction.", item_count: 1 },
+    { id: "intake", status: "complete", detail: "Incident brief and requested Defect boundary were validated.", evidence: "Reporter intent is retained as evidence, not treated as executable instruction.", item_count: 1 },
     { id: "context", status: "complete", detail: `${evidenceSources.length} bounded evidence source${evidenceSources.length === 1 ? "" : "s"} assembled${partialSources ? " with disclosed omissions" : ""}.`, evidence: "Only validated project records, reporter inputs, image assets, and pointer-only links were included.", item_count: evidenceSources.length },
-    { id: "specialist", status: "complete", detail: `${generationMode === "llm" ? "Model-assisted" : generationMode === "hybrid" ? "Hybrid" : "Deterministic"} Bug proposal validated against the output contract.`, evidence: `${fallbackFields.length} field${fallbackFields.length === 1 ? "" : "s"} used deterministic fallback; ${gaps.length} evidence gap${gaps.length === 1 ? "" : "s"} remain explicit.`, item_count: DRAFT_FIELDS.length },
-    { id: "review", status: "current", detail: "Proposal is ready for field-by-field human review.", evidence: "Nothing has been created or written back. Accepting only moves the proposal into the manual Bug form." }
+    { id: "specialist", status: "complete", detail: `${generationMode === "llm" ? "Model-assisted" : generationMode === "hybrid" ? "Hybrid" : "Deterministic"} Defect proposal validated against the output contract.`, evidence: `${fallbackFields.length} field${fallbackFields.length === 1 ? "" : "s"} used deterministic fallback; ${gaps.length} evidence gap${gaps.length === 1 ? "" : "s"} remain explicit.`, item_count: DRAFT_FIELDS.length },
+    { id: "review", status: "current", detail: "Proposal is ready for field-by-field human review.", evidence: "Nothing has been created or written back. Accepting only moves the proposal into the manual Defect form." }
   ]
 });
 

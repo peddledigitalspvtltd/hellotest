@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-knowledge-commerce",
+      "project_id": "sample-project",
+      "name": "Commerce Launchpad guide",
+      "description": "Synthetic product and repository context for exploration.",
+      "color": "#237758",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

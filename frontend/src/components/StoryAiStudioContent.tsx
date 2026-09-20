@@ -5,11 +5,9 @@ import {
   IconChecklist,
   IconChevronDown,
   IconCode,
-  IconGauge,
   IconItalic,
   IconList,
   IconPlus,
-  IconRosetteDiscountCheck,
   IconSparkles,
   IconTrash
 } from "@tabler/icons-react";
@@ -44,6 +42,7 @@ export type StoryAiStudioDraft = {
   evidenceRefs?: string[];
   limitations?: string[];
   fallbackReason?: string | null;
+  contextReductionReason?: string | null;
   generationMode?: string;
   evaluation?: { score: number; grounding: string; completeness: string; testability: string };
   fieldEvidence?: Record<string, string[]>;
@@ -60,100 +59,62 @@ export type StoryAiStudioFieldSelection = {
 };
 
 export function StoryAiDraftQueue({
-  activeDraftId,
-  allowSelection = true,
-  drafts,
+  activeDraftId, activeContent, allowSelection = true, drafts, searchQuery = "", viewMode = "list",
   emptyMessage = "Add prompt context, then generate Story drafts for review.",
-  emptyHeading = "Ready for a governed draft",
-  itemNoun = "draft",
-  isDraftSelectable,
-  onActivateDraft,
-  onClearSelection,
-  onSelectAll,
-  onToggleDraft,
-  queueTitle = "Draft Queue",
-  selectAllLabel = "Select all",
-  selectedDraftIds
+  emptyHeading = "Ready to generate Story drafts", isDraftSelectable, onActivateDraft,
+  onClearSelection, onSelectAll, onToggleDraft, selectedDraftIds, selectAllLabel = "Select all"
 }: {
   activeDraftId?: string;
+  activeContent?: ReactNode;
   allowSelection?: boolean;
   drafts: StoryAiStudioDraft[];
+  searchQuery?: string;
+  viewMode?: string;
   emptyMessage?: string;
   emptyHeading?: string;
   itemNoun?: string;
+  queueTitle?: string;
   isDraftSelectable?: (draft: StoryAiStudioDraft) => boolean;
   onActivateDraft: (draftId: string) => void;
   onClearSelection?: () => void;
   onSelectAll?: (selected: boolean) => void;
   onToggleDraft?: (draftId: string, selected: boolean) => void;
-  queueTitle?: string;
   selectAllLabel?: string;
   selectedDraftIds: string[];
 }) {
-  const selectableDrafts = drafts.filter((draft) => allowSelection && (isDraftSelectable?.(draft) ?? true));
-  const allSelected = Boolean(selectableDrafts.length) && selectableDrafts.every((draft) => selectedDraftIds.includes(draft.id));
-
-  return (
-    <section className="story-studio-queue" aria-label="Draft queue">
-      <header className="story-studio-queue__toolbar">
-        <div><h2>{queueTitle}</h2><span>{drafts.length} {drafts.length === 1 ? itemNoun : `${itemNoun}s`}</span></div>
-        {selectableDrafts.length ? (
-          <div className="story-studio-queue__selection">
-            <label>
-              <input checked={allSelected} onChange={(event) => onSelectAll?.(event.target.checked)} type="checkbox" />
-              <span>{selectAllLabel}</span>
-            </label>
-            {selectedDraftIds.length ? <button onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear</button> : null}
-          </div>
-        ) : null}
-      </header>
-      <div className="story-studio-queue__list" role="list">
-        {drafts.length ? drafts.map((draft) => {
-          const isActive = draft.id === activeDraftId;
-          const isSelected = selectedDraftIds.includes(draft.id);
-          const isSelectable = allowSelection && (isDraftSelectable?.(draft) ?? true);
-          const rawConfidence = draft.confidenceLabel
-            || (Number.isFinite(draft.qualityPercent) ? `${Math.round(draft.qualityPercent || 0)}% Conf.` : draft.generated ? "AI Generated" : "Existing Story");
-          const usesNumericConfidenceLabel = /\b\d{1,3}%\s*(?:conf|confidence|quality)\b/i.test(rawConfidence);
-          const confidence = usesNumericConfidenceLabel ? "Review required" : rawConfidence;
-          return (
-            <article
-              aria-current={isActive ? "true" : undefined}
-              className={isActive ? "story-studio-draft-tile is-active" : "story-studio-draft-tile"}
-              key={draft.id}
-              role="listitem"
-            >
-              <input
-                aria-label={`Select ${draft.title}`}
-                checked={isSelected}
-                disabled={!isSelectable}
-                onChange={(event) => onToggleDraft?.(draft.id, event.target.checked)}
-                type="checkbox"
-              />
-              <button
-                aria-pressed={isActive}
-                className="story-studio-draft-tile__activation"
-                onClick={() => onActivateDraft(draft.id)}
-                type="button"
-              >
-                <h3>{draft.title}</h3>
-                <div className="story-studio-draft-tile__meta">
-                  <span><IconGauge size={14} stroke={1.9} />{draft.estimateLabel || `P${draft.priority || 3} Priority`}</span>
-                  <span><IconRosetteDiscountCheck size={14} stroke={1.9} />{confidence}</span>
-                </div>
-              </button>
-            </article>
-          );
-        }) : (
-          <div className="story-studio-queue__empty">
-            <IconSparkles size={24} stroke={1.7} />
-            <strong>{emptyHeading}</strong>
-            <span>{emptyMessage}</span>
-          </div>
-        )}
-      </div>
-    </section>
-  );
+  const [collapsedId, setCollapsedId] = useState<string | null>(null);
+  useEffect(() => setCollapsedId(null), [activeDraftId]);
+  const selectableDrafts = drafts.filter(draft => allowSelection && (isDraftSelectable?.(draft) ?? true));
+  const allSelected = Boolean(selectableDrafts.length) && selectableDrafts.every(draft => selectedDraftIds.includes(draft.id));
+  const visibleDrafts = drafts.filter(draft => `${draft.title} ${draft.description}`.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+  useEffect(() => {
+    if (visibleDrafts.length && !visibleDrafts.some(draft => draft.id === activeDraftId)) onActivateDraft(visibleDrafts[0].id);
+  }, [activeDraftId, visibleDrafts, onActivateDraft]);
+  return <section className="story-studio-queue" aria-label="Story drafts">
+    <div className="ai-test-generator-selection-bar">
+      {allowSelection ? <><label><input checked={allSelected} disabled={!selectableDrafts.length} onChange={event => onSelectAll?.(event.target.checked)} type="checkbox" />{selectAllLabel}</label><button disabled={!selectedDraftIds.length} onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear selection</button></> : <strong>Current Story and generated proposal</strong>}
+      <span>{drafts.length} {drafts.length === 1 ? "draft" : "drafts"} · Review before saving</span>
+    </div>
+    <div className={`ai-test-generator-drafts is-${viewMode}`}>
+      {!drafts.length ? activeContent || <div className="ai-test-generator-empty"><IconSparkles size={32} /><h3>{emptyHeading}</h3><p>{emptyMessage}</p></div> : null}
+      {drafts.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><h3>No matching drafts</h3><p>Change the search to see the generated Stories.</p></div> : null}
+      {visibleDrafts.map(draft => {
+        const expanded = draft.id === activeDraftId && collapsedId !== draft.id;
+        const selectable = allowSelection && (isDraftSelectable?.(draft) ?? true);
+        const activate = () => { if (draft.id === activeDraftId) setCollapsedId(expanded ? draft.id : null); else { setCollapsedId(null); onActivateDraft(draft.id); } };
+        return <article aria-current={draft.id === activeDraftId ? "true" : undefined} className={`ai-test-generator-draft story-studio-draft-tile${expanded ? " is-expanded" : ""}`} key={draft.id}>
+          <header>
+            {allowSelection ? <input aria-label={`Select ${draft.title}`} checked={selectedDraftIds.includes(draft.id)} disabled={!selectable} onChange={event => onToggleDraft?.(draft.id, event.target.checked)} type="checkbox" /> : <IconChecklist size={18} />}
+            <span className={`ai-test-generator-priority p${draft.priority || 3}`}>P{draft.priority || 3}</span>
+            <div className="ai-test-generator-draft__identity"><button aria-expanded={expanded} className="story-studio-draft-tile__activation" onClick={activate} type="button"><strong>{draft.title}</strong><small>{draft.acceptanceCriteria?.length || 0} acceptance criteria · {draft.gherkinScenarios?.length || 0} scenarios</small></button></div>
+            <span className="ai-test-generator-ai-badge"><IconSparkles size={13} />{draft.generated ? "AI Draft" : "Current Story"}</span>
+            <button aria-label={expanded ? `Collapse ${draft.title}` : `Expand ${draft.title}`} onClick={activate} type="button"><IconChevronDown className={expanded ? "is-expanded" : ""} size={18} /></button>
+          </header>
+          {expanded && activeContent ? <div className="ai-test-generator-draft__body story-studio-inspector-scroll">{activeContent}</div> : null}
+        </article>;
+      })}
+    </div>
+  </section>;
 }
 
 function splitGherkinScenario(rawScenario: string, index: number) {
@@ -179,6 +140,8 @@ function propertyValue(value: string | number | null | undefined) {
 export function StoryAiDraftInspector({
   draft,
   editable = false,
+  evidencePlacement = "inspector",
+  emptyAction,
   emptyContent,
   extraContent,
   fieldSelection = [],
@@ -189,12 +152,15 @@ export function StoryAiDraftInspector({
   onGherkinScenariosChange,
   onPriorityChange,
   onTitleChange,
+  outputFormat = "structured",
   showGherkin = true,
   showProperties = true,
   statusContent
 }: {
   draft?: StoryAiStudioDraft | null;
   editable?: boolean;
+  evidencePlacement?: "inspector" | "intelligence";
+  emptyAction?: ReactNode;
   emptyContent?: ReactNode;
   extraContent?: ReactNode;
   fieldSelection?: StoryAiStudioFieldSelection[];
@@ -205,17 +171,16 @@ export function StoryAiDraftInspector({
   onGherkinScenariosChange?: (scenarios: string[]) => void;
   onPriorityChange?: (priority: number) => void;
   onTitleChange?: (value: string) => void;
+  outputFormat?: "structured" | "gherkin";
   showGherkin?: boolean;
   showProperties?: boolean;
   statusContent?: ReactNode;
 }) {
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [editingScenarioIndex, setEditingScenarioIndex] = useState<number | null>(null);
-  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
 
   useEffect(() => {
     setEditingScenarioIndex(null);
-    setIsEvidenceOpen(false);
   }, [draft?.id]);
 
   if (!draft) {
@@ -229,6 +194,7 @@ export function StoryAiDraftInspector({
             <p>Add focused context, choose a governed provider, and generate a bounded review batch.</p>
           </>
         )}
+        {emptyAction}
       </div>
     );
   }
@@ -243,24 +209,6 @@ export function StoryAiDraftInspector({
     ["Release", propertyValue(draft.release)]
   ];
   const hasInvalidTitle = editable && (!draft.title.trim() || draft.title.length > 255);
-  const evidence = draft.evidence || [];
-  const humanEditedFields = new Set(draft.humanEditedFields || []);
-  const activeFieldEvidence = Object.entries(draft.fieldEvidence || {})
-    .filter(([field]) => !humanEditedFields.has(field));
-  const activeFieldEvidenceRefs = activeFieldEvidence.flatMap(([, refs]) => refs);
-  const evidenceRefs = new Set(humanEditedFields.size ? activeFieldEvidenceRefs : draft.evidenceRefs || []);
-  const citedEvidence = evidenceRefs.size ? evidence.filter((item) => evidenceRefs.has(item.ref)) : [];
-  const contextualEvidence = evidenceRefs.size ? evidence.filter((item) => !evidenceRefs.has(item.ref)) : evidence;
-  const limitations = [...new Set([
-    ...(draft.limitations || []),
-    draft.fallbackReason || "",
-    humanEditedFields.size ? `Human-edited fields are not covered by the original AI evidence or evaluation: ${[...humanEditedFields].map((field) => field.replace(/_/g, " ")).join(", ")}.` : ""
-  ].filter(Boolean))];
-  const evidenceByRef = new Map(evidence.map((item) => [item.ref, item]));
-  const fieldEvidence = activeFieldEvidence
-    .map(([field, refs]) => ({ field, refs: [...new Set(refs)].filter((ref) => evidenceByRef.has(ref)) }))
-    .filter((item) => item.refs.length);
-  const hasEvidenceReview = Boolean(evidence.length || limitations.length || draft.evaluation || humanEditedFields.size);
 
   const applyMarkdown = (prefix: string, suffix = prefix, linePrefix = false) => {
     if (!editable || !onDescriptionChange) return;
@@ -287,14 +235,7 @@ export function StoryAiDraftInspector({
           <span>{draft.generated ? `DRAFT #${draft.sequence || 1}` : draft.displayId || "SELECTED STORY"}</span>
           <span><IconSparkles size={14} stroke={1.9} />{draft.generated ? "AI Generated" : "Existing context"}</span>
         </div>
-        {hasEvidenceReview ? (
-          <AiEvidenceButton
-            className="story-studio-evidence-trigger"
-            count={citedEvidence.length || evidence.length}
-            label={citedEvidence.length ? "View cited evidence" : "View evidence boundary"}
-            onClick={() => setIsEvidenceOpen(true)}
-          />
-        ) : null}
+        {evidencePlacement === "inspector" ? <StoryAiEvidenceReview draft={draft} /> : null}
         {editable && onTitleChange ? (
           <>
             <textarea
@@ -316,7 +257,7 @@ export function StoryAiDraftInspector({
         ) : <h1>{draft.title}</h1>}
       </header>
 
-      <section className="story-studio-card story-studio-description-card">
+      {outputFormat === "structured" ? <><section className="story-studio-card story-studio-description-card">
         <div className="story-studio-card__toolbar">
           <h2>Description</h2>
           <div aria-label="Description formatting" className="story-studio-editor-tools" role="toolbar">
@@ -383,6 +324,8 @@ export function StoryAiDraftInspector({
         </div>
       </section>
 
+      </> : null}
+
       {fieldSelection.length ? (
         <section className="story-studio-card story-studio-field-review">
           <div className="story-studio-card__section-heading">
@@ -400,8 +343,8 @@ export function StoryAiDraftInspector({
         </section>
       ) : null}
 
-      {showProperties ? (
-        <details className="story-studio-card story-studio-disclosure-card story-studio-properties-card">
+      {showProperties && outputFormat === "structured" ? (
+        <details open className="story-studio-card story-studio-disclosure-card story-studio-properties-card">
           <summary><span><strong>Story properties</strong><small>Status, priority, delivery scope, and references</small></span><IconChevronDown aria-hidden="true" size={17} stroke={1.9} /></summary>
           <dl>
             <div><dt>Status</dt><dd>{propertyValue(draft.status)}</dd></div>
@@ -426,13 +369,14 @@ export function StoryAiDraftInspector({
         </details>
       ) : null}
 
-      {showGherkin ? (
-        <details className="story-studio-card story-studio-disclosure-card story-studio-gherkin-card">
+      {outputFormat === "gherkin" ? (
+        <details open className="story-studio-card story-studio-disclosure-card story-studio-gherkin-card">
           <summary><span><strong><IconChecklist size={18} stroke={1.9} />Gherkin scenarios</strong><small>{scenarios.length} scenario{scenarios.length === 1 ? "" : "s"} ready for review</small></span><IconChevronDown aria-hidden="true" size={17} stroke={1.9} /></summary>
+          {!showGherkin ? <p className="story-studio-gherkin-inclusion-note">Enable Include Gherkin in Context Setup to edit and save scenarios.</p> : null}
           <div className="story-studio-disclosure-actions">
             <button
               className="story-studio-inline-action"
-              disabled={!editable || !onGherkinScenariosChange}
+              disabled={!showGherkin || !editable || !onGherkinScenariosChange}
               onClick={() => {
                 const nextIndex = scenarios.length;
                 onGherkinScenariosChange?.([
@@ -448,12 +392,12 @@ export function StoryAiDraftInspector({
           </div>
           {scenarios.length ? scenarios.map((scenario, index) => {
             const parsed = splitGherkinScenario(scenario, index);
-            const isEditing = editable && editingScenarioIndex === index;
+            const isEditing = showGherkin && editable && editingScenarioIndex === index;
             return (
               <article className={isEditing ? "story-studio-scenario is-editing" : "story-studio-scenario"} key={`${draft.id}-scenario-${index}`}>
                 <div className="story-studio-scenario__heading">
                   <h3>{parsed.title}</h3>
-                  {editable && onGherkinScenariosChange ? (
+                  {showGherkin && editable && onGherkinScenariosChange ? (
                     <div className="story-studio-scenario__actions">
                       <button onClick={() => setEditingScenarioIndex(isEditing ? null : index)} type="button">{isEditing ? "Done" : "Edit"}</button>
                       <button
@@ -483,7 +427,7 @@ export function StoryAiDraftInspector({
               </article>
             );
           }) : (
-            <div className="story-studio-gherkin-card__empty">No Gherkin scenario is available yet. Generate or regenerate with Include Gherkin enabled.</div>
+            <div className="story-studio-gherkin-card__empty">{showGherkin ? "No Gherkin scenario is available yet. Generate or regenerate with Include Gherkin enabled." : "Enable Include Gherkin in Context Setup, then generate scenarios from the supplied acceptance criteria."}</div>
           )}
         </details>
       ) : null}
@@ -505,23 +449,37 @@ export function StoryAiDraftInspector({
 
       {extraContent ? <div className="story-studio-inspector__extra">{extraContent}</div> : null}
 
-      <AiEvidenceFlyout
-        description={citedEvidence.length
-          ? "These bounded sources were cited by this Story proposal. Context-only sources and limitations remain visible separately."
-          : "No source citation was returned for this proposal. Review the available context and limitations before accepting it."}
-        eyebrow="Story decision evidence"
-        facts={[
-          { label: "Cited sources", value: citedEvidence.length },
-          { label: "Available context", value: evidence.length },
-          { label: "Generation", value: draft.generationMode || "Not recorded" },
-          { label: "Review state", value: "Awaiting human review" },
-          ...(draft.requestId ? [{ label: "Run ID", value: draft.requestId.slice(0, 12) }] : []),
-          ...(draft.inputFingerprint ? [{ label: "Input snapshot", value: draft.inputFingerprint.slice(0, 12) }] : [])
-        ]}
-        onClose={() => setIsEvidenceOpen(false)}
-        open={isEvidenceOpen}
-        title={`${draft.title || "Story draft"} evidence`}
-      >
+
+    </div>
+  );
+}
+
+export function StoryAiEvidenceReview({ draft, inline = false }: { draft?: StoryAiStudioDraft | null; inline?: boolean }) {
+  const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  useEffect(() => setIsEvidenceOpen(false), [draft?.id]);
+  if (!draft) return null;
+  const evidence = draft.evidence || [];
+  const humanEditedFields = new Set(draft.humanEditedFields || []);
+  const activeFieldEvidence = Object.entries(draft.fieldEvidence || {})
+    .filter(([field]) => !humanEditedFields.has(field));
+  const activeFieldEvidenceRefs = activeFieldEvidence.flatMap(([, refs]) => refs);
+  const evidenceRefs = new Set(humanEditedFields.size ? activeFieldEvidenceRefs : draft.evidenceRefs || []);
+  const citedEvidence = evidenceRefs.size ? evidence.filter((item) => evidenceRefs.has(item.ref)) : [];
+  const contextualEvidence = evidenceRefs.size ? evidence.filter((item) => !evidenceRefs.has(item.ref)) : evidence;
+  const limitations = [...new Set([
+    ...(draft.limitations || []),
+    draft.fallbackReason || "",
+    draft.contextReductionReason || "",
+    humanEditedFields.size ? `Human-edited fields are not covered by the original AI evidence or evaluation: ${[...humanEditedFields].map((field) => field.replace(/_/g, " ")).join(", ")}.` : ""
+  ].filter(Boolean))];
+  const evidenceByRef = new Map(evidence.map((item) => [item.ref, item]));
+  const fieldEvidence = activeFieldEvidence
+    .map(([field, refs]) => ({ field, refs: [...new Set(refs)].filter((ref) => evidenceByRef.has(ref)) }))
+    .filter((item) => item.refs.length);
+  const hasEvidenceReview = Boolean(evidence.length || limitations.length || draft.evaluation || humanEditedFields.size);
+
+  if (!hasEvidenceReview) return null;
+  const content = <>
           {draft.evaluation && !humanEditedFields.size ? (
           <section className="story-studio-evidence-section">
             <header><strong>Deterministic readiness</strong><span>{draft.evaluation.score}/100</span></header>
@@ -580,7 +538,31 @@ export function StoryAiDraftInspector({
             <ul>{limitations.map((item) => <li key={item}><p>{item}</p></li>)}</ul>
           </section>
         ) : null}
-      </AiEvidenceFlyout>
-    </div>
-  );
+</>;
+  if (inline) return <section className="story-studio-intelligence-evidence" aria-label="Story cited evidence">
+    <header><h3>Story Evidence</h3><span>{citedEvidence.length} cited {citedEvidence.length === 1 ? "source" : "sources"}</span></header>
+    <p className="story-studio-intelligence-evidence__story">{draft.title}</p>
+    {draft.contextReductionReason ? <p role="status" className="story-studio-intelligence-evidence__notice">{draft.contextReductionReason}</p> : null}
+    {citedEvidence.length ? <ul className="story-studio-intelligence-evidence__sources">{citedEvidence.map(item => <li key={item.ref} title={item.excerpt || undefined}><strong>{item.title || item.label || item.ref}</strong><span>{item.type.replace(/-/g, " ")}</span></li>)}</ul> : <p>No source citation was returned for this proposal.</p>}
+    <details key={draft.id}><summary>Sources and review boundaries</summary>{content}</details>
+  </section>;
+  return <><AiEvidenceButton className="story-studio-evidence-trigger" count={citedEvidence.length || evidence.length} label={citedEvidence.length ? "View cited evidence" : "View evidence boundary"} onClick={() => setIsEvidenceOpen(true)} />
+      <AiEvidenceFlyout
+        description={citedEvidence.length
+          ? "These bounded sources were cited by this Story proposal. Context-only sources and limitations remain visible separately."
+          : "No source citation was returned for this proposal. Review the available context and limitations before accepting it."}
+        eyebrow="Story decision evidence"
+        facts={[
+          { label: "Cited sources", value: citedEvidence.length },
+          { label: "Available context", value: evidence.length },
+          { label: "Generation", value: draft.generationMode || "Not recorded" },
+          { label: "Review state", value: "Awaiting human review" },
+          ...(draft.requestId ? [{ label: "Run ID", value: draft.requestId.slice(0, 12) }] : []),
+          ...(draft.inputFingerprint ? [{ label: "Input snapshot", value: draft.inputFingerprint.slice(0, 12) }] : [])
+        ]}
+        onClose={() => setIsEvidenceOpen(false)}
+        open={isEvidenceOpen}
+        title={`${draft.title || "Story draft"} evidence`}
+      >{content}
+      </AiEvidenceFlyout></>;
 }

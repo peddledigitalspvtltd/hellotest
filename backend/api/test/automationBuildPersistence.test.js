@@ -94,7 +94,7 @@ test("both automation queues persist the future due time at their scheduling bou
   const future = "2099-01-02T03:04:05.000Z";
   const writes = [];
   const transactions = [];
-  const database = { prepare: (sql) => ({ get: async () => ({ ...source, project_id: "project" }), run: async (...values) => { writes.push({ sql, values }); return { changes: 1 }; }, all: async () => [] }) };
+  const database = { transaction: callback => callback, prepare: (sql) => ({ get: async () => ({ ...source, project_id: "project" }), run: async (...values) => { writes.push({ sql, values }); return { changes: 1 }; }, all: async () => [] }) };
   const workspace = {
     createTransaction: async (input) => { transactions.push(input); return { id: "transaction" }; },
     getTransaction: async () => ({ id: "transaction", title: "Automation build" }),

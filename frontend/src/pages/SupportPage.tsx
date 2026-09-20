@@ -5,7 +5,7 @@ import { Panel } from "../components/Panel";
 const supportChannels = [
   {
     title: "Platform support",
-    description: "Reach the internal HelloTest workspace team for environment issues, access recovery, and platform bugs.",
+    description: "Reach the internal HelloTest workspace team for environment issues, access recovery, and platform defects.",
     value: "support@hellotest.local"
   },
   {

@@ -34,7 +34,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       smart_context: { required: false, type: "object" }
     }, req.body || {});
     if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
-      const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
+      const error = new Error("AI-assisted Defect drafting and triage are disabled for the workspace.");
       error.statusCode = 403;
       throw error;
     }
@@ -58,7 +58,7 @@ function registerFeedbackRoutes(fastify, basePath) {
     const issues = [];
     for (const id of [...new Set(req.body.issue_ids)]) {
       const item = await service.getIssueItem(id);
-      if (item.project_id !== req.body.project_id) throw Object.assign(new Error("Every exported bug must belong to the current project"), { statusCode: 403 });
+      if (item.project_id !== req.body.project_id) throw Object.assign(new Error("Every exported defect must belong to the current project"), { statusCode: 403 });
       issues.push(item);
     }
     return { bugs: issues, exported: issues.length };
@@ -88,7 +88,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       prompt_guidance: { required: false, type: "string", maxLength: 4_000 }
     }, req.body);
     if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) {
-      const error = new Error("AI-assisted Bug drafting and triage are disabled for the workspace.");
+      const error = new Error("AI-assisted Defect drafting and triage are disabled for the workspace.");
       error.statusCode = 403;
       throw error;
     }
@@ -151,7 +151,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       await projectService.getProject(project_id, req.user.id);
       await fastify.requirePermission("feedback.view", { projectId: project_id })(req);
     } else if (req.user.role !== "admin" && !req.user.is_workspace_admin) {
-      throw Object.assign(new Error("project_id is required when listing Bugs"), { statusCode: 400 });
+      throw Object.assign(new Error("project_id is required when listing Defects"), { statusCode: 400 });
     }
     return {
       ...req.query,

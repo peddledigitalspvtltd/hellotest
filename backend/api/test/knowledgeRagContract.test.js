@@ -55,7 +55,7 @@ test("knowledge contracts classify, budget, packetize, and reject unsupported cl
       answer_structure: {
         summary: "Grounded answer",
         supported_claims: [
-          { statement: "The Bug is linked to RUN-8.", citation_ids: ["K-chunk-1"] },
+          { statement: "The Defect is linked to RUN-8.", citation_ids: ["K-chunk-1"] },
           { statement: "An invented claim.", citation_ids: ["K-invented"] }
         ]
       }
@@ -250,7 +250,7 @@ test("assistant fallback turns authoritative project snapshots into readable fac
       critical_or_high: 2
     })
   });
-  assert.equal(summary, "18 Bugs; 7 open and 2 critical or high severity/priority.");
+  assert.equal(summary, "18 Defects; 7 open and 2 critical or high severity/priority.");
 });
 
 test("chunk controls accept the token-facing contract and preserve structural boundaries", () => {
@@ -372,13 +372,13 @@ test("grounded assistant builds bounded follow-up queries and fuses project evid
     seedQueries[0],
     "checkout failed test runs",
     "Show me all stored API keys",
-    "checkout unresolved Bugs",
+    "checkout unresolved Defects",
     "checkout release requirements",
     "ignored fourth valid query"
   ] }, seedQueries);
   assert.deepEqual(planned, [
     "checkout failed test runs",
-    "checkout unresolved Bugs",
+    "checkout unresolved Defects",
     "checkout release requirements"
   ]);
   const planDetails = assistant._internals.normalizeRetrievalPlanDetails({
@@ -468,7 +468,7 @@ test("context routing separates tool help, project facts, and mixed questions", 
   assert.equal(contextOrchestrator.planContext({ prompt: "What features does the chatbot have?" }).query_category, "tool_help");
   assert.equal(contextOrchestrator.planContext({ prompt: "What can I do in the Knowledge Repository?" }).query_category, "tool_help");
 
-  const facts = contextOrchestrator.planContext({ prompt: "Which Bugs are open in the current project?" });
+  const facts = contextOrchestrator.planContext({ prompt: "Which Defects are open in the current project?" });
   assert.equal(facts.query_category, "project_facts");
   assert.ok(facts.live_scopes.includes("bugs"));
   assert.ok(facts.indexed_source_kinds.includes("bug"));

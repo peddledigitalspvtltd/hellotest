@@ -1,3 +1,4 @@
+import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { Fragment, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -7,12 +8,16 @@ import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { CatalogViewToggle } from "../components/CatalogViewToggle";
+import { AuthoringDataSetPanel } from "../components/AuthoringDataSetPanel";
+import { TestDataSetPickerDialog } from "../components/TestDataSetPickerDialog";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { EntityIdBadge } from "../components/EntityIdBadge";
 import { FormField } from "../components/FormField";
 import { InfoTooltip } from "../components/InfoTooltip";
 import { LinkedTestCaseModal } from "../components/LinkedTestCaseModal";
+import { QualityMetricStrip } from "../components/QualityMetricStrip";
+import { sharedStepMetricCards } from "../lib/sharedStepMetrics";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { RichTextContent, RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
@@ -34,20 +39,21 @@ import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/Worksp
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
 import { useCapabilityAccess } from "../hooks/useCapabilityAccess";
+import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useWorkspaceResource } from "../hooks/useWorkspaceData";
 import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { asArray } from "../lib/collectionGuards";
-import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import { composeSharedStepGherkin, mergeGherkinStepMetadata, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin } from "../lib/gherkin";
+import { composeSharedStepGherkin, mergeGherkinStepMetadata, normalizeGherkinParameterReferences, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin } from "../lib/gherkin";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import {
   normalizeStepType
 } from "../lib/stepAutomation";
-import { collectStepParameters, filterStepParameterValues, normalizeStepParameterValues, type StepParameterDefinition } from "../lib/stepParameters";
-import type { ExecutionResult, SharedStepGroup, TestCase, TestStep, User } from "../types";
+import { buildDataSetParameterValues, collectSensitiveDataSetParameterNames, collectStepParameters, excludeSensitiveStepParameterValues, filterStepParameterValues, normalizeStepParameterValues, type StepParameterDefinition } from "../lib/stepParameters";
+import { buildDataSetPayload, buildEmptyDataSetDraft, DataSetForm, ResourceModalShell, type DataSetDraft } from "./TestEnvironmentPage";
+import type { SharedStepGroup, TestCase, TestDataSet, TestStep, User } from "../types";
 
 type SharedGroupDraftStep = {
   id: string;
@@ -65,6 +71,8 @@ type SharedGroupDraft = {
   description: string;
   authoring_mode: "structured" | "gherkin";
   gherkin_document: string;
+  test_data_set_id: string | null;
+  test_data_row_index: number;
   steps: SharedGroupDraftStep[];
 };
 
@@ -84,6 +92,8 @@ const EMPTY_GROUP_DRAFT: SharedGroupDraft = {
   description: "",
   authoring_mode: "structured",
   gherkin_document: "",
+  test_data_set_id: null,
+  test_data_row_index: 0,
   steps: []
 };
 
@@ -123,6 +133,8 @@ const draftFromGroup = (group: SharedStepGroup): SharedGroupDraft => ({
   description: group.description || "",
   authoring_mode: group.authoring_mode === "gherkin" ? "gherkin" : "structured",
   gherkin_document: composeSharedStepGherkin(parseSharedStepGherkin(group.gherkin_document || structuredStepsToSharedGherkin(asArray(group.steps)))),
+  test_data_set_id: group.test_data_set_id || null,
+  test_data_row_index: group.test_data_row_index || 0,
   steps: asArray(group.steps).map((step) => ({
     id: step.id || createDraftStepId(),
     action: step.action || "",
@@ -159,25 +171,6 @@ const formatSharedStepDate = (value?: string) => {
   return Number.isNaN(parsed.getTime()) ? value : sharedStepDateFormatter.format(parsed);
 };
 
-const aggregateRunStatus = (
-  current: ExecutionResult["status"] | undefined,
-  next: ExecutionResult["status"]
-): ExecutionResult["status"] => {
-  if (current === "failed" || next === "failed") {
-    return "failed";
-  }
-
-  if (current === "blocked" || next === "blocked") {
-    return "blocked";
-  }
-
-  if (current === "running" || next === "running") {
-    return "running";
-  }
-
-  return "passed";
-};
-
 export function SharedStepsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -188,8 +181,17 @@ export function SharedStepsPage() {
   const canManageSharedStepGroups = can("shared_step.manage");
   const canUseSharedStepAi = canManageSharedStepGroups && can("testcase.ai");
   const canViewTestCases = can("testcase.view");
-  const canViewRunHistory = can("result.view");
+  const canViewRunHistory = can("result.view") && can("run.view");
+  const canViewDefects = can("feedback.view");
   const canViewAppTypes = can("app_type.view");
+  const canViewTestData = can("data.view");
+  const canLinkTestData = canViewTestData && canManageSharedStepGroups;
+  const canCreateAndLinkTestData = canLinkTestData && can("data.manage");
+  const domainMetadataQuery = useDomainMetadata();
+  const dataSetModeOptions = domainMetadataQuery.data?.test_data_sets?.modes?.length
+    ? domainMetadataQuery.data.test_data_sets.modes
+    : [{ value: "table", label: "Table" }, { value: "key_value", label: "Key/value" }];
+  const defaultDataSetMode = (domainMetadataQuery.data?.test_data_sets?.default_mode || "table") as TestDataSet["mode"];
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -201,7 +203,8 @@ export function SharedStepsPage() {
   const [messageTone, setMessageTone] = useState<"success" | "error">("success");
   const [expandedWorkspaceSections, setExpandedWorkspaceSections] = useState({
     details: true,
-    steps: true
+    steps: true,
+    dataSets: true
   });
   const [groupDraft, setGroupDraft] = useState<SharedGroupDraft>(EMPTY_GROUP_DRAFT);
   const [stepInsertIndex, setStepInsertIndex] = useState<number | null>(null);
@@ -213,6 +216,13 @@ export function SharedStepsPage() {
   const [cutStepIds, setCutStepIds] = useState<string[]>([]);
   const [isParameterDialogOpen, setIsParameterDialogOpen] = useState(false);
   const [sharedParameterValues, setSharedParameterValues] = useState<Record<string, string>>({});
+  const [isDataSetLinkerOpen, setIsDataSetLinkerOpen] = useState(false);
+  const [isDataSetCreatorOpen, setIsDataSetCreatorOpen] = useState(false);
+  const [dataSetSearch, setDataSetSearch] = useState("");
+  const [dataSetLinkDraftId, setDataSetLinkDraftId] = useState("");
+  const [newDataSetDraft, setNewDataSetDraft] = useState<DataSetDraft>(() => buildEmptyDataSetDraft());
+  const dataSetScopeRef = useRef("");
+  dataSetScopeRef.current = `${projectId}/${appTypeId}/${isCreating ? "new" : selectedGroupId}`;
   const [isUsageDialogOpen, setIsUsageDialogOpen] = useState(false);
   const [isImprovingSteps, setIsImprovingSteps] = useState(false);
   const [isVisualBuilderActive, setIsVisualBuilderActive] = useState(false);
@@ -240,16 +250,25 @@ export function SharedStepsPage() {
     ["shared-steps-test-cases", appTypeId], signal => api.testCases.list({ app_type_id: appTypeId }, { signal }),
     canViewTestCases, Boolean(appTypeId && linkedPreviewCaseId)
   );
-  const executionResultsQuery = useWorkspaceResource(
-    ["shared-steps-execution-results", appTypeId, "summary"], signal => api.executionResults.list({ project_id: projectId, app_type_id: appTypeId, limit: 5000, projection: "summary" }, { signal }),
-    canViewRunHistory, Boolean(appTypeId)
-  );
+  const metricsQuery = useQuery({
+    queryKey: ["shared-step-groups", "metrics", appTypeId, canViewTestCases, canViewRunHistory, canViewDefects, session?.user.id],
+    queryFn: ({ signal }) => api.sharedStepGroups.metrics({ app_type_id: appTypeId }, { signal }),
+    enabled: Boolean(appTypeId) && can("shared_step.view") && canViewTestCases,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false
+  });
   const suitesQuery = useWorkspaceResource(
     ["shared-steps-test-suites", appTypeId], signal => api.testSuites.list({ app_type_id: appTypeId }, { signal }),
     can("suite.view"), Boolean(appTypeId && linkedPreviewCaseId)
   );
   const usersQuery = useWorkspaceResource(
     ["users", projectId], signal => api.users.list({ signal }), can("user.view"), true
+  );
+  const testDataSetsQuery = useWorkspaceResource(
+    ["test-data-sets", projectId, appTypeId],
+    signal => api.testDataSets.list({ project_id: projectId, app_type_id: appTypeId || undefined }, { signal }),
+    canViewTestData, Boolean(projectId && appTypeId && (selectedGroupId || isCreating))
   );
 
   const createSharedGroup = useMutation({ mutationFn: api.sharedStepGroups.create });
@@ -258,15 +277,18 @@ export function SharedStepsPage() {
       api.sharedStepGroups.update(id, input)
   });
   const deleteSharedGroup = useMutation({ mutationFn: api.sharedStepGroups.delete });
+  const createTestDataSet = useMutation({ mutationFn: api.testDataSets.create });
 
   const projects = asArray(projectsQuery.data);
   const appTypes = asArray(appTypesQuery.data);
   const sharedGroups = asArray(sharedGroupsQuery.data);
   const requirements = asArray(requirementsQuery.data);
   const testCases = asArray(testCasesQuery.data);
-  const executionResults = asArray(executionResultsQuery.data);
+  const metrics = canViewTestCases && can("shared_step.view") ? metricsQuery.data : undefined;
+  const metricUnavailable = !canViewTestCases ? "Test case access is required." : metricsQuery.isError ? "Metrics could not be loaded. Refresh to retry." : "Metrics are loading.";
   const suites = asArray(suitesQuery.data);
   const users = asArray<User>(usersQuery.data);
+  const testDataSets = asArray<TestDataSet>(testDataSetsQuery.data);
   const userById = useMemo(
     () =>
       users.reduce<Record<string, User>>((accumulator, user) => {
@@ -339,12 +361,18 @@ export function SharedStepsPage() {
     setIsParameterDialogOpen(false);
     setIsUsageDialogOpen(false);
     setIsVisualBuilderActive(false);
-  }, [isCreating, selectedGroupId]);
+    setIsDataSetLinkerOpen(false);
+    setIsDataSetCreatorOpen(false);
+    setDataSetSearch("");
+    setDataSetLinkDraftId("");
+    setNewDataSetDraft(buildEmptyDataSetDraft(defaultDataSetMode));
+  }, [appTypeId, isCreating, selectedGroupId]);
 
   useEffect(() => {
     setExpandedWorkspaceSections({
       details: true,
-      steps: true
+      steps: true,
+      dataSets: true
     });
   }, [isCreating, selectedGroupId]);
 
@@ -352,10 +380,22 @@ export function SharedStepsPage() {
     () => sharedGroups.find((group) => group.id === selectedGroupId) || null,
     [selectedGroupId, sharedGroups]
   );
+  const linkedDataSet = canViewTestData && groupDraft.test_data_set_id
+    ? testDataSets.find((dataSet) => dataSet.id === groupDraft.test_data_set_id)
+      || (selectedGroup?.test_data_set?.id === groupDraft.test_data_set_id ? selectedGroup.test_data_set : null)
+    : null;
+  const linkedDataRow = linkedDataSet?.mode === "table"
+    ? { ...linkedDataSet, rows: linkedDataSet.rows.slice(groupDraft.test_data_row_index, groupDraft.test_data_row_index + 1) }
+    : linkedDataSet;
+  const linkedDataParameterValues = buildDataSetParameterValues(linkedDataRow);
+  const sensitiveDataParameterNames = collectSensitiveDataSetParameterNames(linkedDataRow);
+  const resolvedSharedParameterValues = excludeSensitiveStepParameterValues(
+    { ...sharedParameterValues, ...linkedDataParameterValues }, sensitiveDataParameterNames
+  );
 
   const authoredSharedSteps = useMemo<SharedGroupDraftStep[]>(() => {
     if (groupDraft.authoring_mode !== "gherkin") return groupDraft.steps;
-    return mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(groupDraft.gherkin_document), groupDraft.steps, createEmptyDraftStep);
+    return mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(groupDraft.gherkin_document, { normalizeParameters: true }), groupDraft.steps, createEmptyDraftStep);
   }, [groupDraft.authoring_mode, groupDraft.gherkin_document, groupDraft.steps]);
 
   const visualSharedSteps = useMemo<TestStep[]>(
@@ -421,15 +461,24 @@ export function SharedStepsPage() {
   const detectedSharedParameters = useMemo<StepParameterDefinition[]>(
     () =>
       collectStepParameters(
-        authoredSharedSteps.map((step) => ({
-          id: step.id,
-          action: step.action,
-          expected_result: step.expected_result,
+        [...authoredSharedSteps.map((step) => {
+          const savedStep = selectedGroup?.steps.find((item) => item.id === step.id);
+          return {
+            id: step.id,
+            action: groupDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(step.action) : step.action,
+            expected_result: groupDraft.authoring_mode === "gherkin" ? normalizeGherkinParameterReferences(step.expected_result) : step.expected_result,
+            automation_code: step.automation_code || savedStep?.automation_code || "",
+            api_request: step.api_request || savedStep?.api_request || null
+          };
+        }), ...(groupDraft.authoring_mode === "gherkin" ? [{
+          id: "shared-group-gherkin",
+          action: normalizeGherkinParameterReferences(groupDraft.gherkin_document.split("\n").filter((line) => !/^\s*(?:@|#)/.test(line)).join("\n")),
+          expected_result: "",
           automation_code: "",
           api_request: null
-        })) as Array<{ id: string; action: string; expected_result: string; automation_code: string; api_request: SharedGroupDraftStep["api_request"] }>
+        }] : [])]
       ),
-    [authoredSharedSteps]
+    [authoredSharedSteps, groupDraft.authoring_mode, groupDraft.gherkin_document, selectedGroup]
   );
 
   useEffect(() => {
@@ -507,52 +556,10 @@ export function SharedStepsPage() {
     () => selectedGroupIds.filter((groupId) => visibleGroupIds.includes(groupId)),
     [selectedGroupIds, visibleGroupIds]
   );
-  const historyBySharedGroupId = useMemo(() => {
-    const groupIdsByCaseId = sharedGroups.reduce<Record<string, string[]>>((map, group) => {
-      asArray(group.used_test_cases).forEach((testCase) => {
-        map[testCase.id] = map[testCase.id] || [];
-        map[testCase.id].push(group.id);
-      });
-      return map;
-    }, {});
-    const historyMap: Record<string, Record<string, {
-      execution_id: string;
-      status: ExecutionResult["status"];
-      isFinalized: boolean;
-      created_at?: string;
-    }>> = {};
-
-    selectLatestExecutionResultInstances(executionResults).forEach((result) => {
-      const linkedGroupIds = groupIdsByCaseId[result.test_case_id] || [];
-
-      linkedGroupIds.forEach((groupId) => {
-        historyMap[groupId] = historyMap[groupId] || {};
-        const current = historyMap[groupId][result.execution_id];
-
-        historyMap[groupId][result.execution_id] = {
-          execution_id: result.execution_id,
-          status: aggregateRunStatus(current?.status, result.status),
-          isFinalized: (current?.isFinalized ?? true) && result.status !== "running",
-          created_at:
-            String(result.created_at || "") > String(current?.created_at || "")
-              ? result.created_at
-              : current?.created_at || result.created_at
-        };
-      });
-    });
-
-    return Object.fromEntries(
-      Object.entries(historyMap).map(([groupId, resultsByExecution]) => [
-        groupId,
-        Object.values(resultsByExecution).sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))
-      ])
-    ) as Record<string, Array<{
-      execution_id: string;
-      status: ExecutionResult["status"];
-      isFinalized: boolean;
-      created_at?: string;
-    }>>;
-  }, [executionResults, sharedGroups]);
+  const historyBySharedGroupId = useMemo(() => Object.fromEntries(
+    (metrics?.groups || []).map(group => [group.id, group.history || []])
+  ), [metrics]);
+  const measuredGroupById = useMemo(() => new Map((metrics?.groups || []).map(group => [group.id, group])), [metrics]);
 
   const selectedProject = projects.find((project) => String(project.id) === String(projectId)) || null;
   const selectedAppType = appTypes.find((appType) => appType.id === appTypeId) || null;
@@ -688,12 +695,12 @@ export function SharedStepsPage() {
     {
       key: "usedInCases",
       label: "Used in cases",
-      render: (group) => group.usage_count || 0
+      render: (group) => canViewTestCases ? group.usage_count || 0 : "Unavailable"
     },
     {
       key: "runs",
       label: "Runs",
-      render: (group) => (historyBySharedGroupId[group.id] || []).length
+      render: (group) => measuredGroupById.get(group.id)?.run_count ?? "Unavailable"
     },
     {
       key: "updated",
@@ -731,7 +738,8 @@ export function SharedStepsPage() {
       render: () => selectedAppType?.name || "App type"
     }
   ], [
-    historyBySharedGroupId,
+    measuredGroupById,
+    canViewTestCases,
     selectedAppType?.name,
     selectedGroupIds,
     userById
@@ -754,9 +762,10 @@ export function SharedStepsPage() {
   const refreshGroups = async (options: { preserveSelectedGroupId?: string } = {}) => {
     const preserveSelectedGroupId = options.preserveSelectedGroupId;
     if (preserveSelectedGroupId) {
+      const refreshScope = dataSetScopeRef.current;
       await queryClient.invalidateQueries({ queryKey: ["shared-step-groups", appTypeId] });
       await queryClient.invalidateQueries({ queryKey: ["shared-step-groups"] });
-      setSelectedGroupId(preserveSelectedGroupId);
+      if (dataSetScopeRef.current === refreshScope) setSelectedGroupId(preserveSelectedGroupId);
       return;
     }
 
@@ -992,7 +1001,7 @@ export function SharedStepsPage() {
     setSelectedStepIds([]);
     setGroupDraft((current) => {
       if (authoringMode === "gherkin") {
-        const previousBehavior = structuredStepsToSharedGherkin(sharedStepGherkinToStructuredSteps(current.gherkin_document));
+        const previousBehavior = structuredStepsToSharedGherkin(sharedStepGherkinToStructuredSteps(current.gherkin_document, { normalizeParameters: true }));
         const nextBehavior = structuredStepsToSharedGherkin(current.steps);
         return {
           ...current,
@@ -1003,9 +1012,43 @@ export function SharedStepsPage() {
         };
       }
 
-      const steps = mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(current.gherkin_document), current.steps, createEmptyDraftStep);
+      const steps = mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(current.gherkin_document, { normalizeParameters: true }), current.steps, createEmptyDraftStep);
       return { ...current, authoring_mode: "structured", steps };
     });
+  };
+
+  const openDataSetCreator = () => {
+    setNewDataSetDraft(buildEmptyDataSetDraft(defaultDataSetMode));
+    setIsDataSetCreatorOpen(true);
+  };
+
+  const openDataSetPicker = () => {
+    setDataSetLinkDraftId(groupDraft.test_data_set_id || "");
+    setDataSetSearch("");
+    setIsDataSetLinkerOpen(true);
+  };
+
+  const handleCreateAndLinkDataSet = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canCreateAndLinkTestData || !projectId) return;
+    const scope = dataSetScopeRef.current;
+    try {
+      const { payload, didSanitizeInvalidChars } = buildDataSetPayload(projectId, appTypeId || undefined, newDataSetDraft);
+      if (!payload.name) throw new Error("Provide a data set name.");
+      if (payload.mode === "table" && payload.rows.length !== 1) throw new Error("Shared Step Group data sets require exactly one data row.");
+      const created = await createTestDataSet.mutateAsync(payload);
+      if (dataSetScopeRef.current !== scope) return;
+      setGroupDraft((current) => ({ ...current, test_data_set_id: created.id, test_data_row_index: 0 }));
+      setIsDataSetCreatorOpen(false);
+      setNewDataSetDraft(buildEmptyDataSetDraft(defaultDataSetMode));
+      await queryClient.invalidateQueries({ queryKey: ["test-data-sets", projectId, appTypeId] });
+      if (dataSetScopeRef.current !== scope) return;
+      showSuccess(didSanitizeInvalidChars
+        ? "Data set created and selected. Invalid characters were removed automatically. Save the Shared Step Group to keep the link."
+        : "Data set selected. Save the Shared Step Group to keep the link. Every linked test case inherits this row.");
+    } catch (error) {
+      if (dataSetScopeRef.current === scope) showError(error, "Unable to create data set");
+    }
   };
 
   const handleSaveGroup = async (event?: FormEvent<HTMLFormElement>) => {
@@ -1037,6 +1080,7 @@ export function SharedStepsPage() {
           authoring_mode: groupDraft.authoring_mode,
           gherkin_document: gherkinDocument,
           parameter_values: parameterValues,
+          ...(canViewTestData ? { test_data_set_id: groupDraft.test_data_set_id, test_data_row_index: groupDraft.test_data_row_index } : {}),
           steps
         });
         const createdGroup = await api.sharedStepGroups.get(response.id);
@@ -1059,6 +1103,7 @@ export function SharedStepsPage() {
             authoring_mode: groupDraft.authoring_mode,
             gherkin_document: gherkinDocument,
             parameter_values: parameterValues,
+            ...(canViewTestData ? { test_data_set_id: groupDraft.test_data_set_id, test_data_row_index: groupDraft.test_data_row_index } : {}),
             steps
           }
         });
@@ -1157,7 +1202,7 @@ export function SharedStepsPage() {
   const coverageMeta = {
     total: sharedGroups.length,
     totalSteps: sharedGroups.reduce((count, group) => count + (group.step_count || asArray(group.steps).length), 0),
-    usedInCases: sharedGroups.reduce((count, group) => count + (group.usage_count || 0), 0)
+    usedInCases: metrics?.reused_case_count ?? "Unavailable"
   };
   const sharedStepPreview = richTextToPlainText(authoredSharedSteps[0]?.action || authoredSharedSteps[0]?.expected_result || "");
   const sharedStepSectionSummary = sharedStepPreview
@@ -1296,10 +1341,16 @@ export function SharedStepsPage() {
         meta={[
           { label: "Groups", value: coverageMeta.total },
           { label: "Reusable steps", value: coverageMeta.totalSteps },
-          { label: "Case links", value: coverageMeta.usedInCases }
+          { label: "Cases Reusing Shared Steps", value: coverageMeta.usedInCases }
         ]}
       />
 
+      {!isSharedGroupWorkspaceOpen ? <QualityMetricStrip ariaLabel="Shared Step metrics" metrics={sharedStepMetricCards(metrics, metricUnavailable).map(metric => metric.label === 'Shared Failure Clusters' && metrics?.failure_cluster_count ? {
+        ...metric, detail: <>{metric.detail}<br />{metrics.groups.filter(group => (group.failed_cases || 0) >= 2).slice(0,10).map(group => <span key={group.id}>{group.name} · {group.failed_cases} cases. {(group.failure_evidence || []).slice(0,3).map((entry,index) => <a key={index} href={`/executions?execution=${encodeURIComponent(entry.execution_id)}&testCase=${encodeURIComponent(entry.test_case_id)}`}>Case {entry.test_case_id} Evidence </a>)}</span>)}</>
+      } : metric.label === 'Open Defects' && metrics?.open_defect_evidence?.length ? {
+        ...metric, detail: <>{metric.detail}<ul>{metrics.open_defect_evidence.map(defect => <li key={defect.issue_id}><a href={`/issues?issue=${encodeURIComponent(defect.issue_id)}`}>{defect.display_id || defect.issue_id} · {defect.title}</a><span> · {defect.group_name} · </span><a href={`/executions?execution=${encodeURIComponent(defect.execution_id)}&testCase=${encodeURIComponent(defect.test_case_id)}`}>Failure Evidence</a></li>)}</ul>{(metrics.open_defect_count || 0) > metrics.open_defect_evidence.length ? <span>Showing the {metrics.open_defect_evidence.length} most recently created defects.</span> : null}</>
+      } : metric)} /> : null}
+      {metricsQuery.isError ? <p role="status">Shared Step metrics could not be loaded. <button className="text-button" type="button" onClick={() => void metricsQuery.refetch()}>Retry Metrics</button></p> : null}
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
 
       <WorkspaceMasterDetail
@@ -1361,25 +1412,26 @@ export function SharedStepsPage() {
                     const isActive = !isCreating && selectedGroupId === group.id;
                     const isSelected = selectedGroupIds.includes(group.id);
                     const stepCount = group.step_count || group.steps.length;
-                    const usageCount = group.usage_count || 0;
+                    const usageCount = canViewTestCases ? group.usage_count || 0 : null;
+                    const measured = measuredGroupById.get(group.id);
                     const preview = richTextToPlainText(group.steps[0]?.action || group.steps[0]?.expected_result || "") || "No step preview yet";
                     const groupHistory = historyBySharedGroupId[group.id] || [];
                     const history = groupHistory.slice(0, 5);
-                    const recentHistory = groupHistory.slice(0, 10);
-                    const finalizedHistory = recentHistory.filter((result) => result.isFinalized);
-                    const passedRunCount = finalizedHistory.filter((result) => result.status === "passed").length;
-                    const failedRunCount = finalizedHistory.filter((result) => ["failed", "blocked"].includes(result.status)).length;
-                    const passRate = finalizedHistory.length ? Math.round((passedRunCount / finalizedHistory.length) * 100) : 0;
+                    const executedSteps = measured?.executed_steps ?? null;
+                    const passedSteps = measured?.passed_steps ?? null;
+                    const failedSteps = measured?.failed_steps ?? null;
+                    const executionUnavailable = !canViewTestCases ? metricUnavailable : !canViewRunHistory ? "Run and result access is required." : measured?.execution_evidence_reason || metricUnavailable;
+                    const passRate = executedSteps ? Math.round((passedSteps || 0) / executedSteps * 100) : null;
                     const completeStepCount = group.steps.filter((step) => (
                       richTextToPlainText(step.action || "").trim()
                       && richTextToPlainText(step.expected_result || "").trim()
                     )).length;
                     const definitionCompleteness = stepCount ? Math.round((completeStepCount / stepCount) * 100) : 0;
-                    const runCount = groupHistory.length;
+                    const runCount = measured?.run_count ?? null;
                     const latestRun = history[0];
                     const cardTone = ["failed", "blocked"].includes(latestRun?.status || "")
                       ? "is-risk"
-                      : !stepCount || !usageCount || (finalizedHistory.length > 0 && passRate < 70)
+                      : !stepCount || !usageCount || (passRate !== null && passRate < 70)
                         ? "is-warning"
                         : "is-healthy";
 
@@ -1432,41 +1484,41 @@ export function SharedStepsPage() {
                               value={stepCount ? definitionCompleteness : null}
                             />
                             <TileCardProgress
-                              displayValue={finalizedHistory.length ? `${passRate}%` : "No runs"}
-                              label="Linked-case pass rate"
-                              title={finalizedHistory.length ? `${passedRunCount} of ${finalizedHistory.length} finalized current-linked-case runs passed` : "No finalized current-linked-case run evidence"}
-                              tone={!finalizedHistory.length ? "neutral" : passRate >= 80 ? "success" : passRate >= 60 ? "warning" : "danger"}
-                              value={finalizedHistory.length ? passRate : null}
+                              displayValue={passRate === null ? "Unavailable" : `${passRate}%`}
+                              label="Shared Step Pass Rate"
+                              title={executedSteps ? `${passedSteps} passed of ${executedSteps} recorded passed/failed shared step outcomes in the last 90 days. Case failures do not imply shared step failures.` : measured?.execution_evidence_reason || "No recorded shared step execution outcomes"}
+                              tone={passRate === null ? "neutral" : passRate >= 80 ? "success" : passRate >= 60 ? "warning" : "danger"}
+                              value={passRate}
                             />
                           </div>
                           <div className="tile-card-metric-grid shared-step-group-tile-metrics" aria-label={`${group.name} metrics`}>
                             <TileCardMetric
                               label="Steps"
-                              title={`${stepCount} step${stepCount === 1 ? "" : "s"}`}
+                              title={`${stepCount} steps in this group; ${completeStepCount} include an action and expected result.`}
                               tone={stepCount ? "info" : "neutral"}
                               value={stepCount}
                             />
                             <TileCardMetric
-                              label="Case links"
-                              title={`${usageCount} linked case${usageCount === 1 ? "" : "s"}`}
+                              label="Case Reuse"
+                              title={canViewTestCases ? `${usageCount} distinct current test cases use this group.` : "Test case access is required."}
                               tone={usageCount ? "success" : "neutral"}
-                              value={usageCount}
+                              value={usageCount ?? "Unavailable"}
                             />
                             <TileCardMetric
-                              label="Runs"
-                              title={`${runCount} current-linked-case run record${runCount === 1 ? "" : "s"}`}
-                              tone={runCount ? "info" : "neutral"}
-                              value={runCount}
+                              label="Executed Steps"
+                              title={executedSteps === null ? executionUnavailable : `${executedSteps} recorded passed or failed shared-step outcomes across ${runCount} runs in the last 90 days.`}
+                              tone={executedSteps ? "info" : "neutral"}
+                              value={executedSteps ?? "Unavailable"}
                             />
                             <TileCardMetric
-                              label="Failed"
-                              title={`${failedRunCount} failed or blocked finalized current-linked-case run${failedRunCount === 1 ? "" : "s"}`}
-                              tone={failedRunCount ? "danger" : finalizedHistory.length ? "success" : "neutral"}
-                              value={failedRunCount}
+                              label="Failed Steps"
+                              title={failedSteps === null ? executionUnavailable : `${failedSteps} recorded failed shared-step outcomes across ${measured?.failed_cases ?? 0} distinct cases in the last 90 days.`}
+                              tone={failedSteps ? "danger" : executedSteps ? "success" : "neutral"}
+                              value={failedSteps ?? "Unavailable"}
                             />
                           </div>
                           <div className="tile-card-footer">
-                            <div className="history-bars" aria-label="Current-linked-case run history">
+                            <div className="history-bars" aria-label="Observed shared-step run history in the last 90 days">
                               {history.length ? history.map((result) => (
                                 <span
                                   key={`${group.id}-${result.execution_id}`}
@@ -1650,8 +1702,7 @@ export function SharedStepsPage() {
                         availableParameters={detectedSharedParameters}
                         groupName={groupDraft.name}
                         onChange={(gherkin_document) => setGroupDraft((current) => ({ ...current, gherkin_document }))}
-                        onManageParameters={() => setIsParameterDialogOpen(true)}
-                        parameterValues={sharedParameterValues}
+                        parameterValues={resolvedSharedParameterValues}
                         value={groupDraft.gherkin_document}
                       />
                     ) : (isVisualBuilderActive ? (
@@ -1720,7 +1771,7 @@ export function SharedStepsPage() {
                             draft={newStepDraft}
                             index={0}
                             isActive={stepInsertIndex === 0}
-                            parameterValues={sharedParameterValues}
+                            parameterValues={resolvedSharedParameterValues}
                             isVisibleByDefault={true}
                             onActivate={() => activateStepInsert(0)}
                             onCancel={resetStepComposer}
@@ -1736,7 +1787,7 @@ export function SharedStepsPage() {
                               draft={newStepDraft}
                               index={index}
                               isActive={stepInsertIndex === index}
-                              parameterValues={sharedParameterValues}
+                              parameterValues={resolvedSharedParameterValues}
                               onActivate={() => activateStepInsert(index)}
                               onCancel={resetStepComposer}
                               onChange={setNewStepDraft}
@@ -1749,7 +1800,7 @@ export function SharedStepsPage() {
                               canPaste={Boolean(copiedSteps.length)}
                               isExpanded={expandedStepIds.includes(step.id)}
                               isSelected={selectedStepIds.includes(step.id)}
-                              parameterValues={sharedParameterValues}
+                              parameterValues={resolvedSharedParameterValues}
                               onChange={(input) => updateDraftStep(step.id, input)}
                               onCopy={() => copyDraftSteps([step.id])}
                               onCut={() => cutDraftSteps([step.id])}
@@ -1772,7 +1823,7 @@ export function SharedStepsPage() {
                                 draft={newStepDraft}
                                 index={index + 1}
                                 isActive={stepInsertIndex === index + 1}
-                                parameterValues={sharedParameterValues}
+                                parameterValues={resolvedSharedParameterValues}
                                 onActivate={() => activateStepInsert(index + 1)}
                                 onCancel={resetStepComposer}
                                 onChange={setNewStepDraft}
@@ -1784,6 +1835,33 @@ export function SharedStepsPage() {
                       </div>
                     </div>
                     ))}
+                  </SharedStepAccordionSection>
+                  <SharedStepAccordionSection
+                    countLabel={groupDraft.test_data_set_id ? "1 iteration" : "None"}
+                    isExpanded={expandedWorkspaceSections.dataSets}
+                    onToggle={() => setExpandedWorkspaceSections((current) => ({ ...current, dataSets: !current.dataSets }))}
+                    summary="One data row supplies the same defaults to every linked test case in either authoring format."
+                    title="Data Sets"
+                  >
+                    <AuthoringDataSetPanel
+                      dataSet={linkedDataSet}
+                      linkedDataSetId={groupDraft.test_data_set_id}
+                      isLoading={testDataSetsQuery.isLoading}
+                      error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined}
+                      onRetry={() => void testDataSetsQuery.refetch()}
+                      gherkin={groupDraft.authoring_mode === "gherkin"}
+                      singleIteration
+                      selectedRowIndex={groupDraft.test_data_row_index}
+                      canView={canViewTestData}
+                      canLink={canLinkTestData}
+                      canCreate={canCreateAndLinkTestData}
+                      onCreate={openDataSetCreator}
+                      onLink={openDataSetPicker}
+                      onUnlink={() => setGroupDraft((current) => ({ ...current, test_data_set_id: null, test_data_row_index: 0 }))}
+                      onManageParameters={() => setIsParameterDialogOpen(true)}
+                      hasParameters={detectedSharedParameters.length > 0}
+                      onDownloadTemplate={() => downloadParameterCsvTemplate(detectedSharedParameters, "shared-step-test-params-template.csv")}
+                    />
                   </SharedStepAccordionSection>
                 </div>
                 </div>
@@ -1816,8 +1894,65 @@ export function SharedStepsPage() {
         isDetailOpen={Boolean(selectedGroupId) || isCreating}
       />
 
+      {isDataSetCreatorOpen && canCreateAndLinkTestData ? <ResourceModalShell
+        className="resource-modal-card--test-data"
+        closeDisabled={createTestDataSet.isPending}
+        onClose={() => {
+          if (createTestDataSet.isPending) return;
+          setIsDataSetCreatorOpen(false);
+          setNewDataSetDraft(buildEmptyDataSetDraft(defaultDataSetMode));
+        }}
+        title="Create Test Data Set"
+      >
+        <DataSetForm
+          maxRows={1}
+          dataSetModeOptions={dataSetModeOptions}
+          draft={newDataSetDraft}
+          isSubmitting={createTestDataSet.isPending}
+          onChange={setNewDataSetDraft}
+          onSubmit={handleCreateAndLinkDataSet}
+          savedDataSets={testDataSets}
+          submitLabel={createTestDataSet.isPending ? "Creating…" : "Create and Select"}
+        />
+      </ResourceModalShell> : null}
+
+      {isDataSetLinkerOpen && canLinkTestData ? <TestDataSetPickerDialog
+        singleIteration
+        canCreateDataSet={canCreateAndLinkTestData}
+        dataSets={testDataSets}
+        isLoading={testDataSetsQuery.isLoading}
+        error={testDataSetsQuery.isError ? "Data sets could not be loaded." : undefined}
+        onRetry={() => void testDataSetsQuery.refetch()}
+        search={dataSetSearch}
+        selectedId={dataSetLinkDraftId}
+        onSearchChange={setDataSetSearch}
+        onSelect={setDataSetLinkDraftId}
+        onClose={() => {
+          setIsDataSetLinkerOpen(false);
+          setDataSetLinkDraftId("");
+          setDataSetSearch("");
+        }}
+        onCreateNew={() => {
+          setIsDataSetLinkerOpen(false);
+          openDataSetCreator();
+        }}
+        onConfirm={() => {
+          const selectedDataSet = testDataSets.find((dataSet) => dataSet.id === dataSetLinkDraftId);
+          if (!selectedDataSet || (selectedDataSet.mode === "table" && selectedDataSet.rows.length !== 1)) return;
+          setGroupDraft((current) => ({
+            ...current,
+            test_data_set_id: dataSetLinkDraftId,
+            test_data_row_index: 0
+          }));
+          setIsDataSetLinkerOpen(false);
+          setDataSetSearch("");
+          showSuccess("Data set selected. Save the Shared Step Group to keep the link. Every linked test case inherits this row.");
+        }}
+      /> : null}
+
       {isParameterDialogOpen ? (
         <StepParameterDialog
+          headerContent={<div className="run-data-actions"><p>Saved group values supply defaults. A linked data row overrides those defaults. Test Case, Suite, and Run data can override group data when enabled.</p><button className="ghost-button template-download-action" type="button" disabled={!detectedSharedParameters.length} onClick={() => downloadParameterCsvTemplate(detectedSharedParameters, "shared-step-test-params-template.csv")}>Download Test Params Template</button></div>}
           onChange={(name, value) =>
             setSharedParameterValues((current) => ({
               ...current,
@@ -1825,7 +1960,13 @@ export function SharedStepsPage() {
             }))
           }
           onClose={() => setIsParameterDialogOpen(false)}
-          parameters={detectedSharedParameters}
+          parameters={detectedSharedParameters.map((parameter) => sensitiveDataParameterNames.includes(parameter.name) ? { ...parameter, sensitive: true } : parameter)}
+          getInputState={(parameter) => ({
+            disabled: !canManageSharedStepGroups || parameter.sensitive,
+            hint: parameter.sensitive ? "Hidden by the linked Data Set." : Object.prototype.hasOwnProperty.call(linkedDataParameterValues, parameter.name)
+              ? "The selected data row supplies this parameter during execution. This field stores the fallback group default." : undefined
+          })}
+          previewValues={resolvedSharedParameterValues}
           scopeLabels={{ t: "Shared Step Group" }}
           subtitle="Detected @params from the current Shared Step Group. These values are previewed inline so reusable flows stay readable."
           title="Shared Step Group Params"

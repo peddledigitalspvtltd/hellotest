@@ -238,7 +238,11 @@ api.issues.listPage = async (input) => {
     scenario === "empty" || input.project_id !== "project" ? [] : bugs,
   );
 };
-api.requirementReleases.get = async id => {window.readinessContextCalls.push(id);return scenario === "linked" ? {id:"linked",project_id:"project",fix_version:"Autumn 2026",requirement_count:1,requirements:[{...stories[1],fix_version:null}]} : ({
+const nativeRelease = {id:"native-release",project_id:"project",name:"Native Autumn",fix_version:"Autumn 2026",sprint_ids:["native-sprint"],requirement_ids:stories.map(story=>story.id),requirement_count:stories.length,
+  requirements:stories.map(story=>({...story,fix_version:"Other shared release",sprint:"Former sprint",iteration_id:"native-sprint"}))};
+api.requirementReleases.list = async () => scenario === "native" ? [nativeRelease] : [];
+api.requirementIterations.list = async () => scenario === "native" ? [{id:"native-sprint",project_id:"project",name:"Sprint 24",state:"active"}] : [];
+api.requirementReleases.get = async id => {window.readinessContextCalls.push(id);return scenario === "native" && id === "native-release" ? nativeRelease : scenario === "linked" ? {id:"linked",project_id:"project",fix_version:"Autumn 2026",requirement_count:1,requirements:[{...stories[1],fix_version:null}]} : ({
   id: "wrong",
   project_id: "other-project",
   fix_version: "Private release",
@@ -262,7 +266,7 @@ api.executionResults.releaseReadiness = async (input) => {
   call("runs", input);
   return {
     executions:
-      scenario === "empty" || input.project_id !== "project" ? [] : runs,
+      scenario === "empty" || input.project_id !== "project" ? [] : scenario === "native" ? runs.map(run=>({...run,release:"Previous autumn name",sprint:"Former sprint",release_id:"native-release",iteration_id:"native-sprint"})) : runs,
     results:
       scenario === "empty" || input.project_id !== "project" ? [] : results,
     complete: true,

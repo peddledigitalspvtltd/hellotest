@@ -2538,10 +2538,6 @@ h6,
   text-align: left;
 }
 
-.quality-metric-strip > .evidence-flip-card.quality-metric-card .evidence-flip-card-back {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-
 .test-case-entity-icon {
   align-items: center;
   block-size: var(--test-case-entity-icon-size, 16px);

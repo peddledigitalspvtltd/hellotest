@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-history-checkout-created",
+      "issue_id": "sample-v2-issue-checkout",
+      "actor_id": null,
+      "actor_name": "Sample QA reviewer",
+      "action": "created",
+      "changes": [
+        {
+          "field": "status",
+          "label": "Status",
+          "old_value": null,
+          "new_value": "open"
+        }
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-history-retry-created",
+      "issue_id": "sample-v2-issue-retry",
+      "actor_id": null,
+      "actor_name": "Sample QA reviewer",
+      "action": "created",
+      "changes": [
+        {
+          "field": "status",
+          "label": "Status",
+          "old_value": null,
+          "new_value": "open"
+        }
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-history-retry-updated",
+      "issue_id": "sample-v2-issue-retry",
+      "actor_id": null,
+      "actor_name": "Sample QA reviewer",
+      "action": "updated",
+      "changes": [
+        {
+          "field": "status",
+          "label": "Status",
+          "old_value": "open",
+          "new_value": "in_progress"
+        }
+      ],
+      "created_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-history-offline-created",
+      "issue_id": "sample-v2-issue-offline",
+      "actor_id": null,
+      "actor_name": "Sample QA reviewer",
+      "action": "created",
+      "changes": [
+        {
+          "field": "status",
+          "label": "Status",
+          "old_value": null,
+          "new_value": "open"
+        }
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-history-offline-updated",
+      "issue_id": "sample-v2-issue-offline",
+      "actor_id": null,
+      "actor_name": "Sample QA reviewer",
+      "action": "updated",
+      "changes": [
+        {
+          "field": "status",
+          "label": "Status",
+          "old_value": "open",
+          "new_value": "resolved"
+        }
+      ],
+      "created_at": "2026-09-19T09:00:00.000Z"
+    }
+  ]
+}

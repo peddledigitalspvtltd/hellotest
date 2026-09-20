@@ -1,9 +1,11 @@
+const { normalizeAcceptanceCriteria } = require("../utils/storyAcceptanceCriteria");
 const testCaseService = require("./testCase.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { isContextSizeRejection } = require("../utils/llmContextFallback");
 const { normalizeTestStepType } = require("../utils/testStepAutomation");
 
 const DEFAULT_CASE_LIMIT = 8;
@@ -53,6 +55,7 @@ const buildRequirementReferenceMap = (requirements = []) =>
     id: requirement.id,
     title: requirement.title,
     description: requirement.description || null,
+    acceptance_criteria: normalizeAcceptanceCriteria(requirement.acceptance_criteria ?? requirement.additional_fields?.acceptance_criteria) || [],
     ref: `R${index + 1}`
   }));
 
@@ -253,6 +256,7 @@ const buildPrompt = ({ requirements, appType, maxCases, additionalContext, exter
   references.forEach((requirement) => {
     prompt.push(`- ${requirement.ref}: ${requirement.title}`);
     prompt.push(`  Description: ${requirement.description || "No description provided."}`);
+    if (requirement.acceptance_criteria.length) prompt.push(`  Acceptance Criteria: ${JSON.stringify(requirement.acceptance_criteria)}`);
   });
 
   prompt.push("");
@@ -365,7 +369,7 @@ const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => 
   return integration;
 };
 
-const requestChatCompletion = async ({ integration, content }) => {
+const requestChatCompletion = async ({ integration, content, fallbackContent, contextState }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
@@ -388,7 +392,7 @@ const requestChatCompletion = async ({ integration, content }) => {
         }
       ]
     })
-  }, { operation: "requirement-design.generate" });
+  }, { operation: "requirement-design.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -419,7 +423,8 @@ const requestGeneratedCases = async ({
   externalLinks,
   images,
   knowledge,
-  authoringMode
+  authoringMode,
+  contextState
 }) => {
   const prompt = buildPrompt({
     requirements,
@@ -429,13 +434,22 @@ const requestGeneratedCases = async ({
     externalLinks,
     images,
     knowledge,
-    authoringMode
+    authoringMode,
+    contextState
   });
 
+  const fallbackContent = buildPrompt({
+    requirements: requirements.map(({ id, title }) => ({ id, title: String(title || "").slice(0, 500) })),
+    appType: { name: "Selected application", type: appType.type }, maxCases,
+    additionalContext: "Only Story titles are available after a provider size limit. Generate proposed test coverage for human review; do not claim omitted acceptance criteria or details were verified.",
+    externalLinks: [], images: [], knowledge: null, authoringMode
+  });
   try {
     const content = images.length
       ? await requestChatCompletion({
           integration,
+          fallbackContent,
+          contextState,
           content: [
             { type: "text", text: prompt },
             ...images.map((image) => ({
@@ -446,11 +460,12 @@ const requestGeneratedCases = async ({
             }))
           ]
         })
-      : await requestChatCompletion({ integration, content: prompt });
+      : await requestChatCompletion({ integration, content: prompt, fallbackContent, contextState });
 
     return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   } catch (error) {
-    if (!images.length || ![400, 415, 422].includes(Number(error?.statusCode || 0))) {
+    if (contextState?.reduced || isContextSizeRejection(error?.upstreamStatusCode || error?.statusCode, error?.message)
+      || !images.length || ![400, 415, 422].includes(Number(error?.statusCode || 0))) {
       throw error;
     }
 
@@ -461,7 +476,7 @@ const requestGeneratedCases = async ({
       ...images.map((image, index) => `- Image ${index + 1}: ${image.name}`)
     ].join("\n");
 
-    const content = await requestChatCompletion({ integration, content: fallbackPrompt });
+    const content = await requestChatCompletion({ integration, content: fallbackPrompt, fallbackContent, contextState });
     return normalizeGeneratedCases(extractJsonPayload(content), maxCases, requirements, authoringMode);
   }
 };
@@ -514,6 +529,7 @@ exports.previewRequirementsTestCases = async ({
     user: user_id ? { id: user_id } : undefined
   });
   
+  const contextState = { reduced: false };
   const generatedCases = await requestGeneratedCases({
     integration,
     requirements: scopedRequirements,
@@ -523,7 +539,8 @@ exports.previewRequirementsTestCases = async ({
     externalLinks,
     images: normalizedImages,
     knowledge,
-    authoringMode
+    authoringMode,
+    contextState
   });
 
   return {
@@ -541,6 +558,8 @@ exports.previewRequirementsTestCases = async ({
       id: appType.id,
       name: appType.name
     },
+    context_reduced: contextState.reduced,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Drafts were generated from Story titles only; review them against the full acceptance criteria." : null,
     generated: generatedCases.length,
     cases: generatedCases.map((candidate, index) => ({
       ...candidate,

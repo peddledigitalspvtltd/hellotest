@@ -1,4 +1,4 @@
-import type { StepApiRequest, TestStep } from "../types";
+import type { StepApiRequest, TestStep, TestDataOptions } from "../types";
 import { normalizeApiRequest, normalizeStepType } from "./stepAutomation";
 import { parseCsvGrid } from "./csvGrid";
 
@@ -20,6 +20,13 @@ export type ImportedTestCaseStep = {
 
 export type ImportedTestCaseRow = {
   title: string;
+  labels?: string[];
+  author?: string;
+  reviewer?: string;
+  authoring_mode?: string;
+  test_case_type?: string;
+  gherkin_document?: string;
+  automation_status?: string;
   action?: string;
   expected_result?: string;
   requirements?: string;
@@ -29,6 +36,7 @@ export type ImportedTestCaseRow = {
   modules?: string;
   module?: string;
   test_data_references?: string;
+  test_data_options?: TestDataOptions;
   shared_groups?: Array<Record<string, unknown>>;
   description?: string;
   external_references?: string[];
@@ -49,8 +57,15 @@ type ParsedCsv = {
 };
 
 const HEADER_ALIASES: Record<keyof ImportedTestCaseRow, string[]> = {
+  labels: ["labels", "tags"],
+  author: ["author", "authorid"],
+  reviewer: ["reviewer", "reviewerid"],
+  authoring_mode: ["authoringmode", "stepformat"],
+  test_case_type: ["testcasetype", "casetype"],
+  gherkin_document: ["gherkindocument", "gherkin"],
+  automation_status: ["automationstatus"],
   title: ["title", "testcasetitle", "testcase", "testcasename", "name"],
-  action: ["action", "actions", "step", "steps", "teststep", "teststeps"],
+  action: ["action", "actions", "step", "teststep", "teststeps"],
   expected_result: ["expectedresult", "expectedresults", "expected", "result", "outcome"],
   requirements: ["stories", "storytitles", "linkedstories", "requirements", "requirementtitles", "linkedrequirements"],
   requirement: ["story", "storytitle", "linkedstory", "requirement", "requirementtitle", "linkedrequirement"],
@@ -59,6 +74,7 @@ const HEADER_ALIASES: Record<keyof ImportedTestCaseRow, string[]> = {
   modules: ["modules", "modulenames", "linkedmodules"],
   module: ["module", "modulename", "linkedmodule"],
   test_data_references: ["testdatareferences", "testdatasetids", "testdatasets", "linkeddatasets"],
+  test_data_options: ["testdataoptions", "dataoverrideoptions"],
   shared_groups: ["sharedgroups", "sharedstepgroups", "reusablegroups"],
   description: ["description", "details", "notes", "scenario"],
   external_references: ["externalreferences", "externalreference", "references", "reference", "externallinks", "externaltickets", "ticketlinks", "tickets", "jira", "issue", "issues"],
@@ -133,82 +149,80 @@ const normalizeExplicitImportedSteps = (steps: ImportedTestCaseRow["steps"]) =>
         .sort((left, right) => left.step_order - right.step_order)
     : [];
 
+/** A malformed row never becomes an incomplete case: fix the file before queuing it. */
 export function parseTestCaseCsv(text: string): ParsedCsv {
-  const grid = parseCsvGrid(text);
-
-  if (!grid.length) {
-    return {
-      headers: [],
-      rows: [],
-      warnings: ["The CSV file is empty."]
-    };
-  }
-
+  const grid = parseCsvGrid(text.replace(/^\uFEFF/, ""), { strict: true });
+  if (!grid.length) return { headers: [], rows: [], warnings: ["The CSV file is empty."] };
   const headers = grid[0];
-  const headerMap = headers.map((header) => findCanonicalKey(header));
-  const rows = grid.slice(1);
-  const warnings: string[] = [];
-
-  if (!headerMap.includes("title")) {
-    warnings.push("A title column is required. Supported aliases include Title or Test Case Title.");
-  }
-
-  const normalizedRows = rows
-    .map((row) =>
-      row.reduce<Partial<ImportedTestCaseRow>>((accumulator, value, index) => {
-        const key = headerMap[index];
-
-        if (!key || !value.trim()) {
-          return accumulator;
+  const headerMap = headers.map(findCanonicalKey);
+  if (!headerMap.includes("title")) throw new Error("A Title column is required.");
+  const mapped = headerMap.filter(Boolean);
+  if (new Set(mapped).size !== mapped.length) throw new Error("Two columns map to the same field. Keep one column per field.");
+  const warnings = headers.filter((_header, index) => !headerMap[index]).map((header) => `Unrecognized column: ${header}`);
+  const rows = grid.slice(1).map((cells, rowIndex) => {
+    const invalid = (message: string): never => { throw new Error(`Row ${rowIndex + 2}: ${message}`); };
+    if (cells.length !== headers.length) invalid(`Expected ${headers.length} columns; found ${cells.length}. Quote values that contain commas.`);
+    const row: Partial<ImportedTestCaseRow> = {};
+    cells.forEach((raw, index) => {
+      const value = raw.trim();
+      const key = headerMap[index];
+      if (!value) return;
+      if (!key) invalid(`Unsupported column "${headers[index]}" contains data.`);
+      const json = () => { try { return JSON.parse(value) as unknown; } catch { return invalid(`${headers[index]} must contain valid JSON.`); } };
+      if (key === "priority") {
+        const priority = Number(value.replace(/^P/i, ""));
+        if (!Number.isInteger(priority) || priority < 1 || priority > 5) invalid("Priority must be an integer from 1 to 5.");
+        row.priority = priority;
+      } else if (key === "test_data_options") {
+        const parsed = json();
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+          || Object.entries(parsed).some(([name, entry]) => !["override_lower_scopes", "override_shared_steps"].includes(name) || typeof entry !== "boolean")) {
+          invalid("Test Data Options must be a JSON object with boolean override_shared_steps or override_lower_scopes values.");
         }
-
-        if (key === "priority") {
-          accumulator.priority = Number(value);
-          return accumulator;
+        row.test_data_options = parsed as TestDataOptions;
+      } else if (key === "parameter_values") {
+        const parsed = value.startsWith("{") ? json() : parseParameterValuesText(value);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.values(parsed).some((entry) => entry !== null && typeof entry === "object")) invalid("Parameter Values must be a JSON object of scalar values or name=value pairs.");
+        row.parameter_values = Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([name, entry]) => [name, String(entry ?? "")]));
+      } else if (key === "steps" || key === "shared_groups") {
+        if (key === "steps" && !value.startsWith("[") && !value.startsWith("{")) {
+          row.action = value; // Legacy plain-text Steps columns remain supported.
+          return;
         }
+        const parsed = json();
+        if (!Array.isArray(parsed) || parsed.some((entry) => !entry || typeof entry !== "object" || Array.isArray(entry))) invalid(`${headers[index]} must be a JSON array of objects.`);
+        row[key] = parsed as never;
+      } else if (key === "external_references" || key === "labels") {
+        row[key] = parseReferenceList(value);
+      } else {
+        row[key!] = value as never;
+      }
+    });
+    if (!row.title?.trim()) invalid("Title is required.");
+    if (row.authoring_mode && !["structured", "gherkin"].includes(row.authoring_mode)) invalid("Authoring Mode must be structured or gherkin.");
+    if (row.authoring_mode === "gherkin" && !row.gherkin_document?.trim()) invalid("Gherkin Document is required for Gherkin authoring.");
+    return row as ImportedTestCaseRow;
+  });
+  return { headers, rows, warnings };
+}
 
-        if (key === "parameter_values") {
-          const parsed = parseJsonValue(value);
-          accumulator.parameter_values = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? Object.fromEntries(Object.entries(parsed as Record<string, unknown>).map(([name, item]) => [name, String(item ?? "")]))
-            : parseParameterValuesText(value);
-          return accumulator;
-        }
-
-        if (key === "steps") {
-          const parsed = parseJsonValue(value);
-          accumulator.steps = Array.isArray(parsed) ? parsed as ImportedTestCaseStep[] : undefined;
-          return accumulator;
-        }
-
-        if (key === "shared_groups") {
-          const parsed = parseJsonValue(value);
-          accumulator.shared_groups = Array.isArray(parsed)
-            ? parsed.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-            : undefined;
-          return accumulator;
-        }
-
-        if (key === "external_references") {
-          accumulator.external_references = parseReferenceList(value);
-          return accumulator;
-        }
-
-        accumulator[key] = value.trim() as never;
-        return accumulator;
-      }, {})
-    )
-    .filter((row): row is ImportedTestCaseRow => Boolean(row.title?.trim()));
-
-  if (!normalizedRows.length && rows.length) {
-    warnings.push("No valid rows were found. Every imported row must include a test case title.");
-  }
-
-  return {
-    headers,
-    rows: normalizedRows,
-    warnings
-  };
+/** Downloadable template is accepted unchanged and demonstrates structured metadata. */
+export function buildTestCaseImportTemplate(): Array<Record<string, unknown>> {
+  const sharedSteps = [{ step_order: 1, action: "Open @base_url", expected_result: "Sign-in page appears", step_type: "web" }];
+  return [{
+    Title: "Verify sign-in with a valid account", Description: "A registered user can access the application using valid credentials.",
+    Status: "draft", Priority: 2, "Test Case Type": "functional", Author: "", Reviewer: "", Labels: "smoke|authentication",
+    "Authoring Mode": "structured", "Gherkin Document": "", Automated: "no", "Automation Status": "not_automated", "External References": "",
+    Stories: "", Suites: "", Modules: "", "Test Data References": "",
+    "Test Data Options": { override_shared_steps: true },
+    "Parameter Values": { base_url: "https://example.test", username: "sample-user", password: "sample-password" },
+    Steps: [
+      { ...sharedSteps[0], group_name: "Example sign-in setup", group_kind: "reusable" },
+      { step_order: 2, action: "Enter @username and @password", expected_result: "Credentials are populated", group_name: "Credentials", group_kind: "local", step_type: "web" },
+      { step_order: 3, action: "Submit the form", expected_result: "Account home is displayed", group_name: "Credentials", group_kind: "local", step_type: "web" }
+    ],
+    "Shared Step Groups": [{ name: "Example sign-in setup", description: "Reusable navigation precondition", steps: sharedSteps, parameter_values: { base_url: "https://example.test" }, test_data_set_id: null, test_data_row_index: 0 }]
+  }];
 }
 
 const splitSequence = (value?: string) =>

@@ -52,7 +52,8 @@ const markJobRunning = obsDb.prepare(`
       lease_owner = ?,
       lease_expires_at = ?,
       updated_at = CURRENT_TIMESTAMP
-  WHERE id = ?
+  WHERE id = ? AND status = 'queued'
+    AND (next_run_at IS NULL OR next_run_at <= CURRENT_TIMESTAMP)
 `);
 
 const markJobRetryQueued = obsDb.prepare(`
@@ -260,7 +261,7 @@ const appendProgressEvent = async (transactionId, {
   });
 };
 
-exports.queueBatchJob = async ({
+const queueBatchJobRecord = async ({
   project_id,
   app_type_id,
   category,
@@ -316,13 +317,6 @@ exports.queueBatchJob = async ({
       operation: normalizedOperation
     }
   });
-  await workspaceTransactionService.createTransactionNotification(transaction.id, {
-    type: "batch_process.queued",
-    title: transaction.title,
-    message: `${transaction.title} was queued. Open the batch process to track progress.`
-  });
-  exports.triggerProcessing();
-
   return {
     id: transaction.id,
     transaction_id: transaction.id,
@@ -331,6 +325,17 @@ exports.queueBatchJob = async ({
     status: "queued",
     scheduled_at: scheduledAt
   };
+};
+
+exports.queueBatchJob = async input => {
+  const queued = await obsDb.transaction(() => queueBatchJobRecord(input))();
+  await workspaceTransactionService.createTransactionNotification(queued.transaction_id, {
+    type: 'batch_process.queued', title: input.title || 'Batch Process',
+    message: `${input.title || 'Batch Process'} was queued. Open the batch process to track progress.`
+  }).catch(() => null);
+  // A worker must only observe a committed process receipt and job together.
+  exports.triggerProcessing();
+  return queued;
 };
 
 exports.queueUserImport = async ({ rows = [], default_role_id, created_by } = {}) =>
@@ -358,8 +363,8 @@ exports.queueRequirementImport = async ({ project_id, rows = [], created_by } = 
     project_id,
     category: "bulk_import",
     action: "requirement_import",
-    title: "Requirement import",
-    description: `Queued ${rows.length} requirement${rows.length === 1 ? "" : "s"} for import.`,
+    title: "Story Import",
+    description: `Queued ${rows.length} Story${rows.length === 1 ? "" : "s"} for import.`,
     metadata: {
       import_source: "csv",
       total_rows: rows.length,
@@ -440,7 +445,7 @@ exports.queueTestCaseImport = async ({
   });
 };
 
-exports.queueTestCaseExport = async ({ app_type_id, test_case_ids = [], created_by } = {}) => {
+exports.queueTestCaseExport = async ({ app_type_id, test_case_ids = [], created_by, include_test_data = false, include_shared_groups = false, include_automation = false } = {}) => {
   const appType = app_type_id ? await selectAppType.get(app_type_id) : null;
 
   if (!appType) {
@@ -463,6 +468,9 @@ exports.queueTestCaseExport = async ({ app_type_id, test_case_ids = [], created_
     payload: {
       app_type_id,
       test_case_ids,
+      include_test_data,
+      include_shared_groups,
+      include_automation,
       created_by
     }
   });
@@ -585,6 +593,18 @@ async function runTestCaseExport(job) {
   const cases = selectedCaseIds.size
     ? allCases.filter((testCase) => selectedCaseIds.has(testCase.id))
     : allCases;
+  const sharedGroups = payload.include_shared_groups === true
+    ? await db.prepare("SELECT id, name, description, authoring_mode, gherkin_document, steps, parameter_values, test_data_set_id, test_data_row_index FROM shared_step_groups WHERE app_type_id = ?").all(appTypeId)
+    : [];
+  const exportStep = step => {
+    const { automation_code, api_request, ...metadata } = step;
+    return payload.include_automation === true ? step : metadata;
+  };
+  const sharedGroupsById = new Map(sharedGroups.map(group => [group.id, {
+    ...group,
+    steps: parseJsonValue(group.steps, []).map(exportStep),
+    ...(payload.include_test_data === true ? {} : { test_data_set_id: undefined, test_data_row_index: undefined })
+  }]));
 
   await appendProgressEvent(job.transaction_id, {
     phase: "collect",
@@ -603,11 +623,23 @@ async function runTestCaseExport(job) {
     "requirements",
     "suites",
     "action",
-    "expected_result"
+    "expected_result",
+    "test_data_options",
+    "test_data_references",
+    "steps",
+    "shared_groups"
   ]];
 
   for (let offset = 0; offset < cases.length; offset += EXPORT_CHUNK_SIZE) {
     const chunk = cases.slice(offset, offset + EXPORT_CHUNK_SIZE);
+    const dataLinks = payload.include_test_data === true ? await db.prepare(`
+      SELECT link.test_case_id, link.test_data_set_id
+      FROM test_case_data_sets AS link
+      JOIN test_data_sets AS data ON data.id = link.test_data_set_id
+        AND data.project_id = ? AND (data.app_type_id IS NULL OR data.app_type_id = ?)
+      WHERE link.test_case_id IN (SELECT jsonb_array_elements_text(?::jsonb))
+    `).all(appType.project_id, appTypeId, JSON.stringify(chunk.map(item => item.id))) : [];
+    const dataLinksByCase = new Map(dataLinks.map(link => [link.test_case_id, link.test_data_set_id]));
 
     for (const testCase of chunk) {
       const steps = await selectStepsForExport.all(testCase.id);
@@ -624,7 +656,12 @@ async function runTestCaseExport(job) {
         requirementNames.join("\n"),
         suiteNames.join("\n"),
         steps.map((step) => step.action || "").join("\n"),
-        steps.map((step) => step.expected_result || "").join("\n")
+        steps.map((step) => step.expected_result || "").join("\n"),
+        JSON.stringify(testCase.test_data_options || {}),
+        dataLinksByCase.get(testCase.id) || "",
+        JSON.stringify(steps.map(exportStep)),
+        JSON.stringify([...new Set(steps.map(step => step.reusable_group_id).filter(Boolean))]
+          .map(id => sharedGroupsById.get(id)).filter(Boolean))
       ]);
     }
 
@@ -730,7 +767,8 @@ exports.processQueuedJobs = async () => {
         }
 
         const leaseExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-        await markJobRunning.run(workerId, leaseExpiresAt, job.id);
+        const claim = await markJobRunning.run(workerId, leaseExpiresAt, job.id);
+        if (claim.changes !== 1) continue;
         await workspaceTransactionService.updateTransaction(job.transaction_id, {
           status: "running",
           started_at: new Date().toISOString(),

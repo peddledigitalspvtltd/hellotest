@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "requirement_id": "sample-v2-req-accessibility",
+      "issue_id": "sample-v2-issue-checkout",
+      "link_source": "manual"
+    },
+    {
+      "requirement_id": "sample-v2-req-checkout",
+      "issue_id": "sample-v2-issue-retry",
+      "link_source": "manual"
+    },
+    {
+      "requirement_id": "sample-v2-req-mobile",
+      "issue_id": "sample-v2-issue-offline",
+      "link_source": "manual"
+    },
+    {
+      "requirement_id": "sample-v4-metrics-story-dev-done",
+      "issue_id": "sample-v4-metrics-defect-dev-done",
+      "link_source": "manual"
+    },
+    {
+      "requirement_id": "sample-v4-metrics-story-blocked",
+      "issue_id": "sample-v4-metrics-defect-blocked",
+      "link_source": "manual"
+    }
+  ]
+}

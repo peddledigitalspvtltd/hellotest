@@ -1,3 +1,4 @@
+const { normalizeDataOptions } = require("../utils/scopedTestData");
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const { hostname } = require("os");
@@ -126,6 +127,10 @@ const claimDueExecutionSchedules = db.transaction(async (workerId, limit, leaseM
       AND next_run_at IS NOT NULL
       AND next_run_at <= CURRENT_TIMESTAMP
       AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+      AND NOT EXISTS (
+        SELECT 1 FROM project_deletion_jobs
+        WHERE project_id = execution_schedules.project_id AND status IN ('queued', 'running', 'cleanup')
+      )
     ORDER BY next_run_at ASC, created_at ASC, id ASC
     LIMIT ?
     FOR UPDATE SKIP LOCKED
@@ -385,6 +390,7 @@ async function validateSchedulePayload({
 }
 
 exports.createExecutionSchedule = async (input = {}) => {
+  const dataOptions = normalizeDataOptions(input.test_data_options);
   const id = uuid();
   const suiteIds = normalizeTextList(input.suite_ids);
   const testCaseIds = normalizeTextList(input.test_case_ids);
@@ -403,32 +409,36 @@ exports.createExecutionSchedule = async (input = {}) => {
     test_case_ids: testCaseIds
   });
 
-  await insertExecutionSchedule.run(
-    id,
-    input.project_id,
-    normalizeText(input.app_type_id),
-    normalizeText(input.name) || "Scheduled Execution",
-    cadence,
-    nextRunAt,
-    suiteIds,
-    testCaseIds,
-    normalizeText(input.test_environment_id),
-    normalizeText(input.test_configuration_id),
-    normalizeText(input.test_data_set_id),
-    normalizeText(input.release),
-    normalizeText(input.sprint),
-    normalizeText(input.build),
-    assignedToIds[0] || null,
-    assignedToIds,
-    input.created_by,
-    input.is_active === false ? false : true
-  );
+  return db.transaction(async () => {
+    await insertExecutionSchedule.run(
+      id,
+      input.project_id,
+      normalizeText(input.app_type_id),
+      normalizeText(input.name) || "Scheduled Execution",
+      cadence,
+      nextRunAt,
+      suiteIds,
+      testCaseIds,
+      normalizeText(input.test_environment_id),
+      normalizeText(input.test_configuration_id),
+      normalizeText(input.test_data_set_id),
+      normalizeText(input.release),
+      normalizeText(input.sprint),
+      normalizeText(input.build),
+      assignedToIds[0] || null,
+      assignedToIds,
+      input.created_by,
+      input.is_active === false ? false : true
+    );
 
-  return { id };
+    await db.prepare("UPDATE execution_schedules SET test_data_options = ? WHERE id = ?").run(dataOptions, id);
+    return { id };
+  })();
 };
 
 exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
   const existing = await exports.getExecutionSchedule(id);
+  const dataOptions = normalizeDataOptions(input.test_data_options ?? existing.test_data_options);
   const payload = {
     project_id: Object.prototype.hasOwnProperty.call(input, "project_id") ? normalizeText(input.project_id) : existing.project_id,
     app_type_id: Object.prototype.hasOwnProperty.call(input, "app_type_id") ? normalizeText(input.app_type_id) : existing.app_type_id,
@@ -452,26 +462,29 @@ exports.updateExecutionSchedule = async (id, input = {}, actorId = null) => {
   const suiteIds = normalizeTextList(payload.suite_ids);
   const testCaseIds = normalizeTextList(payload.test_case_ids);
 
-  await updateExecutionSchedule.run(
-    payload.project_id,
-    payload.app_type_id,
-    Object.prototype.hasOwnProperty.call(input, "name") ? normalizeText(input.name) || "Scheduled Execution" : normalizeText(existing.name) || "Scheduled Execution",
-    Object.prototype.hasOwnProperty.call(input, "cadence") ? normalizeText(input.cadence) || "once" : normalizeText(existing.cadence) || "once",
-    Object.prototype.hasOwnProperty.call(input, "next_run_at") ? normalizeText(input.next_run_at) : existing.next_run_at,
-    suiteIds,
-    testCaseIds,
-    payload.test_environment_id,
-    payload.test_configuration_id,
-    payload.test_data_set_id,
-    Object.prototype.hasOwnProperty.call(input, "release") ? normalizeText(input.release) : normalizeText(existing.release),
-    Object.prototype.hasOwnProperty.call(input, "sprint") ? normalizeText(input.sprint) : normalizeText(existing.sprint),
-    Object.prototype.hasOwnProperty.call(input, "build") ? normalizeText(input.build) : normalizeText(existing.build),
-    payload.assigned_to,
-    payload.assigned_to_ids,
-    id
-  );
+  return db.transaction(async () => {
+    await updateExecutionSchedule.run(
+      payload.project_id,
+      payload.app_type_id,
+      Object.prototype.hasOwnProperty.call(input, "name") ? normalizeText(input.name) || "Scheduled Execution" : normalizeText(existing.name) || "Scheduled Execution",
+      Object.prototype.hasOwnProperty.call(input, "cadence") ? normalizeText(input.cadence) || "once" : normalizeText(existing.cadence) || "once",
+      Object.prototype.hasOwnProperty.call(input, "next_run_at") ? normalizeText(input.next_run_at) : existing.next_run_at,
+      suiteIds,
+      testCaseIds,
+      payload.test_environment_id,
+      payload.test_configuration_id,
+      payload.test_data_set_id,
+      Object.prototype.hasOwnProperty.call(input, "release") ? normalizeText(input.release) : normalizeText(existing.release),
+      Object.prototype.hasOwnProperty.call(input, "sprint") ? normalizeText(input.sprint) : normalizeText(existing.sprint),
+      Object.prototype.hasOwnProperty.call(input, "build") ? normalizeText(input.build) : normalizeText(existing.build),
+      payload.assigned_to,
+      payload.assigned_to_ids,
+      id
+    );
 
-  return { updated: true };
+    await db.prepare("UPDATE execution_schedules SET test_data_options = ? WHERE id = ?").run(dataOptions, id);
+    return { updated: true };
+  })();
 };
 
 exports.getExecutionSchedules = async ({ project_id, app_type_id, is_active } = {}) => {
@@ -531,6 +544,7 @@ exports.runExecutionSchedule = async (id, created_by, { claimedSchedule, leaseOw
     test_environment_id: schedule.test_environment_id || undefined,
     test_configuration_id: schedule.test_configuration_id || undefined,
     test_data_set_id: schedule.test_data_set_id || undefined,
+    test_data_options: normalizeDataOptions(schedule.test_data_options),
     assigned_to_ids: schedule.assigned_to_ids || [],
     assigned_to: schedule.assigned_to || undefined,
     release: schedule.release || undefined,

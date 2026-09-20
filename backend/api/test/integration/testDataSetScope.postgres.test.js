@@ -11,6 +11,7 @@ test("linked data set scope changes and case hydration enforce stored ownership"
   try {
     assert.equal((await db.prepare("SELECT to_regclass('public.projects') AS name").get()).name, null);
     await db.query(fs.readFileSync(path.resolve(__dirname, "../../../db/schema.sql"), "utf8"));
+    await require("../../src/db/bootstrap").ensureRuntimeSchema();
     await db.query(`INSERT INTO projects(id,name) VALUES ('project-a','Scope A'),('project-b','Scope B');
       INSERT INTO app_types(id,project_id,name,type) VALUES
         ('app-a','project-a','App A','web'),('app-a2','project-a','App A2','web'),('app-b','project-b','App B','web');

@@ -705,7 +705,7 @@ const serializeBug = (row) => ({
   app_type_id: null,
   title: row.title || row.display_id || row.id,
   content: [
-    `Bug ${row.display_id || row.id}: ${row.title}`,
+    `Defect ${row.display_id || row.id}: ${row.title}`,
     `Status: ${row.status || "not recorded"}`,
     `Severity: ${row.severity || "not recorded"}`,
     `Priority: ${row.priority || "not recorded"}`,
@@ -783,7 +783,7 @@ const loadApplicationRecord = async (projectId, kind, id) => {
         linked_requirement_ids, labels, created_at, updated_at
       FROM feedback WHERE id = ? AND project_id = ?
     `).get(id, projectId);
-    if (!row) throw createError(`Bug ${id} was not found in this project.`, 404);
+    if (!row) throw createError(`Defect ${id} was not found in this project.`, 404);
     return serializeBug(row);
   }
   throw createError(`Unsupported application record type: ${kind}`);
@@ -1530,7 +1530,7 @@ const ingest = async ({ projectId, collectionId, appTypeId, title, inputs, selec
   if (!normalizedProjectId) throw createError("project_id is required.");
   await assertCollectionScope(normalizedProjectId, collectionId);
   const rawInputs = [...asArray(inputs), ...normalizeSelectedRecordInputs(selectedRecords)];
-  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Bug, text, chat, URL, or file input.");
+  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Defect, text, chat, URL, or file input.");
   if (rawInputs.length > MAX_INPUTS) throw createError(`A single ingestion can contain at most ${MAX_INPUTS} inputs.`);
   await assertRecordSourcePermissions(normalizedProjectId, rawInputs, user);
   const chunkingOptions = normalizeChunkingOptions(asObject(chunking));
@@ -1696,7 +1696,7 @@ const enqueueIngestion = async ({
   if (!normalizedProjectId) throw createError("project_id is required.");
   await assertCollectionScope(normalizedProjectId, collectionId);
   const rawInputs = [...asArray(inputs), ...normalizeSelectedRecordInputs(selectedRecords)];
-  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Bug, text, chat, URL, or file input.");
+  if (!rawInputs.length) throw createError("Choose at least one Story, Test Case, Test Run, Defect, text, chat, URL, or file input.");
   if (rawInputs.length > MAX_INPUTS) throw createError(`A single ingestion can contain at most ${MAX_INPUTS} inputs.`);
   await assertRecordSourcePermissions(normalizedProjectId, rawInputs, user);
   const preparedInputs = [];

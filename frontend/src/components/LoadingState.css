@@ -24,21 +24,8 @@
   max-width: none;
   overflow: visible;
   transform: translate(-50%, -50%);
-  /* Keep the white orbit visible over both light and dark application themes. */
-  filter: drop-shadow(0 1px 2px rgb(0 0 16 / 24%));
+  filter: drop-shadow(0 1px 1px rgb(255 255 255 / 90%));
 }
-
-.screen-loading-orbit {
-  transform-origin: 120px 120px;
-  animation: screen-loading-orbit 2.4s linear infinite;
-}
-
-.screen-loading-orbit.is-blue { --orbit-angle: -35deg; animation-duration: 2.8s; }
-.screen-loading-orbit.is-purple { --orbit-angle: 42deg; animation-duration: 2.1s; animation-direction: reverse; }
-.screen-loading-orbit.is-gold { --orbit-angle: -28deg; animation-duration: 3.2s; }
-.screen-loading-orbit.is-green { --orbit-angle: -10deg; animation-duration: 2.6s; animation-direction: reverse; }
-.screen-loading-orbit.is-red { --orbit-angle: 16deg; animation-duration: 2.3s; }
-.screen-loading-orbit.is-white { --orbit-angle: 12deg; animation-duration: 3s; }
 
 .screen-loading-label {
   position: absolute;
@@ -46,14 +33,24 @@
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  color: var(--ds-text, var(--text, #172b4d));
+  color: #404040;
   font-family: "Hanken Grotesk", "Inter", sans-serif;
   font-size: clamp(14px, 3.5vmin, 16px);
-  font-weight: 400;
+  font-weight: 600;
   line-height: 1.25;
   white-space: nowrap;
   text-align: center;
-  text-shadow: 0 1px 3px var(--panel, #fff);
+  text-shadow: 0 1px 2px #fff;
+}
+
+/* Some dialogs use a light surface inside a dark workspace, and vice versa. */
+:root[data-theme="dark"] .screen-loading-ring {
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 90%));
+}
+
+:root[data-theme="dark"] .screen-loading-label {
+  color: #f5f5f5;
+  text-shadow: 0 1px 2px #000, 0 0 1px #000;
 }
 
 .screen-loading-description {
@@ -66,11 +63,6 @@
   white-space: nowrap;
 }
 
-@keyframes screen-loading-orbit {
-  from { transform: rotate(var(--orbit-angle)); }
-  to { transform: rotate(calc(var(--orbit-angle) + 360deg)); }
-}
-
 @keyframes screen-loading-enter {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -78,8 +70,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .screen-loading-overlay { animation: none; transition: none; }
-  .screen-loading-orbit {
-    animation: none;
-    transform: rotate(var(--orbit-angle));
-  }
+}
+
+@media (forced-colors: active) {
+  .screen-loading-label { color: CanvasText; }
 }

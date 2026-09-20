@@ -1806,7 +1806,6 @@ button.execution-command-tree-row:hover,
   border-radius: 14px;
 }
 .execution-run-insight-card .evidence-flip-card-inner { min-height: 15.5rem; height: 100%; }
-.execution-run-insight-card .evidence-flip-card-back { grid-template-rows: auto auto 1fr auto; }
 .execution-run-insight-card.is-flipped .evidence-flip-card-inner { height: auto; }
 .execution-run-insight-card.is-flipped .evidence-flip-card-back { position: relative; min-height: 15.5rem; }
 .execution-run-command-center .execution-run-insight-card .project-stat-evidence { overflow: visible; overscroll-behavior: auto; min-height: 0; overflow-wrap: anywhere; }

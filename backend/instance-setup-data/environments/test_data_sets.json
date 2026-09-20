@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-data-customers",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Customer personas",
+      "description": "Synthetic customer rows illustrating regional and payment variations.",
+      "mode": "table",
+      "columns": [
+        "email",
+        "segment",
+        "region",
+        "payment_method"
+      ],
+      "rows": [
+        {
+          "email": "alex@example.test",
+          "segment": "standard",
+          "region": "us-east",
+          "payment_method": "approved-card"
+        },
+        {
+          "email": "priya@example.test",
+          "segment": "premium",
+          "region": "eu-west",
+          "payment_method": "approved-card"
+        },
+        {
+          "email": "sam@example.test",
+          "segment": "new",
+          "region": "ap-south",
+          "payment_method": "declined-card"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-data-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Order contract inputs",
+      "description": "Known product and idempotency inputs.",
+      "mode": "table",
+      "columns": [
+        "sku",
+        "request_key",
+        "quantity"
+      ],
+      "rows": [
+        {
+          "sku": "TRAIL-100",
+          "request_key": "sample-order-001",
+          "quantity": "1"
+        },
+        {
+          "sku": "TRAIL-200",
+          "request_key": "sample-order-002",
+          "quantity": "2"
+        }
+      ]
+    }
+  ]
+}

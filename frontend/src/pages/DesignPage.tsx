@@ -1,3 +1,5 @@
+import "../components/ScopedRunCreation.css";
+import type { TestDataOptions } from "../types";
 import { RunDataSetup } from "../components/RunDataSetup";
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -300,6 +302,7 @@ export function DesignPage() {
   const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
+  const [selectedExecutionDataOptions, setSelectedExecutionDataOptions] = useState<TestDataOptions>({});
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
   const [executionRelease, setExecutionRelease] = useState("");
@@ -499,7 +502,7 @@ export function DesignPage() {
 
   const createSuiteMutation = useMutation({ mutationFn: api.testSuites.create });
   const updateSuiteMutation = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number }> }) =>
+    mutationFn: ({ id, input }: { id: string; input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_options: TestDataOptions; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number }> }) =>
       api.testSuites.update(id, input)
   });
   const assignSuiteCasesMutation = useMutation({
@@ -610,6 +613,7 @@ export function DesignPage() {
     setSelectedExecutionEnvironmentId("");
     setSelectedExecutionConfigurationId("");
     setSelectedExecutionDataSetId("");
+    setSelectedExecutionDataOptions({});
   };
 
   const closeCreateExecutionModal = () => {
@@ -1085,6 +1089,11 @@ export function DesignPage() {
     Number(caseRunFilter !== "all");
   const suiteParameterDialogHeaderContent = selectedSuite ? (
     <div className="step-parameter-dialog-context">
+      <RunDataSetup suiteContextId={selectedSuite.id} suiteMode projectId={projectId} appTypeId={appTypeId} suites={[selectedSuite]} cases={[]}
+        dataSetId={selectedSuite.test_data_set_id || ""} dataOptions={selectedSuite.test_data_options} parameterValues={selectedSuite.parameter_values}
+        disabled={!can("suite.update") || updateSuiteMutation.isPending}
+        onDataSetChange={value => updateSuiteMutation.mutate({ id: selectedSuite.id, input: { test_data_set_id: value || null } }, { onSuccess: () => updateSuitesCache(current => current.map(suite => suite.id === selectedSuite.id ? { ...suite, test_data_set_id: value || null } : suite)), onError: error => showError(error, "Unable to link suite test data") })}
+        onDataOptionsChange={value => updateSuiteMutation.mutate({ id: selectedSuite.id, input: { test_data_options: value } }, { onSuccess: () => updateSuitesCache(current => current.map(suite => suite.id === selectedSuite.id ? { ...suite, test_data_options: value } : suite)), onError: error => showError(error, "Unable to save suite data options") })} />
       <div className="step-parameter-dialog-context-card">
         <strong>Suite scope</strong>
         <span>{selectedSuite.name} · {orderedSuiteCases.length} linked case{orderedSuiteCases.length === 1 ? "" : "s"} in this suite context.</span>
@@ -1302,18 +1311,21 @@ export function DesignPage() {
   };
 
   const updateSuitesCache = (updater: (current: TestSuite[]) => TestSuite[]) => {
+    void queryClient.invalidateQueries({ queryKey: ["run-parameter-plan", projectId, appTypeId] });
     queryClient.setQueryData<TestSuite[]>(["design-suites", appTypeId], (current = []) => updater(current));
     queryClient.setQueryData<TestSuite[]>(["test-case-suites", appTypeId], (current = []) => updater(current));
     queryClient.setQueryData<TestSuite[]>(["test-suites"], (current = []) => updater(current));
   };
 
   const updateStepsCache = (testCaseId: string, updater: (current: TestStep[]) => TestStep[]) => {
+    void queryClient.invalidateQueries({ queryKey: ["run-parameter-plan", projectId, appTypeId] });
     queryClient.setQueryData<TestStep[]>(["design-test-steps", testCaseId], (current = []) => updater(current));
     queryClient.setQueryData<TestStep[]>(["test-steps"], (current = []) => updater(current));
   };
 
   const refreshSuites = async () => {
     await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["run-parameter-plan", projectId, appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["design-suites", appTypeId] }),
       queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["test-suites"] }),
@@ -1395,7 +1407,6 @@ export function DesignPage() {
     }
     try {
       let suiteId = selectedSuiteId;
-      let membershipExpectedRevision: number | undefined;
 
       if (suiteModalMode === "create") {
         const response = await createSuiteMutation.mutateAsync({
@@ -1403,36 +1414,29 @@ export function DesignPage() {
           name: input.name,
           description: input.description,
           labels: input.labels,
-          ...(can("data.view") ? { test_data_set_id: input.test_data_set_id || "" } : {}),
+          ...(can("testcase.view") ? { test_case_ids: input.selectedIds } : {}),
+          ...(can("data.view") ? { test_data_options: input.test_data_options, test_data_set_id: input.test_data_set_id || "" } : {}),
           parallel_enabled: canConfigureParallelAutomation ? input.parallel_enabled : false,
           parallel_count: canConfigureParallelAutomation && input.parallel_enabled ? input.parallel_count : 1
         });
         suiteId = response.id;
       } else if (selectedSuite) {
-        const response = await updateSuiteMutation.mutateAsync({
+        await updateSuiteMutation.mutateAsync({
           id: selectedSuite.id,
           input: {
             name: input.name,
             description: input.description,
             labels: input.labels,
-            ...(can("data.view") ? { test_data_set_id: input.test_data_set_id || "" } : {}),
+          ...(can("testcase.view") ? { test_case_ids: input.selectedIds } : {}),
+            ...(can("data.view") ? { test_data_options: input.test_data_options, test_data_set_id: input.test_data_set_id || "" } : {}),
             ...(canConfigureParallelAutomation ? {
               parallel_enabled: input.parallel_enabled,
               parallel_count: input.parallel_enabled ? input.parallel_count : 1
             } : {})
           }
         });
-        membershipExpectedRevision = response.revision;
       }
 
-      if (can("testcase.view") && suiteId && (suiteModalMode === "edit" || input.selectedIds.length)) {
-        await assignSuiteCasesMutation.mutateAsync({
-          id: suiteId,
-          testCaseIds: input.selectedIds,
-          expectedRevision: membershipExpectedRevision,
-          append: false
-        });
-      }
 
       if (suiteId) {
         syncSuiteSearchParams(suiteId);
@@ -1636,6 +1640,7 @@ export function DesignPage() {
         suite_ids: executionTargetSuiteIds,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
         test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_options: selectedExecutionDataOptions,
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         execution_mode: executionStartMode === "local" && canRunLocalAutomation
           ? "local"
@@ -2264,6 +2269,8 @@ export function DesignPage() {
           selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
           selectedAppType={selectedAppType?.name || ""}
+          dataOptions={selectedExecutionDataOptions}
+          onDataOptionsChange={setSelectedExecutionDataOptions}
           selectedDataSetId={selectedExecutionDataSetId}
           selectedEnvironmentId={selectedExecutionEnvironmentId}
           selectedProject={selectedProject?.name || ""}
@@ -2639,9 +2646,7 @@ function SuiteSidebar({
 		                        </label>
 		                        <EntityIdBadge icon={<TileCardSuiteIcon />} value={suite.display_id || suite.id} />
 	                        <div className="catalog-inline-actions test-case-top-actions">
-	                          {suite.labels?.slice(0, 2).map((label) => (
-	                            <span className="test-case-source-badge is-api" key={label}>{label}</span>
-	                          ))}
+
 	                          <StatusBadge value={latestRunLabel} />
 	                        </div>
 	                      </div>
@@ -4015,6 +4020,7 @@ function SuiteExecutionModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
+  dataOptions, onDataOptionsChange,
   executionStartMode,
   executionStartDate,
   executionEndDate,
@@ -4066,6 +4072,7 @@ function SuiteExecutionModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  dataOptions: TestDataOptions; onDataOptionsChange: (value: TestDataOptions) => void;
   executionStartMode: ExecutionStartMode;
   executionStartDate: string;
   executionEndDate: string;
@@ -4100,6 +4107,7 @@ function SuiteExecutionModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [dataSetValid, setDataSetValid] = useState(!selectedDataSetId);
   const { can } = useCapabilityAccess(projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSubmitting, onClose });
   return (
@@ -4107,13 +4115,16 @@ function SuiteExecutionModal({
       <div
         aria-labelledby="create-suite-execution-title"
         aria-modal="true"
-        className="modal-card execution-create-modal"
+        className="modal-card execution-create-modal scoped-run-create-modal"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
-        <form className="execution-create-form" onSubmit={onSubmit}>
+        <form className="execution-create-form" onSubmit={(event) => {
+          if (!dataSetValid) { event.preventDefault(); return; }
+          onSubmit(event);
+        }}>
           <div className="execution-create-header">
             <div className="execution-create-title">
               <p className="dialog-context-label">Test runs</p>
@@ -4128,7 +4139,9 @@ function SuiteExecutionModal({
             <DialogCloseButton disabled={isSubmitting} label="Close create run dialog" onClick={onClose} />
           </div>
 
-          <div className="execution-create-body">
+          <div className="execution-create-body scoped-run-create-body">
+            <aside className="scoped-run-config-pane" aria-label="Run configuration">
+              <div className="scoped-run-pane-heading"><strong>Run Configuration</strong><span>Settings and reusable test data</span></div>
             <div className="execution-create-grid">
               <FormField label="Run name">
                 <input
@@ -4147,6 +4160,8 @@ function SuiteExecutionModal({
                 />
               </FormField>
             </div>
+
+            <RunDataSetup onValidityChange={setDataSetValid} dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange} appTypeId={appTypeId} projectId={projectId} suites={scopeSuites.filter(suite => selectedSuiteIds.includes(suite.id))} cases={[]} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange} environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
             <div className="execution-create-grid execution-create-grid--metadata">
               {can("requirement_iteration.view") ? <FormField label="Release">
@@ -4219,7 +4234,7 @@ function SuiteExecutionModal({
               <span>{selectedAppType || "Choose an app type"}</span>
             </div>
 
-            <ExecutionContextSelector
+            <ExecutionContextSelector hideDataSet
               appTypeId={appTypeId}
               onConfigurationChange={onConfigurationChange}
               onDataSetChange={onDataSetChange}
@@ -4231,14 +4246,12 @@ function SuiteExecutionModal({
               selectedEnvironmentId={selectedEnvironmentId}
             />
 
-            <RunDataSetup appTypeId={appTypeId} projectId={projectId} suites={scopeSuites.filter(suite => selectedSuiteIds.includes(suite.id))} cases={[]} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange} environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
-            <RunHooksBuilder
-              onChange={onExecutionHookDraftChange}
-              suites={scopeSuites}
-              testCases={testCases}
-              value={executionHookDraft}
-            />
+
+            </aside>
+            <section className="scoped-run-selection-pane" aria-label="Run suites and hooks">
+              <div className="scoped-run-pane-heading"><strong>Suites &amp; Hooks</strong><span>{selectedSuiteIds.length} suites selected for this run</span></div>
+
 
             <FormField label="Suites" required>
               <div className="suite-modal-picker-shell suite-modal-picker-shell--scope">
@@ -4255,11 +4268,19 @@ function SuiteExecutionModal({
               </div>
             </FormField>
 
+            <RunHooksBuilder
+              onChange={onExecutionHookDraftChange}
+              suites={scopeSuites}
+              testCases={testCases}
+              value={executionHookDraft}
+            />
+
             {!scopeSuites.length && selectedAppType ? <div className="empty-state compact">No suites available for this app type. Create a suite first.</div> : null}
+            </section>
           </div>
 
           <div className="action-row execution-create-actions">
-            <button className="primary-button" disabled={!canCreateExecution || isSubmitting} type="submit">
+            <button className="primary-button" disabled={!canCreateExecution || isSubmitting || !dataSetValid} type="submit">
               {isSubmitting
                 ? "Creating…"
                 : executionStartMode === "remote"

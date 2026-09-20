@@ -24,12 +24,13 @@ test("project portfolio keeps exact metrics while transferring only relevant exe
         CREATE TABLE app_types(id text, project_id text, name text, type text, is_unified boolean);
         CREATE TABLE requirements(id text, project_id text, display_id text, title text);
         CREATE TABLE test_case_modules(id text, app_type_id text, name text);
-        CREATE TABLE test_cases(id text, app_type_id text, title text, automated text, automation_status text);
+        CREATE TABLE test_cases(id text, app_type_id text, title text, automated text, automation_status text, requirement_id text);
         CREATE TABLE test_suites(id text, app_type_id text);
         CREATE TABLE requirement_test_cases(requirement_id text, test_case_id text);
         CREATE TABLE test_case_module_cases(module_id text, test_case_id text);
         CREATE TABLE executions(id text PRIMARY KEY, project_id text, name text, status text, trigger text, created_at timestamptz, started_at timestamptz, ended_at timestamptz, duration_ms integer, oversized_snapshot text);
-        CREATE TABLE execution_results(id text PRIMARY KEY, execution_id text, test_case_id text, status text, created_at timestamptz, oversized_snapshot text);
+        CREATE TABLE execution_results(id text PRIMARY KEY, execution_id text, test_case_id text, status text, created_at timestamptz, oversized_snapshot text, data_set_iteration_index integer, data_set_iteration_key text);
+        CREATE TABLE execution_case_snapshots(execution_id text, test_case_id text, test_data_set_snapshot jsonb);
         CREATE TABLE attachments(project_id text, entity_type text, entity_id text, mime_type text);
         CREATE TABLE entity_comments(project_id text, entity_type text, entity_id text, body text);
         CREATE TABLE feedback(id text, project_id text, display_id text, title text, status text, severity text, priority text, linked_test_case_ids jsonb, linked_module_ids jsonb, linked_requirement_ids jsonb);
@@ -42,7 +43,7 @@ test("project portfolio keeps exact metrics while transferring only relevant exe
         INSERT INTO app_types VALUES ('app','own','Web','web',false),('foreign-app','locked','Private app','web',false);
         INSERT INTO requirements VALUES ('story','own','STORY-1','Story'),('foreign-story','locked','STORY-2','Private story');
         INSERT INTO test_case_modules VALUES ('module','app','Module');
-        INSERT INTO test_cases VALUES ('case-a','app','A','yes','ready'),('case-b','app','B','no','not_automated'),('foreign-case','foreign-app','Private case','yes','ready');
+        INSERT INTO test_cases(id,app_type_id,title,automated,automation_status) VALUES ('case-a','app','A','yes','ready'),('case-b','app','B','no','not_automated'),('foreign-case','foreign-app','Private case','yes','ready');
         INSERT INTO test_suites VALUES ('suite','app'),('foreign-suite','foreign-app');
         INSERT INTO requirement_test_cases VALUES ('story','case-a');
         INSERT INTO test_case_module_cases VALUES ('module','case-a');
@@ -109,14 +110,42 @@ test("project portfolio keeps exact metrics while transferring only relevant exe
       assert.equal(own.failure_impacts.modules.total, 1);
       assert.equal(own.bug_impacts.requirements.total, 1);
       assert.equal(metrics.summary.locked_projects, 1);
+      assert.equal(own.latest_run_pass_rate.execution.id, "pending", "the tile uses the true newest run even when only pending");
+      assert.equal(own.latest_run_pass_rate.percent, 0);
+      assert.equal(own.latest_run_pass_rate.counts.pending, 1);
+
+      await db.query(`
+        INSERT INTO requirements VALUES ('legacy-story','own','STORY-3','Legacy Story'),('invalid-story','own','STORY-4','Invalid mapping');
+        INSERT INTO requirement_test_cases VALUES ('story','case-a'),('story','case-b'),('invalid-story','foreign-case'),('invalid-story','deleted-case');
+        UPDATE test_cases SET requirement_id = 'legacy-story' WHERE id = 'case-b';
+        INSERT INTO execution_case_snapshots VALUES ('pending','case-a','{"rows":[{},{}]}'),('pending','case-b','{"mode":"key_value","rows":[{},{}]}');
+        UPDATE execution_results SET status='failed',data_set_iteration_index=0 WHERE id='in-progress';
+        INSERT INTO execution_results(id,execution_id,test_case_id,status,created_at,data_set_iteration_index,data_set_iteration_key) VALUES
+          ('retry-pass','pending','case-a','passed','2026-01-07',0,'replacement-key'),
+          ('na','pending','case-b','not_applicable','2026-01-07',0,'row-one');
+      `);
+      const partial = (await analytics.buildPortfolioAnalytics("actor")).projects[0];
+      assert.deepEqual(partial.story_coverage, { total: 3, covered: 2, percent: 67 }, "unique same-project mappings and legacy direct links count once; invalid/foreign links do not");
+      assert.equal(partial.latest_run_pass_rate.total, 2);
+      assert.equal(partial.latest_run_pass_rate.counts.pending, 1, "missing planned data rows prevent a whole-case pass");
+      assert.equal(partial.latest_run_pass_rate.counts.not_applicable, 1);
+      await db.query(`INSERT INTO execution_results(id,execution_id,test_case_id,status,created_at,data_set_iteration_index) VALUES ('final-row','pending','case-a','passed','2026-01-08',1)`);
+      const completed = (await analytics.buildPortfolioAnalytics("actor")).projects[0].latest_run_pass_rate;
+      assert.equal(completed.total, 2, "two data rows still represent one Test Case");
+      assert.equal(completed.passed, 1);
+      assert.equal(completed.percent, 50, "resolved Bugs and older run results never contribute to this tile");
 
       await db.prepare("DELETE FROM execution_results WHERE execution_id <> 'foreign'").run();
       const withoutFinalized = await analytics.buildPortfolioAnalytics("actor");
       assert.equal(withoutFinalized.projects[0].latest_execution.id, "pending");
       assert.equal(withoutFinalized.projects[0].execution_evidence.total, 0);
+      assert.equal(withoutFinalized.projects[0].latest_run_pass_rate.percent, null, "planned scope without outcomes is unassessed");
+      assert.equal(withoutFinalized.projects[0].latest_run_pass_rate.counts.pending, 2);
       await db.prepare("DELETE FROM executions WHERE project_id = 'own'").run();
       const withoutRuns = await analytics.buildPortfolioAnalytics("actor");
       assert.equal(withoutRuns.projects[0].latest_execution, null, "empty run ID lists remain valid SQL");
+      assert.equal(withoutRuns.projects[0].latest_run_pass_rate.execution, null);
+      assert.equal(withoutRuns.projects[0].latest_run_pass_rate.percent, null);
       throw rollback;
     })();
   } catch (error) {

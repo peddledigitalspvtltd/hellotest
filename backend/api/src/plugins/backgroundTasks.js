@@ -6,6 +6,8 @@ const batchProcessService = require("../services/batchProcess.service");
 const knowledgeRagService = require("../services/knowledgeRag.service");
 const requirementWorkspaceService = require("../services/requirementWorkspace.service");
 const repositoryAgentsService = require("../agents/repositoryAgents.service");
+const projectDeletionService = require("../services/projectDeletion.service");
+const instanceSetupService = require("../services/instanceSetup.service");
 
 module.exports = async function backgroundTasksPlugin(fastify) {
   const timers = new Set();
@@ -39,6 +41,20 @@ module.exports = async function backgroundTasksPlugin(fastify) {
       timers.add(timer);
     });
   };
+
+  registerRecurringTask({
+    intervalMs: 2 * 1000,
+    label: "Unable to process queued instance setup",
+    run: () => instanceSetupService.processNext(),
+    runImmediately: false
+  });
+
+  registerRecurringTask({
+    intervalMs: 2 * 1000,
+    label: "Unable to process queued project deletion",
+    run: () => projectDeletionService.processNext(),
+    runImmediately: false
+  });
 
   registerRecurringTask({
     intervalMs: 2 * 1000,
@@ -100,6 +116,8 @@ module.exports = async function backgroundTasksPlugin(fastify) {
 
   fastify.addHook("onClose", async () => {
     acceptingWork = false;
+    await instanceSetupService.close();
+    await projectDeletionService.close();
     await repositoryAgentsService.shutdown();
     for (const timer of timers) {
       clearInterval(timer);

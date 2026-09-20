@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-step-stock-automated",
+      "test_case_id": "sample-v2-case-stock-automated",
+      "step_order": 1,
+      "action": "Request stock for <sku>",
+      "expected_result": "The response contains the requested SKU and available quantity.",
+      "step_type": "api",
+      "api_request": {
+        "method": "GET",
+        "url": "{{base_url}}/v1/inventory/{{sku}}",
+        "body_mode": "none",
+        "headers": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          },
+          {
+            "kind": "json_path",
+            "target": "$.sku",
+            "expected": "{{sku}}"
+          }
+        ],
+        "captures": [
+          {
+            "path": "$.available",
+            "parameter": "available_quantity"
+          }
+        ]
+      }
+    }
+  ]
+}

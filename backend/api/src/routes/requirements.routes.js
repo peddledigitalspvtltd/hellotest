@@ -7,6 +7,7 @@ const requirementWorkspaceService = require("../services/requirementWorkspace.se
 const richTextAiService = require("../services/richTextAi.service");
 const { requirementMetadata } = require("../utils/nativeIssueMetadata");
 const { paginate, shouldPaginate } = require("../utils/pagination");
+const { httpConfig } = require("../runtime/httpConfig");
 
 const normalizeScopeId = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
@@ -123,6 +124,7 @@ module.exports = async function (fastify) {
       project_id: { required: true, type: "string" },
       title: { required: true, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      acceptance_criteria: { required: false, type: "array", items: "string", maxItems: 100 },
       gherkin_scenarios: { required: false, type: "array", items: "string", maxItems: 20 },
       additional_fields: { required: false, type: "object" },
       ai_review: { required: false, type: "object" },
@@ -131,6 +133,7 @@ module.exports = async function (fastify) {
       sprint: { required: false, type: "string" },
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
+      release_id: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
       dev_completion_target_date: { required: false, type: "string" },
       qa_completion_target_date: { required: false, type: "string" },
@@ -145,7 +148,7 @@ module.exports = async function (fastify) {
     // Verify user is member of project
     await projectService.getProject(req.body.project_id, req.user.id);
     await fastify.requirePermission("requirement.create", { projectId: req.body.project_id })(req);
-    if (normalizeScopeId(req.body.iteration_id)) {
+    if (normalizeScopeId(req.body.iteration_id) || normalizeScopeId(req.body.release_id)) {
       await fastify.requirePermission("requirement_iteration.update", { projectId: req.body.project_id })(req);
     }
 
@@ -155,12 +158,12 @@ module.exports = async function (fastify) {
     });
   });
 
-  fastify.post("/requirements/import", async (req) => {
+  fastify.post("/requirements/import", { bodyLimit:httpConfig.largeBodyLimitBytes }, async (req) => {
     await fastify.authenticate(req);
 
     fastify.validate({
       project_id: { required: true, type: "string" },
-      rows: { required: true, type: "array" }
+      rows: { required: true, type: "array", minItems:1, maxItems:10000 }
     }, req.body);
 
     if (!req.body.rows.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
@@ -168,6 +171,17 @@ module.exports = async function (fastify) {
     }
 
     await projectService.getProject(req.body.project_id, req.user.id);
+
+    await fastify.requirePermission("requirement.import", { projectId: req.body.project_id })(req);
+    if (req.body.rows.some(row => row.story_id)) await fastify.requirePermission("requirement.update", { projectId: req.body.project_id })(req);
+    if (req.body.rows.some(row => hasOwn(row, "linked_test_cases"))) {
+      await fastify.requirePermission("testcase.update", { projectId: req.body.project_id })(req);
+      await fastify.requirePermission("requirement.view", { projectId: req.body.project_id })(req);
+    }
+    if (req.body.rows.some(row => hasOwn(row, "linked_bugs"))) await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
+    if (req.body.rows.some(row => hasOwn(row, "iteration_id") || hasOwn(row, "release_id"))) {
+      await fastify.requirePermission("requirement_iteration.update", { projectId: req.body.project_id })(req);
+    }
 
     return batchProcessService.queueRequirementImport({
       ...req.body,
@@ -306,6 +320,14 @@ module.exports = async function (fastify) {
     return detailed;
   });
 
+  fastify.put("/requirements/:id/readiness", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({ expected_revision:{ required:true, type:"number" }, checks:{ required:true, type:"object" } }, req.body || {});
+    const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords:false });
+    await ensureRequirementPermission(fastify, req, requirement, "requirement.update");
+    return require("../services/storyReadiness.service").update(req.params.id, { ...req.body, updated_by:req.user.id });
+  });
+
   fastify.put("/requirements/:id", async (req) => {
     await fastify.authenticate(req);
     
@@ -313,6 +335,7 @@ module.exports = async function (fastify) {
       project_id: { required: false, type: "string" },
       title: { required: false, type: "string", minLength: 2 },
       description: { required: false, type: "string" },
+      acceptance_criteria: { required: false, type: "array", items: "string", maxItems: 100 },
       gherkin_scenarios: { required: false, type: "array", items: "string", maxItems: 20 },
       additional_fields: { required: false, type: "object" },
       ai_review: { required: false, type: "object" },
@@ -321,6 +344,7 @@ module.exports = async function (fastify) {
       sprint: { required: false, type: "string" },
       fix_version: { required: false, type: "string" },
       release: { required: false, type: "string" },
+      release_id: { required: false, type: "string" },
       iteration_id: { required: false, type: "string" },
       dev_completion_target_date: { required: false, type: "string" },
       qa_completion_target_date: { required: false, type: "string" },
@@ -345,7 +369,7 @@ module.exports = async function (fastify) {
     const nextIterationId = hasOwn(req.body, "iteration_id")
       ? normalizeScopeId(req.body.iteration_id)
       : previousIterationId;
-    if (nextIterationId !== previousIterationId) {
+    if (nextIterationId !== previousIterationId || hasOwn(req.body, "release_id")) {
       await fastify.requirePermission("requirement_iteration.update", { projectId: requirement.project_id })(req);
       if (targetProjectId !== requirement.project_id) {
         await fastify.requirePermission("requirement_iteration.update", { projectId: targetProjectId })(req);

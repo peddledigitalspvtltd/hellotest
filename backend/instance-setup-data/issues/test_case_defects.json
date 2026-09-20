@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v2-case-keyboard",
+      "issue_id": "sample-v2-issue-checkout",
+      "link_source": "manual"
+    },
+    {
+      "test_case_id": "sample-v2-case-declined-payment",
+      "issue_id": "sample-v2-issue-retry",
+      "link_source": "manual"
+    },
+    {
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "issue_id": "sample-v2-issue-offline",
+      "link_source": "manual"
+    },
+    {
+      "test_case_id": "sample-v4-metrics-case-dev-done",
+      "issue_id": "sample-v4-metrics-defect-dev-done",
+      "link_source": "manual"
+    },
+    {
+      "test_case_id": "sample-v4-metrics-case-blocked",
+      "issue_id": "sample-v4-metrics-defect-blocked",
+      "link_source": "manual"
+    }
+  ]
+}

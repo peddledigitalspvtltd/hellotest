@@ -17,6 +17,7 @@ const createRestoreVersion = ({
   const existing = await testCases.getTestCase(testCaseId);
   await testCases.updateTestCase(testCaseId, {
     ...version.content,
+    test_data_options: version.content?.test_data_options || {},
     test_data_set_ids: Array.isArray(version.content?.test_data_set_ids)
       ? version.content.test_data_set_ids.slice(0, 1)
       : [],

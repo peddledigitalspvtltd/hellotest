@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "requirement_id": "sample-v2-req-checkout",
+      "related_requirement_id": "sample-v2-req-inventory",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-backlog-planning",
+      "related_requirement_id": "sample-v3-feature-story-authoring",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-release-scope",
+      "related_requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "related_requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "related_requirement_id": "sample-v3-feature-release-scope",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-story-traceability",
+      "related_requirement_id": "sample-v3-feature-story-authoring",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-gherkin-authoring",
+      "related_requirement_id": "sample-v3-feature-structured-cases",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-suite-modules",
+      "related_requirement_id": "sample-v3-feature-structured-cases",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-run-planning",
+      "related_requirement_id": "sample-v3-feature-suite-modules",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-run-planning",
+      "related_requirement_id": "sample-v3-feature-environment-targets",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-dataset-outcomes",
+      "related_requirement_id": "sample-v3-feature-datasets-parameters",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-scheduled-runs",
+      "related_requirement_id": "sample-v3-feature-run-planning",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-bug-collaboration",
+      "related_requirement_id": "sample-v3-feature-bug-lifecycle",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-bug-regression-ai",
+      "related_requirement_id": "sample-v3-feature-bug-lifecycle",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-automation-coverage",
+      "related_requirement_id": "sample-v3-feature-structured-cases",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-knowledge-search",
+      "related_requirement_id": "sample-v3-feature-knowledge-ingestion",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-workflow-history",
+      "related_requirement_id": "sample-v3-feature-workflow-canvas",
+      "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-release-readiness",
+      "related_requirement_id": "sample-v3-feature-release-scope",
+      "relation": "depends on"
+    }
+  ]
+}

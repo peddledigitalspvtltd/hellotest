@@ -18,8 +18,8 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     "Automation Engineer",
     "Smart Run Planner",
     "Failure Analyst",
-    "Bug Reporter",
-    "Bug Triage Agent",
+    "Defect Reporter",
+    "Defect Triage Agent",
     "Quality Evaluator",
     "Object Repository Curator"
   ]) {
@@ -104,12 +104,13 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
   assert.match(experience, /Accept agent output/);
   assert.match(experience, /A person can edit, select, accept, or discard/);
   assert.match(storyStudio, /Proposal ready/);
-  assert.match(storyStudio, /<AiFeatureComposer/);
+  assert.doesNotMatch(storyStudio, /<AiFeatureComposer/);
+  assert.match(storyStudio, /ai-test-generator-footer/);
   assert.match(richText, /Editable AI proposal/);
   assert.match(richText, /Accept replacement/);
   assert.match(insights, /Editable review sequence/);
   assert.match(insights, /Accept review plan/);
-  assert.match(bugs, /Accept into Bug form/);
+  assert.match(bugs, /Accept into Defect form/);
   assert.match(automation, /What should the agent automate\?/);
   assert.match(automation, /Build step plan/);
   assert.match(automation, /aria-label="Automation step plan"/);
@@ -140,7 +141,7 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   assert.match(automation, /value=\{agentMission\}/);
   assert.match(automation, /Additional guidance & execution context/);
   assert.match(automation, /agentBuildReceipt/);
-  assert.match(storyPage, /showPromptEditor=\{false\}/);
+  assert.match(storyPage, /showPromptEditor\s*\/>/);
   assert.match(testImprove, /<AiDesignStudioModal/);
   assert.match(testImprove, /allowMultipleRequirements=\{false\}/);
   assert.match(testImprove, /sourceCase=\{sourceCase\}/);
@@ -170,8 +171,8 @@ test("core AI authoring flows share the compact context, draft, and generation-f
   assert.match(storyShell, /story-studio-output-workspace/);
   assert.match(storyShell, /orientation="vertical"/);
   assert.match(storyShell, /Proposal ready/);
-  assert.match(storyShell, /showModeSwitcher=\{false\}/);
-  assert.match(storyShell, /showProviderSelector=\{false\}/);
+  assert.match(storyShell, /ai-test-generator-authoring-tabs/);
+  assert.match(storyShell, /is-intelligence-collapsed/);
 
   assert.match(bugs, /ai-bug-authoring-workbench/);
   assert.match(bugs, /orientation="vertical"/);
@@ -195,7 +196,7 @@ test("core AI authoring flows share the compact context, draft, and generation-f
 
   assert.match(insights, /ai-insight-preview-workbench/);
   assert.match(insights, /Acknowledge review/);
-  assert.match(insights, /no Bug fields were changed/i);
+  assert.match(insights, /no Defect fields were changed/i);
   assert.match(insights, /disabled=\{Boolean\(onAccept\)/);
 
   assert.match(contextPanel, /linked page content is not fetched/);
@@ -220,7 +221,7 @@ test("AI context uses accessible tabs while keeping inactive context panels moun
   assert.doesNotMatch(contextPanel, /activeContextTab === "(?:files|links|images)"\s*\?\s*\(/);
 });
 
-test("AI authoring settings are grouped into progressive disclosures", async () => {
+test("AI authoring settings use visible context and engine sections", async () => {
   const [shell, stories, testCreate, testImprove] = await Promise.all([
     readSource("../src/components/StoryAiStudioShell.tsx"),
     readSource("../src/pages/RequirementsPage.tsx"),
@@ -229,13 +230,12 @@ test("AI authoring settings are grouped into progressive disclosures", async () 
   ]);
 
   assert.match(shell, /export function StoryAiSettingsGroup/);
-  assert.match(shell, /<details[^>]*className="story-studio-settings-group"/);
-  assert.match(shell, /<summary>/);
+  assert.match(shell, /<section[^>]*className=\{`story-studio-settings-group ai-test-generator-section/);
   assert.match(shell, /story-studio-settings-group__body/);
 
   assert.match(stories, /<StoryAiSettingsGroup/);
-  assert.match(stories, /title="Generation setup"/);
-  assert.match(stories, /title="Context sources"/);
+  assert.match(stories, /title="Intelligence Engine"/);
+  assert.match(stories, /title="Generation Context"/);
   assert.match(testCreate, /ai-test-generator-context/);
   assert.match(testCreate, /ai-test-generator-workspace/);
   assert.match(testCreate, /ai-test-generator-intelligence/);
@@ -244,19 +244,20 @@ test("AI authoring settings are grouped into progressive disclosures", async () 
   assert.match(testImprove, /sourceCase=\{sourceCase\}/);
 });
 
-test("draft browsing is opt-in and opens as an overlay instead of a permanent column", async () => {
-  const [shell, styles] = await Promise.all([
+test("Story drafts stay inline while Intelligence is optional", async () => {
+  const [shell, content, styles] = await Promise.all([
     readSource("../src/components/StoryAiStudioShell.tsx"),
+    readSource("../src/components/StoryAiStudioContent.tsx"),
     readSource("../src/components/StoryAiStudioShell.css")
   ]);
-
   assert.match(shell, /useState\(false\)/);
-  assert.match(shell, /aria-expanded=\{isQueueOpen\}/);
-  assert.match(shell, /Browse \$\{entityLabel\} drafts/);
-  assert.match(shell, /\{isQueueOpen \? \(\s*<section[^>]*story-studio-queue-pane/s);
-  assert.match(styles, /\.story-studio-queue-pane\s*\{[^}]*position:\s*absolute/s);
-  assert.match(styles, /\.story-studio-workbench\s*\{[^}]*grid-template-columns:\s*clamp\([^;]+minmax\(0, 1fr\)[^;]+clamp\(/s);
-  assert.match(styles, /\.story-studio-output-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+  assert.match(shell, /aria-expanded=\{intelligenceOpen\}/);
+  assert.match(shell, /activeContent: inspector/);
+  assert.match(content, /expanded && activeContent/);
+  assert.match(content, /ai-test-generator-draft__body/);
+  assert.match(styles, /grid-template-columns: 300px minmax\(0, 1fr\)/);
+  assert.match(shell, /statusContent: null/);
+  assert.match(shell, /ai-test-generator-toast/);
 });
 
 test("compact AI workspaces show four focused phases with evidence in an on-demand flyout", async () => {
@@ -297,18 +298,18 @@ test("feature rails use truthful profiles, backend stage snapshots, and an await
   assert.doesNotMatch(experience, /setInterval\([^)]*runningTrace/);
 });
 
-test("Bug authoring defers supporting evidence and draft reasoning until requested", async () => {
+test("Defect authoring defers supporting evidence and draft reasoning until requested", async () => {
   const bugs = await readSource("../src/pages/IssuesPage.tsx");
 
   assert.match(bugs, /<AiEvidenceButton[^>]*label="Review evidence setup"/);
   assert.match(bugs, /Evidence and impacted scope/);
-  assert.match(bugs, /eyebrow="Bug creation · Input evidence"/);
-  assert.match(bugs, /eyebrow="Bug creation · Decision evidence"/);
-  assert.match(bugs, /title="Bug proposal evidence"/);
+  assert.match(bugs, /eyebrow="Defect creation · Input evidence"/);
+  assert.match(bugs, /eyebrow="Defect creation · Decision evidence"/);
+  assert.match(bugs, /title="Defect proposal evidence"/);
   assert.doesNotMatch(bugs, /<details className="ai-bug-input-disclosure">/);
   assert.doesNotMatch(bugs, /<details className="ai-bug-review-details">/);
   assert.doesNotMatch(bugs, /<summary>Evidence and reasoning<\/summary>/);
-  assert.match(bugs, /aiDraftPreview \? <button[^>]*>Accept into Bug form<\/button> : null/);
+  assert.match(bugs, /aiDraftPreview \? <button[^>]*>Accept into Defect form<\/button> : null/);
 });
 
 test("AI triage review groups findings, actions, and run details into accessible tabs", async () => {

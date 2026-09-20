@@ -52,14 +52,14 @@ const AGENT_CONTEXT_POLICIES = Object.freeze({
   },
   "bug-reporter": {
     priority_scopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
-    retrieval_focus: "strong reproducible failure evidence, expected versus actual behavior, environment, build, delivery scope, and duplicate Bugs",
-    outcome_sections: ["Bug title", "impact", "reproduction", "expected and actual", "traceability and evidence"],
-    decision_question: "Is there enough reproducible evidence to draft a useful Bug without inventing missing behavior?",
-    deliverable_contract: "A Bug draft with concise title, impact, reproducible steps, expected/actual behavior, environment/build, and linked evidence."
+    retrieval_focus: "strong reproducible failure evidence, expected versus actual behavior, environment, build, delivery scope, and duplicate Defects",
+    outcome_sections: ["Defect title", "impact", "reproduction", "expected and actual", "traceability and evidence"],
+    decision_question: "Is there enough reproducible evidence to draft a useful Defect without inventing missing behavior?",
+    deliverable_contract: "A Defect draft with concise title, impact, reproducible steps, expected/actual behavior, environment/build, and linked evidence."
   },
   "bug-triage": {
     priority_scopes: ["bugs", "runs", "test-cases", "stories", "knowledge"],
-    retrieval_focus: "open Bugs, severity, priority, reproducibility, failing evidence, release impact, duplication, and ownership gaps",
+    retrieval_focus: "open Defects, severity, priority, reproducibility, failing evidence, release impact, duplication, and ownership gaps",
     outcome_sections: ["triage decision", "priority rationale", "release impact", "duplicates or dependencies", "recommended owner action"],
     decision_question: "What priority and next action are justified by current impact, reproducibility, and release evidence?",
     deliverable_contract: "A triage decision with severity/priority rationale, release impact, duplicate/dependency signals, ownership gap, and next action."
@@ -858,7 +858,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
     hits.push(makeLiveHit({
       projectId,
       scope: "bugs",
-      title: "Live Bug and defect evidence",
+      title: "Live Defect and defect evidence",
       content: JSON.stringify({
         evidence_type: "authoritative_live_bug_snapshot",
         returned_records: selected.length,

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-shared-group",
+      "display_id": "DEMO5-SG1",
+      "app_type_id": "sample-app-web",
+      "name": "Reusable session data boundary · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: this reusable group has exactly one linked data row. Cases retain its region unless an allowed higher layer explicitly overrides shared data.",
+      "authoring_mode": "structured",
+      "steps": [
+        {
+          "id": "sample-v5-data-group-step",
+          "step_order": 1,
+          "action": "Establish the synthetic session in @r.session_region.",
+          "expected_result": "The session region equals the supplied region.",
+          "step_type": "web"
+        }
+      ],
+      "parameter_values": {
+        "r.session_region": "group-default-region"
+      },
+      "test_data_set_id": "sample-v5-data-dataset-group",
+      "test_data_row_index": 0,
+      "created_at": "2026-09-20T08:00:00.000Z",
+      "updated_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

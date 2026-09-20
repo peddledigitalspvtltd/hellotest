@@ -30,10 +30,11 @@ type GherkinEditorProps = {
   exampleColumns?: string[];
   exampleRows?: Array<Record<string, string>>;
   minimalBehaviorEditor?: boolean;
+  allowMultipleScenarios?: boolean;
 };
 
 
-function MinimalBehaviorBlock({ availableParameters, heading, headingLabel, onChange, parameterValues, readOnly, value }: { availableParameters: StepParameterDefinition[]; heading: string; headingLabel: "Background" | "Scenario" | "Scenario Outline"; onChange: (value: string) => void; parameterValues: Record<string, string>; readOnly: boolean; value: string }) {
+function MinimalBehaviorBlock({ availableParameters, autoFocus = false, heading, headingLabel, onChange, parameterValues, readOnly, value }: { availableParameters: StepParameterDefinition[]; autoFocus?: boolean; heading: string; headingLabel: "Background" | "Scenario" | "Scenario Outline"; onChange: (value: string) => void; parameterValues: Record<string, string>; readOnly: boolean; value: string }) {
   const parsed = parseBehaviorBlock(value);
   const steps: BehaviorStep[] = parsed.steps.length ? parsed.steps : [{ keyword: "Given", text: "" }];
   const commit = (nextHeading: string, nextSteps: BehaviorStep[]) => onChange(composeBehaviorBlock(value, headingLabel, nextHeading, nextSteps));
@@ -58,7 +59,7 @@ function MinimalBehaviorBlock({ availableParameters, heading, headingLabel, onCh
     {step.followingLines?.some((line) => line.trim()) ? <pre className="gherkin-minimal-step-arguments" style={{ gridColumn: "1 / -1", whiteSpace: "pre-wrap", margin: 0 }}>{resolveGherkinParameterText(step.followingLines.join("\n"), parameterValues)}</pre> : null}</div>;
   };
   return <section className="gherkin-minimal-block">
-    <div className="gherkin-minimal-heading"><strong>{headingLabel}:</strong>{headingLabel !== "Background" ? <input aria-label={`${headingLabel} name`} disabled={readOnly} onChange={(event) => commit(event.target.value, steps)} placeholder="Describe the behavior" value={heading} /> : null}</div>
+    <div className="gherkin-minimal-heading"><strong>{headingLabel}:</strong>{headingLabel !== "Background" ? <input autoFocus={autoFocus} aria-label={`${headingLabel} name`} disabled={readOnly} onChange={(event) => commit(event.target.value, steps)} placeholder="Describe the behavior" value={heading} /> : null}</div>
     <div className="gherkin-minimal-steps">{blocks.map((block) => block.group ? (
       <details className="gherkin-shared-step-group" key={`${block.group.id}:${block.indices[0]}`}>
         <summary><strong>{block.group.name}</strong><span>{block.indices.length} behavior step{block.indices.length === 1 ? "" : "s"}</span></summary>
@@ -267,7 +268,7 @@ const composeLinkedExamples = (columns: string[], rows: Array<Record<string, str
   ...rows.map((row) => `  | ${columns.map((column) => escapeExampleCell(row[column] || "")).join(" | ")} |`)
 ].join("\n");
 
-export function GherkinEditor({ value, onChange, featureTitle, featureTitleLocked = false, availableParameters = [], parameterValues: suppliedParameterValues = {}, compact = false, readOnly = false, exampleColumns = [], exampleRows = [], minimalBehaviorEditor = false }: GherkinEditorProps) {
+export function GherkinEditor({ value, onChange, featureTitle, featureTitleLocked = false, availableParameters = [], parameterValues: suppliedParameterValues = {}, compact = false, readOnly = false, exampleColumns = [], exampleRows = [], minimalBehaviorEditor = false, allowMultipleScenarios = false }: GherkinEditorProps) {
   const editorId = useId().replace(/:/g, "");
   const parameterValues = useMemo(() => excludeSensitiveStepParameterValues(suppliedParameterValues, availableParameters.filter((parameter) => parameter.sensitive).map((parameter) => parameter.name)), [availableParameters, suppliedParameterValues]);
   const [editingSection, setEditingSection] = useState("");
@@ -338,7 +339,7 @@ export function GherkinEditor({ value, onChange, featureTitle, featureTitleLocke
   };
   const addScenario = () => {
     setFocusTarget(`scenario-${sections.scenarios.length}`);
-    commit({ ...sections, scenarios: [...sections.scenarios, { scenario: "Scenario: \n  Given \n  When \n  Then ", examples: "" }] });
+    commit({ ...sections, preamble: sections.preamble.trim() ? sections.preamble : `Feature: ${featureTitle.trim() || "Story behavior"}`, scenarios: [...sections.scenarios, { scenario: "Scenario: \n  Given \n  When \n  Then ", examples: "" }] });
   };
   const addOutline = () => {
     setFocusTarget(`scenario-${sections.scenarios.length}`);
@@ -405,18 +406,21 @@ export function GherkinEditor({ value, onChange, featureTitle, featureTitleLocke
         <section aria-labelledby={`${editorId}-scenarios-title`} className="gherkin-scenario-region">
           <header className="gherkin-scenario-region-head">
             <div><strong id={`${editorId}-scenarios-title`}>{scenarioCount === 1 ? "Scenario" : "Scenarios"}</strong><span>{scenarioCount ? `${scenarioCount} behavior flow${scenarioCount === 1 ? "" : "s"}.` : "Create the first observable behavior flow."}</span></div>
+            {allowMultipleScenarios && !readOnly ? <button className="ghost-button compact gherkin-add-scenario" onClick={addScenario} type="button"><IconPlus size={14} />Add Scenario</button> : null}
           </header>
           {!sections.scenarios.length ? <div className="gherkin-region-empty"><span>No Scenario is defined. Insert the starter structure to begin.</span></div> : (
             <div className="gherkin-scenario-list">
               {sections.scenarios.map((item, index) => {
                 const isOutline = /^\s*Scenario(?: Outline| Template)\s*:/im.test(item.scenario);
-                const scenarioHeading = item.scenario.match(/^\s*Scenario(?: Outline| Template)?\s*:\s*(.*)$/im);
+                const scenarioHeading = item.scenario.match(/^[ \t]*Scenario(?: Outline| Template)?[ \t]*:[ \t]*(.*)$/im);
                 const scenarioIsInvalid = !scenarioHeading?.[1]?.trim() || !/^\s*(?:Given|When|Then|And|But|\*)\b/im.test(item.scenario);
                 const exampleRows = item.examples.split("\n").filter((line) => /^\s*\|.*\|\s*$/.test(line));
                 return (
                   <div className="gherkin-scenario-block" key={index}>
+                    {minimalBehaviorEditor && allowMultipleScenarios && !readOnly ? <button aria-label={`Remove scenario ${index + 1}`} className="gherkin-section-action is-danger gherkin-remove-scenario" onClick={() => removeScenario(index)} title="Remove scenario" type="button"><IconTrash size={14} /></button> : null}
                     {minimalBehaviorEditor ? <MinimalBehaviorBlock
                       availableParameters={availableParameters}
+                      autoFocus={focusTarget === `scenario-${index}`}
                       heading={scenarioHeading?.[1] || ""}
                       headingLabel={isOutline || item.examples.trim() ? "Scenario Outline" : "Scenario"}
                       onChange={(nextScenario) => updateScenario(index, "scenario", nextScenario)}

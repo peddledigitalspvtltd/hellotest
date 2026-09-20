@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const db = require("../db");
+const defaultProjectMembership = require("./defaultProjectMembership.service");
 const integrationService = require("./integration.service");
 const { getEmailSenderProfile, sendMail } = require("./email.service");
 const { DEFAULT_ROLE_PERMISSIONS } = require("../security/permissions.catalog");
@@ -119,77 +120,6 @@ const selectUserForSession = async (id) => {
     workspace_permissions: permissionProfile.workspacePermissions,
     project_permissions: permissionProfile.projectPermissions
   };
-};
-
-const ensureMemberRole = async () => {
-  const existing = await db.prepare(`
-    SELECT id
-    FROM roles
-    WHERE name = 'member'
-  `).get();
-
-  const roleId = existing?.id || crypto.randomUUID();
-
-  if (!existing) {
-    await db.prepare(`
-      INSERT INTO roles (id, name)
-      VALUES (?, 'member')
-    `).run(roleId);
-  }
-
-  const memberPermissionCodes = DEFAULT_ROLE_PERMISSIONS.member || [];
-
-  if (memberPermissionCodes.length) {
-    const placeholders = memberPermissionCodes.map(() => "?").join(", ");
-
-    await db.prepare(`
-      INSERT INTO role_permissions (role_id, permission_id)
-      SELECT ?, permissions.id
-      FROM permissions
-      WHERE permissions.code IN (${placeholders})
-      ON CONFLICT (role_id, permission_id) DO NOTHING
-    `).run(roleId, ...memberPermissionCodes);
-  }
-
-  return roleId;
-};
-
-const assignDefaultProjectMemberships = async (userId) => {
-  const memberRoleId = await ensureMemberRole();
-  const defaultProject = await db.prepare(`
-    SELECT id
-    FROM projects
-    WHERE id = 'project-16'
-       OR LOWER(COALESCE(display_id, '')) = 'project-16'
-       OR LOWER(name) = 'hellotest'
-    ORDER BY
-      CASE
-        WHEN id = 'project-16' THEN 0
-        WHEN LOWER(COALESCE(display_id, '')) = 'project-16' THEN 1
-        WHEN LOWER(name) = 'hellotest' THEN 2
-        ELSE 3
-      END,
-      created_at ASC
-    LIMIT 1
-  `).get();
-
-  if (!defaultProject) {
-    return;
-  }
-
-  const existing = db.prepare(`
-    SELECT id
-    FROM project_members
-    WHERE project_id = ? AND user_id = ?
-  `);
-  const insertMembership = db.prepare(`
-    INSERT INTO project_members (id, project_id, user_id, role_id)
-    VALUES (?, ?, ?, ?)
-  `);
-
-  if (!await existing.get(defaultProject.id, userId)) {
-    await insertMembership.run(crypto.randomUUID(), defaultProject.id, userId, memberRoleId);
-  }
 };
 
 const getPendingVerification = async ({ email, purpose }) => {
@@ -469,7 +399,7 @@ exports.verifySignupCode = verificationTransaction(async ({ email, code }) => {
     normalizeName(verificationPayload.name)
   );
 
-  await assignDefaultProjectMemberships(id);
+  await defaultProjectMembership.assign(id);
 
   return { success: true };
 });
@@ -501,21 +431,29 @@ exports.login = async ({ email, password }) => {
     throw createError("Invalid credentials", 401);
   }
 
-  const sessionUser = await selectUserForSession(user.id);
+  // Expensive password work finishes before acquiring a connection or row lock.
+  const upgradedHash = passwordNeedsRehash(user.password_hash) ? await hashPasswordAsync(password) : null;
+  const sessionUser = await db.transaction(async () => {
+    let freshUser = await selectUserForSession(user.id);
+    if (!freshUser) throw createError("Invalid credentials", 401);
 
-  if (!sessionUser) {
-    throw createError("Invalid credentials", 401);
-  }
+    // Compare the verified credential and fresh status in the write itself: a
+    // reset or suspension may commit while asynchronous password work runs.
+    const loginUpdate = upgradedHash
+      ? await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ? AND status IS DISTINCT FROM 'suspended'").run(upgradedHash, user.id, user.password_hash)
+      : await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ? AND status IS DISTINCT FROM 'suspended'").run(user.id, user.password_hash);
+    if (!loginUpdate.changes) throw createError("Invalid credentials", 401);
 
-  // Password work runs off the event loop. A reset may complete while it runs;
-  // compare the verified credential in the existing write before issuing a token.
-  // This also prevents a legacy upgrade from overwriting a replacement password.
-  const loginUpdate = passwordNeedsRehash(user.password_hash)
-    ? await db.prepare("UPDATE users SET password_hash = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ?").run(await hashPasswordAsync(password), user.id, user.password_hash)
-    : await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ? AND password_hash = ?").run(user.id, user.password_hash);
-  if (!loginUpdate.changes) {
-    throw createError("Invalid credentials", 401);
-  }
+    // The first-login timestamp and project grant commit together. A failed
+    // assignment remains retryable, and parallel logins cannot see a completed
+    // first login before its membership is available.
+    if (!freshUser.last_login_at) {
+      await defaultProjectMembership.assign(user.id);
+      freshUser = await selectUserForSession(user.id);
+      if (!freshUser) throw createError("Invalid credentials", 401);
+    }
+    return freshUser;
+  })();
 
   return {
     token: createToken(sessionUser),
@@ -554,7 +492,13 @@ exports.loginWithGoogle = db.transaction(async ({ idToken }) => {
       WHERE id = ?
     `).run(googleProfile.sub, googleProfile.name, existing.id);
 
-    const sessionUser = await selectUserForSession(existing.id);
+    let sessionUser = await selectUserForSession(existing.id);
+    if (!sessionUser) throw createError("Invalid credentials", 401);
+    if (!sessionUser.last_login_at) {
+      await defaultProjectMembership.assign(existing.id);
+      sessionUser = await selectUserForSession(existing.id);
+    }
+    await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(existing.id);
 
     return {
       token: createToken(sessionUser),
@@ -575,9 +519,10 @@ exports.loginWithGoogle = db.transaction(async ({ idToken }) => {
     googleProfile.sub
   );
 
-  await assignDefaultProjectMemberships(id);
+  await defaultProjectMembership.assign(id);
 
   const sessionUser = await selectUserForSession(id);
+  await db.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
 
   return {
     token: createToken(sessionUser),

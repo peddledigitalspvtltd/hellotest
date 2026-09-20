@@ -1,4 +1,5 @@
 const adminPortalService = require("../services/adminPortal.service");
+const instanceSetupService = require("../services/instanceSetup.service");
 const userService = require("../services/user.service");
 const featureFlagService = require("../services/featureFlag.service");
 const integrationService = require("../services/integration.service");
@@ -51,9 +52,25 @@ module.exports = async function (fastify) {
   fastify.get("/admin-portal/setup/sample-data", { preHandler: [fastify.requireAdmin] }, () =>
     adminPortalService.getSampleCatalog());
 
-  fastify.post("/admin-portal/setup/sample-data", { preHandler: [fastify.requireAdmin] }, async (req) => {
+  fastify.get("/admin-portal/setup/sample-data/status", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return instanceSetupService.getStatus({ jobId: req.query?.job_id });
+  });
+
+  fastify.post("/admin-portal/setup/sample-data", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
     fastify.validate({ modules: { required: false, type: "array", items: "string", maxItems: 64 } }, req.body || {});
-    return adminPortalService.seedSampleData({ modules: req.body?.modules, actorId: req.user.id, ipAddress: clientIp(req) });
+    const result = await instanceSetupService.start({ modules: req.body?.modules, actorId: req.user.id, ipAddress: clientIp(req) });
+    reply.code(202).header("Cache-Control", "no-store");
+    return result;
+  });
+
+  fastify.post("/admin-portal/setup/sample-data/:jobId/retry", { preHandler: [fastify.requireAdmin] }, async (req, reply) => {
+    if (req.body != null && (typeof req.body !== "object" || Array.isArray(req.body) || Object.keys(req.body).length)) {
+      throw Object.assign(new Error("Retry setup accepts no parameters."), { statusCode: 400 });
+    }
+    const result = await instanceSetupService.retry({ jobId: req.params.jobId, actorId: req.user.id, ipAddress: clientIp(req) });
+    reply.code(202).header("Cache-Control", "no-store");
+    return result;
   });
 
   fastify.post("/admin-portal/users", { preHandler: [fastify.requireAdmin] }, async (req) => {

@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
@@ -8,7 +9,6 @@ import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
 import { ToastMessage } from "../components/ToastMessage";
-import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { api } from "../lib/api";
 import {
   AI_METRIC_CRITERIA_OVERRIDES_KEY,
@@ -53,7 +53,7 @@ const DEFAULT_API_KEY_SCOPE_OPTIONS: ApiKeyScopeOption[] = [
   { value: "read", label: "Read only", description: "GET and HEAD requests only." },
   { value: "design", label: "Design", description: "Stories, test cases, suites, steps, and data." },
   { value: "automation", label: "Automation", description: "Automation build, object repository, recorder, and workflows." },
-  { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and bugs." },
+  { value: "runs", label: "Runs", description: "Executions, results, schedules, reports, and defects." },
   { value: "environment", label: "Environment", description: "Environments, configurations, app types, and data sets." },
   { value: "integrations", label: "Integrations", description: "Integrations, AI knowledge, and prompt templates." },
   { value: "admin", label: "Admin", description: "Full API access, limited by your user permissions." }
@@ -791,10 +791,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 <small>Preferred cloud execution provider for remote runs.</small>
               </label>
             </div>
-            <RovoProviderStatus
-              compact
-              prompt="Help me review this project's HelloTest automation defaults, healing boundaries, evidence capture, and retry policy. This is a Rovo conversation, not a direct automation model invocation. Do not change work items."
-            />
           </Panel>
 	        )) : null}
 
@@ -807,7 +803,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ? "Central keys for AI prompt surfaces used by story, test design, automation, execution, and test data flows."
                 : "Central keys for enabled AI story, test design, execution, and test data surfaces."}
           >
-            <RovoProviderStatus prompt="Help me review HelloTest AI prompt governance and metric criteria for this project." />
             <div className="settings-prompt-grid">
               {visibleAiPromptRegistry.map((prompt) => (
                 <article className="settings-prompt-card" key={prompt.key}>
@@ -871,7 +866,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
               {visibleAiMetricCriteriaRegistry.map((metric) => (
                 <article className="settings-prompt-card settings-metric-criteria-card" key={metric.key}>
                   <div>
-                    <strong>{metric.label}</strong>
+                    <strong>{metricTitle(metric.label)}</strong>
                     <span>{metric.surface}</span>
                   </div>
                   <code>{metric.key}</code>
@@ -974,7 +969,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean } = {}) 
                 ["executionFailures", "Execution failures and blocked runs"],
                 ["executionCompletions", "Execution completions and run finalization"],
                 ["runAssignments", "Run and case assignment changes"],
-                ["issueReports", "Reported bugs and feedback updates"],
+                ["issueReports", "Reported defects and feedback updates"],
                 ["aiDesign", "AI design previews and accepted generated cases"],
                 ["aiAutomation", "AI automation build and recorder events"],
                 ["importExport", "Import, export, backup, and sync jobs"],

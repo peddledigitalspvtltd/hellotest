@@ -1,0 +1,541 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-dashboard-executive",
+      "project_id": "sample-project",
+      "name": "Executive overview · sample",
+      "description": "Release confidence, product exposure and the decisions that need attention.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "releaseConfidence",
+          "title": "Release confidence",
+          "type": "metric",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-executive-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "requirementCoverage",
+          "title": "Story coverage",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-executive-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "openDefects",
+          "title": "Open defects",
+          "type": "metric",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-executive-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "passRate",
+          "title": "Case pass rate",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-executive-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "testRuns",
+          "title": "Run status",
+          "type": "donut",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-executive-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "openDefects",
+          "title": "Defects by priority",
+          "type": "bar",
+          "accent": "orange",
+          "group_by": "priority",
+          "id": "sample-widget-executive-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "coverageGaps",
+          "title": "Stories needing tests",
+          "type": "table",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-executive-6",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-dashboard-product",
+      "project_id": "sample-project",
+      "name": "Product quality · sample",
+      "description": "Connect story coverage with defect pressure and the growth of reusable tests.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "requirementCoverage",
+          "title": "Story coverage",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-product-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "coverageGaps",
+          "title": "Coverage gaps",
+          "type": "metric",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-product-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "openDefects",
+          "title": "Open defects",
+          "type": "metric",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-product-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "testCases",
+          "title": "Test cases",
+          "type": "metric",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-product-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "requirementCoverage",
+          "title": "Story coverage breakdown",
+          "type": "donut",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-product-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "openDefects",
+          "title": "Defects by owner",
+          "type": "bar",
+          "accent": "orange",
+          "group_by": "assignee",
+          "id": "sample-widget-product-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "coverageGaps",
+          "title": "Stories needing tests",
+          "type": "table",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-product-6",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "testCases",
+          "title": "Test library growth",
+          "type": "line",
+          "accent": "teal",
+          "group_by": "createdMonth",
+          "id": "sample-widget-product-7",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-dashboard-quality",
+      "project_id": "sample-project",
+      "name": "QA workspace · sample",
+      "description": "Track execution progress, investigate failures and focus the next testing cycle.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "executionCompletion",
+          "title": "Execution completion",
+          "type": "metric",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-quality-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "passRate",
+          "title": "Case pass rate",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-quality-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "completedRuns30d",
+          "title": "Completed runs · 30 days",
+          "type": "metric",
+          "accent": "teal",
+          "group_by": "status",
+          "id": "sample-widget-quality-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "evidenceConfidence",
+          "title": "Evidence confidence",
+          "type": "metric",
+          "accent": "teal",
+          "group_by": "status",
+          "id": "sample-widget-quality-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "testRuns",
+          "title": "Run status",
+          "type": "donut",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-quality-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "moduleCaseCount",
+          "title": "Tests by module",
+          "type": "bar",
+          "accent": "purple",
+          "group_by": "module",
+          "id": "sample-widget-quality-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "failedRuns",
+          "title": "Runs needing investigation",
+          "type": "table",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-quality-6",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "testRuns",
+          "title": "Run activity",
+          "type": "line",
+          "accent": "blue",
+          "group_by": "createdWeek",
+          "id": "sample-widget-quality-7",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-dashboard-traceability",
+      "project_id": "sample-project",
+      "name": "Story Test Traceability · sample",
+      "description": "Follow stories through linked tests, execution outcomes, modules and defects.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "requirementCoverage",
+          "title": "Story coverage",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-traceability-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "storyTestPassRate",
+          "title": "Stories With All Tests Passed",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-traceability-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "unassignedModuleCases",
+          "title": "Tests Without Modules",
+          "type": "metric",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-traceability-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "unexecutedCases",
+          "title": "Tests Without Run Evidence",
+          "type": "metric",
+          "accent": "slate",
+          "group_by": "status",
+          "id": "sample-widget-traceability-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "storyExecutionCoverage",
+          "title": "Story Testing Completion",
+          "type": "donut",
+          "accent": "teal",
+          "group_by": "status",
+          "id": "sample-widget-traceability-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "linkedTestCases",
+          "title": "Tests By Story",
+          "type": "bar",
+          "accent": "purple",
+          "group_by": "story",
+          "id": "sample-widget-traceability-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "storiesWithOpenDefects",
+          "title": "Stories With Open Defects",
+          "type": "table",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-traceability-6",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "unlinkedTestCases",
+          "title": "Tests Without Stories",
+          "type": "table",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-traceability-7",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-dashboard-delivery",
+      "project_id": "sample-project",
+      "name": "Delivery Progress · sample",
+      "description": "Separate development completion from QA completion and inspect sprint and release scope.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "stories",
+          "title": "Total Stories",
+          "type": "metric",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-delivery-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "devStoryCompletion",
+          "title": "Dev Story Completion",
+          "type": "metric",
+          "accent": "blue",
+          "group_by": "status",
+          "id": "sample-widget-delivery-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "qaStoryCompletion",
+          "title": "QA Story Completion",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-delivery-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "storyTestPassRate",
+          "title": "Stories With All Tests Passed",
+          "type": "metric",
+          "accent": "green",
+          "group_by": "status",
+          "id": "sample-widget-delivery-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "stories",
+          "title": "Stories By Sprint",
+          "type": "column",
+          "accent": "blue",
+          "group_by": "sprint",
+          "id": "sample-widget-delivery-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "stories",
+          "title": "Stories By Release",
+          "type": "column",
+          "accent": "purple",
+          "group_by": "release",
+          "id": "sample-widget-delivery-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "stories",
+          "title": "Story Status Distribution",
+          "type": "stacked-bar",
+          "accent": "teal",
+          "group_by": "status",
+          "id": "sample-widget-delivery-6",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "storiesWithOpenDefects",
+          "title": "Stories With Open Defects",
+          "type": "table",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-delivery-7",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-dashboard-triage",
+      "project_id": "sample-project",
+      "name": "Defect And Test Triage · sample",
+      "description": "Review failing cases, linked defects, traceability gaps and defect arrivals.",
+      "layout": "two-column",
+      "gadgets": [
+        {
+          "metric": "openDefects",
+          "title": "Open defects",
+          "type": "metric",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-triage-0",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "blockedCases",
+          "title": "Latest Blocked Cases",
+          "type": "metric",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-triage-1",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "unexecutedCases",
+          "title": "Tests Without Run Evidence",
+          "type": "metric",
+          "accent": "slate",
+          "group_by": "status",
+          "id": "sample-widget-triage-2",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "unassignedModuleCases",
+          "title": "Tests Without Modules",
+          "type": "metric",
+          "accent": "orange",
+          "group_by": "status",
+          "id": "sample-widget-triage-3",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "defectTraceability",
+          "title": "Defect Traceability",
+          "type": "donut",
+          "accent": "teal",
+          "group_by": "status",
+          "id": "sample-widget-triage-4",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "count",
+          "title": "Defect Arrivals",
+          "type": "area",
+          "accent": "red",
+          "group_by": "createdMonth",
+          "id": "sample-widget-triage-5",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "failedCases",
+          "title": "Latest Failed Cases",
+          "type": "table",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-triage-6",
+          "data_source": "hellotest",
+          "jql": ""
+        },
+        {
+          "metric": "linkedDefects",
+          "title": "Linked Defect List",
+          "type": "table",
+          "accent": "red",
+          "group_by": "status",
+          "id": "sample-widget-triage-7",
+          "data_source": "hellotest",
+          "jql": ""
+        }
+      ],
+      "is_default": false,
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

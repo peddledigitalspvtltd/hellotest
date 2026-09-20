@@ -120,7 +120,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.requirement.change_impact",
     label: "Story change impact",
     surface: "Story AI Assurance",
-    value: "Explain change impact only from current connected workspace traceability, linked cases, suites, runs, Bugs, delivery context, and supplied proposal evidence. Separate observed impact from assumptions and require human review."
+    value: "Explain change impact only from current connected workspace traceability, linked cases, suites, runs, Defects, delivery context, and supplied proposal evidence. Separate observed impact from assumptions and require human review."
   },
   {
     key: "ai.test_case.design",
@@ -166,15 +166,15 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
   },
   {
     key: "ai.bug.draft",
-    label: "Bug drafting",
-    surface: "AI Bug creation",
-    value: "Draft a concise Bug only from selected failed or blocked evidence. Preserve expected-versus-actual behavior, reproducible steps, environment, build, impact, and uncertainty; never save automatically."
+    label: "Defect drafting",
+    surface: "AI Defect creation",
+    value: "Draft a concise Defect only from selected failed or blocked evidence. Preserve expected-versus-actual behavior, reproducible steps, environment, build, impact, and uncertainty; never save automatically."
   },
   {
     key: "ai.bug.triage",
-    label: "Bug triage",
-    surface: "AI Bug triage",
-    value: "Classify and prioritize selected Bugs from current work-item fields and traceability. Explain evidence for each recommendation, keep unsupported telemetry explicit, and require human approval."
+    label: "Defect triage",
+    surface: "AI Defect triage",
+    value: "Classify and prioritize selected Defects from current work-item fields and traceability. Explain evidence for each recommendation, keep unsupported telemetry explicit, and require human approval."
   },
   {
     key: "ai.execution.failure_clustering",
@@ -186,7 +186,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     key: "ai.execution.case_triage",
     label: "Case failure triage",
     surface: "Selected run Test Case analysis",
-    value: "Analyze the selected case result, authored expectations, logs, attachments, environment, build, and related evidence. Separate likely causes from confirmed findings and produce only a reviewable Bug draft."
+    value: "Analyze the selected case result, authored expectations, logs, attachments, environment, build, and related evidence. Separate likely causes from confirmed findings and produce only a reviewable Defect draft."
   },
   {
     key: "ai.automation.dom_extraction",
@@ -288,8 +288,8 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Defect density",
     surface: "Stories, projects, and quality analytics",
     aliases: ["defect density", "bug density"],
-    formula: "Distinct open project-scoped Bugs ÷ exact scoped Stories. The UI must disclose both numerator and denominator.",
-    criteria: "Use current work-item workflow state and immutable project scope. Deduplicate the same Bug linked through more than one Test Case or Story."
+    formula: "Distinct open project-scoped Defects ÷ exact scoped Stories. The UI must disclose both numerator and denominator.",
+    criteria: "Use current work-item workflow state and immutable project scope. Deduplicate the same Defect linked through more than one Test Case or Story."
   },
   {
     key: "metric.assurance.story",
@@ -312,7 +312,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Smart Run priority",
     surface: "AI Smart Run",
     aliases: ["smart run priority", "risk score", "selection score", "at-risk runs"],
-    formula: "Deterministic ranking from failed or blocked recency, linked Bug and Story risk, delivery-scope match, and available Test Case evidence.",
+    formula: "Deterministic ranking from failed or blocked recency, linked Defect and Story risk, delivery-scope match, and available Test Case evidence.",
     criteria: "Prioritize direct release or Sprint scope and recent failures. AI may explain the ranking but cannot add cases unsupported by the bounded candidate set."
   },
   {
@@ -320,12 +320,12 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Project portfolio health",
     surface: "Projects portfolio",
     aliases: ["overall health", "portfolio health"],
-    formula: "Arithmetic mean of each accessible project's readiness score. Readiness combines exact Story coverage, automation coverage, and quality pass rate using the configured weights. Quality pass rate is passed finalized Test Cases plus resolved Bugs divided by finalized Test Cases plus all Bugs.",
+    formula: "Arithmetic mean of each accessible project's readiness score. Readiness combines exact Story coverage, automation coverage, and quality pass rate using the configured weights. Quality pass rate is passed finalized Test Cases plus resolved Defects divided by finalized Test Cases plus all Defects.",
     criteria: "Treat every accessible project equally rather than weighting by record volume. Keep projects without assessable scope identified as new and disclose missing evidence.",
     parameters: [
       { key: "story_weight", label: "Story coverage weight", defaultValue: 35, min: 0, max: 100, suffix: "%", help: "Contribution of exact Story-to-Test-Case traceability to project readiness." },
       { key: "automation_weight", label: "Automation coverage weight", defaultValue: 25, min: 0, max: 100, suffix: "%", help: "Contribution of explicitly automated Test Cases to project readiness." },
-      { key: "pass_weight", label: "Pass rate weight", defaultValue: 40, min: 0, max: 100, suffix: "%", help: "Contribution of finalized Test Case outcomes and resolved Bug outcomes to project readiness." }
+      { key: "pass_weight", label: "Pass rate weight", defaultValue: 40, min: 0, max: 100, suffix: "%", help: "Contribution of finalized Test Case outcomes and resolved Defect outcomes to project readiness." }
     ]
   },
   {
@@ -333,10 +333,10 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Risky project classification",
     surface: "Projects portfolio",
     aliases: ["risky projects", "risky project classification"],
-    formula: "Count of assessable accessible projects whose newest run has a failed or blocked result, or whose combined Test Case and Bug pass rate is below the configured threshold.",
+    formula: "Count of assessable accessible projects whose newest run has a failed or blocked result, or whose combined Test Case and Defect pass rate is below the configured threshold.",
     criteria: "Use the latest recorded project run for hard failure signals and keep projects without Stories or Test Cases classified as new, not risky.",
     parameters: [
-      { key: "pass_confidence_threshold", label: "Risk pass threshold", defaultValue: 60, min: 0, max: 100, suffix: "%", help: "Projects below this combined Test Case and Bug pass-rate value are classified as risky." }
+      { key: "pass_confidence_threshold", label: "Risk pass threshold", defaultValue: 60, min: 0, max: 100, suffix: "%", help: "Projects below this combined Test Case and Defect pass-rate value are classified as risky." }
     ]
   },
   {
@@ -344,7 +344,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Release-ready projects",
     surface: "Projects portfolio",
     aliases: ["release ready", "release-ready projects"],
-    formula: "Count of assessable accessible projects at or above the configured readiness threshold with no hard risk, evidence-policy, or open-Bug attention signal.",
+    formula: "Count of assessable accessible projects at or above the configured readiness threshold with no hard risk, evidence-policy, or open-Defect attention signal.",
     criteria: "This threshold classifies portfolio attention; it does not approve a release. Keep projects with hard risk or missing-evidence signals out even when their weighted score exceeds the threshold.",
     parameters: [
       { key: "readiness_threshold", label: "Release-ready threshold", defaultValue: 80, min: 1, max: 100, suffix: "%", help: "Minimum weighted readiness required for the portfolio release-ready classification." }
@@ -382,8 +382,8 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Projects needing attention",
     surface: "Projects portfolio",
     aliases: ["projects need attention", "needs attention"],
-    formula: "Distinct accessible projects classified as risky or watch after readiness, execution, evidence, and open-Bug policy checks.",
-    criteria: "Rank hard execution risk first, then evidence and Bug policy violations, then lowest readiness. Show only the configured number of priority projects on compact card backs.",
+    formula: "Distinct accessible projects classified as risky or watch after readiness, execution, evidence, and open-Defect policy checks.",
+    criteria: "Rank hard execution risk first, then evidence and Defect policy violations, then lowest readiness. Show only the configured number of priority projects on compact card backs.",
     parameters: [
       { key: "priority_project_limit", label: "Priority projects shown", defaultValue: 3, min: 1, max: 8, help: "Maximum project names shown on compact attention evidence; the remaining count is summarized." }
     ]
@@ -401,13 +401,13 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
   },
   {
     key: "metric.project.bugs",
-    label: "Portfolio Bugs",
+    label: "Portfolio Defects",
     surface: "Projects portfolio",
     aliases: ["project bugs", "portfolio bugs", "open bugs"],
-    formula: "Distinct Bugs assigned to accessible projects. Open Bugs are determined from current workflow status and drive the configurable attention threshold.",
-    criteria: "Deduplicate Bugs linked through multiple Test Cases or Stories. Rank impacted Modules and Stories by distinct Bugs and summarize lower-priority scope.",
+    formula: "Distinct Defects assigned to accessible projects. Open Defects are determined from current workflow status and drive the configurable attention threshold.",
+    criteria: "Deduplicate Defects linked through multiple Test Cases or Stories. Rank impacted Modules and Stories by distinct Defects and summarize lower-priority scope.",
     parameters: [
-      { key: "open_bug_attention_threshold", label: "Open-Bug attention threshold", defaultValue: 1, min: 0, max: 1000, help: "An assessable project at or above this number of open Bugs receives a watch signal. Set 0 to disable this signal." },
+      { key: "open_bug_attention_threshold", label: "Open-Defect attention threshold", defaultValue: 1, min: 0, max: 1000, help: "An assessable project at or above this number of open Defects receives a watch signal. Set 0 to disable this signal." },
       { key: "priority_impact_limit", label: "Priority impacts shown", defaultValue: 2, min: 1, max: 5, help: "Maximum highest-impact Modules and Stories returned for compact evidence." }
     ]
   },
@@ -441,7 +441,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Quality analytics mission control",
     aliases: ["open quality risks", "quality risk actions"],
     formula: "Uncovered Stories + cases without persisted steps + failed latest results + blocked latest results + failed runs.",
-    criteria: "This is an action-signal total, not a deduplicated Bug count. Preserve each category so one unstable artifact is not misrepresented as one unique risk."
+    criteria: "This is an action-signal total, not a deduplicated Defect count. Preserve each category so one unstable artifact is not misrepresented as one unique risk."
   },
   {
     key: "metric.release.readiness",
@@ -456,7 +456,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Release evidence confidence",
     surface: "Release readiness decision room",
     aliases: ["evidence confidence", "release evidence confidence"],
-    formula: "When scoped Bugs exist: Story coverage × 40% + execution completion × 40% + defect traceability × 20%. With no scoped Bugs: coverage × 50% + completion × 50%. Incomplete evidence caps confidence at 69%.",
+    formula: "When scoped Defects exist: Story coverage × 40% + execution completion × 40% + defect traceability × 20%. With no scoped Defects: coverage × 50% + completion × 50%. Incomplete evidence caps confidence at 69%.",
     criteria: "Confidence measures evidence completeness and linkage, not release safety or model certainty. Missing permissions, bounded sources, and unknown denominators must lower or withhold confidence."
   },
   {
@@ -464,7 +464,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Blocking signals",
     surface: "Release readiness decision room",
     aliases: ["blocking signals", "release blocking signals"],
-    formula: "Open critical Bugs + latest blocked Test Case outcomes + uncovered P1/P2 Stories in the exact release scope.",
+    formula: "Open critical Defects + latest blocked Test Case outcomes + uncovered P1/P2 Stories in the exact release scope.",
     criteria: "Show the three components independently in evidence. This is an action total across signal types, not a count of unique work items."
   },
   {
@@ -472,7 +472,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Story release risk",
     surface: "Release readiness Story queue",
     aliases: ["story release risk", "story risk score"],
-    formula: "Priority baseline (P1 25, P2 15, other 5) + 35 if uncovered + 18 if linked but unexecuted + up to 35 each for failed or blocked latest outcomes + up to 40 for critical Bugs + up to 20 for other open Bugs; capped at 100.",
+    formula: "Priority baseline (P1 25, P2 15, other 5) + 35 if uncovered + 18 if linked but unexecuted + up to 35 each for failed or blocked latest outcomes + up to 40 for critical Defects + up to 20 for other open Defects; capped at 100.",
     criteria: "Rank only project- and release-scoped Stories using direct traceability and latest case evidence. The score orders review work; it does not predict failure probability."
   },
   {
@@ -481,7 +481,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Custom quality dashboards",
     aliases: ["release confidence index", "dashboard release confidence"],
     formula: "Story coverage × 25% + execution completion × 20% + latest-result pass rate × 35% + defect containment × 20%, rounded to a whole percentage and subject to the lowest applicable cap.",
-    criteria: "Use the selected project and optional release scope. Component percentages are rounded first. Defect containment is closed/resolved/done/accepted Bugs ÷ all scoped Bugs × 100, or 100% with no Bugs. Cap at 49% when Stories, Test Cases, or passed/failed/blocked latest results are absent; 69% for any uncovered P1/P2 Story; 59% for any latest blocked result; and 39% for any open Bug whose severity (or priority when severity is absent) is critical/highest. This advisory score does not approve a release."
+    criteria: "Use the selected project and optional release scope. Component percentages are rounded first. Defect containment is closed/resolved/done/accepted Defects ÷ all scoped Defects × 100, or 100% with no Defects. Cap at 49% when Stories, Test Cases, or passed/failed/blocked latest results are absent; 69% for any uncovered P1/P2 Story; 59% for any latest blocked result; and 39% for any open Defect whose severity (or priority when severity is absent) is critical/highest. This advisory score does not approve a release."
   },
   {
     key: "metric.dashboard.pass_rate",
@@ -505,7 +505,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     surface: "Custom quality dashboards",
     aliases: ["dashboard evidence confidence"],
     formula: "Story coverage × 40% + execution completion × 40% + defect traceability × 20%, rounded to a whole percentage.",
-    criteria: "Use the selected project and optional release scope. Defect traceability is scoped Bugs with a linked run, Test Case, or Story ÷ all scoped Bugs × 100. With no Bugs, traceability is 100% and contributes 20 points. Empty Story or planned-case denominators contribute 0%; component percentages are rounded first. This formula has no freshness or partial-evidence caps and measures coverage and linkage, not model certainty or release approval."
+    criteria: "Use the selected project and optional release scope. Defect traceability is scoped Defects with a linked run, Test Case, or Story ÷ all scoped Defects × 100. With no Defects, traceability is 100% and contributes 20 points. Empty Story or planned-case denominators contribute 0%; component percentages are rounded first. This formula has no freshness or partial-evidence caps and measures coverage and linkage, not model certainty or release approval."
   },
   {
     key: "metric.execution.cycle_time",
@@ -568,7 +568,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
     label: "Evidence completeness",
     surface: "Run AI Assurance",
     aliases: ["evidence completeness", "run evidence readiness"],
-    formula: "Scoped cases with any result evidence ÷ total scoped cases × 65 points, plus 20 when Story traceability exists and 15 when Bug or external failure references exist.",
+    formula: "Scoped cases with any result evidence ÷ total scoped cases × 65 points, plus 20 when Story traceability exists and 15 when Defect or external failure references exist.",
     criteria: "A touched case is not necessarily a passing case. Keep failed and blocked outcomes visible and require human triage before any release conclusion."
   },
   {

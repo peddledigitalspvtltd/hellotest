@@ -19,7 +19,7 @@ type DrilldownOptions = {
 
 type Destination = { path: string; plural: string; singular: string; recordParam: string };
 
-const bugs: Destination = { path: '/issues', plural: 'bugs', singular: 'bug', recordParam: 'issue' };
+const bugs: Destination = { path: '/issues', plural: 'defects', singular: 'defect', recordParam: 'issue' };
 const stories: Destination = { path: '/stories', plural: 'stories', singular: 'story', recordParam: 'requirement' };
 const cases: Destination = { path: '/test-cases', plural: 'test cases', singular: 'test case', recordParam: 'case' };
 const runs: Destination = { path: '/executions', plural: 'test runs', singular: 'test run', recordParam: 'execution' };
@@ -47,8 +47,8 @@ const destinationsByRowType: Record<string, Destination> = {
 };
 
 function destinationForMetric(metric: QualityDashboardGadgetResult['gadget']['metric']): Destination {
-  if (!metric || ['count', 'openDefects'].includes(metric)) return bugs;
-  if (['requirementCoverage', 'coverageGaps'].includes(metric)) return stories;
+  if (!metric || ['count', 'openDefects', 'linkedDefects', 'defectTraceability'].includes(metric)) return bugs;
+  if (['requirementCoverage', 'coverageGaps', 'stories', 'devStoryCompletion', 'qaStoryCompletion', 'storyTestPassRate', 'storyExecutionCoverage', 'storiesWithOpenDefects'].includes(metric)) return stories;
   if (['testRuns', 'failedRuns', 'completedRuns30d', 'executionCycleHours', 'passRate', 'executionCompletion'].includes(metric)) return runs;
   if (metric === 'testSuites') return suites;
   return cases;

@@ -40,7 +40,7 @@ test("shared execution context and Shared Step Group actions fail closed", async
     readSource("../src/pages/SharedStepsPage.tsx")
   ]);
 
-  assert.match(contextSelector, /canViewTestData = can\("data\.view"\)/);
+  assert.match(contextSelector, /canViewTestData = !hideDataSet && can\("data\.view"\)/);
   assert.match(contextSelector, /useCapabilityAccess\(projectId\)/);
   assert.match(contextSelector, /optionalQueryView\(useQuery/);
   assert.match(contextSelector, /enabled: Boolean\(projectId && canViewTestData\)/);

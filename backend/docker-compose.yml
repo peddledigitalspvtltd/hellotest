@@ -77,7 +77,7 @@ services:
     restart: unless-stopped
 
   api:
-    build: ./api
+    build: .
     container_name: hellotest-api
     ports:
       - "3000:3000"

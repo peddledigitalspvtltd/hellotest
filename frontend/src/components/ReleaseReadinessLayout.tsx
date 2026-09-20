@@ -35,7 +35,9 @@ type Props = {
   projectName?: string;
   release: string;
   sprint: string;
-  scopeOptions: { releases: string[]; sprints: string[] };
+  scopeOptions: { releases: Array<{value: string; label: string}>; sprints: Array<{value: string; label: string}> };
+  releaseSelection: string;
+  sprintSelection: string;
   canStories: boolean;
   canCases: boolean;
   canRuns: boolean;
@@ -301,35 +303,23 @@ export function ReleaseReadinessLayout(props: Props) {
         <div className="rr-layout-actions">
           <select
             aria-label={text("release")}
-            value={release}
+            value={props.releaseSelection}
             onChange={(event) =>
-              props.onScopeChange(event.target.value, sprint)
+              props.onScopeChange(event.target.value, "")
             }
           >
             <option value="">{text("allReleases")}</option>
-            {[
-              ...new Set([release, ...scopeOptions.releases].filter(Boolean)),
-            ].map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
+            {scopeOptions.releases.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
           <select
             aria-label={text("sprint")}
-            value={sprint}
+            value={props.sprintSelection}
             onChange={(event) =>
-              props.onScopeChange(release, event.target.value)
+              props.onScopeChange("", event.target.value)
             }
           >
             <option value="">{text("allSprints")}</option>
-            {[
-              ...new Set([sprint, ...scopeOptions.sprints].filter(Boolean)),
-            ].map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
+            {scopeOptions.sprints.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
           <button
             className="rr-button"
@@ -772,7 +762,7 @@ export function ReleaseReadinessLayout(props: Props) {
                 <p>
                   {copy(
                     "queueHelp",
-                    "Priority evidence queue — ranked by coverage gaps, latest failures, blockers, and open linked Bugs",
+                    "Priority evidence queue — ranked by coverage gaps, latest failures, blockers, and open linked Defects",
                   )}
                 </p>
                 <div className="rr-layout-segment">
@@ -1019,7 +1009,7 @@ export function ReleaseReadinessLayout(props: Props) {
           <strong>
             {copy(
               "evidenceTotals",
-              "{stories} Stories · {cases} cases · {runs} runs · {bugs} open Bugs",
+              "{stories} Stories · {cases} cases · {runs} runs · {defects} open Defects",
               {
                 stories: canStories ? n(metrics.requirementCount) : "—",
                 cases: canCases ? n(metrics.plannedCaseCount) : "—",

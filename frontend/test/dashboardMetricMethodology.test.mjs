@@ -47,7 +47,7 @@ test("dashboard status and empty-scope guidance stays distinct from shared run m
 test("dashboard evidence and elapsed-time descriptions disclose the actual zero-data and timestamp behavior", () => {
   const evidence = entry("metric.dashboard.evidence_confidence");
   assert.match(evidence, /coverage × 40%.*completion × 40%.*traceability × 20%/);
-  assert.match(evidence, /no Bugs, traceability is 100% and contributes 20 points/);
+  assert.match(evidence, /no Defects, traceability is 100% and contributes 20 points/);
   assert.match(evidence, /no freshness or partial-evidence caps/);
   assert.equal(calculateMetrics(context({ requirements: [], testCases: [], plannedCaseIds: new Set(), results: [] })).evidenceConfidence, 20);
   const cycle = entry("metric.execution.cycle_time");

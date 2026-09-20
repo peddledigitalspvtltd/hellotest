@@ -1,3 +1,4 @@
+import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -48,7 +49,7 @@ const buildEditableContext = (hits: KnowledgeSearchHit[], query: string) => {
     const citation = hit.citation || hit;
     const citationId = citation.id || `K-${resultId(hit, index)}`;
     const title = hit.title || hit.label || `Project source ${index + 1}`;
-    const sourceKind = String(hit.source_kind || citation.source_kind || "knowledge").replace(/_/g, " ");
+    const sourceKind = formatRecordKindLabel(hit.source_kind || citation.source_kind, "knowledge");
     const score = Number(hit.score ?? citation.score);
     const relevance = Number.isFinite(score) ? ` · relevance ${Math.round(score * 100)}%` : "";
     const excerpt = String(hit.content || hit.excerpt || citation.excerpt || "").trim().slice(0, 900);
@@ -249,7 +250,7 @@ export function SmartContextWorkbench({
                       <span><IconBook2 size={15} /></span>
                       <span>
                         <strong>{hit.title || hit.label || `Project source ${index + 1}`}</strong>
-                        <small>{String(hit.source_kind || hit.citation?.source_kind || "knowledge").replace(/_/g, " ")}{Number.isFinite(score) ? ` · ${Math.round(score * 100)}% relevance` : ""}</small>
+                        <small>{formatRecordKindLabel(hit.source_kind || hit.citation?.source_kind, "knowledge")}{Number.isFinite(score) ? ` · ${Math.round(score * 100)}% relevance` : ""}</small>
                         <p>{String(hit.excerpt || hit.content || hit.citation?.excerpt || "").slice(0, 260)}</p>
                       </span>
                     </label>

@@ -44,12 +44,12 @@ const AGENT_CATALOG = {
     objective: "Explain failed and blocked evidence without inventing a root cause."
   },
   "bug-reporter": {
-    name: "Bug Reporter",
-    objective: "Turn observed evidence into a concise, review-ready Bug draft."
+    name: "Defect Reporter",
+    objective: "Turn observed evidence into a concise, review-ready Defect draft."
   },
   "bug-triage": {
-    name: "Bug Triage Agent",
-    objective: "Classify, prioritize, and sequence Bugs using current evidence and human-owned decisions."
+    name: "Defect Triage Agent",
+    objective: "Classify, prioritize, and sequence Defects using current evidence and human-owned decisions."
   },
   "quality-evaluator": {
     name: "Quality Evaluator",
@@ -385,12 +385,12 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
       case "authoritative_live_bug_snapshot":
         return count(snapshot.open_records) || count(snapshot.critical_or_high) ? [{
           scope: "bugs",
-          title: count(snapshot.critical_or_high) ? "Open high-risk Bugs require triage" : "Open Bugs require triage review",
-          detail: `${count(snapshot.open_records)} of ${count(snapshot.total_records)} Bugs are open; ${count(snapshot.critical_or_high)} are critical or high severity/priority.`,
+          title: count(snapshot.critical_or_high) ? "Open high-risk Defects require triage" : "Open Defects require triage review",
+          detail: `${count(snapshot.open_records)} of ${count(snapshot.total_records)} Defects are open; ${count(snapshot.critical_or_high)} are critical or high severity/priority.`,
           priority: count(snapshot.critical_or_high) ? "high" : "medium",
           action: count(snapshot.critical_or_high)
-            ? "Confirm reproducibility, release impact, duplication, and ownership for open high-risk Bugs."
-            : "Review open Bugs for reproducibility, release impact, duplication, and ownership before closure or scheduling.",
+            ? "Confirm reproducibility, release impact, duplication, and ownership for open high-risk Defects."
+            : "Review open Defects for reproducibility, release impact, duplication, and ownership before closure or scheduling.",
           citation_ids
         }] : [];
       case "authoritative_live_object_repository_snapshot":
@@ -428,7 +428,7 @@ const buildFallbackResult = ({ agent, agentId, mode, prompt, context, contextCou
       : "No authorized project evidence matched this task. Add or refresh the relevant project records or Knowledge Repository sources before relying on an AI recommendation.",
     response: mode === "chat"
       ? `${agent.name} routed this as ${contextRoute?.input_type?.replace(/_/g, " ") || "a specialist task"} and reviewed ${evidenceCount} bounded workspace reference${evidenceCount === 1 ? "" : "s"}. ${signalSummary}`
-      : `${agent.name} prepared a review-first ${agentId || "specialist"} brief for “${normalizeText(prompt, 260)}”. Required deliverable: ${contextRoute?.deliverable_contract || "an evidence-backed specialist outcome"} No Story, Test Case, automation, Run, or Bug was changed.`,
+      : `${agent.name} prepared a review-first ${agentId || "specialist"} brief for “${normalizeText(prompt, 260)}”. Required deliverable: ${contextRoute?.deliverable_contract || "an evidence-backed specialist outcome"} No Story, Test Case, automation, Run, or Defect was changed.`,
     activity_summary: `Built bounded context, applied the ${agent.name} contract, checked guardrails, and evaluated the proposed outcome.`,
     findings: findings.length ? findings.map(({ scope, action, ...finding }) => finding) : [{
       title: grounded ? "No explicit live risk signal matched this specialist route" : "Evidence gap blocks a grounded specialist outcome",

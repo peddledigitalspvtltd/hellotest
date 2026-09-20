@@ -6,6 +6,7 @@ const projectService = require("../services/project.service");
 const executionService = require("../services/execution.service");
 const db = require("../db");
 const { evidenceTime } = require("../services/qualityOverview.service");
+const { releaseExecutionMembershipSql } = require("../utils/deliveryScopeSql");
 
 const ensureResultAccess = async (id, userId) => {
   const result = await service.getExecutionResult(id);
@@ -76,7 +77,7 @@ module.exports = async function (fastify) {
 
   fastify.get("/execution-results/release-readiness", async (req) => {
     await fastify.authenticate(req);
-    fastify.validate({ project_id: { required: true, type: "string" }, release: { required: false, type: "string" }, sprint: { required: false, type: "string" }, run_limit: { required: false, type: "string" }, result_limit: { required: false, type: "string" } }, req.query || {});
+    fastify.validate({ project_id: { required: true, type: "string" }, release: { required: false, type: "string" }, sprint: { required: false, type: "string" }, release_id: { required: false, type: "string" }, iteration_id: { required: false, type: "string" }, run_limit: { required: false, type: "string" }, result_limit: { required: false, type: "string" } }, req.query || {});
     await projectService.getProject(req.query.project_id, req.user.id);
     await fastify.requirePermission("result.view", { projectId: req.query.project_id })(req);
     await fastify.requirePermission("run.view", { projectId: req.query.project_id })(req);
@@ -84,16 +85,33 @@ module.exports = async function (fastify) {
     const resultLimit = Math.max(1, Math.min(5000, Number.parseInt(String(req.query.result_limit || 2000), 10) || 2000));
     const conditions = ["project_id = ?"];
     const params = [req.query.project_id];
-    if (String(req.query.release || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(release, ''))) = ?"); params.push(String(req.query.release).trim().toLowerCase()); }
-    if (String(req.query.sprint || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(sprint, ''))) = ?"); params.push(String(req.query.sprint).trim().toLowerCase()); }
-    const executions = await db.prepare(`SELECT id, project_id, app_type_id, name, status, release, sprint, build,
+    const hasReleaseScope = Boolean(String(req.query.release_id || req.query.release || "").trim());
+    if (String(req.query.release_id || "").trim()) {
+      await fastify.requirePermission("requirement_iteration.view", { projectId: req.query.project_id })(req);
+      const release = await db.prepare("SELECT id FROM requirement_releases WHERE id = ? AND project_id = ?").get(req.query.release_id, req.query.project_id);
+      if (!release) throw Object.assign(new Error("Release not found in this project"), { statusCode: 404 });
+      conditions.push(`EXISTS (SELECT 1 FROM requirement_releases rel WHERE rel.id = ? AND rel.project_id = executions.project_id AND ${releaseExecutionMembershipSql('executions')})`);
+      params.push(release.id);
+    } else if (String(req.query.release || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(release, ''))) = ?"); params.push(String(req.query.release).trim().toLowerCase()); }
+    if (!hasReleaseScope && String(req.query.iteration_id || "").trim()) {
+      await fastify.requirePermission("requirement_iteration.view", { projectId: req.query.project_id })(req);
+      const sprint = await db.prepare("SELECT id, name FROM requirement_iterations WHERE id = ? AND project_id = ?").get(req.query.iteration_id, req.query.project_id);
+      if (!sprint) throw Object.assign(new Error("Sprint not found in this project"), { statusCode: 404 });
+      conditions.push(`(iteration_id = ? OR (iteration_id IS NULL AND LOWER(TRIM(COALESCE(sprint, ''))) = ? AND
+        (SELECT COUNT(*) FROM requirement_iterations candidate WHERE candidate.project_id = executions.project_id AND LOWER(TRIM(candidate.name)) = ?) = 1))`);
+      params.push(sprint.id, String(sprint.name).trim().toLowerCase(), String(sprint.name).trim().toLowerCase());
+    } else if (!hasReleaseScope && String(req.query.sprint || "").trim()) { conditions.push("LOWER(TRIM(COALESCE(sprint, ''))) = ?"); params.push(String(req.query.sprint).trim().toLowerCase()); }
+    const executions = await db.prepare(`SELECT id, project_id, app_type_id, name, status, release, sprint, release_id, iteration_id, build,
       created_at, started_at, ended_at, start_date, end_date, direct_test_case_ids,
       test_environment_id, test_environment_name,
       test_environment_snapshot->>'id' AS saved_environment_id,
       test_environment_snapshot->>'name' AS saved_environment_name,
       test_configuration_id, test_configuration_name,
       test_configuration_snapshot->>'id' AS saved_configuration_id,
-      test_configuration_snapshot->>'name' AS saved_configuration_name
+      test_configuration_snapshot->>'name' AS saved_configuration_name,
+      test_data_set_id, test_data_set_name,
+      test_data_set_snapshot->>'id' AS saved_data_set_id,
+      test_data_set_snapshot->>'name' AS saved_data_set_name
       FROM executions WHERE ${conditions.join(" AND ")} ORDER BY COALESCE(ended_at, started_at, created_at) DESC, id DESC LIMIT ?`).all(...params, runLimit + 1);
     const boundedExecutions = executions.slice(0, runLimit);
     let results = [];
@@ -129,15 +147,17 @@ module.exports = async function (fastify) {
       snapshotsByRun.get(snapshot.execution_id).push({ test_case_id: snapshot.test_case_id, expected_iterations: Number(snapshot.expected_iterations) });
     }
     const contextualExecutions = boundedExecutions.map(execution => {
-      const { saved_environment_id, saved_environment_name, saved_configuration_id, saved_configuration_name, ...record } = execution;
+      const { saved_environment_id, saved_environment_name, saved_configuration_id, saved_configuration_name, saved_data_set_id, saved_data_set_name, ...record } = execution;
       const environmentName = record.test_environment_name || saved_environment_name;
       const configurationName = record.test_configuration_name || saved_configuration_name;
+      const dataSetName = record.test_data_set_name || saved_data_set_name;
       // Read only the frozen labels. Live resources may have changed or been
       // deleted, and their variables/credentials do not belong in this summary.
       return {
         ...record,
         test_environment: environmentName ? { id: record.test_environment_id || saved_environment_id || null, name: environmentName, snapshot: null } : null,
         test_configuration: configurationName ? { id: record.test_configuration_id || saved_configuration_id || null, name: configurationName, snapshot: null } : null,
+        test_data_set: dataSetName ? { id: record.test_data_set_id || saved_data_set_id || null, name: dataSetName } : null,
         case_snapshots: snapshotsByRun.get(execution.id) || []
       };
     });

@@ -1,6 +1,7 @@
 const db = require("../db");
 const projectService = require("./project.service");
 const settingsService = require("./settings.service");
+const { summarizeLatestRunCases } = require("../utils/latestRunCaseMetrics");
 
 const METRIC_FORMULA_VALUES_KEY = "ai_metric_formula_values";
 const TERMINAL_RESULT_STATUSES = new Set(["passed", "failed", "blocked"]);
@@ -192,10 +193,18 @@ const buildPortfolioAnalytics = async (userId) => {
     ))
   )`;
   const evidenceArgs = [...projectIds, ...executionIds, ...executionIds];
-  const [appTypes, members, requirements, modules, testCases, caseRequirements, caseModules, results, attachments, comments, bugs, bugRequirements, bugCases, suiteCounts] = await readPortfolioRows([
+  const [appTypes, members, requirements, modules, testCases, caseRequirements, caseModules, results, attachments, comments, bugs, bugRequirements, bugCases, suiteCounts, latestRuns] = await readPortfolioRows([
     () => db.prepare(`SELECT id, project_id, name, type, is_unified FROM app_types WHERE project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT project_members.project_id, project_members.user_id, users.name FROM project_members LEFT JOIN users ON users.id = project_members.user_id WHERE project_members.project_id IN (${placeholders})`).all(...projectIds),
-    () => db.prepare(`SELECT requirements.id, requirements.project_id, requirements.display_id, requirements.title, EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id) AS is_covered FROM requirements WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
+    () => db.prepare(`SELECT requirements.id, requirements.project_id, requirements.display_id, requirements.title,
+      (EXISTS (SELECT 1 FROM requirement_test_cases mapping
+        JOIN test_cases linked_case ON linked_case.id = mapping.test_case_id
+        JOIN app_types linked_app ON linked_app.id = linked_case.app_type_id
+        WHERE mapping.requirement_id = requirements.id AND linked_app.project_id = requirements.project_id)
+       OR EXISTS (SELECT 1 FROM test_cases linked_case
+        JOIN app_types linked_app ON linked_app.id = linked_case.app_type_id
+        WHERE linked_case.requirement_id = requirements.id AND linked_app.project_id = requirements.project_id)) AS is_covered
+      FROM requirements WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT test_case_modules.id, test_case_modules.name, app_types.project_id FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT test_cases.id, test_cases.title, test_cases.automated, test_cases.automation_status, app_types.project_id FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT requirement_test_cases.test_case_id, requirement_test_cases.requirement_id FROM requirement_test_cases JOIN requirements ON requirements.id = requirement_test_cases.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
@@ -220,7 +229,29 @@ const buildPortfolioAnalytics = async (userId) => {
     () => db.prepare(`SELECT id, project_id, display_id, title, status, severity, priority, linked_test_case_ids, linked_module_ids, linked_requirement_ids FROM feedback WHERE project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT requirement_defects.issue_id AS bug_id, requirement_defects.requirement_id FROM requirement_defects JOIN requirements ON requirements.id = requirement_defects.requirement_id WHERE requirements.project_id IN (${placeholders})`).all(...projectIds),
     () => db.prepare(`SELECT test_case_defects.issue_id AS bug_id, test_case_defects.test_case_id FROM test_case_defects JOIN test_cases ON test_cases.id = test_case_defects.test_case_id JOIN app_types ON app_types.id = test_cases.app_type_id WHERE app_types.project_id IN (${placeholders})`).all(...projectIds),
-    () => db.prepare(`SELECT app_types.project_id, COUNT(*)::INTEGER AS total FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id IN (${placeholders}) GROUP BY app_types.project_id`).all(...projectIds)
+    () => db.prepare(`SELECT app_types.project_id, COUNT(*)::INTEGER AS total FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id IN (${placeholders}) GROUP BY app_types.project_id`).all(...projectIds),
+    // The tile describes the actual newest run, including unstarted scope.
+    // Keep its selection separate from the portfolio's finalized-evidence run.
+    () => db.prepare(`
+      SELECT latest_run.*,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('test_case_id', snapshot.test_case_id,
+          'expected_iterations', CASE WHEN snapshot.test_data_set_snapshot->>'mode' = 'key_value'
+            OR jsonb_typeof(snapshot.test_data_set_snapshot->'rows') IS DISTINCT FROM 'array'
+            THEN 1 ELSE GREATEST(1, jsonb_array_length(snapshot.test_data_set_snapshot->'rows')) END))
+          FROM execution_case_snapshots snapshot WHERE snapshot.execution_id = latest_run.id), '[]'::jsonb) AS case_scope,
+        COALESCE((SELECT jsonb_agg(to_jsonb(current_iteration)) FROM (
+          SELECT DISTINCT ON (result.test_case_id, COALESCE(result.data_set_iteration_index::text, result.data_set_iteration_key, 'default'))
+            result.id, result.test_case_id, result.status, result.created_at, result.data_set_iteration_index, result.data_set_iteration_key
+          FROM execution_results result WHERE result.execution_id = latest_run.id
+          ORDER BY result.test_case_id, COALESCE(result.data_set_iteration_index::text, result.data_set_iteration_key, 'default'),
+            result.created_at DESC NULLS LAST, result.id DESC
+        ) current_iteration), '[]'::jsonb) AS case_results
+      FROM projects p JOIN LATERAL (
+        SELECT e.id, e.project_id, e.name, e.status, e.trigger, e.created_at, e.started_at, e.ended_at, e.duration_ms
+        FROM executions e WHERE e.project_id = p.id
+        ORDER BY e.created_at DESC NULLS LAST, e.id DESC LIMIT 1
+      ) latest_run ON TRUE WHERE p.id IN (${placeholders})
+    `).all(...projectIds)
   ]);
 
   const appTypesByProject = groupBy(appTypes, "project_id");
@@ -232,6 +263,8 @@ const buildPortfolioAnalytics = async (userId) => {
   const resultsByProject = groupBy(results, "project_id");
   const bugsByProject = groupBy(bugs, "project_id");
   const suiteCountByProject = new Map(suiteCounts.map(row => [row.project_id, row.total]));
+  const latestRunByProject = new Map(latestRuns.map(({ case_scope, case_results, ...execution }) => [execution.project_id,
+    { execution, ...summarizeLatestRunCases(case_scope, case_results) }]));
   const requirementById = new Map(requirements.map((item) => [item.id, item]));
   const moduleById = new Map(modules.map((item) => [item.id, item]));
   const caseById = new Map(testCases.map((item) => [item.id, item]));
@@ -355,7 +388,7 @@ const buildPortfolioAnalytics = async (userId) => {
       : evidenceViolation
         ? `Latest execution evidence is ${evidenceCoverage}%, below the ${evidenceThreshold}% policy.`
         : openBugViolation
-          ? `${openBugs.length} open Bugs cross the configured attention threshold.`
+          ? `${openBugs.length} open Defects cross the configured attention threshold.`
           : automationCoverage < 40 && projectCases.length
             ? "Automation maturity is the strongest current readiness gap."
             : storyCoverage < 80 && projectRequirements.length
@@ -381,6 +414,7 @@ const buildPortfolioAnalytics = async (userId) => {
       story_coverage: { total: projectRequirements.length, covered: coveredStories, percent: storyCoverage },
       automation_coverage: { total: projectCases.length, automated: automatedCases, percent: automationCoverage },
       pass_confidence: passConfidenceMetric,
+      latest_run_pass_rate: latestRunByProject.get(project.id) || { execution: null, ...summarizeLatestRunCases() },
       execution_evidence: {
         total: latestExecutionResults.length,
         evidenced: evidencedLatestResults,
@@ -407,7 +441,7 @@ const buildPortfolioAnalytics = async (userId) => {
       attention_reasons: [
         ...(hardRisk ? ["Execution risk"] : []),
         ...(evidenceViolation ? ["Evidence policy"] : []),
-        ...(openBugViolation ? ["Open Bugs"] : []),
+        ...(openBugViolation ? ["Open Defects"] : []),
         ...(readinessScore < readyThreshold && assessable ? ["Readiness below threshold"] : [])
       ],
       insight

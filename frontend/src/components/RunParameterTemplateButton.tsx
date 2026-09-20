@@ -1,3 +1,4 @@
+import type { TestDataOptions } from "../types";
 import { useLayoutEffect, useRef, useState } from "react";
 import { IconDownload } from "@tabler/icons-react";
 import { api } from "../lib/api";
@@ -7,7 +8,9 @@ import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
 import { buildDataSetParameterDefinitions, buildStepParameterDefinitionsFromValues, collectStepParameters, mergeStepParameterDefinitions, normalizeStepParameterValues } from "../lib/stepParameters";
 import type { TestCase, TestSuite, TestStep } from "../types";
 
-export function RunParameterTemplateButton({ cases, suites = [], projectId, appTypeId = "", executionId, onPlan, fileName = "run-parameter-template.csv", environmentId: requestedEnvironmentId = "", configurationId: requestedConfigurationId = "", dataSetId: requestedDataSetId = "", disabled = false }: {
+export function RunParameterTemplateButton({ parameterValues, dataOptions, suiteContextId, suiteMode = false, cases, suites = [], projectId, appTypeId = "", executionId, onPlan, fileName = "run-parameter-template.csv", environmentId: requestedEnvironmentId = "", configurationId: requestedConfigurationId = "", dataSetId: requestedDataSetId = "", disabled = false }: {
+  parameterValues?: Record<string, string>;
+  suiteContextId?: string; dataOptions?: TestDataOptions; suiteMode?: boolean;
   cases: Array<TestCase & { steps?: TestStep[] }>; suites?: TestSuite[]; projectId: string; appTypeId?: string; executionId?: string; fileName?: string; onPlan?: (plan: { case_count: number; suite_count: number; parameter_count: number }) => void; environmentId?: string; configurationId?: string; dataSetId?: string; disabled?: boolean;
 }) {
   const { can } = useCapabilityAccess(projectId);
@@ -19,7 +22,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
   const [failed, setFailed] = useState(false);
   const active = useRef<{ cancelled: boolean } | null>(null);
   const selectionKey = JSON.stringify([
-    projectId, appTypeId, executionId, environmentId, configurationId, dataSetId, disabled,
+    projectId, appTypeId, executionId, environmentId, configurationId, dataSetId, disabled, dataOptions, parameterValues, suiteMode, suiteContextId,
     cases.map((item) => [item.id, item.title, item.authoring_mode, item.gherkin_document, Object.keys(item.parameter_values || {}).sort(), item.steps?.map((step) => [step.id, step.action, step.expected_result, step.automation_code, step.api_request])]),
     suites.map((suite) => [suite.id, Object.keys(suite.parameter_values || {}).sort()])
   ]);
@@ -42,9 +45,9 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
     setBusy(true); setFeedback(""); setFailed(false);
     try {
       if (appTypeId) {
-        const plan = await api.executions.parameterPlan({ project_id: projectId, app_type_id: appTypeId, execution_id: executionId,
+        const plan = await api.executions.parameterPlan({ parameter_values: parameterValues, suite_context_id: suiteContextId, test_data_options: dataOptions, data_scope: suiteMode ? "suite" : "run", project_id: projectId, app_type_id: appTypeId, execution_id: executionId,
           suite_ids: suites.map(suite => suite.id), test_case_ids: cases.map(item => item.id),
-          test_environment_id: can("environment.view") ? environmentId || (executionId ? "" : undefined) : undefined, test_configuration_id: can("configuration.view") ? configurationId || (executionId ? "" : undefined) : undefined, test_data_set_id: can("data.view") ? dataSetId || (executionId ? "" : undefined) : undefined });
+          test_environment_id: can("environment.view") ? environmentId || (executionId ? "" : undefined) : undefined, test_configuration_id: can("configuration.view") ? configurationId || (executionId ? "" : undefined) : undefined, test_data_set_id: can("data.view") ? dataSetId || (executionId || suiteContextId ? "" : undefined) : undefined });
         if (!isCurrent()) return;
         onPlan?.({ case_count: plan.case_count, suite_count: plan.suite_count, parameter_count: plan.parameters.length });
         if (!plan.parameters.length) { setFeedback("No parameters are declared in the selected scope yet."); return; }
@@ -96,7 +99,7 @@ export function RunParameterTemplateButton({ cases, suites = [], projectId, appT
     }
   };
   return <div className="run-parameter-template-control">
-    <button className="ghost-button" disabled={disabled || busy || !projectId} onClick={() => void download()} type="button"><IconDownload aria-hidden="true" size={15} />{busy ? "Preparing parameter template…" : "Download parameter template"}</button>
+    <button className="ghost-button template-download-action" disabled={disabled || busy || !projectId} onClick={() => void download()} type="button"><IconDownload aria-hidden="true" size={15} />{busy ? "Preparing parameter template…" : "Download parameter template"}</button>
     {feedback ? <p role={failed ? "alert" : "status"} style={{ fontSize: ".75rem", lineHeight: 1.5, overflowWrap: "anywhere" }}>{feedback}</p> : null}
   </div>;
 }

@@ -23,6 +23,7 @@ async function fixture(t, { permissions = reporterPermissions, apiKeyScope, feat
   // fallback, while keeping every database read/write inside this fixture.
   t.mock.method(db, "prepare", (sql) => ({
     get: async (...args) => {
+      if (sql.includes("FROM project_deletion_jobs")) return { active: false };
       if (sql.includes("role_permissions")) {
         const permission = args.at(-1);
         const projectId = sql.includes("project_members.project_id = ?") ? args[1] : null;

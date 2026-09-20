@@ -2,6 +2,7 @@ import { LoadingState } from "./LoadingState";
 import { IconChevronRight, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconLanguage, IconSearch } from "@tabler/icons-react";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { WorkspaceProjectSwitcher } from "./WorkspaceProjectSwitcher";
+import { ProjectDeletionRecovery } from "./ProjectDeletionRecovery";
 import "./workspace-shell.css";
 import "./workspace-surfaces.css";
 import type { ReactNode } from "react";
@@ -125,7 +126,7 @@ const navigation = [
         featureKeys: ["hellotest.manual.runs"],
         disabledWhenNoProjects: true
       },
-      { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Bugs", shortLabel: "Bugs", icon: BugIcon, featureKeys: ["hellotest.manual.bugs"] },
+      { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Defects", shortLabel: "Defects", icon: BugIcon, featureKeys: ["hellotest.manual.bugs"] },
       {
         id: "testops",
         to: WORKSPACE_ROUTES.testOps,
@@ -686,6 +687,7 @@ function ReadyAppShell() {
             </button>
           </div>
         </header>
+        {!canAccessPath(session, WORKSPACE_ROUTES.projects, pageAccess, sidebarProjectId) ? <ProjectDeletionRecovery /> : null}
         {isRouteTransitioning ? (
           <LoadingState label={`Loading ${nextSection}`} />
         ) : null}

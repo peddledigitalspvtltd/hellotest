@@ -221,7 +221,7 @@ export function createConfirmedRequirementSprintMove(
     requirement,
     targetKind: "sprint",
     targetIterationId: iteration.id,
-    targetSprintId: iteration.jira_sprint_id ? String(iteration.jira_sprint_id) : null,
+    targetSprintId: iteration.source !== "hellotest" && iteration.jira_sprint_id ? String(iteration.jira_sprint_id) : null,
     targetSprintName: iteration.jira_sprint_name || iteration.name,
     targetSprintState: iteration.state || iteration.status || null,
     confirmedAt,
@@ -391,6 +391,10 @@ export function resolveRequirementSprintIteration(
   iterations: RequirementIteration[],
   scopedIteration?: RequirementIteration | null
 ) {
+  const nativeIteration = requirement.iteration_id
+    ? iterations.find(iteration => iteration.id === requirement.iteration_id && iteration.source === "hellotest")
+    : null;
+  if (nativeIteration) return nativeIteration;
   const sprintId = String(requirement.sprint_id || "");
   if (sprintId) {
     const identifiedIteration = iterations.find((iteration) => String(iteration.jira_sprint_id || "") === sprintId);

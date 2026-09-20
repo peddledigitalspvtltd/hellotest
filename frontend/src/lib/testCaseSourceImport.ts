@@ -8,6 +8,7 @@ export type TestCaseImportSourceSelection = TestCaseImportSource | "auto";
 
 export type PreparedTestCaseImportBatch = {
   id: string;
+  rowOffset?: number;
   fileName: string;
   source: TestCaseImportSource;
   rows: ImportedTestCaseRow[];

@@ -38,6 +38,29 @@ test("API dispatch and web/mobile engine initial context agree on selected data 
   const actual = buildInitialContext(envelope);
   for (const [name, value] of Object.entries(expected)) assert.equal(actual.values[name], value, name);
   assert.equal(interpolateText("@t.[First Name]|@s.tenant|@r.build|@t.random|@t.literal", actual), "|row suite|123||{{randomString:8}}");
+  const groupEnvelope = { parameters_frozen: true, data_set: { mode: 'table', rows: [{ login: 'case' }], shared_rows: [{}] } };
+  for (const login of ['first-group', 'second-group']) {
+    const step = { group_kind: 'reusable', shared_parameter_values: { login } };
+    const resolved = buildInitialContext(groupEnvelope, {}, step);
+    assert.equal(resolved.values['r.login'], login);
+    assert.equal(buildInitialContext(groupEnvelope, { login: 'captured' }, step).values['r.login'], 'captured');
+  }
+  assert.equal(buildInitialContext(groupEnvelope).values['r.login'], 'case');
+  const { composeScopedTestData } = require('../src/utils/scopedTestData');
+  for (const override of [false, true]) {
+    const selected = composeScopedTestData({ hierarchical: true,
+      caseData: {mode:'table',rows:[{'r.login':'case','t.input':'case'}]},
+      suiteData: {mode:'table',rows:[{'s.tenant':'suite'}]},
+      runData: {mode:'table',rows:[{'r.login':'run','t.input':'run','s.tenant':'run'}]},
+      caseOptions:{override_shared_steps:false},runOptions:{override_test_case_data:override,override_suite_data:override,override_shared_steps:override},sharedNames:new Set(['r.login']) }).snapshot;
+    const step={group_kind:'reusable',shared_parameter_values:{login:'group'}};
+    const current={parameters_frozen:true,data_set:selected,data_policy:selected.data_scope_policy,case_parameters:{'t.default':'case'},suite_parameters:{'s.default':'suite'},run_parameters:{'t.default':'run','s.default':'run'}};
+    const expected=resolveParameterLayers({dataSet:selected,sharedValues:step.shared_parameter_values,isSharedStep:true,caseValues:current.case_parameters,suiteValues:current.suite_parameters,runValues:current.run_parameters});
+    const actual=buildInitialContext(current,{},step).values;
+    for(const [key,value] of Object.entries(expected)) assert.equal(actual[key],value,key);
+  }
+
+
 });
 
 test("environment and case generators freeze once and reruns materialize preserved templates", () => {
@@ -70,4 +93,15 @@ test("public run snapshots redact secret values and templates in nested and raw 
   assert.doesNotMatch(JSON.stringify(response), /private-(?:environment|config|data)-(?:value|template)/);
   assert.equal(response.test_environment.snapshot.variables[0].is_secret, true);
   assert.equal(response.test_data_set.snapshot.rows[0].value, "");
+});
+
+
+test('rerun regenerates a shared group template once for all its steps, preserving different frozen definitions', () => {
+  const { regenerateSharedStepData, redactSharedStepData } = require('../src/services/sharedStepDataSnapshot.service');
+  const steps = [1,2,3].map(index => ({snapshot_step_id:String(index),reusable_group_id:'login',shared_parameter_template_values:{token:'{{randomString:24}}'},shared_parameter_sensitive_names:['r.token']}));
+  const rerun = regenerateSharedStepData(steps);
+  assert.equal(new Set(rerun.map(step=>step.shared_parameter_values.token)).size,1);
+  assert.match(rerun[0].shared_parameter_values.token,/^[A-Za-z0-9]{24}$/);
+  assert.deepEqual(redactSharedStepData(rerun[0]).shared_parameter_values,{});
+  assert.equal(steps[0].shared_parameter_template_values.token,'{{randomString:24}}');
 });

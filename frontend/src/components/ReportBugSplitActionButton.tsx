@@ -83,7 +83,7 @@ export function ReportBugSplitActionButton({
       style={menuStyle}
     >
       <button
-        aria-label="Report Bug using AI"
+        aria-label="Report Defect using AI"
         className="issue-report-split-ai-option"
         onClick={() => {
           setIsOpen(false);
@@ -94,7 +94,7 @@ export function ReportBugSplitActionButton({
         type="button"
       >
         <BugIcon />
-        <strong>Report Bug using AI</strong>
+        <strong>Report Defect using AI</strong>
       </button>
     </div>
   ) : null;
@@ -122,7 +122,7 @@ export function ReportBugSplitActionButton({
         type="button"
       >
         <BugIcon />
-        <span>Report Bug</span>
+        <span>Report Defect</span>
       </button>
       {showAiAction ? (
         <>
@@ -130,7 +130,7 @@ export function ReportBugSplitActionButton({
             aria-expanded={isOpen}
             aria-controls={isOpen ? menuId : undefined}
             aria-haspopup="menu"
-            aria-label="Choose bug reporting method"
+            aria-label="Choose defect reporting method"
             className="issue-report-split-toggle report-bug-split-toggle"
             disabled={disabled}
             onKeyDown={handleToggleKeyDown}

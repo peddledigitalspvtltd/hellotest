@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-dataset-group",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Shared session: one default row · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored input values only. These fixed rows demonstrate scoped inheritance and do not contain production accounts or secrets.",
+      "mode": "table",
+      "columns": [
+        "r.session_region"
+      ],
+      "rows": [
+        {
+          "r.session_region": "group-default-region"
+        }
+      ],
+      "created_at": "2026-09-20T08:00:00.000Z"
+    },
+    {
+      "id": "sample-v5-data-dataset-case",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Case input iterations · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored input values only. These fixed rows demonstrate scoped inheritance and do not contain production accounts or secrets.",
+      "mode": "table",
+      "columns": [
+        "t.email",
+        "s.tenant",
+        "r.build",
+        "r.session_region"
+      ],
+      "rows": [
+        {
+          "t.email": "case-one@example.test",
+          "s.tenant": "case-tenant",
+          "r.build": "case-build-1",
+          "r.session_region": "case-region-1"
+        }
+      ],
+      "created_at": "2026-09-20T08:00:00.000Z"
+    },
+    {
+      "id": "sample-v5-data-dataset-suite",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Suite defaults · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored input values only. These fixed rows demonstrate scoped inheritance and do not contain production accounts or secrets.",
+      "mode": "table",
+      "columns": [
+        "t.email",
+        "s.tenant",
+        "r.build",
+        "r.session_region"
+      ],
+      "rows": [
+        {
+          "t.email": "suite@example.test",
+          "s.tenant": "suite-tenant",
+          "r.build": "suite-build",
+          "r.session_region": "suite-region"
+        }
+      ],
+      "created_at": "2026-09-20T08:00:00.000Z"
+    },
+    {
+      "id": "sample-v5-data-dataset-run",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Run override iterations · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored input values only. These fixed rows demonstrate scoped inheritance and do not contain production accounts or secrets.",
+      "mode": "table",
+      "columns": [
+        "t.email",
+        "s.tenant",
+        "r.build",
+        "r.session_region"
+      ],
+      "rows": [
+        {
+          "t.email": "run-one@example.test",
+          "s.tenant": "run-tenant-a",
+          "r.build": "synthetic-rc-1",
+          "r.session_region": "run-region-a"
+        },
+        {
+          "t.email": "run-two@example.test",
+          "s.tenant": "run-tenant-b",
+          "r.build": "synthetic-rc-2",
+          "r.session_region": "run-region-b"
+        }
+      ],
+      "created_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

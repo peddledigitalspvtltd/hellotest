@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "suite_id": "sample-v5-data-suite",
+      "test_case_id": "sample-v5-data-case-execution",
+      "sort_order": 1
+    }
+  ]
+}

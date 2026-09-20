@@ -1,3 +1,4 @@
+import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -222,22 +223,22 @@ export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
   },
   {
     id: "bug-reporter",
-    name: "Bug Reporter",
-    shortName: "Bug draft",
-    description: "Turns run, case, Story, and observed evidence into a concise review-ready Bug draft.",
+    name: "Defect Reporter",
+    shortName: "Defect draft",
+    description: "Turns run, case, Story, and observed evidence into a concise review-ready Defect draft.",
     capabilities: ["Draft", "Link", "Evidence"],
     contextScopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
-    prompt: "Find the strongest recent failure evidence and prepare a review-ready Bug outline without creating it.",
+    prompt: "Find the strongest recent failure evidence and prepare a review-ready Defect outline without creating it.",
     icon: <IconMessageCircle />
   },
   {
     id: "bug-triage",
-    name: "Bug Triage Agent",
-    shortName: "Bug triage",
-    description: "Classifies, prioritizes, and sequences Bugs while leaving the final decision with a person.",
+    name: "Defect Triage Agent",
+    shortName: "Defect triage",
+    description: "Classifies, prioritizes, and sequences Defects while leaving the final decision with a person.",
     capabilities: ["Classify", "Prioritize", "Sequence"],
     contextScopes: ["bugs", "runs", "test-cases", "stories", "knowledge"],
-    prompt: "Triage open Bugs using severity, execution evidence, release scope, and traceability; explain every recommendation.",
+    prompt: "Triage open Defects using severity, execution evidence, release scope, and traceability; explain every recommendation.",
     icon: <IconUserCheck />
   },
   {
@@ -267,7 +268,7 @@ export const AGENT_CONTEXT_OPTIONS = [
   { id: "test-cases", label: "Test Cases" },
   { id: "automation", label: "Automation" },
   { id: "runs", label: "Runs" },
-  { id: "bugs", label: "Bugs" },
+  { id: "bugs", label: "Defects" },
   { id: "knowledge", label: "Knowledge" }
 ] as const;
 
@@ -747,11 +748,11 @@ const FEATURE_PROCESS_PROFILES: Record<AgenticFeatureProfileId, {
     }
   },
   "bug-create": {
-    heading: "Bug creation",
+    heading: "Defect creation",
     stages: {
       intake: { label: "Incident brief", detail: "Observed problem captured" },
       context: { label: "Evidence", detail: "Runs and records verified" },
-      specialist: { label: "Draft Bug", detail: "Reproduction and impact" },
+      specialist: { label: "Draft Defect", detail: "Reproduction and impact" },
       review: { label: "Create", detail: "Human-owned submission" }
     }
   },
@@ -765,9 +766,9 @@ const FEATURE_PROCESS_PROFILES: Record<AgenticFeatureProfileId, {
     }
   },
   "bug-triage": {
-    heading: "Bug triage",
+    heading: "Defect triage",
     stages: {
-      intake: { label: "Bug set", detail: "Review scope bounded" },
+      intake: { label: "Defect set", detail: "Review scope bounded" },
       context: { label: "Signals", detail: "Impact evidence assessed" },
       specialist: { label: "Recommend", detail: "Priority and actions drafted" },
       review: { label: "Acknowledge", detail: "Human decision required" }
@@ -960,7 +961,7 @@ const phaseLabels: Record<string, string> = {
 
 const runningTrace = [
   { phase: "intake", message: "Understanding the request and selecting the specialist contract." },
-  { phase: "context", message: "Retrieving bounded Stories, Test Cases, Runs, Bugs, automation, and knowledge." },
+  { phase: "context", message: "Retrieving bounded Stories, Test Cases, Runs, Defects, automation, and knowledge." },
   { phase: "guardrails", message: "Checking permissions, untrusted context, tool limits, and the human approval boundary." },
   { phase: "specialist", message: "The selected agent is analyzing evidence and preparing a decision summary." },
   { phase: "outcome", message: "A reviewable outcome will appear here." },
@@ -1229,7 +1230,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           <header><span>Sources</span><strong>Citations used for this outcome</strong></header>
           {groundedCitations.length ? (
             <ul className="ai-evidence-flyout__source-list">
-              {groundedCitations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{citation.source_kind || citation.scope}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
+              {groundedCitations.map((citation) => <li key={`${citation.scope}:${citation.id}`}><span>{formatRecordKindLabel(citation.source_kind || citation.scope)}</span><strong>{citation.label}</strong><code>{citation.id}</code></li>)}
             </ul>
           ) : <p className="ai-evidence-flyout__empty">No citation was returned. Treat the outcome as ungrounded until a source is added.</p>}
         </section>

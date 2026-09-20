@@ -15,7 +15,7 @@ const LEGACY_SAMPLE_PASSWORD_HASHES = Object.freeze([
 const REQUIRED_TABLES = [
   "users", "roles", "permissions", "projects", "project_members", "app_types",
   "requirements", "test_suites", "test_cases", "test_steps", "executions",
-  "execution_results", "feedback", "integrations", "app_settings", "admin_audit_log"
+  "execution_results", "feedback", "integrations", "app_settings", "admin_audit_log", "instance_setup_jobs"
 ];
 
 
@@ -236,62 +236,43 @@ exports.applySchema = async ({ actorId, ipAddress }) => {
 };
 
 const ensureSampleWorkspace = async (actorId) => {
-  const adminRole = await db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'admin' LIMIT 1").get();
+  const adminRole = await db.prepare("SELECT id FROM roles WHERE LOWER(BTRIM(name)) = 'admin' ORDER BY id LIMIT 1").get();
   if (!adminRole?.id) {
     throw createError("Admin role is missing. Apply the schema setup before installing sample data.", 409);
   }
-
-  await db.prepare(`
-    INSERT INTO projects (id, display_id, name, description, visibility, created_by)
-    VALUES ('sample-project', 'DEMO', 'HelloTest Launchpad', 'A guided workspace populated from Administration.', 'private', ?)
-    ON CONFLICT (id) DO NOTHING
-  `).run(actorId);
-  await db.prepare(`
-    UPDATE projects
-    SET created_by = COALESCE(created_by, ?)
-    WHERE id = 'sample-project'
-  `).run(actorId);
-
+  // Match session authentication: a project/default role named Admin does not
+  // grant workspace administration. Suspended administrators are not enrolled.
   const administrators = await db.prepare(`
-    SELECT DISTINCT users.id
-    FROM users
-    WHERE users.id = ?
-       OR (
-         COALESCE(users.status, 'active') <> 'suspended'
-         AND COALESCE(users.is_workspace_admin, FALSE) = TRUE
-       )
+    SELECT users.id FROM users
+    WHERE COALESCE(users.is_workspace_admin, FALSE) = TRUE
+      AND COALESCE(users.status, 'active') <> 'suspended'
     ORDER BY users.id
-  `).all(actorId);
-
-  for (const administrator of administrators) {
-    await db.prepare(`
+  `).all();
+  if (!administrators.some(administrator => administrator.id === actorId)) {
+    throw createError("Active workspace administrator access is required to install project samples.", 403);
+  }
+  // Canonical project/application samples are already inserted by the installer.
+  // Fill missing administrator memberships without replacing customized roles.
+  let inserted = 0;
+  for (let offset = 0; offset < administrators.length; offset += 100) {
+    const batch = administrators.slice(offset, offset + 100);
+    const result = await db.prepare(`
       INSERT INTO project_members (id, project_id, user_id, role_id)
-      VALUES (?, 'sample-project', ?, ?)
-      ON CONFLICT (project_id, user_id)
-      DO UPDATE SET role_id = EXCLUDED.role_id
-    `).run(crypto.randomUUID(), administrator.id, adminRole.id);
+      VALUES ${batch.map(() => "(?, 'sample-project', ?, ?)").join(', ')}
+      ON CONFLICT (project_id, user_id) DO NOTHING
+    `).run(...batch.flatMap(administrator => [crypto.randomUUID(), administrator.id, adminRole.id]));
+    inserted += result.changes;
   }
-
-  for (const app of [
-    ["sample-app-web", "Customer Portal", "web", false],
-    ["sample-app-api", "Commerce API", "api", false],
-    ["sample-app-mobile", "Mobile Experience", "unified", true]
-  ]) {
-    await db.prepare(`
-      INSERT INTO app_types (id, project_id, name, type, is_unified)
-      VALUES (?, 'sample-project', ?, ?, ?)
-      ON CONFLICT (id) DO NOTHING
-    `).run(...app);
-  }
-
-  return administrators.length;
+  return inserted;
 };
 
 exports.getSampleCatalog = () => require("./sampleData").getCatalog();
 
-exports.seedSampleData = ({ modules, actorId, ipAddress }) => require("./sampleData").install({
-  requestedModules: modules, actorId, ipAddress, ensureWorkspace: ensureSampleWorkspace, recordAudit
+exports.seedSampleData = ({ modules, actorId, ipAddress, onProgress, onCheckpoint, checkpoints, expectedManifestHash, signal }) => require("./sampleData").install({
+  requestedModules: modules, actorId, ipAddress, onProgress, onCheckpoint, checkpoints, expectedManifestHash, signal, ensureWorkspace: ensureSampleWorkspace, recordAudit
 });
+
+exports.runSampleDataInstall = exports.seedSampleData;
 
 exports.listAudit = async ({ limit = 50 } = {}) => {
   const safeLimit = Math.max(1, Math.min(200, Math.trunc(Number(limit) || 50)));

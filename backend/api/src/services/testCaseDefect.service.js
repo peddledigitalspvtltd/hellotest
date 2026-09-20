@@ -69,9 +69,9 @@ exports.replaceMappingsForTestCase = async (testCaseId, issueIds = []) => {
       const issuesById = new Map(issues.map((row) => [row.id, row]));
       for (const issueId of uniqueIds) {
         const issue = issuesById.get(issueId);
-        if (!issue) throw Object.assign(new Error(`Issue not found: ${issueId}`), { statusCode: 404 });
+        if (!issue) throw Object.assign(new Error(`Defect not found: ${issueId}`), { statusCode: 404 });
         if (issue.project_id !== scope.project_ids[0]) {
-          throw Object.assign(new Error("Test Case and Bug must belong to the same project"), { statusCode: 403 });
+          throw Object.assign(new Error("Test Case and Defect must belong to the same project"), { statusCode: 403 });
         }
       }
     }

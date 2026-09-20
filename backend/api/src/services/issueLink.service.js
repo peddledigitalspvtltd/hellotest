@@ -14,7 +14,7 @@ exports.replaceManualLinks = async ({ issueId, projectId, testCaseIds = [], requ
     const scope = caseScopes.get(id);
     if (!scope) throw error(`Test Case not found: ${id}`, 404);
     if (scope.project_ids.length !== 1) throw error('The Test Case does not have a single project scope', 409);
-    if (scope.project_ids[0] !== projectId) throw error('Bug and Test Case must belong to the same project', 403);
+    if (scope.project_ids[0] !== projectId) throw error('Defect and Test Case must belong to the same project', 403);
   }
   const storyScopes = stories.length ? await db.prepare(`
     SELECT id, project_id FROM requirements
@@ -24,7 +24,7 @@ exports.replaceManualLinks = async ({ issueId, projectId, testCaseIds = [], requ
   for (const id of stories) {
     const story = storiesById.get(id);
     if (!story) throw error(`Story not found: ${id}`, 404);
-    if (story.project_id !== projectId) throw error('Bug and Story must belong to the same project', 403);
+    if (story.project_id !== projectId) throw error('Defect and Story must belong to the same project', 403);
   }
 
   await db.prepare("DELETE FROM test_case_defects WHERE issue_id = ? AND link_source = 'manual'").run(issueId);

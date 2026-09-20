@@ -10,23 +10,44 @@ Reviewed 10 September 2026 against the existing application. This is an implemen
 | `t.expected`, `@t.expected` | Test case | A case-specific value |
 | `s.tenant`, `@s.tenant` | Suite | A value in the case's selected suite context |
 
-The same scope rules apply in frontend display, manual/API execution, and the web/mobile automation engine. Explicit namespaces stay distinct. A CSV can deliberately replace a test or suite default by retaining its `t.` or `s.` prefix. Identical names with different scopes are separate columns. `@name` and `@r.name` are aliases and cannot both appear as separate CSV columns.
+The same scope rules apply in frontend display, manual/API execution, and the web/mobile automation engine. Explicit namespaces stay distinct. A CSV can, when its scope override is enabled, deliberately replace a test or suite default by retaining its `t.` or `s.` prefix. Identical names with different scopes are separate columns. `@name` and `@r.name` are aliases in run CSV files and cannot both appear as separate columns. Suite CSV imports qualify unprefixed headers as `s.`; explicit `t.`, `s.`, and `r.` headers always retain their namespace.
 
 Resolution order, from lowest to highest precedence:
 
-1. Case defaults.
-2. Inherited suite defaults, with child values replacing parent values.
-3. Environment variables.
-4. Configuration variables.
-5. Explicit run parameters.
-6. The selected data row.
-7. Values captured by completed steps in the same execution context.
+1. Shared group defaults for the current shared step; its linked dataset row replaces its saved parameter defaults.
+2. Explicit case defaults.
+3. Inherited suite defaults, with child values replacing parent values.
+4. Environment variables.
+5. Configuration variables.
+6. Explicit run parameters.
+7. The selected data row, subject to the case, suite and run override options below.
+8. Values captured by completed steps in the same execution context.
 
 Legacy bare suite-default keys continue to mean suite values; bare case, environment, configuration, run-data, and captured keys use run scope for new runs. The parameter editor writes explicit canonical names. An empty cell is an explicit empty string. Omitting a column preserves its default; a blank cell does not. Parameter substitution replaces the complete token.
 
 Existing runs receive a persisted `parameter_scope_default=t` marker through an additive migration. Newly created runs explicitly use `r`. Old references, data headers, parameter maps, and capture declarations are qualified in memory when read or executed. Frozen database evidence is not rewritten. Reruns retain the source run's scope policy.
 
+## Test Case and Shared Step Group datasets
+
+Updated 20 September 2026: structured and Gherkin Shared Step Groups use the same dataset section as Test Cases. New group links require exactly one table row; the group data editor prevents adding a second row. Existing legacy links retain their saved selected row until replaced. Key/value datasets also supply one iteration. Linking a group never multiplies case execution instances; the case, suite or run dataset still determines iteration count.
+
+**Override Shared Groups Test Data** appears beside the Test Case dataset name before **Change**, and starts unchecked for new cases. Checked, case defaults and the linked case row can replace the shared group's data. Unchecked, shared steps retain their group's values while ordinary case steps continue to use the linked case row. The checkbox controls both saved case defaults and linked dataset values. Existing cases and frozen legacy runs retain their saved behavior. Suite and run **Shared Group Params Data** settings apply independently at their respective higher layers.
+
+Shared defaults are frozen on each execution step, so two groups can both use `@login` with different values without overwriting each other. Changes to a group's selected row, dataset contents or defaults cannot rewrite an existing run. Reruns retain those frozen definitions and regenerate each group's generator templates once for all its steps. Secret key/value entries are redacted from public snapshots while internal execution uses the saved values.
+
+**Download Test Params Template** uses the current structured or Gherkin draft and linked shared groups. Templates contain canonical parameter column names and an empty data row; they do not export saved values or secrets. The Test Case dataset summary keeps its compact layout instead of repeating every parameter below its description.
+
+Verification includes isolated PostgreSQL checks for selected rows, case override policy, separate groups with identical parameter names, frozen reruns, unchanged instance counts and secret redaction; shared-step parameter resolution also has frontend, API, Test Engine and Android regression coverage.
+
 ## Suite/run data journey
+
+Updated 20 September 2026: suite creation/editing, suite parameter dialogs, case/suite/run creation, scheduled runs, and queued-run editing share inline **Link Data Set**, **Create Data Set**, CSV import, and a template action at the top right. Creation offers an editable table with pagination; all rows remain accessible. Shared Step Group parameter dialogs also download their declared parameter columns.
+
+Create Suite and Create Run expose a collapsible **Data Sets** section in the left configuration pane. Suites have separate **Test Case Params Data** and **Shared Group Params Data** override checkboxes. Runs also have **Suite Params Data**. These options start checked and apply to both saved defaults and datasets. Template discovery filters by actual parameter ownership, including legacy unscoped names, instead of relying only on column prefixes. Listing shows available application datasets; selection validates all required columns before linking. Invalid imports cannot be saved or submitted with the selected scope. Suite metadata and membership are saved atomically.
+
+When an override is disabled, that lower layer retains its values. Other inherited data is retained, matching rows by index; one inherited row supplies defaults to every iteration. The highest selected scope determines the number of iterations. Multi-row inherited datasets must match its row count; otherwise preview and save return an actionable validation error before creating a run. These independent policies and each source data layer are stored in new immutable execution snapshots; legacy snapshots continue using their original resolver.
+
+An edited suite supplies its native context separately from selected case membership. Removing a case from a draft cannot add it back through template discovery, and a case's unrelated primary suite cannot introduce data into that draft. Clearing the selected suite data inherits its parent without reviving the cleared link. Parameter and data updates invalidate the open preview.
 
 Download the parameter template from suite creation/editing or run creation. The backend, rather than the visible/paginated case list, gathers all selected cases and descendant suites. The manifest collects saved defaults and actual input references in manual/Gherkin steps and API requests. Gherkin tags, comments, XML tags, and capture destinations that are only outputs are not mistaken for required inputs. Templates contain column names only, never secret/default values. Suite context queries load only selected suites and their ancestor chains, then fetch each authorized dataset once, avoiding an application-wide read for every template.
 
@@ -79,6 +100,13 @@ The new **Detailed report** action opens a standalone HTML report containing cas
 | Knowledge/agents/Ask AI | Canonical local indexing published before optional providers, bounded enrichment and total assistant time, configuration validation and cited retrieval fallback. |
 
 Historical runs still identify Releases with text, so renaming a Release fix version does not migrate their tags. Existing malformed cross-project authoring relationships were not rewritten. Production load/concurrency, every destructive project/application dependency, and a complete browser traversal of every route remain outside this verification.
+
+## Current hierarchy verification (20 September 2026)
+
+- Full frontend suite: 565 tests passed. API suite: 1,044 passed and two optional integration tests skipped; additional runtime regressions passed after the final intermediate-layer row fix.
+- Isolated PostgreSQL journeys verified strict shared-group rows, atomic Suite membership saves, missing-column rejection without partial Run writes, descendant Suite discovery, protected defaults, and frozen reruns.
+- Browser checks covered Gherkin-to-Structured template downloads, the shared single-row editor, Suite/Run list validation, CSV retries and stale responses, 25-row editing, and desktop/mobile Create Run layouts.
+- External execution-engine tests: 45 passed. Mobile execution-engine tests: 20 passed.
 
 ## Validation evidence
 

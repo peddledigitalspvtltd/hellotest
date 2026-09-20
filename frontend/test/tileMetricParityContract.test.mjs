@@ -13,16 +13,16 @@ const sliceBetween = (source, startMarker, endMarker) => {
   return source.slice(start, end);
 };
 
-const assertProgressFirstMetricCard = (card, trailingMarker) => {
+const assertProgressFirstMetricCard = (card, trailingMarker, metricComponent = "TileCardMetric") => {
   const progressIndex = card.indexOf("<TileCardProgress");
-  const metricsIndex = card.indexOf("<TileCardMetric");
+  const metricsIndex = card.indexOf(`<${metricComponent}`);
   const trailingIndex = card.indexOf(trailingMarker);
 
   assert.ok(progressIndex >= 0, "Card should render progress");
   assert.ok(metricsIndex > progressIndex, "Progress should precede metric cards");
   if (trailingMarker) assert.ok(trailingIndex > metricsIndex, `${trailingMarker} should remain after metric cards`);
   assert.equal((card.match(/<TileCardProgress/g) || []).length, 2);
-  assert.equal((card.match(/<TileCardMetric/g) || []).length, 4);
+  assert.equal((card.match(new RegExp(`<${metricComponent}`, "g")) || []).length, 4);
 };
 
 test("the shared tile primitives provide accessible progress and responsive metric cards", async () => {
@@ -66,20 +66,19 @@ test("Test Suite tiles put truthful readiness above four metrics and retain iden
   assert.match(page, /richTextToPlainText\(suite\.description \|\| ""\)/);
 });
 
-test("Shared Step Group tiles lead with definition and terminal-run health while retaining history", async () => {
+test("Shared Step Group tiles show definition, recorded step health and compact metric counts", async () => {
   const page = await readSource("../src/pages/SharedStepsPage.tsx");
+  const service = await readSource("../../backend/api/src/services/sharedStepMetrics.service.js");
   const card = sliceBetween(page, "const isActive = !isCreating && selectedGroupId", "catalogViewMode === \"list\"");
-
-  assertProgressFirstMetricCard(card, "Current-linked-case run history");
-  for (const detail of ["RichTextContent", "Step completeness", "Linked-case pass rate", "Steps", "Case links", "Runs", "Failed", "history-bars"]) {
-    assert.match(card, new RegExp(detail));
-  }
-  assert.match(page, /current === "running" \|\| next === "running"/);
-  assert.match(page, /isFinalized: \(current\?\.isFinalized \?\? true\) && result\.status !== "running"/);
-  assert.match(page, /selectLatestExecutionResultInstances\(executionResults\)\.forEach/);
-  assert.match(card, /filter\(\(result\) => result\.isFinalized\)/);
+  assertProgressFirstMetricCard(card, "Observed shared-step run history");
+  assert.doesNotMatch(card, /EvidenceFlipCard/);
+  for (const detail of ["RichTextContent", "Step completeness", "Shared Step Pass Rate", "Steps", "Case Reuse", "Executed Steps", "Failed Steps", "history-bars"]) assert.ok(card.includes(detail), detail);
+  assert.match(card, /const passRate = executedSteps \? Math\.round\(\(passedSteps \|\| 0\) \/ executedSteps \* 100\) : null/);
+  assert.match(service, /execution_step_snapshots/);
+  assert.match(service, /shared_step_statuses\(r\.logs\)/);
+  assert.match(service, /o\.status IN \('passed','failed'\)/);
+  assert.doesNotMatch(page, /selectLatestExecutionResultInstances\(executionResults\)/);
   assert.match(card, /steps include both an action and expected result/);
-  assert.doesNotMatch(card, /executable automation/);
   assert.match(card, /aria-label=\{`Select Shared Step Group \$\{group\.name\}`\}/);
   assert.match(card, /aria-current=\{isActive \? "page" : undefined\}/);
   assert.doesNotMatch(card, /aria-pressed/);
@@ -89,10 +88,11 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
   const page = await readSource("../src/pages/ReleasesPage.tsx");
   const card = sliceBetween(page, "const renderReleaseStoryTile", "const releaseRowGroups");
 
-  assertProgressFirstMetricCard(card, "release-story-context-facts");
-  for (const detail of ["Pass rate", "Automation coverage", "Priority", "Linked cases", "Defect density", "Release readiness", "Sprint", "Fix Version"]) {
+  assertProgressFirstMetricCard(card, "");
+  for (const detail of ["Pass rate", "Automation coverage", "Priority", "Linked cases", "Defect density"]) {
     assert.match(card, new RegExp(detail));
   }
+  assert.doesNotMatch(card, /release-story-context-facts|<TileCardFact|evidenceStory\.sprint|evidenceStory\.fix_version/);
   const evidenceQuery = sliceBetween(page, "const releaseReadinessQuery = useQuery", "const sprintsQuery = useQuery");
   assert.match(evidenceQuery, /api\.requirementReleases\.listReadiness\(\{ project_id: projectId \}\)/);
   assert.match(evidenceQuery, /readinessAccessKey/);
@@ -102,9 +102,12 @@ test("Release Story tiles reuse Story delivery progress and the four canonical h
   assert.doesNotMatch(page, /api\.(executionResults|testCases)\.(list|releaseReadiness)\(/);
   assert.doesNotMatch(card, /storyEvidenceById|releaseStoryCaseIdsByStoryId|knownTestCases|linkedBugCount \/ linkedCaseCount/);
   assert.match(card, /metrics\?\.pass_rate_percent \?\? null/);
-  assert.match(card, /metrics\?\.automation_coverage_percent \?\? null/);
-  assert.match(card, /metrics\?\.readiness_score \?\? null/);
-  assert.match(card, /readinessScore === null \? "No runs"/);
+  assert.match(card, /metrics\?\.linked_cases \? metrics\.automation_coverage_percent : null/);
+  assert.match(card, /deriveStoryReadiness\(story, \{ forceRelease: true \}\)/);
+  assert.match(card, /label=\{storyReadiness\.label\}/);
+  assert.match(card, /title=\{readinessEvidence\}/);
+  assert.match(card, /readinessScore === null \? "Unverified"/);
+  assert.doesNotMatch(card, /metrics\?\.readiness_score/);
   assert.match(card, /linkedBugCount\.toFixed\(2\)/);
   assert.match(card, /story-tile-metrics/);
 });
@@ -113,17 +116,17 @@ test("Test Run tiles use finalized results with concise defect and story metrics
   const page = await readSource("../src/pages/ExecutionsPage.tsx");
   const card = sliceBetween(page, "function ExecutionListCard", "function ExecutionScheduleCard");
 
-  assertProgressFirstMetricCard(card, "execution-run-card-actions");
+  assertProgressFirstMetricCard(card);
   assert.match(card, /const finalizedTotal = summary\.passed \+ summary\.failed \+ summary\.blocked/);
   assert.match(card, /totalScopedCases \* executionDataIterationCount\(execution\)/);
   assert.match(card, /finalizedTotal \/ resolvedOutcomeCount/);
   assert.match(card, /summary\.passed \/ finalizedTotal/);
-  for (const detail of ["Run Name", "Cases", "Pass rate", "Duration", "Defects", "Story impact", "Impacted stories", "Edit run"]) {
+  for (const detail of ["Run Name", "Cases", "Pass rate", "Duration", "Defects", "Story impact", "Impacted stories"]) {
     assert.match(card, new RegExp(detail));
   }
   assert.match(card, /buildFinalizedProgressSegments/);
   assert.match(card, /execution\.metrics\?\.defect_count \?\? 0/);
-  assert.match(card, /disabled=\{!canEdit \|\| isRunFinished\(execution\)\}/);
+  assert.doesNotMatch(card, /execution-run-card-actions|>Edit run<|>Open run</);
   assert.match(card, /execution-run-selection-row[\s\S]*<input[\s\S]*<ExecutionStatusIndicator/);
   assert.doesNotMatch(card, /execution outcomes touched|external references|label="Blocking"|label="Suites"|label="Release"|label="Assignee"|execution\.created_at/);
   assert.match(card, /aria-current=\{isActive \? "page" : undefined\}/);
@@ -207,7 +210,19 @@ test("execution-result evidence is project scoped, authorized, and bounded", asy
   assert.match(api, /list: \(query\?: \{ project_id\?: string;/);
   assert.match(executions, /executionResults\.list\(\{ project_id: projectId, limit: 5000 \}\)/);
   assert.match(design, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId/);
-  assert.match(shared, /executionResults\.list\(\{ project_id: projectId, app_type_id: appTypeId, limit: 5000, projection: "summary" \}, \{ signal \}\)/);
+  assert.match(shared, /api\.sharedStepGroups\.metrics\(\{ app_type_id: appTypeId \}, \{ signal \}\)/);
+  assert.doesNotMatch(shared, /executionResults\.list/);
+  const [sharedRoute, sharedService] = await Promise.all([
+    readSource("../../backend/api/src/routes/sharedStepGroups.routes.js"),
+    readSource("../../backend/api/src/services/sharedStepMetrics.service.js")
+  ]);
+  assert.match(sharedRoute, /projectService\.getProject\(app\.project_id, req\.user\.id\)/);
+  assert.match(sharedRoute, /\["shared_step.view", "testcase.view"\]/);
+  assert.match(sharedRoute, /\["run.view", "result.view"\]/);
+  assert.match(sharedRoute, /include_execution: includeExecution/);
+  assert.match(sharedService, /e\.project_id = \?/);
+  assert.match(sharedService, /WHERE app_type_id = \?/);
+  assert.match(sharedService, /LIMIT 10/);
   assert.match(route, /accessibleProjectIds/);
   assert.match(route, /projectService\.getProject\(scopedProjectId, req\.user\.id\)/);
   assert.match(route, /A project, execution, app type, or test case scope is required/);

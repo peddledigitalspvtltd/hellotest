@@ -1,0 +1,28 @@
+.loading-spinner {
+  display: inline-block;
+  flex: 0 0 auto;
+  overflow: visible;
+  color: var(--loading-spinner-color, #404040);
+  vertical-align: middle;
+}
+
+.loading-spinner-fan {
+  transform-origin: 50px 50px;
+  animation: loading-spinner-turn 1.2s steps(12, end) infinite;
+}
+
+:root[data-theme="dark"] .loading-spinner {
+  --loading-spinner-color: #f5f5f5;
+}
+
+@keyframes loading-spinner-turn {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner-fan { animation: none; }
+}
+
+@media (forced-colors: active) {
+  .loading-spinner { color: CanvasText; }
+}

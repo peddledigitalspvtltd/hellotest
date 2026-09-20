@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-notification-guide",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "project_id": "sample-project",
+      "type": "info",
+      "title": "Commerce walkthrough · sample",
+      "message": "The sample activity guide connects planning, execution and quality review.",
+      "status": "read",
+      "target_url": "/testops"
+    }
+  ]
+}

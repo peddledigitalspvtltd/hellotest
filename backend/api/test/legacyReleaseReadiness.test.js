@@ -26,9 +26,14 @@ const readinessFixture = (fixVersion = '  Version 1.2 ') => {
       }
       if (sql.includes('FROM execution_results er JOIN executions')) {
         assert.match(sql, /er.test_case_id IN \(\?\) AND e.project_id = \?/);
-        assert.match(sql, /AND \? <> '' AND LOWER\(TRIM\(COALESCE\(e.release, ''\)\)\) = \?/);
-        const [caseId, projectId, requiredToken, token] = args;
-        const selected = candidates.filter(row => row.test_case_id === caseId && row.project_id === projectId && requiredToken && row.release.trim().toLowerCase() === token && ['passed','failed','blocked'].includes(row.status))
+        assert.match(sql, /JOIN requirement_releases rel ON rel.id = \? AND rel.project_id = e.project_id/);
+        assert.match(sql, /e.release_id = rel.id/);
+        assert.match(sql, /e.release_id IS NULL/);
+        assert.match(sql, /LOWER\(TRIM\(e.release\)\) = LOWER\(TRIM\(rel.fix_version\)\)/);
+        const [releaseId, caseId, projectId] = args;
+        assert.equal(releaseId, 'release-id');
+        const token = fixVersion.trim().toLowerCase();
+        const selected = candidates.filter(row => row.test_case_id === caseId && row.project_id === projectId && token && row.release.trim().toLowerCase() === token && ['passed','failed','blocked'].includes(row.status))
           .sort((a, b) => b.created_at.localeCompare(a.created_at));
         return selected.length ? [{ test_case_id: selected[0].test_case_id, status: selected[0].status }] : [];
       }
@@ -44,7 +49,7 @@ const readinessFixture = (fixVersion = '  Version 1.2 ') => {
   const service = {};
   vm.runInNewContext(readFileSync(path.join(__dirname, '../src/services/requirementRelease.service.js'), 'utf8'), {
     exports: service,
-    require: dependency => dependency === '../db' ? db : dependency === 'crypto' ? require('node:crypto') : dependency === '../utils/finalizedCaseMetrics' ? require('../src/utils/finalizedCaseMetrics') : {}
+    require: dependency => dependency === '../db' ? db : dependency === 'crypto' ? require('node:crypto') : dependency === '../utils/finalizedCaseMetrics' ? require('../src/utils/finalizedCaseMetrics') : dependency === '../utils/deliveryScopeSql' ? require('../src/utils/deliveryScopeSql') : {}
   });
   service.getRelease = async () => ({ id: 'release-id', project_id: 'project-a', fix_version: fixVersion, requirement_ids: ['story'] });
   return { service, reads, candidates };
@@ -59,8 +64,8 @@ test('legacy release readiness uses the stored exact release token, project and 
   assert.equal(result.automation_coverage_percent, 100, 'canonical ready automation status is recognized');
   assert.notEqual(result.readiness_state, 'ready');
   const executionRead = reads.find(({ sql }) => sql.includes('FROM execution_results'));
-  assert.deepEqual(Array.from(executionRead.args), ['linked-case', 'project-a', 'version 1.2', 'version 1.2']);
-  assert.match(result.methodology.execution_scope, /stored Release fix version/);
+  assert.deepEqual(Array.from(executionRead.args), ['release-id', 'linked-case', 'project-a']);
+  assert.match(result.methodology.execution_scope, /native Release ID/);
 });
 
 test('releases without their own execution evidence report no result rather than borrowing another release', async () => {
@@ -130,3 +135,46 @@ test('authorized callers receive legacy aggregates and notes, and canonical Rele
   ]) assert.equal((await app.inject(request)).statusCode, 200);
   assert.deepEqual(operations, ['list', 'readiness', 'notes']);
 });
+
+test('Release catalogs require delivery access before reading their scope', async t => {
+  const { app } = await routeFixture(t, 'requirement_iteration.view');
+  let calls = 0;
+  t.mock.method(require('../src/services/requirementRelease.service'), 'listReleases', async () => { calls++; return []; });
+  assert.equal((await app.inject('/requirement-releases?project_id=project-a')).statusCode,403);
+  assert.equal(calls,0);
+});
+
+for (const denied of ['requirement.view','testcase.view','feedback.view']) {
+  test(`Release detail and catalog redact only inaccessible Story evidence when ${denied} is denied`, async t => {
+    const { app } = await routeFixture(t, denied);
+    const service = require('../src/services/requirementRelease.service');
+    const release = {id:'release-id',project_id:'project-a',name:'Public delivery plan',requirement_count:1,requirement_ids:['secret-story'],requirements:[{id:'secret-story',title:'Restricted Story title',description:'Restricted Story details'}]};
+    t.mock.method(service,'getRelease',async()=>release);
+    t.mock.method(service,'listReleases',async()=>[release]);
+    t.mock.method(service,'createRelease',async()=>({id:release.id,release}));
+    t.mock.method(service,'updateRelease',async()=>({updated:true,release}));
+    t.mock.method(service,'appendScope',async()=>({updated:true,release}));
+    t.mock.method(service,'withStoryMetrics',async()=>{throw new Error('Denied source must not be enriched');});
+    for (const request of [
+      '/requirement-releases?project_id=project-a','/requirement-releases/release-id',
+      {method:'POST',url:'/requirement-releases',payload:{project_id:'project-a',name:'Public delivery plan',fix_version:'1.0'}},
+      {method:'PUT',url:'/requirement-releases/release-id',payload:{name:'Updated delivery plan'}},
+      {method:'POST',url:'/requirement-releases/release-id/scope',payload:{sprint_ids:['sprint-id']}}
+    ]) {
+      const response=await app.inject(request);
+      assert.equal(response.statusCode,200,response.body);
+      const body=response.json();const item=Array.isArray(body)?body[0]:body.release||body;
+      assert.equal(item.name,'Public delivery plan');
+      if (denied==='requirement.view') {
+        assert.deepEqual(item.requirements,[]);
+        assert.deepEqual(item.requirement_ids,[]);
+        assert.equal(item.story_scope_visible,false);
+        assert.equal(item.requirement_count,null,'inaccessible Story counts remain unavailable');
+        assert.doesNotMatch(response.body,/secret-story|Restricted Story/);
+      } else {
+        assert.equal(item.requirements[0].id,'secret-story','Story-view permission retains Story details when only optional metrics are denied');
+        assert.equal(item.requirements[0].catalog_metrics,undefined);
+      }
+    }
+  });
+}

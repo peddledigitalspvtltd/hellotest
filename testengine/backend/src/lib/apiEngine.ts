@@ -101,9 +101,10 @@ const normalizeApiRequest = (request: EngineApiRequest | null | undefined): Engi
 const resolveApiRequest = (
   request: EngineApiRequest | null | undefined,
   envelope: EngineRunEnvelope,
-  capturedValues: Record<string, string>
+  capturedValues: Record<string, string>,
+  step?: EngineRunStep
 ) => {
-  const context = buildInitialContext(envelope, capturedValues);
+  const context = buildInitialContext(envelope, capturedValues, step);
   const normalizedRequest = normalizeApiRequest(request);
 
   return normalizeApiRequest({
@@ -589,7 +590,7 @@ export async function executeApiStepInEngine(
   step: EngineRunStep,
   capturedValues: Record<string, string> = {}
 ): Promise<ApiStepExecutionResult> {
-  const request = resolveApiRequest(step.api_request, envelope, capturedValues);
+  const request = resolveApiRequest(step.api_request, envelope, capturedValues, step);
   const preview = await runResolvedApiRequest(request);
   const assertions = evaluateApiAssertions(preview, request.validations || []);
   const captures = extractCaptures(request, preview);

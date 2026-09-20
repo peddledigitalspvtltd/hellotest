@@ -67,13 +67,12 @@ test("Test Cases reuse full Test Data authoring and link only one mature selecti
     readSource("../src/pages/TestEnvironmentPage.tsx"),
     readSource("../src/modal-system.css")
   ]);
-  const pickerStart = testCases.indexOf("function TestDataSetPickerDialog");
-  const pickerEnd = testCases.indexOf("function StepGroupModal", pickerStart);
-  const picker = testCases.slice(pickerStart, pickerEnd);
+  const picker = await readSource("../src/components/TestDataSetPickerDialog.tsx");
+  const panel = await readSource("../src/components/AuthoringDataSetPanel.tsx");
 
-  assert.match(testCases, /No Data Sets Defined/);
-  assert.match(testCases, /Create Data Set/);
-  assert.match(testCases, /Link Existing Data Set/);
+  assert.match(panel, /No Data Sets Defined/);
+  assert.match(panel, /Create Data Set/);
+  assert.match(panel, /Link Existing Data Set/);
   assert.match(testCases, /<DataSetForm/);
   assert.match(testCases, /setLinkedDataSetDraftIds\(\[created\.id\]\)/);
   assert.match(testCases, /setLinkedDataSetDraftIds\(\[dataSetLinkDraftId\]\)/);

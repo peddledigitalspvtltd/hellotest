@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v5-data-module",
+      "test_case_id": "sample-v5-data-case-execution",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v5-data-module",
+      "test_case_id": "sample-v5-data-case-review",
+      "sort_order": 2
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import type { TestDataOptions } from "../types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TagIcon } from "./AppIcons";
 import { DialogCloseButton } from "./DialogCloseButton";
@@ -21,6 +22,7 @@ export type SuiteCreateInput = {
   labels: string[];
   selectedIds: string[];
   test_data_set_id?: string;
+  test_data_options?: TestDataOptions;
   parallel_enabled?: boolean;
   parallel_count?: number;
 };
@@ -174,6 +176,8 @@ export function SuiteCreateModal({
 }: SuiteCreateModalProps) {
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
 
+  const [dataSetValid, setDataSetValid] = useState(true);
+  const [dataOptions, setDataOptions] = useState<TestDataOptions>(suite?.test_data_options || {});
   const [dataSetId, setDataSetId] = useState(suite?.test_data_set_id || "");
   const [name, setName] = useState(() => (mode === "edit" && suite ? suite.name : ""));
   const [description, setDescription] = useState(() => (mode === "edit" && suite ? suite.description || "" : ""));
@@ -221,13 +225,14 @@ export function SuiteCreateModal({
           className="form-grid suite-modal-form"
           onSubmit={(event) => {
             event.preventDefault();
+            if (!dataSetValid) return;
             onSubmit({
               name,
               description,
               labels: parseReferenceList(labelsText),
               parallel_enabled: canConfigureParallelAutomation && parallelEnabled,
               parallel_count: canConfigureParallelAutomation && parallelEnabled ? parallelCount : 1,
-              test_data_set_id: dataSetId,
+              test_data_options: dataOptions, test_data_set_id: dataSetId,
               selectedIds: localSelectedIds
             });
           }}
@@ -260,7 +265,7 @@ export function SuiteCreateModal({
                 />
               </FormField>
               {/* Expand children, while the unsaved selection supplies this suite's own cases. */}
-              <RunDataSetup suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={selectedCases} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
+              <RunDataSetup onValidityChange={setDataSetValid} parameterValues={suite?.parameter_values} suiteContextId={suite?.id} dataOptions={dataOptions} onDataOptionsChange={setDataOptions} suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={selectedCases} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
               <SuiteLabelsField
                 availableLabels={availableLabels}
                 value={labelsText}
@@ -325,7 +330,7 @@ export function SuiteCreateModal({
               <small>HelloTest Test Studio</small>
             </div>
             <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
-            <button className="primary-button" disabled={isSaving || !name.trim()} type="submit">
+            <button className="primary-button" disabled={isSaving || !name.trim() || !dataSetValid} type="submit">
               {isSaving ? "Saving…" : (
                 <>
                   <TileCardSuiteIcon />

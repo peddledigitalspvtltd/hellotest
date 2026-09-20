@@ -1,8 +1,9 @@
+import { metricTitle } from "../lib/metricTitle";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconLayoutDashboard, IconChartBar, IconChartDonut, IconChartLine, IconTable, IconNumber, IconPlus, IconSearch, IconGripVertical, IconSettings, IconX, IconCheck, IconDots, IconArrowRight, IconBriefcase, IconBox, IconTestPipe, IconCopy } from "@tabler/icons-react";
 import { buildQualityDashboardDrilldown, type QualityDashboardEvidenceRow } from "../lib/qualityDashboardDrilldown";
-import { QUALITY_DASHBOARD_PRESETS, QUALITY_WIDGET_LIBRARY, createDashboardPreset, dashboardQueryGadgets, moveDashboardWidget, type QualityDashboardPresetId } from "../lib/qualityDashboardPresets";
+import { QUALITY_DASHBOARD_PRESETS, QUALITY_WIDGET_LIBRARY, QUALITY_QUERY_LIBRARY, compactDashboardSeries, createDashboardPreset, dashboardQueryGadgets, moveDashboardWidget, type QualityDashboardPresetId } from "../lib/qualityDashboardPresets";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { getJiraBrowseUrl, readAtlassianSiteUrl } from "../lib/jiraBrowseUrl";
@@ -31,7 +32,7 @@ const EMPTY_GADGET: QualityDashboardGadget = {
   accent: "blue"
 };
 
-const DEFAULT_COMPLEX_DASHBOARD_PROMPT = "Build a release-quality command center for QA leadership. Include release confidence, story traceability and coverage gaps, effective automation, open bug exposure and a 90-day bug trend, QA throughput over 30 days, actual test-run cycle time, execution workflow, test distribution by module, story flow, ownership/productivity, and a prioritized action table. Keep every signal project-scoped, explainable, drillable, and useful at a glance.";
+const DEFAULT_COMPLEX_DASHBOARD_PROMPT = "Build a release-quality command center for QA leadership. Include release confidence, story traceability and coverage gaps, effective automation, open defect exposure and a 90-day defect trend, QA throughput over 30 days, actual test-run cycle time, execution workflow, test distribution by module, story flow, ownership/productivity, and a prioritized action table. Keep every signal project-scoped, explainable, drillable, and useful at a glance.";
 
 function emptyDashboard(projectId: string): QualityDashboard {
   return {
@@ -76,7 +77,10 @@ const DASHBOARD_AUDIENCES = [
   { id: "executive", label: "Executive", detail: "Release exposure and go/no-go risk" },
   { id: "product", label: "Product", detail: "Scope, ownership and defect pressure" },
   { id: "quality", label: "QA", detail: "Execution, traceability and triage" },
-  { id: "automation", label: "Automation", detail: "Reliability and maintenance demand" }
+  { id: "automation", label: "Automation", detail: "Reliability and maintenance demand" },
+  { id: "traceability", label: "Traceability", detail: "Stories, tests, results and linked defects" },
+  { id: "delivery", label: "Delivery", detail: "Development and QA progress by sprint and release" },
+  { id: "triage", label: "Triage", detail: "Failing tests, defect relationships and arrivals" }
 ] as const;
 
 const DASHBOARD_ACCENTS: Array<{ id: NonNullable<QualityDashboardGadget["accent"]>; label: string }> = [
@@ -89,10 +93,7 @@ const DASHBOARD_ACCENTS: Array<{ id: NonNullable<QualityDashboardGadget["accent"
   { id: "slate", label: "Slate" }
 ];
 
-const HELLOTEST_DERIVED_METRICS = new Set<QualityDashboardGadget["metric"]>([
-  "count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "openDefects", "failedRuns",
-  "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount", "passRate", "executionCompletion", "evidenceConfidence"
-]);
+const HELLOTEST_DERIVED_METRICS = new Set<QualityDashboardGadget["metric"]>(QUALITY_QUERY_LIBRARY.map(query => query.metric));
 
 const DASHBOARD_METRIC_CRITERIA_KEYS: Partial<Record<NonNullable<QualityDashboardGadget["metric"]>, string>> = {
   releaseConfidence: "metric.dashboard.release_confidence",
@@ -329,6 +330,12 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
     queryFn: async () => asArray(await api.qualityDashboards.list({ project_id: projectId }))
       .map((dashboard) => normalizeDashboard(dashboard, projectId)),
     enabled: Boolean(projectId)
+  });
+  const releaseOptions = useQuery({
+    queryKey: ["dashboard-release-options", projectId],
+    queryFn: async () => asArray(await api.requirementReleases.list({ project_id: projectId })),
+    enabled: Boolean(projectId && editorMode && editorTab === "configure"),
+    staleTime: 60_000
   });
   const builtInDashboards = useMemo(() => QUALITY_DASHBOARD_PRESETS.map(preset => createDashboardPreset(projectId, preset.id)), [projectId]);
   const selected = useMemo(
@@ -671,8 +678,9 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
       </header>
       <nav className="dashboard-preset-navigation" aria-label="Preloaded dashboards">
         {QUALITY_DASHBOARD_PRESETS.map((preset, index) => {
-          const Icon = [IconBriefcase, IconBox, IconTestPipe][index];
-          return <button key={preset.id} type="button" aria-pressed={selectedId === `preset:${preset.id}`} className={selectedId === `preset:${preset.id}` ? "is-active" : ""} onClick={() => setSelectedId(`preset:${preset.id}`)}><Icon size={21} /><span><strong>{preset.label}</strong><small>{preset.id === "executive" ? "Confidence & release risk" : preset.id === "product" ? "Coverage & product health" : "Execution & investigation"}</small></span><IconArrowRight size={16} /></button>;
+          const Icon = [IconBriefcase, IconBox, IconTestPipe, IconLayoutDashboard, IconChartBar, IconSearch][index] || IconLayoutDashboard;
+          const descriptions = { executive: "Confidence & release risk", product: "Coverage & product health", quality: "Execution & investigation", traceability: "Stories, tests & evidence", delivery: "Development & QA progress", triage: "Defects & failing tests" };
+          return <button key={preset.id} type="button" aria-pressed={selectedId === `preset:${preset.id}`} className={selectedId === `preset:${preset.id}` ? "is-active" : ""} onClick={() => setSelectedId(`preset:${preset.id}`)}><Icon size={21} /><span><strong>{preset.label}</strong><small>{descriptions[preset.id]}</small></span><IconArrowRight size={16} /></button>;
         })}
       </nav>
       <div className="custom-dashboard-toolbar">
@@ -773,9 +781,9 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                             <option value="hellotest">HelloTest derived quality</option>
                           </select>
                         </FormField>
-                        <FormField label="Visualization"><select value={gadgetDraft.type} onChange={(event) => setGadgetDraft((current) => ({ ...current, type: event.target.value as QualityDashboardGadget["type"] }))}><option value="metric">Metric</option><option value="donut">Donut</option><option value="bar">Bar</option><option value="stacked-bar">Stacked bar</option><option value="line">Trend line</option><option value="table">Issue list</option></select></FormField>
-                        <FormField label="Group by"><select value={gadgetDraft.group_by} onChange={(event) => setGadgetDraft((current) => ({ ...current, group_by: event.target.value as QualityDashboardGadget["group_by"] }))}><option value="status">Status</option><option value="statusCategory">Status category</option><option value="priority">Priority</option><option value="issuetype">Issue type</option><option value="assignee">Assignee</option><option value="reporter">Reporter</option><option value="components">Component</option><option value="fixVersion">Fix version</option><option value="sprint">Sprint</option><option value="module">HelloTest module</option><option value="labels">Labels</option><option value="resolution">Resolution</option><option value="createdWeek">Created week</option><option value="updatedWeek">Updated week</option><option value="createdMonth">Created month</option><option value="updatedMonth">Updated month</option></select></FormField>
-                        <FormField label="Metric">
+                        <FormField label="Visualization"><select value={gadgetDraft.type} onChange={(event) => setGadgetDraft((current) => ({ ...current, type: event.target.value as QualityDashboardGadget["type"] }))}><option value="metric">Metric</option><option value="donut">Donut</option><option value="bar">Horizontal Bar</option><option value="column">Column Chart</option><option value="stacked-bar">Stacked bar</option><option value="line">Trend Line</option><option value="area">Area Chart</option><option value="table">Evidence List</option></select></FormField>
+                        <FormField label="Group by"><select value={gadgetDraft.group_by} onChange={(event) => setGadgetDraft((current) => ({ ...current, group_by: event.target.value as QualityDashboardGadget["group_by"] }))}><option value="status">Status</option><option value="statusCategory">Status category</option><option value="priority">Priority</option><option value="issuetype">Work Type</option><option value="assignee">Assignee</option><option value="reporter">Reporter</option><option value="components">Component</option><option value="release">Release</option>{gadgetDraft.group_by === "fixVersion" ? <option value="fixVersion">Release (Legacy Grouping)</option> : null}<option value="story">Linked Story</option><option value="sprint">Sprint</option><option value="module">HelloTest module</option><option value="labels">Labels</option><option value="resolution">Resolution</option><option value="createdWeek">Created week</option><option value="updatedWeek">Updated week</option><option value="createdMonth">Created month</option><option value="updatedMonth">Updated month</option></select></FormField>
+                        <FormField label="Query / Metric">
                           <select
                             value={gadgetDraft.metric || "count"}
                             onChange={(event) => {
@@ -789,12 +797,13 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                             }}
                           >
                             {!HELLOTEST_DERIVED_METRICS.has(gadgetDraft.metric) ? <option value={gadgetDraft.metric || "count"} disabled>Legacy metric · select a supported signal</option> : null}
-                            <optgroup label="Project quality signals"><option value="count">Work item count</option><option value="releaseConfidence">Release confidence</option><option value="requirementCoverage">Story coverage</option><option value="coverageGaps">Coverage gaps</option>{canUseAutomation ? <option value="automationCoverage">Automation coverage</option> : null}<option value="openDefects">Open defects</option><option value="failedRuns">Failed runs</option><option value="executionCycleHours">Execution cycle time</option><option value="completedRuns30d">QA throughput · 30 days</option><option value="testCases">Test cases</option><option value="testSuites">Test suites</option><option value="testRuns">Test runs</option><option value="moduleCaseCount">Cases by module</option><option value="passRate">Case pass rate</option><option value="executionCompletion">Execution completion</option><option value="evidenceConfidence">Evidence confidence</option></optgroup>
+                            {[...new Set(QUALITY_QUERY_LIBRARY.map(query => query.category))].map(category => <optgroup key={category} label={category}>{QUALITY_QUERY_LIBRARY.filter(query => query.category === category && (!query.automation || canUseAutomation)).map(query => <option key={query.metric} value={query.metric}>{metricTitle(query.label)}</option>)}</optgroup>)}
                           </select>
                         </FormField>
                         <FormField label="Accent"><select value={gadgetDraft.accent || "blue"} onChange={(event) => setGadgetDraft((current) => ({ ...current, accent: event.target.value as QualityDashboardGadget["accent"] }))}>{DASHBOARD_ACCENTS.map((accent) => <option key={accent.id} value={accent.id}>{accent.label}</option>)}</select></FormField>
+                        <FormField label="Release Scope" hint={releaseOptions.isError ? "Release options could not be loaded. The current scope is preserved." : "All project records, or stories and runs linked to one release."}><select value={gadgetDraft.release || ""} onChange={event => setGadgetDraft(current => ({ ...current, release: event.target.value || undefined }))}><option value="">Entire Project</option>{gadgetDraft.release && !releaseOptions.data?.some(release => release.id === gadgetDraft.release) ? <option value={gadgetDraft.release}>{gadgetDraft.release} (Saved Scope)</option> : null}{releaseOptions.data?.map(release => <option key={release.id} value={release.id}>{release.name}</option>)}</select></FormField>
                       </div>
-                      {gadgetDraft.data_source !== "hellotest" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>Saved project evidence</strong><span>Uses the selected quality signal from this project. Open its evidence from the dashboard to investigate.</span></div>}
+                      {gadgetDraft.data_source !== "hellotest" ? <><FormField label="JQL" hint="Auto-filled from the gadget title, chart, metric, grouping and release; HelloTest always adds the active project server-side."><textarea maxLength={2000} rows={4} value={gadgetDraft.jql} onChange={(event) => { setIsGadgetJqlDirty(true); setGadgetDraft((current) => ({ ...current, jql: event.target.value })); }} /></FormField><div className="dashboard-jql-recommendation"><span>Suggested JQL: <code>{recommendedJql}</code></span><button className="ghost-button compact" onClick={() => { setIsGadgetJqlDirty(false); setGadgetDraft((current) => ({ ...current, jql: recommendedJql })); }} type="button">Use suggested JQL</button></div></> : <div className="dashboard-derived-note"><strong>{QUALITY_QUERY_LIBRARY.find(query => query.metric === gadgetDraft.metric)?.relationship || "Saved Project Evidence"}</strong><span>{QUALITY_QUERY_LIBRARY.find(query => query.metric === gadgetDraft.metric)?.description} Every query uses the active project and selected release. Shared relationships count each record once in the total.</span></div>}
                       <div className="action-row"><button className="ghost-button" disabled={preview.isPending} onClick={() => preview.mutate({ gadget: { ...gadgetDraft, id: gadgetDraft.id || "preview" }, projectId, editorGeneration: editorGenerationRef.current })} type="button">{preview.isPending ? "Running…" : "Preview"}</button><button className="primary-button" disabled={!gadgetDraft.title.trim() || gadgetDraft.data_source !== "hellotest" || !HELLOTEST_DERIVED_METRICS.has(gadgetDraft.metric) || (!editingGadgetId && draft.gadgets.length >= 12)} onClick={addGadget} type="button">{editingGadgetId ? "Apply widget changes" : "Add widget"}</button>{editingGadgetId ? <button className="ghost-button" onClick={() => { setEditingGadgetId(""); setGadgetDraft({ ...EMPTY_GADGET, title: "" }); setIsGadgetJqlDirty(false); setEditorTab("build"); }} type="button">Cancel edit</button> : null}</div>
                     </div>
                     {preview.data && previewIsCurrent ? <QualityGadget onDrilldown={(groupLabel) => handleGadgetDrilldown(preview.data!, groupLabel)} onRowDrilldown={row => handleGadgetDrilldown(preview.data!, undefined, row)} result={preview.data} /> : null}
@@ -863,8 +872,8 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
   );
 }
 
-function widgetTypeLabel(type: QualityDashboardGadget["type"]) { return ({ metric: "Metric", donut: "Donut chart", bar: "Bar chart", "stacked-bar": "Stacked bar", line: "Trend", table: "Evidence list" })[type]; }
-function WidgetIcon({ type }: { type: QualityDashboardGadget["type"] }) { const Icon = ({ metric: IconNumber, donut: IconChartDonut, bar: IconChartBar, "stacked-bar": IconChartBar, line: IconChartLine, table: IconTable })[type]; return <Icon size={19} aria-hidden="true" />; }
+function widgetTypeLabel(type: QualityDashboardGadget["type"]) { return ({ metric: "Metric", donut: "Donut chart", bar: "Bar chart", "stacked-bar": "Stacked bar", line: "Trend", area: "Area Chart", column: "Column Chart", table: "Evidence list" })[type]; }
+function WidgetIcon({ type }: { type: QualityDashboardGadget["type"] }) { const Icon = ({ metric: IconNumber, donut: IconChartDonut, bar: IconChartBar, "stacked-bar": IconChartBar, line: IconChartLine, area: IconChartLine, column: IconChartBar, table: IconTable })[type]; return <Icon size={19} aria-hidden="true" />; }
 
 function QualityGadget({
   result,
@@ -881,7 +890,8 @@ function QualityGadget({
 }) {
   const { getMetricCriteria } = useAiPromptRegistry();
   const gadget = result.gadget && typeof result.gadget === "object" ? result.gadget : EMPTY_GADGET;
-  const series = asArray(result.series);
+  const allSeries = asArray(result.series);
+  const series = ["donut", "stacked-bar", "column"].includes(gadget.type) ? compactDashboardSeries(allSeries, gadget.type === "column" ? 12 : 8) : allSeries;
   const rows = asArray(result.rows);
   const maximum = Math.max(...series.map((item) => Number(item.value) || 0), 1);
   const accent = gadget.accent || "blue";
@@ -902,12 +912,12 @@ function QualityGadget({
     const y = 108 - (item.value / maximum) * 92;
     return `${x},${y}`;
   }).join(" ");
-  const isPercentageMetric = ["resolutionRate", "requirementCoverage", "automationCoverage", "passRate", "executionCompletion", "evidenceConfidence", "releaseConfidence"].includes(gadget.metric || "");
+  const isPercentageMetric = ["resolutionRate", "requirementCoverage", "automationCoverage", "passRate", "executionCompletion", "evidenceConfidence", "releaseConfidence", "devStoryCompletion", "qaStoryCompletion", "storyTestPassRate", "storyExecutionCoverage", "defectTraceability"].includes(gadget.metric || "");
   const criteriaKey = gadget.metric ? DASHBOARD_METRIC_CRITERIA_KEYS[gadget.metric] : undefined;
   return (
     <article className={`quality-gadget type-${gadget.type} tone-${resultTone(result)} accent-${accent}`} style={gadgetStyle}>
       <div className="quality-gadget-head">
-        <strong>{gadget.title}</strong>
+        <strong>{metricTitle(gadget.title)}</strong>
         <div className="quality-gadget-controls">
           <span className="quality-widget-type"><WidgetIcon type={gadget.type} /></span>
           {onRefresh ? (
@@ -923,10 +933,11 @@ function QualityGadget({
           ) : null}
         </div>
       </div>
-      {gadget.type === "metric" ? <div className="quality-metric-value"><strong>{isPercentageMetric ? `${Number(result.value) || 0}%` : Number(result.value) || 0}</strong><span className="quality-metric-value-label">{result.value_label || "Result"}{criteriaKey ? <MetricMethodologyInfo criteriaKey={criteriaKey} evidence={`${result.methodology || "Project-scoped evaluated evidence"} ${Number(result.returned) || 0}${result.truncated ? "+" : ""} records were inspected.`} organizationCriteria={getMetricCriteria(criteriaKey)} /> : null}</span></div> : null}
+      {gadget.type === "metric" ? <div className="quality-metric-value"><strong>{isPercentageMetric ? `${Number(result.value) || 0}%` : Number(result.value) || 0}</strong><span className="quality-metric-value-label">{metricTitle(result.value_label || "Result")}{criteriaKey ? <MetricMethodologyInfo criteriaKey={criteriaKey} evidence={`${result.methodology || "Project-scoped evaluated evidence"} ${Number(result.returned) || 0}${result.truncated ? "+" : ""} records were inspected.`} organizationCriteria={getMetricCriteria(criteriaKey)} /> : null}</span></div> : null}
       {gadget.type === "bar" ? (
         <div className="quality-series-list">{series.map((item) => <button disabled={!onDrilldown} key={item.label} onClick={() => onDrilldown?.(item.label)} title={gadget.data_source === "hellotest" ? "Open the project evidence list; chart filters are not applied" : `Open ${item.label} in a new tab`} type="button"><span>{item.label}</span><i><em style={{ width: `${Math.round(((Number(item.value) || 0) / maximum) * 100)}%` }} /></i><strong>{item.value}</strong></button>)}</div>
       ) : null}
+      {gadget.type === "column" ? <div className="quality-column-chart" role="group" aria-label={`${gadget.title} column chart`}>{series.map((item, index) => <button key={item.label} type="button" disabled={!onDrilldown} onClick={() => onDrilldown?.(item.label)} title={`${item.label}: ${item.value}`}><span className="quality-column-value">{item.value}</span><span className="quality-column-track"><i style={{ height: `${Math.max(0, Number(item.value)) / maximum * 100}%`, background: palette[index % palette.length] }} /></span><span className="quality-column-label">{item.label}</span></button>)}</div> : null}
       {gadget.type === "donut" ? (
         <div className="quality-donut-layout">
           <div className="quality-donut" style={{ background: series.length ? `conic-gradient(${donutStops})` : "var(--ds-background-neutral, #dfe1e6)" }}><span><strong>{Number(result.total) || 0}</strong><small>Total</small></span></div>
@@ -939,16 +950,16 @@ function QualityGadget({
           <div className="quality-chart-legend">{series.slice(0, 8).map((item, index) => <button disabled={!onDrilldown} key={item.label} onClick={() => onDrilldown?.(item.label)} title={gadget.data_source === "hellotest" ? "Open the project evidence list; chart filters are not applied" : `Open ${item.label} in a new tab`} type="button"><i style={{ background: palette[index % palette.length] }} /><small>{item.label}</small><strong>{item.value}</strong></button>)}</div>
         </div>
       ) : null}
-      {gadget.type === "line" ? (
+      {["line", "area"].includes(gadget.type) ? (
         <button className="quality-line-chart quality-chart-drilldown" disabled={!onDrilldown} onClick={() => onDrilldown?.()} title="Open trend drill-down in a new tab" type="button">
-          <svg aria-label={`${gadget.title} trend`} role="img" viewBox="0 0 300 120"><path d="M10 108 H290" /><polyline points={linePoints} /></svg>
+          <svg aria-label={`${gadget.title} trend`} role="img" viewBox="0 0 300 120"><path d="M10 108 H290" />{gadget.type === "area" && series.length ? <polygon className="quality-area-fill" points={`${series.length <= 1 ? 150 : 10},108 ${linePoints} ${series.length <= 1 ? 150 : 290},108`} /> : null}<polyline points={linePoints} /></svg>
           <div><span>{series[0]?.label || "—"}</span><strong>{series.map((item) => item.value).join(" · ") || "No data"}</strong><span>{series[series.length - 1]?.label || "—"}</span></div>
         </button>
       ) : null}
       {gadget.type === "table" ? (
         <div className="quality-table-wrap">{!rows.length ? <div className="dashboard-empty-evidence"><IconCheck size={21} /><strong>No matching records</strong><span>There is nothing to review for this signal.</span></div> : <table><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Priority</th><th>Status</th><th>Owner</th></tr></thead><tbody>{rows.map((row) => { const issueUrl = gadget.data_source !== "hellotest" ? getJiraBrowseUrl(row.key) : null; return <tr key={row.id}><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.key}</a> : row.key}</td><td>{issueUrl ? <a href={issueUrl} rel="noreferrer" target="_blank">{row.title}</a> : <button className="quality-table-drilldown" onClick={() => onRowDrilldown ? onRowDrilldown(row) : onDrilldown?.()} type="button">{row.title}</button>}</td><td>{row.type || "—"}</td><td>{row.priority || "—"}</td><td>{row.status || "—"}</td><td>{row.assignee || "Unassigned"}</td></tr>; })}</tbody></table>}</div>
       ) : null}
-      <small className="quality-gadget-foot">{gadget.data_source === "hellotest" ? "Project evidence" : "Work items"} · {Number(result.returned).toLocaleString() || 0} records{result.truncated ? " · Partial sample" : ""}</small>
+      <small className="quality-gadget-foot" title={result.methodology}>{gadget.data_source === "hellotest" ? "Project evidence" : "Work items"} · {Number(result.returned).toLocaleString() || 0} records{result.truncated ? " · First 100 Records; Full Scope Used For Calculation" : ""}</small>
     </article>
   );
 }

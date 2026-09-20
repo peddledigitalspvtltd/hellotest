@@ -66,9 +66,13 @@ module.exports = async function (fastify) {
     fastify.validate({
       project_id: { required: true, type: "string" }, app_type_id: { required: true, type: "string" },
       execution_id: { required: false, type: "string", maxLength: 255 },
+      data_scope: { required: false, type: "string", enum: ["suite", "run"] },
+      suite_context_id: { required: false, type: "string", maxLength: 255 },
       suite_ids: { required: false, type: "array", items: "string", maxItems: 1000 },
       test_case_ids: { required: false, type: "array", items: "string", maxItems: 5000 },
-      test_data_set_id: { required: false, type: "string" }, test_environment_id: { required: false, type: "string" },
+      test_data_set_id: { required: false, type: "string" },
+      test_data_options: { required: false, type: "object" }, test_environment_id: { required: false, type: "string" },
+      parameter_values: { required: false, type: "object" },
       test_configuration_id: { required: false, type: "string" }
     }, req.body || {});
     const projectId = req.body.project_id;
@@ -88,7 +92,7 @@ module.exports = async function (fastify) {
     const addsCases = (req.body.test_case_ids || []).some(id => !savedCases.has(id));
     const addsSuites = (req.body.suite_ids || []).some(id => !savedSuites.has(id));
     if (!frozenRun || addsCases || addsSuites) await fastify.requirePermission("testcase.view", { projectId })(req);
-    if (addsSuites) await fastify.requirePermission("suite.view", { projectId })(req);
+    if (addsSuites || req.body.suite_context_id) await fastify.requirePermission("suite.view", { projectId })(req);
     if (req.body.test_environment_id && req.body.test_environment_id !== frozenRun?.test_environment_id) await fastify.requirePermission("environment.view", { projectId })(req);
     if (req.body.test_configuration_id && req.body.test_configuration_id !== frozenRun?.test_configuration_id) await fastify.requirePermission("configuration.view", { projectId })(req);
     if (req.body.test_data_set_id !== frozenRun?.test_data_set_id) await requireSelectedTestDataAccess(fastify, req, projectId, req.body.test_data_set_id);
@@ -153,6 +157,7 @@ module.exports = async function (fastify) {
       impacted_requirement_ids: req.body.impacted_requirement_ids,
       test_environment_id: req.body.test_environment_id,
       test_configuration_id: req.body.test_configuration_id,
+      test_data_options: req.body.test_data_options,
       test_data_set_id: req.body.test_data_set_id
     });
   });
@@ -167,6 +172,7 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      test_data_options: { required: false, type: "object" },
       additional_context: { required: false, type: "string" },
       integration_id: { required: false, type: "string" }
     }, req.body);
@@ -185,6 +191,7 @@ module.exports = async function (fastify) {
       selected_suite_ids: req.body.selected_suite_ids || [],
       test_environment_id: req.body.test_environment_id,
       test_configuration_id: req.body.test_configuration_id,
+      test_data_options: req.body.test_data_options,
       test_data_set_id: req.body.test_data_set_id,
       additional_context: req.body.additional_context,
       integration_id: req.body.integration_id
@@ -203,6 +210,7 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      test_data_options: { required: false, type: "object" },
       execution_hooks: { required: false, type: "array" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" },
@@ -212,6 +220,8 @@ module.exports = async function (fastify) {
       assigned_to_ids: { required: false, type: "array", items: "string" },
       release: { required: false, type: "string" },
       sprint: { required: false, type: "string" },
+      release_id: { required: false, type: "string" },
+      iteration_id: { required: false, type: "string" },
       build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       scope_source: { required: false, type: "string", enum: ["smart-run"] },
@@ -366,10 +376,13 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      test_data_options: { required: false, type: "object" },
       assigned_to: { required: false, type: "string" },
       assigned_to_ids: { required: false, type: "array", items: "string" },
       release: { required: false, type: "string" },
       sprint: { required: false, type: "string" },
+      release_id: { required: false, type: "string" },
+      iteration_id: { required: false, type: "string" },
       build: { required: false, type: "string" },
       name: { required: false, type: "string" },
       created_by: { required: true, type: "string" },
@@ -441,6 +454,7 @@ module.exports = async function (fastify) {
       test_environment_id: { required: false, type: "string" },
       test_configuration_id: { required: false, type: "string" },
       test_data_set_id: { required: false, type: "string" },
+      test_data_options: { required: false, type: "object" },
       parallel_enabled: { required: false, type: "boolean" },
       parallel_count: { required: false, type: "number" },
       execution_mode: { required: false, type: "string", enum: ["manual", "remote", "local"] },
@@ -448,6 +462,8 @@ module.exports = async function (fastify) {
       assigned_to_ids: { required: false, type: "array", items: "string" },
       release: { required: false, type: "string" },
       sprint: { required: false, type: "string" },
+      release_id: { required: false, type: "string" },
+      iteration_id: { required: false, type: "string" },
       build: { required: false, type: "string" },
       expected_revision: { required: false, type: "number" }
     }, req.body);

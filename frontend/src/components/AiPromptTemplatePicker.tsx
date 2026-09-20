@@ -52,7 +52,7 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     searchPlaceholder: "Story format, persona, domain, or tag...",
     emptyMessage: "No Story-creation templates matched. Create one for this screen on the right.",
     createTitle: "Add Story template",
-    createHelp: "Capture guidance for generating new testable Story drafts. It will not appear in Test Case or Bug dialogs.",
+    createHelp: "Capture guidance for generating new testable Story drafts. It will not appear in Test Case or Defect dialogs.",
     appliesTo: ["requirements"],
     domainLabel: "Product domain",
     domainPlaceholder: "Payments, identity, reporting...",
@@ -96,7 +96,7 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     triggerLabel: "Test Case templates",
     contextLabel: "Test Case generation prompt library",
     libraryTitle: "Choose or create a Test Case template",
-    libraryHelp: "Only Test Case-generation templates are shown. Story and Bug templates stay in their own authoring screens.",
+    libraryHelp: "Only Test Case-generation templates are shown. Story and Defect templates stay in their own authoring screens.",
     searchPlaceholder: "Test type, role, domain, format, or tag...",
     emptyMessage: "No Test Case templates matched. Create one for this screen on the right.",
     createTitle: "Add Test Case template",
@@ -141,13 +141,13 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     promptPlaceholder: "Describe the required action granularity, assertions, data tokens, and platform constraints."
   },
   bug_creation: {
-    triggerLabel: "Bug templates",
-    contextLabel: "Bug drafting prompt library",
-    libraryTitle: "Choose or create a Bug-report template",
-    libraryHelp: "Only Bug-drafting templates are shown. Failed evidence stays bounded to the current Bug context.",
+    triggerLabel: "Defect templates",
+    contextLabel: "Defect drafting prompt library",
+    libraryTitle: "Choose or create a Defect-report template",
+    libraryHelp: "Only Defect-drafting templates are shown. Failed evidence stays bounded to the current Defect context.",
     searchPlaceholder: "Failure type, evidence style, domain, or tag...",
-    emptyMessage: "No Bug templates matched. Create one for this screen on the right.",
-    createTitle: "Add Bug template",
+    emptyMessage: "No Defect templates matched. Create one for this screen on the right.",
+    createTitle: "Add Defect template",
     createHelp: "Capture ready-to-file reproduction and evidence guidance. It will not appear in Story or Test Case dialogs.",
     appliesTo: ["bugs"],
     domainLabel: "Affected domain",
@@ -161,8 +161,8 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
     countLabel: "Draft count",
     countUnit: "drafts",
     showCount: false,
-    promptLabel: "Bug guidance",
-    promptPlaceholder: "Describe the reproduction detail, evidence, impact, and wording required for a ready-to-file Bug."
+    promptLabel: "Defect guidance",
+    promptPlaceholder: "Describe the reproduction detail, evidence, impact, and wording required for a ready-to-file Defect."
   }
 };
 
@@ -224,13 +224,15 @@ export function AiPromptTemplatePicker({
   appTypeId,
   onApply,
   disabled = false,
-  scope = DEFAULT_PROMPT_SCOPE
+  scope = DEFAULT_PROMPT_SCOPE,
+  triggerLabel
 }: {
   projectId?: string;
   appTypeId?: string;
   onApply: (prompt: string, template: AiPromptTemplate) => void;
   disabled?: boolean;
   scope?: AiPromptScope;
+  triggerLabel?: string;
 }) {
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
@@ -320,7 +322,7 @@ export function AiPromptTemplatePicker({
         type="button"
       >
         <SearchIcon size={15} />
-        <span>{scopeConfig.triggerLabel}</span>
+        <span>{triggerLabel || scopeConfig.triggerLabel}</span>
       </button>
 
       {isOpen ? createPortal(

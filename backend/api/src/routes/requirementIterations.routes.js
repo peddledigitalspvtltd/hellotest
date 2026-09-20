@@ -18,7 +18,7 @@ const healthMethodology = {
   completed_percent: { numerator: "Stories whose status reached QA Done or Done.", denominator: "All in-scope stories.", zero_denominator: null },
   coverage_percent: { numerator: "Stories with at least one linked test case.", denominator: "All in-scope stories.", zero_denominator: null, covered_definition: "At least one requirement-test-case mapping exists." },
   pass_percent: { numerator: "Linked cases whose latest recorded result passed.", denominator: "Linked cases with a recorded result.", zero_denominator: null, execution_definition: "Latest execution result per linked case." },
-  defect_density: { numerator: "Open linked defects.", denominator: "All in-scope stories.", zero_denominator: null, bug_definition: "A linked HelloTest issue whose status is not closed." },
+  defect_density: { numerator: "Open linked defects.", denominator: "All in-scope stories.", zero_denominator: null, bug_definition: "A linked HelloTest defect whose status is not closed." },
   at_risk_stories: { denominator: "All in-scope stories.", definition: "Blocked stories, priority 1-2 Stories without test coverage, or Stories that missed a Dev/QA target before reaching the corresponding Done stage." },
   slippage_stories: { denominator: "All in-scope stories.", definition: "Distinct Stories past Dev target without Dev Done, or past QA target without QA Done." },
   on_course_stories: { denominator: "All in-scope stories.", definition: "Stories that are complete or have not missed a Dev/QA target." },
@@ -85,7 +85,7 @@ const buildIterationHealth = async (iteration, sourceRequirements) => {
   const partialReasons = [
     storiesPartial ? `Story scan exceeded ${HEALTH_LIMITS.stories_per_sprint} records.` : "",
     linksPartial ? `Traceability scan exceeded ${HEALTH_LIMITS.linked_cases} links.` : "",
-    bugsPartial ? `Bug scan exceeded ${HEALTH_LIMITS.bugs} records.` : ""
+    bugsPartial ? `Defect scan exceeded ${HEALTH_LIMITS.bugs} records.` : ""
   ].filter(Boolean);
   const partial = partialReasons.length > 0;
   const exactFields = partial ? [] : ["total_stories", "completed_stories", "completed_percent", "covered_stories", "coverage_percent", "linked_cases", "executed_linked_cases", "passed_cases", "pass_percent", "at_risk_stories", "slippage_stories", "on_course_stories", "open_p1_p2_bugs", "total_bugs"];

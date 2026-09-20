@@ -1,3 +1,4 @@
+import { formatDefectFieldLabel, formatRecordKindLabel } from "../lib/defectTerminology";
 import { FormEvent, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ const AI_BUG_DRAFT_PENDING_PROCESSING: AiProcessingSnapshot = {
   total_stage_count: 4,
   status_label: "Validating selected evidence",
   stages: [
-    { id: "intake", status: "complete", detail: "Incident brief submitted.", evidence: "The reporter's requested Bug boundary was accepted." },
+    { id: "intake", status: "complete", detail: "Incident brief submitted.", evidence: "The reporter's requested Defect boundary was accepted." },
     { id: "context", status: "running", detail: "Validating project records and reporter evidence.", evidence: "Only bounded, project-scoped sources will be admitted." },
     { id: "specialist", status: "queued", detail: "Drafting starts after evidence validation." },
     { id: "review", status: "queued", detail: "Human review opens after contract validation." }
@@ -87,10 +88,10 @@ const AI_BUG_TRIAGE_PENDING_PROCESSING: AiProcessingSnapshot = {
   total_stage_count: 4,
   status_label: "Assessing recorded signals",
   stages: [
-    { id: "intake", status: "complete", detail: "Selected Bug scope submitted.", evidence: "Only the explicitly selected Bugs are in scope." },
+    { id: "intake", status: "complete", detail: "Selected Defect scope submitted.", evidence: "Only the explicitly selected Defects are in scope." },
     { id: "context", status: "running", detail: "Reading recorded fields and traceability.", evidence: "Category and priority recommendations must cite their supporting fields." },
     { id: "specialist", status: "queued", detail: "Recommendations wait for evidence validation." },
-    { id: "review", status: "queued", detail: "No Bug field changes without human review." }
+    { id: "review", status: "queued", detail: "No Defect field changes without human review." }
   ]
 };
 
@@ -265,7 +266,7 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     searchParams.get("linked_module_ids"),
     searchParams.get("modules")
   );
-  const title = searchParams.get("title") || (runId ? `Run bug: ${runId}` : "");
+  const title = searchParams.get("title") || (runId ? `Run defect: ${runId}` : "");
   const message = searchParams.get("message") || [
     "Reported from run details.",
     "",
@@ -273,7 +274,7 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
     searchParams.get("runName") ? `Run name: ${searchParams.get("runName")}` : "",
     searchParams.get("status") ? `Run status: ${searchParams.get("status")}` : "",
     "",
-    "Bug details:"
+    "Defect details:"
   ].filter((line) => line !== "").join("\n");
 
   return {
@@ -367,7 +368,7 @@ function BugAiContextPaneToggle({
   isCollapsed: boolean;
   onToggle: () => void;
 }) {
-  const actionLabel = isCollapsed ? "Expand AI Bug context pane" : "Collapse AI Bug context pane";
+  const actionLabel = isCollapsed ? "Expand AI Defect context pane" : "Collapse AI Defect context pane";
   return (
     <button
       aria-controls={controlsId}
@@ -532,7 +533,7 @@ function IssueEditorSurface({
           <BugIcon size={20} strokeWidth={1.8} />
         </span>
         <div className="issue-detail-heading">
-          <span>Bug workspace</span>
+          <span>Defect workspace</span>
           <h2>{title}</h2>
           <p>{subtitle}</p>
         </div>
@@ -1074,7 +1075,7 @@ export function IssuesPage() {
   const issueListColumns = useMemo<Array<DataTableColumn<Issue>>>(() => [
     {
       key: "select",
-      label: "Select Bugs",
+      label: "Select Defects",
       canToggle: false,
       canReorder: false,
       canResize: false,
@@ -1083,7 +1084,7 @@ export function IssuesPage() {
       headerRender: () => (
         <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
           <input
-            aria-label={areAllFilteredIssuesSelected ? "Clear all visible Bugs" : "Select all visible Bugs"}
+            aria-label={areAllFilteredIssuesSelected ? "Clear all visible Defects" : "Select all visible Defects"}
             checked={areAllFilteredIssuesSelected}
             disabled={!visibleIssueIds.length}
             onChange={(event) => setAllVisibleIssuesSelected(event.target.checked)}
@@ -1097,7 +1098,7 @@ export function IssuesPage() {
       render: (item) => (
         <label className="data-table-row-checkbox">
           <input
-            aria-label={`Select Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
+            aria-label={`Select Defect ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
             checked={selectedActionIssueIdSet.has(item.id)}
             onChange={(event) => toggleIssueSelection(item.id, event.target.checked)}
             type="checkbox"
@@ -1120,7 +1121,7 @@ export function IssuesPage() {
     },
     {
       key: "title",
-      label: "Bug Title",
+      label: "Defect Title",
       canToggle: false,
       width: 280,
       minWidth: 180,
@@ -1128,7 +1129,7 @@ export function IssuesPage() {
       render: (item) => (
         <div className="data-table-multiline">
           <button
-            aria-label={`Open Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
+            aria-label={`Open Defect ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
             className="issue-record-open-button"
             onClick={(event) => {
               event.stopPropagation();
@@ -1159,7 +1160,7 @@ export function IssuesPage() {
     },
     {
       key: "jira",
-      label: "External Bug Key",
+      label: "External Defect Key",
       defaultVisible: false,
       width: 150,
       minWidth: 120,
@@ -1254,16 +1255,16 @@ export function IssuesPage() {
       const exportedById = new Map(exportedItems.map((item) => [item.id, item]));
       const selectedItems = selectedIssueIds.map((id) => exportedById.get(id)).filter((item): item is Issue => Boolean(item));
       if (selectedItems.length !== selectedIssueIds.length) {
-        throw new Error("Some selected Bugs changed or became unavailable. Refresh the list and retry the export.");
+        throw new Error("Some selected Defects changed or became unavailable. Refresh the list and retry the export.");
       }
       downloadCsvRecords(
-        `hellotest-bugs-${new Date().toISOString().slice(0, 10)}.csv`,
+        `hellotest-defects-${new Date().toISOString().slice(0, 10)}.csv`,
         selectedItems.map((item) => ({
           ID: item.id,
-          "Bug Title": item.title,
+          "Defect Title": item.title,
           Description: richTextToPlainText(item.message),
           Status: formatTileCardLabel(item.status, "Open"),
-          "External Bug Key": item.jira_bug_key || "",
+          "External Defect Key": item.jira_bug_key || "",
           Severity: formatTileCardLabel(item.severity, "Not set"),
           Priority: formatTileCardLabel(item.priority, "Not set"),
           "Linked Test Run": runLabelById.get(item.linked_test_run_id || "") || item.linked_test_run_id || "",
@@ -1279,10 +1280,10 @@ export function IssuesPage() {
         }))
       );
       setMessageTone("success");
-      setMessage(`Exported ${selectedItems.length} selected Bug${selectedItems.length === 1 ? "" : "s"} with current HelloTest details.`);
+      setMessage(`Exported ${selectedItems.length} selected Defect${selectedItems.length === 1 ? "" : "s"} with current HelloTest details.`);
     } catch (error) {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to export the selected Bugs.");
+      setMessage(error instanceof Error ? error.message : "Unable to export the selected Defects.");
     } finally {
       setIsExportingIssues(false);
     }
@@ -1530,7 +1531,7 @@ export function IssuesPage() {
     if (!projectId || !selectedIssueIds.length || !canUseAiBugTriage) return;
     if (selectedIssueIds.length > MAX_AI_BUG_TRIAGE_ITEMS) {
       setMessageTone("error");
-      setMessage(`Select no more than ${MAX_AI_BUG_TRIAGE_ITEMS} Bugs for one AI triage preview. This keeps workspace reads and AI usage bounded.`);
+      setMessage(`Select no more than ${MAX_AI_BUG_TRIAGE_ITEMS} Defects for one AI triage preview. This keeps workspace reads and AI usage bounded.`);
       return;
     }
     previewAiBugTriage.reset();
@@ -1654,7 +1655,7 @@ export function IssuesPage() {
     }
     if (!projectId || !aiIntent.trim()) {
       setAiDraftMessageTone("error");
-      setAiDraftMessage("Describe the failure or bug intent before generating a draft.");
+      setAiDraftMessage("Describe the failure or defect intent before generating a draft.");
       return;
     }
 
@@ -1680,7 +1681,7 @@ export function IssuesPage() {
       });
     } catch (error) {
       setAiDraftMessageTone("error");
-      setAiDraftMessage(error instanceof Error ? error.message : "Unable to generate the bug draft.");
+      setAiDraftMessage(error instanceof Error ? error.message : "Unable to generate the defect draft.");
     }
   };
 
@@ -1735,8 +1736,8 @@ export function IssuesPage() {
     setAiDraftPreview(null);
     setMessageTone("success");
     setMessage(humanEditedFieldCount
-      ? `${humanEditedFieldCount} human-edited proposal field${humanEditedFieldCount === 1 ? " was" : "s were"} applied without AI evidence attribution. Review every field before saving the Bug to HelloTest.`
-      : "AI draft applied. Review every field before saving the Bug to HelloTest.");
+      ? `${humanEditedFieldCount} human-edited proposal field${humanEditedFieldCount === 1 ? " was" : "s were"} applied without AI evidence attribution. Review every field before saving the Defect to HelloTest.`
+      : "AI draft applied. Review every field before saving the Defect to HelloTest.");
   };
 
   const createIssue = useMutation({
@@ -1744,13 +1745,13 @@ export function IssuesPage() {
     onSuccess: async (response) => {
       setMessageTone("success");
       setMessage(response.status_warning
-        ? `${response.status_warning.message} The Bug was saved in its current workflow status.`
-        : "Bug saved.");
+        ? `${response.status_warning.message} The Defect was saved in its current workflow status.`
+        : "Defect saved.");
       await refresh();
     },
     onError: (error) => {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to save bug");
+      setMessage(error instanceof Error ? error.message : "Unable to save defect");
     }
   });
 
@@ -1759,12 +1760,12 @@ export function IssuesPage() {
       api.issues.update(id, input),
     onSuccess: async () => {
       setMessageTone("success");
-      setMessage("Bug updated.");
+      setMessage("Defect updated.");
       await refresh();
     },
     onError: (error) => {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to update bug");
+      setMessage(error instanceof Error ? error.message : "Unable to update defect");
     }
   });
 
@@ -1772,7 +1773,7 @@ export function IssuesPage() {
     mutationFn: api.issues.delete,
     onSuccess: async (_response, deletedIssueId) => {
       setMessageTone("success");
-      setMessage("Bug deleted.");
+      setMessage("Defect deleted.");
       setSelectedActionIssueIds((current) => current.filter((id) => id !== deletedIssueId));
       syncIssueSearchParams(null);
       setSelectedIssueId("");
@@ -1782,7 +1783,7 @@ export function IssuesPage() {
     },
     onError: (error) => {
       setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to delete bug");
+      setMessage(error instanceof Error ? error.message : "Unable to delete defect");
     }
   });
 
@@ -1791,7 +1792,7 @@ export function IssuesPage() {
     if (!projectId || !canManageBugs || !selectedIssueIds.length || isDeletingSelectedIssues) return;
 
     const confirmed = await confirmDelete({
-      message: `Delete ${selectedIssueIds.length} selected Bug${selectedIssueIds.length === 1 ? "" : "s"} from HelloTest? Historical test-run snapshots stay preserved, but the selected Bugs and their live links will be removed.`
+      message: `Delete ${selectedIssueIds.length} selected Defect${selectedIssueIds.length === 1 ? "" : "s"} from HelloTest? Historical test-run snapshots stay preserved, but the selected Defects and their live links will be removed.`
     });
     if (!confirmed) return;
 
@@ -1810,7 +1811,7 @@ export function IssuesPage() {
           failures.push(...asArray(result.failures).map((failure) => `${failure.display_id}: ${failure.message}`));
         } catch (error) {
           failedIssueCount += batch.length;
-          failures.push(error instanceof Error ? error.message : `Unable to delete ${batch.length} selected Bugs.`);
+          failures.push(error instanceof Error ? error.message : `Unable to delete ${batch.length} selected Defects.`);
         }
       }
 
@@ -1826,8 +1827,8 @@ export function IssuesPage() {
 
       setMessageTone(failures.length ? "error" : "success");
       setMessage(failures.length
-        ? `${deletedIds.length} Bug${deletedIds.length === 1 ? "" : "s"} deleted; ${failedIssueCount} could not be deleted. ${failures[0]}`
-        : `${deletedIds.length} Bug${deletedIds.length === 1 ? "" : "s"} deleted.`);
+        ? `${deletedIds.length} Defect${deletedIds.length === 1 ? "" : "s"} deleted; ${failedIssueCount} could not be deleted. ${failures[0]}`
+        : `${deletedIds.length} Defect${deletedIds.length === 1 ? "" : "s"} deleted.`);
     } finally {
       setIsDeletingSelectedIssues(false);
     }
@@ -1842,13 +1843,13 @@ export function IssuesPage() {
 
     if ((isCreating && bugCreateMetadataQuery.isLoading) || (!isCreating && bugEditMetadataQuery.isLoading)) {
       setMessageTone("success");
-      setMessage(`Checking this Bug's ${isCreating ? "create" : "edit"} fields. Try again in a moment.`);
+      setMessage(`Checking this Defect's ${isCreating ? "create" : "edit"} fields. Try again in a moment.`);
       return;
     }
 
     if ((isCreating && bugCreateMetadataQuery.isError) || (!isCreating && bugEditMetadataQuery.isError)) {
       setMessageTone("error");
-      setMessage(`HelloTest could not verify this Bug ${isCreating ? "create" : "edit"} form. Refresh before saving.`);
+      setMessage(`HelloTest could not verify this Defect ${isCreating ? "create" : "edit"} form. Refresh before saving.`);
       return;
     }
 
@@ -1861,7 +1862,7 @@ export function IssuesPage() {
       if (duplicateScope.length && !duplicateReviewAccepted) {
         setDuplicateCandidates(duplicateScope);
         setMessageTone("error");
-        setMessage(`${duplicateScope.length} possible duplicate Bug${duplicateScope.length === 1 ? "" : "s"} found in the selected Test Case or Module scope. Review them or continue creating.`);
+        setMessage(`${duplicateScope.length} possible duplicate Defect${duplicateScope.length === 1 ? "" : "s"} found in the selected Test Case or Module scope. Review them or continue creating.`);
         return;
       }
       const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id, projectId, can));
@@ -1952,12 +1953,12 @@ export function IssuesPage() {
     <div className="page-content issues-page">
       {confirmationDialog}
       <AiInsightPreviewDialog
-        assuranceTitle="Evidence-grounded Bug triage"
+        assuranceTitle="Evidence-grounded Defect triage"
         boundaryOmissions={asArray(previewAiBugTriage.data?.boundaries?.omissions)}
-        emptyMessage="No classification recommendation was returned for the selected Bugs."
+        emptyMessage="No classification recommendation was returned for the selected Defects."
         evidenceSources={asArray(previewAiBugTriage.data?.evidence_sources)}
         error={previewAiBugTriage.error instanceof Error ? previewAiBugTriage.error.message : null}
-        eyebrow="Bugs · AI review"
+        eyebrow="Defects · AI review"
         findings={aiBugTriageFindings}
         inputEvidenceCount={selectedActionIssues.length}
         limitations={asArray(previewAiBugTriage.data?.limitations)}
@@ -1969,9 +1970,9 @@ export function IssuesPage() {
         recommendedActions={asArray(previewAiBugTriage.data?.review_sequence)}
         response={previewAiBugTriage.data}
         scoreLabel="Required evidence coverage"
-        subtitle={`Review categories and priority recommendations for up to ${MAX_AI_BUG_TRIAGE_ITEMS} selected project Bugs. Nothing is updated automatically.`}
-        summary={previewAiBugTriage.data?.summary || "HelloTest compares the selected Bug fields and traceability signals, then explains each recommendation for human review."}
-        title="Classify and prioritize Bugs"
+        subtitle={`Review categories and priority recommendations for up to ${MAX_AI_BUG_TRIAGE_ITEMS} selected project Defects. Nothing is updated automatically.`}
+        summary={previewAiBugTriage.data?.summary || "HelloTest compares the selected Defect fields and traceability signals, then explains each recommendation for human review."}
+        title="Classify and prioritize Defects"
       />
       {isAiBugDraftOpen ? (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !previewAiBugDraft.isPending && closeAiBugReport()} role="presentation">
@@ -1986,9 +1987,9 @@ export function IssuesPage() {
           >
             <AiAuthoringDialogHeader
               closeDisabled={previewAiBugDraft.isPending}
-              closeLabel="Close AI bug draft"
-              description="Start from bounded failure evidence, refine the scope, and review a HelloTest-ready Bug draft before anything is saved."
-              eyebrow="Bugs"
+              closeLabel="Close AI defect draft"
+              description="Start from bounded failure evidence, refine the scope, and review a HelloTest-ready Defect draft before anything is saved."
+              eyebrow="Defects"
               onClose={closeAiBugReport}
               secondaryAction={(
                 <span className={hasInheritedAiBugContext ? "ai-authoring-context-status is-inherited" : "ai-authoring-context-status"}>
@@ -1996,7 +1997,7 @@ export function IssuesPage() {
                   <span>{aiBugContextSource}</span>
                 </span>
               )}
-              title="Report Bug using AI"
+              title="Report Defect using AI"
               titleId="ai-bug-draft-title"
             />
 
@@ -2020,7 +2021,7 @@ export function IssuesPage() {
                   </div>
                 ) : (
                   <div className="ai-studio-sidebar-panels">
-                    <section className="ai-authoring-context-card" aria-label="AI Bug source context">
+                    <section className="ai-authoring-context-card" aria-label="AI Defect source context">
                       <div>
                         <span>{hasInheritedAiBugContext ? "Inherited from launcher" : "Selected in this dialog"}</span>
                         <strong>{aiBugContextSource}</strong>
@@ -2033,7 +2034,7 @@ export function IssuesPage() {
                       <p>
                         {hasInheritedAiBugContext
                           ? "Failed or blocked evidence was preselected from where you launched this flow. You can still refine it below."
-                          : "Add only the run, cases, and Stories that directly support this Bug."}
+                          : "Add only the run, cases, and Stories that directly support this Defect."}
                       </p>
                     </section>
                     <div className="ai-studio-sidebar-divider">
@@ -2077,10 +2078,10 @@ export function IssuesPage() {
                 />
               ) : null}
 
-              <section aria-label="AI Bug draft workspace" className="ai-studio-main ai-bug-draft-main ai-authoring-dialog-workspace">
+              <section aria-label="AI Defect draft workspace" className="ai-studio-main ai-bug-draft-main ai-authoring-dialog-workspace">
                 <div className="ai-bug-feature-composer">
                   <AiFeatureComposer
-                    agentName="Bug Reporter"
+                    agentName="Defect Reporter"
                     enableSmartContext
                     briefItems={[
                       {
@@ -2091,7 +2092,7 @@ export function IssuesPage() {
                         state: hasAiBugEvidenceContext ? "ready" : "attention",
                         value: `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} · ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}`
                       },
-                      { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable Bug draft with reproduction evidence" },
+                      { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable Defect draft with reproduction evidence" },
                       { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept into form, then review before create" }
                     ]}
                     briefCollapsible
@@ -2116,13 +2117,13 @@ export function IssuesPage() {
                 </div>
 
                 <div className="ai-bug-evidence-launch">
-                  <span><strong>Evidence and impacted scope</strong><small>Add only logs, reproduction notes, runs, Test Cases, and Stories that support this Bug.</small></span>
+                  <span><strong>Evidence and impacted scope</strong><small>Add only logs, reproduction notes, runs, Test Cases, and Stories that support this Defect.</small></span>
                   <AiEvidenceButton count={aiBugEvidenceSourceCount} label="Review evidence setup" onClick={() => setIsAiBugEvidenceSetupOpen(true)} />
                 </div>
 
                 <AiEvidenceFlyout
-                  description="Add or refine the bounded evidence pack used to prepare this Bug proposal. External URLs remain pointer-only."
-                  eyebrow="Bug creation · Input evidence"
+                  description="Add or refine the bounded evidence pack used to prepare this Defect proposal. External URLs remain pointer-only."
+                  eyebrow="Defect creation · Input evidence"
                   facts={[
                     { label: "Linked run", value: aiLinkedRunId ? "1" : "0" },
                     { label: "Test Cases", value: aiLinkedCaseIds.length },
@@ -2196,11 +2197,11 @@ export function IssuesPage() {
                 {aiDraftMessage ? <p className={`inline-message ${aiDraftMessageTone === "warning" ? "warning-message" : "error-message"}`} role={aiDraftMessageTone === "error" ? "alert" : "status"}>{aiDraftMessage}</p> : null}
 
                 {aiDraftPreview ? (
-                  <section className="ai-bug-review-card" aria-label="AI bug draft preview">
+                  <section className="ai-bug-review-card" aria-label="AI defect draft preview">
                     <div className="ai-bug-review-head">
                       <div>
                         <span>Human review required</span>
-                        <strong>Editable Bug proposal</strong>
+                        <strong>Editable Defect proposal</strong>
                       </div>
                       <div className="ai-bug-review-head__evidence">
                         <span className="count-pill">{aiBugHumanEditedFieldCount ? `${aiBugHumanEditedFieldCount} human-edited · verify evidence` : aiDraftPreview.gaps.length ? `${aiDraftPreview.gaps.length} gap${aiDraftPreview.gaps.length === 1 ? "" : "s"} to verify` : "Required evidence present"} <MetricMethodologyInfo criteriaKey="metric.ai.evidence_grounding" evidence={`${aiDraftPreview.provenance.evidence.length} bounded evidence reference${aiDraftPreview.provenance.evidence.length === 1 ? "" : "s"}; ${aiDraftPreview.gaps.length} explicit gap${aiDraftPreview.gaps.length === 1 ? "" : "s"}; ${aiDraftPreview.fallback_fields.length} deterministic fallback field${aiDraftPreview.fallback_fields.length === 1 ? "" : "s"}; ${aiBugHumanEditedFieldCount} human-edited field${aiBugHumanEditedFieldCount === 1 ? "" : "s"} with original AI evidence attribution removed. This does not measure model certainty.`} organizationCriteria={getMetricCriteria("metric.ai.evidence_grounding")} /></span>
@@ -2261,7 +2262,7 @@ export function IssuesPage() {
                     </div>
                     <AiEvidenceFlyout
                       description="Inspect the exact source references, field grounding, disclosed gaps, and processing boundary for this proposal."
-                      eyebrow="Bug creation · Decision evidence"
+                      eyebrow="Defect creation · Decision evidence"
                       facts={[
                         { label: "Mode", value: aiDraftPreview.provenance.generation_mode },
                         { label: "Evidence sources", value: aiDraftPreview.evidence_sources.length },
@@ -2272,14 +2273,14 @@ export function IssuesPage() {
                       ]}
                       onClose={() => setIsAiBugDraftEvidenceOpen(false)}
                       open={isAiBugDraftEvidenceOpen}
-                      title="Bug proposal evidence"
+                      title="Defect proposal evidence"
                     >
                       <section className="ai-evidence-flyout__section ai-bug-evidence-sources">
                         <header><span>Sources</span><strong>Bounded evidence pack</strong></header>
                         <div>
                           {aiDraftPreview.evidence_sources.map((source) => (
                             <article key={source.ref}>
-                              <span>{source.type.replace(/-/g, " ")}{source.trust ? ` · ${source.trust}` : ""}</span>
+                              <span>{formatRecordKindLabel(source.type).replace(/-/g, " ")}{source.trust ? ` · ${source.trust}` : ""}</span>
                               <strong>{source.title}</strong>
                               {source.excerpt ? <p>{source.excerpt}</p> : null}
                               <code>{source.ref}</code>
@@ -2298,7 +2299,7 @@ export function IssuesPage() {
                             const hadDeterministicFallback = aiDraftPreview.client_review?.stale_fallback_fields.includes(editableField) || false;
                             return (
                               <div key={field}>
-                                <dt>{field.replace(/_/g, " ")}</dt>
+                                <dt>{formatDefectFieldLabel(field)}</dt>
                                 <dd data-evidence-state={isHumanEdited ? "human-edited" : "current"}>
                                   {isHumanEdited ? (
                                     <>
@@ -2318,14 +2319,14 @@ export function IssuesPage() {
                       {aiDraftPreview.gaps.length ? (
                         <section className="ai-evidence-flyout__section ai-bug-evidence-gaps">
                           <header><span>Needs verification</span><strong>Evidence gaps</strong></header>
-                          <ul>{aiDraftPreview.gaps.map((gap) => <li key={`${gap.field}:${gap.reason}`}><strong>{gap.field.replace(/_/g, " ")}</strong><span>{gap.reason}</span>{gap.question ? <em>{gap.question}</em> : null}</li>)}</ul>
+                          <ul>{aiDraftPreview.gaps.map((gap) => <li key={`${gap.field}:${gap.reason}`}><strong>{formatDefectFieldLabel(gap.field)}</strong><span>{gap.reason}</span>{gap.question ? <em>{gap.question}</em> : null}</li>)}</ul>
                         </section>
                       ) : null}
                       {aiDraftPreview.fallback_fields.length ? (
                         <section className="ai-evidence-flyout__section">
                           <header><span>Hybrid boundary</span><strong>Fields using deterministic fallback</strong></header>
                           <ul className="ai-evidence-flyout__bullet-list">
-                            {aiDraftPreview.fallback_fields.map((field) => <li key={field}>{field.replace(/_/g, " ")}</li>)}
+                            {aiDraftPreview.fallback_fields.map((field) => <li key={field}>{formatDefectFieldLabel(field)}</li>)}
                           </ul>
                         </section>
                       ) : null}
@@ -2345,7 +2346,7 @@ export function IssuesPage() {
                               <div key={source}><dt>{source.replace(/_/g, " ")}</dt><dd>{count} omitted</dd></div>
                             ))}
                             {(aiDraftPreview.boundaries.content_omissions || []).map((omission) => (
-                              <div key={`${omission.source_ref}:${omission.field}`}><dt>{omission.field.replace(/_/g, " ")}</dt><dd>{omission.omitted} {omission.unit} omitted from <code>{omission.source_ref}</code></dd></div>
+                              <div key={`${omission.source_ref}:${omission.field}`}><dt>{formatDefectFieldLabel(omission.field)}</dt><dd>{omission.omitted} {omission.unit} omitted from <code>{omission.source_ref}</code></dd></div>
                             ))}
                           </dl>
                         </section>
@@ -2361,22 +2362,22 @@ export function IssuesPage() {
                 ) : null}
               </section>
               </div>
-              <aside aria-label="Bug Reporter generation flow" className="ai-bug-flow-pane">
+              <aside aria-label="Defect Reporter generation flow" className="ai-bug-flow-pane">
                 <AgenticProcessRail
-                  agentName="Bug Reporter"
+                  agentName="Defect Reporter"
                   compact
                   orientation="vertical"
                   presentation="focused"
                   profile="bug-create"
                   processing={aiDraftPreview?.processing || (previewAiBugDraft.isPending ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
                   stageEvidence={{
-                    intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Bug drafting boundary." : "Add the observed failure and expected behavior before delegating a Bug draft.",
+                    intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Defect drafting boundary." : "Add the observed failure and expected behavior before delegating a Defect draft.",
                     context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, ${aiBugExternalLinks.length} external link pointer${aiBugExternalLinks.length === 1 ? "" : "s"}, ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}, and ${aiEvidence.trim() || aiAdditionalContext.trim() ? "reporter notes" : "no reporter notes"} form the evidence pack.`,
-                    guardrails: "The agent cannot create a Bug, change connected work items, or treat reference text as trusted instructions.",
-                    specialist: "Bug Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
+                    guardrails: "The agent cannot create a Defect, change connected work items, or treat reference text as trusted instructions.",
+                    specialist: "Defect Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
                     outcome: "Title, severity, priority, description, reproduction, expected/actual result, environment, build, and labels remain editable proposal fields.",
                     evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
-                    review: "The proposal must first be accepted into the Bug form and then explicitly created by a person."
+                    review: "The proposal must first be accepted into the Defect form and then explicitly created by a person."
                   }}
                   status={previewAiBugDraft.isPending ? "running" : aiDraftPreview ? "completed" : aiDraftMessage && aiDraftMessageTone === "error" ? "failed" : "idle"}
                 />
@@ -2384,14 +2385,14 @@ export function IssuesPage() {
             </div>
             <div className="action-row ai-studio-footer ai-bug-draft-footer">
               <span className="ai-authoring-footer-status">
-                {aiDraftPreview ? "1 AI Bug draft ready for human review" : `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} selected`}
+                {aiDraftPreview ? "1 AI Defect draft ready for human review" : `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} selected`}
               </span>
               {aiDraftPreview ? (
                 <button className="ghost-button" onClick={() => { setIsAiBugDraftEvidenceOpen(false); setAiDraftPreview(null); }} type="button">Discard draft</button>
               ) : (
                 <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={closeAiBugReport} type="button">Cancel</button>
               )}
-              {aiDraftPreview ? <button className="primary-button" disabled={!aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Bug form</button> : null}
+              {aiDraftPreview ? <button className="primary-button" disabled={!aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Defect form</button> : null}
             </div>
           </div>
         </div>
@@ -2399,22 +2400,22 @@ export function IssuesPage() {
       <PageHeader
         className={isCreating || selectedItem ? "page-header--workspace-context" : ""}
         eyebrow="Defect Management"
-        title="Bugs"
-        description="Capture, reproduce, triage, and resolve Bugs with delivery context, ownership, linked quality evidence, and end-to-end traceability."
+        title="Defects"
+        description="Capture, reproduce, triage, and resolve Defects with delivery context, ownership, linked quality evidence, and end-to-end traceability."
       />
       {!(isCreating || selectedItem) ? (
         <QualityMetricStrip
-          ariaLabel="Bug catalog quality metrics"
+          ariaLabel="Defect catalog quality metrics"
           metrics={[
             {
-              label: "Total bugs",
+              label: "Total defects",
               value: metricsPending || issueMetricsQuery.isError ? "—" : bugCatalogMetrics.total,
               detail: metricsPending ? "Loading catalog" : "Current catalog scope"
             },
             {
-              label: "Open bugs",
+              label: "Open defects",
               value: metricsPending || issueMetricsQuery.isError ? "—" : openIssueCount,
-              detail: metricsPending ? "Loading workflow status" : bugStatusBreakdown || "No Bugs"
+              detail: metricsPending ? "Loading workflow status" : bugStatusBreakdown || "No Defects"
             },
             {
               label: "Priority risks",
@@ -2425,35 +2426,35 @@ export function IssuesPage() {
             {
               label: "Unassigned",
               value: metricsPending || issueMetricsQuery.isError ? "—" : bugCatalogMetrics.unassigned,
-              detail: metricsPending ? "Loading ownership" : "Open bugs without owner",
+              detail: metricsPending ? "Loading ownership" : "Open defects without owner",
               tone: !metricsPending && bugCatalogMetrics.unassigned ? "danger" : "neutral"
             },
             {
               label: "Converted to Test Cases",
               value: metricsPending || issueMetricsQuery.isError ? "—" : convertedBugCount,
-              detail: metricsPending ? "Loading recorded conversions" : deferredIssueSearch.trim() ? "Matching bugs with converted cases" : "Bugs with converted cases",
-              methodology: "Each bug is counted once when an existing test case was created from it using Convert to Test Case. Ordinary case links and older conversions without a recorded origin are excluded."
+              detail: metricsPending ? "Loading recorded conversions" : deferredIssueSearch.trim() ? "Matching defects with converted cases" : "Defects with converted cases",
+              methodology: "Each defect is counted once when an existing test case was created from it using Convert to Test Case. Ordinary case links and older conversions without a recorded origin are excluded."
             }
           ]}
         />
       ) : null}
 
-      {issueMetricsQuery.isError && !isCreating && !selectedIssueId ? <p className="inline-error" role="alert">Bug metrics could not be loaded. <button className="ghost-button" type="button" onClick={() => void issueMetricsQuery.refetch()}>Retry metrics</button></p> : null}
+      {issueMetricsQuery.isError && !isCreating && !selectedIssueId ? <p className="inline-error" role="alert">Defect metrics could not be loaded. <button className="ghost-button" type="button" onClick={() => void issueMetricsQuery.refetch()}>Retry metrics</button></p> : null}
       {message && !isCreating ? <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p> : null}
 
       <WorkspaceMasterDetail
         browseView={(
-          <Panel title="Bugs" titleVariant="eyebrow" subtitle="Review, select, export, triage, or safely remove project Bugs in tile or list view.">
+          <Panel title="Defects" titleVariant="eyebrow" subtitle="Review, select, export, triage, or safely remove project Defects in tile or list view.">
             <div className="design-list-toolbar catalog-command-toolbar issue-catalog-toolbar">
-              <div className="catalog-toolbar-discovery" aria-label="Bug views, search, and selection">
+              <div className="catalog-toolbar-discovery" aria-label="Defect views, search, and selection">
                 <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
                 <CatalogSearchFilter
                 activeFilterCount={Number(Boolean(issueSearch.trim())) + Number(Boolean(issueStatusFilter)) + Number(Boolean(issuePriorityFilter)) + Number(Boolean(issueAssigneeFilter))}
-                ariaLabel="Search bugs"
+                ariaLabel="Search defects"
                 onChange={setIssueSearch}
-                placeholder="Search bugs"
+                placeholder="Search defects"
                 subtitle="Search by title, description, external key, run, status, severity, priority, assignee, or reporter."
-                title="Bug search"
+                title="Defect search"
                 type="search"
                 value={issueSearch}
               >
@@ -2476,7 +2477,7 @@ export function IssuesPage() {
                   selectedCount={selectedActionIssues.length}
                 />
               </div>
-              <div className="catalog-toolbar-actions" aria-label="Bug actions">
+              <div className="catalog-toolbar-actions" aria-label="Defect actions">
                 <ReportBugSplitActionButton
                   canUseAi={canUseAiBugDraft}
                   disabled={!canCreateBugs}
@@ -2487,7 +2488,7 @@ export function IssuesPage() {
                   className="ghost-button catalog-selection-button"
                   disabled={!selectedActionIssues.length || isDeletingSelectedIssues || isExportingIssues}
                   onClick={() => void handleExportIssuesCsv()}
-                  title={selectedActionIssues.length ? `Export ${selectedActionIssues.length} selected Bugs as CSV` : "Select Bugs to export"}
+                  title={selectedActionIssues.length ? `Export ${selectedActionIssues.length} selected Defects as CSV` : "Select Defects to export"}
                   type="button"
                 >
                   <ExportIcon />
@@ -2499,10 +2500,10 @@ export function IssuesPage() {
                     disabled={!selectedActionIssues.length || previewAiBugTriage.isPending || isDeletingSelectedIssues || isExportingIssues}
                     onClick={openSelectedBugTriage}
                     title={selectedActionIssues.length > MAX_AI_BUG_TRIAGE_ITEMS
-                      ? `Select up to ${MAX_AI_BUG_TRIAGE_ITEMS} Bugs to keep workspace reads and AI usage bounded`
+                      ? `Select up to ${MAX_AI_BUG_TRIAGE_ITEMS} Defects to keep workspace reads and AI usage bounded`
                       : selectedActionIssues.length
-                        ? "Classify selected Bugs and recommend priority in a read-only review"
-                        : "Select Bugs for AI classification and priority review"}
+                        ? "Classify selected Defects and recommend priority in a read-only review"
+                        : "Select Defects for AI classification and priority review"}
                     type="button"
                   >
                     <SparkIcon />
@@ -2514,7 +2515,7 @@ export function IssuesPage() {
                     className="ghost-button danger catalog-selection-button"
                     disabled={!selectedActionIssues.length || isDeletingSelectedIssues || isExportingIssues}
                     onClick={() => void handleDeleteSelectedIssues()}
-                    title={selectedActionIssues.length ? "Delete selected Bugs" : "Select Bugs to delete"}
+                    title={selectedActionIssues.length ? "Delete selected Defects" : "Select Defects to delete"}
                     type="button"
                   >
                     <TrashIcon />
@@ -2527,7 +2528,7 @@ export function IssuesPage() {
             {issues.isLoading ? (
               <TileCardSkeletonGrid />
             ) : null}
-            {issues.isFetching && !issues.isLoading && !issues.isFetchingNextPage ? <p role="status" className="inline-message">Updating bugs…</p> : null}
+            {issues.isFetching && !issues.isLoading && !issues.isFetchingNextPage ? <p role="status" className="inline-message">Updating defects…</p> : null}
 
             {!issues.isLoading && filteredItems.length && catalogViewMode === "tile" ? (
             <div className="tile-browser-grid">
@@ -2571,7 +2572,7 @@ export function IssuesPage() {
                       : "neutral";
                 return (
                   <article
-                    aria-label={`Open Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
+                    aria-label={`Open Defect ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
                     key={item.id}
                     className={[
                       "record-card tile-card issue-catalog-card",
@@ -2589,12 +2590,12 @@ export function IssuesPage() {
                       <div className="tile-card-select-row issue-tile-top-row">
                         <label className="checkbox-field" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                           <input
-                            aria-label={`Select Bug ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
+                            aria-label={`Select Defect ${item.display_id || item.jira_bug_key || item.id}: ${item.title}`}
                             checked={selectedActionIssueIdSet.has(item.id)}
                             onChange={(event) => toggleIssueSelection(item.id, event.target.checked)}
                             type="checkbox"
                           />
-                          <span className="sr-only">Select bug</span>
+                          <span className="sr-only">Select defect</span>
                         </label>
                         <span className="issue-bug-identity">
                           <BugIcon size={16} strokeWidth={1.8} />
@@ -2675,7 +2676,7 @@ export function IssuesPage() {
                 enableColumnResize
                 enableHeaderColumnReorder
                 enableRowSelection={false}
-                emptyMessage="No bugs match the current search."
+                emptyMessage="No defects match the current search."
                 getRowClassName={(item) => (selectedIssueId === item.id ? "is-active-row" : "")}
                 getRowKey={(item) => item.id}
                 hideToolbarCopy
@@ -2685,8 +2686,8 @@ export function IssuesPage() {
               />
             ) : null}
 
-            {issues.isError && !items.length ? <div className="empty-state compact" role="alert"><p>Bugs could not be loaded.</p><button className="ghost-button" type="button" onClick={() => void issues.refetch()}>Retry</button></div> : null}
-            {!issues.isLoading && !issues.isError && !items.length ? <div className="empty-state compact">{catalogSearch || issueStatusFilter || issuePriorityFilter || issueAssigneeFilter ? "No bugs match the current filters." : "No bugs reported yet."}</div> : null}
+            {issues.isError && !items.length ? <div className="empty-state compact" role="alert"><p>Defects could not be loaded.</p><button className="ghost-button" type="button" onClick={() => void issues.refetch()}>Retry</button></div> : null}
+            {!issues.isLoading && !issues.isError && !items.length ? <div className="empty-state compact">{catalogSearch || issueStatusFilter || issuePriorityFilter || issueAssigneeFilter ? "No defects match the current filters." : "No defects reported yet."}</div> : null}
             {issues.hasNextPage && !issues.isPlaceholderData ? <HierarchyAutoLoadSentinel
               isLoading={issues.isFetchingNextPage}
               onLoad={() => issues.fetchNextPage()}
@@ -2715,21 +2716,21 @@ export function IssuesPage() {
                 <span>Convert to Test Case</span>
               </button>
             ) : null}
-            backLabel={bugReturnTo ? `Back to ${bugReturnLabel}` : "Back to bug tiles"}
+            backLabel={bugReturnTo ? `Back to ${bugReturnLabel}` : "Back to defect tiles"}
             closeDisabled={createIssue.isPending}
             isCreating={isCreating}
             onClose={closeIssueWorkspace}
-            subtitle="Capture the Bug in a HelloTest-ready structure with run context, reproduction evidence, ownership, and root cause."
-            title={isCreating ? "Report bug" : selectedItem ? "Bug details" : "Bug editor"}
+            subtitle="Capture the Defect in a HelloTest-ready structure with run context, reproduction evidence, ownership, and root cause."
+            title={isCreating ? "Report defect" : selectedItem ? "Defect details" : "Defect editor"}
           >
-            {!isCreating && selectedIssueId && selectedIssueQuery.isLoading ? <LoadingState label="Loading bug details" /> : null}
-            {!isCreating && selectedIssueId && selectedIssueQuery.isError ? <div role="alert" className="inline-error"><p>Bug details could not be loaded.</p><button type="button" className="ghost-button" onClick={() => void selectedIssueQuery.refetch()}>Retry</button></div> : null}
+            {!isCreating && selectedIssueId && selectedIssueQuery.isLoading ? <LoadingState label="Loading defect details" /> : null}
+            {!isCreating && selectedIssueId && selectedIssueQuery.isError ? <div role="alert" className="inline-error"><p>Defect details could not be loaded.</p><button type="button" className="ghost-button" onClick={() => void selectedIssueQuery.refetch()}>Retry</button></div> : null}
             {!isCreating && selectedIssueId && selectedIssueQuery.isFetching && selectedIssueQuery.data ? (
-              <LoadingState label="Refreshing current Bug details" />
+              <LoadingState label="Refreshing current Defect details" />
             ) : null}
             {(isCreating || (selectedItem && (!selectedIssueQuery.isLoading || selectedIssueQuery.isError))) ? (
               <form
-                className={isCreating ? "issue-report-form report-bug-modal-form" : "issue-report-form issue-detail-form"}
+                className={isCreating ? "issue-report-form report-defect-modal-form" : "issue-report-form issue-detail-form"}
                 onSubmit={(event) => void handleSave(event)}
               >
                 <div className={isCreating ? "report-bug-modal-body" : "issue-report-fields issue-detail-body"}>
@@ -2738,7 +2739,7 @@ export function IssuesPage() {
                 ) : null}
                 {!isCreating && selectedItem ? (
                   <div className="requirement-detail-id-row">
-                    <span>Bug ID</span>
+                    <span>Defect ID</span>
                     <DisplayIdBadge
                       value={selectedItem.display_id || selectedItem.jira_bug_key || selectedItem.id}
                     />
@@ -2746,7 +2747,7 @@ export function IssuesPage() {
                 ) : null}
                 {!isCreating && selectedItem ? (
                   <QualityMetricStrip
-                    ariaLabel="Selected bug quality metrics"
+                    ariaLabel="Selected defect quality metrics"
                     className="issue-detail-metric-strip"
                     metrics={[
                       {
@@ -2777,14 +2778,14 @@ export function IssuesPage() {
                 ) : null}
                 <section className="issue-form-section issue-form-section--summary">
                   <div className="issue-form-section-head">
-                    <strong>Bug summary</strong>
+                    <strong>Defect summary</strong>
                   </div>
                   <div className="issue-form-grid">
-                    <FormField className="bug-field-title" label="Bug Title" required>
+                    <FormField className="bug-field-title" label="Defect Title" required>
                       <input
                         disabled={!canEditBugFields}
                         data-autofocus={isCreating ? "true" : undefined}
-                        placeholder="Brief summary of the issue"
+                        placeholder="Brief summary of the defect"
                         required
                         value={draft.title}
                         onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
@@ -2899,7 +2900,7 @@ export function IssuesPage() {
                     <strong>Classification</strong>
                   </div>
                   <div className="issue-form-grid issue-form-grid--triple">
-                    <FormField label="Bug Type">
+                    <FormField label="Defect Type">
                       <select disabled={!canEditBugFields} value={draft.bug_type} onChange={(event) => setDraft((current) => ({ ...current, bug_type: event.target.value }))}>
                         <option value="">Not set</option>
                         {bugTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
@@ -2939,20 +2940,20 @@ export function IssuesPage() {
                 {(isCreating ? bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError : bugEditMetadataQuery.isLoading || bugEditMetadataQuery.isError) || requiredJiraBugFields.length ? (
                   <section className="issue-form-section issue-form-section--required-fields">
                     <div className="issue-form-section-head">
-                      <strong>Required Bug fields</strong>
+                      <strong>Required Defect fields</strong>
                       <span>
-                        These fields come from the HelloTest Bug {isCreating ? "create" : "edit"} form and are validated with this save.
+                        These fields come from the HelloTest Defect {isCreating ? "create" : "edit"} form and are validated with this save.
                       </span>
                     </div>
                     {(isCreating ? bugCreateMetadataQuery.isLoading : bugEditMetadataQuery.isLoading) ? (
-                      <LoadingState label={`Checking Bug ${isCreating ? "create" : "edit"} fields`} />
+                      <LoadingState label={`Checking Defect ${isCreating ? "create" : "edit"} fields`} />
                     ) : (isCreating ? bugCreateMetadataQuery.isError : bugEditMetadataQuery.isError) ? (
-                      <p className="inline-message error-message">HelloTest could not verify this Bug {isCreating ? "create" : "edit"} form. Refresh or ask a workspace administrator to check field-metadata access.</p>
+                      <p className="inline-message error-message">HelloTest could not verify this Defect {isCreating ? "create" : "edit"} form. Refresh or ask a workspace administrator to check field-metadata access.</p>
                     ) : (
                       <JiraRequiredFields
                         disabled={!canEditBugFields}
                         fields={requiredJiraBugFields}
-                        issueTypeName="Bug"
+                        issueTypeName="Defect"
                         mode={isCreating ? "create" : "edit"}
                         onChange={updateAdditionalJiraField}
                         users={userItems}
@@ -3025,8 +3026,8 @@ export function IssuesPage() {
                   </div>
                 </section>
                 {isCreating && canCreateAttachments ? (
-                  <section className="jira-attachment-panel" aria-label="Attachments for new Bug">
-                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{pendingAttachments.length} ready to upload when this Bug is created</span></div></div>
+                  <section className="jira-attachment-panel" aria-label="Attachments for new Defect">
+                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{pendingAttachments.length} ready to upload when this Defect is created</span></div></div>
                     <div
                       className={isPendingAttachmentDragActive ? "jira-attachment-dropzone is-dragging" : "jira-attachment-dropzone"}
                       onDragEnter={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(true); }}
@@ -3067,7 +3068,7 @@ export function IssuesPage() {
                 ) : null}
                 {isCreating && duplicateCandidates.length ? (
                   <section className="issue-duplicate-review" role="alert">
-                    <strong>{duplicateCandidates.length} possible duplicate Bug{duplicateCandidates.length === 1 ? "" : "s"}</strong>
+                    <strong>{duplicateCandidates.length} possible duplicate Defect{duplicateCandidates.length === 1 ? "" : "s"}</strong>
                     <div className="action-row">
                       <button onClick={() => duplicateCandidates.forEach((candidate) => window.open(`/issues?issue=${encodeURIComponent(candidate.id)}`, "_blank", "noopener,noreferrer"))} type="button">Open all in new tabs</button>
                       <button className="primary-button" onClick={(event) => { const form = event.currentTarget.closest("form"); setDuplicateReviewAccepted(true); setDuplicateCandidates([]); window.setTimeout(() => form?.requestSubmit(), 0); }} type="button">Continue and Create</button>
@@ -3095,7 +3096,7 @@ export function IssuesPage() {
                         {createIssue.isPending
                           ? "Creating…"
                           : bugCreateMetadataQuery.isLoading
-                            ? "Checking Bug fields…"
+                            ? "Checking Defect fields…"
                             : "Create"}
                       </span>
                     </button>
@@ -3104,7 +3105,7 @@ export function IssuesPage() {
                   <footer className="issue-detail-footer">
                     <span className="issue-detail-footer-context">
                       <BugIcon size={15} strokeWidth={1.8} />
-                      <span>{canManageBugs ? "Changes save to the HelloTest Bug and preserve linked evidence." : "You have read-only access to this Bug."}</span>
+                      <span>{canManageBugs ? "Changes save to the HelloTest Defect and preserve linked evidence." : "You have read-only access to this Defect."}</span>
                     </span>
                     <div className="issue-detail-footer-actions">
                       {selectedItem && canManageBugs ? (
@@ -3112,14 +3113,14 @@ export function IssuesPage() {
                           className="issue-detail-delete-button"
                           disabled={deleteIssue.isPending}
                           onClick={async () => {
-                            if (await confirmDelete({ message: `Delete Bug "${selectedItem.title}" from HelloTest? Historical test-run snapshots stay preserved, but this Bug and its live links will be removed.` })) {
+                            if (await confirmDelete({ message: `Delete Defect "${selectedItem.title}" from HelloTest? Historical test-run snapshots stay preserved, but this Defect and its live links will be removed.` })) {
                               void deleteIssue.mutateAsync(selectedItem.id);
                             }
                           }}
                           type="button"
                         >
                           <TrashIcon size={14} />
-                          <span>{deleteIssue.isPending ? "Deleting…" : "Delete Bug"}</span>
+                          <span>{deleteIssue.isPending ? "Deleting…" : "Delete Defect"}</span>
                         </button>
                       ) : null}
                       <button
@@ -3131,15 +3132,15 @@ export function IssuesPage() {
                         {updateIssue.isPending
                           ? "Updating…"
                           : bugEditMetadataQuery.isLoading
-                            ? "Checking Bug fields…"
-                            : "Update Bug"}
+                            ? "Checking Defect fields…"
+                            : "Update Defect"}
                       </button>
                     </div>
                   </footer>
                 )}
               </form>
             ) : (
-              <div className="empty-state compact">Select a bug from the tiles or create a new entry.</div>
+              <div className="empty-state compact">Select a defect from the tiles or create a new entry.</div>
             )}
           </IssueEditorSurface>
         )}

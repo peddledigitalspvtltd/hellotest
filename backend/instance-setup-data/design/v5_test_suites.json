@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-suite",
+      "display_id": "DEMO5-TS1",
+      "app_type_id": "sample-app-web",
+      "name": "Scoped data walkthrough · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: suite data can override case values while shared-group data stays protected. The sample run explicitly enables all three overrides.",
+      "labels": [
+        "sample",
+        "synthetic-evidence",
+        "data-inheritance"
+      ],
+      "test_data_set_id": "sample-v5-data-dataset-suite",
+      "test_data_options": {
+        "override_test_case_data": true,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "s.tenant": "suite-tenant"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

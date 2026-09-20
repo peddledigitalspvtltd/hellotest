@@ -1,13 +1,32 @@
 const db = require("../db");
+const { RELATIONAL_METRICS, buildRelationalEvidence, QA_DONE, DEV_DONE, status: storyStatus } = require("./qualityDashboardRelations");
+const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require("../utils/deliveryScopeSql");
 
 const nowIso = () => new Date().toISOString();
 const normalizeText = (value) => String(value || "").trim();
 const lowerText = (value) => normalizeText(value).toLowerCase();
 const percent = (numerator, denominator) => denominator ? Math.round((numerator / denominator) * 100) : 0;
-const isOpen = (status) => !["closed", "resolved", "done", "accepted"].includes(lowerText(status));
+const isOpen = (status) => !["closed", "resolved", "done", "accepted", "complete", "completed", "fixed", "verified"].includes(lowerText(status));
 const FINAL_CASE_STATUSES = new Set(["passed", "failed", "blocked", "skipped", "aborted", "cancelled"]);
 const FINAL_RUN_STATUSES = new Set(["passed", "completed", "failed", "blocked", "skipped", "aborted", "cancelled", "partially_completed"]);
-const NATIVE_DASHBOARD_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount"]);
+const NATIVE_DASHBOARD_METRICS = new Set(["count", "releaseConfidence", "requirementCoverage", "coverageGaps", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "openDefects", "failedRuns", "executionCycleHours", "completedRuns30d", "testCases", "testSuites", "testRuns", "moduleCaseCount", ...Object.keys(RELATIONAL_METRICS)]);
+const PERCENTAGE_METRICS = new Set(["releaseConfidence", "requirementCoverage", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence", "devStoryCompletion", "qaStoryCompletion", "storyTestPassRate", "storyExecutionCoverage", "defectTraceability"]);
+const RELEASE_REFS_SQL = `SELECT jsonb_agg(jsonb_build_object('id', rel.id, 'name', rel.name, 'display_id', rel.display_id, 'fix_version', rel.fix_version))
+  FROM requirement_releases rel WHERE rel.project_id = requirements.project_id AND ${releaseStoryMembershipSql('requirements', 'rel')}`;
+// Use native IDs after renames. Legacy labels are accepted only when they do
+// not ambiguously identify two releases in the same project.
+const EXECUTION_RELEASE_SCOPE = `SELECT rel.id FROM requirement_releases rel WHERE rel.project_id = executions.project_id AND
+  ${releaseExecutionMembershipSql('executions', 'rel')}`;
+const EXECUTION_RELEASE_FILTER = `(? = '' OR ? = ANY(ARRAY(SELECT ref FROM requirement_releases rel,
+  LATERAL unnest(ARRAY[LOWER(rel.id), LOWER(rel.name), LOWER(rel.display_id), LOWER(rel.fix_version)]) ref
+  WHERE rel.id IN (${EXECUTION_RELEASE_SCOPE})
+  UNION ALL SELECT LOWER(TRIM(COALESCE(executions.release, ''))) WHERE NOT EXISTS (${EXECUTION_RELEASE_SCOPE})
+    AND (SELECT COUNT(*) FROM requirement_releases legacy WHERE legacy.project_id = executions.project_id
+      AND LOWER(TRIM(COALESCE(executions.release, ''))) = ANY(ARRAY[LOWER(legacy.id),LOWER(legacy.name),LOWER(legacy.display_id),LOWER(legacy.fix_version)])) <= 1)))`;
+const EXECUTION_SPRINT_FILTER = `(? = '' OR ? = ANY(ARRAY(SELECT ref FROM requirement_iterations iteration,
+  LATERAL unnest(ARRAY[LOWER(iteration.id),LOWER(iteration.name),LOWER(iteration.display_id)]) ref
+  WHERE iteration.id = executions.iteration_id AND iteration.project_id = executions.project_id
+  UNION ALL SELECT LOWER(TRIM(COALESCE(executions.sprint, ''))) WHERE executions.iteration_id IS NULL)))`;
 const normalizeNativeMetric = (metric) => {
   const requested = metric == null || metric === "" ? "count" : String(metric);
   if (!NATIVE_DASHBOARD_METRICS.has(requested)) throw Object.assign(new Error("This metric is not available for native project dashboards. Choose a supported native metric."), { code: "DASHBOARD_METRIC_UNSUPPORTED", statusCode: 400 });
@@ -31,9 +50,16 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     db.prepare(`
       SELECT requirements.id, requirements.display_id, requirements.title,
         requirements.status, requirements.priority, requirements.labels,
-        requirements.release, requirements.fix_version, requirements.sprint,
+        requirements.release, requirements.fix_version, requirements.sprint, requirements.iteration_id,
+        (SELECT name FROM requirement_iterations WHERE id = requirements.iteration_id AND project_id = requirements.project_id) AS sprint_name,
+        COALESCE((${RELEASE_REFS_SQL}), '[]'::jsonb) AS native_releases,
+        (SELECT COUNT(*) > 1 FROM requirement_releases legacy WHERE legacy.project_id = requirements.project_id
+          AND LOWER(TRIM(COALESCE(NULLIF(requirements.fix_version,''), requirements.release,''))) = ANY(ARRAY[LOWER(legacy.id),LOWER(legacy.name),LOWER(legacy.display_id),LOWER(legacy.fix_version)])) AS legacy_release_ambiguous,
         requirements.created_at, requirements.updated_at,
-        COALESCE((SELECT jsonb_agg(requirement_test_cases.test_case_id) FROM requirement_test_cases WHERE requirement_test_cases.requirement_id = requirements.id), '[]'::jsonb) AS test_case_ids
+        COALESCE((SELECT jsonb_agg(links.test_case_id) FROM (
+          SELECT test_case_id FROM requirement_test_cases WHERE requirement_id = requirements.id
+          UNION SELECT id FROM test_cases WHERE requirement_id = requirements.id
+        ) links), '[]'::jsonb) AS test_case_ids
       FROM requirements WHERE project_id = ?
     `).all(projectId),
     db.prepare(`
@@ -41,16 +67,25 @@ const loadContext = async (projectId, release = "", sprint = "") => {
         test_cases.status, test_cases.priority, test_cases.labels, test_cases.suite_id,
         test_cases.automated, test_cases.automation_status, test_cases.test_case_type,
         test_cases.created_at, test_cases.updated_at,
-        COALESCE((SELECT jsonb_agg(requirement_test_cases.requirement_id) FROM requirement_test_cases WHERE requirement_test_cases.test_case_id = test_cases.id), '[]'::jsonb) AS requirement_ids,
-        COALESCE((SELECT jsonb_agg(test_case_module_cases.module_id) FROM test_case_module_cases WHERE test_case_module_cases.test_case_id = test_cases.id), '[]'::jsonb) AS module_ids
-      FROM test_cases JOIN app_types ON app_types.id = test_cases.app_type_id
-      WHERE app_types.project_id = ?
-    `).all(projectId),
+        COALESCE((SELECT jsonb_agg(linked_story.id) FROM requirements linked_story
+          WHERE linked_story.project_id = ? AND (linked_story.id = test_cases.requirement_id
+            OR EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_id = linked_story.id AND test_case_id = test_cases.id))), '[]'::jsonb) AS requirement_ids,
+        COALESCE((SELECT jsonb_agg(test_case_effective_module_cases.module_id) FROM test_case_effective_module_cases WHERE test_case_effective_module_cases.test_case_id = test_cases.id), '[]'::jsonb) AS module_ids
+      FROM test_cases LEFT JOIN app_types ON app_types.id = test_cases.app_type_id
+      WHERE app_types.project_id = ? OR (test_cases.app_type_id IS NULL AND EXISTS (
+        SELECT 1 FROM requirements linked_story WHERE linked_story.project_id = ? AND
+          (linked_story.id = test_cases.requirement_id OR EXISTS (SELECT 1 FROM requirement_test_cases WHERE requirement_id = linked_story.id AND test_case_id = test_cases.id))))
+    `).all(projectId, projectId, projectId),
     db.prepare(`SELECT test_suites.id, test_suites.display_id, test_suites.name,
       test_suites.labels, test_suites.created_at, test_suites.updated_at,
       COALESCE((SELECT jsonb_agg(suite_test_cases.test_case_id) FROM suite_test_cases WHERE suite_test_cases.suite_id = test_suites.id), '[]'::jsonb) AS test_case_ids
       FROM test_suites JOIN app_types ON app_types.id = test_suites.app_type_id WHERE app_types.project_id = ?`).all(projectId),
-    db.prepare(`SELECT executions.id, executions.name, executions.status, executions.release,
+    db.prepare(`SELECT executions.id, executions.name, executions.status, executions.release, executions.release_id, executions.iteration_id,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('id', rel.id, 'name', rel.name, 'display_id', rel.display_id, 'fix_version', rel.fix_version))
+        FROM requirement_releases rel WHERE rel.id IN (${EXECUTION_RELEASE_SCOPE})), '[]'::jsonb) AS native_releases,
+      (SELECT name FROM requirement_iterations WHERE id = executions.iteration_id AND project_id = executions.project_id) AS sprint_name,
+      (SELECT COUNT(*) > 1 FROM requirement_releases legacy WHERE legacy.project_id = executions.project_id
+        AND LOWER(TRIM(COALESCE(executions.release,''))) = ANY(ARRAY[LOWER(legacy.id),LOWER(legacy.name),LOWER(legacy.display_id),LOWER(legacy.fix_version)])) AS legacy_release_ambiguous,
       executions.sprint, executions.build, executions.started_at, executions.ended_at,
       executions.created_at, assignee.name AS assignee_name
       FROM executions LEFT JOIN users assignee ON assignee.id = executions.assigned_to
@@ -67,8 +102,8 @@ const loadContext = async (projectId, release = "", sprint = "") => {
         FROM execution_results
         JOIN executions ON executions.id = execution_results.execution_id
         WHERE executions.project_id = ?
-          AND (? = '' OR LOWER(COALESCE(executions.release, '')) = ?)
-          AND (? = '' OR LOWER(COALESCE(executions.sprint, '')) = ?)
+          AND ${EXECUTION_RELEASE_FILTER}
+          AND ${EXECUTION_SPRINT_FILTER}
       ) ranked WHERE ranked.result_rank = 1
     `).all(projectId, normalizedRelease, normalizedRelease, normalizedSprint, normalizedSprint),
     db.prepare(`
@@ -76,15 +111,16 @@ const loadContext = async (projectId, release = "", sprint = "") => {
       FROM execution_case_snapshots
       JOIN executions ON executions.id = execution_case_snapshots.execution_id
       WHERE executions.project_id = ?
-        AND (? = '' OR LOWER(COALESCE(executions.release, '')) = ?)
-        AND (? = '' OR LOWER(COALESCE(executions.sprint, '')) = ?)
+        AND ${EXECUTION_RELEASE_FILTER}
+        AND ${EXECUTION_SPRINT_FILTER}
     `).all(projectId, normalizedRelease, normalizedRelease, normalizedSprint, normalizedSprint),
     db.prepare(`
       SELECT DISTINCT feedback.id, feedback.display_id, feedback.title,
         feedback.status, feedback.priority, feedback.severity, feedback.labels,
         feedback.release, feedback.fix_version, feedback.sprint, feedback.bug_type,
         feedback.created_at, feedback.updated_at, feedback.linked_test_run_id,
-        feedback.linked_test_case_ids, feedback.linked_requirement_ids,
+        COALESCE(feedback.linked_test_case_ids, '[]'::jsonb) || COALESCE((SELECT jsonb_agg(test_case_id) FROM test_case_defects WHERE issue_id = feedback.id), '[]'::jsonb) AS linked_test_case_ids,
+        COALESCE(feedback.linked_requirement_ids, '[]'::jsonb) || COALESCE((SELECT jsonb_agg(requirement_id) FROM requirement_defects WHERE issue_id = feedback.id), '[]'::jsonb) AS linked_requirement_ids,
         reporter.name AS reporter_name,
         assignee.name AS assignee_name
       FROM feedback
@@ -104,15 +140,20 @@ const loadContext = async (projectId, release = "", sprint = "") => {
     db.prepare(`SELECT test_case_modules.id, test_case_modules.name FROM test_case_modules JOIN app_types ON app_types.id = test_case_modules.app_type_id WHERE app_types.project_id = ?`).all(projectId)
   ]);
 
+  const matchesRelease = item => !normalizedRelease || ((item.native_releases || []).length
+    ? item.native_releases.some(rel => [rel.id, rel.name, rel.display_id, rel.fix_version].some(value => lowerText(value) === normalizedRelease))
+    : !item.legacy_release_ambiguous && lowerText(item.fix_version || item.release) === normalizedRelease);
+  const matchesSprint = item => !normalizedSprint || (item.iteration_id
+    ? [item.iteration_id, item.sprint_name].some(value => lowerText(value) === normalizedSprint)
+    : lowerText(item.sprint) === normalizedSprint);
   const scopedRequirements = normalizedRelease
-    ? requirements.filter((item) => lowerText(item.fix_version || item.release) === normalizedRelease)
+    ? requirements.filter(matchesRelease)
     : requirements;
   const sprintScopedRequirements = normalizedSprint
-    ? scopedRequirements.filter((item) => lowerText(item.sprint) === normalizedSprint)
+    ? scopedRequirements.filter(matchesSprint)
     : scopedRequirements;
   const scopedExecutions = executions.filter((item) =>
-    (!normalizedRelease || lowerText(item.release) === normalizedRelease)
-    && (!normalizedSprint || lowerText(item.sprint) === normalizedSprint)
+    matchesRelease(item) && matchesSprint(item)
   );
   const requirementIds = new Set(sprintScopedRequirements.map((item) => item.id));
   const executionIds = new Set(scopedExecutions.map((item) => item.id));
@@ -127,17 +168,19 @@ const loadContext = async (projectId, release = "", sprint = "") => {
   const scopedSuites = hasPlanningScope
     ? suites.filter((item) => plannedSuiteIds.has(item.id) || (item.test_case_ids || []).some((id) => testCaseIds.has(id)) || primarySuiteIds.has(item.id))
     : suites;
-  const scopedResults = results.filter((item) => executionIds.has(item.execution_id) || (!hasPlanningScope && testCaseIds.has(item.test_case_id)));
+  const scopedResults = results.filter((item) => testCaseIds.has(item.test_case_id) && executionIds.has(item.execution_id));
   const scopedIssues = issues.filter((item) =>
-    (!normalizedRelease || lowerText(item.fix_version || item.release) === normalizedRelease || executionIds.has(item.linked_test_run_id))
-    && (!normalizedSprint || lowerText(item.sprint) === normalizedSprint || executionIds.has(item.linked_test_run_id))
+    (!normalizedRelease || lowerText(item.fix_version || item.release) === normalizedRelease || executionIds.has(item.linked_test_run_id)
+      || (item.linked_requirement_ids || []).some(id => requirementIds.has(id)) || (item.linked_test_case_ids || []).some(id => testCaseIds.has(id)))
+    && (!normalizedSprint || lowerText(item.sprint) === normalizedSprint || executionIds.has(item.linked_test_run_id)
+      || (item.linked_requirement_ids || []).some(id => requirementIds.has(id)) || (item.linked_test_case_ids || []).some(id => testCaseIds.has(id)))
   );
 
   return {
     project: { id: project.id, key: project.display_id || project.id, name: project.name },
     release: normalizeText(release) || null,
     sprint: normalizeText(sprint) || null,
-    requirements: sprintScopedRequirements.map(item => ({ ...item, test_case_ids: (item.test_case_ids || []).filter(id => testCaseIds.has(id)) })),
+    requirements: sprintScopedRequirements.map(item => ({ ...item, sprint: item.sprint_name || item.sprint, test_case_ids: [...new Set((item.test_case_ids || []).filter(id => testCaseIds.has(id)))] })),
     testCases: scopedTestCases,
     suites: scopedSuites,
     executions: scopedExecutions,
@@ -182,12 +225,7 @@ const calculateMetrics = (context, now = Date.now()) => {
     return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
   }, 0);
   const evidenceAgeDays = latestEvidenceAt ? Math.max(0, Math.floor((now - latestEvidenceAt) / 86_400_000)) : -1;
-  const traceableDefects = context.issues.filter((item) => [
-    item.linked_test_run_id,
-    ...(Array.isArray(item.linked_test_case_ids) ? item.linked_test_case_ids : []),
-    ...(Array.isArray(item.linked_requirement_ids) ? item.linked_requirement_ids : [])
-  ].some(Boolean)).length;
-  const defectTraceability = context.issues.length ? percent(traceableDefects, context.issues.length) : 100;
+  const defectTraceability = buildRelationalEvidence(context).values.defectTraceability;
 
   return {
     releaseConfidence,
@@ -210,7 +248,8 @@ const calculateMetrics = (context, now = Date.now()) => {
     evidenceAgeDays,
     defectTraceability,
     defectContainment,
-    evidenceConfidence: Math.round((coverage * 0.4) + (completion * 0.4) + (defectTraceability * 0.2))
+    evidenceConfidence: Math.round((coverage * 0.4) + (completion * 0.4) + (defectTraceability * 0.2)),
+    ...buildRelationalEvidence(context).values
   };
 };
 
@@ -233,7 +272,11 @@ const groupRecords = (records, groupBy, modules = []) => {
     if (groupBy === "priority") add(item.priority ?? item.severity);
     else if (groupBy === "labels") [...new Set(Array.isArray(item.labels) && item.labels.length ? item.labels : ["Unlabeled"])].forEach(add);
     else if (groupBy === "sprint") add(item.sprint || "No sprint");
-    else if (groupBy === "fixVersion") add(item.fix_version || item.release || "No release");
+    else if (groupBy === "fixVersion" || groupBy === "release") {
+      const releases = (item.native_releases || []).map(release => release.name || release.fix_version || release.id);
+      [...new Set(releases.length ? releases : [item.fix_version || item.release || "No release"])].forEach(add);
+    }
+    else if (groupBy === "story") [...new Set(item.story_titles?.length ? item.story_titles : ["No story"])].forEach(add);
     else if (groupBy === "assignee") add(item.assignee_name || "Unassigned");
     else if (groupBy === "reporter") add(item.reporter_name || "Unknown reporter");
     else if (groupBy === "issuetype") add(item.bug_type || item.test_case_type || item.record_type);
@@ -252,6 +295,12 @@ const groupRecords = (records, groupBy, modules = []) => {
 
 const metricEvidence = (context, metric, now) => {
   const withType = (records, type, target) => ({ records, type, target });
+  if (Object.hasOwn(RELATIONAL_METRICS, metric)) {
+    const records = buildRelationalEvidence(context).records[metric];
+    if (["stories", "devStoryCompletion", "qaStoryCompletion", "storyTestPassRate", "storyExecutionCoverage", "storiesWithOpenDefects"].includes(metric)) return withType(records, "story", "/requirements");
+    if (["linkedDefects", "defectTraceability"].includes(metric)) return withType(records, "issue", "/issues");
+    return withType(records, "test-case", "/test-cases");
+  }
   if (["count", "openDefects"].includes(metric)) return withType(metric === "openDefects" ? context.issues.filter((item) => isOpen(item.status)) : context.issues, "issue", "/issues");
   if (["requirementCoverage", "coverageGaps"].includes(metric)) return withType(metric === "coverageGaps" ? context.requirements.filter((item) => !(item.test_case_ids || []).length) : context.requirements, "story", "/requirements");
   if (["testRuns", "failedRuns", "completedRuns30d", "executionCycleHours"].includes(metric)) {
@@ -278,7 +327,18 @@ const evaluateContextGadget = ({ context, metrics, gadget, evaluatedAt = nowIso(
   if (value === undefined) throw Object.assign(new Error("This metric is not available for native project dashboards."), { code: "DASHBOARD_METRIC_UNSUPPORTED", statusCode: 400 });
   let series = [];
   if (!["metric", "table"].includes(type)) {
-    if (groupBy === "status" && metric === "requirementCoverage") {
+    if (groupBy === "status" && ["devStoryCompletion", "qaStoryCompletion", "storyTestPassRate", "storyExecutionCoverage", "defectTraceability"].includes(metric)) {
+      const isSatisfied = metric === "devStoryCompletion" ? item => DEV_DONE.has(storyStatus(item.status))
+        : metric === "qaStoryCompletion" ? item => QA_DONE.has(storyStatus(item.status))
+          : metric === "storyTestPassRate" ? item => item.all_cases_passed
+            : metric === "storyExecutionCoverage" ? item => item.all_cases_finalized
+              : item => buildRelationalEvidence(context).linkedDefects.some(defect => defect.id === item.id);
+      const complete = records.filter(isSatisfied).length;
+      const labels = metric === "storyTestPassRate" ? ["All Tests Passed", "Not All Passed"]
+        : metric === "storyExecutionCoverage" ? ["All Tests Finalized", "Testing Incomplete"]
+          : metric === "defectTraceability" ? ["Linked", "Unlinked"] : ["Complete", "Incomplete"];
+      series = [{ label: labels[0], value: complete }, { label: labels[1], value: records.length - complete }];
+    } else if (groupBy === "status" && metric === "requirementCoverage") {
       const covered = records.filter((item) => (item.test_case_ids || []).length).length;
       series = [{ label: "Covered", value: covered }, { label: "Uncovered", value: records.length - covered }];
     } else if (groupBy === "status" && metric === "automationCoverage") {
@@ -307,11 +367,11 @@ const evaluateContextGadget = ({ context, metrics, gadget, evaluatedAt = nowIso(
       release: normalizeText(gadget?.release) || undefined, accent: gadget?.accent || "blue"
     },
     total: records.length, value: Number(value || 0),
-    value_label: ["releaseConfidence", "requirementCoverage", "automationCoverage", "executionCompletion", "passRate", "evidenceConfidence"].includes(metric) ? `${Number(value || 0)}%` : metric === "executionCycleHours" ? `${Number(value || 0)} hours` : String(Number(value || 0)),
+    value_label: PERCENTAGE_METRICS.has(metric) ? `${Number(value || 0)}%` : metric === "executionCycleHours" ? `${Number(value || 0)} hours` : String(Number(value || 0)),
     returned: type === "table" ? rows.length : records.length,
     truncated: type === "table" && records.length > rows.length,
     series, rows, drilldown_target: target,
-    methodology: `Derived from the selected HelloTest project${context.release ? " and release" : ""}. Latest-result-per-case outcomes; N/A and aborted cases count toward completion but not pass rate. Full scoped records contribute to metrics and charts; tables show at most 100 rows.${groupBy === "module" || metric === "moduleCaseCount" ? " A case linked to multiple modules contributes to each module." : ""}`
+    methodology: `${RELATIONAL_METRICS[metric] || "Latest-result-per-case outcomes; N/A and aborted cases count toward completion but not pass rate."} Derived from the selected HelloTest project${context.release ? " and release" : ""}. Full scoped records contribute to metrics and charts; tables show at most 100 rows.${groupBy === "module" || metric === "moduleCaseCount" ? " A case linked to multiple modules contributes to each module." : ""}${["story", "release", "fixVersion", "labels"].includes(groupBy) ? " Records linked to multiple groups appear in each group; grouped counts can exceed the distinct total." : ""}`
   };
 };
 

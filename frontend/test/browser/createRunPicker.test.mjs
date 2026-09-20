@@ -55,6 +55,16 @@ test('Create Run unified selection preserves paged choices and submitted order t
     const dialog = page.getByRole('dialog', { name: 'Create new run', exact: true });
     await dialog.waitFor();
     await dialog.getByLabel('Run Name', { exact: true }).fill('A run selected across pages');
+    const dataSection=dialog.locator('.execution-run-config-rail .run-data-setup');
+    const dataToggle=dataSection.getByRole('button',{name:/^Data Sets/});
+    assert.equal(await dataToggle.getAttribute('aria-expanded'),'false');
+    await dataToggle.click();
+    assert.equal(await dataSection.getByRole('checkbox').count(),3);
+    for(const name of ['Test Case Params Data','Suite Params Data','Shared Group Params Data']) assert.equal(await dataSection.getByRole('checkbox',{name,exact:true}).isChecked(),true);
+    await dataSection.getByRole('button',{name:'Link Data Set',exact:true}).click();
+    await dataSection.getByRole('listbox',{name:'Available data sets',exact:true}).waitFor();
+    await dataToggle.click();
+
     const picker = dialog.locator('.test-case-picker--inline').filter({ has: page.getByText('Test Case Selection', { exact: true }) });
     const search=picker.getByRole('searchbox',{name:'Search test cases',exact:true});
     const rowChoice=id=>picker.getByRole('checkbox',{name:`Add TC-${id} to the new run`,exact:true});

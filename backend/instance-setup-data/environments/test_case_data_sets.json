@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v2-case-login",
+      "test_data_set_id": "sample-v2-data-customers",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-checkout",
+      "test_data_set_id": "sample-v2-data-customers",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-keyboard",
+      "test_data_set_id": "sample-v2-data-customers",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-expired-session",
+      "test_data_set_id": "sample-v2-data-customers",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-declined-payment",
+      "test_data_set_id": "sample-v2-data-customers",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-stock-api",
+      "test_data_set_id": "sample-v2-data-api",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "test_data_set_id": "sample-v2-data-api",
+      "sort_order": 1
+    },
+    {
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "test_data_set_id": "sample-v2-data-api",
+      "sort_order": 1
+    }
+  ]
+}

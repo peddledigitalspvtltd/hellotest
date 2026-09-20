@@ -54,3 +54,24 @@ for (const [file,callback,evidenceKey] of [
     client.clear();
   });
 }
+
+test('Release edits expire all changed Story scopes and readiness only within the affected project',async()=>{
+  const client=new QueryClient({defaultOptions:{queries:{staleTime:60000}}});
+  const keys=project=>[
+    ['requirement-releases',project],
+    ['requirement-release-readiness','project',project,'reader'],
+    ['requirements',project,'metrics',{}],
+    ['requirement-detail',project,'story',true],
+    ['requirement-route-detail',project,'story'],
+    ['requirement-iterations',project],
+    ['sprint-requirement-children',project,'sprint',0,'first',{}],
+    ['release-story-picker',project],
+    ['release-review-context','reader',project],
+    ['release-review-stories','reader',project]
+  ];
+  for(const key of [...keys('project'),...keys('foreign')]) client.setQueryData(key,{value:42});
+  for(const options of invalidationsFor('ReleasesPage.tsx','refresh')) await client.invalidateQueries(options);
+  for(const key of keys('project')) assert.equal(client.getQueryState(key).isInvalidated,true,JSON.stringify(key));
+  for(const key of keys('foreign')) assert.equal(client.getQueryState(key).isInvalidated,false,JSON.stringify(key));
+  client.clear();
+});

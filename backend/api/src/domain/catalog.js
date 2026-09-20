@@ -22,7 +22,7 @@ const INTEGRATION_TYPE_OPTIONS = freezeOptions([
   {
     value: "jira",
     label: "Work tracker",
-    description: "Issue tracker and release planning integration.",
+    description: "Defect tracking and release planning integration.",
     icon: "JI",
     defaults: {}
   },

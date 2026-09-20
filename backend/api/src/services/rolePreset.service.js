@@ -2,25 +2,24 @@ const db = require("../db");
 const { randomUUID } = require("crypto");
 const { DEFAULT_ROLE_PRESETS, normalizePresetRoleName } = require("../security/rolePresets.catalog");
 
-const roleNames = DEFAULT_ROLE_PRESETS.map(role => normalizePresetRoleName(role.name));
 const placeholders = values => values.map(() => "?").join(", ");
-const readRoles = () => db.prepare(`
+const readRoles = (presets = DEFAULT_ROLE_PRESETS) => db.prepare(`
   SELECT roles.id, roles.name,
     COALESCE(json_agg(DISTINCT permissions.code) FILTER (WHERE permissions.code IS NOT NULL), '[]'::json) AS permission_codes
   FROM roles
   LEFT JOIN role_permissions ON role_permissions.role_id = roles.id
   LEFT JOIN permissions ON permissions.id = role_permissions.permission_id
-  WHERE LOWER(BTRIM(roles.name)) IN (${placeholders(roleNames)})
+  WHERE LOWER(BTRIM(roles.name)) IN (${placeholders(presets)})
   GROUP BY roles.id, roles.name
   ORDER BY roles.name, roles.id
-`).all(...roleNames);
+`).all(...presets.map(role => normalizePresetRoleName(role.name)));
 
 const matchRole = (rows, preset) => rows.find(role => role.name === preset.name)
   || rows.find(role => normalizePresetRoleName(role.name) === normalizePresetRoleName(preset.name));
 
-async function getSetupRoleCatalog() {
-  const rows = await readRoles();
-  return DEFAULT_ROLE_PRESETS.map(preset => {
+async function getSetupRoleCatalog(presets = DEFAULT_ROLE_PRESETS) {
+  const rows = await readRoles(presets);
+  return presets.map(preset => {
     const role = matchRole(rows, preset);
     const current = [...new Set(role?.permission_codes || [])].sort();
     const matches = current.length === preset.permission_codes.length
@@ -35,12 +34,12 @@ async function getSetupRoleCatalog() {
   });
 }
 
-async function ensureSetupRoles() {
+async function ensureSetupRoles(presets = DEFAULT_ROLE_PRESETS) {
   return db.transaction(async () => {
     // Also safe when called inside the schema or sample-install transaction.
     await db.prepare("SELECT pg_advisory_xact_lock(hashtext('hellotest:default-role-presets:v1'))").get();
-    const existing = await readRoles();
-    const missing = DEFAULT_ROLE_PRESETS.filter(preset => !matchRole(existing, preset));
+    const existing = await readRoles(presets);
+    const missing = presets.filter(preset => !matchRole(existing, preset));
     const requestedCodes = [...new Set(missing.flatMap(role => role.permission_codes))];
     if (requestedCodes.length) {
       const permissions = await db.prepare(`SELECT id, code FROM permissions WHERE code IN (${placeholders(requestedCodes)})`).all(...requestedCodes);
@@ -52,7 +51,7 @@ async function ensureSetupRoles() {
     }
 
     const created = [], retained = [];
-    for (const preset of DEFAULT_ROLE_PRESETS) {
+    for (const preset of presets) {
       const existingRole = matchRole(existing, preset);
       if (existingRole) {
         retained.push({ id: existingRole.id, name: existingRole.name });
@@ -63,7 +62,7 @@ async function ensureSetupRoles() {
         SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM roles WHERE LOWER(BTRIM(name)) = ?)
         ON CONFLICT DO NOTHING
         RETURNING id, name
-      `).get(randomUUID(), preset.name, normalizePresetRoleName(preset.name));
+      `).get(preset.id || randomUUID(), preset.name, normalizePresetRoleName(preset.name));
       if (!role) {
         const racedRole = await db.prepare("SELECT id, name FROM roles WHERE LOWER(BTRIM(name)) = ? ORDER BY id LIMIT 1").get(normalizePresetRoleName(preset.name));
         if (!racedRole) throw new Error(`Unable to create default role ${preset.name}`);

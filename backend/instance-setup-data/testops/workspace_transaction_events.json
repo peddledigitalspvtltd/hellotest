@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-event-launchpad",
+      "transaction_id": "sample-v2-activity-launchpad",
+      "level": "info",
+      "phase": "review",
+      "message": "Sample walkthrough: inspect the story, linked tests, saved results and defect evidence.",
+      "details": {
+        "sample": true
+      }
+    }
+  ]
+}

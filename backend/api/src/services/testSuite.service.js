@@ -1,3 +1,4 @@
+const { normalizeDataOptions } = require("../utils/scopedTestData");
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const suiteTestCaseService = require("./suiteTestCase.service");
@@ -52,6 +53,7 @@ const normalizeParallelCount = (value, fallback = 1) => {
 
 const shapeSuite = (suite) => ({
   ...suite,
+  test_data_options: normalizeDataOptions(suite.test_data_options),
   labels: normalizeStoredReferenceList(suite.labels),
   parameter_values: normalizeParameterValues(suite.parameter_values),
   parallel_enabled: suite.parallel_enabled === null || suite.parallel_enabled === undefined ? null : normalizeBoolean(suite.parallel_enabled),
@@ -92,13 +94,26 @@ const validateSuiteDataSet = async (appTypeId, dataSetId) => {
   return data.id;
 };
 
-exports.createTestSuite = async ({ app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, parallel_enabled, parallel_count, created_by }) => {
+const validateSuiteSelectionData = async ({ suite, testCaseIds, testDataSetId, testDataOptions, parameterValues, projectId }) => {
+  if (!testDataSetId) return;
+  const [app, children] = await Promise.all([
+    projectId ? Promise.resolve({ project_id: projectId }) : db.prepare("SELECT project_id FROM app_types WHERE id = ?").get(suite.app_type_id),
+    suite.id ? db.prepare("SELECT id FROM test_suites WHERE parent_id = ? AND app_type_id = ?").all(suite.id, suite.app_type_id) : Promise.resolve([])
+  ]);
+  await require("./runParameterPlan.service").assertRunDataSetCompatible({
+    project_id: app.project_id, app_type_id: suite.app_type_id, data_scope: "suite", suite_context_id: suite.id,
+    test_case_ids: testCaseIds, suite_ids: children.map(child => child.id), test_data_set_id: testDataSetId,
+    test_data_options: testDataOptions, parameter_values: parameterValues
+  });
+};
+
+exports.createTestSuite = async ({ app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, test_data_options, test_case_ids, parallel_enabled, parallel_count, created_by }) => {
   if (!app_type_id || !name) {
     throw new Error("Missing required fields");
   }
 
   const appType = await db.prepare(`
-    SELECT id FROM app_types WHERE id = ?
+    SELECT id, project_id FROM app_types WHERE id = ?
   `).get(app_type_id);
 
   if (!appType) throw new Error("App type not found");
@@ -114,30 +129,37 @@ exports.createTestSuite = async ({ app_type_id, name, description, parent_id, la
     }
   }
 
+  normalizeDataOptions(test_data_options);
   const dataSetId = await validateSuiteDataSet(app_type_id, test_data_set_id);
+  await validateSuiteSelectionData({ suite: { app_type_id }, testCaseIds: test_case_ids || [], testDataSetId: dataSetId,
+    testDataOptions: test_data_options, parameterValues: parameter_values, projectId: appType.project_id });
   const id = uuid();
   const display_id = await displayIdService.createDisplayId("test_suite");
 
-  await db.prepare(`
-    INSERT INTO test_suites (id, display_id, app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `).run(
-    id,
-    display_id,
-    app_type_id,
-    name,
-    description || null,
-    parent_id || null,
-    normalizeReferenceList(labels),
-    normalizeParameterValues(parameter_values),
-    dataSetId,
-    parallel_enabled === undefined ? null : normalizeBoolean(parallel_enabled),
-    parallel_enabled === undefined ? null : normalizeParallelCount(parallel_count),
-    created_by || null,
-    created_by || null
-  );
+  return db.transaction(async () => {
+    await db.prepare(`
+      INSERT INTO test_suites (id, display_id, app_type_id, name, description, parent_id, labels, parameter_values, test_data_set_id, parallel_enabled, parallel_count, created_by, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      id,
+      display_id,
+      app_type_id,
+      name,
+      description || null,
+      parent_id || null,
+      normalizeReferenceList(labels),
+      normalizeParameterValues(parameter_values),
+      dataSetId,
+      parallel_enabled === undefined ? null : normalizeBoolean(parallel_enabled),
+      parallel_enabled === undefined ? null : normalizeParallelCount(parallel_count),
+      created_by || null,
+      created_by || null
+    );
 
-  return { id };
+    await db.prepare("UPDATE test_suites SET test_data_options = ? WHERE id = ?").run(normalizeDataOptions(test_data_options), id);
+    if (test_case_ids !== undefined) await suiteTestCaseService.replaceMappingsForSuite(id, test_case_ids);
+    return { id };
+  })();
 };
 
 exports.getTestSuites = async ({ project_id, app_type_id, parent_id, projection, case_search, module_id, requirement_id, label, shared_step_group_id } = {}) => {
@@ -246,6 +268,13 @@ exports.updateTestSuite = async (id, data) => {
     const currentRevision = assertExpectedRevision(existing.revision, data.expected_revision, "Test suite");
 
     const dataSetId = data.test_data_set_id !== undefined ? await validateSuiteDataSet(existing.app_type_id, data.test_data_set_id) : existing.test_data_set_id;
+    if (dataSetId && ["test_data_set_id", "test_data_options", "test_case_ids", "parameter_values"].some(key => data[key] !== undefined)) {
+      const testCaseIds = data.test_case_ids !== undefined ? data.test_case_ids
+        : (await suiteTestCaseService.listMappings({ suite_id: id })).map(row => row.test_case_id);
+      await validateSuiteSelectionData({ suite: existing, testCaseIds, testDataSetId: dataSetId,
+        testDataOptions: data.test_data_options ?? existing.test_data_options,
+        parameterValues: data.parameter_values ?? existing.parameter_values });
+    }
     let parentId = data.parent_id;
 
     if (parentId === undefined) {
@@ -258,7 +287,7 @@ exports.updateTestSuite = async (id, data) => {
 
     await db.prepare(`
       UPDATE test_suites
-      SET name = ?, description = ?, parent_id = ?, labels = ?, parameter_values = ?, test_data_set_id = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
+      SET name = ?, description = ?, parent_id = ?, labels = ?, parameter_values = ?, test_data_set_id = ?, test_data_options = ?, parallel_enabled = ?, parallel_count = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP, revision = ?
       WHERE id = ?
     `).run(
       data.name ?? existing.name,
@@ -267,6 +296,7 @@ exports.updateTestSuite = async (id, data) => {
       data.labels !== undefined ? normalizeReferenceList(data.labels) : normalizeStoredReferenceList(existing.labels),
       data.parameter_values !== undefined ? normalizeParameterValues(data.parameter_values) : normalizeParameterValues(existing.parameter_values),
       dataSetId || null,
+      normalizeDataOptions(data.test_data_options ?? existing.test_data_options),
       data.parallel_enabled !== undefined ? normalizeBoolean(data.parallel_enabled) : existing.parallel_enabled,
       data.parallel_enabled !== undefined || data.parallel_count !== undefined
         ? normalizeParallelCount(data.parallel_count, existing.parallel_count || 1)
@@ -276,14 +306,26 @@ exports.updateTestSuite = async (id, data) => {
       id
     );
 
-    return { updated: true, revision: currentRevision + 1 };
+    const assignment = data.test_case_ids === undefined ? null
+      : await suiteTestCaseService.replaceMappingsForSuite(id, data.test_case_ids, { expectedRevision: currentRevision + 1 });
+    return { updated: true, revision: assignment?.revision ?? currentRevision + 1 };
   });
 
   return transaction();
 };
 
 exports.assignTestCases = async (id, testCaseIds = [], { append = false, expectedRevision } = {}) => {
-  return suiteTestCaseService.replaceMappingsForSuite(id, testCaseIds, { append, expectedRevision });
+  return db.transaction(async () => {
+    const suite = await db.prepare("SELECT * FROM test_suites WHERE id = ? FOR NO KEY UPDATE").get(id);
+    if (!suite) throw new Error("Test suite not found");
+    assertExpectedRevision(suite.revision, expectedRevision, "Test suite");
+    if (suite.test_data_set_id) {
+      const existing = append ? await suiteTestCaseService.listMappings({ suite_id: id }) : [];
+      await validateSuiteSelectionData({ suite, testCaseIds: [...new Set([...existing.map(row => row.test_case_id), ...testCaseIds])],
+        testDataSetId: suite.test_data_set_id, testDataOptions: suite.test_data_options, parameterValues: suite.parameter_values });
+    }
+    return suiteTestCaseService.replaceMappingsForSuite(id, testCaseIds, { append, expectedRevision });
+  })();
 };
 
 exports.deleteTestSuite = async (id) => {

@@ -644,7 +644,7 @@ async function executeRun(envelope, run, logger) {
                 envelope,
                 run: running,
                 step,
-                context
+                context: buildInitialContext(envelope, context.capturedValues, step)
             })
             : webRunSession
                 ? await executeWebStep({

@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { LoadingSpinner } from "./LoadingSpinner";
 import "./LoadingState.css";
 
 type LoadingMessage = { label: string; description?: string };
@@ -132,15 +133,8 @@ function LoadingIndicator({ label, description, exiting }: LoadingMessage & { ex
 
   return (
     <div aria-atomic="true" aria-label={label} aria-live="polite" className={`screen-loading-overlay${exiting ? " is-exiting" : ""}`} role="status">
-      <svg aria-hidden="true" className="screen-loading-ring" viewBox="0 0 240 240" fill="none">
-        <g className="screen-loading-orbit is-blue"><ellipse cx="120" cy="120" rx="99" ry="112" stroke="#4135db" strokeWidth="9" /></g>
-        <g className="screen-loading-orbit is-purple"><ellipse cx="120" cy="120" rx="105" ry="99" stroke="#913fc5" strokeWidth="8" /></g>
-        <g className="screen-loading-orbit is-gold"><ellipse cx="120" cy="120" rx="109" ry="98" stroke="#c6ac44" strokeWidth="8" /></g>
-        <g className="screen-loading-orbit is-green"><ellipse cx="120" cy="120" rx="113" ry="97" stroke="#50ad83" strokeWidth="8" /></g>
-        <g className="screen-loading-orbit is-red"><ellipse cx="120" cy="120" rx="98" ry="109" stroke="#e9564d" strokeWidth="9" /></g>
-        <g className="screen-loading-orbit is-white"><ellipse cx="120" cy="120" rx="97" ry="114" stroke="#ffffff" strokeWidth="10" /></g>
-      </svg>
-      <span aria-hidden="true" className="screen-loading-label">Loading</span>
+      <LoadingSpinner className="screen-loading-ring" />
+      <span aria-hidden="true" className="screen-loading-label">Loading.....</span>
       <span className="screen-loading-description">{label}{description ? `. ${description}` : ""}</span>
     </div>
   );

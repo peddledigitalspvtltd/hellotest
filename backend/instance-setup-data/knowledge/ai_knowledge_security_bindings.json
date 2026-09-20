@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-binding-payments",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-payments",
+      "principal_type": "PROJECT",
+      "principal_id": "sample-project",
+      "permission": "READ",
+      "effect": "ALLOW",
+      "inherited": true
+    },
+    {
+      "id": "sample-v2-binding-api",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-api",
+      "principal_type": "PROJECT",
+      "principal_id": "sample-project",
+      "permission": "READ",
+      "effect": "ALLOW",
+      "inherited": true
+    },
+    {
+      "id": "sample-v2-binding-repository",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-repository",
+      "principal_type": "PROJECT",
+      "principal_id": "sample-project",
+      "permission": "READ",
+      "effect": "ALLOW",
+      "inherited": true
+    },
+    {
+      "id": "sample-v3-binding-hellotest",
+      "project_id": "sample-project",
+      "source_id": "sample-v3-source-hellotest",
+      "principal_type": "PROJECT",
+      "principal_id": "sample-project",
+      "permission": "READ",
+      "effect": "ALLOW",
+      "inherited": true
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { findAiMetricCriteriaByLabel } from "../lib/aiPromptRegistry";
 import { InfoTooltip } from "./InfoTooltip";
@@ -31,7 +32,7 @@ export function HierarchyMetricStrip({
     <div className="hierarchy-metric-strip" aria-label={`${count} ${resolvedCountLabel} and derived health metrics`}>
       <span className="hierarchy-record-count" title={countTitle}>
         <strong>{count}</strong>
-        <small>{resolvedCountLabel}</small>
+        <small>{metricTitle(resolvedCountLabel)}</small>
       </span>
       {metrics.map((metric) => {
         const governedMetric = metric.criteriaKey
@@ -46,7 +47,7 @@ export function HierarchyMetricStrip({
             key={metric.label}
           >
             <span className="hierarchy-metric-label-row">
-              <small>{metric.label}</small>
+              <small>{metricTitle(metric.label)}</small>
               {methodology ? <InfoTooltip content={methodology} label={`${metric.label} calculation`} trigger="span" /> : null}
             </span>
             <strong>{metric.value}</strong>

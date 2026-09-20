@@ -23,7 +23,6 @@ import { Panel } from "../components/Panel";
 import { StatusBadge } from "../components/StatusBadge";
 import { IntegrationConnectionTest } from "../components/IntegrationConnectionTest";
 import { buildIntegrationConnectionInput } from "../lib/integrationConnection";
-import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
 import { TileCardStatusIndicator } from "../components/TileCardPrimitives";
@@ -146,7 +145,7 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
   description: string;
   defaultProvider: Integration["type"];
 }> = [
-  { value: "ai", label: "AI Providers", description: "Direct LLM providers and connected workspace Rovo agent access used by HelloTest AI flows.", defaultProvider: "llm" },
+  { value: "ai", label: "AI Providers", description: "Direct LLM providers used by HelloTest AI flows.", defaultProvider: "llm" },
   { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
   { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },
   { value: "sso", label: "SSO", description: "Single sign-on identity providers.", defaultProvider: "google_auth" },
@@ -972,9 +971,6 @@ function IntegrationReadOnlyDetails({
           ? "This is HelloTest's built-in connected workspace Rovo entry point. Test connection verifies access to the current project’s workflow studio. Model generation is checked on your selected AI provider. This built-in entry is managed by the workspace."
           : "Members can use this active integration from HelloTest workflows. Secrets are masked and connection changes stay with admins."}
       </div>
-      {isRovo ? (
-        <RovoProviderStatus prompt="Help me review how the HelloTest QA Agent in the connected workspace can support this project's quality-engineering workflow. Do not change work items." />
-      ) : null}
       <div className="integration-readable-grid">
         <article className="integration-readable-card">
           <span className="integration-readable-label">Name</span>
@@ -1055,7 +1051,10 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   });
   const deleteIntegration = useMutation({ mutationFn: api.integrations.delete });
 
-  const integrations = asArray(integrationsQuery.data);
+  const integrations = useMemo(
+    () => asArray(integrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id)),
+    [integrationsQuery.data]
+  );
   const projects = asArray(projectsQuery.data);
   const isIntegrationCatalogLoading = integrationsQuery.isLoading;
   const integrationTypeOptions = INTEGRATION_CATEGORY_DEFINITIONS;
@@ -1184,12 +1183,6 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
           <span className="count-pill">{section.activeCount} {section.value === "ai" ? "direct active" : "active"}</span>
         </div>
       </div>
-      {section.value === "ai" ? (
-        <RovoProviderStatus
-          compact
-          prompt="Help me review HelloTest's connected workspace Rovo QA Agent availability and where a conversational review is useful alongside direct AI generation. Do not change work items."
-        />
-      ) : null}
     </div>
   );
   const integrationListRowGroups: Array<DataTableRowGroup<Integration>> = visibleIntegrationSections.map((section) => ({

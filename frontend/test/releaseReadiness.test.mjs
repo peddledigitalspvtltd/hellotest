@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   deriveReleaseReadiness,
   latestReadinessResults,
+  readinessDeliveryLabels,
 } from "../src/lib/releaseReadiness.ts";
 const at = "2026-09-10T10:00:00Z";
 const source = (patch = {}) => ({
@@ -47,6 +48,70 @@ const row = (id, status, patch = {}) => ({
   status,
   created_at: at,
   ...patch,
+});
+
+test("native membership preserves shared Stories and historical runs after delivery labels change", () => {
+  const input = source();
+  const model = deriveReleaseReadiness({ ...input, release: "Renamed release", sprint: "Renamed sprint", iterationId: "sprint-id",
+    scopedRequirementIds: ["s1"], scopedExecutionIds: ["run"],
+    requirements: [{...input.requirements[0],fix_version:"Another shared release",iteration_id:"sprint-id",sprint:"Old sprint"},
+      {id:"foreign",fix_version:"Renamed release",iteration_id:"other-sprint",sprint:"Renamed sprint"}],
+    executions: [{...input.executions[0],release:"Original release",sprint:"Original sprint"}]
+  });
+  assert.deepEqual(model.requirements.map(item=>item.id),["s1"]);
+  assert.deepEqual(model.executions.map(item=>item.id),["run"]);
+  assert.equal(model.metrics.passRate,100);
+});
+
+test("native release reports include unambiguous Release aliases and Defects in all linked Sprints", () => {
+  const release = { id: "rel", name: "Customer launch", fix_version: "R1", sprint_ids: ["sprint-a", "sprint-b"] };
+  const delivery = readinessDeliveryLabels(release, [release], [
+    { id: "sprint-a", name: "Sprint A" }, { id: "sprint-b", name: "Sprint B" }, { id: "other", name: "Other" },
+  ]);
+  assert.deepEqual(readinessDeliveryLabels(release, [], []).releaseAliases, ["Customer launch", "R1"], "Fresh native detail survives a stale catalog cache");
+  const model = deriveReleaseReadiness(source({ ...delivery, issues: [
+    { id: "by-name", release: " Customer LAUNCH ", status: "Open" },
+    { id: "by-version", fix_version: "R1", status: "Open" },
+    { id: "sprint-a", sprint: "Sprint A", status: "Open" },
+    { id: "sprint-b", sprint: "Sprint B", fix_version: "  ", status: "Open" },
+    { id: "different-release", sprint: "Sprint A", fix_version: "R2", status: "Open" },
+    { id: "different-sprint", sprint: "Other", status: "Open" },
+    { id: "linked", sprint: "Other", release: "R2", linked_test_case_ids: ["c1"], status: "Open" },
+  ] }));
+  assert.deepEqual(model.issues.map(item => item.id), ["by-name", "by-version", "sprint-a", "sprint-b", "linked"]);
+  assert.equal(model.metrics.openBugCount, 5);
+  assert.deepEqual(model.linkedIssueIds, ["linked"], "Scope membership is not invented traceability");
+});
+
+test("duplicate native delivery labels never attach unrelated legacy Stories or Defects", () => {
+  const releases = [
+    { id: "rel-a", name: "First release", fix_version: "duplicate", sprint_ids: ["sprint-a"] },
+    { id: "rel-b", name: "Second release", fix_version: "duplicate", sprint_ids: [] },
+  ];
+  const sprints = [{ id: "sprint-a", name: "Same sprint" }, { id: "sprint-b", name: "Same sprint" }];
+  const delivery = readinessDeliveryLabels(releases[0], releases, sprints, "sprint-a");
+  assert.deepEqual(delivery.releaseAliases, ["First release"]);
+  assert.deepEqual(delivery.releaseSprintNames, []);
+  assert.equal(delivery.allowLegacySprintFallback, false);
+  const model = deriveReleaseReadiness(source({ ...delivery, release: "", sprint: "Same sprint", iterationId: "sprint-a",
+    requirements: [
+      { id: "native", iteration_id: "sprint-a", sprint: "Previous name" },
+      { id: "other", iteration_id: "sprint-b", sprint: "Same sprint" },
+      { id: "ambiguous", sprint: "Same sprint" },
+    ],
+    issues: [{ id: "ambiguous", sprint: "Same sprint", status: "Open" }, { id: "linked", linked_requirement_ids: ["native"], status: "Open" }],
+  }));
+  assert.deepEqual(model.requirements.map(item => item.id), ["native"]);
+  assert.deepEqual(model.issues.map(item => item.id), ["linked"]);
+});
+
+test("retry row identity agrees with the API when keys or dataset metadata change", () => {
+  const results = latestReadinessResults([
+    row("old", "failed", { created_at: "2026-09-09", test_data_set_id: "old-data", data_set_iteration_index: 0, data_set_iteration_key: "old-label" }),
+    row("new", "passed", { test_data_set_id: "current-data", data_set_iteration_index: 0, data_set_iteration_key: "new-label" }),
+    row("other", "failed", { data_set_iteration_index: 1, data_set_iteration_key: "new-label" }),
+  ]);
+  assert.deepEqual(results.map(item => item.id), ["new", "other"]);
 });
 
 test("a passing data row never hides a different failing data row", () => {
@@ -160,7 +225,7 @@ test("an empty denominator remains unavailable and cannot look like zero percent
   assert.equal(model.metrics.coverage, null);
   assert.equal(model.decisionState, "insufficient");
 });
-test("release and sprint filters both apply and build is not a release alias", () => {
+test("Release includes all its Sprints despite stale Sprint selection; build is not a Release alias", () => {
   const model = deriveReleaseReadiness(
     source({
       sprint: " S1 ",
@@ -180,9 +245,9 @@ test("release and sprint filters both apply and build is not a release alias", (
       ],
     }),
   );
-  assert.equal(model.requirements.length, 1);
+  assert.equal(model.requirements.length, 2);
   assert.equal(model.executions.length, 1);
-  assert.equal(model.metrics.plannedCaseCount, 1);
+  assert.equal(model.metrics.plannedCaseCount, 2);
 });
 test("a linked defect retains traceability even when its release field differs", () => {
   const model = deriveReleaseReadiness(

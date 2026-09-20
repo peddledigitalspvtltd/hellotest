@@ -145,8 +145,6 @@
 .execution-run-command-center .execution-run-insight-card .evidence-flip-card-back {
   position: absolute;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
   align-content: stretch;
   gap: .45rem .4rem;
 }
@@ -157,28 +155,16 @@
 .execution-run-command-center .execution-run-insight-card.is-flipped .evidence-flip-card-back { position: relative; min-height: 12rem; }
 
 .execution-run-command-center .evidence-flip-card .evidence-flip-card-back-button {
-  grid-column: 2;
-  grid-row: 1;
   min-width: 0;
   min-height: 1.85rem;
-  align-self: start;
-}
-
-.execution-run-command-center .evidence-flip-card .evidence-flip-card-back-heading {
-  grid-column: 1;
-  grid-row: 1;
 }
 
 .execution-run-command-center .evidence-flip-card .evidence-flip-card-back-heading > span {
-  white-space: normal;
-  overflow-wrap: anywhere;
   font-size: .65rem;
 }
 
 .execution-run-command-center .execution-run-metric-card .project-stat-evidence,
 .execution-run-command-center .execution-run-insight-card .project-stat-evidence {
-  grid-column: 1 / -1;
-  grid-row: 2;
   min-height: 0;
   margin: 0;
   padding: .45rem .15rem 0 1rem;
@@ -191,7 +177,6 @@
 }
 
 .execution-run-command-center .evidence-flip-card .project-stat-evidence li + li { margin-top: .35rem; }
-.execution-run-command-center .evidence-flip-card .evidence-flip-card-action-button { grid-column: 1 / -1; grid-row: 3; }
 
 .execution-run-command-center .execution-run-metric-card--results .evidence-flip-card-front-visual {
   position: absolute;

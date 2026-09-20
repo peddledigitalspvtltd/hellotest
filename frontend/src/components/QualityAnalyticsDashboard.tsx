@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { LoadingState } from "./LoadingState";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -199,10 +200,10 @@ export function QualityAnalyticsDashboard() {
     <button
       className={`qa-metric qa-tone-${tone}`}
       onClick={() => setDialog("method")}
-      aria-label={`${tr(key)}: ${value}. ${detail}. ${tr("metricHelp", { metric: tr(key) })}`}
+      aria-label={`${metricTitle(tr(key))}: ${value}. ${detail}. ${tr("metricHelp", { metric: tr(key) })}`}
     >
       <span className="qa-metric-label">
-        {tr(key)}
+        {metricTitle(tr(key))}
         <IconInfoCircle size={15} />
       </span>
       <strong>{value}</strong>

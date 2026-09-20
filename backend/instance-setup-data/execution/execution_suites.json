@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite"
+    },
+    {
+      "execution_id": "sample-v2-run-api",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite"
+    },
+    {
+      "execution_id": "sample-v2-run-mobile",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite"
+    },
+    {
+      "execution_id": "sample-v4-metrics-run",
+      "suite_id": "sample-v4-metrics-suite"
+    }
+  ]
+}

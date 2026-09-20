@@ -27,7 +27,8 @@ const limited = variant === "limited";
 const session = { token:"fixture", user:{id:"qa",role:limited ? "member" : "admin",permissions:["run.view","run.update"]} };
 sessionStorage.write(session); localStorage.setItem("hellotest.current_project_id","project");
 api.auth.session=async()=>session;
-api.featureFlags.snapshot=async()=>({flags:{"hellotest.manual.test_data":true}});
+api.featureFlags.snapshot=async()=>({flags:new Proxy({}, {get:()=>true})});
+api.executions.parameterPlan=async()=>({case_count:1,suite_count:1,expected_instance_count:1,parameters:[]});
 window.saved=[]; window.sourceRequests=0; window.savedCallbacks=0;
 let run = {id:"run",project_id:"project",app_type_id:"app",revision:7,name:"Saved run plan",run_mode:variant === "running-remote" || limited ? "remote" : "manual",trigger:variant === "running-remote" || limited ? "ci" : "manual",status:variant.startsWith("running") ? "running" : variant === "finished" ? "completed" : "queued",started_at:variant.startsWith("running") ? "2026-09-09T10:00:00Z" : null,ended_at:variant === "finished" ? "2026-09-09T11:00:00Z" : null,
 suite_ids:["saved-suite"],test_case_ids:["pinned-case"],direct_test_case_ids:["pinned-case"],suite_snapshots:[{id:"saved-suite",name:"Saved suite"}],case_snapshots:[{test_case_id:"pinned-case",test_case_title:"Pinned case",test_case_description:"Captured source",suite_id:"saved-suite",priority:2,status:"ready"}],
@@ -76,7 +77,7 @@ test("run edits preserve scope and attachments, enforce execution locks, recover
       assert.equal(await dialog.getByRole("button", { name: "Save changes", exact: true }).isDisabled(), true);
       assert.equal(await dialog.getByRole("combobox", { name: "Test environment" }).inputValue(), "missing-env");
       assert.equal(await dialog.getByRole("combobox", { name: "Test configuration" }).inputValue(), "missing-config");
-      assert.equal(await dialog.getByRole("combobox", { name: "Test data" }).inputValue(), "missing-data");
+      assert.equal(await dialog.getByRole("combobox", { name: "Linked Data Set" }).inputValue(), "missing-data");
       assert.equal(await dialog.getByText("Original owner", { exact: true }).count(), 1);
       const bounds = await dialog.evaluate(element => ({left:element.getBoundingClientRect().left,right:element.getBoundingClientRect().right,height:element.getBoundingClientRect().height,client:element.clientWidth,scroll:element.scrollWidth}));
       assert.ok(bounds.left >= 0 && bounds.right <= width + 1 && bounds.height <= 900 && bounds.scroll <= bounds.client + 1, JSON.stringify({width,bounds}));

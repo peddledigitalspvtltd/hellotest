@@ -23,8 +23,10 @@ test("Shared Step Group product copy is canonical across primary UI surfaces", a
   assert.match(uiCopy, /New Shared Step Group/);
   assert.match(uiCopy, /Insert Shared Step Group/);
   assert.match(uiCopy, /Shared Step Group step/);
-  assert.doesNotMatch(uiCopy, /\bshared steps\b/i);
-  assert.doesNotMatch(uiCopy, /\bshared groups?\b/i);
+  // Entity actions retain the canonical name. Metrics may describe individual
+  // shared steps (execution units), rather than the group container.
+  assert.doesNotMatch(uiCopy, /\b(?:New|Create|Insert|Edit|Delete) Shared (?:Steps|Groups?)\b/i);
+  assert.match(sharedStepsPage, /Cases Reusing Shared Steps/);
 });
 
 test("Shared Step Group import/export accepts the canonical annotation and legacy aliases", async () => {

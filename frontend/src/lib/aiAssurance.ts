@@ -110,7 +110,7 @@ export function assessRunEvidenceReadiness(input: {
     !total ? "Add test cases to the run before relying on an impact summary." : null,
     total && touched < total ? `${total - touched} scoped case${total - touched === 1 ? " has" : "s have"} no result evidence yet.` : null,
     !input.linkedRequirementCount ? "Link scoped cases to stories to explain release impact." : null,
-    issueCount > 0 && !input.referenceCount ? "Attach bugs or external references to failing cases so the risk can be investigated." : null
+    issueCount > 0 && !input.referenceCount ? "Attach defects or external references to failing cases so the risk can be investigated." : null
   ].filter((item): item is string => Boolean(item));
 
   return {

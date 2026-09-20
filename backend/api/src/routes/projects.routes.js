@@ -2,6 +2,7 @@ const service = require("../services/project.service");
 const portfolioAnalytics = require("../services/portfolioAnalytics.service");
 const qualityDashboardReport = require("../services/qualityDashboardReport.service");
 const { config } = require("../config");
+const projectDeletion = require("../services/projectDeletion.service");
 
 module.exports = async function (fastify) {
 
@@ -76,11 +77,19 @@ module.exports = async function (fastify) {
     return service.updateProject(req.params.id, req.body);
   });
 
-  fastify.delete("/projects/:id", async (req) => {
+  fastify.get("/projects/:id/deletion", async (req, reply) => {
     await fastify.authenticate(req);
-    await service.getProject(req.params.id, req.user.id);
-    await fastify.requirePermission("project.delete", { projectId: req.params.id })(req);
-    return service.deleteProject(req.params.id);
+    reply.header("Cache-Control", "no-store");
+    return projectDeletion.getStatus(req.params.id, req.user);
+  });
+
+  fastify.delete("/projects/:id", async (req, reply) => {
+    await fastify.authenticate(req);
+    const accepted = await projectDeletion.enqueue(req.params.id, req.user, {
+      authorize: () => fastify.requirePermission("project.delete", { projectId: req.params.id })(req)
+    });
+    return reply.code(202).header("Location", `/projects/${encodeURIComponent(req.params.id)}/deletion`)
+      .header("Cache-Control", "no-store").send(accepted);
   });
 
 };

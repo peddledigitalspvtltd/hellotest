@@ -71,7 +71,7 @@ test('Bug catalog pages and metrics stay complete, scoped and stable in PostgreS
     }
     const referenced = await issues.getIssueItem(`${prefix}-JIRA-67`, { project_id: project, resolveReference: true });
     assert.equal(referenced.id, `${prefix}-067`, 'Deep links resolve independently of loaded pages');
-    await assert.rejects(issues.getIssueItem(`${prefix}-JIRA-67`, { project_id: other, resolveReference: true }), /Issue not found/);
+    await assert.rejects(issues.getIssueItem(`${prefix}-JIRA-67`, { project_id: other, resolveReference: true }), /Defect not found/);
   } finally {
     await db.prepare('DELETE FROM test_cases WHERE id LIKE ?').run(`${prefix}%`);
     await db.prepare('DELETE FROM feedback WHERE project_id IN (?,?)').run(project, other);

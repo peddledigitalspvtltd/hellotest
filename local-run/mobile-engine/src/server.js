@@ -638,7 +638,8 @@ app.post("/api/v1/mobile/execute", async (request) => {
 
 export async function executeAndroidStepsWithDriver(driver, payload = {}) {
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
-  const params = buildMobileParameterValues(payload.parameter_values);
+  let params = buildMobileParameterValues(payload.parameter_values);
+  const capturedValues = {};
   const repositoryResolver = buildRepositoryResolver(payload.object_repository || payload.objectRepository || []);
   const resolveSelector = (selector) => {
     const resolved = repositoryResolver(selector);
@@ -647,6 +648,7 @@ export async function executeAndroidStepsWithDriver(driver, payload = {}) {
   const results = [];
 
   for (const step of steps) {
+    params = buildMobileParameterValues({ ...payload.parameter_values, ...step.parameter_values, ...capturedValues });
     const source = String(step.automation_code || "").trim();
     if (!source) {
       results.push({
@@ -659,6 +661,7 @@ export async function executeAndroidStepsWithDriver(driver, payload = {}) {
 
     try {
       const captures = await executeCodedAndroidScript(driver, source, resolveSelector, params);
+      Object.assign(capturedValues, captures);
       results.push({ step_id: step.id, status: "passed", note: "Android step completed.", captures });
     } catch (error) {
       results.push({

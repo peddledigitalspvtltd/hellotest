@@ -1076,3 +1076,80 @@
     border-color: CanvasText;
   }
 }
+
+/* Inline Story review cards use the same output surface as Test Case drafts. */
+.story-studio-shell .story-studio-queue { min-height: 0; background: #faf9ff; }
+.story-studio-shell .story-studio-draft-tile { display: block; padding: 0; border-color: #c3c6d6; border-left: 3px solid #5e4db9; border-radius: 999px; background: #faf9ff; }
+.story-studio-shell .story-studio-draft-tile.is-expanded { border-radius: 24px; background: linear-gradient(135deg, rgb(204 218 255 / .4), rgb(241 243 255 / .1)); }
+.story-studio-shell .story-studio-draft-tile > header { grid-template-columns: 20px auto minmax(0, 1fr) auto 31px; }
+.story-studio-shell .story-studio-draft-tile__activation { padding: 0; background: transparent; border: 0; text-align: left; }
+.story-studio-shell .story-studio-draft-tile > header > button > svg.is-expanded { transform: rotate(180deg); }
+.story-studio-shell .story-studio-inspector { width: 100%; padding: 0; gap: 16px; color: #051a3e; }
+.story-studio-shell .story-studio-inspector__badges { display: none; }
+.story-studio-shell .story-studio-inspector__title-input { width: 100%; padding: 8px 10px; color: #051a3e; background: #fff; border: 1px solid #c3c6d6; border-radius: 6px; font-size: 16px; font-weight: 600; line-height: 22px; }
+.story-studio-shell .story-studio-inspector__title h1 { margin: 0; font-size: 18px; line-height: 26px; }
+.story-studio-shell .story-studio-card { border: 1px solid #c3c6d6; border-radius: 12px; background: rgb(250 249 255 / .78); box-shadow: none; }
+.story-studio-shell .story-studio-card__toolbar { background: transparent; }
+.story-studio-shell .story-studio-description-card__body { padding: 16px; }
+.story-studio-shell .story-studio-criteria { margin-top: 14px; }
+.story-studio-shell .story-studio-criteria ul { display: grid; padding: 0; list-style: none; counter-reset: criterion; }
+.story-studio-shell .story-studio-criteria li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; padding: 12px 0; border-bottom: 1px solid #c3c6d6; counter-increment: criterion; }
+.story-studio-shell .story-studio-criteria li::before { content: counter(criterion); color: #737685; font: 12px/20px ui-monospace, monospace; }
+.story-studio-shell .story-studio-criteria-add, .story-studio-shell .story-studio-criterion-remove, .story-studio-shell .story-studio-scenario__actions { opacity: 1; }
+.story-studio-shell .story-studio-scenario__steps { color: #e6edf3; background: #171a20; border: 1px solid #30363d; border-radius: 8px; }
+.story-studio-shell .story-studio-scenario__steps strong { color: #b7a3ff; }
+.story-studio-shell .story-studio-properties-card dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.story-studio-shell .story-studio-inspector-empty { min-height: 300px; padding: 28px; }
+.story-studio-shell .story-studio-inspector-empty > .story-studio-primary-action {
+  align-items: center;
+  background: #003d9b;
+  border: 1px solid #003d9b;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 8px;
+  min-height: 40px;
+  padding: 10px 18px;
+  width: auto;
+}
+.story-studio-selected-context {
+  display: grid;
+  gap: 5px;
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+.story-studio-selected-context small { color: #64748b; font-size: 11px; }
+.story-studio-selected-context strong { color: #153b70; font-size: 13px; line-height: 1.5; }
+.story-studio-shell .story-studio-field-review__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 720px) {
+  .story-studio-shell .story-studio-queue { height: auto; }
+  .story-studio-shell .story-studio-queue > .ai-test-generator-drafts { overflow: visible; }
+  .story-studio-shell .story-studio-draft-tile > header { grid-template-columns: 16px auto minmax(0, 1fr) 28px; gap: 7px; padding: 10px; }
+  .story-studio-shell .story-studio-draft-tile .ai-test-generator-ai-badge { display: none; }
+  .story-studio-shell .story-studio-draft-tile.is-expanded { border-radius: 16px; }
+  .story-studio-shell .story-studio-draft-tile > .ai-test-generator-draft__body { padding: 14px; }
+  .story-studio-shell .ai-test-generator-selection-bar { flex-wrap: wrap; gap: 10px; padding-block: 10px; }
+  .story-studio-shell .ai-test-generator-selection-bar > span { margin-left: 0; }
+  .story-studio-shell .story-studio-field-review__grid, .story-studio-shell .story-studio-properties-card dl { grid-template-columns: minmax(0, 1fr); }
+}
+/* Keep insertion controls in flow: removing them on textarea blur shifts the
+   next review checkbox between pointer-down and pointer-up on small screens. */
+.story-studio-shell .story-studio-inline-action.story-studio-criteria-add { display: inline-flex; }
+.story-studio-shell .story-studio-inspector__title-input { min-height: 36px !important; height: auto !important; resize: vertical; }
+.story-studio-shell .story-studio-criteria li textarea { min-height: 30px !important; height: auto !important; padding: 4px 6px; }
+.story-studio-intelligence-evidence { padding: 16px; border-top: 1px solid var(--border); min-width: 0; }
+.story-studio-intelligence-evidence > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.story-studio-intelligence-evidence h3 { margin: 0; font-size: 13px; }
+.story-studio-intelligence-evidence > header > span { font-size: 11px; color: var(--muted); }
+.story-studio-intelligence-evidence p { font-size: 12px; overflow-wrap: anywhere; }
+.story-studio-intelligence-evidence__story { font-weight: 600; }
+.story-studio-intelligence-evidence__sources { display: grid; gap: 8px; padding: 0; margin: 12px 0; list-style: none; }
+.story-studio-intelligence-evidence__sources li { display: grid; gap: 3px; overflow-wrap: anywhere; font-size: 12px; }
+.story-studio-intelligence-evidence__sources span { color: var(--muted); font-size: 10px; text-transform: capitalize; }
+.story-studio-intelligence-evidence summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 8px 0; }
+.story-studio-intelligence-evidence__notice { border-left: 3px solid var(--warning, #b7791f); padding-left: 8px; }
+.story-studio-intelligence-evidence .story-studio-evidence-section { margin-top: 12px; }

@@ -35,7 +35,7 @@ test("nearest suite data wins, parent parameters remain inherited, cycles termin
     { id: "leaf", parent_id: "child", app_type_id: "app", data_set: { id: "child-data" } }
   ];
   const contexts = resolveSuiteContexts(rows, ["child", "leaf"]);
-  assert.deepEqual(contexts.get("child"), { parameters: { "s.tenant": "child", "t.name": "parent" }, dataSet: { id: "parent-data" } });
+  assert.deepEqual(contexts.get("child"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "child", "t.name": "parent" }, dataSet: { id: "parent-data" } });
   assert.equal(contexts.get("leaf").dataSet.id, "child-data");
   assert.doesNotThrow(() => resolveSuiteContexts(rows.map(row => row.id === "parent" ? { ...row, parent_id: "leaf" } : row), ["leaf"]));
 });

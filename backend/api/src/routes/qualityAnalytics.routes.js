@@ -4,6 +4,7 @@ const overview = require("../services/qualityOverview.service");
 const dashboards = require("../services/qualityDashboard.service");
 const reports = require("../services/qualityDashboardReport.service");
 const { config } = require("../config");
+const dashboardPermissions = require("../services/qualityDashboardPermissions");
 
 const requireProject = async (req, projectId) => {
   if (!projectId) {
@@ -15,6 +16,19 @@ const requireProject = async (req, projectId) => {
 };
 
 module.exports = async function (fastify) {
+  const authorizeGadget = (req, projectId) => {
+    const checks = new Map();
+    return async gadget => {
+      for (const permission of dashboardPermissions(gadget)) {
+        if (!checks.has(permission)) checks.set(permission, Promise.resolve().then(() => fastify.requirePermission(permission, { projectId })(req)));
+        await checks.get(permission);
+      }
+    };
+  };
+  const authorizeDashboard = async (req, dashboard) => {
+    const authorize = authorizeGadget(req, dashboard.project_id);
+    for (const gadget of dashboard.gadgets || []) await authorize(gadget);
+  };
   fastify.get("/analytics/overview", async (req, reply) => {
     await fastify.authenticate(req);
     const projectId = req.query.project_id;
@@ -75,6 +89,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const dashboard = await dashboards.get(req.params.id);
     await requireProject(req, dashboard.project_id);
+    await authorizeDashboard(req, dashboard);
     const { pdf } = await reports.renderPdf(dashboard, req.body || {});
     const fileName = `${String(dashboard.name || "HelloTest-quality-report").replace(/[^A-Za-z0-9._-]+/g, "-") || "HelloTest-quality-report"}.pdf`;
     reply.header("Content-Type", "application/pdf").header("Content-Disposition", `attachment; filename="${fileName}"`);
@@ -92,6 +107,7 @@ module.exports = async function (fastify) {
     fastify.validate({ recipients: { required: true, type: "array", items: "string" } }, req.body || {});
     const dashboard = await dashboards.get(req.params.id);
     await requireProject(req, dashboard.project_id);
+    await authorizeDashboard(req, dashboard);
     return reports.share({ dashboard, recipients: req.body.recipients, requestedBy: req.user.id, snapshotPayload: req.body || {} });
   });
 
@@ -99,7 +115,9 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const projectId = req.body?.project_id || req.query?.project_id;
     await requireProject(req, projectId);
-    return analytics.evaluateGadget({ projectId, gadget: req.body?.gadget || req.body || {} });
+    const gadget = req.body?.gadget || req.body || {};
+    await authorizeGadget(req, projectId)(gadget);
+    return analytics.evaluateGadget({ projectId, gadget });
   };
   fastify.post("/analytics/jql", evaluateOne);
   fastify.post("/analytics/query", evaluateOne);
@@ -108,7 +126,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const projectId = req.body?.project_id;
     await requireProject(req, projectId);
-    return dashboards.evaluateBatch({ projectId, gadgets: req.body?.gadgets || [] });
+    return dashboards.evaluateBatch({ projectId, gadgets: req.body?.gadgets || [], authorizeGadget: authorizeGadget(req, projectId) });
   };
   fastify.post("/analytics/jql-batch", evaluateBatch);
   fastify.post("/analytics/query-batch", evaluateBatch);

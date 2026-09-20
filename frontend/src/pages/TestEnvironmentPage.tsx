@@ -2101,7 +2101,8 @@ export function DataSetForm({
   savedDataSets = [],
   submitLabel,
   isSubmitting,
-  readOnly = false
+  readOnly = false,
+  maxRows
 }: {
   draft: DataSetDraft;
   dataSetModeOptions: Array<{ value: string; label: string }>;
@@ -2112,6 +2113,8 @@ export function DataSetForm({
   submitLabel: string;
   isSubmitting: boolean;
   readOnly?: boolean;
+  /** Table rows only; key/value pairs together represent one iteration. */
+  maxRows?: number;
 }) {
   const [importFeedback, setImportFeedback] = useState("");
   const [importFeedbackTone, setImportFeedbackTone] = useState<"success" | "error">("success");
@@ -2130,7 +2133,15 @@ export function DataSetForm({
       const nextName = draft.name.trim() ? draft.name : file.name.replace(/\.[^.]+$/, "").trim();
 
       if (draft.mode === "key_value") {
-        const importedRows = toKeyValueRows(parsed.columns, parsed.rows);
+        const keyValueHeaders = parsed.columns.map((column) => column.toLowerCase().replace(/[^a-z0-9]/g, ""));
+        const isKeyValueFile = keyValueHeaders.some((column) => ["key", "name", "variable", "field"].includes(column))
+          && keyValueHeaders.some((column) => ["value", "data", "content"].includes(column));
+        if (maxRows === 1 && !isKeyValueFile && parsed.rows.length !== 1) {
+          throw new Error(`Shared Step Group parameter templates require exactly one data row. This file contains ${parsed.rows.length}.`);
+        }
+        const importedRows = maxRows === 1 && !isKeyValueFile
+          ? parsed.columns.map((key) => ({ key, value: parsed.rows[0][key] ?? "" }))
+          : toKeyValueRows(parsed.columns, parsed.rows);
         onChange({
           ...draft,
           name: nextName,
@@ -2144,6 +2155,10 @@ export function DataSetForm({
             : `Imported ${importedRows.length} key/value pair${importedRows.length === 1 ? "" : "s"} from ${file.name}.`
         );
         return;
+      }
+
+      if (maxRows !== undefined && (parsed.rows.length === 0 || parsed.rows.length > maxRows)) {
+        throw new Error(maxRows === 1 ? `Shared Step Group data sets require exactly one data row. This file contains ${parsed.rows.length}.` : `Import between 1 and ${maxRows} data rows.`);
       }
 
       onChange({
@@ -2165,7 +2180,16 @@ export function DataSetForm({
   };
 
   return (
-    <form className="resource-form test-data-form" onSubmit={readOnly ? (event) => event.preventDefault() : onSubmit}>
+    <form className="resource-form test-data-form" onSubmit={(event) => {
+      if (readOnly) { event.preventDefault(); return; }
+      if (draft.mode === "table" && maxRows !== undefined && (draft.rows.length === 0 || draft.rows.length > maxRows)) {
+        event.preventDefault();
+        setImportFeedbackTone("error");
+        setImportFeedback(maxRows === 1 ? "Shared Step Group data sets require exactly one data row." : `Add between 1 and ${maxRows} data rows.`);
+        return;
+      }
+      onSubmit(event);
+    }}>
       <ResourceFormFields readOnly={readOnly}>
       <div className="resource-form-body test-data-form-body">
         <div className="record-grid">
@@ -2177,6 +2201,28 @@ export function DataSetForm({
               value={draft.mode}
               onChange={(event) => {
                 const mode = event.target.value as TestDataSetMode;
+                if (maxRows === 1 && mode === "table" && draft.mode === "key_value") {
+                  const entries = draft.rows.filter((row) => String(row.key ?? "").trim());
+                  const columns = entries.map((row) => String(row.key).trim());
+                  if (new Set(columns.map((column) => column.toLowerCase())).size !== columns.length) {
+                    setImportFeedbackTone("error");
+                    setImportFeedback("Use unique parameter names before switching to a one-row table.");
+                    return;
+                  }
+                  if (entries.some((row) => String(row.is_secret) === "true")) {
+                    setImportFeedbackTone("error");
+                    setImportFeedback("Keep secret values in the key/value format to preserve their protection.");
+                    return;
+                  }
+                  onChange({ ...draft, mode, columns, rows: entries.length ? [Object.fromEntries(entries.map((row) => [String(row.key).trim(), String(row.value ?? "")]))] : [] });
+                  setImportFeedback("");
+                  return;
+                }
+                if (maxRows === 1 && mode === "key_value" && draft.mode === "table") {
+                  onChange({ ...draft, mode, columns: ["key", "value"], rows: draft.columns.map((key) => ({ key, value: String(draft.rows[0]?.[key] ?? "") })) });
+                  setImportFeedback("");
+                  return;
+                }
                 onChange(switchDataSetDraftMode(draft, mode));
               }}
             >
@@ -2203,6 +2249,7 @@ export function DataSetForm({
         </FormField>
 
         {importFeedback ? <p className={importFeedbackTone === "error" ? "form-error resource-import-feedback" : "form-success resource-import-feedback"}>{importFeedback}</p> : null}
+        {maxRows === 1 ? <p className="test-data-single-iteration-note">Shared Step Groups use one iteration: one table row or one set of key/value pairs.</p> : null}
 
         {!readOnly && generatedFieldCount ? (
           <section className="test-data-generator-panel">
@@ -2262,7 +2309,7 @@ export function DataSetForm({
             }
           />
         ) : (
-          <DataTableEditor draft={draft} onChange={onChange} utilityOptions={utilityOptions} />
+          <DataTableEditor draft={draft} onChange={onChange} utilityOptions={utilityOptions} maxRows={maxRows} />
         )}
       </div>
 
@@ -2719,11 +2766,13 @@ function KeyValueEditor({
 function DataTableEditor({
   draft,
   onChange,
-  utilityOptions
+  utilityOptions,
+  maxRows
 }: {
   draft: DataSetDraft;
   onChange: (draft: DataSetDraft) => void;
   utilityOptions: TestDataUtilityOption[];
+  maxRows?: number;
 }) {
   const columns = draft.columns;
   const rows = draft.rows;
@@ -2743,6 +2792,7 @@ function DataTableEditor({
     });
   };
   const handleAddRow = () => {
+    if (maxRows !== undefined && rows.length >= maxRows) return;
     if (!columns.length) {
       const nextColumnName = "Column 1";
       onChange({
@@ -2875,7 +2925,7 @@ function DataTableEditor({
             <AddIcon />
             <span>Add column</span>
           </button>
-          <button className="primary-button resource-table-add-button" onClick={handleAddRow} type="button">
+          <button className="primary-button resource-table-add-button" disabled={maxRows !== undefined && rows.length >= maxRows} title={maxRows === 1 ? "Shared Step Groups use exactly one data row." : undefined} onClick={handleAddRow} type="button">
             <AddIcon />
             <span>Add row</span>
           </button>

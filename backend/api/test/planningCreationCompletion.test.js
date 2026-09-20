@@ -9,6 +9,7 @@ const fixture = () => {
     stories: new Map([
       ['open-story', { id: 'open-story', project_id: 'project', title: 'Unfinished checkout', status: 'in_progress', iteration_id: 'sprint' }],
       ['done-story', { id: 'done-story', project_id: 'project', title: 'Completed checkout', status: 'qa_done', iteration_id: null }],
+      ['aliased-done-story', { id: 'aliased-done-story', project_id: 'project', title: 'Completed alias checkout', status: ' QA--Done ', iteration_id: null }],
       ['resolved-story', { id: 'resolved-story', project_id: 'project', title: 'Resolved checkout', status: 'Resolved', iteration_id: null }]
     ]), writes: [], depth: 0, sprints: new Map([['sprint', { id: 'sprint', project_id: 'project' }]]), releases: new Map()
   };
@@ -29,15 +30,24 @@ const fixture = () => {
         },
         all: async (...args) => {
           check(args);
-          if (sql.includes('LOWER(TRIM(COALESCE(status')) {
+          if (/SELECT id, project_id FROM requirements WHERE id IN/.test(sql)) {
+            assert.match(sql, /jsonb_array_elements_text\(\?::jsonb\)/);
+            return JSON.parse(args[0]).map(id => state.stories.get(id)).filter(Boolean);
+          }
+          if (/SELECT id, project_id FROM requirement_iterations WHERE id IN/.test(sql)) {
+            assert.match(sql, /jsonb_array_elements_text\(\?::jsonb\)/);
+            return JSON.parse(args[0]).map(id => state.sprints.get(id)).filter(Boolean);
+          }
+          if (/FROM requirements WHERE.*AND.*NOT IN/.test(sql)) {
             assert.ok(state.depth > 0, 'creation validates completion within its transaction');
-            return args.flatMap(id => state.stories.has(id) && !complete.includes(state.stories.get(id).status.toLowerCase().trim()) ? [{ ...state.stories.get(id) }] : []);
+            assert.match(sql, /LOWER\(REGEXP_REPLACE\(TRIM\(COALESCE\(status, ''\)\), '\[ _-\]\+', '_', 'g'\)\)/, 'Sprint completion normalizes whitespace and hyphen aliases like its metrics');
+            return args.flatMap(id => state.stories.has(id) && !complete.includes(state.stories.get(id).status.toLowerCase().trim().replace(/[ _-]+/g, '_')) ? [{ ...state.stories.get(id) }] : []);
           }
           if (/SELECT id, display_id, title, status FROM requirements/.test(sql)) {
             assert.ok(state.depth > 0, 'release creation validates completion within its transaction');
             return args.map(id => state.stories.get(id)).filter(Boolean);
           }
-          if (/SELECT id, iteration_id FROM requirements WHERE project_id/.test(sql)) return [...state.stories.values()].filter(story => story.project_id === args[0] && args.slice(1).includes(story.iteration_id));
+          if (/SELECT id, iteration_id FROM requirements WHERE project_id/.test(sql)) return [...state.stories.values()].filter(story => story.project_id === args[0] && JSON.parse(args[1]).includes(story.iteration_id));
           if (/SELECT DISTINCT iteration_id/.test(sql)) return [];
           if (/SELECT requirement_id FROM requirement_release_items/.test(sql)) return [];
           if (/SELECT id, display_id FROM requirements WHERE iteration_id/.test(sql)) return [...state.stories.values()].filter(story => story.iteration_id === args[0]);
@@ -87,7 +97,7 @@ for (const scope of [{ requirement_ids: ['open-story'] }, { sprint_ids: ['sprint
 
 test('closed Sprint and released Release creation accepts the existing completed-story vocabulary', async () => {
   const { sprint, release } = fixture();
-  const requirement_ids = ['done-story', 'resolved-story'];
+  const requirement_ids = ['done-story', 'resolved-story', 'aliased-done-story'];
   assert.equal((await sprint.createIteration({ ...sprintInput, state: 'closed', requirement_ids })).sprint.state, 'closed');
   assert.equal((await release.createRelease({ ...releaseInput, state: 'released', requirement_ids })).release.state, 'released');
 });

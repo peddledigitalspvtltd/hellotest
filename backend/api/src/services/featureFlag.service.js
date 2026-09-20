@@ -180,8 +180,8 @@ const FEATURE_GROUPS = [
       },
       {
         key: "hellotest.manual.bugs",
-        label: "Bugs",
-        description: "Create and triage Bugs, with populated and editable Release/Sprint context when delivery planning is available.",
+        label: "Defects",
+        description: "Create and triage Defects, with populated and editable Release/Sprint context when delivery planning is available.",
         routes: ["/issues", "/feedback"]
       },
       { key: "hellotest.manual.plans", label: "Test plans", routes: ["/test-plans"] },
@@ -248,7 +248,7 @@ const FEATURE_GROUPS = [
       { key: "hellotest.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
       { key: "hellotest.ai.test_data_generation", label: "Synthetic test data generation", routes: ["/test-data"] },
       { key: "hellotest.ai.content_rephrase", label: "Rich-text AI rephrase", routes: ["/projects", "/requirements", "/test-cases", "/design", "/issues", "/automation", "/shared-steps", "/test-environments", "/test-data"] },
-      { key: "hellotest.ai.bug_triage", label: "AI-assisted Bug drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.create", "feedback.manage"] },
+      { key: "hellotest.ai.bug_triage", label: "AI-assisted Defect drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.create", "feedback.manage"] },
       { key: "hellotest.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
       { key: "hellotest.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
       { key: "hellotest.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },

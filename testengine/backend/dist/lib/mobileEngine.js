@@ -28,7 +28,7 @@ export async function executeAndroidSteps(envelope, steps, capturedValues = {}) 
             config: envelope.mobile_engine || {},
             object_repository: envelope.object_repository || [],
             parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
-            steps
+            steps: steps.map(step => ({ ...step, parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues, step)) }))
         })
     });
     const payload = await response.json().catch(() => null);

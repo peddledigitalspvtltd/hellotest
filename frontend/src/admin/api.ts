@@ -60,6 +60,31 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   return body as T;
 }
 
+// Setup work runs in a durable server job; only its short control requests need a
+// client deadline. A lost response must be reconciled through status, not replayed.
+async function setupRequest(path: string, options: RequestInit = {}): Promise<SampleSetupState> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  let timedOut = false;
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
+  try {
+    const state = await request<SampleSetupState>(path, { ...options, signal: controller.signal });
+    if (controller.signal.aborted) throw new DOMException('The setup request was aborted.', 'AbortError');
+    if (typeof state?.running !== 'boolean' || (state.job !== null && (!state.job?.id || !Array.isArray(state.job.files)))) {
+      throw new Error('The setup status response was incomplete. Reconnecting to saved progress.');
+    }
+    return state;
+  } catch (reason) {
+    if (timedOut && !options.signal?.aborted) throw new Error('The setup connection timed out. Checking the saved setup status will resume progress.');
+    throw reason;
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
+  }
+}
+
 export const adminApi = {
   status: () => request<Record<string, unknown>>("/admin-portal/status"),
   login: (username: string, password: string) => request<AdminSession>("/admin-portal/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
@@ -73,7 +98,9 @@ export const adminApi = {
   performanceIndexing: (options?: { signal?: AbortSignal }) => request<PerformanceIndexingState>("/admin-portal/setup/performance-indexing", { signal: options?.signal, cache: "no-store" }),
   startPerformanceIndexing: () => request<PerformanceIndexingState>("/admin-portal/setup/performance-indexing", { method: "POST" }),
   sampleCatalog: (options?: { signal?: AbortSignal }) => request<SampleCatalog>("/admin-portal/setup/sample-data", { signal: options?.signal, cache: "no-store" }),
-  seedSamples: (modules: string[]) => request<SampleInstallResult>("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }) }),
+  seedSamples: (modules: string[], options?: { signal?: AbortSignal }) => setupRequest("/admin-portal/setup/sample-data", { method: "POST", body: JSON.stringify({ modules }), signal: options?.signal }),
+  sampleSetupStatus: (options?: { jobId?: string; signal?: AbortSignal }) => setupRequest(`/admin-portal/setup/sample-data/status${options?.jobId ? `?job_id=${encodeURIComponent(options.jobId)}` : ""}`, { signal: options?.signal, cache: "no-store" }),
+  retrySampleSetup: (jobId: string, options?: { signal?: AbortSignal }) => setupRequest(`/admin-portal/setup/sample-data/${encodeURIComponent(jobId)}/retry`, { method: "POST", signal: options?.signal }),
   dropdownCatalog: (options?: { signal?: AbortSignal }) => request<DropdownCatalog>("/admin-portal/dropdowns", { signal: options?.signal, cache: "no-store" }),
   updateDropdown: (key: string, input: DropdownUpdate) => request<DropdownCatalog>(`/admin-portal/dropdowns/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(input) }),
   flags: (options?: { signal?: AbortSignal }) => request<FlagSnapshot>("/feature-flags", { signal: options?.signal, cache: "no-store" }),
@@ -116,8 +143,20 @@ export type DropdownUpdate = { expected_revision: number; options: Array<{ value
 export type SampleModule = { key: string; label: string; group: string; description: string; tables: string[]; features: string[]; depends_on: string[]; routes: string[]; feature_keys: string[]; available: boolean; record_count: number; expected_record_count: number; status: 'installed' | 'partial' | 'not_installed' };
 export type SetupRole = { key: string; name: string; description: string; permission_codes: string[]; current_permission_codes: string[]; role_id: string | null; status: 'not_installed' | 'installed' | 'customized' };
 export type SetupRoleResult = { created: Array<{ id: string; name: string }>; retained: Array<{ id: string; name: string }> };
-export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[]; roles?: SetupRole[] };
-export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string; administrator_memberships: number; roles?: SetupRoleResult; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };
+export type SampleCatalog = { version: number; project_id: string | null; project_name: string; description: string; notes: string[]; modules: SampleModule[]; roles?: SetupRole[]; dataset?: { id: string; version: number; authored_at: string; manifest_hash: string; file_count: number; source: 'repository' }; blueprint?: { title: string; story_count: number; backlog_count: number; sprint_count: number; release_count: number }; workspace?: { description: string; applications: Array<{ id: string; name: string; type: string; is_unified: boolean }>; member_count: number; membership: string } };
+export type SampleInstallResult = { version: number; requested: string[]; installed: string[]; dependencies_added: string[]; project_id: string | null; administrator_memberships: number; roles?: SetupRoleResult; idempotent: boolean; inserted_records: number; existing_records: number; module_results: Array<{ key: string; inserted_records: number; existing_records: number; total_records: number }> };
+export type SampleSetupFile = {
+  key: string; path: string; module: string; status: 'pending' | 'running' | 'retrying' | 'completed' | 'failed';
+  attempts: number; inserted_records?: number; existing_records?: number; total_records?: number; error?: string | null;
+};
+export type SampleSetupJob = {
+  id: string; status: 'queued' | 'running' | 'completed' | 'failed'; phase: 'validating' | 'installing' | 'verifying';
+  requested_modules: string[]; installed_modules: string[]; dataset_version: number; manifest_hash: string;
+  files: SampleSetupFile[]; current_file: string | null; total_files: number; completed_files: number; attempts: number;
+  error: { code: string; message: string; file?: string; retryable: boolean } | null; result: SampleInstallResult | null;
+  created_at: string; started_at: string | null; finished_at: string | null; updated_at: string;
+};
+export type SampleSetupState = { running: boolean; job: SampleSetupJob | null };
 
 export type FlagSnapshot = {
   groups: Array<{

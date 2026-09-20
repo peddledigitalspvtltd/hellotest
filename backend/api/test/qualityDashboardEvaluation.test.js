@@ -42,7 +42,7 @@ function mockEvidence(t, { failRelease } = {}) {
         }
         if (query.includes('FROM execution_case_snapshots')) return args[1] === 'r2' ? [] : [{ test_case_id: 'case-1', suite_id: 'suite-1' }];
         if (query.includes('FROM requirements WHERE')) return data.requirements;
-        if (query.includes('FROM test_cases JOIN')) return data.testCases;
+        if (query.includes('FROM test_cases LEFT JOIN')) return data.testCases;
         if (query.includes('FROM test_suites JOIN')) return data.suites;
         if (query.includes('FROM executions LEFT')) return data.executions;
         if (query.includes('FROM feedback')) return data.issues;
@@ -244,4 +244,56 @@ test('confidence charts expose only the components used by their respective form
   ]);
   assert.equal(metrics.releaseConfidence, 33);
   assert.equal(metrics.evidenceConfidence, 40);
+});
+
+test('story joins count unique stories, require every linked case outcome and retain uncovered scope', () => {
+  const context = fixture({
+    requirements: [
+      {id:'s1',status:'Dev Done',test_case_ids:['c1','c1','c2']},
+      {id:'s2',status:'QA_Done',test_case_ids:['c2']},
+      {id:'s3',status:'QA Blocked',test_case_ids:['foreign-case']},
+      {id:'s4',status:'draft',test_case_ids:[]}
+    ],
+    testCases: [{id:'c1',requirement_ids:['s1']},{id:'c2',requirement_ids:['s1','s2']},{id:'orphan',requirement_ids:[]}],
+    results: [{test_case_id:'c1',status:'blocked'},{test_case_id:'c2',status:'passed'},{test_case_id:'foreign-case',status:'passed'}],
+    issues: [{id:'d1',status:'open',linked_test_case_ids:['c1','c1']},{id:'d2',status:'resolved',linked_requirement_ids:['s2']},{id:'foreign',status:'open',linked_requirement_ids:['foreign-story']}]
+  });
+  assert.equal(evaluate('devStoryCompletion','metric','status',context).value,75);
+  assert.equal(evaluate('qaStoryCompletion','metric','status',context).value,25);
+  assert.equal(evaluate('storyTestPassRate','metric','status',context).value,25);
+  assert.equal(evaluate('storyExecutionCoverage','metric','status',context).value,50);
+  assert.deepEqual(evaluate('storyTestPassRate','donut','status',context).series,[{label:'All Tests Passed',value:1},{label:'Not All Passed',value:3}]);
+  assert.equal(evaluate('linkedTestCases','metric','status',context).value,2);
+  assert.equal(evaluate('storiesWithOpenDefects','table','status',context).rows[0].id,'s1');
+  assert.equal(evaluate('linkedDefects','metric','status',context).value,2);
+  assert.equal(evaluate('defectTraceability','metric','status',context).value,67);
+  assert.equal(evaluate('unlinkedTestCases','metric','status',context).value,1);
+  assert.equal(evaluate('unexecutedCases','metric','status',context).value,1);
+  assert.equal(evaluate('blockedCases','table','status',context).rows[0].id,'c1');
+});
+
+test('release and story groupings use relational identities and explain repeated memberships', () => {
+  const context=fixture({requirements:[{id:'s1',title:'Shared',test_case_ids:['case-1'],native_releases:[{id:'rel1',name:'Release One'},{id:'rel2',name:'Release Two'}]}]});
+  assert.deepEqual(evaluate('stories','column','release',context).series,[{label:'Release One',value:1},{label:'Release Two',value:1}]);
+  const cases=evaluate('linkedTestCases','bar','story',context);
+  assert.deepEqual(cases.series,[{label:'s1: Shared',value:1}]);
+  assert.match(cases.methodology,/grouped counts can exceed the distinct total/);
+  for (const id of ['traceability','delivery','triage']) {
+    const preset=dashboards.designPreview({projectId:'p',stakeholder:id}).dashboard;
+    assert.equal(preset.gadgets.length,8);
+    for (const gadget of preset.gadgets) assert.doesNotThrow(()=>evaluate(gadget.metric,gadget.type,gadget.group_by,context));
+  }
+  assert.equal(dashboards.normalizeGadgets([{type:'area',metric:'count'},{type:'column',metric:'stories',group_by:'release'}])[1].group_by,'release');
+});
+
+test('widget permission failures are isolated before evidence lookup and contain no hidden totals', async (t) => {
+  let evaluations=0;
+  t.mock.method(analytics,'evaluateGadget',async ({gadget})=>{ evaluations++; return {project:{id:'p'},value:gadget.metric==='stories'?3:99}; });
+  const response=await dashboards.evaluateBatch({projectId:'p',gadgets:[{id:'denied',metric:'linkedDefects'},{id:'visible',metric:'stories'}],authorizeGadget:async gadget=>{
+    if(gadget.metric==='linkedDefects') throw Object.assign(new Error('You do not have access to this source.'),{statusCode:403,code:'FORBIDDEN'});
+  }});
+  assert.equal(evaluations,1);
+  assert.equal(response.results[0].error.status,403);
+  assert.equal(response.results[0].result,undefined);
+  assert.equal(response.results[1].result.value,3);
 });

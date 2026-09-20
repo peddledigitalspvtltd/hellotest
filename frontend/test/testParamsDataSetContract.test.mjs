@@ -113,7 +113,8 @@ test("Test Case authoring names case-level values Test Params and merges linked 
   assert.match(page, /parameterPreviewScopeKey/);
   assert.match(page, /Test Params · \$\{[^}]+\}/);
   assert.match(page, /title="Test Params"/);
-  assert.match(page, />Manage Test Params</);
+  const panel = await readSource("../src/components/AuthoringDataSetPanel.tsx");
+  assert.match(panel, />Manage Test Params</);
   assert.match(page, /label: "Test Params"/);
   assert.match(dialog, /Inherited from \$\{parameter\.sourceLabel\}/);
   assert.match(dialog, /Resolved preview/);

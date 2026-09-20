@@ -117,6 +117,12 @@ repeat setup, sample dependencies, failed-request retries, and 320–1440px layo
 Start `npm run dev:admin -- --port 5180`, or set `ADMIN_TEST_URL` for another port.
 Screenshots are saved in `/tmp/qaira-admin-samples`; APIs are isolated fixtures.
 
+The AI authoring regressions (`aiLlmDropdown.test.mjs` and
+`storyAiWorkbench.test.mjs`) exercise the shared context toolbar, LLM selection,
+and Story draft review with isolated API responses. They verify configured and
+explicit provider choices without calling an LLM, plus the Story creation and
+completion workbenches at desktop and mobile widths.
+
 The assistant test uses isolated API fixtures to verify reported progress,
 automatic model retries through the real SSE consumer with one final answer,
 same-turn pending recovery, Stop during retry/resume, draft preservation, model failure with

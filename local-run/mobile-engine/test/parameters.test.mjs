@@ -63,3 +63,16 @@ test("Android captures retain destinations and feed subsequent steps without byp
   assert.deepEqual(result.results[0].captures, { "r.session token": "new" });
   assert.deepEqual(result.results.map(({ step_id, status }) => [step_id, status]), [["capture", "passed"], ["use", "passed"], ["fail", "failed"]]);
 });
+
+test('each shared group uses its frozen defaults without leaking into the following group or local step', async () => {
+  const values = [];
+  const result = await executeAndroidStepsWithDriver({ $: () => ({ setValue: async value => values.push(value) }) }, {
+    parameter_values: { login: 'case' },
+    steps: ['first-group', 'second-group', null].map((login, index) => ({
+      id: `step-${index}`, parameter_values: login ? { login } : undefined,
+      automation_code: 'await android.type("id=login", "@login");'
+    }))
+  });
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(values, ['first-group', 'second-group', 'case']);
+});

@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { LoadingState } from "../components/LoadingState";
 import { SampleDataSetup as SetupPage } from './SampleDataSetup';
 import { DropdownValues } from "./DropdownValues";
@@ -102,7 +103,7 @@ function Login({ onAuthenticated }: { onAuthenticated: (session: AdminSession) =
 }
 
 function Metric({ label, value, detail, icon }: { label: string; value: string | number; detail: string; icon: ReactNode }) {
-  return <article className="metric-card"><div className="metric-icon">{icon}</div><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>;
+  return <article className="metric-card"><div className="metric-icon">{icon}</div><span>{metricTitle(label)}</span><strong>{value}</strong><small>{detail}</small></article>;
 }
 
 function OverviewPage({ data, onNavigate }: { data: Overview; onNavigate: (section: Section) => void }) {
@@ -256,7 +257,7 @@ function IntegrationsPage({ notify }: { notify: (message: string, tone?: "succes
   const remove = async (item: Integration) => { if (!confirm(`Delete ${item.name}?`)) return; try { await adminApi.deleteIntegration(item.id); notify("Integration removed."); await load(); } catch (reason) { notify(reason instanceof Error ? reason.message : "Could not delete integration", "error"); } };
   const filtered = items.filter((item) => `${item.name} ${item.type}`.toLowerCase().includes(search.toLowerCase()));
   return <><div className="toolbar"><div className="search"><Search size={17} /><input placeholder="Search integrations" value={search} onChange={(event) => setSearch(event.target.value)} /></div><button className="primary-button" onClick={() => setShowForm(true)}><PlugZap size={17} />Create integration</button></div><div className="integration-grid">{filtered.map((item) => <article className="surface integration-card" key={item.id}><div className="integration-top"><span className="integration-logo">{item.type.slice(0, 2).toUpperCase()}</span><span className={`status-label ${item.is_active ? "active" : "muted"}`}><i />{item.is_active ? "Active" : "Inactive"}</span></div><h3>{item.name}</h3><p>{types.find((type) => type.value === item.type)?.description || item.type}</p><div className="integration-meta"><span>{item.type.split("_").join(" ")}</span><span>{item.base_url || item.model || "Server managed"}</span></div><div className="card-actions"><button className="text-button danger" onClick={() => void remove(item)}>Delete</button></div></article>)}</div>
-    {!filtered.length ? <div className="empty-state"><PlugZap size={32} /><h3>No integrations found</h3><p>Create a backend connection for AI, issue tracking, identity, storage, or execution.</p></div> : null}
+    {!filtered.length ? <div className="empty-state"><PlugZap size={32} /><h3>No integrations found</h3><p>Create a backend connection for AI, defect tracking, identity, storage, or execution.</p></div> : null}
     {showForm ? <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowForm(false)}><form className="modal wide" onSubmit={create}><div className="modal-head"><div><p className="kicker">Server-side connection</p><h3>Create integration</h3></div><button type="button" onClick={() => setShowForm(false)}><X /></button></div><div className="form-grid"><label>Integration type<select name="type" required>{types.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label><label>Display name<input name="name" required minLength={2} placeholder="Production provider" /></label><label className="full">Base URL <span>optional</span><input name="base_url" type="url" placeholder="https://api.example.com" /></label><label>API key <span>encrypted boundary</span><input name="api_key" type="password" /></label><label>Model <span>for AI providers</span><input name="model" placeholder="e.g. gpt-5" /></label><label className="full">Advanced configuration <span>JSON</span><textarea name="config" defaultValue="{}" rows={5} /></label></div><div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowForm(false)}>Cancel</button><button className="primary-button">Create connection</button></div></form></div> : null}</>;
 }
 

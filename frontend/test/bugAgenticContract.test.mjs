@@ -4,7 +4,7 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("Bug creation and triage render feature-specific processing with evidence in flyouts", async () => {
+test("Defect creation and triage render feature-specific processing with evidence in flyouts", async () => {
   const [issues, insightDialog] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/components/AiInsightPreviewDialog.tsx")
@@ -14,8 +14,8 @@ test("Bug creation and triage render feature-specific processing with evidence i
   assert.match(issues, /profile="bug-triage"/);
   assert.match(issues, /aiDraftPreview\?\.processing/);
   assert.match(issues, /previewAiBugTriage\.data\?\.processing/);
-  assert.match(issues, /eyebrow="Bug creation · Input evidence"/);
-  assert.match(issues, /eyebrow="Bug creation · Decision evidence"/);
+  assert.match(issues, /eyebrow="Defect creation · Input evidence"/);
+  assert.match(issues, /eyebrow="Defect creation · Decision evidence"/);
   assert.match(issues, /recommendation\.evidence_refs/);
   assert.match(issues, /boundaryOmissions=\{asArray\(previewAiBugTriage\.data\?\.boundaries\?\.omissions\)\}/);
   assert.doesNotMatch(issues, /<details className="ai-bug-/);
@@ -29,7 +29,7 @@ test("Bug creation and triage render feature-specific processing with evidence i
   assert.match(insightDialog, /data-selected=\{\(onAccept && selectedFindingIds\.includes/);
 });
 
-test("Bug draft requests honor the prompt registry and preserve the bounded evidence contract", async () => {
+test("Defect draft requests honor the prompt registry and preserve the bounded evidence contract", async () => {
   const [issues, api, types] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/lib/api.ts"),
@@ -51,7 +51,7 @@ test("Bug draft requests honor the prompt registry and preserve the bounded evid
   assert.match(types, /processing: AiProcessingSnapshot/);
 });
 
-test("human edits invalidate generated Bug field evidence before acceptance", async () => {
+test("human edits invalidate generated Defect field evidence before acceptance", async () => {
   const [issues, types] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/types.ts")
@@ -81,7 +81,7 @@ test("human edits invalidate generated Bug field evidence before acceptance", as
   assert.match(issues, /does not support the current values of human-edited fields/);
 });
 
-test("Bug authoring controls expose checkbox semantics, stable pane focus, contrast, and mobile safe area", async () => {
+test("Defect authoring controls expose checkbox semantics, stable pane focus, contrast, and mobile safe area", async () => {
   const [issues, issueStyles, modalStyles] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/pages/IssuesPage.css"),
@@ -98,7 +98,7 @@ test("Bug authoring controls expose checkbox semantics, stable pane focus, contr
   assert.match(modalStyles, /\.ai-authoring-dialog--bugs \.ai-bug-draft-footer \{\s*padding-bottom: max\(10px, env\(safe-area-inset-bottom\)\) !important;/);
 });
 
-test("Bug creation is project scoped and AI review can yield space to findings", async () => {
+test("Defect creation is project scoped and AI review can yield space to findings", async () => {
   const [issues, insightDialog, insightStyles] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/components/AiInsightPreviewDialog.tsx"),

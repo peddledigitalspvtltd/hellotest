@@ -1,8 +1,10 @@
+import type { TestDataOptions } from "../types";
 import type { Execution } from "../types";
 import type { api } from "./api";
 import { isRunFinished } from "./runCatalog";
 
 export type RunEditDraft = {
+  test_data_options: TestDataOptions;
   name: string; start_date: string; end_date: string;
   release: string; sprint: string; build: string;
   suite_ids: string[]; test_case_ids: string[]; assigned_to_ids: string[];
@@ -16,6 +18,7 @@ export function runEditDraft(run: Execution): RunEditDraft {
     ? run.case_snapshots.filter((item) => !item.suite_id || !suiteIds.includes(item.suite_id)).map((item) => item.test_case_id)
     : suiteIds.length ? [] : run.test_case_ids || [];
   return {
+    test_data_options: { override_lower_scopes: run.test_data_options?.override_lower_scopes !== false, override_shared_steps: run.test_data_options?.override_shared_steps !== false },
     name: run.name || "", start_date: run.start_date?.slice(0, 10) || "", end_date: run.end_date?.slice(0, 10) || "",
     release: run.release || "", sprint: run.sprint || "", build: run.build || "",
     suite_ids: [...suiteIds], test_case_ids: [...(run.direct_test_case_ids ?? legacyDirectIds)],

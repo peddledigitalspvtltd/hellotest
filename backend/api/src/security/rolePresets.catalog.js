@@ -44,7 +44,7 @@ const DEFAULT_ROLE_PRESETS = Object.freeze([
       "dashboard.manage", "run.report.share", "user.view"
     ])),
   preset("qa-member", "QA Member",
-    "Author and import manual test cases, maintain steps and suites, execute runs, record results and collaborate on Bugs. Automation code and runner control require a separate role.",
+    "Author and import manual test cases, maintain steps and suites, execute runs, record results and collaborate on Defects. Automation code and runner control require a separate role.",
     manualTesting),
   preset("automation-engineer", "Automation Engineer",
     "Build and maintain automation assets and object repositories, inspect code, run local or remote automation, and configure test execution resources and schedules.",
@@ -70,7 +70,7 @@ const DEFAULT_ROLE_PRESETS = Object.freeze([
       "quality_insight.view", "quality_gate.ai", "dashboard.manage"
     ])),
   preset("reporter", "Reporter",
-    "Report new Bugs with comments and attachments and read their linked project, Story, test case and execution context. Existing Bugs cannot be edited or deleted.",
+    "Report new Defects with comments and attachments and read their linked project, Story, test case and execution context. Existing Defects cannot be edited or deleted.",
     codes(navigation, evidence, collaboration, [
       "requirement.view", "requirement_iteration.view", "testcase.view", "suite.view",
       "run.view", "result.view", "feedback.view", "feedback.create", "environment.view",

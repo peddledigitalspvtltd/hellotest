@@ -1,0 +1,350 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "release_id": "sample-v2-release-launch",
+      "requirement_id": "sample-v2-req-auth",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v2-release-launch",
+      "requirement_id": "sample-v2-req-checkout",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v2-release-launch",
+      "requirement_id": "sample-v2-req-accessibility",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v2-release-launch",
+      "requirement_id": "sample-v2-req-inventory",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v2-release-launch",
+      "requirement_id": "sample-v2-req-mobile",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v2-release-next",
+      "requirement_id": "sample-v2-req-refunds",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-project-applications",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-membership-roles",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-navigation-scope",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-authentication",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-project-deletion",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-regional-settings",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-story-authoring",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-backlog-planning",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-release-scope",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-story-traceability",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-story-import-sync",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-foundation",
+      "requirement_id": "sample-v3-feature-story-ai-design",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-structured-cases",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-gherkin-authoring",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-shared-steps",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-suite-modules",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-case-review-versioning",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-case-import-export",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-environment-targets",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-configuration-profiles",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-datasets-parameters",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-ai-authoring-data",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-run-planning",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-frozen-evidence",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-dataset-outcomes",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-scheduled-runs",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-execution-analysis-reports",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-bug-lifecycle",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-bug-collaboration",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-bug-regression-ai",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-automation-coverage",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-builder-step-code",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-api-requests",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-object-repository",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-step-recorder",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-local-execution",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-remote-parallel",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-android-appium",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-quality",
+      "requirement_id": "sample-v3-feature-repository-specialists",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-knowledge-ingestion",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-knowledge-search",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-ask-hellotest",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-workflow-canvas",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-workflow-history",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-prompt-governance",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-quality-analytics",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-custom-dashboards",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-release-readiness",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-product-metrics",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-background-jobs",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-telemetry-traces",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-notifications",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-instance-setup",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-feature-dropdown-governance",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-integrations-api-keys",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-admin-audit-security",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-support-guidance",
+      "source": "manual"
+    },
+    {
+      "release_id": "sample-v4-metrics-release",
+      "requirement_id": "sample-v4-metrics-story-qa-done",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v4-metrics-release",
+      "requirement_id": "sample-v4-metrics-story-dev-done",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v4-metrics-release",
+      "requirement_id": "sample-v4-metrics-story-blocked",
+      "source": "sprint"
+    },
+    {
+      "release_id": "sample-v4-metrics-release",
+      "requirement_id": "sample-v4-metrics-story-not-applicable",
+      "source": "sprint"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+.test-case-import-modal-card {
+  width: min(64rem, 100%);
+}
+
+.test-case-import-modal-card .import-modal-body {
+  grid-template-columns: minmax(0, 1fr);
+  max-height: min(64vh, 44rem);
+}
+
+.test-case-import-modal-card .import-modal-body .record-grid,
+.test-case-import-modal-card .import-modal-body .metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.test-case-import-modal-card .import-modal-header > button {
+  flex-shrink: 0;
+}
+
+@media (max-width: 700px) {
+  .test-case-import-modal-card .import-modal-header {
+    flex-wrap: wrap;
+  }
+  .test-case-import-modal-card .import-modal-body .record-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

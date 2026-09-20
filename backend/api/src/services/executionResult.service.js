@@ -401,7 +401,7 @@ exports.linkStepDefects = async (id, { step_id, defect_ids = [], expected_revisi
 
     const execution = await db.prepare(`SELECT project_id FROM executions WHERE id = ?`).get(existing.execution_id);
     const ids = [...new Set((Array.isArray(defect_ids) ? defect_ids : []).map((value) => String(value || "").trim()).filter(Boolean))];
-    if (ids.length > 50) throw Object.assign(new Error("A result step can link at most 50 Bugs"), { statusCode: 413 });
+    if (ids.length > 50) throw Object.assign(new Error("A result step can link at most 50 Defects"), { statusCode: 413 });
     if (ids.length) {
       const placeholders = ids.map(() => "?").join(",");
       const defects = await db.prepare(`SELECT id FROM feedback WHERE project_id = ? AND id IN (${placeholders})`).all(execution.project_id, ...ids);

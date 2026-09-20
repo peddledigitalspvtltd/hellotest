@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-issue-checkout",
+      "display_id": "DEMO2-B1",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Checkout focus indicator is unclear",
+      "message": "Sample defect. The payment button loses its visible focus outline.",
+      "steps_to_reproduce": "Feature: Checkout supports keyboard navigation\n\n  Background: Preconditions\n    Given checkout is open without using a pointer\n\n  Scenario: Checkout supports keyboard navigation\n    When the customer tabs through each payment control\n    Then focus remains visible and reaches the confirmation button",
+      "expected_result": "The acceptance criteria are met without losing customer progress.",
+      "actual_result": "The payment button loses its visible focus outline.",
+      "severity": "medium",
+      "priority": "medium",
+      "environment": "Staging / Chrome",
+      "status": "open",
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Edge case not covered",
+      "regression": false,
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "linked_test_case_ids": [
+        "sample-v2-case-keyboard"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v2-suite-smoke"
+      ],
+      "linked_module_ids": [
+        "sample-v2-module-smoke"
+      ],
+      "linked_requirement_ids": [
+        "sample-v2-req-accessibility"
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-issue-retry",
+      "display_id": "DEMO2-B2",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Payment retry can create a duplicate order",
+      "message": "Sample defect. A provider timeout followed by retry creates two orders.",
+      "steps_to_reproduce": "Feature: Declined payments allow a safe retry\n\n  Background: Preconditions\n    Given the payment provider declines the first authorization\n\n  Scenario: Declined payments allow a safe retry\n    When the customer retries with an approved payment method\n    Then one charge and one order are created",
+      "expected_result": "The acceptance criteria are met without losing customer progress.",
+      "actual_result": "A provider timeout followed by retry creates two orders.",
+      "severity": "high",
+      "priority": "high",
+      "environment": "Staging / Chrome",
+      "status": "in_progress",
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Third party scenario",
+      "regression": false,
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "linked_test_case_ids": [
+        "sample-v2-case-declined-payment"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v2-suite-smoke"
+      ],
+      "linked_module_ids": [
+        "sample-v2-module-smoke"
+      ],
+      "linked_requirement_ids": [
+        "sample-v2-req-checkout"
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-issue-offline",
+      "display_id": "DEMO2-B3",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Offline basket message hides the recovery action",
+      "message": "Sample defect. The message covered the retry control on a small screen.",
+      "steps_to_reproduce": "Feature: Mobile checkout explains an offline connection\n\n  Background: Preconditions\n    Given the basket has an in-stock product\n\n  Scenario: Mobile checkout explains an offline connection\n    When the customer starts checkout without a network connection\n    Then an offline message is shown and the basket remains intact",
+      "expected_result": "The acceptance criteria are met without losing customer progress.",
+      "actual_result": "The message covered the retry control on a small screen.",
+      "severity": "medium",
+      "priority": "medium",
+      "environment": "Staging / Chrome",
+      "status": "resolved",
+      "root_cause": "Implementation defect",
+      "qa_root_cause": "Missed in execution",
+      "regression": true,
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "linked_test_case_ids": [
+        "sample-v2-case-mobile-offline"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v2-suite-mobile"
+      ],
+      "linked_module_ids": [
+        "sample-v2-module-mobile"
+      ],
+      "linked_requirement_ids": [
+        "sample-v2-req-mobile"
+      ],
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-defect-dev-done",
+      "display_id": "DEMO4-D2",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Payment retry ready for QA verification · sample: illustrative defect",
+      "message": "Synthetic investigation example linked to a Story, module, Test Case and run result; no external defect report was made.",
+      "status": "open",
+      "severity": "medium",
+      "priority": "medium",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "linked_requirement_ids": [
+        "sample-v4-metrics-story-dev-done"
+      ],
+      "linked_test_case_ids": [
+        "sample-v4-metrics-case-dev-done"
+      ],
+      "linked_module_ids": [
+        "sample-v4-metrics-module"
+      ],
+      "release": "Metric walkthrough · synthetic",
+      "sprint": "Metric verification · synthetic",
+      "created_at": "2026-09-19T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-defect-blocked",
+      "display_id": "DEMO4-D1",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Offline checkout blocked by a delivery defect · sample: illustrative defect",
+      "message": "Synthetic investigation example linked to a Story, module, Test Case and run result; no external defect report was made.",
+      "status": "open",
+      "severity": "critical",
+      "priority": "high",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "linked_requirement_ids": [
+        "sample-v4-metrics-story-blocked"
+      ],
+      "linked_test_case_ids": [
+        "sample-v4-metrics-case-blocked"
+      ],
+      "linked_module_ids": [
+        "sample-v4-metrics-module"
+      ],
+      "release": "Metric walkthrough · synthetic",
+      "sprint": "Metric verification · synthetic",
+      "created_at": "2026-09-19T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    }
+  ]
+}

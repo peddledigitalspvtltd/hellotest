@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v5-data-module",
+      "requirement_id": "sample-v5-data-story",
+      "sort_order": 1
+    }
+  ]
+}

@@ -188,7 +188,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 };
 
-const requestChatCompletion = async ({ integration, prompt, images = [] }) => {
+const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState }) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_AUTHORING_TIMEOUT_MS);
   const headers = {
@@ -235,7 +235,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [] }) => {
           }
         ]
       })
-    }, { timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation: "case-authoring.generate" });
+    }, { timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation: "case-authoring.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error("AI authoring timed out while waiting for the LLM provider");
@@ -546,7 +546,15 @@ exports.previewCaseAuthoring = async ({
     externalLinks,
     images: safeImages
   });
-  const content = await requestChatCompletion({ integration, prompt, images: safeImages });
+  const contextState = { reduced: false };
+  const fallbackContent = buildPrompt({
+    requirement: { title: String(requirement.title || "").slice(0, 500) },
+    appType: { name: "Selected application", type: appType.type },
+    currentCase: { title: String(currentCase.title || "").slice(0, 500), steps: [], parameter_values: {} },
+    authoringMode, additionalContext: "Only titles are available after a provider size limit. This is a proposal for human review; do not claim omitted acceptance criteria are verified.",
+    externalLinks: [], images: []
+  });
+  const content = await requestChatCompletion({ integration, prompt, images: safeImages, fallbackContent, contextState });
   const preview = normalizePreview(extractJsonPayload(content), currentCase, fallbackStepType, authoringMode);
 
   return {
@@ -564,6 +572,8 @@ exports.previewCaseAuthoring = async ({
       id: appType.id,
       name: appType.name
     },
+    context_reduced: contextState.reduced,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. This proposal used Story and Test Case titles only; review all generated steps against the original requirements." : null,
     case: preview
   };
 };

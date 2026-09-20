@@ -213,13 +213,18 @@ const assertLinkedScopeCompatibility = async (id, projectId, appTypeId) => {
       FROM test_suites AS suite
       LEFT JOIN app_types AS suite_app ON suite_app.id = suite.app_type_id
       WHERE suite.test_data_set_id = ?
+      UNION ALL
+      SELECT group_app.project_id, shared_group.app_type_id
+      FROM shared_step_groups AS shared_group
+      JOIN app_types AS group_app ON group_app.id = shared_group.app_type_id
+      WHERE shared_group.test_data_set_id = ?
     ) AS linked_context
     WHERE linked_context.project_id IS DISTINCT FROM ?
       OR (?::text IS NOT NULL AND linked_context.app_type_id IS DISTINCT FROM ?)
     LIMIT 1
-  `).get(id, id, projectId, appTypeId, appTypeId);
+  `).get(id, id, id, projectId, appTypeId, appTypeId);
   if (incompatible) {
-    throw Object.assign(new Error("This Test Data Set is linked to Test Cases or Suites outside the proposed scope. Remove or update those links before moving it."), {
+    throw Object.assign(new Error("This Test Data Set is linked to Test Cases, Suites, or Shared Step Groups outside the proposed scope. Remove or update those links before moving it."), {
       statusCode: 409, code: "DATA_SET_SCOPE_CONFLICT"
     });
   }
@@ -247,6 +252,23 @@ exports.updateTestDataSet = async (id, data) => db.transaction(async () => {
     nextColumns,
     existing.rows
   );
+
+  const availableRows = nextRows.length ? (nextMode === "key_value" ? 1 : nextRows.length) : 0;
+  const linkedGroup = await db.prepare("SELECT id FROM shared_step_groups WHERE test_data_set_id = ? LIMIT 1").get(id);
+  const oldIterations = existing.rows.length ? (existing.mode === "key_value" ? 1 : existing.rows.length) : 0;
+  if (linkedGroup && availableRows !== 1 && oldIterations <= 1) {
+    throw Object.assign(new Error("This data set is linked to a Shared Step Group and must contain exactly one row."), { statusCode: 409, code: "SHARED_GROUP_SINGLE_ROW_REQUIRED" });
+  }
+  const invalidGroup = await db.prepare(`
+    SELECT id FROM shared_step_groups
+    WHERE test_data_set_id = ? AND test_data_row_index >= ?
+    LIMIT 1
+  `).get(id, availableRows);
+  if (invalidGroup) {
+    throw Object.assign(new Error("This change removes a row selected by a Shared Step Group. Change or unlink the group's selected row first."), {
+      statusCode: 409, code: "SHARED_GROUP_DATA_ROW_CONFLICT"
+    });
+  }
 
   await db.prepare(`
     UPDATE test_data_sets

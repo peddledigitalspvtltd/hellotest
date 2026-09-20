@@ -24,7 +24,7 @@ test("portfolio metric formula values are bounded and readiness weights remain a
   assert.equal(values["metric.project.needs_attention"].priority_project_limit, 8);
 });
 
-test("project pass confidence combines finalized test outcomes with resolved Bug outcomes", () => {
+test("project pass confidence combines finalized test outcomes with resolved Defect outcomes", () => {
   assert.deepEqual(analytics.calculatePassConfidence({
     passedCases: 7,
     finalizedCases: 10,
@@ -81,7 +81,7 @@ test("project workspace exposes editable project details, the requested tabs, an
   assert.match(page, /section === "attachments"/);
   assert.match(page, /section === "applications"/);
   assert.match(page, /isProjectDetailsDirty[\s\S]*You have unsaved changes\.[\s\S]*Cancel[\s\S]*Save changes/);
-  assert.match(page, /selectedProjectBugCount[\s\S]*Total Bugs/);
+  assert.match(page, /selectedProjectBugCount[\s\S]*Total Defects/);
   assert.match(page, /primeProjectAttentionScroll[\s\S]*maximumScrollTop[\s\S]*captureProjectAttentionSnapshot/);
   assert.match(page, /fragmentSelectors[\s\S]*for \(const fragment of fragments\)[\s\S]*canvasHeight[\s\S]*canvasWidth/);
   assert.match(page, /rendered_snapshot_pages_data_urls: renderedPages/);

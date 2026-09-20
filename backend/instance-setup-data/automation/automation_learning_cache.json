@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-object-email",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "page_url": "https://staging.example.test/login",
+      "page_key": "sign-in",
+      "locator_intent": "Email address",
+      "locator": "input[name=\"email\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Sign in",
+        "object_name": "Email address",
+        "object_role": "textbox",
+        "description": "Illustrative selector; validate against your application before execution.",
+        "fallback_locators": [],
+        "usage_keywords": [
+          "sign in",
+          "email address"
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-object-submit",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "page_url": "https://staging.example.test/login",
+      "page_key": "sign-in",
+      "locator_intent": "Sign in",
+      "locator": "button[type=\"submit\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Sign in",
+        "object_name": "Sign in",
+        "object_role": "button",
+        "description": "Illustrative selector; validate against your application before execution.",
+        "fallback_locators": [],
+        "usage_keywords": [
+          "sign in",
+          "sign in"
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-object-pay",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "page_url": "https://staging.example.test/checkout",
+      "page_key": "checkout",
+      "locator_intent": "Pay now",
+      "locator": "[data-testid=\"pay-now\"]",
+      "locator_kind": "css",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Checkout",
+        "object_name": "Pay now",
+        "object_role": "button",
+        "description": "Illustrative selector; validate against your application before execution.",
+        "fallback_locators": [],
+        "usage_keywords": [
+          "checkout",
+          "pay now"
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-object-cart",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "page_url": "app://basket",
+      "page_key": "basket",
+      "locator_intent": "Basket items",
+      "locator": "~basket-items",
+      "locator_kind": "accessibility_id",
+      "confidence": 0,
+      "source": "sample",
+      "metadata": {
+        "sample": true,
+        "record_type": "field",
+        "screen_name": "Basket",
+        "object_name": "Basket items",
+        "object_role": "list",
+        "description": "Illustrative selector; validate against your application before execution.",
+        "fallback_locators": [],
+        "usage_keywords": [
+          "basket",
+          "basket items"
+        ]
+      }
+    }
+  ]
+}

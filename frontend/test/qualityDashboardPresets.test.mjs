@@ -6,12 +6,12 @@ import test from 'node:test';
 const source = readFileSync(new URL('../src/lib/qualityDashboardPresets.ts', import.meta.url), 'utf8');
 const module = { exports: {} };
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { module, exports: module.exports });
-const { QUALITY_DASHBOARD_PRESETS, QUALITY_WIDGET_LIBRARY, createDashboardPreset, dashboardQueryGadgets, moveDashboardWidget } = module.exports;
+const { QUALITY_DASHBOARD_PRESETS, QUALITY_WIDGET_LIBRARY, QUALITY_QUERY_LIBRARY, compactDashboardSeries, createDashboardPreset, dashboardQueryGadgets, moveDashboardWidget } = module.exports;
 const plain = value => JSON.parse(JSON.stringify(value));
 
 test('all audience presets immediately produce bounded native widgets isolated to their project', () => {
-  assert.equal(QUALITY_DASHBOARD_PRESETS.length, 3);
-  assert.ok(QUALITY_WIDGET_LIBRARY.length >= 20);
+  assert.equal(QUALITY_DASHBOARD_PRESETS.length, 6);
+  assert.ok(QUALITY_WIDGET_LIBRARY.length >= 40);
   for (const preset of QUALITY_DASHBOARD_PRESETS) {
     const first = createDashboardPreset('project-a', preset.id);
     const second = createDashboardPreset('project-b', preset.id);
@@ -24,6 +24,28 @@ test('all audience presets immediately produce bounded native widgets isolated t
     first.gadgets[0].title = 'Changed';
     assert.notEqual(second.gadgets[0].title, 'Changed');
   }
+});
+
+test('relational templates and query choices cover real saved relationships with supported chart styles', () => {
+  for (const [id, metrics] of [['traceability', ['storyTestPassRate', 'linkedTestCases', 'storiesWithOpenDefects']], ['delivery', ['devStoryCompletion', 'qaStoryCompletion', 'stories']], ['triage', ['defectTraceability', 'failedCases', 'count']]]) {
+    const preset = createDashboardPreset('p', id);
+    for (const metric of metrics) assert.ok(preset.gadgets.some(gadget => gadget.metric === metric));
+  }
+  assert.equal(new Set(QUALITY_QUERY_LIBRARY.map(query => query.metric)).size, QUALITY_QUERY_LIBRARY.length);
+  for (const widget of QUALITY_WIDGET_LIBRARY) assert.ok(QUALITY_QUERY_LIBRARY.some(query => query.metric === widget.gadget.metric));
+  assert.match(QUALITY_QUERY_LIBRARY.find(query => query.metric === 'storyTestPassRate').relationship, /Stories.*Tests.*Results/);
+  assert.ok(QUALITY_WIDGET_LIBRARY.some(widget => widget.gadget.type === 'area'));
+  assert.ok(QUALITY_WIDGET_LIBRARY.some(widget => widget.gadget.type === 'column'));
+});
+
+test('bounded chart legends retain the complete denominator through an Other Groups segment', () => {
+  const series = Array.from({length: 30}, (_, index) => ({label: `Owner ${index}`, value: index + 1}));
+  const result = compactDashboardSeries(series, 8);
+  assert.equal(result.length, 8);
+  assert.equal(result.reduce((sum, item) => sum + item.value, 0), series.reduce((sum, item) => sum + item.value, 0));
+  assert.equal(result.at(-1).label, 'Other Groups (23)');
+  assert.equal(series.length, 30);
+  assert.equal(compactDashboardSeries(series, 30), series);
 });
 
 test('widget movement supports distant positions without mutation or lost widgets', () => {

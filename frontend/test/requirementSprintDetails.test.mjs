@@ -58,3 +58,10 @@ test("Story detail Sprint changes use the correct backend assignment field", () 
     input: { sprint: "", iteration_id: "" }
   });
 });
+
+test("persisted project Sprints keep canonical membership even when legacy Jira metadata is present", () => {
+  const persisted = { ...jiraSprint, source: "hellotest" };
+  assert.deepEqual(getStoryDetailSprintOptions([persisted], "").map(option => option.value), [persisted.id]);
+  assert.equal(requirementSprintSelectionValue({ iteration_id: persisted.id, sprint_id: "42" }, [persisted]), persisted.id);
+  assert.deepEqual(resolveRequirementSprintAssignment(persisted.id, [persisted]).input, { sprint: "", iteration_id: persisted.id });
+});

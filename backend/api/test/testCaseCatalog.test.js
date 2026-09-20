@@ -155,11 +155,12 @@ test('review filters combine manual and AI pending states with assigned ownershi
 
 test('pending-review button counts all scoped cases without catalog filters or detail reads', async () => {
   const calls = [];
-  const svc = loadService({ prepare: sql => ({ get: async (...params) => { calls.push({ sql, params }); return { pending: 70 }; } }) });
+  const svc = loadService({ prepare: sql => ({ get: async (...params) => { calls.push({ sql, params }); return { pending: 70, overall_pending: 93 }; } }) });
   const result = await svc.getReviewSummary({ project_id: 'project', app_type_id: 'app', review_user_id: 'reviewer', search: 'invisible', module_id: 'one', page_size: 1 });
   assert.equal(result.pending, 70);
+  assert.equal(result.overall_pending, 93);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].sql, /COUNT\(\*\)::int AS pending/);
+  assert.match(calls[0].sql, /COUNT\(\*\)::int AS overall_pending/);
   assert.doesNotMatch(calls[0].sql, /LIMIT|OFFSET|execution_results|test_steps|test_case_module_cases|description|ILIKE/);
   assert.ok(!calls[0].params.includes('invisible'));
 });

@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-config-chrome",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Chrome desktop",
+      "description": "Sample configuration profile.",
+      "browser": "Chrome",
+      "mobile_os": null,
+      "platform_version": null,
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "15000"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-config-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "API contract profile",
+      "description": "Sample configuration profile.",
+      "browser": null,
+      "mobile_os": null,
+      "platform_version": null,
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "15000"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-config-mobile",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Android handset",
+      "description": "Sample configuration profile.",
+      "browser": null,
+      "mobile_os": "android",
+      "platform_version": "14",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "15000"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-config-firefox",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Firefox desktop",
+      "description": "Cross-browser coverage profile.",
+      "browser": "Firefox",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "es-ES"
+        }
+      ]
+    }
+  ]
+}

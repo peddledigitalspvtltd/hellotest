@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "suite_id": "sample-v2-suite-mobile",
+      "test_case_id": "sample-v2-case-offline-regression",
+      "sort_order": 20
+    }
+  ]
+}

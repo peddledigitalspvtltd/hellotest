@@ -36,6 +36,7 @@ export type EngineApiRequest = {
 };
 
 export type EngineRunStep = {
+  shared_parameter_values?: Record<string, string>;
   id: string;
   order: number;
   step_type: EngineStepType;
@@ -285,6 +286,12 @@ export type EngineConfigurationTarget = {
   version?: string;
 };
 
+export type ParameterDataPolicy = {
+  version: number;
+  case?: ParameterOverrideOptions; suite?: ParameterOverrideOptions; run?: ParameterOverrideOptions;
+};
+export type ParameterOverrideOptions = { override_shared_steps?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean };
+
 export type EngineRunEnvelope = {
   engine_run_id: string;
   hellotest_run_id: string;
@@ -350,6 +357,7 @@ export type EngineRunEnvelope = {
   case_parameters: Record<string, string>;
   run_parameters?: Record<string, string>;
   parameters_frozen?: boolean;
+  data_policy?: ParameterDataPolicy;
   environment?: {
     name: string;
     base_url?: string | null;
@@ -366,6 +374,9 @@ export type EngineRunEnvelope = {
     variables: EngineKeyValueEntry[];
   } | null;
   data_set?: {
+    shared_rows?: Array<Record<string, unknown>>;
+    data_scope_policy?: ParameterDataPolicy;
+    parameter_data_layers?: Partial<Record<"case" | "suite" | "run", { rows: Array<Record<string,string>> } | null>>;
     id?: string | null;
     name: string;
     source?: "run" | "suite" | "test_case";

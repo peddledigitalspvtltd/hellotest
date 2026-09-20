@@ -24,6 +24,8 @@
 }
 
 .evidence-flip-card-action-button {
+  grid-column: 1 / -1;
+  grid-row: 3;
   min-height: 1.8rem;
   justify-self: start;
   padding: 0.25rem 0.62rem;
@@ -35,6 +37,10 @@
   font: inherit;
   font-size: 0.7rem;
   font-weight: 750;
+}
+
+.evidence-flip-card-back-button > svg {
+  flex: 0 0 auto;
 }
 
 .evidence-flip-card-action-button:focus-visible {

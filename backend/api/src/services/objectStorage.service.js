@@ -120,11 +120,29 @@ const getObject = async ({ bucket, objectName }) => getClient().getObject(bucket
 
 const removeObject = async ({ bucket, objectName }) => getClient().removeObject(bucket, objectName);
 
+// Cleanup jobs must release their worker if storage stalls. A per-operation
+// client carries the abort signal through every signed request (including
+// region discovery) without changing another request's shared client options.
+const removeObjectBounded = async ({ bucket, objectName, signal, timeoutMs = 10_000 }) => {
+  if (!isEnabled()) throw createError("Object storage is disabled.");
+  const endpoint = parseEndpoint();
+  const transport = require(endpoint.useSSL ? "node:https" : "node:http");
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const operationSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  const storage = new Minio.Client({
+    ...endpoint, accessKey: config.objectStorage.accessKey,
+    secretKey: config.objectStorage.secretKey, region: config.objectStorage.region, pathStyle: true,
+    transport: { request: (options, callback) => transport.request({ ...options, signal: operationSignal }, callback) }
+  });
+  return storage.removeObject(bucket, objectName);
+};
+
 module.exports = {
   ensureBucket,
   getObject,
   isEnabled,
   probeBucket,
   putObject,
-  removeObject
+  removeObject,
+  removeObjectBounded
 };

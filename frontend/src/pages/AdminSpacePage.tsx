@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -247,7 +248,7 @@ export function AdminSpacePage() {
               type="button"
             >
               <span className="admin-space-metric-icon" aria-hidden="true">{item.icon}</span>
-              <span>{item.label}</span>
+              <span>{metricTitle(item.label)}</span>
               <strong>{item.value}</strong>
               <small>{item.detail}</small>
             </button>

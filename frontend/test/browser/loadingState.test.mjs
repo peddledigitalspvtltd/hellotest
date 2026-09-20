@@ -8,6 +8,23 @@ const require = createRequire(new URL('../../../testengine/backend/package.json'
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../', import.meta.url);
 
+const screenshotDir = process.env.BROWSER_SCREENSHOT_DIR || '/tmp/qaira-loading-state';
+
+function colorChannels(color) {
+  const channels = color.match(/[\d.]+/g)?.map(Number);
+  assert.ok(channels?.length >= 3, `Expected a resolved RGB color, received ${color}`);
+  return channels;
+}
+
+function contrastRatio(first, second) {
+  const luminance = channels => channels.slice(0, 3).map(channel => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+  const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
+  return (values[0] + .05) / (values[1] + .05);
+}
+
 const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -54,7 +71,7 @@ function Fixture() {
 createRoot(document.getElementById('root')).render(<React.StrictMode><Fixture /></React.StrictMode>);
 `;
 
-test('compact shared loader stays centered, holds for two seconds, and handles overlapping requests', { timeout: 60000 }, async () => {
+test('12-bar shared loader stays centered, respects motion preferences, and preserves the overlapping-request lifecycle', { timeout: 90000 }, async () => {
   const name = 'loading-state-' + randomUUID();
   const html = new URL(name + '.html', root);
   const tsx = new URL(name + '.tsx', root);
@@ -71,7 +88,39 @@ test('compact shared loader stays centered, holds for two seconds, and handles o
     await page.goto(`${baseUrl}/${name}.html`);
     const loader = page.locator('.screen-loading-overlay');
     const ring = page.locator('.screen-loading-ring');
+    const segments = ring.locator('.loading-spinner-segment');
     await loader.waitFor();
+    const verifySegments = async ({ reducedMotion = false } = {}) => {
+      assert.equal(await ring.locator('.screen-loading-orbit').count(), 0, 'The former orbit artwork is removed');
+      assert.equal(await segments.count(), 12, 'The shared indicator has exactly twelve bars');
+      assert.equal(await ring.getAttribute('aria-hidden'), 'true', 'Decorative bars do not duplicate the live status announcement');
+      assert.equal(await page.locator('.screen-loading-label').textContent(), 'Loading.....', 'The global visible label matches the reference');
+      const styles = await segments.evaluateAll(nodes => nodes.map(node => {
+        const style = getComputedStyle(node);
+        return { tag:node.tagName, width:node.getAttribute('width'), height:node.getAttribute('height'), transform:node.getAttribute('transform') || style.transform, fill:style.fill, opacity:style.opacity };
+      }));
+      assert.ok(styles.every(style => style.tag.toLowerCase() === 'rect' && Number(style.height) > Number(style.width)), 'Each segment is a rectangular radial bar');
+      assert.equal(new Set(styles.map(style => style.transform)).size, 12, 'The twelve bars occupy distinct radial positions');
+      const angles = styles.map(style => Number(style.transform.match(/rotate\(([-\d.]+)/)?.[1]));
+      assert.ok(angles.every((angle, index) => index === 0 || angle - angles[index - 1] === 30), 'Bars are evenly spaced thirty degrees apart');
+      assert.equal(new Set(styles.map(style => style.opacity)).size, 12, 'The bars form a twelve-step grayscale trail');
+      assert.ok(styles.every(style => {
+        const [red, green, blue] = colorChannels(style.fill);
+        return red === green && green === blue;
+      }), 'All segments use grayscale paint');
+      const fan = await ring.locator('.loading-spinner-fan').evaluate(node => {
+        const style = getComputedStyle(node);
+        return { animationName:style.animationName, animationDuration:style.animationDuration, animationIterationCount:style.animationIterationCount, animationTimingFunction:style.animationTimingFunction };
+      });
+      if (reducedMotion) assert.equal(fan.animationName, 'none', 'Reduced motion leaves a static twelve-bar indicator');
+      else {
+        assert.ok(fan.animationName !== 'none' && parseFloat(fan.animationDuration) > 0 && fan.animationIterationCount === 'infinite', 'The radial bars have one repeating rotation animation');
+        assert.match(fan.animationTimingFunction, /^steps\(12(?:, end)?\)$/, 'Each animation step advances the trail by one bar');
+      }
+    };
+    await verifySegments();
+    const initialTransform = await ring.locator('.loading-spinner-fan').evaluate(node => getComputedStyle(node).transform);
+    await page.waitForFunction(initial => getComputedStyle(document.querySelector('.loading-spinner-fan')).transform !== initial, initialTransform);
     const verifyCenter = async () => {
       assert.equal(await loader.count(), 1, 'Overlapping requests share one indicator');
       const bounds = await ring.boundingBox();
@@ -107,20 +156,64 @@ test('compact shared loader stays centered, holds for two seconds, and handles o
     await loader.waitFor();
     await verifyCenter();
     await page.emulateMedia({ reducedMotion:'reduce' });
-    assert.ok(await page.locator('.screen-loading-orbit').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).animationName === 'none')));
-    const screenshotDir = process.env.BROWSER_SCREENSHOT_DIR || '/tmp/qaira-loading-state';
+    await verifySegments({ reducedMotion:true });
     await mkdir(screenshotDir, { recursive:true });
-    await page.setViewportSize({ width:800,height:600 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path:`${screenshotDir}/light.png` });
-    await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
-    await verifyCenter();
-    await page.screenshot({ path:`${screenshotDir}/dark.png` });
-    await page.goto(`${baseUrl}/${name}.html?admin`);
-    await loader.waitFor();
-    await verifyCenter();
+    for (const surface of ['main', 'admin']) {
+      await page.goto(`${baseUrl}/${name}.html${surface === 'admin' ? '?admin' : ''}`);
+      await loader.waitFor();
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+        for (const [size, viewport] of [['desktop', { width:1440,height:1000 }], ['mobile', { width:390,height:844 }]]) {
+          await page.setViewportSize(viewport);
+          await verifyCenter();
+          await verifySegments({ reducedMotion:true });
+          const screenshot = await page.screenshot({ path:`${screenshotDir}/${surface}-${theme}-${size}.png`, animations:'disabled' });
+          // The production dark background is a gradient whose backgroundColor
+          // is transparent. Sample its rendered pixels instead of assuming white.
+          const colors = await page.evaluate(async screenshotData => {
+            const image = new Image();
+            image.src = screenshotData;
+            await image.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const bounds = document.querySelector('.screen-loading-ring').getBoundingClientRect();
+            const background = Array.from(context.getImageData(Math.floor(bounds.left - 12), Math.floor(bounds.top + bounds.height / 2), 1, 1).data).slice(0, 3);
+            return {
+              background,
+              segment: getComputedStyle(document.querySelector('.screen-loading-ring .loading-spinner-segment')).fill,
+              label: getComputedStyle(document.querySelector('.screen-loading-label')).color
+            };
+          }, `data:image/png;base64,${screenshot.toString('base64')}`);
+          assert.ok(contrastRatio(colorChannels(colors.segment), colors.background) >= 3, `${surface} ${theme} bars contrast with the page at their opaque animation phase`);
+          assert.ok(contrastRatio(colorChannels(colors.label), colors.background) >= 4.5, `${surface} ${theme} loading text stays readable`);
+        }
+      }
+    }
     await page.getByRole('button', { name:'Finish dialog', exact:true }).click();
     await page.getByRole('status', { name:'Loading tiles', exact:true }).waitFor();
+    // Some production dialogs intentionally keep a light canvas in dark mode.
+    // The body-level loader must remain visible over those mixed surfaces too.
+    await page.goto(`${baseUrl}/${name}.html`);
+    await loader.waitFor();
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'dark';
+      const dialog = document.createElement('section');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-label', 'Light dialog in dark workspace');
+      Object.assign(dialog.style, { position:'fixed', inset:'10%', zIndex:'1000', background:'#fff', color:'#172b4d', padding:'24px', borderRadius:'16px', boxShadow:'0 20px 70px #0006' });
+      dialog.innerHTML = '<h2 style="color:#172b4d!important">Story workbench</h2><p style="color:#44546f!important">The story dialog keeps its light canvas in dark mode.</p>';
+      document.body.append(dialog);
+    });
+    assert.notEqual(await ring.evaluate(node => getComputedStyle(node).filter), 'none', 'The light bars keep a contrasting edge over light dialogs in dark mode');
+    assert.notEqual(await page.locator('.screen-loading-label').evaluate(node => getComputedStyle(node).textShadow), 'none', 'The light caption keeps its contrast outline over a light dialog');
+    for (const [size, viewport] of [['desktop', { width:1440,height:1000 }], ['mobile', { width:390,height:844 }]]) {
+      await page.setViewportSize(viewport);
+      await verifyCenter();
+      await page.screenshot({ path:`${screenshotDir}/main-dark-light-dialog-${size}.png`, animations:'disabled' });
+    }
     assert.deepEqual(errors, []);
 
     // Drive real component timers without wall-clock timing races. Start idle so
@@ -218,7 +311,9 @@ test('compact shared loader stays centered, holds for two seconds, and handles o
     await action('startDialog');
     await advance(160);
     await timedLoader.waitFor();
-    assert.ok(await timingPage.locator('.screen-loading-orbit').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).animationName === 'none')));
+    const timedSegments = timingPage.locator('.screen-loading-ring .loading-spinner-segment');
+    assert.equal(await timedSegments.count(), 12, 'The reduced-motion lifecycle still renders all twelve bars');
+    assert.equal(await timedLoader.locator('.loading-spinner-fan').evaluate(node => getComputedStyle(node).animationName), 'none');
     assert.equal(await timedLoader.evaluate(node => getComputedStyle(node).transitionDuration), '0s', 'Reduced motion removes the opacity transition');
     await action('finishAll');
     await advance(1999);

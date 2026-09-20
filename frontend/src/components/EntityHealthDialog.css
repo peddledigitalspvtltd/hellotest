@@ -1,0 +1,143 @@
+.entity-health-backdrop.modal-backdrop {
+  z-index: 1450;
+  padding: 24px;
+  background: rgb(15 23 42 / 48%);
+  backdrop-filter: blur(3px);
+}
+.modal-backdrop.entity-health-backdrop > .modal-card.entity-health-dialog {
+  --health-panel: var(--panel-strong, var(--shell-panel, #fff));
+  --health-line: var(--line, #dfe5ee);
+  --health-ink: var(--text, #172b4d);
+  --health-muted: var(--muted, #64748b);
+  --health-accent: var(--primary, #0c66e4);
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, 100%) !important;
+  max-width: calc(100vw - 48px) !important;
+  height: min(880px, calc(100dvh - 48px)) !important;
+  max-height: calc(100dvh - 48px) !important;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--health-line);
+  border-radius: 18px !important;
+  background: var(--health-panel);
+  color: var(--health-ink);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 22%);
+}
+.entity-health-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid var(--health-line);
+  background: linear-gradient(110deg, color-mix(in srgb, var(--health-accent) 5%, var(--health-panel)), var(--health-panel) 65%);
+}
+.entity-health-icon {
+  display: grid;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--health-accent) 20%, transparent);
+  border-radius: 12px;
+  color: var(--health-accent);
+  background: color-mix(in srgb, var(--health-accent) 8%, var(--health-panel));
+}
+.entity-health-heading { min-width: 0; flex: 1; }
+.entity-health-dialog .entity-health-heading > .eyebrow { display: block !important; margin: 0 0 5px; color: var(--health-accent); font-size: 10px; font-weight: 750; letter-spacing: .12em; }
+.entity-health-heading h2 { margin: 0; color: var(--health-ink); font-size: 22px; font-weight: 750; line-height: 1.25; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.entity-health-heading p { margin: 6px 0 0; color: var(--health-muted); font-size: 12px; line-height: 1.5; }
+.entity-health-header > .dialog-close-button { flex: 0 0 auto; margin: 0; }
+.entity-health-scope { display: flex; flex: 0 0 auto; gap: 10px; align-items: flex-start; padding: 14px 28px; overflow-y: auto; max-height: 135px; border-bottom: 1px solid var(--health-line); }
+.entity-health-scope > svg { flex: 0 0 auto; margin-top: 1px; color: var(--health-muted); }
+.entity-health-scope > div { min-width: 0; }
+.entity-health-scope strong { display: block; margin-bottom: 3px; font-size: 11px; font-weight: 700; color: var(--health-ink); }
+.entity-health-summary { color: var(--health-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.entity-health-summary p { margin: 5px 0 0; }
+.entity-health-summary [role="status"] { color: var(--warning, #975600); }
+.entity-health-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 28px; }
+.entity-health-filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px; border: 1px solid var(--health-line); border-radius: 10px; background: color-mix(in srgb, var(--health-muted) 5%, var(--health-panel)); }
+.entity-health-filters > button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 5px 10px; border: 1px solid transparent; border-radius: 7px; color: var(--health-muted); background: transparent; cursor: pointer; font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.entity-health-filters > button:hover { color: var(--health-ink); background: color-mix(in srgb, var(--health-muted) 7%, var(--health-panel)); }
+.entity-health-filters > button.is-active { color: var(--health-accent); background: var(--health-panel); border-color: var(--health-line); box-shadow: 0 1px 3px rgb(15 23 42 / 7%); }
+.entity-health-filters small { padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, currentColor 8%, transparent); font-size: 10px; font-variant-numeric: tabular-nums; }
+.entity-health-filters > button:focus-visible { outline: 2px solid var(--health-accent); outline-offset: 2px; }
+.entity-health-count { flex: 0 0 auto; color: var(--health-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.entity-health-dialog .entity-health-body { min-height: 0; flex: 1 1 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 24px 22px 28px; }
+.entity-health-dialog .entity-health-metrics.quality-metric-strip.metric-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; margin: 0; }
+.entity-health-dialog .entity-health-metrics > .evidence-flip-card.quality-metric-card { height: 200px; min-height: 200px; min-width: 0; border: 1px solid var(--health-line); border-radius: 12px; box-shadow: 0 2px 6px rgb(15 23 42 / 3%); background: var(--health-panel); }
+.entity-health-dialog .entity-health-metrics > .evidence-flip-card::before { display: none; }
+.entity-health-dialog .entity-health-metrics > .evidence-flip-card:hover { border-color: color-mix(in srgb, var(--health-accent) 32%, var(--health-line)); box-shadow: 0 4px 14px rgb(15 23 42 / 7%); }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-inner { min-height: 200px; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-face { padding: 18px; background: var(--health-panel); }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-front { display: block; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-front > .project-stat-card-trigger { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0; text-align: left; }
+.entity-health-dialog .entity-health-metrics .project-stat-card-trigger > span:not([class]) { display: block; padding-right: 30px; min-height: 19px; color: var(--health-muted); font-size: 12px; font-weight: 650; line-height: 1.45; white-space: normal; }
+.entity-health-dialog .entity-health-metrics .project-stat-card-trigger > strong { margin-top: 7px; color: var(--health-ink); font-size: 30px; font-weight: 750; line-height: 1.2; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.entity-health-dialog .entity-health-metrics .tone-danger .project-stat-card-trigger > strong { color: var(--danger, #c9372c) !important; }
+.entity-health-dialog .entity-health-metrics .tone-warning .project-stat-card-trigger > strong { color: var(--warning, #b16a00) !important; }
+.entity-health-dialog .entity-health-metrics .tone-success .project-stat-card-trigger > strong { color: var(--success, #21875c) !important; }
+.entity-health-dialog .entity-health-metrics .project-stat-card-trigger > small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 8px; color: var(--health-muted); font-size: 11px; line-height: 1.5; }
+.entity-health-dialog .entity-health-metrics .metric-evidence-hint { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 10px; width: 100%; color: var(--health-accent); font-size: 10px; font-weight: 700; }
+.entity-health-dialog .entity-health-metrics .metric-evidence-hint::after { margin-left: auto; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-front-accessory { top: 14px; right: 14px; pointer-events: none; }
+.entity-health-metric-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: color-mix(in srgb, var(--health-accent) 7%, var(--health-panel)); color: var(--health-accent); }
+.entity-health-metric-icon.is-risk { color: var(--health-muted); background: color-mix(in srgb, var(--health-muted) 8%, var(--health-panel)); }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-front-visual { display: block; margin-top: 10px; }
+.entity-health-meter { display: block; width: 100%; height: 4px; overflow: hidden; border-radius: 20px; background: color-mix(in srgb, var(--health-muted) 12%, var(--health-panel)); }
+.entity-health-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--health-accent); }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back { gap: 7px; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back-heading { min-height: 0; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back-heading > span { color: var(--health-muted); font-size: 10px; text-transform: none; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back-heading > strong { font-size: 13px; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back .project-stat-evidence { overflow-y: auto; max-height: none; padding-top: 7px; font-size: 11px; line-height: 1.5; scrollbar-gutter: auto; }
+.entity-health-dialog .entity-health-metrics .evidence-flip-card-back-button { min-height: 24px; padding: 3px 7px; font-size: 10px; }
+.entity-health-empty { padding: 28px 0; color: var(--health-muted); text-align: center; }
+.entity-health-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 28px; border-top: 1px solid var(--health-line); background: var(--health-panel); }
+.entity-health-keyboard-hint { display: inline-flex; align-items: center; gap: 6px; color: var(--health-muted); font-size: 11px; }
+.entity-health-keyboard-hint kbd { padding: 2px 5px; border: 1px solid var(--health-line); border-radius: 4px; font: inherit; font-size: 10px; }
+.entity-health-footer-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.entity-health-footer-actions > button { min-height: 32px; margin: 0; }
+@media (max-width: 850px) {
+  .entity-health-dialog .entity-health-metrics.quality-metric-strip.metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .entity-health-header { padding: 20px; }
+  .entity-health-scope, .entity-health-toolbar, .entity-health-footer { padding-left: 20px; padding-right: 20px; }
+  .entity-health-dialog .entity-health-body { padding-left: 20px; padding-right: 16px; }
+  .entity-health-count { display: none; }
+}
+@media (max-width: 520px) {
+  .entity-health-backdrop.modal-backdrop { padding: 10px; }
+  .modal-backdrop.entity-health-backdrop > .modal-card.entity-health-dialog { max-width: calc(100vw - 20px) !important; height: calc(100dvh - 20px) !important; max-height: calc(100dvh - 20px) !important; border-radius: 14px !important; }
+  .entity-health-header { gap: 10px; padding: 16px; }
+  .entity-health-icon { width: 34px; height: 34px; flex-basis: 34px; border-radius: 9px; }
+  .entity-health-icon svg { width: 20px; }
+  .entity-health-heading h2 { font-size: 18px; }
+  .entity-health-heading p { font-size: 11px; }
+  .entity-health-scope { padding: 10px 16px; max-height: 140px; }
+  .entity-health-summary { font-size: 11px; }
+  .entity-health-toolbar { padding: 10px 16px; }
+  .entity-health-filters { width: 100%; justify-content: space-between; gap: 2px; padding: 3px; }
+  .entity-health-filters > button { min-height: 30px; gap: 4px; padding: 4px 6px; font-size: 11px; }
+  .entity-health-filters > button > svg { display: none; }
+  .entity-health-filters small { padding-inline: 3px; }
+  .entity-health-dialog .entity-health-body { padding: 0 12px 16px 16px; }
+  .entity-health-dialog .entity-health-metrics.quality-metric-strip.metric-strip { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .entity-health-dialog .entity-health-metrics > .evidence-flip-card.quality-metric-card { height: 190px; min-height: 190px; }
+  .entity-health-dialog .entity-health-metrics .evidence-flip-card-inner { min-height: 190px; }
+  .entity-health-footer { padding: 12px 16px; }
+  .entity-health-keyboard-hint { display: none; }
+  .entity-health-footer-actions { width: 100%; }
+}
+@media (max-height: 600px) {
+  .entity-health-header { padding-top: 12px; padding-bottom: 12px; }
+  .entity-health-heading p { display: none; }
+  .entity-health-scope { max-height: 72px; padding-top: 8px; padding-bottom: 8px; }
+  .entity-health-toolbar, .entity-health-footer { padding-top: 8px; padding-bottom: 8px; }
+}
+@media (forced-colors: active) {
+  .entity-health-filters > button.is-active { outline: 1px solid Highlight; }
+  .entity-health-meter { border: 1px solid CanvasText; }
+  .entity-health-meter > span { background: Highlight; }
+}

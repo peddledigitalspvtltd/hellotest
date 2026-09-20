@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "automation_test_case_id": "sample-v2-case-stock-automated",
+      "manual_test_case_id": "sample-v2-case-stock-api",
+      "is_primary": true
+    }
+  ]
+}

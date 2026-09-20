@@ -73,9 +73,9 @@ exports.replaceMappingsForRequirement = async (requirementId, issueIds = []) => 
       const byId = new Map(issues.map((issue) => [issue.id, issue]));
       for (const issueId of uniqueIds) {
         const issue = byId.get(issueId);
-        if (!issue) throw Object.assign(new Error("Bug not found"), { statusCode: 404 });
+        if (!issue) throw Object.assign(new Error("Defect not found"), { statusCode: 404 });
         if (issue.project_id !== requirement.project_id) {
-          throw Object.assign(new Error("Story and Bug must belong to the same project"), { statusCode: 403 });
+          throw Object.assign(new Error("Story and Defect must belong to the same project"), { statusCode: 403 });
         }
       }
     }

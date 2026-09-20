@@ -48,7 +48,7 @@ const SOURCE_LABELS: Record<string, string> = {
   comment: "Comment",
   attachment: "Attachment metadata",
   "external-reference": "External reference",
-  "linked-ticket": "Linked Bug",
+  "linked-ticket": "Linked Defect",
   "related-project-record": "Linked Test Case"
 };
 
@@ -71,7 +71,7 @@ const EVIDENCE_GROUPS: Array<{ key: string; label: string; helper: string; types
   {
     key: "linked",
     label: "Linked work",
-    helper: "Traceable Test Cases and Bugs",
+    helper: "Traceable Test Cases and Defects",
     types: new Set(["related-project-record", "linked-ticket"])
   },
   {
@@ -269,7 +269,7 @@ export function StoryGroomingWorkspace({
   if (isLoading) {
     return (
       <GroomingContainer>
-        <LoadingState label="Building an evidence-backed readiness brief" description="Reviewing the Story, comments, linked work, Bugs, and available attachment metadata. No Story fields are changed." />
+        <LoadingState label="Building an evidence-backed readiness brief" description="Reviewing the Story, comments, linked work, Defects, and available attachment metadata. No Story fields are changed." />
       </GroomingContainer>
     );
   }

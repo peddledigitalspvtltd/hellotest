@@ -42,8 +42,8 @@ const normalizeApiRequest = (request) => {
         captures: Array.isArray(request.captures) ? request.captures : []
     };
 };
-const resolveApiRequest = (request, envelope, capturedValues) => {
-    const context = buildInitialContext(envelope, capturedValues);
+const resolveApiRequest = (request, envelope, capturedValues, step) => {
+    const context = buildInitialContext(envelope, capturedValues, step);
     const normalizedRequest = normalizeApiRequest(request);
     return normalizeApiRequest({
         ...normalizedRequest,
@@ -426,7 +426,7 @@ const runResolvedApiRequest = async (request) => {
     };
 };
 export async function executeApiStepInEngine(envelope, step, capturedValues = {}) {
-    const request = resolveApiRequest(step.api_request, envelope, capturedValues);
+    const request = resolveApiRequest(step.api_request, envelope, capturedValues, step);
     const preview = await runResolvedApiRequest(request);
     const assertions = evaluateApiAssertions(preview, request.validations || []);
     const captures = extractCaptures(request, preview);

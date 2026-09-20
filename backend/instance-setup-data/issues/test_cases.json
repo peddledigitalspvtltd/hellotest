@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-case-offline-regression",
+      "display_id": "DEMO2-T12",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v2-suite-mobile",
+      "title": "Retry action remains visible offline on small screens",
+      "description": "Sample test converted from the resolved offline defect.",
+      "source_issue_id": "sample-v2-issue-offline",
+      "requirement_id": "sample-v2-req-mobile",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "test_case_type": "regression",
+      "status": "active",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ]
+    }
+  ]
+}

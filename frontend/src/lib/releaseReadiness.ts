@@ -3,10 +3,12 @@ import type {
   ExecutionResult,
   Issue,
   Requirement,
+  RequirementIteration,
+  RequirementRelease,
   TestCase,
 } from "../types";
 
-export type ReleaseReadinessScope = { release: string; sprint: string };
+export type ReleaseReadinessScope = { release: string; sprint: string; iterationId?: string };
 export type ReadinessGateState = "pass" | "warning" | "block";
 export type ReadinessGate = {
   id: string;
@@ -54,6 +56,13 @@ export type RequirementHotspot = {
   needsAttention: boolean;
 };
 type Input = ReleaseReadinessScope & {
+  /** Only unambiguous labels from the authorized native delivery catalogs. */
+  releaseAliases?: string[];
+  releaseSprintNames?: string[];
+  allowLegacySprintFallback?: boolean;
+  /** IDs from the authorized native Release and run evidence endpoints. */
+  scopedRequirementIds?: string[];
+  scopedExecutionIds?: string[];
   evidenceComplete?: boolean;
   now?: number;
   requirements: Requirement[];
@@ -108,6 +117,27 @@ const completedStory = (story: Requirement) => {
   return category ? category === "done" : completedStoryStatuses.has(normalized(story.status));
 };
 
+/** Defects still store delivery labels, so never guess a duplicate native name. */
+export function readinessDeliveryLabels(
+  release: RequirementRelease | null,
+  releases: RequirementRelease[],
+  sprints: RequirementIteration[],
+  iterationId = "",
+) {
+  // A freshly loaded detail can be newer than the cached catalog (for example,
+  // immediately after creating or renaming this Release).
+  const knownReleases = release ? [release, ...releases.filter(item => item.id !== release.id)] : releases;
+  const releaseAliases = release ? unique([release.name, release.fix_version].filter(Boolean))
+    .filter(label => knownReleases.filter(item => sameValue(item.name, label) || sameValue(item.fix_version, label)).length === 1) : [];
+  const selectedSprint = sprints.find(item => item.id === iterationId);
+  const uniqueSprintName = (name: string) => sprints.filter(item => sameValue(item.name, name)).length === 1;
+  return {
+    releaseAliases,
+    releaseSprintNames: release ? sprints.filter(item => (release.sprint_ids || []).includes(item.id) && uniqueSprintName(item.name)).map(item => item.name) : [],
+    allowLegacySprintFallback: !iterationId || Boolean(selectedSprint && uniqueSprintName(selectedSprint.name)),
+  };
+}
+
 /** Keep run/environment boundaries and data rows. An edited old attempt cannot replace a newer attempt. */
 export function latestReadinessResults(results: ExecutionResult[]) {
   const latest = new Map<string, ExecutionResult>();
@@ -115,10 +145,9 @@ export function latestReadinessResults(results: ExecutionResult[]) {
     const key = JSON.stringify([
       result.execution_id,
       result.test_case_id,
-      result.test_data_set_id || "",
-      result.data_set_iteration_key ??
-        result.data_set_iteration_index ??
-        "default",
+      // Match the API/runner identity. A row key or dataset label may change
+      // during a retry; the frozen row index remains the authoritative slot.
+      String(result.data_set_iteration_index ?? result.data_set_iteration_key ?? "default"),
     ]);
     const current = latest.get(key);
     const newer = timestamp(result.created_at) - timestamp(current?.created_at);
@@ -135,19 +164,27 @@ export function latestReadinessResults(results: ExecutionResult[]) {
 export function deriveReleaseReadiness(input: Input) {
   const evidenceComplete = input.evidenceComplete !== false;
   const selectedRelease = input.release.trim();
-  const selectedSprint = input.sprint.trim();
+  const selectedSprint = selectedRelease ? "" : input.sprint.trim();
+  const releaseLabels = new Set((input.releaseAliases ?? [selectedRelease]).map(normalized).filter(Boolean));
+  const releaseSprintNames = new Set((input.releaseSprintNames || []).map(normalized));
   const matches = (release: unknown, sprint: unknown) =>
     (!selectedRelease || sameValue(release, selectedRelease)) &&
     (!selectedSprint || sameValue(sprint, selectedSprint));
+  const nativeStoryIds = input.scopedRequirementIds ? new Set(input.scopedRequirementIds) : null;
+  const nativeRunIds = input.scopedExecutionIds ? new Set(input.scopedExecutionIds) : null;
+  const matchesStorySprint = (item: Requirement) => !selectedRelease && input.iterationId
+    ? item.iteration_id === input.iterationId || (!item.iteration_id && input.allowLegacySprintFallback !== false && sameValue(item.sprint, selectedSprint))
+    : !selectedSprint || sameValue(item.sprint, selectedSprint);
   const requirements = input.requirements.filter((item) =>
-    matches(item.fix_version || item.release, item.sprint),
+    (nativeStoryIds ? nativeStoryIds.has(item.id) : !selectedRelease || sameValue(item.fix_version || item.release, selectedRelease))
+      && matchesStorySprint(item),
   );
   const requirementIds = new Set(requirements.map((item) => item.id));
   const explicitCaseIds = requirements.flatMap(
     (item) => item.test_case_ids || [],
   );
   const executions = input.executions.filter((item) =>
-    matches(item.release, item.sprint),
+    nativeRunIds ? nativeRunIds.has(item.id) : matches(item.release, item.sprint),
   );
   const executionIds = new Set(executions.map((item) => item.id));
   const executionResults = input.executionResults.filter((item) =>
@@ -183,10 +220,16 @@ export function deriveReleaseReadiness(input: Input) {
     [issue.id, issue.jira_bug_key].some(
       (id) => id && scopedDefectIds.has(normalized(id)),
     );
+  const matchesIssueScope = (issue: Issue) => {
+    const issueRelease = normalized(issue.fix_version?.trim() || issue.release);
+    if (selectedRelease) return releaseLabels.has(issueRelease) ||
+      (!issueRelease && releaseSprintNames.has(normalized(issue.sprint)));
+    return !selectedSprint || input.allowLegacySprintFallback !== false && sameValue(issue.sprint, selectedSprint);
+  };
   const issues = input.issues.filter(
     (item) =>
       (!selectedRelease && !selectedSprint) ||
-      matches(item.fix_version || item.release, item.sprint) ||
+      matchesIssueScope(item) ||
       linkedIssue(item),
   );
   const openIssues = issues.filter(isOpenReadinessIssue);

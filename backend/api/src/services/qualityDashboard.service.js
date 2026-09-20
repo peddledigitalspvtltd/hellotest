@@ -8,8 +8,8 @@ const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 const dashboardTemplates = require("./qualityDashboardTemplates");
 
 const LAYOUTS = new Set(["single", "two-column", "three-column"]);
-const TYPES = new Set(["metric", "donut", "bar", "stacked-bar", "line", "table"]);
-const GROUPS = new Set(["status", "statusCategory", "priority", "issuetype", "assignee", "reporter", "components", "fixVersion", "labels", "sprint", "resolution", "module", "createdWeek", "updatedWeek", "createdMonth", "updatedMonth"]);
+const TYPES = new Set(["metric", "donut", "bar", "column", "stacked-bar", "line", "area", "table"]);
+const GROUPS = new Set(["status", "statusCategory", "priority", "issuetype", "assignee", "reporter", "components", "fixVersion", "release", "story", "labels", "sprint", "resolution", "module", "createdWeek", "updatedWeek", "createdMonth", "updatedMonth"]);
 const HELLOTEST_METRICS = analytics.NATIVE_DASHBOARD_METRICS;
 const ACCENTS = new Set(["blue", "green", "purple", "orange", "red", "teal", "slate"]);
 
@@ -120,7 +120,7 @@ const remove = async (id) => {
   return { deleted: true, id };
 };
 
-const evaluateBatch = async ({ projectId, gadgets }) => {
+const evaluateBatch = async ({ projectId, gadgets, authorizeGadget }) => {
   // Saved legacy signals must remain recognizable and fail only their widget;
   // validating the whole batch here would hide otherwise healthy native data.
   const limited = normalizeGadgets(gadgets, { validateMetrics: false });
@@ -134,6 +134,7 @@ const evaluateBatch = async ({ projectId, gadgets }) => {
       const index = cursor++;
       const gadget = limited[index];
       try {
+        if (authorizeGadget) await authorizeGadget(gadget);
         results[index] = { gadget_id: gadget.id, result: await analytics.evaluateGadget({ projectId, gadget, evaluationCache }) };
       } catch (error) {
         results[index] = { gadget_id: gadget.id, error: { code: error.code || "GADGET_EVALUATION_FAILED", message: error.message, status: error.statusCode || 400 } };

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-app-web",
+      "project_id": "sample-project",
+      "name": "Customer Portal",
+      "type": "web",
+      "is_unified": false
+    },
+    {
+      "id": "sample-app-api",
+      "project_id": "sample-project",
+      "name": "Commerce API",
+      "type": "api",
+      "is_unified": false
+    },
+    {
+      "id": "sample-app-mobile",
+      "project_id": "sample-project",
+      "name": "Mobile Experience",
+      "type": "unified",
+      "is_unified": true
+    }
+  ]
+}

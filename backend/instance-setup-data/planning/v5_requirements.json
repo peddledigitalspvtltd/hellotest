@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-story",
+      "display_id": "DEMO5-R1",
+      "project_id": "sample-project",
+      "title": "Preserve test data inheritance and exact shared-step Defect evidence · SYNTHETIC SAMPLE",
+      "description": "As a QA engineer, I want reusable test data to keep its declared scope and saved execution evidence so that I can review a failure without losing the original inputs.\n\nSYNTHETIC SAMPLE: these authored examples illustrate dataset inheritance, review queues and Defect traceability. No browser, integration, CI job or production service was executed.",
+      "status": "dev_done",
+      "priority": 2,
+      "iteration_id": "sample-v4-metrics-sprint",
+      "sprint": "Metric verification · synthetic",
+      "release": "Metric walkthrough · synthetic",
+      "fix_version": "demo-metrics-4",
+      "labels": [
+        "sample",
+        "synthetic-evidence",
+        "data-inheritance"
+      ],
+      "scrum_team": "Sample delivery team",
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Saved test data inheritance\n  Scenario: Keep one shared default row\n    Given a shared group with one linked data row\n    When a case has not enabled shared-data override\n    Then the group retains its own input\n  Scenario: Record a run-level override\n    Given an explicit run-level override\n    When the two synthetic input rows are reviewed\n    Then each result retains its exact input row and shared-step Defect link",
+      "gherkin_scenarios": [
+        "Given one shared data row When the case disables shared-data override Then the shared default is preserved",
+        "Given explicit run overrides When synthetic result rows are reviewed Then exact inputs and shared-step Defect links are retained"
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given one shared data row When the case disables shared-data override Then the shared default is preserved",
+          "Given explicit run overrides When synthetic result rows are reviewed Then exact inputs and shared-step Defect links are retained"
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-20T08:00:00.000Z",
+      "updated_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

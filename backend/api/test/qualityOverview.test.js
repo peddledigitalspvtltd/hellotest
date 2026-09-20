@@ -16,7 +16,7 @@ function evidence(t, { failure } = {}) {
       reads.push({sql,args});
       if (failure && sql.includes(failure)) throw new Error('Source unavailable');
       if (sql.includes('FROM requirements')) return { stories: 240, covered_stories: 200 };
-      if (sql.includes('FROM test_cases JOIN')) return { cases: 350, designed_cases: 300, automated_cases: 100 };
+      if (/FROM test_cases (?:LEFT )?JOIN/.test(sql)) return { cases: 350, designed_cases: 300, automated_cases: 100 };
       if (sql.includes('FROM test_suites')) return { suites: 8 };
       if (sql.includes('FROM feedback')) return { open_defects: 7 };
       throw new Error('Unexpected evidence query: ' + sql);
@@ -107,7 +107,7 @@ test('overview checks source grants and disabled source features without exposin
   assert.equal(result.inventory.covered_stories,null);
   assert.equal(result.inventory.cases,null);
   assert.equal(result.inventory.open_defects,null);
-  assert.equal(reads.some(({sql})=>sql.includes('FROM feedback')||sql.includes('FROM test_cases JOIN')),false);
+  assert.equal(reads.some(({sql})=>sql.includes('FROM feedback')||/FROM test_cases (?:LEFT )?JOIN/.test(sql)),false);
   assert.ok(checked.every(item=>item.projectId==='project-a'));
 });
 
@@ -140,7 +140,7 @@ test('quality explanations retain actual per-run outcomes when a case has newer 
       if(sql.includes('FROM execution_results')) return [{id:'latest-result',execution_id:'new-run',test_case_id:'case',status:'passed'}];
       if(sql.includes('FROM execution_case_snapshots')) return [{test_case_id:'case'}];
       if(sql.includes('FROM requirements WHERE')) return [{id:'story',priority:1,test_case_ids:['case','deleted']}];
-      if(sql.includes('FROM test_cases JOIN')) return [{id:'case',requirement_ids:['story']}];
+      if(/FROM test_cases (?:LEFT )?JOIN/.test(sql)) return [{id:'case',requirement_ids:['story']}];
       if(sql.includes('FROM executions LEFT')) return [{id:'old-run',name:'Old evidence',status:'failed',created_at:'2026-09-01'},{id:'new-run',name:'New evidence',status:'passed',created_at:'2026-09-02'}];
       return [];
     }

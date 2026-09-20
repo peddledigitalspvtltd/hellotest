@@ -1,13 +1,17 @@
+# Compatibility entry point. Use the backend directory as the build context:
+# docker build -f backend/api/Dockerfile -t hellotest-backend:local backend
+# The reviewed setup dataset is shared with backend/Dockerfile, not duplicated.
 FROM node:20-alpine
 
 WORKDIR /app
 
 RUN apk add --no-cache python3 py3-yaml
 
-COPY package*.json ./
+COPY api/package*.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
-COPY --chown=node:node src ./src
-COPY --chown=node:node agents ./agents
+COPY --chown=node:node api/src ./src
+COPY --chown=node:node api/agents ./agents
+COPY --chown=node:node instance-setup-data ./instance-setup-data
 
 USER node
 

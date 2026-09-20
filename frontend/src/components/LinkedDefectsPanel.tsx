@@ -93,7 +93,7 @@ export function LinkedDefectsPanel({
     onSaved?.(selectedIds);
   };
 
-  if (!canView) return <p className="muted">Bug links are unavailable. Existing links are retained.</p>;
+  if (!canView) return <p className="muted">Defect links are unavailable. Existing links are retained.</p>;
 
   return (
     <div className="linked-defects-panel">
@@ -108,7 +108,7 @@ export function LinkedDefectsPanel({
                 setSubmittedSearch(searchTerm.trim());
               }
             }}
-            placeholder="Search Bugs"
+            placeholder="Search Defects"
             value={searchTerm}
           />
         </label>
@@ -119,7 +119,7 @@ export function LinkedDefectsPanel({
         <label className="requirement-link-filter-field">
           <span>Status</span>
           <select
-            aria-label="Filter linked bugs by status"
+            aria-label="Filter linked defects by status"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
           >
@@ -169,7 +169,7 @@ export function LinkedDefectsPanel({
         </button>
       </div>
 
-      {linkedDefectsQuery.isLoading || defectSearchQuery.isLoading ? <LoadingState label="Loading bugs" /> : null}
+      {linkedDefectsQuery.isLoading || defectSearchQuery.isLoading ? <LoadingState label="Loading defects" /> : null}
       {!linkedDefectsQuery.isLoading && !defectSearchQuery.isLoading ? (
         <div className="linked-defect-list">
           {defects.map((defect) => (
@@ -192,7 +192,7 @@ export function LinkedDefectsPanel({
           ))}
           {!defects.length ? (
             <div className="empty-state compact">
-              {submittedSearch === null ? "No linked bugs. Search connected work items to add one." : "No bugs match this search."}
+              {submittedSearch === null ? "No linked defects. Search connected work items to add one." : "No defects match this search."}
             </div>
           ) : null}
         </div>

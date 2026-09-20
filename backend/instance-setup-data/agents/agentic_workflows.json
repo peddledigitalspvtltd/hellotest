@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-workflow-story-review",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Commerce story review",
+      "description": "Review checkout acceptance criteria and identify missing negative scenarios. Sample definition; run explicitly after configuring an LLM.",
+      "status": "draft",
+      "trigger_kind": "manual",
+      "nodes": [
+        {
+          "id": "start",
+          "type": "agenticStep",
+          "position": {
+            "x": 40,
+            "y": 120
+          },
+          "data": {
+            "kind": "trigger",
+            "label": "Manual review",
+            "triggerKind": "manual"
+          }
+        },
+        {
+          "id": "review",
+          "type": "agenticStep",
+          "position": {
+            "x": 360,
+            "y": 120
+          },
+          "data": {
+            "kind": "agent",
+            "label": "Commerce story review",
+            "agentId": "story-architect",
+            "prompt": "Review checkout acceptance criteria and identify missing negative scenarios.",
+            "contextScopes": [
+              "knowledge",
+              "stories",
+              "test-cases"
+            ],
+            "outputKey": "review"
+          }
+        },
+        {
+          "id": "finish",
+          "type": "agenticStep",
+          "position": {
+            "x": 680,
+            "y": 120
+          },
+          "data": {
+            "kind": "output",
+            "label": "Review findings",
+            "outputKey": "result"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "start-review",
+          "source": "start",
+          "target": "review"
+        },
+        {
+          "id": "review-finish",
+          "source": "review",
+          "target": "finish"
+        }
+      ],
+      "settings": {
+        "sample": true
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-workflow-api-design",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Commerce API test design",
+      "description": "Use the API contract to propose positive, negative and idempotency tests. Sample definition; run explicitly after configuring an LLM.",
+      "status": "draft",
+      "trigger_kind": "manual",
+      "nodes": [
+        {
+          "id": "start",
+          "type": "agenticStep",
+          "position": {
+            "x": 40,
+            "y": 120
+          },
+          "data": {
+            "kind": "trigger",
+            "label": "Manual review",
+            "triggerKind": "manual"
+          }
+        },
+        {
+          "id": "review",
+          "type": "agenticStep",
+          "position": {
+            "x": 360,
+            "y": 120
+          },
+          "data": {
+            "kind": "agent",
+            "label": "Commerce API test design",
+            "agentId": "test-designer",
+            "prompt": "Use the API contract to propose positive, negative and idempotency tests.",
+            "contextScopes": [
+              "knowledge",
+              "stories",
+              "test-cases"
+            ],
+            "outputKey": "review"
+          }
+        },
+        {
+          "id": "finish",
+          "type": "agenticStep",
+          "position": {
+            "x": 680,
+            "y": 120
+          },
+          "data": {
+            "kind": "output",
+            "label": "Review findings",
+            "outputKey": "result"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "start-review",
+          "source": "start",
+          "target": "review"
+        },
+        {
+          "id": "review-finish",
+          "source": "review",
+          "target": "finish"
+        }
+      ],
+      "settings": {
+        "sample": true
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-workflow-repository-review",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Repository knowledge review",
+      "description": "Review the repository architecture guide and suggest stable object bindings with source references. Sample definition; run explicitly after configuring an LLM.",
+      "status": "draft",
+      "trigger_kind": "manual",
+      "nodes": [
+        {
+          "id": "start",
+          "type": "agenticStep",
+          "position": {
+            "x": 40,
+            "y": 120
+          },
+          "data": {
+            "kind": "trigger",
+            "label": "Manual review",
+            "triggerKind": "manual"
+          }
+        },
+        {
+          "id": "review",
+          "type": "agenticStep",
+          "position": {
+            "x": 360,
+            "y": 120
+          },
+          "data": {
+            "kind": "agent",
+            "label": "Repository knowledge review",
+            "agentId": "repository-curator",
+            "prompt": "Review the repository architecture guide and suggest stable object bindings with source references.",
+            "contextScopes": [
+              "knowledge",
+              "stories",
+              "test-cases"
+            ],
+            "outputKey": "review"
+          }
+        },
+        {
+          "id": "finish",
+          "type": "agenticStep",
+          "position": {
+            "x": 680,
+            "y": 120
+          },
+          "data": {
+            "kind": "output",
+            "label": "Review findings",
+            "outputKey": "result"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "start-review",
+          "source": "start",
+          "target": "review"
+        },
+        {
+          "id": "review-finish",
+          "source": "review",
+          "target": "finish"
+        }
+      ],
+      "settings": {
+        "sample": true
+      },
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

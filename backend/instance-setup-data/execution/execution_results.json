@@ -1,0 +1,646 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-result-login",
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-login",
+      "test_case_title": "Customer signs in",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 45000,
+      "started_at": "2026-09-19T09:00:00.000Z",
+      "ended_at": "2026-09-19T09:00:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-customers:1",
+      "data_set_row_snapshot": {
+        "email": "alex@example.test",
+        "segment": "standard",
+        "region": "us-east",
+        "payment_method": "approved-card"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-login-1\":\"passed\",\"sample-v2-step-login-2\":\"passed\",\"sample-v2-step-login-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-login-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-login-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-login-3\":\"Sample observation: the account overview is displayed\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-19T09:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-19T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-result-smoke-2",
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-checkout",
+      "test_case_title": "Customer completes checkout",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-19T09:00:45.000Z",
+      "ended_at": "2026-09-19T09:01:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-customers:1",
+      "data_set_row_snapshot": {
+        "email": "alex@example.test",
+        "segment": "standard",
+        "region": "us-east",
+        "payment_method": "approved-card"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-checkout-1\":\"passed\",\"sample-v2-step-checkout-2\":\"passed\",\"sample-v2-step-checkout-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-checkout-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-checkout-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-checkout-3\":\"Sample observation: one order is created and a receipt is displayed\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-19T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-19T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-19T09:00:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-smoke-3",
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-keyboard",
+      "test_case_title": "Checkout supports keyboard navigation",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "app_type_id": "sample-app-web",
+      "status": "failed",
+      "duration_ms": 75000,
+      "started_at": "2026-09-19T09:01:45.000Z",
+      "ended_at": "2026-09-19T09:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-customers:1",
+      "data_set_row_snapshot": {
+        "email": "alex@example.test",
+        "segment": "standard",
+        "region": "us-east",
+        "payment_method": "approved-card"
+      },
+      "defects": [
+        "sample-v2-issue-checkout"
+      ],
+      "case_defects": [
+        "sample-v2-issue-checkout"
+      ],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-keyboard-1\":\"passed\",\"sample-v2-step-keyboard-2\":\"passed\",\"sample-v2-step-keyboard-3\":\"failed\"},\"stepNotes\":{\"sample-v2-step-keyboard-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-keyboard-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-keyboard-3\":\"Sample observation: focus remains visible and reaches the confirmation button\"},\"stepEvidence\":{},\"stepDefects\":{\"sample-v2-step-keyboard-3\":[\"sample-v2-issue-checkout\"]}}",
+      "error": "Sample acceptance criterion failure; see linked defect.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-19T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-19T09:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-19T09:01:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-smoke-4",
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-expired-session",
+      "test_case_title": "Expired sessions preserve the basket",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 90000,
+      "started_at": "2026-09-19T09:03:00.000Z",
+      "ended_at": "2026-09-19T09:04:30.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-customers:1",
+      "data_set_row_snapshot": {
+        "email": "alex@example.test",
+        "segment": "standard",
+        "region": "us-east",
+        "payment_method": "approved-card"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-expired-session-1\":\"passed\",\"sample-v2-step-expired-session-2\":\"passed\",\"sample-v2-step-expired-session-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-expired-session-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-expired-session-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-expired-session-3\":\"Sample observation: the basket is restored without exposing another account\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-19T09:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-19T09:04:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-19T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v2-result-smoke-5",
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "test_case_title": "Declined payments allow a safe retry",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "app_type_id": "sample-app-web",
+      "status": "failed",
+      "duration_ms": 105000,
+      "started_at": "2026-09-19T09:04:30.000Z",
+      "ended_at": "2026-09-19T09:06:15.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-customers:1",
+      "data_set_row_snapshot": {
+        "email": "alex@example.test",
+        "segment": "standard",
+        "region": "us-east",
+        "payment_method": "approved-card"
+      },
+      "defects": [
+        "sample-v2-issue-retry"
+      ],
+      "case_defects": [
+        "sample-v2-issue-retry"
+      ],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-declined-payment-1\":\"passed\",\"sample-v2-step-declined-payment-2\":\"passed\",\"sample-v2-step-declined-payment-3\":\"failed\"},\"stepNotes\":{\"sample-v2-step-declined-payment-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-declined-payment-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-declined-payment-3\":\"Sample observation: one charge and one order are created\"},\"stepEvidence\":{},\"stepDefects\":{\"sample-v2-step-declined-payment-3\":[\"sample-v2-issue-retry\"]}}",
+      "error": "Sample acceptance criterion failure; see linked defect.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-19T09:04:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-19T09:06:15.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-19T09:04:30.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-1",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-stock-api",
+      "test_case_title": "Inventory API returns available stock",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 45000,
+      "started_at": "2026-09-16T09:00:00.000Z",
+      "ended_at": "2026-09-16T09:00:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-api:1",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-stock-api-1\":\"passed\",\"sample-v2-step-stock-api-2\":\"passed\",\"sample-v2-step-stock-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-stock-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-stock-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-stock-api-3\":\"Sample observation: the response is 200 and available quantity is non-negative\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-2",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "test_case_title": "Order API rejects duplicate idempotency keys",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-16T09:00:45.000Z",
+      "ended_at": "2026-09-16T09:01:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-api:1",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-duplicate-api-1\":\"passed\",\"sample-v2-step-duplicate-api-2\":\"passed\",\"sample-v2-step-duplicate-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-duplicate-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-duplicate-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-duplicate-api-3\":\"Sample observation: the existing order is returned without a second charge\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:00:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-3",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "test_case_title": "Order API requires authentication",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 75000,
+      "started_at": "2026-09-16T09:01:45.000Z",
+      "ended_at": "2026-09-16T09:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v2-data-api:1",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-unauthorized-api-1\":\"passed\",\"sample-v2-step-unauthorized-api-2\":\"passed\",\"sample-v2-step-unauthorized-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-unauthorized-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-unauthorized-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-unauthorized-api-3\":\"Sample observation: the response is 401 without customer information\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:01:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-mobile-1",
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "test_case_title": "Mobile basket survives an app restart",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "app_type_id": "sample-app-mobile",
+      "status": "passed",
+      "duration_ms": 45000,
+      "started_at": "2026-09-18T09:00:00.000Z",
+      "ended_at": "2026-09-18T09:00:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "data_set_iteration_index": null,
+      "data_set_iteration_key": null,
+      "data_set_row_snapshot": null,
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-mobile-cart-1\":\"passed\",\"sample-v2-step-mobile-cart-2\":\"passed\",\"sample-v2-step-mobile-cart-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-mobile-cart-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-cart-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-cart-3\":\"Sample observation: the product and quantity are retained\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-18T09:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-18T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-18T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-result-mobile-2",
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "test_case_title": "Mobile checkout explains an offline connection",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "app_type_id": "sample-app-mobile",
+      "status": "blocked",
+      "duration_ms": 60000,
+      "started_at": "2026-09-18T09:00:45.000Z",
+      "ended_at": "2026-09-18T09:01:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "data_set_iteration_index": null,
+      "data_set_iteration_key": null,
+      "data_set_row_snapshot": null,
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-mobile-offline-1\":\"passed\",\"sample-v2-step-mobile-offline-2\":\"passed\",\"sample-v2-step-mobile-offline-3\":\"blocked\"},\"stepNotes\":{\"sample-v2-step-mobile-offline-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-offline-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-offline-3\":\"Sample observation: an offline message is shown and the basket remains intact\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": "Sample device connectivity unavailable.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-18T09:00:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "blocked",
+          "at": "2026-09-18T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-18T09:00:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-mobile-3",
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "test_case_title": "Mobile controls have accessible labels",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "app_type_id": "sample-app-mobile",
+      "status": "passed",
+      "duration_ms": 75000,
+      "started_at": "2026-09-18T09:01:45.000Z",
+      "ended_at": "2026-09-18T09:03:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "data_set_iteration_index": null,
+      "data_set_iteration_key": null,
+      "data_set_row_snapshot": null,
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-mobile-accessibility-1\":\"passed\",\"sample-v2-step-mobile-accessibility-2\":\"passed\",\"sample-v2-step-mobile-accessibility-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-mobile-accessibility-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-accessibility-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-mobile-accessibility-3\":\"Sample observation: each control announces its name and state\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-18T09:01:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-18T09:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-18T09:01:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-1-row2",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-stock-api",
+      "test_case_title": "Inventory API returns available stock",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 45000,
+      "started_at": "2026-09-16T09:03:00.000Z",
+      "ended_at": "2026-09-16T09:03:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v2-data-api:2",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-200",
+        "request_key": "sample-order-002",
+        "quantity": "2"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-stock-api-1\":\"passed\",\"sample-v2-step-stock-api-2\":\"passed\",\"sample-v2-step-stock-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-stock-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-stock-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-stock-api-3\":\"Sample observation: the response is 200 and available quantity is non-negative\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:03:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:03:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-2-row2",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "test_case_title": "Order API rejects duplicate idempotency keys",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-16T09:03:45.000Z",
+      "ended_at": "2026-09-16T09:04:45.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v2-data-api:2",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-200",
+        "request_key": "sample-order-002",
+        "quantity": "2"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-duplicate-api-1\":\"passed\",\"sample-v2-step-duplicate-api-2\":\"passed\",\"sample-v2-step-duplicate-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-duplicate-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-duplicate-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-duplicate-api-3\":\"Sample observation: the existing order is returned without a second charge\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:03:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:04:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:03:45.000Z"
+    },
+    {
+      "id": "sample-v2-result-api-3-row2",
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "test_case_title": "Order API requires authentication",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "app_type_id": "sample-app-api",
+      "status": "passed",
+      "duration_ms": 75000,
+      "started_at": "2026-09-16T09:04:45.000Z",
+      "ended_at": "2026-09-16T09:06:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v2-data-api:2",
+      "data_set_row_snapshot": {
+        "sku": "TRAIL-200",
+        "request_key": "sample-order-002",
+        "quantity": "2"
+      },
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"provenance\":\"admin_sample_data\",\"message\":\"Illustrative saved evidence; no external execution occurred.\",\"stepStatuses\":{\"sample-v2-step-unauthorized-api-1\":\"passed\",\"sample-v2-step-unauthorized-api-2\":\"passed\",\"sample-v2-step-unauthorized-api-3\":\"passed\"},\"stepNotes\":{\"sample-v2-step-unauthorized-api-1\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-unauthorized-api-2\":\"Sample observation: The precondition or action is completed.\",\"sample-v2-step-unauthorized-api-3\":\"Sample observation: the response is 401 without customer information\"},\"stepEvidence\":{},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-16T09:04:45.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-16T09:06:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ],
+      "created_at": "2026-09-16T09:04:45.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-result-qa-done",
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-qa-done",
+      "test_case_title": "Customer sign-in accepted by QA · sample: verify the observable result",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "duration_ms": 60000,
+      "started_at": "2026-09-20T08:55:00.000Z",
+      "ended_at": "2026-09-20T08:58:00.000Z",
+      "created_at": "2026-09-20T08:55:00.000Z",
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"admin_sample_data_v4\",\"message\":\"Illustrative saved result only. No browser, provider or production system was executed.\",\"stepStatuses\":{\"sample-v4-metrics-step-qa-done\":\"passed\"},\"stepNotes\":{\"sample-v4-metrics-step-qa-done\":\"Synthetic sample observation.\"}}"
+    },
+    {
+      "id": "sample-v4-metrics-result-dev-done",
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-dev-done",
+      "test_case_title": "Payment retry ready for QA verification · sample: verify the observable result",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "app_type_id": "sample-app-web",
+      "status": "failed",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "duration_ms": 60000,
+      "started_at": "2026-09-20T08:55:00.000Z",
+      "ended_at": "2026-09-20T08:58:00.000Z",
+      "created_at": "2026-09-20T08:55:00.000Z",
+      "defects": [
+        "sample-v4-metrics-defect-dev-done"
+      ],
+      "case_defects": [
+        "sample-v4-metrics-defect-dev-done"
+      ],
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"admin_sample_data_v4\",\"message\":\"Illustrative saved result only. No browser, provider or production system was executed.\",\"stepStatuses\":{\"sample-v4-metrics-step-dev-done\":\"failed\"},\"stepNotes\":{\"sample-v4-metrics-step-dev-done\":\"Synthetic sample observation.\"}}"
+    },
+    {
+      "id": "sample-v4-metrics-result-blocked",
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-blocked",
+      "test_case_title": "Offline checkout blocked by a delivery defect · sample: verify the observable result",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "app_type_id": "sample-app-web",
+      "status": "blocked",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "duration_ms": 60000,
+      "started_at": "2026-09-20T08:55:00.000Z",
+      "ended_at": "2026-09-20T08:58:00.000Z",
+      "created_at": "2026-09-20T08:55:00.000Z",
+      "defects": [
+        "sample-v4-metrics-defect-blocked"
+      ],
+      "case_defects": [
+        "sample-v4-metrics-defect-blocked"
+      ],
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"admin_sample_data_v4\",\"message\":\"Illustrative saved result only. No browser, provider or production system was executed.\",\"stepStatuses\":{\"sample-v4-metrics-step-blocked\":\"blocked\"},\"stepNotes\":{\"sample-v4-metrics-step-blocked\":\"Synthetic sample observation.\"}}"
+    },
+    {
+      "id": "sample-v4-metrics-result-not-applicable",
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-not-applicable",
+      "test_case_title": "Optional device flow awaiting applicability review · sample: verify the observable result",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "app_type_id": "sample-app-web",
+      "status": "skipped",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "duration_ms": 0,
+      "started_at": "2026-09-20T08:55:00.000Z",
+      "ended_at": "2026-09-20T08:58:00.000Z",
+      "created_at": "2026-09-20T08:55:00.000Z",
+      "defects": [],
+      "case_defects": [],
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"admin_sample_data_v4\",\"message\":\"Illustrative saved result only. No browser, provider or production system was executed.\",\"stepStatuses\":{\"sample-v4-metrics-step-not-applicable\":\"skipped\"},\"stepNotes\":{\"sample-v4-metrics-step-not-applicable\":\"Synthetic sample observation.\"}}"
+    }
+  ]
+}

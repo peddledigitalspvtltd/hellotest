@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-result-1",
+      "execution_id": "sample-v5-data-run",
+      "test_case_id": "sample-v5-data-case-execution",
+      "test_case_title": "Inspect two saved override iterations · SYNTHETIC SAMPLE",
+      "suite_id": "sample-v5-data-suite",
+      "suite_name": "Scoped data walkthrough · SYNTHETIC SAMPLE",
+      "app_type_id": "sample-app-web",
+      "status": "failed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-20T08:30:00.000Z",
+      "ended_at": "2026-09-20T08:31:00.000Z",
+      "created_at": "2026-09-20T08:30:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v5-data-dataset-run",
+      "test_data_set_name": "Run override iterations · SYNTHETIC SAMPLE",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v5-data-dataset-run:1",
+      "data_set_row_snapshot": {
+        "t.email": "run-one@example.test",
+        "s.tenant": "run-tenant-a",
+        "r.build": "synthetic-rc-1",
+        "r.session_region": "run-region-a"
+      },
+      "defects": [
+        "sample-v5-data-defect"
+      ],
+      "case_defects": [],
+      "step_defects": {
+        "sample-v5-data-step-execution-shared": [
+          "sample-v5-data-defect"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v5\",\"message\":\"SYNTHETIC SAMPLE: authored saved evidence only; no browser, provider or production execution occurred.\",\"stepStatuses\":{\"sample-v5-data-step-execution-shared\":\"failed\",\"sample-v5-data-step-execution-local\":\"passed\"},\"stepNotes\":{\"sample-v5-data-step-execution-shared\":\"SYNTHETIC SAMPLE: illustrative region mismatch for exact Defect traceability.\"},\"stepDefects\":{\"sample-v5-data-step-execution-shared\":[\"sample-v5-data-defect\"]}}",
+      "error": "SYNTHETIC SAMPLE: shared session region mismatch.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-20T08:30:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-20T08:31:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v5-data-result-2",
+      "execution_id": "sample-v5-data-run",
+      "test_case_id": "sample-v5-data-case-execution",
+      "test_case_title": "Inspect two saved override iterations · SYNTHETIC SAMPLE",
+      "suite_id": "sample-v5-data-suite",
+      "suite_name": "Scoped data walkthrough · SYNTHETIC SAMPLE",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-20T08:31:00.000Z",
+      "ended_at": "2026-09-20T08:32:00.000Z",
+      "created_at": "2026-09-20T08:31:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v5-data-dataset-run",
+      "test_data_set_name": "Run override iterations · SYNTHETIC SAMPLE",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v5-data-dataset-run:2",
+      "data_set_row_snapshot": {
+        "t.email": "run-two@example.test",
+        "s.tenant": "run-tenant-b",
+        "r.build": "synthetic-rc-2",
+        "r.session_region": "run-region-b"
+      },
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v5\",\"message\":\"SYNTHETIC SAMPLE: authored saved evidence only; no browser, provider or production execution occurred.\",\"stepStatuses\":{\"sample-v5-data-step-execution-shared\":\"passed\",\"sample-v5-data-step-execution-local\":\"passed\"},\"stepNotes\":{\"sample-v5-data-step-execution-shared\":\"SYNTHETIC SAMPLE: illustrative matching region for the second saved row.\"},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-20T08:31:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-20T08:32:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    }
+  ]
+}

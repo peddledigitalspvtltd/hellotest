@@ -272,9 +272,29 @@ const getStatus = () => ({
   canonical_store: "postgresql"
 });
 
+// Discover persisted collections instead of relying on a process-local cache:
+// deletion must cover vectors written before an API restart or by another replica.
+const deleteProject = async ({ projectId, signal } = {}) => {
+  if (!isConfigured()) throw new Error("Qdrant project cleanup is not configured");
+  const id = text(projectId, 255);
+  if (!id) throw new Error("Project id is required for vector cleanup");
+  const { payload } = await request("/collections", { signal });
+  const prefix = `${settings().collectionPrefix}_d`;
+  const collections = asArray(payload?.result?.collections).map(row => row.name)
+    .filter(name => typeof name === "string" && name.startsWith(prefix) && /^\d+$/.test(name.slice(prefix.length)));
+  for (const name of collections) {
+    await request(`/collections/${encodeURIComponent(name)}/points/delete?wait=true`, {
+      method: "POST", signal, allow: [404],
+      body: { filter: { must: [{ key: "project_id", match: { value: id } }] } }
+    });
+  }
+  return { deleted: true, collections: collections.length };
+};
+
 module.exports = {
   PUBLIC_SCOPE,
   deleteSource,
+  deleteProject,
   getStatus,
   isConfigured,
   replaceDocument,

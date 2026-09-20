@@ -20,13 +20,13 @@ const suggestedPriority = (issue) => {
 
 exports.previewTriage = async ({ project, issueIds = [] }) => {
   const ids = [...new Set(issueIds.map((value) => String(value || "").trim()).filter(Boolean))];
-  if (!ids.length) throw new Error("Select at least one bug to triage");
-  if (ids.length > 50) throw new Error("Triage at most 50 bugs at a time");
+  if (!ids.length) throw new Error("Select at least one defect to triage");
+  if (ids.length > 50) throw new Error("Triage at most 50 defects at a time");
   const issues = [];
   for (const id of ids) {
     const issue = await issueService.getIssueItem(id);
     if (issue.project_id !== project.id) {
-      const error = new Error("Every selected bug must belong to the current project");
+      const error = new Error("Every selected defect must belong to the current project");
       error.statusCode = 403;
       throw error;
     }
@@ -55,7 +55,7 @@ exports.previewTriage = async ({ project, issueIds = [] }) => {
   const provenance = { capability: "bug-triage-preview", generation_mode: "deterministic", provider: "HelloTest evidence graph", model: null, request_id: `bug-triage-${Date.now()}`, input_fingerprint: fingerprint, generated_at: generatedAt, confidence: triage.some((item) => item.signals.length) ? 0.78 : 0.52, evidence, fallback_used: false, fallback_reason: null, requires_human_review: true };
   return {
     scope: { project_id: project.id, project_key: project.display_id || project.id, issue_count: issues.length, maximum_issue_count: 50 },
-    summary: `${issues.length} bug${issues.length === 1 ? "" : "s"} assessed from current HelloTest evidence. No issue was modified.`,
+    summary: `${issues.length} defect${issues.length === 1 ? "" : "s"} assessed from current HelloTest evidence. No defect was modified.`,
     triage,
     review_sequence: ["Review highest-impact recommendations first.", "Validate reproduction and linked evidence.", "Apply priority or status changes only after human approval."],
     limitations: ["Recommendations use the current HelloTest record and traceability fields; unrecorded production impact is not inferred."],
@@ -77,11 +77,11 @@ exports.previewTriage = async ({ project, issueIds = [] }) => {
 exports.bulkDelete = async ({ projectId, issueIds = [] }) => {
   const ids = [...new Set(issueIds.map((value) => String(value || "").trim()).filter(Boolean))];
   if (!ids.length) return { requested: 0, deleted: 0, deleted_ids: [], failed: 0, failures: [] };
-  if (ids.length > 200) throw new Error("Delete at most 200 bugs at a time");
+  if (ids.length > 200) throw new Error("Delete at most 200 defects at a time");
   const placeholders = ids.map(() => "?").join(",");
   const scoped = await db.prepare(`SELECT id, COALESCE(jira_bug_key, id) AS display_id FROM feedback WHERE project_id = ? AND id IN (${placeholders})`).all(projectId, ...ids);
   if (scoped.length !== ids.length) {
-    const error = new Error("One or more selected bugs are missing or outside the current project");
+    const error = new Error("One or more selected defects are missing or outside the current project");
     error.statusCode = 409;
     throw error;
   }

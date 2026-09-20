@@ -35,6 +35,7 @@ async function fixture() {
         if (name === '../services/requirementIteration.service') return { getIterationSummary: async () => ({ id: 'sprint', project_id: projectId }) };
         if (name === '../services/project.service') return { getProject: async () => ({ id: projectId }) };
         if (name === '../utils/pagination') return require('../src/utils/pagination');
+        if (name === '../runtime/httpConfig') return require('../src/runtime/httpConfig');
         return {};
       }
     });

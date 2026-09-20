@@ -35,3 +35,13 @@ test('workspace packs cover new shared controls and reject malformed imports wit
  assert.deepEqual(parseLocalizationPack('{"nav.dashboard":"Inicio","meta.language":"es"}'),{'nav.dashboard':'Inicio','meta.language':'es'});
  for(const text of ['[]','{"nav.dashboard":12}','{"meta.direction":"invalid"}','{"meta.language":"bad_tag"}','{"__proto__":"value"}']) assert.throws(()=>parseLocalizationPack(text));
 });
+
+test('legacy defect module labels normalize without changing localization keys or custom translations',()=>{
+ const overrides={'nav.reportIssue':'Report an Issue','nav.feedback':'Issues','page.issues':'issue','page.feedback':'Report a Bug','capability.bugs.name':'Bugs'};
+ const merged=localization.mergeLocalizationStrings(overrides);
+ for(const key of Object.keys(overrides)) assert.equal(merged[key],'Defects');
+ assert.equal(overrides['nav.reportIssue'],'Report an Issue','Saved input objects are not mutated');
+ const custom=localization.mergeLocalizationStrings({'page.issues':'Defect Triage','nav.reportIssue':'Defectos','custom.label':'Issues'});
+ assert.equal(custom['page.issues'],'Defect Triage');assert.equal(custom['nav.reportIssue'],'Defectos');assert.equal(custom['custom.label'],'Issues');
+ assert.equal(localization.mergeLocalizationStrings({'page.requirements':'Requirements'})['page.requirements'],'Stories');
+});

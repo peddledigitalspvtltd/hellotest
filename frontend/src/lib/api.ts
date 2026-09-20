@@ -1,3 +1,5 @@
+import type { TestDataOptions } from "../types";
+import { requestAiWithShorterContext } from "./aiRequestContext";
 import type { AnalyticsWindow, QualityOverview } from "./qualityAnalytics";
 import type { IntegrationConnectionInput, IntegrationConnectionResult } from "./integrationConnection";
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "../agents/types";
@@ -62,6 +64,8 @@ import type {
   Permission,
   PermissionGroup,
   Project,
+  ProjectDeletionJob,
+  ProjectDeletionResponse,
   ProjectPortfolioAnalytics,
   ProjectActivationBatchResult,
   ProjectActivationCatalog,
@@ -86,6 +90,7 @@ import type {
   SessionPayload,
   RecorderSessionResponse,
   SharedStepGroup,
+  SharedStepMetrics,
   SmartExecutionPreviewResponse,
   StoryGroomingPreviewResponse,
   TestConfiguration,
@@ -186,6 +191,8 @@ type AiRequirementCreationPreviewResponse = {
   generated: number;
   fallback_used: boolean;
   fallback_reason?: string | null;
+  context_reduced?: boolean;
+  context_reduction_reason?: string | null;
   request_id?: string;
   input_fingerprint?: string;
   evidence?: AiStoryEvidenceSource[];
@@ -630,6 +637,9 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000):
   }
 }
 
+const requestAiPreview = <T extends object>(path: string, init: RequestInit) =>
+  requestAiWithShorterContext<T>((nextInit) => request<T>(path, nextInit), init);
+
 async function requestKnowledgeStream(path: string, input: unknown, options: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void } = {}) {
   const scopedPath = appendCurrentProjectScope(path);
   const requestSession = readRequestSession();
@@ -748,6 +758,7 @@ type DashboardStyledReportPayload = {
 };
 
 type TestCaseImportBatchInput = {
+  row_offset?: number;
   file_name?: string;
   import_source: TestCaseImportSourceValue;
   rows: Array<Record<string, unknown>>;
@@ -772,7 +783,8 @@ const splitRowsForImport = (rows: Array<Record<string, unknown>>) => {
   let currentBytes = 0;
 
   rows.forEach((row) => {
-    const rowBytes = JSON.stringify(row).length + 2;
+    const rowBytes = new TextEncoder().encode(JSON.stringify(row)).length + 2;
+    if (rowBytes > MAX_IMPORT_REQUEST_BYTES) throw new Error("One import row exceeds 4 MB. Reduce embedded step/code content before importing.");
     const shouldStartNext =
       current.length > 0
       && (current.length >= MAX_IMPORT_ROWS_PER_BATCH || currentBytes + rowBytes > MAX_IMPORT_REQUEST_BYTES);
@@ -805,6 +817,7 @@ const splitTestCaseImportInput = (input: {
 
   if (input.batches?.length) {
     input.batches.forEach((batch) => {
+      let rowOffset = batch.row_offset || 0;
       splitRowsForImport(batch.rows || []).forEach((rows, index) => {
         payloads.push({
           app_type_id: input.app_type_id,
@@ -813,9 +826,11 @@ const splitTestCaseImportInput = (input: {
           batches: [{
             file_name: index ? `${batch.file_name || "import"} part ${index + 1}` : batch.file_name,
             import_source: batch.import_source,
+            row_offset: rowOffset,
             rows
           }]
         });
+        rowOffset += rows.length;
       });
     });
   } else if (input.rows?.length) {
@@ -864,7 +879,7 @@ export const api = {
       request<QualityDashboardGadgetResult>("/analytics/jql", { method: "POST", body: JSON.stringify(input) }),
     queryBatch: (input: { project_id: string; gadgets: QualityDashboardGadget[]; limit?: number }) =>
       request<QualityDashboardBatchResponse>("/analytics/jql-batch", { method: "POST", body: JSON.stringify(input) }),
-    designDashboard: (input: { project_id: string; stakeholder: "executive" | "product" | "quality" | "automation"; release?: string; goal?: string; prompt?: string; name?: string; additional_context?: string }) =>
+    designDashboard: (input: { project_id: string; stakeholder: "executive" | "product" | "quality" | "automation" | "traceability" | "delivery" | "triage"; release?: string; goal?: string; prompt?: string; name?: string; additional_context?: string }) =>
       request<QualityDashboardDesignPreviewResponse>("/analytics/dashboard-design-preview", { method: "POST", body: JSON.stringify(input) })
   },
   qualityDashboards: {
@@ -1111,7 +1126,14 @@ export const api = {
       request<{ id: string; duplicate?: boolean }>(`/projects/${id}/sync/${provider}`, { method: "POST" }),
     update: (id: string, input: Partial<{ name: string; description: string }>) =>
       request<{ updated: boolean }>(`/projects/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-    delete: (id: string) => request<{ deleted: boolean }>(`/projects/${id}`, { method: "DELETE" })
+    delete: (id: string) => request<ProjectDeletionResponse>(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    deletion: (id: string, options?: { signal?: AbortSignal }) =>
+      request<ProjectDeletionJob>(`/projects/${encodeURIComponent(id)}/deletion`, { signal: options?.signal, cache: "no-store" }).then((job) => {
+        // Completion happens after the DELETE response. Lists cached while the
+        // worker was running must be refreshed after this observation.
+        if (job.status === "completed") clientGetResponseCache.clear();
+        return job;
+      })
   },
   projectActivation: {
     projects: () => request<ProjectActivationCatalog>("/project-activation/projects"),
@@ -1157,6 +1179,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/app-types/${id}`, { method: "DELETE" })
   },
   requirements: {
+    updateReadiness: (id: string, input: { expected_revision: number; checks: Record<string, { status: "met" | "not_met" | "unverified"; evidence: string; attachment_id?: string }> }) =>
+      request<{ updated: true; revision: number }>(`/requirements/${id}/readiness`, { method: "PUT", body: JSON.stringify(input) }),
     metrics: (query: { project_id: string; include_sprints?: boolean } & import("./requirementCatalog").RequirementCatalogFilters) =>
       request<import("./requirementCatalog").RequirementCatalogMetricsResponse>(`/requirements/metrics${toQueryString({ ...query })}`),
     list: (query?: import("./requirementCatalog").RequirementCatalogFilters & { project_id?: string; status?: string; priority?: number; sprint_id?: string; unassigned?: boolean; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
@@ -1167,7 +1191,7 @@ export const api = {
       request<JiraIssueCreateMetadata>(`/requirements/create-metadata${toQueryString(query)}`),
     editMetadata: (id: string, query?: { project_id?: string }) =>
       request<JiraIssueCreateMetadata>(`/requirements/${id}/edit-metadata${toQueryString(query)}`),
-    create: (input: { project_id: string; title: string; description?: string; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
+    create: (input: { project_id: string; title: string; description?: string; acceptance_criteria?: string[]; gherkin_scenarios?: string[]; external_references?: string[]; labels?: string[]; sprint?: string; fix_version?: string; release?: string; release_id?: string; iteration_id?: string; dev_completion_target_date?: string; qa_completion_target_date?: string; scrum_team?: string; specification_format?: "gherkin" | "speckit"; specification_content?: string; priority?: number; status?: string; additional_fields?: Record<string, unknown>; related_requirement_ids?: string[] }) =>
       request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string; include_execution?: boolean }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
@@ -1216,7 +1240,7 @@ export const api = {
         body: JSON.stringify(input)
       }),
     previewCreation: (input: { project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
-      request<AiRequirementCreationPreviewResponse>("/requirements/ai-create-preview", {
+      requestAiPreview<AiRequirementCreationPreviewResponse>("/requirements/ai-create-preview", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1226,7 +1250,7 @@ export const api = {
         body: JSON.stringify(input)
       }),
     createGenerationJob: (input: { project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
-      request<AiRequirementGenerationJobResponse>("/requirements/ai-create-jobs", {
+      requestAiPreview<AiRequirementGenerationJobResponse>("/requirements/ai-create-jobs", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1235,7 +1259,7 @@ export const api = {
     listGenerationJobs: (query?: { project_id?: string; status?: string; limit?: number }) =>
       request<AiRequirementGenerationJobResponse[]>(`/requirements/ai-create-jobs${toQueryString(query)}`),
     previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
-      request<AiDesignPreviewResponse>(`/requirements/${id}/design-test-cases-preview`, {
+      requestAiPreview<AiDesignPreviewResponse>(`/requirements/${id}/design-test-cases-preview`, {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1245,7 +1269,7 @@ export const api = {
         body: JSON.stringify(input)
       }),
     previewOptimization: (id: string, input?: { integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; requirement_id?: string; selected_requirement_id?: string; single_requirement_only?: boolean; requirement_context?: Record<string, unknown> }) =>
-      request<{
+      requestAiPreview<{
         requirement: { id: string; title: string; description?: string; status?: string; priority?: number; external_references?: string[] };
         integration: { id: string; name: string; type: string; model?: string | null } | null;
         suggestion: {
@@ -1272,6 +1296,8 @@ export const api = {
         generation_mode?: "llm" | "deterministic" | "hybrid" | string;
         fallback_used: boolean;
         fallback_reason?: string | null;
+        context_reduced?: boolean;
+        context_reduction_reason?: string | null;
         request_id?: string;
         input_fingerprint?: string;
         requires_human_review?: boolean;
@@ -1282,11 +1308,11 @@ export const api = {
         body: JSON.stringify(input || {})
       }),
     generateTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; status?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
-      request<{ generated: number; created: Array<{ id: string; title: string; step_count: number }>; integration: { id: string; name: string; type: string; model?: string | null } }>(`/requirements/${id}/generate-test-cases`, {
+      requestAiPreview<{ generated: number; created: Array<{ id: string; title: string; step_count: number }>; integration: { id: string; name: string; type: string; model?: string | null } }>(`/requirements/${id}/generate-test-cases`, {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; gherkin_scenarios: string[]; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; iteration_id: string; dev_completion_target_date: string; qa_completion_target_date: string; scrum_team: string; specification_format: "gherkin" | "speckit"; specification_content: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ project_id: string; title: string; description: string; acceptance_criteria: string[]; gherkin_scenarios: string[]; external_references: string[]; labels: string[]; sprint: string; fix_version: string; release: string; release_id: string; iteration_id: string; dev_completion_target_date: string; qa_completion_target_date: string; scrum_team: string; specification_format: "gherkin" | "speckit"; specification_content: string; priority: number; status: string; additional_fields: Record<string, unknown>; expected_revision: number }>) =>
       request<{
         updated: boolean;
         revision: number;
@@ -1584,7 +1610,7 @@ export const api = {
         body: JSON.stringify({ test_case_ids, append })
       }),
     removeCases: (id: string, test_case_ids: string[]) =>
-      request<{ updated: boolean; removed: number }>(`/test-case-modules/${id}/test-cases`, {
+      request<{ updated: boolean; removed: number; retained_test_case_ids?: string[]; message?: string }>(`/test-case-modules/${id}/test-cases`, {
         method: "DELETE",
         body: JSON.stringify({ test_case_ids })
       }),
@@ -1593,9 +1619,9 @@ export const api = {
   testSuites: {
     list: (query?: { app_type_id?: string; project_id?: string; projection?: "picker" | "summary"; case_search?: string; module_id?: string; requirement_id?: string; label?: string; shared_step_group_id?: string }, options?: { signal?: AbortSignal }) =>
       request<TestSuite[]>(`/test-suites${toQueryString(query)}`, { signal: options?.signal }),
-    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_set_id?: string | null; parallel_enabled?: boolean; parallel_count?: number }) =>
+    create: (input: { app_type_id: string; name: string; description?: string; labels?: string[]; parameter_values?: Record<string, string>; test_data_options?: TestDataOptions; test_data_set_id?: string | null; test_case_ids?: string[]; parallel_enabled?: boolean; parallel_count?: number }) =>
       request<{ id: string }>("/test-suites", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_set_id: string | null; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
+    update: (id: string, input: Partial<{ name: string; description: string; labels: string[]; parameter_values: Record<string, string>; test_data_options: TestDataOptions; test_data_set_id: string | null; test_case_ids: string[]; parallel_enabled: boolean; parallel_count: number; expected_revision: number }>) =>
       request<{ updated: boolean; revision: number }>(`/test-suites/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     assignTestCases: (id: string, test_case_ids: string[], expected_revision?: number, append = true) =>
       request<{ updated: boolean; assigned: number; revision: number }>(`/test-suites/${id}/assign-test-cases`, {
@@ -1606,7 +1632,7 @@ export const api = {
   },
   testCases: {
     reviewSummary: (query: { project_id?: string; app_type_id?: string }, options?: { signal?: AbortSignal }) =>
-      request<{ pending: number }>(`/test-cases/review-summary${toQueryString(query)}`, { signal: options?.signal }),
+      request<{ pending: number; overall_pending: number }>(`/test-cases/review-summary${toQueryString(query)}`, { signal: options?.signal }),
     metrics: (query?: import("./testCaseCatalog").TestCaseCatalogFilters & { app_type_id?: string; project_id?: string }) =>
       request<import("./testCaseCatalog").TestCaseCatalogMetrics>(`/test-cases/metrics${toQueryString(query)}`),
     list: (query?: { project_id?: string; suite_id?: string; requirement_id?: string; module_id?: string; unassigned_module?: boolean; status?: string; app_type_id?: string; page_size?: number; limit?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
@@ -1619,7 +1645,7 @@ export const api = {
       request<TestCase[]>("/test-cases/resolve-requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string }, options?: { signal?: AbortSignal }) =>
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`, { signal: options?.signal }),
-    create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
+    create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; test_data_options?: TestDataOptions; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
     previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
@@ -1648,7 +1674,7 @@ export const api = {
         }>;
       };
     }) =>
-      request<AiCaseAuthoringPreviewResponse>("/test-cases/ai-authoring-preview", {
+      requestAiPreview<AiCaseAuthoringPreviewResponse>("/test-cases/ai-authoring-preview", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1674,7 +1700,7 @@ export const api = {
         body: JSON.stringify(input)
       }),
     previewDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
-      request<AiDesignPreviewResponse>("/test-cases/design-test-cases-preview", {
+      requestAiPreview<AiDesignPreviewResponse>("/test-cases/design-test-cases-preview", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1696,7 +1722,7 @@ export const api = {
       images?: AiDesignImageInput[];
       authoring_mode?: "structured" | "gherkin";
     }) =>
-      request<{ id: string }>("/test-cases/ai-generation-jobs", {
+      requestAiPreview<{ id: string }>("/test-cases/ai-generation-jobs", {
         method: "POST",
         body: JSON.stringify(input)
       }),
@@ -1708,7 +1734,7 @@ export const api = {
       request<{ deleted: boolean }>(`/test-cases/${id}/reject-generated`, {
         method: "DELETE"
       }),
-    bulkImport: (input: {
+    bulkImport: async (input: {
       app_type_id: string;
       requirement_id?: string;
       import_source?: TestCaseImportSourceValue;
@@ -1717,23 +1743,20 @@ export const api = {
     }) => {
       const payloads = splitTestCaseImportInput(input);
 
-      return Promise.all(
-        payloads.map((payload) =>
-          request<BatchQueueResponse>("/test-cases/import", {
-            method: "POST",
-            body: JSON.stringify(payload)
-          })
-        )
-      ).then((responses) => {
-        const first = responses[0];
+      const responses: BatchQueueResponse[] = [];
+      for (const [index, payload] of payloads.entries()) {
+        try {
+          responses.push(await request<BatchQueueResponse>("/test-cases/import", { method: "POST", body: JSON.stringify(payload) }));
+        } catch (error) {
+          if (!responses.length) throw error;
+          throw Object.assign(new Error(`${responses.length} batch process${responses.length === 1 ? "" : "es"} queued. Remaining batches could not be queued: ${error instanceof Error ? error.message : "request failed"}. Track accepted batches in TestOps: ${responses.map(response => response.transaction_id).join(", ")}`), {
+            remaining_payloads: payloads.slice(index), queued_transaction_ids: responses.map(response => response.transaction_id)
+          });
+        }
+      }
+      return { ...responses[0], transaction_ids: responses.map(response => response.transaction_id),
+        job_ids: responses.map(response => response.job_id).filter(Boolean) as string[], split_count: responses.length };
 
-        return {
-          ...first,
-          transaction_ids: responses.map((response) => response.transaction_id),
-          job_ids: responses.map((response) => response.job_id).filter(Boolean) as string[],
-          split_count: responses.length
-        };
-      });
     },
     exportCases: (input: { app_type_id: string; test_case_ids?: string[] }) =>
       request<BatchQueueResponse>("/test-cases/export", {
@@ -1910,7 +1933,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; suite_id: string; suite_ids: string[]; title: string; description: string; external_references: string[]; labels: string[]; parameter_values: Record<string, string>; automated: "yes" | "no"; automation_status: "not_automated" | "ready" | "incomplete"; manual_test_case_id: string | null; manual_test_case_ids: string[]; authoring_mode: "structured" | "gherkin"; test_case_type: TestCase["test_case_type"]; gherkin_document: string | null; test_data_set_ids: string[]; test_data_options: TestDataOptions; priority: number; status: string; requirement_id: string; requirement_ids: string[]; author_id: string; reviewer_id: string | null; review_status: TestCase["review_status"]; review_history: TestCase["review_history"]; ai_quality_score: number | null; expected_revision: number; steps: Array<{ id?: string; test_case_id?: string; step_order?: number; action?: string | null; expected_result?: string | null; step_type?: TestStep["step_type"]; automation_code?: string | null; api_request?: TestStep["api_request"]; group_id?: string | null; group_name?: string | null; group_kind?: "local" | "reusable" | null; reusable_group_id?: string | null }> }>) =>
       request<{ updated: boolean; revision: number }>(`/test-cases/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     review: (id: string, input: { review_status: "accepted" | "changes_requested"; comment?: string; expected_updated_at?: string; expected_revision?: number }) =>
       request<{ updated: boolean; review: NonNullable<TestCase["review_history"]>[number] }>(`/test-cases/${id}/review`, {
@@ -2028,13 +2051,15 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-steps/${id}`, { method: "DELETE" })
   },
   sharedStepGroups: {
+    metrics: (query: { app_type_id: string }, options?: { signal?: AbortSignal }) =>
+      request<SharedStepMetrics>(`/shared-step-groups/metrics${toQueryString(query)}`, { signal: options?.signal }),
     list: (query?: { app_type_id?: string; project_id?: string }, options?: { signal?: AbortSignal }) =>
       request<SharedStepGroup[]>(`/shared-step-groups${toQueryString(query)}`, { signal: options?.signal }),
     get: (id: string) =>
       request<SharedStepGroup>(`/shared-step-groups/${id}`),
-    create: (input: { app_type_id: string; name: string; description?: string; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }) =>
+    create: (input: { app_type_id: string; name: string; description?: string; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string; parameter_values?: Record<string, string>; test_data_set_id?: string | null; test_data_row_index?: number; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }) =>
       request<{ id: string }>("/shared-step-groups", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: Partial<{ app_type_id: string; name: string; description: string; authoring_mode: "structured" | "gherkin"; gherkin_document: string; parameter_values: Record<string, string>; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }>) =>
+    update: (id: string, input: Partial<{ app_type_id: string; name: string; description: string; authoring_mode: "structured" | "gherkin"; gherkin_document: string; parameter_values: Record<string, string>; test_data_set_id: string | null; test_data_row_index: number; steps: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"] }> }>) =>
       request<SharedStepGroup>(`/shared-step-groups/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     delete: (id: string) => request<{ deleted: boolean }>(`/shared-step-groups/${id}`, { method: "DELETE" })
   },
@@ -2068,8 +2093,8 @@ export const api = {
     delete: (id: string) => request<{ deleted: boolean }>(`/test-data-sets/${id}`, { method: "DELETE" })
   },
   executions: {
-    parameterPlan: (input: { project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
-      request<{ expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
+    parameterPlan: (input: { suite_context_id?: string; data_scope?: "suite" | "run"; parameter_values?: Record<string, string>; project_id: string; app_type_id: string; execution_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
+      request<{ expected_instance_count: number; case_count: number; suite_count: number; suite_ids: string[]; data_set_validation?: import("../types").DataSetValidation | null; parameters: Array<{ name: string; token: string; scope: "t" | "s" | "r"; case_count: number }> }>("/executions/parameter-plan", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; app_type_id?: string; status?: string; test_case_id?: string; page_size?: number }, options?: { signal?: AbortSignal }) =>
       request<Execution[]>(`/executions${toQueryString(query)}`, { signal: options?.signal }),
     history: (query: { project_id: string; app_type_id?: string; requirement_id?: string; test_case_id?: string; page_size?: number }) =>
@@ -2081,13 +2106,13 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string }) =>
+    previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
-    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>
       request<{ id: string; transaction_id?: string; audit_status?: "completed" | "acceptance-recorded" }>("/executions", { method: "POST", body: JSON.stringify(input) }),
-    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; name?: string; start_date?: string; end_date?: string; created_by: string; engine_base_url?: string }) =>
+    createLocalRun: (input: { project_id: string; app_type_id: string; test_case_ids: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; created_by: string; engine_base_url?: string }) =>
       request<ExecutionStartResponse & { id: string; execution_mode: "local"; engine_base_url: string }>("/executions/local-run", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: { name?: string; start_date?: string | null; end_date?: string | null; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string | null; test_configuration_id?: string | null; test_data_set_id?: string | null; execution_mode?: "manual" | "remote" | "local"; parallel_enabled?: boolean; parallel_count?: number; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; build?: string; expected_revision?: number }) =>
+    update: (id: string, input: { name?: string; start_date?: string | null; end_date?: string | null; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string | null; test_configuration_id?: string | null; test_data_options?: TestDataOptions; test_data_set_id?: string | null; execution_mode?: "manual" | "remote" | "local"; parallel_enabled?: boolean; parallel_count?: number; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; expected_revision?: number }) =>
       request<{ updated: boolean; revision: number }>(`/executions/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     runApiStep: (executionId: string, testCaseId: string, stepId: string, input?: { data_set_iteration_index?: number }) =>
       request<{
@@ -2154,9 +2179,9 @@ export const api = {
       request<ExecutionSchedule[]>(`/execution-schedules${toQueryString(query)}`),
     get: (id: string) =>
       request<ExecutionSchedule>(`/execution-schedules/${id}`),
-    create: (input: { project_id: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[]; created_by: string }) =>
+    create: (input: { project_id: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[]; created_by: string }) =>
       request<{ id: string }>("/execution-schedules", { method: "POST", body: JSON.stringify(input) }),
-    update: (id: string, input: { project_id?: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[] }) =>
+    update: (id: string, input: { project_id?: string; app_type_id?: string; name?: string; cadence?: string; next_run_at?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; release?: string; sprint?: string; build?: string; assigned_to?: string; assigned_to_ids?: string[] }) =>
       request<ExecutionSchedule>(`/execution-schedules/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     run: (id: string) =>
       request<{ id: string }>(`/execution-schedules/${id}/run`, { method: "POST" }),
@@ -2291,7 +2316,7 @@ export const api = {
       request<ExecutionResult>("/execution-results/lifecycle", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: { project_id?: string; execution_id?: string; test_case_id?: string; app_type_id?: string; run_limit?: number; limit?: number; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
       request<ExecutionResult[]>(`/execution-results${toQueryString(query)}`, { signal: options?.signal }),
-    releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; run_limit?: number; result_limit?: number }) =>
+    releaseReadiness: (query: { project_id: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; run_limit?: number; result_limit?: number }) =>
       request<ReleaseReadinessExecutionEvidence>(`/execution-results/release-readiness${toQueryString(query)}`),
     create: (input: { execution_id: string; test_case_id: string; app_type_id: string; status: ExecutionResult["status"]; duration_ms?: number; error?: string; logs?: string; test_data_set_id?: string; test_data_set_name?: string; data_set_iteration_index?: number; data_set_iteration_key?: string; data_set_row_snapshot?: Record<string, string>; external_references?: string[]; defects?: string[]; executed_by?: string }) =>
       request<{ id: string; revision: number }>("/execution-results", { method: "POST", body: JSON.stringify(input) }),

@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-step-login-1",
+      "test_case_id": "sample-v2-case-login",
+      "step_order": 1,
+      "action": "Given a verified customer account",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-preconditions-login",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-login-2",
+      "test_case_id": "sample-v2-case-login",
+      "step_order": 2,
+      "action": "When the customer signs in with <email>",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-group-login",
+      "group_name": "Customer signs in",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-login-3",
+      "test_case_id": "sample-v2-case-login",
+      "step_order": 3,
+      "action": "Then the account overview is displayed",
+      "expected_result": "the account overview is displayed",
+      "step_type": "web",
+      "group_id": "sample-group-login",
+      "group_name": "Customer signs in",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-checkout-1",
+      "test_case_id": "sample-v2-case-checkout",
+      "step_order": 1,
+      "action": "Given a basket with an in-stock product",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-preconditions-checkout",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-checkout-2",
+      "test_case_id": "sample-v2-case-checkout",
+      "step_order": 2,
+      "action": "When the customer pays with <payment_method>",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-group-checkout",
+      "group_name": "Customer completes checkout",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-checkout-3",
+      "test_case_id": "sample-v2-case-checkout",
+      "step_order": 3,
+      "action": "Then one order is created and a receipt is displayed",
+      "expected_result": "one order is created and a receipt is displayed",
+      "step_type": "web",
+      "group_id": "sample-group-checkout",
+      "group_name": "Customer completes checkout",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-keyboard-1",
+      "test_case_id": "sample-v2-case-keyboard",
+      "step_order": 1,
+      "action": "Given checkout is open without using a pointer",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-preconditions-keyboard",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-keyboard-2",
+      "test_case_id": "sample-v2-case-keyboard",
+      "step_order": 2,
+      "action": "When the customer tabs through each payment control",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-group-keyboard",
+      "group_name": "Checkout supports keyboard navigation",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-keyboard-3",
+      "test_case_id": "sample-v2-case-keyboard",
+      "step_order": 3,
+      "action": "Then focus remains visible and reaches the confirmation button",
+      "expected_result": "focus remains visible and reaches the confirmation button",
+      "step_type": "web",
+      "group_id": "sample-group-keyboard",
+      "group_name": "Checkout supports keyboard navigation",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-expired-session-1",
+      "test_case_id": "sample-v2-case-expired-session",
+      "step_order": 1,
+      "action": "Given a basket exists and the session has expired",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-preconditions-expired-session",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-expired-session-2",
+      "test_case_id": "sample-v2-case-expired-session",
+      "step_order": 2,
+      "action": "When the customer signs in again",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-group-expired-session",
+      "group_name": "Expired sessions preserve the basket",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-expired-session-3",
+      "test_case_id": "sample-v2-case-expired-session",
+      "step_order": 3,
+      "action": "Then the basket is restored without exposing another account",
+      "expected_result": "the basket is restored without exposing another account",
+      "step_type": "web",
+      "group_id": "sample-group-expired-session",
+      "group_name": "Expired sessions preserve the basket",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-declined-payment-1",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "step_order": 1,
+      "action": "Given the payment provider declines the first authorization",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-preconditions-declined-payment",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-declined-payment-2",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "step_order": 2,
+      "action": "When the customer retries with an approved payment method",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "web",
+      "group_id": "sample-group-declined-payment",
+      "group_name": "Declined payments allow a safe retry",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-declined-payment-3",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "step_order": 3,
+      "action": "Then one charge and one order are created",
+      "expected_result": "one charge and one order are created",
+      "step_type": "web",
+      "group_id": "sample-group-declined-payment",
+      "group_name": "Declined payments allow a safe retry",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-stock-api-1",
+      "test_case_id": "sample-v2-case-stock-api",
+      "step_order": 1,
+      "action": "Given SKU <sku> exists in the staging inventory",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-preconditions-stock-api",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-stock-api-2",
+      "test_case_id": "sample-v2-case-stock-api",
+      "step_order": 2,
+      "action": "When GET /v1/inventory/<sku> is requested",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-group-stock-api",
+      "group_name": "Inventory API returns available stock",
+      "group_kind": "local",
+      "api_request": {
+        "method": "GET",
+        "url": "{{base_url}}/v1/inventory/{{sku}}",
+        "headers": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "enabled": true
+          }
+        ],
+        "body": "",
+        "body_mode": "none",
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-step-stock-api-3",
+      "test_case_id": "sample-v2-case-stock-api",
+      "step_order": 3,
+      "action": "Then the response is 200 and available quantity is non-negative",
+      "expected_result": "the response is 200 and available quantity is non-negative",
+      "step_type": "api",
+      "group_id": "sample-group-stock-api",
+      "group_name": "Inventory API returns available stock",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-duplicate-api-1",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "step_order": 1,
+      "action": "Given an order was created with idempotency key <request_key>",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-preconditions-duplicate-api",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-duplicate-api-2",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "step_order": 2,
+      "action": "When POST /v1/orders is repeated with the same key",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-group-duplicate-api",
+      "group_name": "Order API rejects duplicate idempotency keys",
+      "group_kind": "local",
+      "api_request": {
+        "method": "POST",
+        "url": "{{base_url}}/v1/orders",
+        "headers": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "enabled": true
+          }
+        ],
+        "body": "{\"sku\":\"{{sku}}\",\"quantity\":1}",
+        "body_mode": "json",
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "200"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-step-duplicate-api-3",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "step_order": 3,
+      "action": "Then the existing order is returned without a second charge",
+      "expected_result": "the existing order is returned without a second charge",
+      "step_type": "api",
+      "group_id": "sample-group-duplicate-api",
+      "group_name": "Order API rejects duplicate idempotency keys",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-unauthorized-api-1",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "step_order": 1,
+      "action": "Given no customer authorization is provided",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-preconditions-unauthorized-api",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-unauthorized-api-2",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "step_order": 2,
+      "action": "When GET /v1/orders is requested",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "api",
+      "group_id": "sample-group-unauthorized-api",
+      "group_name": "Order API requires authentication",
+      "group_kind": "local",
+      "api_request": {
+        "method": "GET",
+        "url": "{{base_url}}/v1/orders",
+        "headers": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "enabled": true
+          }
+        ],
+        "body": "",
+        "body_mode": "none",
+        "validations": [
+          {
+            "kind": "status",
+            "expected": "401"
+          }
+        ]
+      }
+    },
+    {
+      "id": "sample-v2-step-unauthorized-api-3",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "step_order": 3,
+      "action": "Then the response is 401 without customer information",
+      "expected_result": "the response is 401 without customer information",
+      "step_type": "api",
+      "group_id": "sample-group-unauthorized-api",
+      "group_name": "Order API requires authentication",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-cart-1",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "step_order": 1,
+      "action": "Given a customer added a product to the mobile basket",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-preconditions-mobile-cart",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-cart-2",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "step_order": 2,
+      "action": "When the app is closed and reopened",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-cart",
+      "group_name": "Mobile basket survives an app restart",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-cart-3",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "step_order": 3,
+      "action": "Then the product and quantity are retained",
+      "expected_result": "the product and quantity are retained",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-cart",
+      "group_name": "Mobile basket survives an app restart",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-offline-1",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "step_order": 1,
+      "action": "Given the basket has an in-stock product",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-preconditions-mobile-offline",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-offline-2",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "step_order": 2,
+      "action": "When the customer starts checkout without a network connection",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-offline",
+      "group_name": "Mobile checkout explains an offline connection",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-offline-3",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "step_order": 3,
+      "action": "Then an offline message is shown and the basket remains intact",
+      "expected_result": "an offline message is shown and the basket remains intact",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-offline",
+      "group_name": "Mobile checkout explains an offline connection",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-accessibility-1",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "step_order": 1,
+      "action": "Given the accessibility reader is enabled",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-preconditions-mobile-accessibility",
+      "group_name": "Preconditions",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-accessibility-2",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "step_order": 2,
+      "action": "When the customer navigates basket controls",
+      "expected_result": "The precondition or action is completed.",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-accessibility",
+      "group_name": "Mobile controls have accessible labels",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v2-step-mobile-accessibility-3",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "step_order": 3,
+      "action": "Then each control announces its name and state",
+      "expected_result": "each control announces its name and state",
+      "step_type": "android",
+      "group_id": "sample-group-mobile-accessibility",
+      "group_name": "Mobile controls have accessible labels",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v4-metrics-step-qa-done",
+      "test_case_id": "sample-v4-metrics-case-qa-done",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Review the synthetic customer action.",
+      "expected_result": "The saved example matches the expected customer outcome."
+    },
+    {
+      "id": "sample-v4-metrics-step-dev-done",
+      "test_case_id": "sample-v4-metrics-case-dev-done",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Review the synthetic customer action.",
+      "expected_result": "The saved example matches the expected customer outcome."
+    },
+    {
+      "id": "sample-v4-metrics-step-blocked",
+      "test_case_id": "sample-v4-metrics-case-blocked",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Review the synthetic customer action.",
+      "expected_result": "The saved example matches the expected customer outcome."
+    },
+    {
+      "id": "sample-v4-metrics-step-not-applicable",
+      "test_case_id": "sample-v4-metrics-case-not-applicable",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Review the synthetic customer action.",
+      "expected_result": "The saved example matches the expected customer outcome."
+    },
+    {
+      "id": "sample-v4-metrics-step-backlog-covered",
+      "test_case_id": "sample-v4-metrics-case-backlog-covered",
+      "step_order": 1,
+      "step_type": "web",
+      "action": "Review the synthetic customer action.",
+      "expected_result": "The saved example matches the expected customer outcome."
+    }
+  ]
+}

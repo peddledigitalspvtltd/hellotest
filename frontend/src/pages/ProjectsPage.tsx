@@ -44,6 +44,8 @@ import { LoadingState } from "../components/LoadingState";
 import { JiraAttachmentPanel } from "../components/JiraAttachmentPanel";
 import { Panel } from "../components/Panel";
 import { ProgressMeter } from "../components/ProgressMeter";
+import { ProjectDeletionProgress } from "../components/ProjectDeletionProgress";
+import { ProjectMetricBreakdown } from "../components/ProjectMetricBreakdown";
 import { ProjectTraceabilityMap } from "../components/ProjectTraceabilityMap";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import {
@@ -59,6 +61,7 @@ import { ToastMessage } from "../components/ToastMessage";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject";
+import { useProjectDeletions } from "../hooks/useProjectDeletions";
 import { useDomainMetadata } from "../hooks/useDomainMetadata";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
@@ -72,7 +75,7 @@ import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import { hasPermission } from "../lib/permissions";
 import { resolveVisibleEmail } from "../lib/userDisplay";
-import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioImpact, Requirement, RequirementIteration, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
+import type { AppType, Execution, ExecutionResult, Issue, JiraAttachment, Project, ProjectPortfolioAnalyticsItem, ProjectPortfolioImpact, Requirement, RequirementIteration, TestCase, TestCaseModule, WorkspaceTransaction } from "../types";
 import "./ProjectsPage.css";
 
 type ProjectSection = "details" | "members" | "applications" | "attachments" | "traceability";
@@ -152,6 +155,7 @@ type ProjectHealthTone = "success" | "warning" | "danger" | "neutral";
 type ProjectPortfolioItem = {
   project: Project;
   metricsReady: boolean;
+  latestRunPassRate: ProjectPortfolioAnalyticsItem["latest_run_pass_rate"] | undefined;
   memberCount: number;
   memberNames: string[];
   memberUserIds: string[];
@@ -229,24 +233,10 @@ const emptyPassCoverage: ProjectPassCoverage = {
 };
 
 const formatPassCoverageDetail = (coverage: ProjectPassCoverage) => coverage.totalCases
-  ? `${coverage.testCasePassed}/${coverage.testCaseTotal} tests passed · ${coverage.bugResolved}/${coverage.bugTotal} Bugs resolved`
-  : "No finalized tests or Bugs available to measure pass rate";
+  ? `${coverage.testCasePassed}/${coverage.testCaseTotal} tests passed · ${coverage.bugResolved}/${coverage.bugTotal} Defects resolved`
+  : "No finalized tests or Defects available to measure pass rate";
 
-const getMetricTone = (covered: number, total: number) => {
-  if (!total) {
-    return "neutral" as const;
-  }
 
-  if (covered >= total) {
-    return "success" as const;
-  }
-
-  if (covered > 0) {
-    return "info" as const;
-  }
-
-  return "danger" as const;
-};
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
@@ -469,7 +459,7 @@ const getProjectInsight = (item: Omit<ProjectPortfolioItem, "insight">) => {
   }
 
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent >= 80) {
-    return "Quality confidence is strong. Keep monitoring high-risk applications and Bugs for regressions.";
+    return "Quality confidence is strong. Keep monitoring high-risk applications and Defects for regressions.";
   }
 
   return "Project scope is available. Add recent execution evidence to improve readiness confidence.";
@@ -506,8 +496,8 @@ const getProjectRiskSignals = (item: ProjectPortfolioItem) => {
 
   if (item.openBugCount > 0) {
     signals.push({
-      label: "Open Bug exposure",
-      detail: `${formatCompactCount(item.openBugCount, "open Bug")} currently affects the project scope.`,
+      label: "Open Defect exposure",
+      detail: `${formatCompactCount(item.openBugCount, "open Defect")} currently affects the project scope.`,
       tone: "warning"
     });
   }
@@ -515,7 +505,7 @@ const getProjectRiskSignals = (item: ProjectPortfolioItem) => {
   if (item.passCoverage.totalCases > 0 && item.passCoverage.coveragePercent < 60) {
     signals.push({
       label: "Pass rate below threshold",
-      detail: `${item.passCoverage.coveragePercent}% combined Test Case and Bug pass rate is below the 60% risk threshold.`,
+      detail: `${item.passCoverage.coveragePercent}% combined Test Case and Defect pass rate is below the 60% risk threshold.`,
       tone: "danger"
     });
   }
@@ -1118,6 +1108,7 @@ export function ProjectsPage() {
       const baseItem = {
         project,
         metricsReady: Boolean(exactMetric),
+        latestRunPassRate: exactMetric?.latest_run_pass_rate,
         memberCount: exactMetric?.counts.members ?? memberCountByProjectId[project.id] ?? 0,
         memberNames,
         memberUserIds: exactMetric?.members.map((member) => member.user_id) || Array.from(projectMemberUserIds),
@@ -1734,22 +1725,16 @@ export function ProjectsPage() {
       setMessage(error instanceof Error ? error.message : "Unable to queue project sync");
     }
   });
-  const deleteProject = useMutation({
-    mutationFn: api.projects.delete,
-    onSuccess: async (_, deletedProjectId) => {
+  const projectDeletions = useProjectDeletions(session?.user.id || "", (deletedProjectId, projectName) => {
       setMessageTone("success");
-      setMessage("Project deleted.");
-      setFocusedProjectId("");
+      setMessage(`Project "${projectName}" deleted.`);
+      setFocusedProjectId((current) => current === deletedProjectId ? "" : current);
       setSelectedActionProjectIds((current) => current.filter((projectId) => projectId !== deletedProjectId));
       if (selectedProjectId === deletedProjectId) {
         setSelectedProjectId("");
       }
-      await invalidateWorkspace();
-    },
-    onError: (error) => {
-      setMessageTone("error");
-      setMessage(error instanceof Error ? error.message : "Unable to delete project");
-    }
+      queryClient.removeQueries({ queryKey: ["projects", "detail", deletedProjectId] });
+      void invalidateWorkspace();
   });
 
   const openCreateProjectModal = () => {
@@ -1814,7 +1799,7 @@ export function ProjectsPage() {
   };
 
   const handleDeleteProject = async () => {
-    if (!focusedProject || deleteProject.isPending || !canDeleteProjects) {
+    if (!focusedProject || projectDeletions.isBusy(focusedProject.id) || !hasPermission(session, "project.delete", focusedProject.id)) {
       return;
     }
 
@@ -1824,15 +1809,17 @@ export function ProjectsPage() {
       return;
     }
 
-    await deleteProject.mutateAsync(focusedProject.id);
+    await projectDeletions.submit(focusedProject.id, focusedProject.name);
   };
 
   const handleDeleteSelectedProjects = async () => {
-    if (!selectedActionProjectIds.length || deleteProject.isPending || !canDeleteProjects) {
+    if (!selectedActionProjectIds.length || projectDeletions.submitting || !canDeleteProjects) {
       return;
     }
 
-    const selectedProjects = projectPortfolioItems.filter((item) => selectedActionProjectIds.includes(item.project.id));
+    const selectedProjects = projectPortfolioItems.filter((item) => selectedActionProjectIds.includes(item.project.id)
+      && !projectDeletions.isBusy(item.project.id) && hasPermission(session, "project.delete", item.project.id));
+    if (!selectedProjects.length) return;
     const confirmed = await confirmDelete({
       message: `Delete ${selectedProjects.length} selected project${selectedProjects.length === 1 ? "" : "s"} and all related data?`
     });
@@ -1841,11 +1828,11 @@ export function ProjectsPage() {
       return;
     }
 
-    for (const projectId of selectedActionProjectIds) {
-      await deleteProject.mutateAsync(projectId);
+    // Bound request concurrency, but never wait for a project's background job
+    // to finish before queueing the rest of the confirmed selection.
+    for (let offset = 0; offset < selectedProjects.length; offset += 4) {
+      await Promise.all(selectedProjects.slice(offset, offset + 4).map(({ project }) => projectDeletions.submit(project.id, project.name)));
     }
-
-    setSelectedActionProjectIds([]);
   };
 
   const updateProjectDraft = (input: Partial<ProjectCreateDraft>) => {
@@ -2145,19 +2132,19 @@ export function ProjectsPage() {
       label: "Delete project",
       icon: <TrashIcon />,
       onClick: async () => {
-        setFocusedProjectId(item.project.id);
+        if (projectDeletions.isBusy(item.project.id)) return;
         const confirmed = await confirmDelete({ message: `Delete project "${item.project.name}" and all related data?` });
 
         if (confirmed) {
-          await deleteProject.mutateAsync(item.project.id);
+          await projectDeletions.submit(item.project.id, item.project.name);
         }
       },
-      disabled: deleteProject.isPending,
+      disabled: projectDeletions.isBusy(item.project.id),
       requiredPermissions: ["project.delete"],
       description: "Delete this project and related workspace data.",
       tone: "danger" as const
     }
-  ], [confirmDelete, deleteProject.isPending, deleteProject.mutateAsync, openPortfolioProject, openPortfolioProjectPath]);
+  ], [confirmDelete, projectDeletions, openPortfolioProject, openPortfolioProjectPath]);
 
   const projectListColumns = useMemo<Array<DataTableColumn<ProjectPortfolioItem>>>(() => [
     {
@@ -2304,9 +2291,9 @@ export function ProjectsPage() {
       sortValue: (item) => item.coverage.coveragePercent,
       render: (item) => item.project.has_access === false ? "—" : !item.metricsReady ? "—" : (
         <div className="projects-list-meta-cell">
-          <span>Story {item.coverage.coveragePercent}%</span>
+          <span>Overall Story Coverage {item.coverage.totalRequirements ? `${item.coverage.coveragePercent}%` : "—"}</span>
           <span>Auto {item.automationCoverage.coveragePercent}%</span>
-          <span>Pass {item.passCoverage.coveragePercent}%</span>
+          <span>Latest Run Pass Rate {item.latestRunPassRate?.percent == null ? "—" : `${item.latestRunPassRate.percent}%`}</span>
         </div>
       )
     },
@@ -2358,10 +2345,7 @@ export function ProjectsPage() {
         eyebrow="Portfolio"
         title="Projects"
         description="Create and govern project workspaces, application scope, membership, traceability, and portfolio quality from one place."
-      />
-
-      {!focusedProject && portfolioAnalyticsQuery.data ? (
-        <>
+        textAside={!focusedProject && portfolioAnalyticsQuery.data ? (
           <section className="projects-command-card projects-command-card--evidence" aria-label="Portfolio health evidence">
             <div className="projects-command-insight">
               <EvidenceFlipCard
@@ -2389,6 +2373,14 @@ export function ProjectsPage() {
               </button>
             </div>
           </section>
+        ) : undefined}
+      />
+
+      <ProjectDeletionProgress deletions={projectDeletions} />
+
+      {!focusedProject && portfolioAnalyticsQuery.data ? (
+        <>
+
 
           <section className="projects-stats-grid metric-strip page-metric-strip" aria-label="Portfolio summary">
             <PortfolioMetricCard
@@ -2405,7 +2397,7 @@ export function ProjectsPage() {
               caption="Needs immediate review"
               evidence={[
                 `${portfolioSummary.executionFailureCases} failed and ${portfolioSummary.executionBlockedCases} blocked latest outcomes`,
-                `${portfolioSummary.riskyLowPassProjects} below the ${portfolioSummary.riskPassThreshold}% Test Case and Bug pass-rate threshold`
+                `${portfolioSummary.riskyLowPassProjects} below the ${portfolioSummary.riskPassThreshold}% Test Case and Defect pass-rate threshold`
               ]}
               label="Risky Projects"
               criteriaKey="metric.project.risky_classification"
@@ -2548,14 +2540,14 @@ export function ProjectsPage() {
                   </button>
                   <button
                     className="ghost-button danger projects-catalog-delete-button"
-                    disabled={!selectedActionProjectIds.length || !canDeleteProjects || deleteProject.isPending}
+                    disabled={!selectedActionProjectIds.some((id) => !projectDeletions.isBusy(id)) || !canDeleteProjects || projectDeletions.submitting}
                     onClick={() => void handleDeleteSelectedProjects()}
                     type="button"
                   >
                     <TrashIcon />
                     <span>
-                      {deleteProject.isPending
-                        ? "Deleting…"
+                      {projectDeletions.submitting
+                        ? "Queueing deletion…"
                         : selectedActionProjectIds.length
                           ? `Delete selected (${selectedActionProjectIds.length})`
                           : "Delete selected"}
@@ -2570,13 +2562,21 @@ export function ProjectsPage() {
               projectViewMode === "tile" ? (
                 <div className="projects-grid">
                   {filteredProjectItems.map((item) => {
-                    const { project, coverage, passCoverage } = item;
+                    const { project, coverage, latestRunPassRate } = item;
                     const isLocked = project.has_access === false;
                     const isSelected = String(selectedProjectId) === String(project.id);
                     const requirementCoverageDetail = coverage.totalRequirements
-                      ? `${coverage.coveredRequirements}/${coverage.totalRequirements} stories covered`
+                      ? `${coverage.coveredRequirements}/${coverage.totalRequirements} Stories covered across the project`
                       : "No stories available to measure coverage";
-                    const passCoverageDetail = formatPassCoverageDetail(passCoverage);
+                    const latestRunDetail = !latestRunPassRate ? "Latest run metrics unavailable"
+                      : !latestRunPassRate.execution ? "No runs recorded"
+                        : latestRunPassRate.percent === null ? `No case outcomes recorded · ${latestRunPassRate.execution.name || latestRunPassRate.execution.id}`
+                          : `${latestRunPassRate.passed}/${latestRunPassRate.total} Test Cases passed · ${latestRunPassRate.execution.name || latestRunPassRate.execution.id}`;
+                    const runSegments = [
+                      ["passed", "Passed"], ["failed", "Failed"], ["not_applicable", "N/A"], ["blocked", "Blocked"],
+                      ["pending", "Not Run"], ["running", "Running"], ["paused", "Paused"], ["aborted", "Aborted"], ["skipped", "Skipped"], ["unknown", "Unknown"]
+                    ].map(([key, label]) => ({ key, label, count: latestRunPassRate?.counts[key] || 0 }))
+                      .filter(segment => segment.count > 0 || segment.key === "passed");
 
                     return (
                       <article
@@ -2676,17 +2676,20 @@ export function ProjectsPage() {
 
                         {item.metricsReady ? <>
                         <div className="project-card-progress-stack" aria-label={`${project.name} coverage summary`}>
-                          <ProjectProgressBar
+                          <ProjectMetricBreakdown
                             detail={requirementCoverageDetail}
-                            label="Story coverage"
-                            tone={getMetricTone(coverage.coveredRequirements, coverage.totalRequirements)}
-                            value={coverage.coveragePercent}
+                            label="Overall Story Coverage"
+                            percent={coverage.totalRequirements ? coverage.coveragePercent : null}
+                            total={coverage.totalRequirements}
+                            segments={[{ key: "covered", label: "Covered", count: coverage.coveredRequirements },
+                              { key: "uncovered", label: "Uncovered", count: coverage.totalRequirements - coverage.coveredRequirements }]}
                           />
-                          <ProjectProgressBar
-                            detail={passCoverageDetail}
-                            label="Pass rate"
-                            tone={getMetricTone(passCoverage.passedCases, passCoverage.totalCases)}
-                            value={passCoverage.coveragePercent}
+                          <ProjectMetricBreakdown
+                            detail={latestRunDetail}
+                            label="Latest Run Pass Rate"
+                            percent={latestRunPassRate?.percent ?? null}
+                            total={latestRunPassRate?.total || 0}
+                            segments={runSegments}
                           />
                         </div>
 
@@ -2694,7 +2697,7 @@ export function ProjectsPage() {
                           <TileCardMetric label="Stories" tone={item.requirementCount ? "info" : "neutral"} value={item.requirementCount} />
                           <TileCardMetric label="Modules" tone={item.moduleCount ? "info" : "neutral"} value={item.moduleCount} />
                           <TileCardMetric label="Test cases" tone={item.testCaseCount ? "success" : "neutral"} value={item.testCaseCount} />
-                          <TileCardMetric label="Bugs" tone={item.bugCount ? "danger" : "success"} value={item.bugCount} />
+                          <TileCardMetric label="Defects" tone={item.bugCount ? "danger" : "success"} value={item.bugCount} />
                         </div>
                         </> : <p className="project-metrics-status">{portfolioAnalyticsQuery.isError ? "Metrics unavailable" : "Loading scope and coverage metrics…"}</p>}
                         </>}
@@ -2855,13 +2858,13 @@ export function ProjectsPage() {
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
-                      aria-label={`Open bugs for ${focusedProject.name}`}
+                      aria-label={`Open defects for ${focusedProject.name}`}
                       className="mini-card project-metric-link-card metric-ribbon-card metric-evidence-trigger"
                       onClick={() => openProjectWorkspacePage("/issues")}
                       type="button"
                     >
                       <strong>{selectedPortfolioMetric ? selectedProjectBugCount : "—"}</strong>
-                      <span>Total Bugs</span>
+                      <span>Total Defects</span>
                       <span className="metric-evidence-hint">Open evidence</span>
                     </button>
                     <button
@@ -2901,11 +2904,11 @@ export function ProjectsPage() {
                     {canDeleteProjects ? (
                       <button
                         className="ghost-button danger"
-                        disabled={deleteProject.isPending}
+                        disabled={projectDeletions.isBusy(focusedProject.id)}
                         onClick={() => void handleDeleteProject()}
                         type="button"
                       >
-                        <span>{deleteProject.isPending ? "Deleting…" : "Delete project"}</span>
+                        <span>{projectDeletions.isBusy(focusedProject.id) ? "Deleting…" : "Delete project"}</span>
                       </button>
                     ) : null}
                   </div>
@@ -2934,12 +2937,12 @@ export function ProjectsPage() {
             ) : null}
 
             {section === "traceability" ? (
-              <Panel title="Traceability map" subtitle="Explore Story-to-Bug coverage for one application without leaving the project.">
+              <Panel title="Traceability map" subtitle="Explore Story-to-Defect coverage for one application without leaving the project.">
                 {scopedAppTypes.length && traceabilityAppTypeId ? (
                   isTraceabilityLoading ? <LoadingState label="Loading application traceability" /> : isTraceabilityError ? (
                     <div className="empty-state compact">
                       <strong>Traceability data could not be loaded.</strong>
-                      <span>Retry the Story, module, test case, and Bug queries without leaving this project.</span>
+                      <span>Retry the Story, module, test case, and Defect queries without leaving this project.</span>
                       <button className="ghost-button compact" onClick={() => {
                         void traceabilityRequirementsQuery.refetch();
                         void traceabilityCasesQuery.refetch();
@@ -3177,12 +3180,12 @@ export function ProjectsPage() {
                   value={portfolioSummary.executionFailureCases}
                 />
                 <EvidenceFlipCard
-                  caption="Finalized Test Case and Bug outcomes"
+                  caption="Finalized Test Case and Defect outcomes"
                   className="project-risk-summary-card"
                   evidence={[
                     `${portfolioAnalyticsQuery.data?.projects.filter((item) => item.pass_confidence.total > 0).length || 0} projects have finalized pass evidence`,
                     `${portfolioSummary.executionFailureCases} failed · ${portfolioSummary.executionBlockedCases} blocked latest-run cases`,
-                    "Running and unknown tests are excluded; resolved Bugs count as passed Bug outcomes"
+                    "Running and unknown tests are excluded; resolved Defects count as passed Defect outcomes"
                   ]}
                   frontIcon={<IconChartBar size={18} stroke={1.9} />}
                   label="Average pass rate"
@@ -3195,10 +3198,10 @@ export function ProjectsPage() {
                   evidence={[
                     compactImpactEvidence("Modules", portfolioSummary.bugImpacts.modules),
                     compactImpactEvidence("Stories", portfolioSummary.bugImpacts.requirements),
-                    `${portfolioSummary.bugCount} distinct Bugs across accessible projects`
+                    `${portfolioSummary.bugCount} distinct Defects across accessible projects`
                   ]}
                   frontIcon={<IconBug size={18} stroke={1.9} />}
-                  label="Bugs"
+                  label="Defects"
                   tone="warning"
                   value={portfolioSummary.bugCount}
                 />
@@ -3212,7 +3215,7 @@ export function ProjectsPage() {
                   <div>
                     <h3 id="project-risk-method-title">How the signal is calculated</h3>
                     <p>
-                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Bug pass rate at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
+                      Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Defect pass rate at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
                       Evidence policy requires {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.execution_evidence"]?.minimum_coverage_percent ?? 80)}% latest-run evidence coverage.
                     </p>
                   </div>
@@ -3220,11 +3223,11 @@ export function ProjectsPage() {
                 <dl>
                   <div>
                     <dt>Risky</dt>
-                    <dd>Latest failures or blockers, or combined Test Case and Bug pass rate below {portfolioSummary.riskPassThreshold}%.</dd>
+                    <dd>Latest failures or blockers, or combined Test Case and Defect pass rate below {portfolioSummary.riskPassThreshold}%.</dd>
                   </div>
                   <div>
                     <dt>Watch</dt>
-                    <dd>Readiness, evidence completeness, or open-Bug policy needs review.</dd>
+                    <dd>Readiness, evidence completeness, or open-Defect policy needs review.</dd>
                   </div>
                   <div>
                     <dt>Release ready</dt>
@@ -3273,7 +3276,7 @@ export function ProjectsPage() {
                               <strong>{item.readinessScore}%</strong>
                             </div>
                             <ProjectProgressBar
-                              detail="Configured Story coverage, automation coverage, and combined Test Case and Bug pass-rate weights"
+                              detail="Configured Story coverage, automation coverage, and combined Test Case and Defect pass-rate weights"
                               label="Weighted readiness"
                               tone={item.healthTone === "danger" ? "danger" : "info"}
                               value={item.readinessScore}
@@ -3307,7 +3310,7 @@ export function ProjectsPage() {
                               <small>{item.executionEvidence.evidenced}/{item.executionEvidence.total} latest outcomes evidenced</small>
                             </div>
                             <div>
-                              <dt>Bugs</dt>
+                              <dt>Defects</dt>
                               <dd>{item.bugCount}</dd>
                               <small>{item.openBugCount} open · {compactImpactEvidence("Modules", item.bugImpacts.modules)}</small>
                             </div>

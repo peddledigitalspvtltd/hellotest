@@ -49,7 +49,7 @@ const owned=(item,userId)=>item.reviewer_id?item.reviewer_id===userId:item.ai_ge
 function matching(input,userId=session.user.id){return window.cases.filter(item=>(!input.project_id||item.project_id===input.project_id)&&(!input.app_type_id||item.app_type_id===input.app_type_id)&&(!input.unassigned_module||!item.module_ids.length)&&(!input.review_queue||(pending(item)&&owned(item,userId)))&&(!input.search||item.title.toLowerCase().includes(input.search.toLowerCase())))}
 function paginate(items,input){const offset=input.cursor?items.findIndex(item=>item.id===input.cursor)+1:0;const page=items.slice(offset,offset+Math.min(10,input.page_size||10));return {items:structuredClone(page),next_cursor:offset+page.length<items.length?page.at(-1).id:null,is_last:offset+page.length>=items.length}}
 api.testCases.listPage=async(input)=>{window.calls.catalog.push(structuredClone(input));return paginate(matching(input),input)};
-api.testCases.reviewSummary=async input=>{const user=session.user.id;window.calls.summary.push({user,...input});if(window.pauseSummary)await new Promise(resolve=>{window.releaseSummary=resolve});return {pending:matching({...input,review_queue:'mine'},user).length}};
+api.testCases.reviewSummary=async input=>{const user=session.user.id;window.calls.summary.push({user,...input});if(window.pauseSummary)await new Promise(resolve=>{window.releaseSummary=resolve});return {pending:matching({...input,review_queue:'mine'},user).length,overall_pending:matching(input,user).filter(pending).length}};
 api.testCases.get=async id=>({...structuredClone(window.cases.find(item=>item.id===id)),detail_complete:true});
 const health=count=>({count,traceabilityPercent:0,executablePercent:100,automationPercent:0,summaryComplete:true,unknownSummaryCount:0,executionPercent:0,passRatePercent:null,latestPassRatePercent:null,stabilityPercent:null,averageExecutionMs:null,executionDurationSampleCount:0,pendingReviewCount:count,defectCount:0,defectDensity:0,riskCount:0});
 api.testCases.metrics=async input=>{window.calls.metrics.push(structuredClone(input));const total=matching(input).length;return {coverage:{total,covered:0,automated:0,automationKnown:total,withHistory:0,withSuites:0},catalog:{total,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'module-one':health(total-1)},unassigned:health(1)}};
@@ -58,7 +58,7 @@ api.testCaseModules.listCases=async(id,input)=>{window.calls.children.push({id,i
 api.testCases.review=async(id,input)=>{
  window.calls.review.push({id,input:structuredClone(input)});
  if(window.pauseReview)await new Promise(resolve=>{window.releaseReview=resolve});
- if(window.failReview)throw Object.assign(new Error('Review temporarily unavailable'),{status:503});
+ if(window.failReview || window.failCase===id)throw Object.assign(new Error('Review temporarily unavailable'),{status:503});
  const item=window.cases.find(item=>item.id===id);if(!owned(item,session.user.id))throw Object.assign(new Error('Reviewer changed'),{status:403});
  if(item.updated_at!==input.expected_updated_at||item.revision!==input.expected_revision)throw Object.assign(new Error('Test case changed; refresh before reviewing'),{status:409});
  item.review_status=input.review_status;if(item.ai_generation_source)item.ai_generation_review_status=input.review_status==='accepted'?'accepted':'rejected';
@@ -83,6 +83,8 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
   const review=page.getByRole('button',{name:/^Review Cases/});
   await review.waitFor();await page.waitForFunction(()=>document.querySelector('.test-case-review-count')?.textContent==='37');
+  const overall=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Pending Review',exact:true}).locator('strong');
+  assert.equal(await overall.innerText(),'39','Overall card includes every reviewer, personal action remains 37');
   await page.getByRole('textbox',{name:'Search test cases'}).fill('Ordinary catalog');
   await page.waitForFunction(()=>window.calls.catalog.some(item=>item.search==='Ordinary catalog'));
   assert.equal(await review.isEnabled(),true,'count and entry are independent of search, selection and AI feature flag');
@@ -133,6 +135,7 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   assert.equal(await page.evaluate(()=>window.cases.length),41,'No retains the case');
   assert.equal((await page.evaluate(()=>window.calls.legacy)).length,0);
   await page.getByRole('button',{name:'List view',exact:true}).click();
+  await page.locator('.test-case-review-actions:not(.is-icon-only)').first().waitFor();
   await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).innerText(),'Yes');
   assert.equal(await page.getByRole('button',{name:'Request changes for Manual review 03',exact:true}).innerText(),'No');
@@ -144,13 +147,33 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-3').review_status),'pending');
   await page.setViewportSize({width:390,height:844});
-  await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).scrollIntoViewIfNeeded();
+  await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).evaluate(node=>node.scrollIntoView({block:'center'}));
   await page.screenshot({path:artifacts+'/mobile.png'});
   await page.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
   await page.screenshot({path:artifacts+'/mobile-dark.png'});
   assert.equal(await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).isVisible(),true);
   await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
   await page.setViewportSize({width:1440,height:1000});
+  // Bulk decisions retain each revision and leave failed selections available.
+  await page.getByRole('button',{name:'Tile view',exact:true}).click();
+  await page.getByRole('checkbox',{name:'Select Test Case Updated manual review 03',exact:true}).check();
+  await page.getByRole('checkbox',{name:'Select Test Case AI review 04',exact:true}).check();
+  assert.equal(await review.count(),0,'Review Cases is replaced while eligible cases are selected');
+  await page.evaluate(()=>window.failCase='case-4');
+  await page.getByRole('button',{name:'Approve (2)',exact:true}).click();
+  await page.getByText(/1 Test Case approved.*1 could not be reviewed/).waitFor();
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-3').review_status),'accepted');
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-4').review_status),'pending');
+  await page.getByRole('button',{name:'Reject (1)',exact:true}).click();
+  const bulkDialog=page.getByRole('dialog',{name:'Reject selected Test Cases'});
+  await bulkDialog.getByPlaceholder('Add the changes needed before approval.').fill('Add the invalid input boundary');
+  await page.evaluate(()=>window.failCase=null);
+  await bulkDialog.getByRole('button',{name:'Reject Selected',exact:true}).click();
+  await bulkDialog.waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-4').review_status),'changes_requested');
+  assert.equal(await page.evaluate(()=>window.calls.review.filter(item=>item.id==='case-4').at(-1).input.comment),'Add the invalid input boundary');
+  await review.waitFor();
+  await page.screenshot({path:artifacts+'/bulk-reviewed.png'});
   // Identity switch cannot reuse another user's pending summary or cached queue.
   await page.evaluate(async()=>{window.pauseSummary=true;await window.changeUser('other')});
   await page.waitForFunction(()=>window.calls.summary.some(item=>item.user==='other'));
@@ -172,6 +195,9 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.evaluate(async()=>{window.changeScope('case-project','case-app');await window.changeUser('reviewer',true)});
   await page.waitForFunction(()=>window.calls.catalog.at(-1)?.app_type_id==='case-app');
   assert.equal(await review.isDisabled(),true,'view-only users cannot decide reviews');
+  await page.evaluate(()=>window.client.invalidateQueries({queryKey:['test-case-review-summary']}));
+  await page.waitForFunction(()=>document.querySelector('[aria-label="View evidence for Pending Review"] strong')?.textContent===String(window.cases.filter(item=>item.project_id==='case-project'&&item.app_type_id==='case-app'&&(item.review_status==='pending'||(item.ai_generation_source&&item.ai_generation_review_status==='pending'&&!['accepted','changes_requested'].includes(item.review_status)))).length));
+  assert.notEqual(await overall.innerText(),'—','View-only users can see overall pending count');
   assert.equal(await page.locator('.test-case-review-actions button').count(),0);
   assert.deepEqual(errors,[]);
  }finally{await browser?.close();await Promise.all([unlink(html).catch(()=>{}),unlink(tsx).catch(()=>{})])}

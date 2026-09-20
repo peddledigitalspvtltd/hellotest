@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-integration-llm",
+      "type": "llm",
+      "name": "LLM provider · sample (inactive)",
+      "base_url": "https://llm.example.test/v1",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-jira",
+      "type": "jira",
+      "name": "Defect tracker · sample (inactive)",
+      "base_url": "https://issues.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-email",
+      "type": "email",
+      "name": "Email relay · sample (inactive)",
+      "base_url": "smtp.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-integration-google_auth",
+      "type": "google_auth",
+      "name": "Google sign-in · sample (inactive)",
+      "base_url": null,
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-integration-google_drive",
+      "type": "google_drive",
+      "name": "Google Drive · sample (inactive)",
+      "base_url": null,
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-github",
+      "type": "github",
+      "name": "GitHub repository · sample (inactive)",
+      "base_url": "https://github.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-testengine",
+      "type": "testengine",
+      "name": "Test Engine · sample (inactive)",
+      "base_url": "https://engine.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-local-desktop",
+      "type": "local-desktop",
+      "name": "Local desktop · sample (inactive)",
+      "base_url": "http://127.0.0.1:4301",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-cloudrun",
+      "type": "cloudrun",
+      "name": "Cloud execution · sample (inactive)",
+      "base_url": "https://cloud.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    },
+    {
+      "id": "sample-v2-integration-ops",
+      "type": "ops",
+      "name": "Operations telemetry · sample (inactive)",
+      "base_url": "https://ops.example.test",
+      "config": {
+        "sample": true,
+        "description": "Configuration example only. Add your own endpoint and credentials, then test the connection."
+      },
+      "is_active": false
+    }
+  ]
+}

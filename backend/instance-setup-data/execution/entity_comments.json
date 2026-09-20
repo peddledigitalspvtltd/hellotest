@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-result-comment-smoke-0",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-login",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-smoke-1",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-smoke-2",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-smoke-2",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-smoke-3",
+      "body": "Sample investigation: review the saved steps and repeat this scenario against your configured environment.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-smoke-3",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-smoke-4",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-smoke-4",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-smoke-5",
+      "body": "Sample investigation: review the saved steps and repeat this scenario against your configured environment.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-api-0",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-api-1",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-api-1",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-api-2",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-api-2",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-api-3",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-mobile-0",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-mobile-1",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-mobile-1",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-mobile-2",
+      "body": "Sample investigation: review the saved steps and repeat this scenario against your configured environment.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-result-comment-mobile-2",
+      "project_id": "sample-project",
+      "entity_type": "execution_result",
+      "entity_id": "sample-v2-result-mobile-3",
+      "body": "Sample evidence: the saved scenario met its acceptance criteria.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

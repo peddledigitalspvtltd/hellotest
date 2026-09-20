@@ -1,0 +1,23 @@
+.project-deletion-progress {
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--line, #d8deea);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+
+.project-deletion-progress h2 { margin: 0; font-size: 1rem; }
+.project-deletion-progress p { margin: 0.35rem 0; color: var(--text-secondary, #626f86); }
+.project-deletion-progress-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line, #d8deea);
+  overflow-wrap: anywhere;
+}
+.project-deletion-progress-item > div:first-child { flex: 1 1 18rem; min-width: 0; }
+.project-deletion-progress .project-deletion-error { color: var(--danger, #b42318); }
+

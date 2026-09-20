@@ -44,6 +44,8 @@ const rolePermissionSeedStatements = Object.entries(DEFAULT_ROLE_PERMISSIONS).ma
 
 const statements = [
   ...require('../agents/schema'),
+  ...require('./projectDeletionSchema'),
+  ...require('./instanceSetupSchema'),
   `
     CREATE TABLE IF NOT EXISTS integrations (
       id TEXT PRIMARY KEY,
@@ -1241,6 +1243,9 @@ const statements = [
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS updated_by TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS description TEXT`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS test_data_set_id TEXT REFERENCES test_data_sets(id) ON DELETE SET NULL`,
+  `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS test_data_options JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE executions ADD COLUMN IF NOT EXISTS test_data_options JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE execution_schedules ADD COLUMN IF NOT EXISTS test_data_options JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parameter_values JSONB`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS labels JSONB`,
   `ALTER TABLE test_suites ADD COLUMN IF NOT EXISTS parallel_enabled BOOLEAN`,
@@ -1723,6 +1728,7 @@ const statements = [
     )
   `,
   `CREATE INDEX IF NOT EXISTS idx_test_case_module_requirements_module_sort ON test_case_module_requirements (module_id, sort_order, requirement_id)`,
+  ...require('./testCaseModuleMembershipSchema'),
   `
     CREATE TABLE IF NOT EXISTS test_case_defects (
       test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
@@ -2580,7 +2586,12 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS idx_execution_results_case_latest ON execution_results (test_case_id, created_at DESC, id DESC) INCLUDE (status, duration_ms)`,
   rebrandJsonColumn("integrations", "config"),
   rebrandJsonColumn("app_settings", "value"),
-  rebrandJsonColumn("quality_dashboards", "gadgets")
+  rebrandJsonColumn("quality_dashboards", "gadgets"),
+  ...require('./projectDeletionGuardSchema'),
+  ...require('./requirementBacklogHistorySchema'),
+  ...require('./releaseRelationsSchema'),
+  ...require('./sharedStepMetricsSchema'),
+  ...require('./sharedStepDataSchema')
 ];
 
 const executeStatements = () => db.transaction(async () => {

@@ -105,8 +105,8 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/support": "Support",
   "/notifications": "Notifications",
   "/settings": "Settings",
-  "/issues": "Bugs",
-  "/feedback": "Bugs"
+  "/issues": "Defects",
+  "/feedback": "Defects"
 };
 
 export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {

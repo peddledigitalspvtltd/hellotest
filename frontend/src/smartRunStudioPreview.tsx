@@ -123,7 +123,7 @@ const preview: SmartExecutionPreviewResponse = {
   query_strategy: ["Exact Sprint", "Release match", "Failed evidence", "Story links"],
   retrieved_context_count: 26,
   execution_name: "Identity Sprint 18 · risk-focused regression",
-  summary: "Prioritizes password recovery regressions with recent failures, open Bugs, and release-linked Story evidence.",
+  summary: "Prioritizes password recovery regressions with recent failures, open Defects, and release-linked Story evidence.",
   request_id: "smart-run-preview-identity-18",
   acceptance_token: "preview-only.acceptance-proof",
   input_fingerprint: "7c189ac4c1405141f5812551559ee207bf2e93d810a056483fc126efa6496586",
@@ -137,7 +137,7 @@ const preview: SmartExecutionPreviewResponse = {
     status_label: "Awaiting human review",
     stages: [
       { id: "intake", status: "complete", detail: "Delivery scope captured", evidence: "Release, Sprint, Build, and two selected Stories were supplied.", item_count: 5 },
-      { id: "context", status: "complete", detail: "Project evidence retrieved", evidence: "38 Test Cases, 7 matching runs, 3 scoped Bugs, and 4 scoped Stories were read.", item_count: 52 },
+      { id: "context", status: "complete", detail: "Project evidence retrieved", evidence: "38 Test Cases, 7 matching runs, 3 scoped Defects, and 4 scoped Stories were read.", item_count: 52 },
       { id: "specialist", status: "complete", detail: "Risk ranking completed", evidence: "Three evidence-linked recommendations were ranked deterministically.", item_count: 3 },
       { id: "review", status: "current", detail: "Human decision required", evidence: "No run has been created. Three proposed cases await selection.", item_count: 3 }
     ]

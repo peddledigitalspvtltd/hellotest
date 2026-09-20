@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-run-smoke",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Launch readiness smoke · sample",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "duration_ms": 375000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v2-env-staging",
+      "test_environment_name": "Staging",
+      "test_environment_snapshot": {
+        "id": "sample-v2-env-staging",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Staging",
+        "description": "Synthetic endpoint; replace with your own application before execution.",
+        "base_url": "https://staging.example.test",
+        "browser": "Chrome",
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://staging.example.test"
+          },
+          {
+            "key": "region",
+            "value": "us-east"
+          }
+        ]
+      },
+      "test_configuration_id": "sample-v2-config-chrome",
+      "test_configuration_name": "Chrome desktop",
+      "test_configuration_snapshot": {
+        "id": "sample-v2-config-chrome",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Chrome desktop",
+        "description": "Sample configuration profile.",
+        "browser": "Chrome",
+        "mobile_os": null,
+        "platform_version": null,
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "15000"
+          }
+        ]
+      },
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "release_id": "sample-v2-release-launch",
+      "iteration_id": "sample-v2-sprint-launch",
+      "build": "sample-1.0.0-rc.2",
+      "start_date": "2026-09-19",
+      "end_date": "2026-09-19",
+      "started_at": "2026-09-19T09:00:00.000Z",
+      "ended_at": "2026-09-19T09:06:15.000Z",
+      "created_at": "2026-09-19T08:40:00.000Z"
+    },
+    {
+      "id": "sample-v2-run-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "Commerce API regression · sample",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "duration_ms": 360000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v2-env-api",
+      "test_environment_name": "API Staging",
+      "test_environment_snapshot": {
+        "id": "sample-v2-env-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "API Staging",
+        "description": "Synthetic endpoint; replace with your own application before execution.",
+        "base_url": "https://api.staging.example.test",
+        "browser": null,
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://api.staging.example.test"
+          },
+          {
+            "key": "region",
+            "value": "us-east"
+          }
+        ]
+      },
+      "test_configuration_id": "sample-v2-config-api",
+      "test_configuration_name": "API contract profile",
+      "test_configuration_snapshot": {
+        "id": "sample-v2-config-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "API contract profile",
+        "description": "Sample configuration profile.",
+        "browser": null,
+        "mobile_os": null,
+        "platform_version": null,
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "15000"
+          }
+        ]
+      },
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Order contract inputs",
+        "description": "Known product and idempotency inputs.",
+        "mode": "table",
+        "columns": [
+          "sku",
+          "request_key",
+          "quantity"
+        ],
+        "rows": [
+          {
+            "sku": "TRAIL-100",
+            "request_key": "sample-order-001",
+            "quantity": "1"
+          },
+          {
+            "sku": "TRAIL-200",
+            "request_key": "sample-order-002",
+            "quantity": "2"
+          }
+        ]
+      },
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "release_id": "sample-v2-release-launch",
+      "iteration_id": "sample-v2-sprint-launch",
+      "build": "sample-1.0.0-rc.2",
+      "start_date": "2026-09-16",
+      "end_date": "2026-09-16",
+      "started_at": "2026-09-16T09:00:00.000Z",
+      "ended_at": "2026-09-16T09:06:00.000Z",
+      "created_at": "2026-09-16T08:40:00.000Z"
+    },
+    {
+      "id": "sample-v2-run-mobile",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Commerce MOBILE regression · sample",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "duration_ms": 180000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v2-env-mobile",
+      "test_environment_name": "MOBILE Staging",
+      "test_environment_snapshot": {
+        "id": "sample-v2-env-mobile",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "MOBILE Staging",
+        "description": "Synthetic endpoint; replace with your own application before execution.",
+        "base_url": "https://staging.example.test",
+        "browser": null,
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://staging.example.test"
+          },
+          {
+            "key": "region",
+            "value": "us-east"
+          }
+        ]
+      },
+      "test_configuration_id": "sample-v2-config-mobile",
+      "test_configuration_name": "Android handset",
+      "test_configuration_snapshot": {
+        "id": "sample-v2-config-mobile",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "Android handset",
+        "description": "Sample configuration profile.",
+        "browser": null,
+        "mobile_os": "android",
+        "platform_version": "14",
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "15000"
+          }
+        ]
+      },
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "test_data_set_snapshot": null,
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint",
+      "release_id": "sample-v2-release-launch",
+      "iteration_id": "sample-v2-sprint-launch",
+      "build": "sample-1.0.0-rc.2",
+      "start_date": "2026-09-18",
+      "end_date": "2026-09-18",
+      "started_at": "2026-09-18T09:00:00.000Z",
+      "ended_at": "2026-09-18T09:03:00.000Z",
+      "created_at": "2026-09-18T08:40:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-run",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Joined metric outcomes · SYNTHETIC SAMPLE",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "release_id": "sample-v4-metrics-release",
+      "iteration_id": "sample-v4-metrics-sprint",
+      "release": "Metric walkthrough · synthetic",
+      "sprint": "Metric verification · synthetic",
+      "build": "synthetic-metrics-4",
+      "duration_ms": 180000,
+      "started_at": "2026-09-20T08:55:00.000Z",
+      "ended_at": "2026-09-20T08:58:00.000Z",
+      "created_at": "2026-09-20T08:54:00.000Z"
+    }
+  ]
+}

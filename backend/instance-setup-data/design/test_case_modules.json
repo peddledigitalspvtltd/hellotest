@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-module-smoke",
+      "app_type_id": "sample-app-web",
+      "name": "Release smoke",
+      "description": "Connected sample coverage for customer journeys.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "display_id": "DEMO2-M1"
+    },
+    {
+      "id": "sample-v2-module-api",
+      "app_type_id": "sample-app-api",
+      "name": "Commerce API",
+      "description": "Connected sample coverage for customer journeys.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "display_id": "DEMO2-M2"
+    },
+    {
+      "id": "sample-v2-module-mobile",
+      "app_type_id": "sample-app-mobile",
+      "name": "Mobile experience",
+      "description": "Connected sample coverage for customer journeys.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "display_id": "DEMO2-M3"
+    },
+    {
+      "id": "sample-v4-metrics-module",
+      "display_id": "DEMO4-M1",
+      "app_type_id": "sample-app-web",
+      "name": "Joined Story coverage · sample",
+      "description": "Cases inherit this module through their linked Story. Synthetic examples only.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

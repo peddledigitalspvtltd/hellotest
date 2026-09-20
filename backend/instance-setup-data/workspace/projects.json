@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-project",
+      "display_id": "DEMO",
+      "name": "HelloTest Launchpad",
+      "description": "Explore HelloTest end to end: a source-reviewed feature backlog with acceptance criteria, sprint goals and release scope, alongside synthetic commerce examples connecting Web, API and mobile test design, datasets, execution evidence, Defects, automation, knowledge and quality dashboards. Sample outcomes are illustrative; configure your own targets before execution.",
+      "visibility": "private",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

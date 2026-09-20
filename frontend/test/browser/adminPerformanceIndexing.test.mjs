@@ -18,6 +18,7 @@ const catalog=[{name:'index-members',label:'Project membership lookup'},{name:'i
 let state=JSON.parse(sessionStorage.getItem('${name}')||'null')||{running:false,job:null,catalog};window.starts=0;window.failStatus=false;window.failStart=false;
 window.setIndexingState=value=>{state=value;sessionStorage.setItem('${name}',JSON.stringify(value))};
 adminApi.sampleCatalog=async()=>({modules:[],roles:[],project_name:'Samples'});
+adminApi.sampleSetupStatus=async()=>({running:false,job:null});
 adminApi.performanceIndexing=async()=>{if(window.failStatus){window.failStatus=false;throw new Error('Temporary status failure')}return structuredClone(state)};
 adminApi.startPerformanceIndexing=async()=>{if(window.failStart){window.failStart=false;throw new Error('Indexing could not be started')}window.starts++;window.setIndexingState({running:true,catalog,job:{id:'job-1',status:'running',started_at:new Date().toISOString(),finished_at:null,completed:0,indexes:catalog.map((index,i)=>({...index,status:i?'pending':'running'}))}});return structuredClone(state)};
 window.completeIndexing=()=>window.setIndexingState({...state,running:false,job:{...state.job,status:'partial',completed:2,indexes:[{...catalog[0],status:'existing'},{...catalog[1],status:'failed',error:'Database is busy. Retry when the competing schema operation finishes.'}]}});

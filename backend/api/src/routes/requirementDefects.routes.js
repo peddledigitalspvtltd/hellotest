@@ -10,7 +10,7 @@ const authorizeMappings = async (fastify, req, { requirement_id, issue_id }, per
   }
   const projectId = scopes[0]?.projectId || null;
   if (scopes.some((scope) => scope.projectId !== projectId)) {
-    throw Object.assign(new Error("Story and Bug must belong to the same project"), { statusCode: 403 });
+    throw Object.assign(new Error("Story and Defect must belong to the same project"), { statusCode: 403 });
   }
   await fastify.requirePermission("requirement.view", { projectId })(req);
   await fastify.requirePermission(permission, { projectId })(req);

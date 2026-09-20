@@ -13,17 +13,17 @@ const suggestions = (key, label, group, pages, config = {}) => field(key, label,
   kind: 'suggestions', usage: pages, description: 'Workspace suggestions appear before values already used in this project. Users can still enter their own values.', ...config
 });
 const cases = [usage('Test cases', '/test-cases'), usage('Suite design', '/design')];
-const bugs = [usage('Bugs', '/issues')];
+const bugs = [usage('Defects', '/issues')];
 const stories = [usage('Stories', '/stories')];
 const runs = [usage('Runs and case runs', '/executions')];
 const environments = [usage('Environment and configuration', '/test-environments'), ...runs];
 
 const fields = [
-  field('issues.root_causes', 'Primary Root Cause', 'Bugs', ['Code Defect','Requirements Gap','Design Defect','Configuration','Test Data','Environment','Integration','Dependency','Deployment','Performance / Capacity','Security','Human Error','Duplicate','Not Reproducible','Unknown'], { usage: bugs, description: 'Classify the primary cause of a native Bug.' }),
-  field('issues.qa_root_causes', 'QA Root Cause', 'Bugs', ['Missed test scenario','Missed in execution','Edge case not covered','Unique data variation','Third party scenario'], { usage: bugs, description: 'Classify the test coverage or execution gap behind a Bug.' }),
-  field('issues.bug_types', 'Bug type', 'Bugs', ['Functional','UI / UX','Performance','Security','Accessibility','Compatibility','Integration','Data','API','Reliability','Localization','Installation / Deployment','Documentation'], { usage: bugs }),
+  field('issues.root_causes', 'Primary Root Cause', 'Defects', ['Code Defect','Requirements Gap','Design Defect','Configuration','Test Data','Environment','Integration','Dependency','Deployment','Performance / Capacity','Security','Human Error','Duplicate','Not Reproducible','Unknown'], { usage: bugs, description: 'Classify the primary cause of a native Defect.' }),
+  field('issues.qa_root_causes', 'QA Root Cause', 'Defects', ['Missed test scenario','Missed in execution','Edge case not covered','Unique data variation','Third party scenario'], { usage: bugs, description: 'Classify the test coverage or execution gap behind a Defect.' }),
+  field('issues.bug_types', 'Defect type', 'Defects', ['Functional','UI / UX','Performance','Security','Accessibility','Compatibility','Integration','Data','API','Reliability','Localization','Installation / Deployment','Documentation'], { usage: bugs }),
   field('test_cases.types', 'Test case type', 'Test design', ['functional','regression','smoke','integration','acceptance','exploratory','performance','security','accessibility','ios'].map(value => ({ value, label: value === 'ios' ? 'iOS' : value[0].toUpperCase() + value.slice(1) })), { value_format: 'slug', required: true, supports_default: true, default_value: 'functional', usage: cases, description: 'Describe the purpose of a case. Stored codes remain stable when display labels change.' }),
-  suggestions('issues.labels', 'Bug labels', 'Bugs', bugs),
+  suggestions('issues.labels', 'Defect labels', 'Defects', bugs),
   suggestions('test_cases.labels', 'Test case labels', 'Test design', cases),
   suggestions('test_suites.labels', 'Suite labels', 'Test design', [usage('Suites', '/design')]),
   suggestions('requirements.labels', 'Story labels', 'Planning', stories),
@@ -39,9 +39,9 @@ const fields = [
   system('test_cases.authoring_modes', 'Authoring mode', 'Test design', ['structured','gherkin'], cases),
   system('test_steps.types', 'Step platform', 'Automation', domain.TEST_STEP_TYPE_OPTIONS, cases),
   system('test_steps.group_kinds', 'Step group kind', 'Automation', domain.TEST_STEP_GROUP_KIND_OPTIONS, cases),
-  system('issues.statuses', 'Bug status', 'Bugs', domain.ISSUE_STATUS_OPTIONS, bugs, 'Resolution and risk calculations use these workflow codes. Connected trackers own their transition choices.'),
-  system('issues.severities', 'Bug severity', 'Bugs', ['critical','high','medium','low'], bugs, 'Severity codes drive risk calculations and AI triage.'),
-  system('issues.priorities', 'Bug priority', 'Bugs', ['Highest','High','Medium','Low','Lowest'], bugs, 'Priority values drive risk calculations. Tracker-specific priorities come from its metadata.'),
+  system('issues.statuses', 'Defect status', 'Defects', domain.ISSUE_STATUS_OPTIONS, bugs, 'Resolution and risk calculations use these workflow codes. Connected trackers own their transition choices.'),
+  system('issues.severities', 'Defect severity', 'Defects', ['critical','high','medium','low'], bugs, 'Severity codes drive risk calculations and AI triage.'),
+  system('issues.priorities', 'Defect priority', 'Defects', ['Highest','High','Medium','Low','Lowest'], bugs, 'Priority values drive risk calculations. Tracker-specific priorities come from its metadata.'),
   system('executions.modes', 'Run mode', 'Execution', ['manual','local','remote'], runs),
   system('executions.statuses', 'Run status', 'Execution', domain.EXECUTION_STATUS_OPTIONS, runs),
   system('executions.final_statuses', 'Run completion result', 'Execution', domain.EXECUTION_FINAL_STATUS_OPTIONS, runs),

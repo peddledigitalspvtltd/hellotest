@@ -146,5 +146,191 @@ test("suite template to CSV data to frozen case-row executions preserves scope a
     assert.deepEqual(legacy.case_snapshots[0].test_data_set_snapshot.columns, ["t.email", "t.expected"]);
     await db.prepare("UPDATE executions SET status='completed',ended_at=CURRENT_TIMESTAMP WHERE id=?").run(created.id);
     await assert.rejects(runs.updateExecution(created.id, { name: "Invalid finished edit" }), /finished/i);
+
+    await context.test("scoped Suite and Run data compose by row, preserve shared inputs, and match the parameter plan", async () => {
+      const policy = { override_lower_scopes: false, override_shared_steps: false };
+      const createData = (name, rows) => data.createTestDataSet({ project_id: 'project', app_type_id: 'app', name, mode: 'table', columns: [...new Set(rows.flatMap(Object.keys))], rows });
+      const caseData = await createData('Scoped case data', [
+        { 't.person': 'one', 'r.shared_secret': 'private-one' }, { 't.person': 'two', 'r.shared_secret': 'private-two' }
+      ]);
+      const selectedSuiteData = await createData('Scoped suite data', [
+        { 's.tenant': 'EU', 't.person': 'ignored', 'r.shared_secret': 'ignored' }, { 's.tenant': 'IN', 't.person': 'ignored', 'r.shared_secret': 'ignored' }
+      ]);
+      const selectedRunData = await createData('Scoped run data', [
+        { 'r.build': 'build-one', 's.tenant': 'ignored', 't.person': 'ignored', 'r.shared_secret': 'ignored' },
+        { 'r.build': 'build-two', 's.tenant': 'ignored', 't.person': 'ignored', 'r.shared_secret': 'ignored' }
+      ]);
+      const scopedSuite = await suites.createTestSuite({ app_type_id:'app', name:'Scoped suite', test_data_set_id:selectedSuiteData.id, test_data_options:policy, created_by:'actor' });
+      assert.deepEqual((await suites.getTestSuite(scopedSuite.id)).test_data_options, policy);
+      await db.prepare("INSERT INTO test_cases(id,app_type_id,suite_id,title) VALUES ('scoped-case','app',?,'Scoped input case')").run(scopedSuite.id);
+      await db.prepare("INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES (?,'scoped-case',1)").run(scopedSuite.id);
+      await db.prepare("INSERT INTO test_case_data_sets(test_case_id,test_data_set_id,sort_order) VALUES ('scoped-case',?,1)").run(caseData.id);
+      await db.query("INSERT INTO test_steps(id,test_case_id,step_order,action,step_type,group_kind) VALUES ('scoped-local','scoped-case',1,'Use @t.person for @s.tenant and @r.build','web',NULL),('scoped-shared','scoped-case',2,'Use @r.shared_secret','web','reusable')");
+      const scopeInput = {project_id:'project',app_type_id:'app',suite_ids:[scopedSuite.id],test_data_set_id:selectedRunData.id,test_data_options:policy};
+      const scopePlan = await plans.buildRunParameterPlan(scopeInput);
+      assert.equal(scopePlan.expected_instance_count,2);
+      assert.deepEqual(scopePlan.parameters.map(item => item.name),['r.build']);
+      const suitePlan = await plans.buildRunParameterPlan({...scopeInput,test_data_set_id:selectedSuiteData.id,data_scope:'suite'});
+      assert.equal(suitePlan.expected_instance_count,2);
+      assert.deepEqual(suitePlan.parameters.map(item => item.name),['s.tenant']);
+      const createdScoped = await runs.createExecution({...scopeInput,name:'Scoped run',created_by:'actor',execution_mode:'manual'});
+      let saved = await runs.getExecution(createdScoped.id,true);
+      const expected = [
+        {'t.person':'one','r.shared_secret':'private-one','s.tenant':'EU','r.build':'build-one'},
+        {'t.person':'two','r.shared_secret':'private-two','s.tenant':'IN','r.build':'build-two'}
+      ];
+      assert.deepEqual(saved.test_data_options,policy);
+      assert.deepEqual(saved.case_snapshots[0].test_data_set_snapshot.rows,expected);
+      assert.equal(saved.case_snapshots[0].test_data_set_snapshot.rows.length,scopePlan.expected_instance_count);
+      for(let index=0; index<2; index++) {
+        const resolved=resolveParameterLayers({dataSet:saved.case_snapshots[0].test_data_set_snapshot,rowIndex:index});
+        assert.equal(resolved['t.person'],expected[index]['t.person']);
+        assert.equal(resolved['r.shared_secret'],expected[index]['r.shared_secret']);
+      }
+      // Changing a policy before execution recomputes the selected data and the
+      // plan uses that same policy even when the dataset ID is unchanged.
+      const full={override_lower_scopes:true,override_shared_steps:true};
+      const editPlan=await plans.buildRunParameterPlan({...scopeInput,execution_id:createdScoped.id,test_data_options:full});
+      await runs.updateExecution(createdScoped.id,{test_data_options:full});
+      saved=await runs.getExecution(createdScoped.id,true);
+      assert.equal(saved.case_snapshots[0].test_data_set_snapshot.rows[0]['t.person'],'ignored');
+      assert.equal(saved.case_snapshots[0].test_data_set_snapshot.rows.length,editPlan.expected_instance_count);
+      await runs.updateExecution(createdScoped.id,{test_data_options:policy});
+      assert.deepEqual((await runs.getExecution(createdScoped.id,true)).case_snapshots[0].test_data_set_snapshot.rows,expected);
+      // Mismatched sources fail before changing an existing run or creating a new one.
+      const single=await createData('One run row',[{'r.build':'single'}]);
+      await assert.rejects(plans.buildRunParameterPlan({...scopeInput,test_data_set_id:single.id}),error=>error.statusCode===422);
+      await assert.rejects(runs.updateExecution(createdScoped.id,{test_data_set_id:single.id}),error=>error.statusCode===422);
+      assert.equal((await runs.getExecution(createdScoped.id,true)).test_data_set_id,selectedRunData.id);
+      await assert.rejects(runs.createExecution({...scopeInput,test_data_set_id:single.id,name:'Invalid scoped cardinality',created_by:'actor',execution_mode:'manual'}),error=>error.statusCode===422);
+      assert.equal((await db.prepare("SELECT COUNT(*)::int AS count FROM executions WHERE name='Invalid scoped cardinality'").get()).count,0);
+      // Source edits never replace existing snapshots, including on rerun.
+      await data.updateTestDataSet(caseData.id,{rows:[{'t.person':'changed','r.shared_secret':'changed'}]});
+      await data.updateTestDataSet(selectedSuiteData.id,{rows:[{'s.tenant':'changed'}]});
+      await data.updateTestDataSet(selectedRunData.id,{rows:[{'r.build':'changed'}]});
+      assert.deepEqual((await runs.getExecution(createdScoped.id,true)).case_snapshots[0].test_data_set_snapshot.rows,expected);
+      const repeatedScoped=await runs.rerunExecution(createdScoped.id,{created_by:'actor'});
+      const repeatedData=await runs.getExecution(repeatedScoped.id,true);
+      assert.deepEqual(repeatedData.test_data_options,policy);
+      assert.deepEqual(repeatedData.case_snapshots[0].test_data_set_snapshot.rows,expected);
+      assert.equal((await plans.buildRunParameterPlan({...scopeInput,execution_id:createdScoped.id})).expected_instance_count,2);
+      await lifecycle.ensureExecutionCaseResult({execution_id:createdScoped.id,test_case_id:'scoped-case',data_set_iteration_index:0},'actor');
+      await assert.rejects(runs.updateExecution(createdScoped.id,{test_data_options:full}),error=>error.statusCode===409&&error.code==='RUN_CONTEXT_LOCKED');
+      assert.deepEqual((await runs.getExecution(createdScoped.id,true)).case_snapshots[0].test_data_set_snapshot.rows,expected);
+      // Schedule dispatch uses its persisted policy; only external engine launch is stubbed.
+      const schedules=require('../../src/services/executionSchedule.service');
+      context.mock.method(runs,'startExecution',async()=>({queued:true}));
+      const schedule=await schedules.createExecutionSchedule({...scopeInput,name:'Scoped scheduled data',cadence:'once',next_run_at:'2099-09-20T10:00:00Z',created_by:'actor'});
+      assert.deepEqual((await schedules.getExecutionSchedule(schedule.id)).test_data_options,policy);
+      const scheduledRun=await schedules.runExecutionSchedule(schedule.id,'actor');
+      const dispatched=await runs.getExecution(scheduledRun.id,true);
+      assert.deepEqual(dispatched.test_data_options,policy);
+      assert.deepEqual(dispatched.case_snapshots[0].test_data_set_snapshot.rows,[{'t.person':'changed','r.shared_secret':'changed','s.tenant':'changed','r.build':'changed'}]);
+      await schedules.updateExecutionSchedule(schedule.id,{test_data_options:full,name:'Updated scheduled policy'},'actor');
+      assert.deepEqual((await schedules.getExecutionSchedule(schedule.id)).test_data_options,full);
+    });
+
+    await context.test("Suite templates use the explicit editing context and never inherit an unrelated primary Suite", async () => {
+      const createData = (name, column, count) => data.createTestDataSet({project_id:'project',app_type_id:'app',name,mode:'table',columns:[column],rows:Array.from({length:count},(_,index)=>({[column]:String(index)}))});
+      const parentData=await createData('Context parent data','s.parent_data',2);
+      const currentData=await createData('Context own data','s.own_data',3);
+      const unrelatedData=await createData('Unrelated data','s.unrelated_data',7);
+      const childData=await createData('Context child data','s.child_data',2);
+      const replacementData=await createData('Replacement context data','s.replacement_data',4);
+      const scopeParent=await suites.createTestSuite({app_type_id:'app',name:'Context parent',test_data_set_id:parentData.id,parameter_values:{'s.parent_parameter':'parent'},created_by:'actor'});
+      const own=await suites.createTestSuite({app_type_id:'app',parent_id:scopeParent.id,name:'Context own',test_data_set_id:currentData.id,parameter_values:{'s.own_parameter':'own'},created_by:'actor'});
+      const unrelated=await suites.createTestSuite({app_type_id:'app',name:'Unrelated primary',test_data_set_id:unrelatedData.id,parameter_values:{'s.unrelated_parameter':'unrelated'},created_by:'actor'});
+      const child=await suites.createTestSuite({app_type_id:'app',parent_id:own.id,name:'Context child',test_data_set_id:childData.id,created_by:'actor'});
+      const foreignSuite=await suites.createTestSuite({app_type_id:'other-app',name:'Foreign context',created_by:'actor'});
+      for(const [id,suiteId] of [['context-direct',unrelated.id],['context-child',child.id]]) {
+        await db.prepare("INSERT INTO test_cases(id,app_type_id,suite_id,title) VALUES (?,'app',?,'Context case')").run(id,suiteId);
+        await db.prepare("INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES (?,?,1)").run(suiteId,id);
+      }
+      const base={project_id:'project',app_type_id:'app',data_scope:'suite',test_case_ids:['context-direct']};
+      const draft=await plans.buildRunParameterPlan(base);
+      assert.equal(draft.case_count,1); assert.equal(draft.expected_instance_count,1);
+      assert.doesNotMatch(JSON.stringify(draft),/unrelated/);
+      const edited=await plans.buildRunParameterPlan({...base,suite_context_id:own.id});
+      assert.equal(edited.expected_instance_count,3);
+      assert.ok(edited.parameters.some(item=>item.name==='s.own_parameter'));
+      assert.ok(edited.parameters.some(item=>item.name==='s.parent_parameter'));
+      assert.ok(edited.parameters.some(item=>item.name==='s.own_data'));
+      assert.doesNotMatch(JSON.stringify(edited),/unrelated/);
+      const cleared=await plans.buildRunParameterPlan({...base,suite_context_id:own.id,test_data_set_id:''});
+      assert.equal(cleared.expected_instance_count,2,'Clear restores parent inheritance without reviving the cleared own dataset');
+      assert.ok(cleared.parameters.some(item=>item.name==='s.parent_data'));
+      assert.ok(!cleared.parameters.some(item=>item.name==='s.own_data'));
+      const childPlan=await plans.buildRunParameterPlan({...base,suite_context_id:own.id,suite_ids:[child.id],test_data_set_id:replacementData.id});
+      assert.equal(childPlan.case_count,2); assert.equal(childPlan.expected_instance_count,6,'The direct case takes four draft rows, the child retains its own two rows');
+      assert.ok(childPlan.parameters.some(item=>item.name==='s.child_data'));
+      const removed=await plans.buildRunParameterPlan({...base,suite_context_id:own.id,test_case_ids:[]});
+      assert.equal(removed.case_count,0,'Suite context alone must never re-add saved membership');
+      await assert.rejects(plans.buildRunParameterPlan({...base,suite_context_id:foreignSuite.id}),error=>error.statusCode===404);
+      await assert.rejects(plans.buildRunParameterPlan({...base,suite_context_id:own.id,data_scope:'run'}),error=>error.statusCode===400);
+      // Applying the same Suite data policy yields the previewed case cardinality.
+      await suites.updateTestSuite(own.id,{test_data_set_id:replacementData.id});
+      await db.prepare("INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES (?,'context-direct',1)").run(own.id);
+      const actual=await runs.createExecution({project_id:'project',app_type_id:'app',suite_ids:[own.id],name:'Suite context parity',created_by:'actor',execution_mode:'manual'});
+      const frozen=await runs.getExecution(actual.id,true);
+      assert.equal(frozen.case_snapshots.reduce((sum,item)=>sum+(item.test_data_set_snapshot?.rows.length||1),0),childPlan.expected_instance_count);
+    });
+
+    await context.test("shared group data freezes one chosen row and respects case policy without group collisions", async () => {
+      const groups = require('../../src/services/sharedStepGroup.service');
+      const createData = (name, rows) => data.createTestDataSet({ project_id:'project', app_type_id:'app', name, mode:'table', columns:['r.login'], rows });
+      const groupData = await createData('Shared accounts', [{ 'r.login':'unused-first' }, { 'r.login':'chosen-second' }, { 'r.login':'unused-third' }]);
+      const caseData = await createData('Case accounts', [{ 'r.login':'case-first' }, { 'r.login':'case-second' }]);
+      const group = await groups.createSharedStepGroup({ app_type_id:'app', name:'Linked accounts', test_data_set_id:groupData.id, test_data_row_index:1, created_by:'actor', steps:[{ action:'Use @login', step_type:'web' }] });
+      const second = await groups.createSharedStepGroup({ app_type_id:'app', name:'Other accounts', parameter_values:{login:'other-group'}, created_by:'actor', steps:[{action:'Use @login',step_type:'web'}] });
+      await db.prepare("INSERT INTO test_cases(id,app_type_id,title,test_data_options) VALUES ('shared-data-case','app','Shared datasets',?)").run({override_shared_steps:false});
+      await db.prepare("INSERT INTO test_case_data_sets(test_case_id,test_data_set_id,sort_order) VALUES ('shared-data-case',?,1)").run(caseData.id);
+      for (const [index, linked] of [[1, group.id], [2, second.id], [3, null]]) await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,step_type,group_kind,reusable_group_id) VALUES (?,'shared-data-case',?,'Use @login','web',?,?)").run(`shared-data-step-${index}`,index,linked?'reusable':null,linked);
+      const input = {project_id:'project',app_type_id:'app',test_case_ids:['shared-data-case']};
+      assert.equal((await plans.buildRunParameterPlan(input)).expected_instance_count,2);
+      const created=await runs.createExecution({...input,name:'Protected shared defaults',created_by:'actor',execution_mode:'manual'});
+      let frozen=await runs.getExecution(created.id,true);
+      const resolved=(run,index,shared=true)=>resolveParameterLayers({ sharedValues:run.step_snapshots[index].shared_parameter_values, isSharedStep:shared, caseValues:run.case_snapshots[0].parameter_values, dataSet:run.case_snapshots[0].test_data_set_snapshot,rowIndex:1 });
+      assert.equal(resolved(frozen,0)['r.login'],'chosen-second');
+      assert.equal(resolved(frozen,1)['r.login'],'other-group');
+      assert.equal(resolved(frozen,2,false)['r.login'],'case-second');
+      assert.equal(frozen.case_snapshots[0].test_data_set_snapshot.rows.length,2);
+      await groups.updateSharedStepGroup(group.id,{test_data_row_index:2});
+      await data.updateTestDataSet(groupData.id,{rows:[{'r.login':'changed-first'},{'r.login':'changed-second'},{'r.login':'changed-third'}]});
+      assert.equal(resolved(await runs.getExecution(created.id,true),0)['r.login'],'chosen-second');
+      const repeated=await runs.rerunExecution(created.id,{created_by:'actor'});
+      assert.equal(resolved(await runs.getExecution(repeated.id,true),0)['r.login'],'chosen-second');
+      await db.prepare("UPDATE test_cases SET test_data_options='{}'::jsonb WHERE id='shared-data-case'").run();
+      const overridden=await runs.createExecution({...input,name:'Case overrides shared defaults',created_by:'actor',execution_mode:'manual'});
+      assert.equal(resolved(await runs.getExecution(overridden.id,true),0)['r.login'],'case-second');
+      const secrets=await data.createTestDataSet({project_id:'project',app_type_id:'app',name:'Shared secrets',mode:'key_value',rows:[{key:'login',value:'PRIVATE_SHARED_SECRET',is_secret:true}]});
+      await groups.updateSharedStepGroup(group.id,{test_data_set_id:secrets.id,test_data_row_index:0});
+      await db.prepare("DELETE FROM test_case_data_sets WHERE test_case_id='shared-data-case'").run();
+      const secretRun=await runs.createExecution({...input,name:'Secret group default',created_by:'actor',execution_mode:'manual'});
+      const publicRun=await runs.getExecution(secretRun.id,true);
+      assert.doesNotMatch(JSON.stringify(publicRun),/PRIVATE_SHARED_SECRET/);
+      assert.deepEqual(publicRun.step_snapshots[0].shared_parameter_sensitive_names,['r.login']);
+      const stored=await db.prepare('SELECT shared_parameter_values FROM execution_step_snapshots WHERE execution_id=? ORDER BY step_order').get(secretRun.id);
+      assert.equal(stored.shared_parameter_values['r.login'],'PRIVATE_SHARED_SECRET');
+      assert.equal((await plans.buildRunParameterPlan(input)).expected_instance_count,1);
+    });
+
+    await context.test("a failed Suite or Schedule policy write rolls back the entire save", async () => {
+      await db.query(`CREATE FUNCTION reject_policy_test_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+        IF NEW.name LIKE 'Policy rollback%' AND NEW.test_data_options->>'override_lower_scopes'='false' THEN RAISE EXCEPTION 'Injected policy write failure'; END IF;
+        RETURN NEW; END $$;
+        CREATE TRIGGER reject_suite_policy_test BEFORE UPDATE ON test_suites FOR EACH ROW EXECUTE FUNCTION reject_policy_test_write();
+        CREATE TRIGGER reject_schedule_policy_test BEFORE UPDATE ON execution_schedules FOR EACH ROW EXECUTE FUNCTION reject_policy_test_write();`);
+      const options={override_lower_scopes:false};
+      await assert.rejects(suites.createTestSuite({app_type_id:'app',name:'Policy rollback suite',test_data_options:options,created_by:'actor'}),/Injected policy/);
+      assert.equal((await db.prepare("SELECT COUNT(*)::int AS count FROM test_suites WHERE name='Policy rollback suite'").get()).count,0);
+      const schedules=require('../../src/services/executionSchedule.service');
+      const base={project_id:'project',app_type_id:'app',test_case_ids:['case-1'],cadence:'once',next_run_at:'2099-09-20T10:00:00Z',created_by:'actor'};
+      await assert.rejects(schedules.createExecutionSchedule({...base,name:'Policy rollback schedule',test_data_options:options}),/Injected policy/);
+      assert.equal((await db.prepare("SELECT COUNT(*)::int AS count FROM execution_schedules WHERE name='Policy rollback schedule'").get()).count,0);
+      const schedule=await schedules.createExecutionSchedule({...base,name:'Original schedule'});
+      await assert.rejects(schedules.updateExecutionSchedule(schedule.id,{name:'Policy rollback update',test_data_options:options},'actor'),/Injected policy/);
+      assert.equal((await schedules.getExecutionSchedule(schedule.id)).name,'Original schedule');
+      await db.query('DROP TRIGGER reject_suite_policy_test ON test_suites; DROP TRIGGER reject_schedule_policy_test ON execution_schedules; DROP FUNCTION reject_policy_test_write()');
+    });
   } finally { await db.close(); }
 });

@@ -14,7 +14,7 @@ const PRODUCT_HELP_SECTIONS = Object.freeze([
     id: "knowledge-repository",
     title: "Knowledge Repository ingestion and search",
     aliases: ["knowledge repo", "knowledge repository", "context studio", "ingest", "upload document", "hybrid search", "collection"],
-    content: "Knowledge Repo can index selected Stories, Test Cases, Test Runs, Bugs, text, chat notes, URLs, and supported files into reusable collections. Processing validates the input, extracts or accepts supplied text, redacts supported sensitive identifiers, neutralizes instruction-like content, versions the source, preserves document and section context, chunks the content, and builds hybrid lexical and semantic indexes. PDF and Office extraction uses the configured Apache Tika service. Images need a user-supplied caption; audio and video need a transcript. The source inventory shows whether content is searchable, needs extraction, or failed and can be retried. Search results are citation-ready and remain project and permission scoped."
+    content: "Knowledge Repo can index selected Stories, Test Cases, Test Runs, Defects, text, chat notes, URLs, and supported files into reusable collections. Processing validates the input, extracts or accepts supplied text, redacts supported sensitive identifiers, neutralizes instruction-like content, versions the source, preserves document and section context, chunks the content, and builds hybrid lexical and semantic indexes. PDF and Office extraction uses the configured Apache Tika service. Images need a user-supplied caption; audio and video need a transcript. The source inventory shows whether content is searchable, needs extraction, or failed and can be retried. Search results are citation-ready and remain project and permission scoped."
   },
   {
     id: "ask-hellotest",
@@ -44,13 +44,13 @@ const PRODUCT_HELP_SECTIONS = Object.freeze([
     id: "runs-execution-context",
     title: "Runs, environments, configurations, schedules, and results",
     aliases: ["test run", "execution", "environment", "configuration", "browser", "device", "schedule", "result", "failed run", "blocked"],
-    content: "A Test Run snapshots its selected Test Cases and execution context so results remain reproducible. Execution context can include environment, configuration targets such as browser or device, dataset rows and parameter values, Release, Sprint, and Build. Run results record passed, failed, blocked, skipped, or other configured outcomes and can provide evidence for failure analysis, automation readiness, and Bugs. Schedules create repeatable run plans from an authorized project scope."
+    content: "A Test Run snapshots its selected Test Cases and execution context so results remain reproducible. Execution context can include environment, configuration targets such as browser or device, dataset rows and parameter values, Release, Sprint, and Build. Run results record passed, failed, blocked, skipped, or other configured outcomes and can provide evidence for failure analysis, automation readiness, and Defects. Schedules create repeatable run plans from an authorized project scope."
   },
   {
     id: "bugs",
-    title: "Bugs, triage, duplicate review, and traceability",
+    title: "Defects, triage, duplicate review, and traceability",
     aliases: ["bug", "defect", "issue", "triage", "duplicate bug", "root cause", "regression", "attachment", "comment"],
-    content: "Bugs capture title, description, type, status, severity, priority, root cause, regression flag, environment, build, release or fixed version, attachments, and comments. Impacted Test Cases, suites, modules, Stories, and Test Runs provide traceability. Before creation, duplicate review can narrow candidates using selected Test Cases or modules and let the user inspect matches or continue. Bug detail can retain comments and attachments and can map relevant Bug information into a new Test Case."
+    content: "Defects capture title, description, type, status, severity, priority, root cause, regression flag, environment, build, release or fixed version, attachments, and comments. Impacted Test Cases, suites, modules, Stories, and Test Runs provide traceability. Before creation, duplicate review can narrow candidates using selected Test Cases or modules and let the user inspect matches or continue. Defect detail can retain comments and attachments and can map relevant Defect information into a new Test Case."
   },
   {
     id: "automation",
@@ -62,7 +62,7 @@ const PRODUCT_HELP_SECTIONS = Object.freeze([
     id: "reports-quality",
     title: "Reports, dashboards, coverage, and quality readiness",
     aliases: ["report", "dashboard", "metric", "coverage", "quality", "readiness", "risk"],
-    content: "HelloTest reports and quality dashboards summarize current authorized project evidence such as Story coverage, Test Case quality and automation readiness, Run outcomes, and open Bug risk. Metrics should be interpreted with their methodology and underlying records; a count is a signal, not by itself a release decision. Ask HelloTest can combine these current facts with cited Knowledge Repo context to explain risks and evidence gaps."
+    content: "HelloTest reports and quality dashboards summarize current authorized project evidence such as Story coverage, Test Case quality and automation readiness, Run outcomes, and open Defect risk. Metrics should be interpreted with their methodology and underlying records; a count is a signal, not by itself a release decision. Ask HelloTest can combine these current facts with cited Knowledge Repo context to explain risks and evidence gaps."
   },
   {
     id: "settings-integrations-ai",

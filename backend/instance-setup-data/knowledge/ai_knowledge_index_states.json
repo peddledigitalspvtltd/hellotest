@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "document_id": "sample-v2-document-payments",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-payments",
+      "document_version": 1,
+      "is_current": true,
+      "lexical_state": "ready",
+      "dense_state": "not_configured",
+      "vector_provider": "postgresql",
+      "indexed_chunk_count": 1,
+      "indexed_at": "2026-09-20T09:00:00.000Z",
+      "required_indexes_ready": true
+    },
+    {
+      "document_id": "sample-v2-document-api",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-api",
+      "document_version": 1,
+      "is_current": true,
+      "lexical_state": "ready",
+      "dense_state": "not_configured",
+      "vector_provider": "postgresql",
+      "indexed_chunk_count": 1,
+      "indexed_at": "2026-09-20T09:00:00.000Z",
+      "required_indexes_ready": true
+    },
+    {
+      "document_id": "sample-v2-document-repository",
+      "project_id": "sample-project",
+      "source_id": "sample-v2-source-repository",
+      "document_version": 1,
+      "is_current": true,
+      "lexical_state": "ready",
+      "dense_state": "not_configured",
+      "vector_provider": "postgresql",
+      "indexed_chunk_count": 1,
+      "indexed_at": "2026-09-20T09:00:00.000Z",
+      "required_indexes_ready": true
+    },
+    {
+      "document_id": "sample-v3-document-hellotest",
+      "project_id": "sample-project",
+      "source_id": "sample-v3-source-hellotest",
+      "document_version": 1,
+      "is_current": true,
+      "lexical_state": "ready",
+      "dense_state": "not_configured",
+      "vector_provider": "postgresql",
+      "indexed_chunk_count": 7,
+      "indexed_at": "2026-09-20T09:00:00.000Z",
+      "required_indexes_ready": true
+    }
+  ]
+}

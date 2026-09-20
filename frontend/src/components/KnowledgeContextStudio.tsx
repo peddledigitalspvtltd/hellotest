@@ -1,3 +1,4 @@
+import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { DragEvent, FormEvent, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -88,7 +89,7 @@ const recordKinds: Array<{
   { key: "requirements", label: "Stories", singular: "Story", description: "Intent, acceptance criteria, labels, and release scope", icon: IconBook2 },
   { key: "test_cases", label: "Test Cases", singular: "Test Case", description: "Steps, expected results, parameters, and traceability", icon: IconFileDescription },
   { key: "executions", label: "Test Runs", singular: "Test Run", description: "Execution scope, outcomes, failures, and environment evidence", icon: IconPlayerPlay },
-  { key: "bugs", label: "Bugs", singular: "Bug", description: "Symptoms, reproduction evidence, severity, and root cause", icon: IconBug }
+  { key: "bugs", label: "Defects", singular: "Defect", description: "Symptoms, reproduction evidence, severity, and root cause", icon: IconBug }
 ];
 
 const defaultChunking: KnowledgeChunkingConfig = {
@@ -721,7 +722,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 </div>
                 <label className="knowledge-record-search">
                   <IconSearch size={16} />
-                  <span className="sr-only">Search {activeRecordKind.replace(/_/g, " ")}</span>
+                  <span className="sr-only">Search {formatRecordKindLabel(activeRecordKind)}</span>
                   <input onChange={(event) => setRecordSearch(event.target.value)} placeholder="Search by ID, title, or status" type="search" value={recordSearch} />
                   {recordSearch ? <button aria-label="Clear record search" onClick={() => setRecordSearch("")} type="button"><IconX size={15} /></button> : null}
                 </label>
@@ -875,7 +876,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               <label><span>Retrieval</span><select onChange={(event) => setSearchMode(event.target.value as KnowledgeSearchMode)} value={searchMode}><option value="hybrid">Hybrid · recommended</option><option value="semantic">Semantic</option><option value="keyword">Exact keyword</option></select></label>
               <label><span>Collection</span><select onChange={(event) => setSearchCollectionId(event.target.value)} value={searchCollectionId}><option value="">All collections</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
               {canManage ? <label><span>Knowledge as of</span><input aria-label="Historical knowledge date; leave empty for current" onChange={(event) => setSearchAsOf(event.target.value)} type="datetime-local" value={searchAsOf} />{searchAsOf ? <button className="ghost-button compact" onClick={() => setSearchAsOf("")} type="button">Use current</button> : null}</label> : null}
-              <fieldset><legend>Source types</legend>{[["requirement", "Stories"], ["test_case", "Cases"], ["execution", "Runs"], ["bug", "Bugs"], ["file", "Files"], ["text", "Notes"]].map(([value, label]) => <label className={searchSourceKinds.includes(value) ? "is-active" : ""} key={value}><input checked={searchSourceKinds.includes(value)} onChange={(event) => setSearchSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((kind) => kind !== value))} type="checkbox" />{label}</label>)}</fieldset>
+              <fieldset><legend>Source types</legend>{[["requirement", "Stories"], ["test_case", "Cases"], ["execution", "Runs"], ["bug", "Defects"], ["file", "Files"], ["text", "Notes"]].map(([value, label]) => <label className={searchSourceKinds.includes(value) ? "is-active" : ""} key={value}><input checked={searchSourceKinds.includes(value)} onChange={(event) => setSearchSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((kind) => kind !== value))} type="checkbox" />{label}</label>)}</fieldset>
             </div>
           </form>
           {searchMutation.data ? (
@@ -897,7 +898,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                   <div className="knowledge-search-result-rank">{index + 1}</div>
                   <div className="knowledge-search-result-body">
                     <div className="knowledge-search-result-header">
-                      <div><span className="badge badge-neutral">{humanize(result.source_kind)}</span><h4>{result.title || result.citation?.label || result.label || "Project context"}</h4></div>
+                      <div><span className="badge badge-neutral">{humanize(formatRecordKindLabel(result.source_kind))}</span><h4>{result.title || result.citation?.label || result.label || "Project context"}</h4></div>
                       {canManage && canSaveSource ? <label className="knowledge-result-select"><input checked={selectedSearchSources.includes(sourceId)} onChange={(event) => setSelectedSearchSources((current) => event.target.checked ? Array.from(new Set([...current, sourceId])) : current.filter((id) => id !== sourceId))} type="checkbox" />Save</label> : null}
                     </div>
                     <p>{result.excerpt || result.content || "No preview text returned."}</p>
@@ -947,7 +948,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 <article className={`knowledge-source-inventory-row is-${source.extraction_status}`} key={source.id}>
                   <div className="knowledge-inventory-kind"><IconFileText size={19} /></div>
                   <div className="knowledge-inventory-copy">
-                    <div><span className="badge badge-neutral">{humanize(source.source_kind)}</span><button className="knowledge-source-title-button" onClick={() => setSelectedDetailSourceId(source.id)} type="button">{source.title}</button></div>
+                    <div><span className="badge badge-neutral">{humanize(formatRecordKindLabel(source.source_kind))}</span><button className="knowledge-source-title-button" onClick={() => setSelectedDetailSourceId(source.id)} type="button">{source.title}</button></div>
                     <small>{source.file_name || source.source_ref_id || source.id}{source.mime_type ? ` · ${source.mime_type}` : ""}{source.size_bytes ? ` · ${formatBytes(source.size_bytes)}` : ""}</small>
                     {collectionNames.length ? <span className="knowledge-inventory-collections">{collectionNames.map((name) => <i key={name}>{name}</i>)}</span> : null}
                   </div>

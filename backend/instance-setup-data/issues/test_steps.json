@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-step-offline-regression",
+      "test_case_id": "sample-v2-case-offline-regression",
+      "step_order": 1,
+      "action": "Open checkout on a small screen without connectivity.",
+      "expected_result": "The offline explanation and retry action are both visible.",
+      "step_type": "android"
+    }
+  ]
+}

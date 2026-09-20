@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-prompt-story-review",
+      "project_id": "sample-project",
+      "name": "Commerce story review",
+      "description": "Editable sample prompt grounded in project evidence.",
+      "scope": "test_case_generation",
+      "prompt_text": "Review checkout acceptance criteria and identify missing negative scenarios. Cite the available sources, distinguish facts from assumptions, and return a concise review for a human to approve.",
+      "applies_to": [
+        "requirements",
+        "test_cases"
+      ],
+      "tags": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-prompt-api-design",
+      "project_id": "sample-project",
+      "name": "Commerce API test design",
+      "description": "Editable sample prompt grounded in project evidence.",
+      "scope": "test_case_generation",
+      "prompt_text": "Use the API contract to propose positive, negative and idempotency tests. Cite the available sources, distinguish facts from assumptions, and return a concise review for a human to approve.",
+      "applies_to": [
+        "requirements",
+        "test_cases"
+      ],
+      "tags": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-prompt-repository-review",
+      "project_id": "sample-project",
+      "name": "Repository knowledge review",
+      "description": "Editable sample prompt grounded in project evidence.",
+      "scope": "test_case_generation",
+      "prompt_text": "Review the repository architecture guide and suggest stable object bindings with source references. Cite the available sources, distinguish facts from assumptions, and return a concise review for a human to approve.",
+      "applies_to": [
+        "requirements",
+        "test_cases"
+      ],
+      "tags": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

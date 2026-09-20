@@ -54,10 +54,12 @@ test("test cases distinguish authored parameters from row-level execution data",
   assert.match(page, /label="Test case type"/);
   assert.match(page, /label="Author"/);
   assert.match(page, /title=\{caseDraft\.authoring_mode === "gherkin" \? "Examples · Linked Test Data" : "Data Sets"\}/);
-  assert.match(page, /Every table row becomes an independent execution iteration/);
-  assert.match(page, /No Data Sets Defined/);
-  assert.match(page, /Create Data Set/);
-  assert.match(page, /Link Existing Data Set/);
+  const panel = await readSource("../src/components/AuthoringDataSetPanel.tsx");
+  const picker = await readSource("../src/components/TestDataSetPickerDialog.tsx");
+  assert.match(picker, /Every table row becomes an independent execution iteration/);
+  assert.match(panel, /No Data Sets Defined/);
+  assert.match(panel, /Create Data Set/);
+  assert.match(panel, /Link Existing Data Set/);
   assert.match(page, /test_data_set_ids: linkedDataSetDraftIds\.slice\(0, 1\)/);
   assert.match(page, /setLinkedDataSetDraftIds\(\[dataSetLinkDraftId\]\)/);
   assert.match(types, /data_set_iteration_index\?: number \| null/);

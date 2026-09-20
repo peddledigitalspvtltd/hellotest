@@ -21,9 +21,9 @@ test("selected ancestry shares one dataset load while preserving nearest overrid
   assert.match(calls[0].sql, /WITH RECURSIVE ancestry/);
   assert.doesNotMatch(calls[0].sql, /UNION ALL|row_to_json|data\.rows/);
   assert.deepEqual(calls[0].args, ["child", "leaf"]);
-  assert.deepEqual(calls[1].args, ["shared", "leaf-data", "parent", "child", "leaf"], "Shared dataset is fetched once, not once per suite.");
-  assert.deepEqual(result.get("child"), { parameters: { "s.tenant": "child" }, dataSet: shared });
-  assert.deepEqual(result.get("leaf"), { parameters: { "s.tenant": "child" }, dataSet: leaf });
+  assert.deepEqual(calls[1].args, ["shared", "leaf-data"], "Shared dataset is fetched once, not once per suite.");
+  assert.deepEqual(result.get("child"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "child" }, dataSet: shared });
+  assert.deepEqual(result.get("leaf"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "child" }, dataSet: leaf });
 });
 
 test("a batched dataset authorized for one suite cannot cross another app or project", async (context) => {
@@ -52,6 +52,18 @@ test("empty selection and ancestry without data never dispatch a dataset query",
   assert.equal(reads, 0);
   const result = await loadSuiteContexts(["a", "missing"]);
   assert.equal(reads, 1);
-  assert.deepEqual(result.get("a"), { parameters: { "s.tenant": "a" }, dataSet: null });
-  assert.deepEqual(result.get("missing"), { parameters: {}, dataSet: null });
+  assert.deepEqual(result.get("a"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: { "s.tenant": "a" }, dataSet: null });
+  assert.deepEqual(result.get("missing"), { dataOptions: { override_lower_scopes: true, override_shared_steps: true, override_test_case_data: true, override_suite_data: true }, parameters: {}, dataSet: null });
+});
+
+test('suite policies inherit without data and explicit child overrides remain independent', () => {
+  const { resolveSuiteContexts } = require('../src/services/suiteExecutionContext.service');
+  const rows=[{id:'parent',app_type_id:'app',test_data_options:{override_test_case_data:false,override_shared_steps:false}},
+    {id:'child',parent_id:'parent',app_type_id:'app',test_data_options:{}},
+    {id:'override',parent_id:'parent',app_type_id:'app',test_data_options:{override_test_case_data:true,override_shared_steps:false}}];
+  const contexts=resolveSuiteContexts(rows,['child','override']);
+  assert.equal(contexts.get('child').dataOptions.override_test_case_data,false);
+  assert.equal(contexts.get('child').dataOptions.override_shared_steps,false);
+  assert.equal(contexts.get('override').dataOptions.override_test_case_data,true);
+  assert.equal(contexts.get('override').dataOptions.override_shared_steps,false);
 });

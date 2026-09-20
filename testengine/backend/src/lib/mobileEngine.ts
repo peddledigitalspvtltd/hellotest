@@ -51,7 +51,7 @@ export async function executeAndroidSteps(
       config: envelope.mobile_engine || {},
       object_repository: envelope.object_repository || [],
       parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues)),
-      steps
+      steps: steps.map(step => ({ ...step, parameter_values: toParameterValuesRecord(buildInitialContext(envelope, capturedValues, step)) }))
     })
   });
 

@@ -240,7 +240,7 @@ const projectStatusCopy = (project: ProjectActivationProject) => {
     case "context-review": return { label: "workspace review", detail: "Field context ownership or scope must be reviewed before retrying" };
     case "installation-upgrade": return { label: "App update required", detail: "Approve HelloTest’s requested connected workspace access before resuming this project" };
     case "failed": return { label: "Needs attention", detail: projectErrorMessage(project) || "Safe to retry after reviewing the error" };
-    case "mapping": return { label: "Mapping required", detail: "Choose the Story and Bug sources in this project" };
+    case "mapping": return { label: "Mapping required", detail: "Choose the Story and Defect sources in this project" };
     case "unsupported": return {
       label: project.archived ? "Archived" : project.configuration_model === "team-managed" || project.simplified ? "Team-managed" : "Unavailable",
       detail: project.archived

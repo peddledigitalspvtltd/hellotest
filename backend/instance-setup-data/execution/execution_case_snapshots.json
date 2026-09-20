@@ -1,0 +1,702 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-login",
+      "test_case_title": "Customer signs in",
+      "test_case_description": "Sample scenario: a verified customer account. the account overview is displayed.",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "module_id": "sample-v2-module-smoke",
+      "module_name": "Release smoke",
+      "priority": 1,
+      "status": "active",
+      "parameter_values": {
+        "region": "us-east",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "segment": "standard"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-checkout",
+      "test_case_title": "Customer completes checkout",
+      "test_case_description": "Sample scenario: a basket with an in-stock product. one order is created and a receipt is displayed.",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "module_id": "sample-v2-module-smoke",
+      "module_name": "Release smoke",
+      "priority": 1,
+      "status": "active",
+      "parameter_values": {
+        "region": "us-east",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "segment": "standard"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 2,
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-keyboard",
+      "test_case_title": "Checkout supports keyboard navigation",
+      "test_case_description": "Sample scenario: checkout is open without using a pointer. focus remains visible and reaches the confirmation button.",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "module_id": "sample-v2-module-smoke",
+      "module_name": "Release smoke",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "us-east",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "segment": "standard"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 3,
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-expired-session",
+      "test_case_title": "Expired sessions preserve the basket",
+      "test_case_description": "Sample scenario: a basket exists and the session has expired. the basket is restored without exposing another account.",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "module_id": "sample-v2-module-smoke",
+      "module_name": "Release smoke",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "us-east",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "segment": "standard"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 4,
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-smoke",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "test_case_title": "Declined payments allow a safe retry",
+      "test_case_description": "Sample scenario: the payment provider declines the first authorization. one charge and one order are created.",
+      "suite_id": "sample-v2-suite-smoke",
+      "suite_name": "Release smoke suite",
+      "module_id": "sample-v2-module-smoke",
+      "module_name": "Release smoke",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "us-east",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "segment": "standard"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 5,
+      "test_data_set_id": "sample-v2-data-customers",
+      "test_data_set_name": "Customer personas",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-customers",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Customer personas",
+        "description": "Synthetic customer rows illustrating regional and payment variations.",
+        "mode": "table",
+        "columns": [
+          "email",
+          "segment",
+          "region",
+          "payment_method"
+        ],
+        "rows": [
+          {
+            "email": "alex@example.test",
+            "segment": "standard",
+            "region": "us-east",
+            "payment_method": "approved-card"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-stock-api",
+      "test_case_title": "Inventory API returns available stock",
+      "test_case_description": "Sample scenario: SKU <sku> exists in the staging inventory. the response is 200 and available quantity is non-negative.",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "module_id": "sample-v2-module-api",
+      "module_name": "API journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Order contract inputs",
+        "description": "Known product and idempotency inputs.",
+        "mode": "table",
+        "columns": [
+          "sku",
+          "request_key",
+          "quantity"
+        ],
+        "rows": [
+          {
+            "sku": "TRAIL-100",
+            "request_key": "sample-order-001",
+            "quantity": "1"
+          },
+          {
+            "sku": "TRAIL-200",
+            "request_key": "sample-order-002",
+            "quantity": "2"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "test_case_title": "Order API rejects duplicate idempotency keys",
+      "test_case_description": "Sample scenario: an order was created with idempotency key <request_key>. the existing order is returned without a second charge.",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "module_id": "sample-v2-module-api",
+      "module_name": "API journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 2,
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Order contract inputs",
+        "description": "Known product and idempotency inputs.",
+        "mode": "table",
+        "columns": [
+          "sku",
+          "request_key",
+          "quantity"
+        ],
+        "rows": [
+          {
+            "sku": "TRAIL-100",
+            "request_key": "sample-order-001",
+            "quantity": "1"
+          },
+          {
+            "sku": "TRAIL-200",
+            "request_key": "sample-order-002",
+            "quantity": "2"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-api",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "test_case_title": "Order API requires authentication",
+      "test_case_description": "Sample scenario: no customer authorization is provided. the response is 401 without customer information.",
+      "suite_id": "sample-v2-suite-api",
+      "suite_name": "Commerce API contract suite",
+      "module_id": "sample-v2-module-api",
+      "module_name": "API journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "quantity": "1"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 3,
+      "test_data_set_id": "sample-v2-data-api",
+      "test_data_set_name": "Order contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v2-data-api",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "Order contract inputs",
+        "description": "Known product and idempotency inputs.",
+        "mode": "table",
+        "columns": [
+          "sku",
+          "request_key",
+          "quantity"
+        ],
+        "rows": [
+          {
+            "sku": "TRAIL-100",
+            "request_key": "sample-order-001",
+            "quantity": "1"
+          },
+          {
+            "sku": "TRAIL-200",
+            "request_key": "sample-order-002",
+            "quantity": "2"
+          }
+        ]
+      },
+      "data_set_source": "run"
+    },
+    {
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "test_case_title": "Mobile basket survives an app restart",
+      "test_case_description": "Sample scenario: a customer added a product to the mobile basket. the product and quantity are retained.",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "module_id": "sample-v2-module-mobile",
+      "module_name": "MOBILE journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 1,
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "test_data_set_snapshot": null,
+      "data_set_source": null
+    },
+    {
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "test_case_title": "Mobile checkout explains an offline connection",
+      "test_case_description": "Sample scenario: the basket has an in-stock product. an offline message is shown and the basket remains intact.",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "module_id": "sample-v2-module-mobile",
+      "module_name": "MOBILE journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 2,
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "test_data_set_snapshot": null,
+      "data_set_source": null
+    },
+    {
+      "execution_id": "sample-v2-run-mobile",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "test_case_title": "Mobile controls have accessible labels",
+      "test_case_description": "Sample scenario: the accessibility reader is enabled. each control announces its name and state.",
+      "suite_id": "sample-v2-suite-mobile",
+      "suite_name": "Mobile recovery suite",
+      "module_id": "sample-v2-module-mobile",
+      "module_name": "MOBILE journeys",
+      "priority": 2,
+      "status": "active",
+      "parameter_values": {
+        "region": "eu-west",
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001"
+      },
+      "parameter_template_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "suite_parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run",
+      "sort_order": 3,
+      "test_data_set_id": null,
+      "test_data_set_name": null,
+      "test_data_set_snapshot": null,
+      "data_set_source": null
+    },
+    {
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-qa-done",
+      "test_case_title": "Customer sign-in accepted by QA · sample: verify the observable result",
+      "test_case_description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "module_id": "sample-v4-metrics-module",
+      "module_name": "Joined Story coverage · sample",
+      "status": "ready",
+      "priority": 3,
+      "sort_order": 1,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-dev-done",
+      "test_case_title": "Payment retry ready for QA verification · sample: verify the observable result",
+      "test_case_description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "module_id": "sample-v4-metrics-module",
+      "module_name": "Joined Story coverage · sample",
+      "status": "ready",
+      "priority": 2,
+      "sort_order": 2,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-blocked",
+      "test_case_title": "Offline checkout blocked by a delivery defect · sample: verify the observable result",
+      "test_case_description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "module_id": "sample-v4-metrics-module",
+      "module_name": "Joined Story coverage · sample",
+      "status": "ready",
+      "priority": 1,
+      "sort_order": 3,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v4-metrics-run",
+      "test_case_id": "sample-v4-metrics-case-not-applicable",
+      "test_case_title": "Optional device flow awaiting applicability review · sample: verify the observable result",
+      "test_case_description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "suite_id": "sample-v4-metrics-suite",
+      "suite_name": "Metric evidence walkthrough · sample",
+      "module_id": "sample-v4-metrics-module",
+      "module_name": "Joined Story coverage · sample",
+      "status": "ready",
+      "priority": 3,
+      "sort_order": 4,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    }
+  ]
+}

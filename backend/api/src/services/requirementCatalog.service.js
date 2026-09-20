@@ -2,9 +2,13 @@ const db = require('../db');
 const { createHash } = require('crypto');
 
 const { latestFinalizedCaseResultsCte } = require('../utils/finalizedCaseMetrics');
+const { deriveStoryReadiness } = require('../utils/storyReadiness');
+const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require('../utils/deliveryScopeSql');
 const yes = (value) => value === true || value === 'true';
 const NORMALIZED_STATUS = `LOWER(REGEXP_REPLACE(TRIM(COALESCE(r.status, '')), '[ _-]+', '_', 'g'))`;
 const STATUS_RANK = `CASE ${NORMALIZED_STATUS} WHEN 'dev_ready' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'blocked' THEN 2 WHEN 'dev_in_progress' THEN 2 WHEN 'dev_blocked' THEN 2 WHEN 'dev_done' THEN 3 WHEN 'ready' THEN 4 WHEN 'qa_ready' THEN 4 WHEN 'qa_in_progress' THEN 5 WHEN 'qa_blocked' THEN 5 WHEN 'qa_done' THEN 6 WHEN 'done' THEN 7 WHEN 'closed' THEN 7 WHEN 'resolved' THEN 7 WHEN 'accepted' THEN 7 WHEN 'complete' THEN 7 WHEN 'completed' THEN 7 ELSE 0 END`;
+// Match the Dev Done milestone used by Release Health, including later QA stages.
+const DEV_COMPLETED = `${NORMALIZED_STATUS} IN ('dev_done', 'qa_ready', 'qa_in_progress', 'qa_blocked', 'qa_done', 'done', 'closed', 'resolved', 'accepted', 'complete', 'completed')`;
 const ASSIGNED = `(r.iteration_id IS NOT NULL OR NULLIF(TRIM(r.sprint), '') IS NOT NULL)`;
 // Empty rich-text markup and whitespace-only scenario entries do not document intent.
 const hasText = (value) => `NULLIF(TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(${value}, ''), '<[^>]*>', '', 'g'), '&(nbsp|#160|#x0*a0);', ' ', 'gi'), '[[:space:] ]+', ' ', 'g')), '') IS NOT NULL`;
@@ -16,6 +20,9 @@ const SLIPPED = `((${overdue('r.dev_completion_target_date')} AND ${STATUS_RANK}
 const CASE_LINKED = `(EXISTS (SELECT 1 FROM requirement_test_cases links JOIN test_cases tc ON tc.id = links.test_case_id LEFT JOIN app_types app ON app.id = tc.app_type_id WHERE links.requirement_id = r.id AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)) OR EXISTS (SELECT 1 FROM test_cases tc LEFT JOIN app_types app ON app.id = tc.app_type_id WHERE tc.requirement_id = r.id AND (tc.app_type_id IS NULL OR app.project_id = r.project_id)))`;
 const AUTOMATED = `(LOWER(TRIM(tc.automated)) = 'yes' OR LOWER(TRIM(tc.automation_status)) IN ('ready', 'automated', 'yes', 'covered'))`;
 const BUG_CLOSED = `LOWER(TRIM(COALESCE(bug.status, ''))) IN ('closed', 'resolved', 'done', 'accepted', 'complete', 'completed', 'fixed', 'verified')`;
+const RELEASE_MEMBERSHIP = releaseStoryMembershipSql();
+const RELEASE_SCOPED = `(NULLIF(TRIM(r.fix_version), '') IS NOT NULL OR NULLIF(TRIM(r.release), '') IS NOT NULL
+  OR EXISTS (SELECT 1 FROM requirement_releases rel WHERE rel.project_id = r.project_id AND ${RELEASE_MEMBERSHIP}))`;
 
 // Apply every catalog filter before LIMIT so matches beyond the loaded page remain discoverable.
 function buildWhere(query = {}) {
@@ -29,9 +36,13 @@ function buildWhere(query = {}) {
     clauses.push(`(r.iteration_id = ? OR (r.iteration_id IS NULL AND EXISTS (SELECT 1 FROM requirement_iterations i WHERE i.id = ? AND i.project_id = r.project_id AND LOWER(TRIM(i.name)) = LOWER(TRIM(r.sprint))) AND (SELECT COUNT(*) FROM requirement_iterations i WHERE i.project_id = r.project_id AND LOWER(TRIM(i.name)) = LOWER(TRIM(r.sprint))) = 1))`);
     params.push(query.sprint_id, query.sprint_id);
   }
-  eq('r.fix_version', query.fix_version);
-  eq('r.release', query.release);
-  if (query.unassigned === true || query.unassigned === 'true') clauses.push(`NOT ${ASSIGNED}`);
+  for (const [storyColumn, releaseColumn, value] of [['fix_version', 'fix_version', query.fix_version], ['release', 'name', query.release]]) {
+    if (value === undefined || value === null || value === '' || value === 'all') continue;
+    clauses.push(`(r.${storyColumn} = ? OR EXISTS (SELECT 1 FROM requirement_releases rel
+      WHERE rel.project_id = r.project_id AND rel.${releaseColumn} = ? AND ${RELEASE_MEMBERSHIP}))`);
+    params.push(value, value);
+  }
+  if (query.unassigned === true || query.unassigned === 'true') clauses.push(`NOT ${ASSIGNED} AND NOT ${RELEASE_SCOPED}`);
   if (query.sprint && query.sprint !== 'all') { clauses.push('(r.sprint = ? OR EXISTS (SELECT 1 FROM requirement_iterations i WHERE i.id = r.iteration_id AND i.name = ?))'); params.push(query.sprint, query.sprint); }
   if (query.label && query.label !== 'all') { clauses.push('COALESCE(r.labels, \'[]\'::jsonb) @> ?::jsonb'); params.push(JSON.stringify([query.label])); }
   if (query.coverage === 'linked' || query.coverage === 'unlinked') clauses.push(`${query.coverage === 'unlinked' ? 'NOT ' : ''}${CASE_LINKED}`);
@@ -103,11 +114,10 @@ const factsCte = (sql, includeExecution = false) => `WITH base AS MATERIALIZED (
   SELECT r.id, r.project_id,
     COALESCE(r.iteration_id, (SELECT MIN(i.id) FROM requirement_iterations i WHERE i.project_id = r.project_id AND LOWER(TRIM(i.name)) = LOWER(TRIM(r.sprint)) HAVING COUNT(*) = 1)) AS iteration_id,
     r.priority, r.status, r.scrum_team,
-    ${STATUS_RANK} AS status_rank, ${ASSIGNED} AS assigned,
+    ${STATUS_RANK} AS status_rank, ${DEV_COMPLETED} AS dev_completed, ${ASSIGNED} AS assigned,
     ${SPECIFIED} AS specified, ${DESCRIBED} AS described,
     COALESCE(${SLIPPED}, false) AS slipped,
-    (NULLIF(TRIM(r.fix_version), '') IS NOT NULL OR NULLIF(TRIM(r.release), '') IS NOT NULL
-      OR EXISTS (SELECT 1 FROM requirement_release_items ri JOIN requirement_releases rel ON rel.id = ri.release_id WHERE ri.requirement_id = r.id AND rel.project_id = r.project_id)) AS release_scoped
+    ${RELEASE_SCOPED} AS release_scoped
   FROM requirements r WHERE ${sql}
 ), linked_cases AS (
   SELECT b.id AS requirement_id, b.project_id, tc.id AS test_case_id, ${AUTOMATED} AS automated
@@ -120,18 +130,37 @@ const factsCte = (sql, includeExecution = false) => `WITH base AS MATERIALIZED (
   WHERE tc.app_type_id IS NULL OR app.project_id = b.project_id
 ), linked_bugs AS (
   SELECT DISTINCT b.id AS requirement_id, bug.id AS issue_id, ${BUG_CLOSED} AS closed,
-    (LOWER(TRIM(COALESCE(bug.priority, ''))) IN ('highest', 'high', 'p1', 'p2', '1', '2', 'critical')
-      OR LOWER(TRIM(COALESCE(bug.severity, ''))) IN ('critical', 'high')) AS high_priority
+    (LOWER(TRIM(COALESCE(bug.priority, ''))) IN ('blocker', 'highest', 'high', 'p1', 'p2', '1', '2', 'critical')
+      OR LOWER(TRIM(COALESCE(bug.severity, ''))) IN ('blocker', 'critical', 'high')) AS high_priority
   FROM base b JOIN requirement_defects link ON link.requirement_id = b.id
   JOIN feedback bug ON bug.id = link.issue_id AND bug.project_id = b.project_id
 ), ${includeExecution ? latestFinalizedCaseResultsCte(`SELECT er.id, er.execution_id, er.test_case_id, er.status, er.created_at, er.ended_at, er.data_set_iteration_index, er.data_set_iteration_key FROM execution_results er JOIN executions e ON e.id = er.execution_id WHERE EXISTS (SELECT 1 FROM linked_cases linked WHERE linked.test_case_id = er.test_case_id AND linked.project_id = e.project_id)`)
   : `latest_finalized AS (SELECT NULL::text AS test_case_id, NULL::text AS status WHERE false)`},
+scoped_finalized AS (${includeExecution ? `
+  SELECT DISTINCT ON (linked.requirement_id, linked.test_case_id)
+    linked.requirement_id, linked.test_case_id, finalized.status
+  FROM linked_cases linked JOIN finalized_case_runs finalized ON finalized.test_case_id = linked.test_case_id
+  JOIN executions e ON e.id = finalized.execution_id AND e.project_id = linked.project_id
+  JOIN requirements r ON r.id = linked.requirement_id
+  WHERE EXISTS (SELECT 1 FROM requirement_releases rel WHERE rel.project_id = r.project_id
+    AND ${RELEASE_MEMBERSHIP} AND ${releaseExecutionMembershipSql()})
+    OR (NOT EXISTS (SELECT 1 FROM requirement_releases rel WHERE rel.project_id = r.project_id AND ${RELEASE_MEMBERSHIP}) AND (
+      (NULLIF(TRIM(COALESCE(NULLIF(TRIM(r.fix_version), ''), r.release)), '') IS NOT NULL AND e.release_id IS NULL
+        AND LOWER(TRIM(e.release)) = LOWER(TRIM(COALESCE(NULLIF(TRIM(r.fix_version), ''), r.release))))
+      OR (NULLIF(TRIM(COALESCE(NULLIF(TRIM(r.fix_version), ''), r.release)), '') IS NULL AND (
+        (r.iteration_id IS NOT NULL AND e.iteration_id = r.iteration_id)
+        OR (e.iteration_id IS NULL AND NULLIF(TRIM(r.sprint), '') IS NOT NULL AND LOWER(TRIM(e.sprint)) = LOWER(TRIM(r.sprint)))
+        OR (r.iteration_id IS NULL AND NULLIF(TRIM(r.sprint), '') IS NULL)
+      ))
+    ))
+  ORDER BY linked.requirement_id, linked.test_case_id, finalized.outcome_at DESC NULLS LAST, finalized.execution_id DESC`
+  : `SELECT NULL::text AS requirement_id, NULL::text AS test_case_id, NULL::text AS status WHERE false`}),
 case_facts AS (
   SELECT linked.requirement_id, COUNT(*)::INTEGER AS linked_cases,
     COUNT(*) FILTER (WHERE linked.automated)::INTEGER AS automated_cases,
     COUNT(latest.test_case_id)::INTEGER AS executed_cases,
     COUNT(*) FILTER (WHERE latest.status = 'passed')::INTEGER AS passed_cases
-  FROM linked_cases linked LEFT JOIN latest_finalized latest ON latest.test_case_id = linked.test_case_id
+  FROM linked_cases linked LEFT JOIN scoped_finalized latest ON latest.test_case_id = linked.test_case_id AND latest.requirement_id = linked.requirement_id
   GROUP BY linked.requirement_id
 ), bug_facts AS (
   SELECT requirement_id, COUNT(*)::INTEGER AS total_bugs,
@@ -147,21 +176,27 @@ case_facts AS (
     COALESCE(bugs.closed_bugs, 0) AS closed_bugs, COALESCE(bugs.open_priority_bugs, 0) AS open_priority_bugs
   FROM base b LEFT JOIN case_facts c ON c.requirement_id = b.id LEFT JOIN bug_facts bugs ON bugs.requirement_id = b.id
 )`;
-const scopedCte = `, scoped AS (SELECT facts.*, scope.key FROM facts CROSS JOIN LATERAL (VALUES ('all'), (CASE WHEN assigned THEN 'sprints' ELSE 'backlog' END), (CASE WHEN iteration_id IS NOT NULL THEN 'iteration:' || iteration_id END)) scope(key) WHERE scope.key IS NOT NULL)`;
-const EMPTY = { total: 0, mapped: 0, highPriority: 0, open: 0, completed: 0, qaTotal: 0, totalDefects: 0, completionPercent: 0, coveragePercent: 0, defectDensity: 0, groomed: 0, notGroomed: 0, described: 0, specified: 0, teamAssigned: 0, slipped: 0, onCourse: 0, sprintCommitted: 0, releaseScoped: 0, backlog: 0 };
+const scopedCte = `, scoped AS (SELECT facts.*, scope.key FROM facts CROSS JOIN LATERAL (VALUES ('all'), (CASE WHEN assigned THEN 'sprints' WHEN NOT release_scoped THEN 'backlog' END), (CASE WHEN iteration_id IS NOT NULL THEN 'iteration:' || iteration_id END)) scope(key) WHERE scope.key IS NOT NULL)`;
+const EMPTY = { total: 0, mapped: 0, highPriority: 0, open: 0, completed: 0, qaTotal: 0, devCompleted: 0, devTotal: 0, devCompletionPercent: 0, totalDefects: 0, completionPercent: 0, coveragePercent: 0, defectDensity: 0, groomed: 0, notGroomed: 0, described: 0, specified: 0, teamAssigned: 0, slipped: 0, onCourse: 0, sprintCommitted: 0, releaseScoped: 0, backlog: 0 };
 
 exports.withCatalogMetrics = async (requirements, query = {}) => {
   if (!requirements.length) return requirements;
   const includeExecution = yes(query.include_execution);
   const ids = [...new Set(requirements.map((row) => row.id))];
-  const rows = await db.prepare(`${factsCte(`r.id IN (${ids.map(() => '?').join(',')})`, includeExecution)}
-    SELECT id, linked_cases, automated_cases, executed_cases, passed_cases, total_bugs, open_bugs, closed_bugs,
-      described, specified, groomed, slipped, status_rank >= 6 AS completed
-    FROM facts`).all(...ids);
-  const byId = new Map(rows.map(({ id, ...row }) => [id, { ...row,
+  // Release portfolios can contain more Stories than PostgreSQL's bind limit.
+  const rows = await db.prepare(`${factsCte(`r.id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))`, includeExecution)}
+    SELECT facts.id, linked_cases, automated_cases, executed_cases, passed_cases, total_bugs, open_bugs, closed_bugs,
+      open_priority_bugs, assigned, release_scoped, described, specified, groomed, slipped, status_rank >= 6 AS completed,
+      jsonb_build_object('title', r.title, 'description', r.description, 'gherkin_scenarios', r.gherkin_scenarios,
+        'specification_format', r.specification_format, 'specification_content', r.specification_content,
+        'additional_fields', r.additional_fields) AS readiness_story,
+      COALESCE((SELECT jsonb_agg(a.id) FROM attachments a WHERE a.project_id = r.project_id AND a.entity_type = 'requirement' AND a.entity_id = r.id), '[]'::jsonb) AS attachment_ids
+    FROM facts JOIN requirements r ON r.id = facts.id`).all(ids);
+  const byId = new Map(rows.map(({ id, readiness_story, attachment_ids, ...row }) => [id, { ...row,
     executed_cases: includeExecution ? row.executed_cases : null,
     passed_cases: includeExecution ? row.passed_cases : null,
-    execution_complete: includeExecution, automation_complete: true
+    execution_complete: includeExecution, automation_complete: true,
+    readiness:deriveStoryReadiness(readiness_story || {}, { ...row, attachment_ids, execution_complete:includeExecution })
   }]));
   return requirements.map((row) => ({ ...row, catalog_metrics: byId.get(row.id) }));
 };
@@ -172,7 +207,7 @@ exports.getMetrics = async (query = {}) => {
   const includeSprints = yes(query.include_sprints);
   const cte = factsCte(sql, includeExecution && includeSprints) + scopedCte;
   // Group facts before linking: shared cases and Bugs count once in each scope.
-  const [counts, options, iterations] = await Promise.all([
+  const [counts, options, iterations, growthRow] = await Promise.all([
     db.prepare(`${cte}, case_totals AS (
       SELECT s.key, COUNT(DISTINCT c.test_case_id)::INTEGER AS linked_cases,
         COUNT(DISTINCT latest.test_case_id)::INTEGER AS executed_linked_cases,
@@ -185,9 +220,13 @@ exports.getMetrics = async (query = {}) => {
     ), totals AS (SELECT s.key, COUNT(*)::INTEGER AS total,
       COUNT(*) FILTER (WHERE s.linked_cases > 0)::INTEGER AS mapped,
       COUNT(*) FILTER (WHERE s.priority BETWEEN 1 AND 2)::INTEGER AS "highPriority",
+      COUNT(*) FILTER (WHERE s.priority = 1)::INTEGER AS "criticalPriority",
+      COUNT(*) FILTER (WHERE s.priority = 2)::INTEGER AS "highOnlyPriority",
       COUNT(*) FILTER (WHERE s.status_rank < 6)::INTEGER AS open,
       COUNT(*) FILTER (WHERE s.status_rank >= 6 AND (s.key <> 'all' OR s.assigned))::INTEGER AS completed,
       COUNT(*) FILTER (WHERE s.key <> 'all' OR s.assigned)::INTEGER AS "qaTotal",
+      COUNT(*) FILTER (WHERE s.dev_completed AND (s.key <> 'all' OR s.assigned))::INTEGER AS "devCompleted",
+      COUNT(*) FILTER (WHERE s.key <> 'all' OR s.assigned)::INTEGER AS "devTotal",
       COUNT(*) FILTER (WHERE s.groomed)::INTEGER AS groomed,
       COUNT(*) FILTER (WHERE s.described)::INTEGER AS described,
       COUNT(*) FILTER (WHERE s.specified)::INTEGER AS specified,
@@ -198,18 +237,40 @@ exports.getMetrics = async (query = {}) => {
       COUNT(*) FILTER (WHERE s.slipped OR LOWER(s.status) LIKE '%blocked%' OR (s.priority BETWEEN 1 AND 2 AND s.linked_cases = 0))::INTEGER AS at_risk,
       COUNT(*) FILTER (WHERE s.assigned)::INTEGER AS "sprintCommitted",
       COUNT(*) FILTER (WHERE s.release_scoped)::INTEGER AS "releaseScoped",
-      COUNT(*) FILTER (WHERE NOT s.assigned)::INTEGER AS backlog
+      COUNT(*) FILTER (WHERE NOT s.assigned AND NOT s.release_scoped)::INTEGER AS backlog
       FROM scoped s GROUP BY s.key)
     SELECT totals.*, COALESCE(b.total_bugs, 0) AS total_bugs, COALESCE(b.open_p1_p2_bugs, 0) AS open_p1_p2_bugs,
       COALESCE(c.linked_cases, 0) AS linked_cases, COALESCE(c.executed_linked_cases, 0) AS executed_linked_cases,
       COALESCE(c.passed_cases, 0) AS passed_cases
     FROM totals LEFT JOIN case_totals c USING (key) LEFT JOIN bug_totals b USING (key)`).all(...params),
-    db.prepare(`SELECT COALESCE(jsonb_agg(DISTINCT status) FILTER (WHERE status IS NOT NULL), '[]'::jsonb) AS statuses, COALESCE(jsonb_agg(DISTINCT sprint) FILTER (WHERE NULLIF(sprint, '') IS NOT NULL), '[]'::jsonb) AS sprints, COALESCE(jsonb_agg(DISTINCT fix_version) FILTER (WHERE NULLIF(fix_version, '') IS NOT NULL), '[]'::jsonb) AS fix_versions, COALESCE(jsonb_agg(DISTINCT release) FILTER (WHERE NULLIF(release, '') IS NOT NULL), '[]'::jsonb) AS releases, COALESCE((SELECT jsonb_agg(DISTINCT label) FROM requirements rr CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(rr.labels) = 'array' THEN rr.labels ELSE '[]'::jsonb END) label WHERE rr.project_id = ?), '[]'::jsonb) AS labels FROM requirements WHERE project_id = ?`).get(query.project_id, query.project_id),
-    includeSprints ? db.prepare('SELECT id, name, state FROM requirement_iterations WHERE project_id = ?').all(query.project_id) : Promise.resolve([])
+    db.prepare(`SELECT COALESCE(jsonb_agg(DISTINCT status) FILTER (WHERE status IS NOT NULL), '[]'::jsonb) AS statuses,
+      COALESCE(jsonb_agg(DISTINCT sprint) FILTER (WHERE NULLIF(sprint, '') IS NOT NULL), '[]'::jsonb) AS sprints,
+      COALESCE((SELECT jsonb_agg(DISTINCT value) FROM (
+        SELECT fix_version AS value FROM requirements WHERE project_id = ?
+        UNION ALL SELECT fix_version FROM requirement_releases WHERE project_id = ?
+      ) versions WHERE NULLIF(TRIM(value), '') IS NOT NULL), '[]'::jsonb) AS fix_versions,
+      COALESCE((SELECT jsonb_agg(DISTINCT value) FROM (
+        SELECT release AS value FROM requirements WHERE project_id = ?
+        UNION ALL SELECT name FROM requirement_releases WHERE project_id = ?
+      ) releases WHERE NULLIF(TRIM(value), '') IS NOT NULL), '[]'::jsonb) AS releases,
+      COALESCE((SELECT jsonb_agg(DISTINCT label) FROM requirements rr CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(rr.labels) = 'array' THEN rr.labels ELSE '[]'::jsonb END) label WHERE rr.project_id = ?), '[]'::jsonb) AS labels
+      FROM requirements WHERE project_id = ?`).get(...Array(6).fill(query.project_id)),
+    includeSprints ? db.prepare('SELECT id, name, state FROM requirement_iterations WHERE project_id = ?').all(query.project_id) : Promise.resolve([]),
+    db.prepare(`SELECT history.tracking_started_at,
+      date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS period_start,
+      COUNT(events.id) FILTER (WHERE events.event_kind = 'added')::INTEGER AS added,
+      COUNT(events.id) FILTER (WHERE events.event_kind = 'completed')::INTEGER AS completed,
+      COUNT(events.id) FILTER (WHERE events.event_kind = 'removed')::INTEGER AS removed,
+      (SELECT COUNT(*)::INTEGER FROM requirements r WHERE r.project_id = ? AND NOT ${ASSIGNED} AND NOT ${RELEASE_SCOPED} AND ${STATUS_RANK} < 6) AS active
+      FROM requirement_backlog_history_state history LEFT JOIN requirement_backlog_events events
+        ON events.project_id = ? AND events.occurred_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+        AND events.occurred_at <= statement_timestamp()
+      WHERE history.singleton = true GROUP BY history.tracking_started_at`).get(query.project_id, query.project_id)
   ]);
   const evidenceByKey = new Map(counts.map((row) => [row.key, row]));
   const scopes = new Map(counts.map(({ key, total_bugs: totalDefects, linked_cases, executed_linked_cases, passed_cases, open_p1_p2_bugs, ...row }) => [key, { ...EMPTY, ...row, totalDefects,
     completionPercent: row.qaTotal ? Math.round(row.completed / row.qaTotal * 100) : 0,
+    devCompletionPercent: row.devTotal ? Math.round(row.devCompleted / row.devTotal * 100) : 0,
     coveragePercent: row.total ? Math.round(row.mapped / row.total * 100) : 0,
     defectDensity: row.total ? totalDefects / row.total : 0,
     notGroomed: row.total - row.groomed, onCourse: row.total - row.slipped
@@ -235,7 +296,19 @@ exports.getMetrics = async (query = {}) => {
         executions: { state: includeExecution ? 'complete' : 'unavailable', linked_cases_scoped: evidence.linked_cases, runs_scanned: 0, results_scanned: includeExecution ? evidence.executed_linked_cases : 0, case_limit: evidence.linked_cases, run_limit: 0, result_limit: includeExecution ? evidence.executed_linked_cases : 0 },
         bugs: { state: 'complete', bugs_scanned: row.totalDefects, limit: row.totalDefects } } };
   });
-  return { all: scopes.get('all') || { ...EMPTY }, backlog: scopes.get('backlog') || { ...EMPTY }, sprints: scopes.get('sprints') || { ...EMPTY }, sprint_health, filter_options: options, generated_at: new Date().toISOString() };
+  const growth = growthRow?.tracking_started_at ? {
+    scope:'project', period_start:growthRow.period_start, tracking_started_at:growthRow.tracking_started_at,
+    partial:new Date(growthRow.tracking_started_at) > new Date(growthRow.period_start),
+    added:Number(growthRow.added || 0), completed:Number(growthRow.completed || 0), removed:Number(growthRow.removed || 0), active:Number(growthRow.active || 0)
+  } : null;
+  if (growth) {
+    growth.departures = growth.completed + growth.removed;
+    growth.net = growth.added - growth.departures;
+    growth.opening = growth.active - growth.net;
+    growth.ratio = growth.departures ? growth.added / growth.departures : null;
+    growth.percent = !growth.partial && growth.opening > 0 ? Math.round(growth.net / growth.opening * 1000) / 10 : null;
+  }
+  return { all: scopes.get('all') || { ...EMPTY }, backlog:{ ...(scopes.get('backlog') || EMPTY), growth }, sprints: scopes.get('sprints') || { ...EMPTY }, sprint_health, filter_options: options, generated_at: new Date().toISOString() };
 };
 
 exports.buildWhere = buildWhere;

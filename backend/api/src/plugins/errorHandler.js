@@ -66,6 +66,9 @@ const inferLegacyStatus = (message) => {
 };
 
 const classifyError = (error = {}) => {
+  if (error.code === "PJD01") {
+    return { statusCode: 409, code: "PROJECT_DELETING", message: "This project is being deleted. Changes are temporarily unavailable.", retryable: false, errorType: "postgres.project_deleting" };
+  }
   if (error instanceof ServiceBoundaryError) {
     const statusCode = validStatusCode(error.statusCode) || 502;
     return {

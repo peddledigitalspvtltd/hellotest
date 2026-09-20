@@ -1,0 +1,15 @@
+import type { SharedStepMetrics } from '../types';
+import type { QualityMetric } from '../components/QualityMetricStrip';
+
+export function sharedStepMetricCards(data: SharedStepMetrics | undefined, unavailable = 'Loading metrics'): QualityMetric[] {
+  const executionReason = data && !data.execution_visible ? 'Run and result access is required.' : data?.execution_evidence_reason || unavailable;
+  const defectReason = data?.defect_evidence_reason || unavailable;
+  const window = data ? `Recorded step outcomes in the last ${data.window_days} days. One latest outcome per run, case, data row and step; retries are not double counted.` : unavailable;
+  return [
+    { label: 'Cases Reusing Shared Steps', badge: 'Current Repository', value: data?.reused_case_count ?? 'Unavailable', detail: data ? `${data.reused_case_count} distinct current test cases use shared steps; a case using several groups counts once.` : unavailable, methodology: data ? `${data.shared_step_references} shared step references among ${data.total_repository_steps} current repository steps in this application.` : unavailable },
+    { label: 'Reusability Index', badge: '90-Day Execution Ratio', value: data?.reusability_index == null ? 'Unavailable' : `${data.reusability_index}%`, detail: data?.shared_steps_executed == null ? executionReason : `${data.shared_steps_executed} shared step execution instances ÷ ${data.total_repository_steps} current repository steps × 100.`, methodology: `${window} Execution instances and repository rows are different units; repeated runs can produce more than 100%. An empty repository has no ratio.` },
+    { label: 'Open Defects', badge: 'Failed Shared Steps', value: data?.open_defect_count ?? 'Unavailable', tone: data?.open_defect_count ? 'danger' : 'neutral', detail: data?.open_defect_count == null ? defectReason : `${data.open_defect_count} distinct open defects link to a run and case with a recorded failure in a shared group.`, methodology: 'Uses the Defects catalog open-status definition and frozen failed-step evidence across all recorded history. A defect linked to several groups counts once overall. Later passing retries do not close it. This association supports investigation; it does not establish root cause.' },
+    { label: 'Shared Failure Clusters', badge: 'Last 90 Days', value: data?.failure_cluster_count ?? 'Unavailable', tone: data?.failure_cluster_count ? 'danger' : 'neutral', detail: 'Groups with recorded failed shared steps in at least two distinct test cases during the execution window.', methodology: 'A cluster is correlated evidence for investigation, not proof that the shared group caused the failures.' },
+    { label: 'Mean Time To Isolation', badge: 'Recorded Isolation Evidence', value: data?.mtti_ms == null ? 'Unavailable' : `${Math.round(data.mtti_ms / 60000)} min`, detail: data?.mtti_unavailable_reason || unavailable, methodology: 'Mean of recorded isolation timestamp minus actual failure timestamp for verified pairs. No estimate is derived from case resolution, result updates or AI speculation.' }
+  ];
+}

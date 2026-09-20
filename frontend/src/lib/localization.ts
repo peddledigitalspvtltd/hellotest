@@ -22,8 +22,8 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "nav.support": "Support",
   "nav.notifications": "Notifications",
   "nav.settings": "Settings",
-  "nav.reportIssue": "Bugs",
-  "nav.feedback": "Bugs",
+  "nav.reportIssue": "Defects",
+  "nav.feedback": "Defects",
   "workspace.requirements": "Stories",
   "workspace.backlog": "Backlog",
   "workspace.stories": "Stories",
@@ -59,8 +59,8 @@ export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
   "page.support": "Support",
   "page.notifications": "Notifications",
   "page.settings": "Settings",
-  "page.issues": "Bugs",
-  "page.feedback": "Bugs",
+  "page.issues": "Defects",
+  "page.feedback": "Defects",
   "settings.localization.title": "Localization",
   "settings.localization.subtitle": "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.",
   "settings.localization.download": "Download current strings",
@@ -183,7 +183,7 @@ Object.assign(DEFAULT_LOCALIZATION_STRINGS, {
   "capability.data.description": "Prepare parameter values and data rows for execution.",
   "capability.configurations.name": "Configurations",
   "capability.configurations.description": "Choose browsers, platforms and execution variables.",
-  "capability.bugs.name": "Bugs",
+  "capability.bugs.name": "Defects",
   "capability.bugs.description": "Triage defects, review history and convert gaps into tests.",
   "capability.knowledge.name": "Knowledge repository",
   "capability.knowledge.description": "Curate the sources used by Ask AI and quality specialists.",
@@ -207,7 +207,7 @@ Object.assign(DEFAULT_LOCALIZATION_STRINGS, {
 
 export const LOCALIZATION_STORAGE_KEY = "hellotest.localization";
 
-const migrateLegacyStoryLabels = (overrides?: LocalizationStrings | null): LocalizationStrings => {
+const migrateLegacyEntityLabels = (overrides?: LocalizationStrings | null): LocalizationStrings => {
   const migrated = Object.fromEntries(Object.entries(overrides || {}).filter(([key, value]) => key.length <= 160 && typeof value === "string" && value.length <= 10000 && !["__proto__", "constructor", "prototype"].includes(key)));
 
   (["workspace.requirements", "page.requirements"] as const).forEach((key) => {
@@ -215,12 +215,20 @@ const migrateLegacyStoryLabels = (overrides?: LocalizationStrings | null): Local
     if (migrated[key] === "Requirements") migrated[key] = "Stories";
   });
 
+  // Older workspace packs and browser caches can still contain the original
+  // English module names. Keep their keys and custom translations compatible.
+  (["nav.reportIssue", "nav.feedback", "page.issues", "page.feedback", "capability.bugs.name"] as const).forEach((key) => {
+    if (/^(?:report\s+(?:an?\s+)?)?(?:issues?|bugs?)$/i.test(migrated[key]?.trim() || "")) {
+      migrated[key] = "Defects";
+    }
+  });
+
   return migrated;
 };
 
 export const mergeLocalizationStrings = (overrides?: LocalizationStrings | null): LocalizationStrings => ({
   ...DEFAULT_LOCALIZATION_STRINGS,
-  ...migrateLegacyStoryLabels(overrides)
+  ...migrateLegacyEntityLabels(overrides)
 });
 
 Object.assign(DEFAULT_LOCALIZATION_STRINGS, ANALYTICS_MESSAGES);

@@ -13,7 +13,7 @@ const emptyContext = {
   boundaries: { partial_sources: false }
 };
 
-test("deterministic Bug drafting leaves unsupported steps and expected behavior empty", () => {
+test("deterministic Defect drafting leaves unsupported steps and expected behavior empty", () => {
   const input = {
     intent: "Checkout fails after payment",
     evidence: "Observed result: A payment error is shown.",
@@ -34,7 +34,7 @@ test("deterministic Bug drafting leaves unsupported steps and expected behavior 
   assert.doesNotMatch(result.draft.steps_to_reproduce, /open the affected workflow/i);
 });
 
-test("structured reporter evidence is never recycled into a different Bug field", () => {
+test("structured reporter evidence is never recycled into a different Defect field", () => {
   const input = {
     intent: "Profile save does not complete",
     evidence: "Steps to reproduce:\n1. Open Profile\n2. Select Save",
@@ -78,7 +78,7 @@ test("linked Story context contributes expected behavior only from an explicit h
   assert.equal(unheaded.draft.expected_result, "");
 });
 
-test("Bug drafting uses a compact prompt context and discloses source text truncation", () => {
+test("Defect drafting uses a compact prompt context and discloses source text truncation", () => {
   const limits = aiBugDraft._private.BUG_DRAFT_CONTEXT_LIMITS;
   const snapshot = aiBugDraft._private.buildPromptContextSnapshot({
     run: { id: "run-1", name: "Run", status: "failed" },
@@ -94,7 +94,7 @@ test("Bug drafting uses a compact prompt context and discloses source text trunc
   assert.ok(snapshot.content_omissions.some((item) => item.source_ref === "execution-result:result-1" && item.field === "observation" && item.omitted === 17));
 });
 
-test("Bug draft normalization reports hybrid fallback fields when model fields are ungrounded", () => {
+test("Defect draft normalization reports hybrid fallback fields when model fields are ungrounded", () => {
   const input = { intent: "Save action fails", evidence: "", additional_context: "", external_links: [] };
   const evidenceSources = [{ ref: "reporter:intent", type: "reporter-input", id: "intent", title: "Incident brief" }];
   const fallback = aiBugDraft._private.deterministicDraft({ input, context: emptyContext, evidenceSources });
@@ -111,7 +111,7 @@ test("Bug draft normalization reports hybrid fallback fields when model fields a
   assert.ok(normalized.gaps.some((gap) => gap.field === "priority"));
 });
 
-test("Bug triage category and priority signals exactly identify their supporting fields", () => {
+test("Defect triage category and priority signals exactly identify their supporting fields", () => {
   const issue = {
     id: "bug-1",
     title: "Payment failure after submit",
@@ -130,7 +130,7 @@ test("Bug triage category and priority signals exactly identify their supporting
   assert.deepEqual(priority.signal.evidence_refs, ["issue:bug-1:title"]);
 });
 
-test("Bug triage accepts only cited category refinements and never changes deterministic priority or readiness", () => {
+test("Defect triage accepts only cited category refinements and never changes deterministic priority or readiness", () => {
   const deterministic = [{
     issue_id: "bug-1",
     display_id: "BUG-1",
@@ -164,7 +164,7 @@ test("Bug triage accepts only cited category refinements and never changes deter
   assert.deepEqual(forged.fallback_sections, ["category:bug-1"]);
 });
 
-test("Bug triage fingerprints and prompts a field-bounded Bug snapshot", () => {
+test("Defect triage fingerprints and prompts a field-bounded Defect snapshot", () => {
   const limits = aiBugTriage._private.TRIAGE_PROMPT_FIELD_LIMITS;
   const bounded = aiBugTriage._private.buildBoundedIssueSnapshots([{
     id: "bug-1",
@@ -182,10 +182,10 @@ test("Bug triage fingerprints and prompts a field-bounded Bug snapshot", () => {
   assert.ok(bounded.boundaries.omissions.some((item) => item.field === "message" && item.omitted === 11));
 });
 
-test("Bug AI routes enforce the feature gate and the shared ten-item triage boundary", async () => {
+test("Defect AI routes enforce the feature gate and the shared ten-item triage boundary", async () => {
   const routeSource = await readFile(path.join(__dirname, "../src/routes/issues.routes.js"), "utf8");
   assert.match(routeSource, /aiBugTriageService\.MAX_TRIAGE_ITEMS/);
-  assert.match(routeSource, /AI-assisted Bug drafting and triage are disabled/);
+  assert.match(routeSource, /AI-assisted Defect drafting and triage are disabled/);
   assert.match(routeSource, /prompt_guidance: \{ required: false, type: "string", maxLength: 4_000 \}/);
   const draftSource = await readFile(path.join(__dirname, "../src/services/aiBugDraft.service.js"), "utf8");
   assert.match(draftSource, /boundaries\.omitted\.external_links/);

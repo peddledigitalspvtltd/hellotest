@@ -83,6 +83,13 @@ test('Release metrics use complete project links and finalized release outcomes 
     const notes = await service.generateReleaseNotes(id('release'));
     assert.equal(notes.story_evaluations.find(row=>row.id===id('s1')).linked_cases,4);
     assert.equal(notes.story_evaluations.find(row=>row.id===id('s1')).open_bugs,1);
+    const today = new Date(); today.setUTCHours(0,0,0,0);
+    await db.prepare('UPDATE requirement_releases SET target_date = ?, state = ? WHERE id = ?').run(today.toISOString(),'in_progress',id('empty'));
+    assert.equal((await service.getRelease(id('empty'))).state,'in_progress','A target due today is not overdue at midnight');
+    await db.prepare('UPDATE requirement_releases SET target_date = ? WHERE id = ?').run(new Date(today.getTime()-86400000).toISOString(),id('empty'));
+    assert.equal((await service.getRelease(id('empty'))).state,'overdue');
+    await db.prepare('UPDATE requirements SET status = ? WHERE id = ?').run(' QA--Done ',id('s1'));
+    assert.equal((await service.updateRelease(id('no-runs'),{state:'released'})).release.persisted_state,'released','Completion guard agrees with normalized metric statuses');
   } finally {
     await db.prepare('DELETE FROM execution_results WHERE id LIKE ?').run(prefix+'%');
     await db.prepare('DELETE FROM executions WHERE id LIKE ?').run(prefix+'%');

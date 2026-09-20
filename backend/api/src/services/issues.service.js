@@ -99,7 +99,7 @@ const normalizeStatus = (value) => {
   }
 
   if (!ISSUE_STATUS_VALUES.includes(normalized)) {
-    throw new Error("Invalid issue status");
+    throw new Error("Invalid defect status");
   }
 
   return normalized;
@@ -320,7 +320,7 @@ exports.getIssuePage = async (filters = {}) => {
       if (cursor.scope !== scope || typeof cursor.id !== "string" || !cursor.id
         || !(cursor.created_at === null || (typeof cursor.created_at === "string" && Number.isFinite(Date.parse(cursor.created_at))))) throw new Error();
     } catch {
-      throw Object.assign(new Error("The pagination cursor is invalid for this Bug catalog. Start from the first page."), { statusCode: 400 });
+      throw Object.assign(new Error("The pagination cursor is invalid for this Defect catalog. Start from the first page."), { statusCode: 400 });
     }
     if (cursor.created_at === null) {
       continuation = " AND feedback.created_at IS NULL AND feedback.id < ?";
@@ -389,7 +389,7 @@ exports.getIssueItem = async (id, { project_id, resolveReference = false } = {})
   `).get(...(resolveReference ? [id, id, id] : [id]), ...(project_id ? [project_id] : []));
 
   if (!item) {
-    throw new Error("Issue not found");
+    throw new Error("Defect not found");
   }
 
   return item;

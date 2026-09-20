@@ -121,9 +121,9 @@ const fieldContextReviewMessage = (code?: string | null) => {
   switch (String(code || "").toUpperCase()) {
     case "GLOBAL_FIELD_CONTEXT_INCOMPATIBLE":
     case "UNVERIFIED_GLOBAL_FIELD_CONTEXT":
-      return "HelloTest found a global work-item field context whose ownership or issue-type scope cannot be changed safely. It was left unchanged.";
+      return "HelloTest found a global work-item field context whose ownership or work-type scope cannot be changed safely. It was left unchanged.";
     case "FIELD_CONTEXT_COHORT_CONFLICT":
-      return "The existing shared HelloTest context uses a different issue-type scope. HelloTest preserved it instead of changing other projects.";
+      return "The existing shared HelloTest context uses a different work-type scope. HelloTest preserved it instead of changing other projects.";
     default:
       return "A field context assigned to this project could not be verified as HelloTest-managed. HelloTest left its scope and options unchanged.";
   }
@@ -291,7 +291,7 @@ export function ProjectActivationScreen({
             onChange={(event) => setRequirementIssueTypeId(event.target.value)}
             value={requirementIssueTypeId}
           >
-            <option value="">Select an issue type</option>
+            <option value="">Select a work type</option>
             {availableIssueTypes.map((issueType) => (
               <option disabled={issueType.id === defectIssueTypeId} key={issueType.id} value={issueType.id}>
                 {issueType.name}
@@ -300,13 +300,13 @@ export function ProjectActivationScreen({
           </select>
         </label>
         <label>
-          <span>Bug source</span>
+          <span>Defect source</span>
           <select
             disabled={isSubmitting}
             onChange={(event) => setDefectIssueTypeId(event.target.value)}
             value={defectIssueTypeId}
           >
-            <option value="">Select an issue type</option>
+            <option value="">Select a work type</option>
             {availableIssueTypes.map((issueType) => (
               <option disabled={issueType.id === requirementIssueTypeId} key={issueType.id} value={issueType.id}>
                 {issueType.name}
@@ -315,7 +315,7 @@ export function ProjectActivationScreen({
           </select>
         </label>
       </div>
-      {!mappingReady ? <span>Select a different issue type for each source.</span> : null}
+      {!mappingReady ? <span>Select a different work type for each source.</span> : null}
     </fieldset>
   ) : null;
 
@@ -526,7 +526,7 @@ export function ProjectActivationScreen({
                 {isFieldContextReview ? (
                   <div className="project-activation-context-review" role="note">
                     <strong>Review in the connected workspace before retrying</strong>
-                    <span>Confirm the context owner and its project and issue-type scope. Keep contexts used by other projects intact.</span>
+                    <span>Confirm the context owner and its project and work-type scope. Keep contexts used by other projects intact.</span>
                     <code>{snapshot?.error?.code}</code>
                   </div>
                 ) : null}
@@ -601,7 +601,7 @@ export function ProjectActivationScreen({
               {!canStart ? (
                 <p className="project-activation-permission-note" id="project-activation-permission-note">
                   {!mappingReady
-                    ? "Select a Story source and Bug source before enabling HelloTest."
+                    ? "Select a Story source and Defect source before enabling HelloTest."
                     : actionableBlockers[0]
                       || nextActionMessage(snapshot?.next_action)
                       || "A workspace administrator must complete this activation."}

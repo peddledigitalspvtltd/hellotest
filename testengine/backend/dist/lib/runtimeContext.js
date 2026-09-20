@@ -128,8 +128,9 @@ export const registerContextValue = (context, key, value) => {
     }
     const normalizedValue = stringifyValue(value);
     context.values[normalizedKey] = normalizedValue;
+    (context.capturedValues ||= {})[normalizedKey] = normalizedValue;
 };
-export const buildInitialContext = (envelope, capturedValues = {}) => {
+export const buildInitialContext = (envelope, capturedValues = {}, step) => {
     const context = { values: {} };
     const apply = (values, scope) => {
         for (const [key, value] of Object.entries(values || {})) {
@@ -140,16 +141,46 @@ export const buildInitialContext = (envelope, capturedValues = {}) => {
         }
     };
     const entries = (values = []) => Object.fromEntries(values.map((entry) => [entry.key, entry.value]));
-    apply(envelope.manual_spec?.test_data, "r");
-    apply(envelope.case_parameters, "r");
-    apply(envelope.suite_parameters, "s");
-    apply(entries(envelope.environment?.variables), "r");
-    apply(entries(envelope.configuration?.variables), "r");
-    apply(envelope.run_parameters, "r");
-    const rows = envelope.data_set?.rows || [];
-    apply(envelope.data_set?.mode === "key_value"
-        ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
-        : rows[0], "r");
+    const policy = envelope.data_policy || envelope.data_set?.data_scope_policy;
+    if (policy?.version === 2) {
+        const normalize = (values, scope = "r") => Object.fromEntries(Object.entries(values || {}).map(([key, value]) => [normalizeScopedParameterKey(key, scope), value]).filter(([key]) => Boolean(key)));
+        const row = (layer) => envelope.data_set?.parameter_data_layers?.[layer]?.rows[0] || {};
+        const shared = normalize(step?.shared_parameter_values);
+        const caseLayer = { ...normalize(envelope.manual_spec?.test_data), ...normalize(envelope.case_parameters), ...row("case") };
+        const suiteLayer = { ...normalize(envelope.suite_parameters, "s"), ...row("suite") };
+        const runLayer = { ...normalize(entries(envelope.environment?.variables)), ...normalize(entries(envelope.configuration?.variables)), ...normalize(envelope.run_parameters), ...row("run") };
+        apply(shared, "r");
+        const suiteKeys = new Set();
+        const isShared = step?.group_kind === "reusable";
+        const applyLayer = (values, options, scope) => apply(Object.fromEntries(Object.entries(values).filter(([key]) => {
+            if (isShared && options?.override_shared_steps === false && Object.hasOwn(shared, key))
+                return false;
+            if (scope !== "case" && options?.override_test_case_data === false && (key.startsWith("t.") || Object.hasOwn(caseLayer, key)) && !(isShared && Object.hasOwn(shared, key) && policy.case?.override_shared_steps === false))
+                return false;
+            if (scope === "run" && options?.override_suite_data === false && (key.startsWith("s.") || suiteKeys.has(key)))
+                return false;
+            if (scope === "suite")
+                suiteKeys.add(key);
+            return true;
+        })), "r");
+        applyLayer(caseLayer, policy.case, "case");
+        applyLayer(suiteLayer, policy.suite, "suite");
+        applyLayer(runLayer, policy.run, "run");
+    }
+    else {
+        apply(step?.shared_parameter_values, "r");
+        apply(envelope.manual_spec?.test_data, "r");
+        apply(envelope.case_parameters, "r");
+        apply(envelope.suite_parameters, "s");
+        apply(entries(envelope.environment?.variables), "r");
+        apply(entries(envelope.configuration?.variables), "r");
+        apply(envelope.run_parameters, "r");
+        const sharedRows = step?.group_kind === "reusable" ? envelope.data_set?.shared_rows : undefined;
+        const rows = sharedRows || envelope.data_set?.rows || [];
+        apply(!sharedRows && envelope.data_set?.mode === "key_value"
+            ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
+            : rows[0], "r");
+    }
     Object.entries(capturedValues).forEach(([key, value]) => registerContextValue(context, key, value));
     for (const [key, template] of Object.entries(GENERATED_CONTEXT_ALIASES)) {
         if (/^[tr]\./.test(key) && !Object.hasOwn(context.values, key))

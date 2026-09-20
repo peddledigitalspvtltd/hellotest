@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { writeFile, rm, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+
+const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const root = new URL('../../', import.meta.url);
+const fixture = `import React,{useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {AuthProvider} from '/src/auth/AuthContext';
+import {LocalizationProvider} from '/src/context/LocalizationContext';
+import {LinkedTestCaseModal} from '/src/components/LinkedTestCaseModal';
+import {api,sessionStorage} from '/src/lib/api';
+import {setCurrentScope} from '/src/hooks/useCurrentProject';
+import policy from '/src/lib/featurePolicy.generated.json';
+import '/src/styles.css';import '/src/dark-theme.css';import '/src/modal-system.css';import '/src/workspace-layout.css';
+const mode=new URLSearchParams(location.search).get('mode')||'structured';
+const session={token:'linked-case-preview-fixture',user:{id:'reviewer',name:'Reviewer',role:'admin'}};
+sessionStorage.write(session);setCurrentScope('project','app');window.calls=[];window.writes=[];window.previewCloseCount=0;
+function stub(object,prefix=''){for(const [key,value] of Object.entries(object)){const path=prefix?prefix+'.'+key:key;if(typeof value==='function')object[key]=async()=>{window.calls.push(path);if(/\\.(create|update|delete|assign)$/.test(path))window.writes.push(path);return []};else if(value&&typeof value==='object')stub(value,path)}}stub(api);
+const flags={flags:Object.fromEntries(policy.feature_keys.map(key=>[key,true])),permission_features:policy.permission_features,dependencies:policy.dependencies};
+api.featureFlags.snapshot=async()=>flags;api.auth.session=async()=>session;
+api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});
+api.metadata.workspaceScopes=async()=>({projects:[{id:'project',name:'Commerce'}]});api.appTypes.list=async()=>[{id:'app',project_id:'project',name:'Storefront',type:'web'}];
+const suite={id:'suite-1',name:'Purchase regression',app_type_id:'app',parameter_values:{'s.region':'West'}};
+const testCase={id:'case-1',display_id:'TC_0042',title:'Checkout preserves customer details and the selected delivery region across the complete purchase journey',description:'Review order for @t.customer before payment and retain a detailed record of the purchase.',detail_complete:true,app_type_id:'app',status:'active',priority:2,automated:'no',requirement_ids:['story-1'],suite_ids:['suite-1'],parameter_values:{'t.customer':'Morgan','t.total':'49.00'},authoring_mode:mode==='gherkin'?'gherkin':'structured',gherkin_document:mode==='gherkin'?'Feature: Checkout\\n  Scenario: Complete checkout\\n    Given a customer opens checkout\\n    When the customer submits payment\\n    Then the purchase succeeds':null};
+let detailRequests=0;
+api.testCases.get=async()=>{window.calls.push('testCases.get');detailRequests++;if(mode==='error'&&detailRequests===1)await new Promise((resolve,reject)=>{window.failDetails=()=>reject(new Error('Temporary detail outage'))});return testCase};
+api.testSteps.list=async()=>{window.calls.push('testSteps.list');return Array.from({length:22},(_,index)=>({id:'step-'+index,test_case_id:'case-1',step_order:index+1,action:index===0?'Open checkout for @t.customer in @s.region':'Complete checkout action '+(index+1),expected_result:index===0?'Order total is @t.total':'Expected checkout result '+(index+1)}))};
+api.executionResults.list=async()=>{window.calls.push('executionResults.list');return [{id:'result-1',execution_id:'run-1',test_case_id:'case-1',status:'passed',created_at:'2026-09-16T09:15:00Z'}]};
+const client=new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWindowFocus:false}}});client.setQueryData(['feature-flags'],flags);
+function Fixture(){const[open,setOpen]=useState(false);return <main style={{padding:24}}><button onClick={()=>setOpen(true)}>View linked test case</button>{open?<LinkedTestCaseModal projectName='Commerce' appTypeName='Storefront' requirements={[{id:'story-1',title:'Reliable checkout'}]} selectedSuite={suite} suites={[suite]} testCase={mode==='error'?{id:testCase.id,title:testCase.title,app_type_id:'app',detail_complete:false}:testCase} onClose={()=>{window.previewCloseCount++;setOpen(false)}}/>:null}</main>}
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId='reviewer'><Fixture/></LocalizationProvider></AuthProvider></QueryClientProvider>);`;
+
+test('linked case preview keeps its close control visible, preserves read-only nested dialogs and retries missing details', { timeout: 100000 }, async () => {
+  const name = `linked-case-preview-${randomUUID()}`;
+  let browser;
+  try {
+    await writeFile(new URL(name + '.tsx', root), fixture);
+    await writeFile(new URL(name + '.html', root), `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+    await mkdir('/tmp/qaira-linked-case-preview', { recursive: true });
+    for (const width of [1440, 390]) {
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, reducedMotion: 'reduce' });
+      page.setDefaultTimeout(10000);
+      const errors = [];
+      page.on('pageerror', error => { errors.push(error.message); console.error('Preview page error:',error.message); });
+      await page.route('**/api/**', route => { errors.push('Unexpected API call: ' + route.request().method()); return route.abort(); });
+      await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5189'}/${name}.html`);
+      const openButton = page.getByRole('button', { name: 'View linked test case', exact: true });
+      await openButton.click();
+      const dialog = page.locator('.linked-case-preview');
+      await dialog.waitFor();
+      await dialog.getByText('Open checkout for Morgan in West', { exact: true }).waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Collapse Selected test case', exact: true }).count(), 1, 'details initially expanded');
+      assert.equal(await dialog.getByRole('button', { name: 'Collapse Test steps', exact: true }).count(), 1, 'steps initially expanded');
+      assert.equal(await dialog.getByText('Review order for Morgan before payment and retain a detailed record of the purchase.', { exact: true }).count(), 1);
+      const close = dialog.getByRole('button', { name: 'Close test case workspace', exact: true });
+      assert.equal(await close.locator('svg').count(), 1, 'close uses the requested X icon');
+      const header = dialog.locator('.linked-case-preview-header');
+      const before = await header.boundingBox();
+      const closeBox = await close.boundingBox();
+      assert.ok(closeBox.x > before.x + before.width / 2 && before.x + before.width - closeBox.x - closeBox.width <= 24, 'X is at the far-right header edge');
+      assert.ok(closeBox.y >= before.y && closeBox.y + closeBox.height <= before.y + before.height, 'close remains inside the header');
+      await page.screenshot({ path: `/tmp/qaira-linked-case-preview/preview-${width}.png` });
+      await dialog.locator('.linked-case-preview-body').evaluate(node => { node.scrollTop = node.scrollHeight; });
+      const after = await header.boundingBox();
+      assert.ok(Math.abs(after.y - before.y) <= 1, 'scrolling steps leaves the header fixed');
+      assert.equal(await close.isVisible(), true);
+      assert.ok(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'long title fits the modal');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'page fits the viewport');
+      await dialog.getByRole('button', { name: 'Expand Run history', exact: true }).click();
+      await dialog.getByText('Passed in this run snapshot.', { exact: true }).waitFor();
+      await dialog.getByRole('button', { name: 'Collapse Run history', exact: true }).click();
+      assert.equal(await dialog.getByText('1 record', { exact: true }).count(), 1, 'history evidence count is retained');
+      await dialog.getByRole('button', { name: /^Test Params/ }).click();
+      const params = page.getByRole('dialog', { name: 'Test Params', exact: true });
+      await params.waitFor();
+      assert.equal(await dialog.getAttribute('aria-hidden'), 'true', 'nested parameter dialog hides the parent from assistive technology');
+      assert.equal(await dialog.evaluate(node => node.inert), true);
+      const values = await params.locator('textarea').evaluateAll(nodes => nodes.map(node => ({ value: node.value, disabled: node.disabled })));
+      assert.ok(values.length >= 3 && values.every(value => value.disabled), 'parameter fields remain read-only');
+      assert.ok(values.some(value => value.value === 'Morgan') && values.some(value => value.value === 'West'), 'case and selected suite values stay resolved');
+      for (let index = 0; index < 8; index++) {
+        await page.keyboard.press('Tab');
+        assert.equal(await params.evaluate(node => node.contains(document.activeElement)), true, 'keyboard focus remains in the topmost dialog');
+      }
+      await page.keyboard.press('Escape');
+      await params.waitFor({ state: 'detached' });
+      assert.equal(await dialog.count(), 1, 'Escape closes only the nested dialog');
+      assert.equal(await dialog.evaluate(node => node.inert), false);
+      await close.click();
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(await page.evaluate(() => window.previewCloseCount), 1);
+      assert.equal(await openButton.evaluate(node => node === document.activeElement), true, 'focus returns to the calling screen');
+      await openButton.click();
+      await dialog.waitFor();
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'detached' });
+      assert.equal(await page.evaluate(() => window.previewCloseCount), 2, 'Escape closes the main preview');
+      assert.deepEqual(await page.evaluate(() => window.writes), [], 'preview never mutates a linked case');
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    const retryPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const retryErrors = [];
+    retryPage.on('pageerror', error => retryErrors.push(error.message));
+    await retryPage.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5189'}/${name}.html?mode=error`);
+    await retryPage.getByRole('button', { name: 'View linked test case', exact: true }).click();
+    await retryPage.waitForFunction(() => typeof window.failDetails === 'function');
+    assert.equal(await retryPage.getByRole('button', { name: 'Loading Test Params…', exact: true }).isDisabled(), true);
+    await retryPage.evaluate(() => window.failDetails());
+    await retryPage.getByText('Test case details could not be loaded.', { exact: true }).waitFor();
+    assert.equal(await retryPage.getByRole('button', { name: 'Test Params unavailable', exact: true }).isDisabled(), true);
+    await retryPage.getByRole('button', { name: 'Retry details', exact: true }).click();
+    await retryPage.getByText('Open checkout for Morgan in West', { exact: true }).waitFor();
+    assert.equal(await retryPage.getByRole('button', { name: /^Test Params ·/ }).isEnabled(), true);
+    assert.deepEqual(retryErrors, []);
+    await retryPage.close();
+    const gherkinPage = await browser.newPage({ viewport: { width: 390, height: 1000 } });
+    const gherkinErrors = [];
+    gherkinPage.on('pageerror', error => gherkinErrors.push(error.message));
+    await gherkinPage.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5189'}/${name}.html?mode=gherkin`);
+    await gherkinPage.getByRole('button', { name: 'View linked test case', exact: true }).click();
+    await gherkinPage.getByRole('button', { name: 'Collapse Gherkin specification', exact: true }).waitFor();
+    await gherkinPage.getByText('Complete checkout', { exact: true }).waitFor();
+    assert.equal(await gherkinPage.locator('[contenteditable="true"]').count(), 0, 'Gherkin preview remains read-only');
+    assert.deepEqual(gherkinErrors, []);
+    await gherkinPage.close();
+  } catch(error) {
+    const page=browser?.contexts().flatMap(context=>context.pages())[0];
+    if(page){await writeFile("/tmp/qaira-linked-preview-debug.txt",await page.locator("body").innerText());await page.screenshot({path:"/tmp/qaira-linked-preview-error.png"});}
+    throw error;
+  } finally {
+    await browser?.close();
+    await rm(new URL(name + '.tsx', root), { force: true });
+    await rm(new URL(name + '.html', root), { force: true });
+  }
+});

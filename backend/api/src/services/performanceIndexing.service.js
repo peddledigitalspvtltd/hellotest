@@ -13,7 +13,7 @@ const INDEX_CATALOG = Object.freeze([
   { name: "idx_hellotest_perf_results_case_latest", table: "execution_results", definition: "(test_case_id, created_at DESC, id DESC) INCLUDE (status, duration_ms)", label: "Latest test case outcomes" },
   { name: "idx_hellotest_perf_requirements_catalog", table: "requirements", definition: "(project_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, created_at DESC NULLS LAST, id DESC)", label: "Story catalog pagination" },
   { name: "idx_hellotest_perf_test_cases_catalog", table: "test_cases", definition: "(app_type_id, (COALESCE(updated_at, created_at)) DESC NULLS LAST, id DESC)", label: "Test case catalog pagination" },
-  { name: "idx_hellotest_perf_feedback_catalog", table: "feedback", definition: "(project_id, created_at DESC NULLS LAST, id DESC)", label: "Bug catalog pagination" }
+  { name: "idx_hellotest_perf_feedback_catalog", table: "feedback", definition: "(project_id, created_at DESC NULLS LAST, id DESC)", label: "Defect catalog pagination" }
 ].map(index => Object.freeze(index)));
 const STATE_KEY = "admin_performance_indexing";
 const LOCK_NAMESPACE = 1213485393;

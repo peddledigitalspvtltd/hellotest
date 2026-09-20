@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { AI_METRIC_CRITERIA_REGISTRY } from "../lib/aiPromptRegistry";
 import { InfoTooltip } from "./InfoTooltip";
@@ -32,8 +33,8 @@ export function MetricMethodologyInfo({
           <span className="metric-methodology-info-boundary">The deterministic value and its source evidence remain locked; configured criteria guide explanations and review priorities only.</span>
         </span>
       )}
-      label={label || `How ${metric.label} is calculated`}
-      title={`${metric.label} methodology`}
+      label={label || `How ${metricTitle(metric.label)} is calculated`}
+      title={`${metricTitle(metric.label)} methodology`}
       trigger={trigger}
     />
   );

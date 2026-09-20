@@ -23,6 +23,7 @@ function database(context, { status = "running", rows = [], dataSet } = {}) {
     if (/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/.test(sql)) return { rows: [], rowCount: 0 };
     if (/FROM executions/.test(sql)) found = [state.run];
     else if (/FROM execution_case_snapshots/.test(sql)) found = [snapshot];
+    else if (/FROM execution_step_snapshots/.test(sql)) found = [{test_case_id:"case",snapshot_step_id:"step",step_type:"web"}];
     else if (/FROM app_types/.test(sql)) found = [{ id: "app" }];
     else if (/FROM users/.test(sql)) found = [{ id: "qa", name: "QA Reviewer", email: "qa@example.test" }];
     else if (/^SELECT .*FROM execution_results/.test(sql)) {

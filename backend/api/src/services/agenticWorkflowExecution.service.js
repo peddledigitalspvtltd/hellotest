@@ -90,7 +90,7 @@ function readiness(workflow) {
     if (data.retryDelayMs != null && (!Number.isFinite(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
   }
   if (nodes.some(node => node.data?.sampleOutput != null)) warnings.push("Execution uses actual connected results. Declared sample outputs are used only in previews.");
-  warnings.push("Results remain review briefs. No test cases, runs, bugs, repository files or external systems are changed.");
+  warnings.push("Results remain review briefs. No test cases, runs, defects, repository files or external systems are changed.");
   warnings.push("Connected branches execute in dependency order on this worker. Output labels do not evaluate expressions; each specialist retrieves fresh evidence with its own bounded context policy.");
   return { ready: blockers.length === 0, execution_mode: MODE, blockers, warnings,
     limits: { max_steps: 8, max_specialists: 4, timeout_ms: MAX_DURATION_MS, input_limit_bytes: MAX_INPUT_BYTES },

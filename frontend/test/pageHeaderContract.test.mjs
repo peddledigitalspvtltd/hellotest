@@ -79,7 +79,7 @@ test("page identity remains visible when catalog pages open focused record works
   assert.doesNotMatch(environments, /\{!isEnvironmentWorkspaceOpen \? \([\s\S]{0,120}<PageHeader/);
 });
 
-test("Product Management, Test Authoring, Test Environment, and Bugs expose mature page identity", async () => {
+test("Product Management, Test Authoring, Test Environment, and Defects expose mature page identity", async () => {
   const [product, cases, sharedSteps, suites, environments, bugs] = await Promise.all([
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/pages/TestCasesPage.tsx"),
@@ -92,7 +92,7 @@ test("Product Management, Test Authoring, Test Environment, and Bugs expose matu
   assert.match(product, /eyebrow="Product Management"/);
   for (const source of [cases, sharedSteps, suites]) assert.match(source, /eyebrow="Test Authoring"/);
   assert.match(environments, /const currentViewEyebrow = "Test Environment"/);
-  assert.match(bugs, /title="Bugs"[\s\S]{0,180}description="Capture, reproduce, triage, and resolve Bugs/);
+  assert.match(bugs, /title="Defects"[\s\S]{0,180}description="Capture, reproduce, triage, and resolve Defects/);
 });
 
 test("multi-route workspaces expose a page-specific title instead of a generic shell label", async () => {

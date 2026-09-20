@@ -12,6 +12,7 @@ const projectService = require("../src/services/project.service");
 const permissionService = require("../src/services/permission.service");
 const featureFlagService = require("../src/services/featureFlag.service");
 const execution = require("../src/services/knowledgeExecution.service");
+const db = require("../src/db");
 
 const SERVER_USER = Object.freeze({
   id: "server-user",
@@ -29,6 +30,10 @@ const CONTEXT_BODY = {
 
 const createFixture = async (t, { denyPermission = false, denyProject = false } = {}) => {
   const calls = { projects: [], permissions: [], sessions: [], retrieve: [], respond: [] };
+  t.mock.method(db, "prepare", sql => {
+    assert.match(sql, /FROM project_deletion_jobs/);
+    return { get: async () => ({ active: false }) };
+  });
   t.mock.method(projectService, "getProject", async (projectId, userId) => {
     calls.projects.push({ projectId, userId });
     if (denyProject || projectId !== CONTEXT_BODY.project_id || userId !== SERVER_USER.id) {

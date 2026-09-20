@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deriveStoryMetrics, formatStoryPassRate } from '../src/lib/storyMetrics.ts';
+import { deriveStoryMetrics, formatStoryPassRate, deriveBacklogPlanningMetrics } from '../src/lib/storyMetrics.ts';
 
 const story = {
   id: 'story', title: 'Release authentication', project_id: 'project',
@@ -20,15 +20,15 @@ test('Story metrics use complete server evidence, including links outside the re
   assert.equal(metrics.passRate.percent, 67);
   assert.equal(metrics.automation.percent, 75);
   assert.equal(metrics.bugResolution.percent, 50);
-  assert.equal(metrics.readiness, 78, 'weight raw fractions and round only the final readiness');
+  assert.equal(metrics.readiness, null, 'Coverage and pass counts cannot invent readiness approvals');
   assert.equal(metrics.defectDensity, 2, 'individual Story density uses one Story as denominator');
   assert.equal(formatStoryPassRate(metrics.passRate), '67%');
 });
 
-test('Closed Bugs improve readiness without changing distinct Bug density', () => {
+test('Closed Bugs improve resolution without inventing readiness approvals', () => {
   const metrics = deriveStoryMetrics({ ...story, catalog_metrics: { ...story.catalog_metrics, closed_bugs: 2, open_bugs: 0 } });
   assert.equal(metrics.bugResolution.percent, 100);
-  assert.equal(metrics.readiness, 83);
+  assert.equal(metrics.readiness, null);
   assert.equal(metrics.defectDensity, 2);
 });
 
@@ -56,4 +56,23 @@ test('An empty Story has no execution or readiness denominator', () => {
   assert.equal(formatStoryPassRate(metrics.passRate), 'No runs');
   assert.equal(metrics.readiness, null);
   assert.equal(metrics.automation.total, 0);
+});
+
+
+test('Backlog priority thresholds use exact populations and report combined High/Critical percentage', () => {
+  const metrics = { total:1000, highPriority:599, criticalPriority:199, highOnlyPriority:400 };
+  assert.equal(deriveBacklogPlanningMetrics(metrics).priority.value, '60%');
+  assert.equal(deriveBacklogPlanningMetrics(metrics).priority.tone, 'success', 'Rounding does not trigger the 60% threshold');
+  assert.equal(deriveBacklogPlanningMetrics({ ...metrics,highPriority:600 }).priority.tone, 'danger');
+  assert.equal(deriveBacklogPlanningMetrics({ ...metrics,criticalPriority:200 }).priority.tone, 'warning');
+  assert.equal(deriveBacklogPlanningMetrics({ ...metrics,total:0 }).priority.value, '—');
+});
+
+test('Monthly backlog flow uses durable additions and departures, marks partial history, and keeps no-history unknown', () => {
+  const growth = { added:10, completed:4, removed:1, departures:5, net:5, partial:true, tracking_started_at:'2026-09-20T00:00:00Z',period_start:'2026-09-01T00:00:00Z' };
+  const result = deriveBacklogPlanningMetrics({ total:20,growth });
+  assert.equal(result.growth.value, '10:5');
+  assert.equal(result.growth.tone, 'danger');
+  assert.match(result.growth.detail, /net \+5.*Full project.*Partial UTC month/);
+  assert.equal(deriveBacklogPlanningMetrics({ total:20 }).growth.value, '—');
 });

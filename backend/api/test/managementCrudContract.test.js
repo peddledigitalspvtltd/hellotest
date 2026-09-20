@@ -71,7 +71,8 @@ test("Product Management persists releases, Story delivery targets, related Stor
   assert.match(releaseRoutes, /project_id: \{ required: true, type: "string" \}/);
   assert.match(releaseService, /sprint_ids/);
   assert.match(releaseService, /LEFT JOIN requirement_release_items/);
-  assert.match(releaseService, /iteration_id IN \(SELECT value FROM jsonb_array_elements_text\(selected\.sprint_ids\)\)/);
+  assert.match(releaseService, /requirement_release_sprints scope JOIN requirements story ON story.iteration_id = scope.iteration_id/);
+  assert.match(releaseService, /releaseStoryMembershipSql\('requirements', 'selected'\)/);
   assert.match(releaseService, /release_membership_source/);
   assert.match(releaseService, /UPDATE requirements[\s\S]*release = \?, fix_version = \?/);
   assert.match(releaseService, /coveredStories \/ storyIds\.length \* 30/);

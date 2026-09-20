@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v2-module-smoke",
+      "test_case_id": "sample-v2-case-login",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v2-module-smoke",
+      "test_case_id": "sample-v2-case-checkout",
+      "sort_order": 2
+    },
+    {
+      "module_id": "sample-v2-module-smoke",
+      "test_case_id": "sample-v2-case-keyboard",
+      "sort_order": 3
+    },
+    {
+      "module_id": "sample-v2-module-smoke",
+      "test_case_id": "sample-v2-case-expired-session",
+      "sort_order": 4
+    },
+    {
+      "module_id": "sample-v2-module-smoke",
+      "test_case_id": "sample-v2-case-declined-payment",
+      "sort_order": 5
+    },
+    {
+      "module_id": "sample-v2-module-api",
+      "test_case_id": "sample-v2-case-stock-api",
+      "sort_order": 6
+    },
+    {
+      "module_id": "sample-v2-module-api",
+      "test_case_id": "sample-v2-case-duplicate-api",
+      "sort_order": 7
+    },
+    {
+      "module_id": "sample-v2-module-api",
+      "test_case_id": "sample-v2-case-unauthorized-api",
+      "sort_order": 8
+    },
+    {
+      "module_id": "sample-v2-module-mobile",
+      "test_case_id": "sample-v2-case-mobile-cart",
+      "sort_order": 9
+    },
+    {
+      "module_id": "sample-v2-module-mobile",
+      "test_case_id": "sample-v2-case-mobile-offline",
+      "sort_order": 10
+    },
+    {
+      "module_id": "sample-v2-module-mobile",
+      "test_case_id": "sample-v2-case-mobile-accessibility",
+      "sort_order": 11
+    }
+  ]
+}

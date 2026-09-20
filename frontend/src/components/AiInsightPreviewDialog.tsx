@@ -1,3 +1,4 @@
+import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
@@ -363,7 +364,7 @@ export function AiInsightPreviewDialog({
               {isFlowPaneCollapsed ? <span>Process</span> : null}
             </button>
             {!isFlowPaneCollapsed ? <AgenticProcessRail
-              agentName={eyebrow.toLowerCase().includes("bug") ? "Bug Triage Agent" : title.toLowerCase().includes("run") || title.toLowerCase().includes("execution") ? "Failure Analyst" : "Quality Evaluator"}
+              agentName={eyebrow.toLowerCase().includes("bug") ? "Defect Triage Agent" : title.toLowerCase().includes("run") || title.toLowerCase().includes("execution") ? "Failure Analyst" : "Quality Evaluator"}
               compact
               orientation="vertical"
               presentation="focused"
@@ -373,7 +374,7 @@ export function AiInsightPreviewDialog({
                 context: `${evidence.length} cited evidence reference${evidence.length === 1 ? "" : "s"} and ${findings.length} explainable finding${findings.length === 1 ? "" : "s"} are bounded to this preview.`,
                 guardrails: "This preview cannot change work items, links, properties, tests, runs, or release decisions.",
                 outcome: `${findings.length} finding${findings.length === 1 ? "" : "s"} and ${recommendedActions.length} review action${recommendedActions.length === 1 ? "" : "s"} are available.`,
-                review: onAccept ? "A person selects the findings and action sequence, then explicitly accepts the review plan for this session." : "A person reviews and acknowledges the recommendations. No Bug field is changed from this preview."
+                review: onAccept ? "A person selects the findings and action sequence, then explicitly accepts the review plan for this session." : "A person reviews and acknowledges the recommendations. No Defect field is changed from this preview."
               }}
               status={loading ? "running" : error ? "failed" : response ? "completed" : "idle"}
             /> : null}
@@ -381,7 +382,7 @@ export function AiInsightPreviewDialog({
         </div>
 
         <footer className="ai-insight-preview-footer">
-          <span aria-live="polite">{accepted ? (onAccept ? "Review plan accepted for this session." : "Recommendations acknowledged for this session; no Bug fields were changed.") : (onAccept ? "Select and edit the output before accepting it. Human review remains authoritative." : "Review the recommendations, then acknowledge them. Apply any Bug changes from the Bug workspace.")}</span>
+          <span aria-live="polite">{accepted ? (onAccept ? "Review plan accepted for this session." : "Recommendations acknowledged for this session; no Defect fields were changed.") : (onAccept ? "Select and edit the output before accepting it. Human review remains authoritative." : "Review the recommendations, then acknowledge them. Apply any Defect changes from the Defect workspace.")}</span>
           <button className="ghost-button" onClick={onClose} ref={doneButtonRef} type="button">{accepted ? "Done" : "Discard"}</button>
           {!accepted && response ? (
             <button
@@ -414,7 +415,7 @@ export function AiInsightPreviewDialog({
           <div className="ai-insight-preview-flyout-sources">
             {findingEvidenceSources.length ? findingEvidenceSources.map((source) => (
               <article key={source.ref}>
-                <span>{source.type.replace(/-/g, " ")}</span>
+                <span>{formatRecordKindLabel(source.type).replace(/-/g, " ")}</span>
                 <strong>{source.title}</strong>
                 {source.excerpt ? <p>{source.excerpt}</p> : null}
                 <code>{source.ref}</code>
@@ -440,7 +441,7 @@ export function AiInsightPreviewDialog({
           <div className="ai-insight-preview-flyout-sources">
             {evidenceSources.length ? evidenceSources.map((source) => (
               <article key={source.ref}>
-                <span>{source.type.replace(/-/g, " ")}</span>
+                <span>{formatRecordKindLabel(source.type).replace(/-/g, " ")}</span>
                 <strong>{source.title}</strong>
                 {source.excerpt ? <p>{source.excerpt}</p> : null}
                 <code>{source.ref}</code>

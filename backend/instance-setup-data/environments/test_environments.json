@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-env-staging",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Staging",
+      "description": "Synthetic endpoint; replace with your own application before execution.",
+      "base_url": "https://staging.example.test",
+      "browser": "Chrome",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://staging.example.test"
+        },
+        {
+          "key": "region",
+          "value": "us-east"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-env-api",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "API Staging",
+      "description": "Synthetic endpoint; replace with your own application before execution.",
+      "base_url": "https://api.staging.example.test",
+      "browser": null,
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://api.staging.example.test"
+        },
+        {
+          "key": "region",
+          "value": "us-east"
+        }
+      ]
+    },
+    {
+      "id": "sample-v2-env-mobile",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "MOBILE Staging",
+      "description": "Synthetic endpoint; replace with your own application before execution.",
+      "base_url": "https://staging.example.test",
+      "browser": null,
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://staging.example.test"
+        },
+        {
+          "key": "region",
+          "value": "us-east"
+        }
+      ]
+    }
+  ]
+}

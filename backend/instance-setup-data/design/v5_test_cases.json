@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-case-execution",
+      "display_id": "DEMO5-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v5-data-suite",
+      "requirement_id": "sample-v5-data-story",
+      "title": "Inspect two saved override iterations · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored manual case for dataset inheritance. Shared-group data is protected at case level; a suite or run must independently opt in to an override. Saved evidence is illustrative only.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "parameter_values": {
+        "t.email": "case-default@example.test"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "labels": [
+        "sample",
+        "synthetic-evidence",
+        "data-inheritance"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-20T08:00:00.000Z",
+      "updated_at": "2026-09-20T08:00:00.000Z"
+    },
+    {
+      "id": "sample-v5-data-case-review",
+      "display_id": "DEMO5-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": null,
+      "requirement_id": "sample-v5-data-story",
+      "title": "Review protected shared-group inputs · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: authored manual case for dataset inheritance. Shared-group data is protected at case level; a suite or run must independently opt in to an override. Saved evidence is illustrative only.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "parameter_values": {
+        "t.email": "case-default@example.test"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "labels": [
+        "sample",
+        "synthetic-evidence",
+        "data-inheritance"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-20T08:00:00.000Z",
+      "updated_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

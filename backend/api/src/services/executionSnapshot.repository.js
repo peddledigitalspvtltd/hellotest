@@ -7,13 +7,13 @@ const BATCH_SIZE = 250;
 const CASE_COLUMNS = [
   "execution_id", "test_case_id", "test_case_title", "test_case_description", "external_references",
   "suite_id", "suite_name", "module_id", "module_name", "priority", "status", "parameter_values",
-  "parameter_template_values", "suite_parameter_values", "suite_parameter_template_values",
+  "parameter_template_values", "test_data_options", "suite_parameter_values", "suite_parameter_template_values",
   "test_data_set_id", "test_data_set_name", "test_data_set_snapshot", "data_set_source", "sort_order",
   "assigned_to", "assigned_to_ids", "assignment_source"
 ];
 const STEP_COLUMNS = [
   "execution_id", "test_case_id", "snapshot_step_id", "step_order", "action", "expected_result",
-  "step_type", "automation_code", "api_request", "group_id", "group_name", "group_kind", "reusable_group_id"
+  "step_type", "automation_code", "api_request", "group_id", "group_name", "group_kind", "reusable_group_id", "shared_parameter_values", "shared_parameter_template_values", "shared_parameter_sensitive_names"
 ];
 
 const caseValues = (snapshot) => {
@@ -21,6 +21,7 @@ const caseValues = (snapshot) => {
     ...snapshot,
     external_references: snapshot.external_references || [],
     parameter_values: snapshot.parameter_values || {},
+    test_data_options: snapshot.test_data_options || {},
     parameter_template_values: snapshot.parameter_template_values || snapshot.parameter_values || {},
     suite_parameter_values: snapshot.suite_parameter_values || {},
     suite_parameter_template_values: snapshot.suite_parameter_template_values || snapshot.suite_parameter_values || {},
@@ -47,7 +48,7 @@ async function insertRows(table, columns, rows, valuesFor) {
 
 async function persist({ caseSnapshots = [], stepSnapshots = [] }) {
   await insertRows("execution_case_snapshots", CASE_COLUMNS, caseSnapshots, caseValues);
-  await insertRows("execution_step_snapshots", STEP_COLUMNS, stepSnapshots, snapshot => STEP_COLUMNS.map(column => snapshot[column]));
+  await insertRows("execution_step_snapshots", STEP_COLUMNS, stepSnapshots, snapshot => STEP_COLUMNS.map(column => snapshot[column] ?? (column === "shared_parameter_sensitive_names" ? [] : column.startsWith("shared_parameter_") ? {} : null)));
 }
 
 async function loadSteps(testCaseIds) {
@@ -55,12 +56,12 @@ async function loadSteps(testCaseIds) {
   const rows = [];
   for (let offset = 0; offset < ids.length; offset += BATCH_SIZE) {
     const chunk = ids.slice(offset, offset + BATCH_SIZE);
-    rows.push(...await db.prepare(`SELECT test_case_id, id, step_order, action, expected_result, step_type,
-      automation_code, api_request, group_id, group_name, group_kind, reusable_group_id
-      FROM test_steps WHERE test_case_id IN (${placeholdersFor(chunk)})
-      ORDER BY test_case_id ASC, step_order ASC, id ASC`).all(...chunk));
+    rows.push(...await db.prepare(`SELECT test_steps.test_case_id, test_steps.id, step_order, action, expected_result, step_type,
+      automation_code, api_request, group_id, group_name, group_kind, reusable_group_id, test_cases.app_type_id
+      FROM test_steps JOIN test_cases ON test_cases.id = test_steps.test_case_id WHERE test_case_id IN (${placeholdersFor(chunk)})
+      ORDER BY test_case_id ASC, step_order ASC, test_steps.id ASC`).all(...chunk));
   }
-  return groupRows(rows, "test_case_id");
+  return groupRows(await require("./sharedStepDataSnapshot.service").freezeSharedStepData(rows), "test_case_id");
 }
 
 module.exports = { persist, loadSteps, BATCH_SIZE };

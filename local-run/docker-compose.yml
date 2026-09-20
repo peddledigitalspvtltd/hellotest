@@ -90,7 +90,7 @@ services:
 
   api:
     build:
-      context: ../backend/api
+      context: ../backend
       dockerfile: Dockerfile
     container_name: hellotest-local-api
     ports:

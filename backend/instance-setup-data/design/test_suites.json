@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-suite-smoke",
+      "app_type_id": "sample-app-web",
+      "name": "Release smoke suite",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "display_id": "DEMO2-TS1"
+    },
+    {
+      "id": "sample-v2-suite-api",
+      "app_type_id": "sample-app-api",
+      "name": "Commerce API contract suite",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "display_id": "DEMO2-TS2"
+    },
+    {
+      "id": "sample-v2-suite-mobile",
+      "app_type_id": "sample-app-mobile",
+      "name": "Mobile recovery suite",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "parameter_values": {
+        "region": "us-east",
+        "email": "suite.customer@example.test"
+      },
+      "display_id": "DEMO2-TS3"
+    },
+    {
+      "id": "sample-v4-metrics-suite",
+      "display_id": "DEMO4-TS1",
+      "app_type_id": "sample-app-web",
+      "name": "Metric evidence walkthrough · sample",
+      "description": "Synthetic passed, failed, blocked and skipped result examples.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+/* Health is the last control in each hierarchy ribbon, beside its primary metrics. */
+.test-case-module-header.entity-health-hierarchy-header[data-health-entity] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  overflow: visible !important;
+}
+.test-case-module-header.requirement-iteration-header.entity-health-hierarchy-header[data-health-entity] {
+  grid-template-columns: auto auto minmax(10rem, 1fr) auto minmax(0, max-content) !important;
+}
+.test-case-module-header.entity-health-hierarchy-header[data-health-entity="Module"]:not(.requirement-iteration-header) {
+  grid-template-columns: auto auto auto minmax(6rem, 1fr) auto auto minmax(0, max-content) !important;
+}
+.entity-health-hierarchy-header > .entity-health-ribbon {
+  grid-column: 5;
+  grid-row: 1;
+  justify-self: stretch;
+}
+.entity-health-hierarchy-header[data-health-entity="Module"] > .entity-health-ribbon { grid-column: 7; }
+.entity-health-ribbon {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: .35rem .65rem;
+}
+.entity-health-ribbon > .hierarchy-quick-insights,
+.entity-health-ribbon > .module-deferred-summary { flex: 1 1 auto; min-width: 0; }
+.entity-health-ribbon .hierarchy-quick-insights-grid { flex-wrap: wrap; }
+.entity-health-ribbon > .entity-health-button.ghost-button.compact {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  margin: 0 0 0 auto;
+  padding: 0 .55rem !important;
+  border: 1px solid var(--catalog-divider, var(--line, #dfe1e6)) !important;
+  border-radius: 6px;
+  color: var(--catalog-muted, var(--text-muted, #626f86));
+  background: transparent;
+  box-shadow: none;
+  font-size: .7rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.entity-health-ribbon > .entity-health-button.ghost-button.compact:hover:not(:disabled) {
+  color: var(--catalog-ink, var(--text, #172b4d));
+  background: var(--catalog-surface-subtle, #f1f2f4);
+}
+.entity-health-ribbon > .entity-health-button:focus-visible {
+  outline: 2px solid var(--ds-border-focused, #388bff);
+  outline-offset: 2px;
+}
+.entity-health-button > svg { flex: 0 0 16px; }
+.entity-health-button > span { overflow: visible; }
+@media (max-width: 1180px) {
+  .test-case-module-header.requirement-iteration-header.entity-health-hierarchy-header[data-health-entity] {
+    grid-template-columns: auto auto minmax(0, 1fr) auto !important;
+  }
+  .test-case-module-header.entity-health-hierarchy-header[data-health-entity="Module"]:not(.requirement-iteration-header) {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto auto !important;
+  }
+  .entity-health-hierarchy-header[data-health-entity] > .entity-health-ribbon {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+  .entity-health-ribbon > .hierarchy-quick-insights,
+  .entity-health-ribbon > .module-deferred-summary,
+  .entity-health-ribbon .hierarchy-quick-insights-grid { justify-content: flex-start; }
+}
+@media (max-width: 700px) {
+  .test-case-module-header.requirement-iteration-header.entity-health-hierarchy-header[data-health-entity] {
+    grid-template-columns: auto auto minmax(0, 1fr) !important;
+  }
+  .test-case-module-header.entity-health-hierarchy-header[data-health-entity="Module"]:not(.requirement-iteration-header) {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto !important;
+  }
+  .test-case-module-header.entity-health-hierarchy-header[data-health-entity] > .action-row {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    justify-self: end;
+  }
+  .entity-health-hierarchy-header[data-health-entity] > .entity-health-ribbon { grid-row: 3; }
+  .entity-health-hierarchy-header[data-health-entity="Module"].is-unassigned > .entity-health-ribbon { grid-row: 2; }
+  .entity-health-hierarchy-header .entity-health-ribbon { gap: .5rem; }
+  .entity-health-ribbon > .hierarchy-quick-insights { flex-basis: 100%; }
+}

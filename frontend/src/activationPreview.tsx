@@ -184,7 +184,7 @@ const makeSnapshot = (
     },
     error: status === "failed" ? {
       code: "NATIVE_ISSUE_TYPE_MAPPING_INVALID",
-      message: "The saved Story or Bug mapping is no longer available. Choose current work item types, then retry setup.",
+      message: "The saved Story or Defect mapping is no longer available. Choose current work item types, then retry setup.",
       retryable: true,
       phase: "validation"
     } : null,

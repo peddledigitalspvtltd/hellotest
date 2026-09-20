@@ -1,0 +1,23 @@
+.authoring-data-set-panel { min-width: 0; }
+.authoring-data-set-toolbar { display: flex; justify-content: flex-end; }
+.authoring-data-set-toolbar .link-button { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.authoring-data-set-panel .test-case-data-set-card header { align-items: center; flex-direction: row; flex-wrap: wrap; gap: 12px 20px; }
+.authoring-data-set-panel .authoring-data-set-copy { flex: 1 1 auto; min-width: 0; }
+.authoring-data-set-copy strong { overflow-wrap: anywhere; }
+.authoring-data-set-panel .test-case-data-set-actions { margin-left: auto; gap: 12px; }
+.authoring-data-set-override { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 1.4; cursor: pointer; }
+.authoring-data-set-override input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent, #365de5); }
+.authoring-data-set-description { padding: 0 14px 12px; color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.authoring-data-set-description .rich-text-content > :last-child { margin-bottom: 0; }
+.authoring-data-set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 0 14px 12px; }
+.authoring-data-set-row label { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; }
+.authoring-data-set-row select { width: auto; min-width: 105px; padding: 6px 28px 6px 10px; border: 1px solid var(--ds-border, #dfe1e6); border-radius: 6px; background: var(--surface-primary); color: var(--ds-text, #172b4d); }
+.authoring-data-set-row small { color: var(--text-muted); font-size: 12px; }
+.test-data-set-picker-option.is-unavailable { cursor: not-allowed; background: var(--surface-secondary, #f7f8fa); }
+.test-data-set-picker-validation { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 620px) {
+  .authoring-data-set-panel .authoring-data-set-copy { width: 100%; }
+  .authoring-data-set-panel .test-case-data-set-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .authoring-data-set-override { flex: 1 1 200px; }
+  .authoring-data-set-toolbar .link-button { white-space: normal; text-align: right; }
+}

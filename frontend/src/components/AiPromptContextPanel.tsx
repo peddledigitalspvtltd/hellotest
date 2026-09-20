@@ -39,9 +39,9 @@ const PROMPT_CONTEXT_COPY: Record<AiPromptScope, {
     emptyImages: "Add screenshots or evidence that clarify the steps for this Test Case."
   },
   bug_creation: {
-    smartContext: "Package the selected failed evidence, linked Stories, relevant QA knowledge, and safe files for this Bug only.",
+    smartContext: "Package the selected failed evidence, linked Stories, relevant QA knowledge, and safe files for this Defect only.",
     promptPlaceholder: "Failure symptoms, reproduction constraints, impact, environment, expected versus actual behavior...",
-    emptyImages: "Add failure screenshots or evidence that belongs to this Bug."
+    emptyImages: "Add failure screenshots or evidence that belongs to this Defect."
   }
 };
 
@@ -132,16 +132,51 @@ export function AiPromptContextPanel({
 
   return (
     <section className="ai-studio-panel ai-prompt-context-panel">
+      <div className="ai-prompt-context-toolbar">
+        <div aria-label="Context types" className="ai-prompt-context-tabs" role="tablist">
+          {contextTabs.map((tab) => (
+            <button
+              aria-controls={`${tabIdPrefix}-${tab.id}-panel`}
+              aria-selected={activeContextTab === tab.id}
+              className={activeContextTab === tab.id ? "is-active" : ""}
+              id={`${tabIdPrefix}-${tab.id}-tab`}
+              key={tab.id}
+              onKeyDown={(event) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+                const currentIndex = contextTabs.findIndex((item) => item.id === tab.id);
+                const nextIndex = event.key === "Home"
+                  ? 0
+                  : event.key === "End"
+                    ? contextTabs.length - 1
+                    : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + contextTabs.length) % contextTabs.length;
+                const nextTab = contextTabs[nextIndex];
+                setActiveContextTab(nextTab.id);
+                window.requestAnimationFrame(() => document.getElementById(`${tabIdPrefix}-${nextTab.id}-tab`)?.focus());
+              }}
+              onClick={() => setActiveContextTab(tab.id)}
+              role="tab"
+              tabIndex={activeContextTab === tab.id ? 0 : -1}
+              type="button"
+            >
+              <span>{tab.label}</span>
+              {tab.count ? <em>{tab.count}</em> : null}
+            </button>
+          ))}
+        </div>
+        <AiPromptTemplatePicker
+          appTypeId={appTypeId}
+          disabled={disabled || isBuildingContext}
+          onApply={onAdditionalContextChange}
+          projectId={projectId}
+          scope={promptScope}
+          triggerLabel="Templates"
+        />
+      </div>
+
       <div aria-label="Additional context" className="ai-prompt-context-head">
         <span>Context engine</span>
         <div className="ai-prompt-context-head-actions">
-          <AiPromptTemplatePicker
-            appTypeId={appTypeId}
-            disabled={disabled}
-            onApply={onAdditionalContextChange}
-            projectId={projectId}
-            scope={promptScope}
-          />
           <SmartContextWorkbench
             appTypeId={appTypeId}
             buttonClassName="primary-button compact ai-smart-context-button"
@@ -155,38 +190,6 @@ export function AiPromptContextPanel({
             projectId={projectId}
           />
         </div>
-      </div>
-
-      <div aria-label="Context types" className="ai-prompt-context-tabs" role="tablist">
-        {contextTabs.map((tab) => (
-          <button
-            aria-controls={`${tabIdPrefix}-${tab.id}-panel`}
-            aria-selected={activeContextTab === tab.id}
-            className={activeContextTab === tab.id ? "is-active" : ""}
-            id={`${tabIdPrefix}-${tab.id}-tab`}
-            key={tab.id}
-            onKeyDown={(event) => {
-              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-              event.preventDefault();
-              const currentIndex = contextTabs.findIndex((item) => item.id === tab.id);
-              const nextIndex = event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? contextTabs.length - 1
-                  : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + contextTabs.length) % contextTabs.length;
-              const nextTab = contextTabs[nextIndex];
-              setActiveContextTab(nextTab.id);
-              window.requestAnimationFrame(() => document.getElementById(`${tabIdPrefix}-${nextTab.id}-tab`)?.focus());
-            }}
-            onClick={() => setActiveContextTab(tab.id)}
-            role="tab"
-            tabIndex={activeContextTab === tab.id ? 0 : -1}
-            type="button"
-          >
-            <span>{tab.label}</span>
-            {tab.count ? <em>{tab.count}</em> : null}
-          </button>
-        ))}
       </div>
 
       {showPromptEditor ? (

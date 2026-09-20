@@ -14,6 +14,10 @@ exports.claimRun = obsDb.transaction(async (engineId) => {
     SELECT id, engine_run_id, payload
     FROM test_engine_jobs
     WHERE status = 'queued'
+      AND NOT EXISTS (
+        SELECT 1 FROM project_deletion_jobs
+        WHERE project_id = test_engine_jobs.project_id AND status IN ('queued', 'running', 'cleanup')
+      )
     ORDER BY created_at ASC
     FOR UPDATE SKIP LOCKED
     LIMIT 1

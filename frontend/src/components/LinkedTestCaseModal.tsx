@@ -28,7 +28,8 @@ import {
 } from "../lib/stepParameters";
 import { evaluateTestDataTemplate, hasTestDataGeneratorTemplate } from "../lib/testDataGenerators";
 import type { Requirement, TestCase, TestStep, TestSuite } from "../types";
-import { Panel } from "./Panel";
+import { DisplayIdBadge } from "./DisplayIdBadge";
+import "./LinkedTestCaseModal.css";
 import { StatusBadge } from "./StatusBadge";
 import { StepParameterDialog } from "./StepParameterDialog";
 import { StepParameterizedText } from "./StepParameterizedText";
@@ -90,8 +91,8 @@ export function LinkedTestCaseModal({
   const canPreviewAutomationCode = resolveCanPreviewAutomationCode(session, featureFlagsQuery.data, projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ onClose });
   const [expandedSections, setExpandedSections] = useState({
-    details: false,
-    steps: false,
+    details: true,
+    steps: true,
     history: false
   });
   const [isParameterDialogOpen, setIsParameterDialogOpen] = useState(false);
@@ -195,9 +196,11 @@ export function LinkedTestCaseModal({
         ]
       ).map((parameter) => ({ ...parameter, source: "authoring" as const })),
       linkedDataSetParameterDefinitions,
+      buildStepParameterDefinitionsFromValues(caseParameterOverrides),
+      buildStepParameterDefinitionsFromValues(normalizeSuiteParameterPreviewValues(selectedSuite?.parameter_values)),
       buildStepParameterDefinitionsFromValues(parameterValues)
     ),
-    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, parameterValues, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
+    [canViewAutomationCode, hasGherkinDocument, linkedDataSetParameterDefinitions, caseParameterOverrides, selectedSuite?.parameter_values, parameterValues, resolvedTestCase.gherkin_document, resolvedTestCase.id, steps]
   );
   const resolvedParameterValues = useMemo(() => {
     const cache = parameterPreviewCacheRef.current;
@@ -259,8 +262,8 @@ export function LinkedTestCaseModal({
 
   useEffect(() => {
     setExpandedSections({
-      details: false,
-      steps: false,
+      details: true,
+      steps: true,
       history: false
     });
     setIsParameterDialogOpen(false);
@@ -330,20 +333,20 @@ export function LinkedTestCaseModal({
         <div
           aria-label={`Test case workspace for ${resolvedTestCaseTitle}`}
           aria-modal="true"
-          className="modal-card suite-test-case-editor-modal linked-test-case-modal linked-test-case-workspace-modal"
+          className="modal-card linked-test-case-modal linked-test-case-workspace-modal linked-case-preview"
           onClick={(event) => event.stopPropagation()}
           ref={dialogRef}
           role="dialog"
           tabIndex={-1}
         >
-          <div className="suite-test-case-editor-body linked-test-case-workspace-body">
-            <div className="workspace-master-detail is-detail-open linked-test-case-workspace-shell">
-              <div className="workspace-master-detail-panel linked-test-case-workspace-panel">
-                <Panel
-                  actions={(
-                    <div className="panel-head-actions-row">
+          <header className="linked-case-preview-header">
+            <div className="linked-case-preview-heading">
+              <div className="linked-case-preview-identity"><TestCaseIcon size={17} /><DisplayIdBadge value={resolvedTestCase.display_id || resolvedTestCase.id} /><StatusBadge value={resolvedTestCase.status || "draft"} /></div>
+              <h2 title={resolvedTestCaseTitle}>{resolvedTestCaseTitle || "Untitled test case"}</h2>
+              <p>{projectName || "No project"} · {appTypeName || "No app type"}{selectedSuite ? ` · ${selectedSuite.name}` : ""}</p>
+            </div>
                       <button
-                        className="ghost-button"
+                        className="ghost-button linked-case-params-button"
                         disabled={!canonicalTestCase}
                         onClick={() => canonicalTestCase && setIsParameterDialogOpen(true)}
                         title={isTestCaseDetailLoading ? "Loading complete Test Params" : isTestCaseDetailUnavailable ? "Complete Test Params could not be loaded" : "Preview Test Params"}
@@ -358,33 +361,22 @@ export function LinkedTestCaseModal({
                               : detectedParameters.length ? `Test Params · ${detectedParameters.length}` : "Test Params"}
                         </span>
                       </button>
-                      <DialogCloseButton label="Close test case workspace" onClick={onClose} />
-                    </div>
-                  )}
-                  title="Test case workspace"
-                  subtitle="Switch between case details and step editing without losing the selected context."
-                >
-                  <div className="detail-stack">
-                    <div className="detail-summary linked-test-case-identity">
-                      <TestCaseIcon size={16} strokeWidth={1.8} />
-                      <div>
-                        <strong>{resolvedTestCaseTitle || "Untitled test case"}</strong>
-                        <span>{projectName || "No project"} · {appTypeName || "No app type"}</span>
-                      </div>
-                    </div>
+            <DialogCloseButton label="Close test case workspace" onClick={onClose} />
+          </header>
+          <div className="linked-test-case-workspace-body linked-case-preview-body">
                     {isTestCaseDetailLoading ? (
                       <LoadingState
-                        description="Retrieving canonical metadata before the Test Params preview is enabled."
+                        description="Loading the saved details and parameter values."
                         label="Loading complete test case details"
                       />
                     ) : null}
                     {isTestCaseDetailUnavailable ? (
                       <div className="empty-state compact" role="alert">
-                        <div>Complete test case details could not be loaded safely.</div>
+                        <div>Test case details could not be loaded.</div>
                         <button className="ghost-button compact" onClick={() => void testCaseDetailQuery.refetch()} type="button">Retry details</button>
                       </div>
                     ) : null}
-                    <div className="editor-accordion">
+                    <div className="editor-accordion linked-case-preview-sections">
                       <LinkedTestCaseSection
                         countLabel={resolvedTestCase.status || "draft"}
                         isExpanded={expandedSections.details}
@@ -516,10 +508,6 @@ export function LinkedTestCaseModal({
                         </div>
                       </LinkedTestCaseSection> : null}
                     </div>
-                  </div>
-                </Panel>
-              </div>
-            </div>
           </div>
         </div>
       </div>

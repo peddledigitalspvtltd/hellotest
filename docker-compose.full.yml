@@ -86,7 +86,7 @@ services:
     restart: always
 
   api:
-    build: ./backend/api
+    build: ./backend
     image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
     container_name: hellotest-api
     ports:

@@ -224,7 +224,7 @@ export function ProjectTraceabilityMap({
       <div className="project-traceability-toolbar">
         <div className="project-traceability-toolbar-copy">
           <strong>End-to-end traceability</strong>
-          <span>Expand a sprint to follow each Story through its derived modules, test cases, and Bugs.</span>
+          <span>Expand a sprint to follow each Story through its derived modules, test cases, and Defects.</span>
         </div>
         <label className="project-traceability-app-filter">
           <span>Application</span>
@@ -234,7 +234,7 @@ export function ProjectTraceabilityMap({
         </label>
         <div className="search-input-with-icon project-traceability-search">
           <SearchIcon />
-          <input aria-label="Search traceability map" placeholder="Search sprints, Stories, modules, cases or Bugs" type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
+          <input aria-label="Search traceability map" placeholder="Search sprints, Stories, modules, cases or Defects" type="search" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
         </div>
       </div>
 
@@ -243,8 +243,8 @@ export function ProjectTraceabilityMap({
         <EvidenceFlipCard caption="Story traceability" evidence={[`${linkedRequirementCount} of ${requirements.length} Stories connect to downstream Test Case evidence.`]} label="Stories covered" tone={linkedRequirementCount === requirements.length ? "success" : "warning"} value={`${linkedRequirementCount}/${requirements.length}`} />
         <EvidenceFlipCard caption="Coverage structure" evidence={[`${scopedModules.length} modules organize the selected application's Test Case scope.`]} label="Modules" value={scopedModules.length} />
         <EvidenceFlipCard caption="End-to-end paths" evidence={[`${linkedCaseCount} of ${scopedCases.length} Test Cases connect to a Story and traceability path.`]} label="Fully traced cases" tone={linkedCaseCount === scopedCases.length ? "success" : "warning"} value={`${linkedCaseCount}/${scopedCases.length}`} />
-        <EvidenceFlipCard caption="Defect evidence" evidence={[`${connectedBugIds.size} distinct Bugs are linked into the visible Story-to-Test Case paths.`]} label="Linked Bugs" tone={connectedBugIds.size ? "warning" : "success"} value={connectedBugIds.size} />
-        <EvidenceFlipCard actionLabel={view === "gaps" ? "Show all paths" : "Show mapping gaps"} caption="Open filter from evidence" evidence={[`${gapCount} visible paths are missing a downstream Story, module, Test Case, or Bug mapping.`]} label="Mapping gaps" onAction={() => setView((current) => current === "gaps" ? "all" : "gaps")} tone={gapCount ? "danger" : "success"} value={gapCount} />
+        <EvidenceFlipCard caption="Defect evidence" evidence={[`${connectedBugIds.size} distinct Defects are linked into the visible Story-to-Test Case paths.`]} label="Linked Defects" tone={connectedBugIds.size ? "warning" : "success"} value={connectedBugIds.size} />
+        <EvidenceFlipCard actionLabel={view === "gaps" ? "Show all paths" : "Show mapping gaps"} caption="Open filter from evidence" evidence={[`${gapCount} visible paths are missing a downstream Story, module, Test Case, or Defect mapping.`]} label="Mapping gaps" onAction={() => setView((current) => current === "gaps" ? "all" : "gaps")} tone={gapCount ? "danger" : "success"} value={gapCount} />
       </div>
 
       <div className="project-traceability-sprints" aria-label="Sprint traceability paths">
@@ -266,13 +266,13 @@ export function ProjectTraceabilityMap({
                   <span><strong>{group.paths.length}</strong> Stories</span>
                   <span><strong>{moduleCount}</strong> Modules</span>
                   <span><strong>{caseCount}</strong> Cases</span>
-                  <span><strong>{bugCount}</strong> Bugs</span>
+                  <span><strong>{bugCount}</strong> Defects</span>
                 </span>
               </button>
               {isExpanded ? (
                 <div className="project-traceability-sprint-body">
                   <div className="project-traceability-path-head" aria-hidden="true">
-                    <span>Story</span><span>Linked modules</span><span>Linked test cases</span><span>Linked Bugs</span>
+                    <span>Story</span><span>Linked modules</span><span>Linked test cases</span><span>Linked Defects</span>
                   </div>
                   {group.paths.map((path) => {
                     const isRequirementExpanded = expandedRequirementIds.includes(path.requirement.id);
@@ -292,13 +292,13 @@ export function ProjectTraceabilityMap({
                         <div className="project-traceability-path-links">
                           <TraceabilityLinkList empty="No linked module" items={path.modules.map((item) => ({ id: item.id, displayId: item.display_id, title: item.name, meta: `${graph.moduleCases.get(item.id)?.size || 0} cases` }))} kind="module" onOpen={onOpen} />
                           <TraceabilityLinkList empty="No linked test case" items={path.cases.map((item) => ({ id: item.id, displayId: item.display_id, title: item.title, meta: item.automated === "yes" ? "Automated" : "Manual" }))} kind="case" onOpen={onOpen} />
-                          <TraceabilityLinkList empty="No linked Bug" items={path.bugs.map((item) => ({ id: item.id, displayId: item.jira_bug_key, title: item.title, meta: `${item.status || "No status"}${item.severity ? ` · ${item.severity}` : ""}` }))} kind="bug" onOpen={onOpen} />
+                          <TraceabilityLinkList empty="No linked Defect" items={path.bugs.map((item) => ({ id: item.id, displayId: item.jira_bug_key, title: item.title, meta: `${item.status || "No status"}${item.severity ? ` · ${item.severity}` : ""}` }))} kind="bug" onOpen={onOpen} />
                         </div>
                         {isRequirementExpanded ? (
                           <div className="project-traceability-path-summary">
                             <strong>Derived path</strong>
-                            <span>{path.modules.length} module{path.modules.length === 1 ? "" : "s"} · {path.cases.length} test case{path.cases.length === 1 ? "" : "s"} · {path.bugs.length} Bug{path.bugs.length === 1 ? "" : "s"}</span>
-                            <small>Module links are derived from the Story’s linked cases. Bugs include direct Story, module, and test-case references.</small>
+                            <span>{path.modules.length} module{path.modules.length === 1 ? "" : "s"} · {path.cases.length} test case{path.cases.length === 1 ? "" : "s"} · {path.bugs.length} Defect{path.bugs.length === 1 ? "" : "s"}</span>
+                            <small>Module links are derived from the Story’s linked cases. Defects include direct Story, module, and test-case references.</small>
                           </div>
                         ) : null}
                       </article>
@@ -321,7 +321,7 @@ export function ProjectTraceabilityMap({
           scopeLabel="traceability records"
         />
       ) : null}
-      <p className="project-traceability-footnote">Sprint membership comes from loaded connected-workspace and HelloTest sprint assignments. Module and Bug relationships are derived through direct Story, module, and test-case links; unloaded pages are never treated as complete coverage.</p>
+      <p className="project-traceability-footnote">Sprint membership comes from loaded connected-workspace and HelloTest sprint assignments. Module and Defect relationships are derived through direct Story, module, and test-case links; unloaded pages are never treated as complete coverage.</p>
     </section>
   );
 }

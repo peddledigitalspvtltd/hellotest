@@ -18,6 +18,7 @@ type ExecutionContextSelectorProps = {
   onDataSetChange: (value: string) => void;
   prefillFirstAvailable?: boolean;
   preserveMissingSelection?: boolean;
+  hideDataSet?: boolean;
 };
 
 function filterScopedResources<T extends { app_type_id: string | null }>(items: T[], appTypeId: string) {
@@ -38,12 +39,13 @@ export function ExecutionContextSelector({
   onConfigurationChange,
   onDataSetChange,
   prefillFirstAvailable = false,
-  preserveMissingSelection = false
+  preserveMissingSelection = false,
+  hideDataSet = false
 }: ExecutionContextSelectorProps) {
   const { can } = useCapabilityAccess(projectId);
   const canViewEnvironments = can("environment.view");
   const canViewConfigurations = can("configuration.view");
-  const canViewTestData = can("data.view");
+  const canViewTestData = !hideDataSet && can("data.view");
   const environmentPrefillScopeRef = useRef("");
   const configurationPrefillScopeRef = useRef("");
   const dataSetPrefillScopeRef = useRef("");
@@ -181,7 +183,7 @@ export function ExecutionContextSelector({
       </div>
 
       {projectId && !isLoading && !hasAnyContext ? (
-        <div className="empty-state compact">No environment, configuration, or test data resources are available for this scope yet.</div>
+        <div className="empty-state compact">{hideDataSet ? "No environment or configuration resources are available for this scope yet." : "No environment, configuration, or test data resources are available for this scope yet."}</div>
       ) : null}
     </div>
   );

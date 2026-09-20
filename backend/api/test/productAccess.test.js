@@ -15,6 +15,7 @@ const AGENT_FLAG = 'hellotest.ai.agentic_workflows';
 function stored(t, values = {}) {
   let reads = 0;
   t.mock.method(db, 'prepare', (sql) => {
+    if (/FROM project_deletion_jobs/.test(sql)) return { get: async () => ({ active: false }) };
     assert.match(sql, /SELECT value/);
     return { get: async (key) => { assert.equal(key, 'feature_flags'); reads++; return { value: { flags: values } }; } };
   });

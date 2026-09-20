@@ -4,6 +4,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { assertHealthAtRibbonEnd } from './healthRibbonAssertions.mjs';
 const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../', import.meta.url);
@@ -50,7 +51,7 @@ api.appTypes.list=async()=>[{id:'case-app',project_id:'case-project',name:'Web a
 const cases=Array.from({length:95},(_,index)=>{
  const n=index+1;
  return {id:'case-'+n,display_id:'TC-'+n,app_type_id:'case-app',title:n===60?'Distant boundary coverage':'Checkout coverage '+String(n).padStart(2,'0'),description:'Fixture case description '+n,
-  suite_id:null,suite_ids:[],requirement_id:n===60?'story-run':null,requirement_ids:n===60?['story-run']:[],module_ids:n>60?['case-module']:[],defect_ids:[],labels:[],external_references:[],
+  suite_id:null,suite_ids:[],requirement_id:(n===1||n===60)?'story-run':null,requirement_ids:(n===1||n===60)?['story-run']:[],linked_requirements:n===1?[{id:'story-run',display_id:'STORY-123456',title:'A deliberately long Story title that must remain separate from the Story identity and truncate gracefully in narrow Test Case tiles'}]:[],module_ids:n>60?['case-module']:[],defect_ids:[],labels:[],external_references:[],
   automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'not_requested',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,
   created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
 });
@@ -64,7 +65,7 @@ api.testCases.listPage=async(input)=>{
 };
 const health=count=>({count,traceabilityPercent:0,executablePercent:100,automationPercent:0,summaryComplete:true,unknownSummaryCount:0,executionPercent:0,passRatePercent:null,latestPassRatePercent:null,stabilityPercent:null,averageExecutionMs:null,executionDurationSampleCount:0,pendingReviewCount:0,defectCount:0,defectDensity:0,riskCount:0});
 api.testCases.listPicker=async input=>api.testCases.listPage({...input,projection:"picker"});
-api.testCases.metrics=async(input)=>{window.calls.metrics.push(structuredClone(input));return {coverage:{total:95,covered:1,automated:0,automationKnown:95,withHistory:0,withSuites:0},catalog:{total:95,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'case-module':health(35)},unassigned:health(60)}};
+api.testCases.metrics=async(input)=>{window.calls.metrics.push(structuredClone(input));return {coverage:{total:95,covered:2,automated:0,automationKnown:95,withHistory:0,withSuites:0},catalog:{total:95,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'case-module':health(35)},unassigned:health(60)}};
 api.testCaseModules.list=async(input)=>{window.calls.headers.push(structuredClone(input));return [{id:'case-module',app_type_id:'case-app',name:'Payments module',test_case_count:35,test_case_ids:[],requirement_ids:[]}]};
 api.testCaseModules.listCases=async(id,input)=>{window.calls.moduleChildren.push({id,...structuredClone(input)});return paginate(cases.filter(item=>item.module_ids.includes(id)),input)};
 api.requirements.list=async(input)=>{window.calls.authoring.push({path:'requirements.list',input});if(window.pauseAuthoring)await new Promise(resolve=>{window.releaseAuthoring=resolve});return [{id:'story-run',project_id:'case-project',title:'Checkout Story',priority:3,status:'active',iteration_id:'sprint-run',sprint:'Sprint Alpha',fix_version:'Release Alpha',labels:[],gherkin_scenarios:[],test_case_ids:['case-60']}]};
@@ -86,7 +87,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
 
 test('Test Cases load 25 independently from metrics, fetch expanded modules, scroll and lazily prepare run scopes', { timeout:90000 }, async()=>{
  const name='test-case-catalog-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);
- const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalog';
+const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalog';
  let browser;
  try{
   await writeFile(html,`<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>.test-case-library-scroll{height:560px!important;max-height:560px!important;flex:none!important}.test-case-library-scroll>.tile-browser-pane-scroll{height:100%;overflow-y:auto}</style></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
@@ -94,11 +95,11 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
   const context=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'no-preference'});
   const unexpectedRequests=[];await context.route('**/api/**',route=>{unexpectedRequests.push(route.request().method()+' '+new URL(route.request().url()).pathname);return route.fulfill({status:500,contentType:'application/json',body:'{"message":"Unexpected fixture request"}'})});
-  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(10000);
+  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(15000);page.setDefaultNavigationTimeout(60000);
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
   const cards=page.locator('.test-case-library-scroll .test-case-catalog-card'),scroll=page.locator('.test-case-library-scroll>.tile-browser-pane-scroll');
   await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===25);
-  const total=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Total cases'}).locator('strong');
+  const total=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Total Cases'}).locator('strong');
   assert.equal(await total.innerText(),'95');await page.waitForTimeout(180);
   let calls=await page.evaluate(()=>window.calls);
   assert.equal(calls.catalog.length,1);assert.equal(calls.catalog[0].page_size,25);assert.equal(calls.catalog[0].include_total,false);assert.equal(calls.catalog[0].unassigned_module,true);
@@ -106,7 +107,37 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   assert.deepEqual(calls.authoring,[],'Library entry does not load all Stories or delivery catalogs');
   assert.equal(calls.all.some(call=>/^(requirements|requirementIterations|requirementReleases|executionResults|testSuites|testDataSets|testCases)\.list$/.test(call.path)),false);
   assert.equal(await page.getByRole('button',{name:/load more/i}).count(),0);
+  const story=cards.first().locator('.test-case-requirement-block p');
+  for(const width of [1440,390]){
+    await page.setViewportSize({width,height:900});
+    const layout=await story.evaluate(node=>{const id=node.querySelector('.test-case-linked-story-id').getBoundingClientRect(),title=node.querySelector('strong'),bounds=title.getBoundingClientRect();return {gap:bounds.left-id.right,trim:getComputedStyle(title).textOverflow,nowrap:getComputedStyle(title).whiteSpace,title:title.title,within:bounds.right<=node.getBoundingClientRect().right+1}});
+    assert.ok(layout.gap>=8,'Story ID and title retain spacing at '+width);assert.equal(layout.trim,'ellipsis');assert.equal(layout.nowrap,'nowrap');assert.ok(layout.within);assert.match(layout.title,/deliberately long Story/);
+  }
+  await page.setViewportSize({width:1440,height:900});
   await page.screenshot({path:artifacts+'/test-cases-first-25.png'});
+  const collapsedModule=page.locator('.test-case-module-header').filter({hasText:'Payments module'});
+  await assertHealthAtRibbonEnd(collapsedModule.getByRole('button',{name:'Module Health: Payments module'}));
+  await assertHealthAtRibbonEnd(page.getByRole('button',{name:'Module Health: Ungrouped',exact:true}));
+  assert.deepEqual(await collapsedModule.locator('.hierarchy-quick-insight-label-row > span:first-child').allTextContents(),['Latest Pass Rate','At Risk']);
+  await collapsedModule.getByRole('button',{name:'Module Health: Payments module'}).click();
+  const moduleHealth=page.getByRole('dialog',{name:'Payments module',exact:true});
+  await moduleHealth.waitFor();
+  assert.equal(await moduleHealth.getByRole('button',{name:'View evidence for Test Cases',exact:true}).locator('strong').innerText(),'35','Health covers the entire collapsed module, without loading its cases');
+  assert.equal(await page.evaluate(()=>window.calls.moduleChildren.length),0,'Health reuses exact aggregate evidence; no module child fan-out');
+  await moduleHealth.getByRole('button',{name:'View evidence for Pending Review',exact:true}).click();
+  assert.match(await moduleHealth.getByRole('list',{name:'Pending Review evidence'}).innerText(),/0\/35 Test Cases await review/);
+  await page.waitForTimeout(320);
+  await page.screenshot({path:artifacts+'/module-health.png'});
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await moduleHealth.evaluate(node=>node.getBoundingClientRect().right <= innerWidth && node.scrollWidth <= node.clientWidth+1),true,'Module Health fits a narrow viewport');
+  await page.screenshot({path:artifacts+'/module-health-mobile.png'});
+  await page.keyboard.press('Escape');
+  await moduleHealth.waitFor({state:'hidden'});
+  await assertHealthAtRibbonEnd(collapsedModule.getByRole('button',{name:'Module Health: Payments module'}));
+  await assertHealthAtRibbonEnd(page.getByRole('button',{name:'Module Health: Ungrouped',exact:true}));
+  assert.equal(await collapsedModule.getByRole('button',{name:'Module Health: Payments module'}).evaluate(node=>node===document.activeElement),true,'Closing health restores the ribbon control focus');
+  await page.setViewportSize({width:1440,height:900});
+
 
   await scroll.evaluate(node=>node.scrollTop=node.scrollHeight-node.clientHeight);
   await page.waitForFunction(()=>window.calls.catalog.length===2&&typeof window.releaseContinuation==='function');
@@ -122,6 +153,7 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   const moduleHeader=page.locator('.test-case-module-header').filter({hasText:'Payments module'});
   await moduleHeader.getByRole('button',{name:'Expand module',exact:true}).click();
   await page.waitForFunction(()=>window.calls.moduleChildren.length===1&&document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===75);
+  await assertHealthAtRibbonEnd(moduleHeader.getByRole('button',{name:'Module Health: Payments module'}));
   calls=await page.evaluate(()=>window.calls);assert.equal(calls.moduleChildren[0].page_size,25);assert.equal(calls.moduleChildren[0].include_total,false);assert.equal(calls.metrics.length,1);
   await moduleHeader.getByRole('button',{name:'Collapse module',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.test-case-library-scroll .test-case-catalog-card').length===50);
@@ -145,7 +177,7 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   await suite.getByRole('button',{name:'Create Suite',exact:true}).click();
   await suite.waitFor({state:'hidden'});
   assert.equal(await page.evaluate(()=>window.suiteCreates[0].name),'Shared suite from Test Cases');
-  assert.deepEqual(await page.evaluate(()=>window.suiteAssignments[0].ids),['case-1','case-60']);
+  assert.deepEqual(await page.evaluate(()=>window.suiteCreates[0].test_case_ids),['case-1','case-60']);assert.equal(await page.evaluate(()=>window.suiteAssignments.length),0,'Suite membership is saved atomically');
   await cards.getByRole('checkbox').check();
   await page.getByRole('button',{name:'Run manually',exact:true}).click();
   await page.waitForFunction(()=>typeof window.releaseAuthoring==='function');
@@ -172,5 +204,32 @@ test('Test Cases load 25 independently from metrics, fetch expanded modules, scr
   await page.waitForFunction(()=>window.runCreates.length===1);
   assert.deepEqual(await page.evaluate(()=>{const input=window.runCreates[0];return {cases:input.test_case_ids,suites:input.suite_ids,name:input.name,release:input.release,sprint:input.sprint,mode:input.execution_mode}}),{cases:['case-1','case-60'],suites:[],name:'Edited while options load',release:'Release Alpha',sprint:'Sprint Alpha',mode:'manual'});
   assert.deepEqual(errors,[]);assert.deepEqual(unexpectedRequests,[]);
+ }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
+});
+
+test('Module Health remains at the ribbon end in list, expanded and mobile layouts', {timeout:60000}, async()=>{
+ const name='module-health-layout-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+ try{
+  await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx,fixture);
+  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+  const page=await browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/**',route=>route.fulfill({status:500,body:'Unexpected fixture request'}));
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
+  const module=page.getByRole('button',{name:'Module Health: Payments module',exact:true});
+  const ungrouped=page.getByRole('button',{name:'Module Health: Ungrouped',exact:true});
+  await module.waitFor();
+  await page.getByRole('button',{name:'List view',exact:true}).click();
+  await page.locator('.test-case-module-list-header').first().waitFor();
+  await assertHealthAtRibbonEnd(module);await assertHealthAtRibbonEnd(ungrouped);
+  const header=page.locator('.test-case-module-header').filter({has:module});
+  await header.getByRole('button',{name:'Expand module',exact:true}).click();
+  await header.getByRole('button',{name:'Collapse module',exact:true}).waitFor();
+  await assertHealthAtRibbonEnd(module);
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('.test-case-module-header:not(.test-case-module-list-header)').first().waitFor();
+  await assertHealthAtRibbonEnd(module);await assertHealthAtRibbonEnd(ungrouped);
+  assert.deepEqual(errors,[]);
  }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
 });

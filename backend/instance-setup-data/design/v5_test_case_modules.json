@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v5-data-module",
+      "display_id": "DEMO5-M1",
+      "app_type_id": "sample-app-web",
+      "name": "Data inheritance and shared failure evidence · SYNTHETIC SAMPLE",
+      "description": "SYNTHETIC SAMPLE: connected Story, manual review, shared group, data rows and exact Defect evidence.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-20T08:00:00.000Z",
+      "updated_at": "2026-09-20T08:00:00.000Z"
+    }
+  ]
+}

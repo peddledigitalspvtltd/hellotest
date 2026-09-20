@@ -222,6 +222,22 @@ async function accessControlPlugin(fastify) {
     }
 
     await enforceFeatureFlagAccess(req, permissionCode);
+
+    const method = String(req.method || "GET").toUpperCase();
+    const isDeletionRequest = method === "DELETE" && getRouteUrl(req) === "/projects/:id";
+    if (projectId && !["GET", "HEAD", "OPTIONS"].includes(method) && !isDeletionRequest) {
+      const deletion = await db.prepare(`
+        SELECT EXISTS (
+          SELECT 1 FROM project_deletion_jobs
+          WHERE project_id = ? AND status IN ('queued', 'running', 'cleanup')
+        ) AS active
+      `).get(projectId);
+      if (deletion?.active) {
+        throw Object.assign(createError("This project is being deleted. Changes are temporarily unavailable.", 409), {
+          code: "PROJECT_DELETING"
+        });
+      }
+    }
   });
 
   fastify.addHook("onRoute", (routeOptions) => {
@@ -233,6 +249,15 @@ async function accessControlPlugin(fastify) {
       const permissionCode = ROUTE_PERMISSIONS.get(`${normalizedMethod === "HEAD" ? "GET" : normalizedMethod} ${url}`);
 
       if (!permissionCode) {
+        continue;
+      }
+
+      // Project deletion keeps its own durable requester authorization after
+      // project memberships disappear. Its service invokes the normal scoped
+      // guard while the project exists; a global grant would block cleanup
+      // retries for someone whose only project has just been deleted.
+      if ((normalizedMethod === "DELETE" && url === "/projects/:id")
+        || (["GET", "HEAD"].includes(normalizedMethod) && url === "/projects/:id/deletion")) {
         continue;
       }
 

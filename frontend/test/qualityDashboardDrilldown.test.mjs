@@ -19,7 +19,7 @@ const row = (type) => ({ id: 'opaque /id?&=#', key: 'DISPLAY-42', title: 'Eviden
 
 test('native evidence rows open exact record IDs using canonical BrowserRouter paths', () => {
   const cases = [
-    ['issue', '/issues', '/issues', 'issue', 'bug'],
+    ['issue', '/issues', '/issues', 'issue', 'defect'],
     ['story', '/requirements', '/stories', 'requirement', 'story'],
     ['test-case', '/test-cases', '/test-cases', 'case', 'test case'],
     ['test-run', '/executions', '/executions', 'execution', 'test run'],

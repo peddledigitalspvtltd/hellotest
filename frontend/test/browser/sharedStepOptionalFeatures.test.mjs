@@ -36,6 +36,8 @@ api.appTypes.list=async()=>{window.calls.push('appTypes.list');return [{id:'app'
 let group={id:'group-1',display_id:'SSG_1',app_type_id:'app',name:'Checkout reusable steps',description:'Saved description',authoring_mode:'structured',steps:[{id:'step-1',step_order:1,action:'Open checkout',expected_result:'Checkout is shown',step_type:'web'}],used_test_cases:[{id:'case-1',title:'Checkout case'}],usage_count:1};
 api.sharedStepGroups.list=async()=>{window.calls.push('sharedStepGroups.list');return [group]};
 api.sharedStepGroups.update=async(id,input)=>{window.writes.push({id,input});group={...group,...input};return group};
+let firstMetricsRequest=true;
+api.sharedStepGroups.metrics=async(query,options)=>{window.calls.push('sharedStepGroups.metrics');if(mode==='slow'&&firstMetricsRequest){firstMetricsRequest=false;await new Promise((resolve,reject)=>{window.releaseHistory=resolve;options?.signal?.addEventListener('abort',()=>{window.aborts.push('history');reject(new DOMException('Cancelled','AbortError'))},{once:true})})}return {groups:[],execution_visible:mode!=='flags'};};
 api.executionResults.list=async(query,options)=>{window.calls.push('executionResults.list');if(mode==='slow')await new Promise((resolve,reject)=>{window.releaseHistory=resolve;options?.signal?.addEventListener('abort',()=>{window.aborts.push('history');reject(new DOMException('Cancelled','AbortError'))},{once:true})});return mode==='modal-results'?[{id:'result-1',execution_id:'run-1',test_case_id:'case-1',status:'passed',created_at:'2026-09-16T00:00:00Z'}]:[]};
 const testCase={id:'case-1',title:'Checkout case',description:'Manual checkout instructions',detail_complete:true,app_type_id:'app',status:'active',automated:'no',requirement_ids:[],suite_ids:[]};
 api.testCases.get=async()=>{window.calls.push('testCases.get');return testCase};
@@ -79,7 +81,7 @@ test("Shared Step authoring survives unavailable optional features, partial gran
       assert.equal(write.input.steps[0].action, "Open checkout");
       const calls = await page.evaluate(() => window.calls);
       const forbidden = ["projects.list", "requirements.list", "testCases.list", "testSuites.list", "integrations.list"];
-      if (mode !== "slow") forbidden.push("executionResults.list", "users.list");
+      if (mode !== "slow") forbidden.push("executionResults.list", "users.list", "sharedStepGroups.metrics");
       if (mode === "permissions") forbidden.push("appTypes.list");
       assert.deepEqual(calls.filter(call => forbidden.includes(call)), [], `${mode}: optional APIs stay idle`);
       assert.deepEqual(errors, []);

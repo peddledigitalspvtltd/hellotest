@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { writeFile, rm, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const root = new URL('../../', import.meta.url);
+const fixture = `import React,{useState} from 'react';import{createRoot}from'react-dom/client';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
+import{StoryReadinessChecklist,StoryReadinessReviewDialog}from'/src/components/StoryReadinessChecklist';import{EvidenceFlipCard}from'/src/components/EvidenceFlipCard';import{api}from'/src/lib/api';
+import'/src/styles.css';import'/src/dark-theme.css';import'/src/catalog-list.css';import'/src/modal-system.css';
+const params=new URLSearchParams(location.search);const release=params.has('release');const keys=release?['acceptance_tests','code_review','automated_tests','critical_defects','product_owner']:['persona_value','acceptance_criteria','wireframe','dependencies','story_points'];
+const labels=release?['All Acceptance Criteria Tested and Passed','Code Review Approved and Merged','Automated Unit and Integration Tests Passing','No Open Blocker or High Defects','Product Owner Sign-off']:['Persona and Business Value','Defined Acceptance Criteria','Attached Wireframe','Resolved Dependencies','Team Agreed Story Points'];
+let saved={id:'story',project_id:'project',title:'Readiness Story',revision:7,iteration_id:release?'sprint':null,catalog_metrics:{readiness:{mode:release?'release':'backlog',label:release?'Story Release Readiness':'Story Readiness',score:null,met:0,known:0,total:5,checks:keys.map((key,index)=>({key,label:labels[index],status:'unverified',source:'unverified',evidence:'No verified evidence recorded.'}))}}};
+window.requests=[];api.attachments.list=async()=>[{id:'wire',filename:'Checkout wireframe.png'}];api.requirements.updateReadiness=async(id,input)=>{window.requests.push({id,input});if(window.conflict)throw Error('Story changed; reload before saving.');saved={...saved,revision:saved.revision+1,catalog_metrics:{...saved.catalog_metrics,readiness:{...saved.catalog_metrics.readiness,checks:saved.catalog_metrics.readiness.checks.map(check=>input.checks[check.key]?{...check,...input.checks[check.key],source:'review',verified_by:'reviewer',verified_at:'2026-09-20T12:00:00Z'}:check)}}};saved.catalog_metrics.readiness.met=saved.catalog_metrics.readiness.checks.filter(check=>check.status==='met').length;saved.catalog_metrics.readiness.known=saved.catalog_metrics.readiness.checks.filter(check=>check.status!=='unverified').length;saved.catalog_metrics.readiness.score=saved.catalog_metrics.readiness.known?saved.catalog_metrics.readiness.met*20:null;return{updated:true,revision:saved.revision}};
+function App(){const[story,setStory]=useState(saved);const[tick,setTick]=useState(0);const[open,setOpen]=useState(false);return <main style={{padding:24,maxWidth:1000,margin:'auto'}}><h1>Story Evidence</h1>{params.has('modal')?<><button onClick={()=>setOpen(true)}>Review Readiness</button>{open?<StoryReadinessReviewDialog story={story} canEdit={!params.has('readonly')} canViewAttachments={!params.has('noattachments')} onSaved={async()=>setStory(saved)} onClose={()=>setOpen(false)}/>:null}</>:<StoryReadinessChecklist story={story} canEdit={!params.has('readonly')} canViewAttachments={!params.has('noattachments')} onSaved={async()=>setStory(saved)}/>}<div style={{maxWidth:360}}><EvidenceFlipCard label='latest API pass rate' value={<span>80%</span>} caption='Verified results' evidence={['Four passing cases from five executed cases.']} autoResetMs={0}/></div><button onClick={()=>setTick(tick+1)}>Refresh Parent {tick}</button></main>}
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><App/></QueryClientProvider>);`;
+test('readiness review enforces evidence, attachments, revisions and error recovery; flips survive parent renders', {timeout:60000}, async()=>{
+ const name='story-readiness-'+randomUUID();let browser;
+ try{
+  await writeFile(new URL(name+'.tsx',root),fixture);await writeFile(new URL(name+'.html',root),`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage({viewport:{width:1100,height:1000},reducedMotion:'reduce'});const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  const url=(process.env.VITE_TEST_URL||'http://127.0.0.1:5188')+'/'+name+'.html';
+  await page.goto(url);await page.locator('summary').click();await page.getByRole('button',{name:'Review Attached Wireframe',exact:true}).click();
+  await page.getByLabel('Review Status',{exact:true}).selectOption('met');await page.getByLabel('Evidence Note').fill('UX approved the attached checkout wireframe.');
+  assert.equal(await page.getByRole('button',{name:'Save Review',exact:true}).isDisabled(),true);
+  await page.getByLabel('Attached Wireframe',{exact:true}).selectOption('wire');await page.getByRole('button',{name:'Save Review',exact:true}).click();
+  await page.getByText('UX approved the attached checkout wireframe.',{exact:true}).waitFor();
+  assert.deepEqual(await page.evaluate(()=>window.requests[0]),{id:'story',input:{expected_revision:7,checks:{wireframe:{status:'met',evidence:'UX approved the attached checkout wireframe.',attachment_id:'wire'}}}});
+  await page.getByRole('button',{name:'Review Team Agreed Story Points',exact:true}).click();await page.getByLabel('Review Status',{exact:true}).selectOption('met');await page.getByLabel('Evidence Note').fill('Team agreed 5 points.');await page.evaluate(()=>window.conflict=true);await page.getByRole('button',{name:'Save Review',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'Story changed'}).waitFor();assert.equal(await page.getByLabel('Evidence Note').inputValue(),'Team agreed 5 points.');assert.equal(await page.evaluate(()=>window.requests[1].input.expected_revision),8);
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  const front=page.getByRole('button',{name:'View evidence for Latest API Pass Rate',exact:true});await front.click();await page.getByRole('button',{name:'Refresh Parent 0'}).click();assert.equal(await page.locator('.evidence-flip-card.is-flipped').count(),1);await page.getByRole('list',{name:'Latest API Pass Rate evidence'}).waitFor();
+  await mkdir('/tmp/qaira-story-readiness',{recursive:true});await page.screenshot({path:'/tmp/qaira-story-readiness/backlog.png',animations:'disabled'});
+  await page.goto(url+'?release=1&readonly=1');await page.locator('summary').click();assert.match(await page.locator('summary').innerText(),/Story Release Readiness/);assert.equal(await page.getByRole('button',{name:/^Review /}).count(),0);assert.equal(await page.getByText('Product Owner Sign-off',{exact:true}).count(),1);
+  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.dataset.theme='dark');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'/tmp/qaira-story-readiness/release-mobile-dark.png',animations:'disabled'});
+  await page.setViewportSize({width:1100,height:1000});await page.goto(url+'?release=1&modal=1');await page.getByRole('button',{name:'Review Readiness',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Story Release Readiness',exact:true});await dialog.waitFor();
+  assert.equal(await dialog.locator('.story-readiness-checklist > ul > li').count(),5);
+  assert.equal(await dialog.getByRole('button',{name:'Review No Open Blocker or High Defects',exact:true}).count(),0);
+  await dialog.getByRole('button',{name:'Review Product Owner Sign-off',exact:true}).click();await dialog.getByLabel('Review Status',{exact:true}).selectOption('met');await dialog.getByLabel('Evidence Note').fill('Product Owner approved the saved delivery evidence, reference PO-24.');await dialog.getByRole('button',{name:'Save Review',exact:true}).click();
+  await dialog.getByText('Story Release Readiness: 1 of 5 Checks Met · 4 Unverified',{exact:true}).waitFor();
+  assert.equal(await dialog.getByRole('progressbar',{name:'Checks met'}).getAttribute('aria-valuenow'),'1');
+  await dialog.locator('.story-readiness-review-content').evaluate(element=>{element.scrollTop=0;});
+  await page.screenshot({path:'/tmp/qaira-story-readiness/release-review-modal.png',animations:'disabled'});
+  await page.keyboard.press('Escape');assert.equal(await page.getByRole('dialog').count(),0);assert.equal(await page.evaluate(()=>document.activeElement.textContent),'Review Readiness');
+  await page.goto(url+'?release=1&readonly=1&modal=1');await page.getByRole('button',{name:'Review Readiness',exact:true}).click();
+  assert.equal(await dialog.getByRole('button',{name:/^Review /}).count(),0);
+  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>document.documentElement.dataset.theme='dark');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);await page.screenshot({path:'/tmp/qaira-story-readiness/release-review-modal-mobile.png',animations:'disabled'});
+  assert.deepEqual(errors,[]);
+ }finally{await browser?.close();await Promise.all([rm(new URL(name+'.tsx',root),{force:true}),rm(new URL(name+'.html',root),{force:true})]);}
+});

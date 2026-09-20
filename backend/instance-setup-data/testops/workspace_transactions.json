@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-activity-launchpad",
+      "project_id": "sample-project",
+      "category": "reporting",
+      "action": "sample_walkthrough",
+      "status": "completed",
+      "title": "Commerce walkthrough · sample",
+      "description": "Illustrative activity record with a downloadable guide. No background operation was executed.",
+      "metadata": {
+        "sample": true
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "started_at": "2026-09-19T09:00:00.000Z",
+      "completed_at": "2026-09-19T09:01:00.000Z"
+    },
+    {
+      "id": "sample-v3-hellotest-blueprint",
+      "project_id": "sample-project",
+      "category": "reporting",
+      "action": "sample_blueprint",
+      "status": "completed",
+      "title": "HelloTest feature blueprint · sample",
+      "description": "Authored reusable feature catalog and acceptance backlog. No external AI or test execution occurred.",
+      "metadata": {
+        "sample": true,
+        "blueprint_version": 3,
+        "feature_count": 59
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "started_at": "2026-09-20T09:00:00.000Z",
+      "completed_at": "2026-09-20T09:00:00.000Z"
+    }
+  ]
+}

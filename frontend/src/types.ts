@@ -1,3 +1,5 @@
+export type TestDataOptions = { override_lower_scopes?: boolean; override_test_case_data?: boolean; override_suite_data?: boolean; override_shared_steps?: boolean; runtime_policy?: { version: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions } };
+export type DataSetValidation = { valid: boolean; missing_parameters: string[]; required_parameters: string[]; available_parameters: string[]; iteration_count?: number; reason?: string; test_data_set_id?: string; data_set_id?: string };
 export type User = {
   id: string;
   email: string;
@@ -130,10 +132,10 @@ export type QualityDashboardGadget = {
   title: string;
   data_source?: "jira" | "hellotest";
   release?: string;
-  type: "metric" | "donut" | "bar" | "stacked-bar" | "line" | "table";
+  type: "metric" | "donut" | "bar" | "column" | "stacked-bar" | "line" | "area" | "table";
   jql: string;
-  group_by: "status" | "statusCategory" | "priority" | "issuetype" | "assignee" | "reporter" | "components" | "fixVersion" | "labels" | "sprint" | "resolution" | "module" | "createdWeek" | "updatedWeek" | "createdMonth" | "updatedMonth";
-  metric?: "count" | "resolved" | "unresolved" | "highPriority" | "unassigned" | "overdue" | "stale30d" | "created30d" | "resolved30d" | "resolutionRate" | "averageAgeDays" | "averageResolutionDays" | "releaseConfidence" | "requirementCoverage" | "coverageGaps" | "automationCoverage" | "openDefects" | "failedRuns" | "executionCycleHours" | "completedRuns30d" | "testCases" | "testSuites" | "testRuns" | "moduleCaseCount" | "passRate" | "executionCompletion" | "evidenceConfidence";
+  group_by: "status" | "statusCategory" | "priority" | "issuetype" | "assignee" | "reporter" | "components" | "fixVersion" | "release" | "story" | "labels" | "sprint" | "resolution" | "module" | "createdWeek" | "updatedWeek" | "createdMonth" | "updatedMonth";
+  metric?: "count" | "resolved" | "unresolved" | "highPriority" | "unassigned" | "overdue" | "stale30d" | "created30d" | "resolved30d" | "resolutionRate" | "averageAgeDays" | "averageResolutionDays" | "releaseConfidence" | "requirementCoverage" | "coverageGaps" | "automationCoverage" | "openDefects" | "failedRuns" | "executionCycleHours" | "completedRuns30d" | "testCases" | "testSuites" | "testRuns" | "moduleCaseCount" | "passRate" | "executionCompletion" | "evidenceConfidence" | "stories" | "devStoryCompletion" | "qaStoryCompletion" | "storyTestPassRate" | "storyExecutionCoverage" | "storiesWithOpenDefects" | "linkedTestCases" | "unlinkedTestCases" | "unassignedModuleCases" | "linkedDefects" | "defectTraceability" | "failedCases" | "blockedCases" | "unexecutedCases";
   accent?: "blue" | "green" | "purple" | "orange" | "red" | "teal" | "slate";
 };
 
@@ -268,6 +270,22 @@ export type Project = {
 
 export type WorkspaceProjectScope = Pick<Project, "id" | "display_id" | "name" | "has_access">;
 
+export type ProjectDeletionJob = {
+  id: string;
+  project_id: string;
+  project_name: string;
+  status: "queued" | "running" | "cleanup" | "completed" | "failed";
+  phase: string;
+  processed_rows: number;
+  attempts: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
+export type ProjectDeletionResponse = { accepted: true; job: ProjectDeletionJob } | { deleted: true };
+
 export type ProjectPortfolioImpact = {
   total: number;
   top: Array<{ id: string; name: string; count: number }>;
@@ -292,6 +310,13 @@ export type ProjectPortfolioAnalyticsItem = {
     bug_resolved: number;
   };
   execution_evidence: { total: number; evidenced: number; missing: number; percent: number; threshold: number; violates: boolean };
+  latest_run_pass_rate?: {
+    execution: Execution | null;
+    total: number;
+    passed: number;
+    percent: number | null;
+    counts: Record<string, number>;
+  };
   latest_execution: Execution | null;
   latest_failed_count: number;
   latest_blocked_count: number;
@@ -569,6 +594,8 @@ export type AppType = {
 };
 
 export type Requirement = {
+  release_id?: string | null;
+  acceptance_criteria?: string[];
   catalog_metrics?: import("./lib/requirementCatalog").RequirementRecordMetrics;
   id: string;
   display_id?: string | null;
@@ -670,7 +697,8 @@ export type RequirementRelease = {
   persisted_state?: "planned" | "in_progress" | "released";
   sprint_ids: string[];
   requirement_ids: string[];
-  requirement_count: number;
+  requirement_count: number | null;
+  story_scope_visible?: boolean;
   requirements?: Requirement[];
   created_by?: string | null;
   updated_by?: string | null;
@@ -1307,6 +1335,8 @@ export type AiAssistedPreviewBase = {
   fallback_sections?: string[];
   requires_human_review: boolean;
   preview_only: true;
+  context_reduced?: boolean;
+  context_reduction_reason?: string | null;
 };
 
 export type StoryGroomingEvidenceSource = {
@@ -2004,6 +2034,7 @@ export type SmartExecutionPreviewResponse = {
 };
 
 export type TestSuite = {
+  test_data_options?: TestDataOptions;
   id: string;
   display_id?: string | null;
   app_type_id: string;
@@ -2029,6 +2060,8 @@ export type TestSuite = {
 };
 
 export type TestCase = {
+  test_data_options?: TestDataOptions;
+  linked_requirements?: Array<{ id: string; display_id?: string | null; title: string }>;
   id: string;
   display_id?: string | null;
   app_type_id?: string | null;
@@ -2389,7 +2422,42 @@ export type SharedStepGroupStep = {
   api_request?: StepApiRequest | null;
 };
 
+export type SharedStepMetrics = {
+  evaluated_at: string;
+  window_start: string;
+  window_days: number;
+  execution_visible: boolean;
+  execution_evidence_reason?: string | null;
+  total_repository_steps: number;
+  reused_case_count: number;
+  shared_step_references: number;
+  shared_steps_executed: number | null;
+  reusability_index: number | null;
+  failure_cluster_count: number | null;
+  defects_visible?: boolean;
+  open_defect_count?: number | null;
+  defect_evidence_reason?: string | null;
+  open_defect_evidence?: Array<{
+    issue_id: string; display_id: string | null; title: string; status: string;
+    group_id: string; group_name: string; execution_id: string; test_case_id: string; snapshot_step_id: string;
+  }>;
+  mtti_ms: number | null;
+  isolation_sample_count: number;
+  mtti_unavailable_reason: string;
+  groups: Array<{
+    id: string; name: string; case_count: number; execution_visible: boolean;
+    execution_evidence_reason?: string | null; ambiguous_step_identity_count?: number;
+    executed_steps?: number | null; passed_steps?: number | null; failed_steps?: number | null; failed_cases?: number; run_count?: number;
+    open_defect_count?: number | null;
+    history?: Array<{execution_id: string; status: string; isFinalized: boolean; created_at: string}>;
+    failure_evidence?: Array<{execution_id: string; test_case_id: string; snapshot_step_id: string; observed_at: string}>;
+  }>;
+};
+
 export type SharedStepGroup = {
+  test_data_set_id?: string | null;
+  test_data_row_index?: number;
+  test_data_set?: TestDataSet | null;
   id: string;
   display_id?: string;
   app_type_id: string;
@@ -2512,6 +2580,11 @@ export type ExecutionConfigurationSnapshot = {
 };
 
 export type ExecutionDataSetSnapshot = {
+  data_scope_policy?: { version?: number; case?: TestDataOptions; suite?: TestDataOptions; run?: TestDataOptions; row_strategy?: string };
+  parameter_data_layers?: Partial<Record<"case" | "suite" | "run", { rows: Record<string, string>[]; template_rows?: Record<string, string>[]; sensitive_names?: string[] } | null>>;
+  shared_rows?: Array<Record<string, string>>;
+  shared_template_rows?: Array<Record<string, string>>;
+  sensitive_names?: string[];
   id: string;
   name: string;
   description: string | null;
@@ -2549,6 +2622,9 @@ export type ExecutionScopeSnapshot = {
 };
 
 export type Execution = {
+  test_data_options?: TestDataOptions;
+  release_id?: string | null;
+  iteration_id?: string | null;
   parameter_scope_default?: "t" | "r";
   id: string;
   revision?: number;
@@ -2635,6 +2711,7 @@ export type Execution = {
 };
 
 export type ExecutionSchedule = {
+  test_data_options?: TestDataOptions;
   id: string;
   project_id: string;
   app_type_id: string | null;
@@ -3456,6 +3533,7 @@ export type KnowledgeOverview = {
 };
 
 export type ExecutionCaseSnapshot = {
+  test_data_options?: TestDataOptions;
   expected_iterations?: number;
   execution_id: string;
   test_case_id: string;
@@ -3492,6 +3570,9 @@ export type ExecutionCaseSnapshot = {
 };
 
 export type ExecutionStepSnapshot = {
+  shared_parameter_values?: Record<string, string>;
+  shared_parameter_template_values?: Record<string, string>;
+  shared_parameter_sensitive_names?: string[];
   execution_id: string;
   test_case_id: string;
   snapshot_step_id: string;

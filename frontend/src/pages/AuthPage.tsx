@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
@@ -779,7 +780,7 @@ export function AuthPage({ initialMode = "login" }: { initialMode?: Extract<Form
               {activeFeature.metrics.map((metric) => (
                 <article key={`${activeFeature.eyebrow}-${metric.label}`}>
                   <strong>{metric.value}</strong>
-                  <span>{metric.label}</span>
+                  <span>{metricTitle(metric.label)}</span>
                 </article>
               ))}
             </div>

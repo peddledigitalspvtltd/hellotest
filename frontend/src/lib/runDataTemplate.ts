@@ -1,11 +1,11 @@
 import { parseCsvGrid } from "./csvGrid";
 import { normalizeStepParameterName } from "./stepParameters";
 
-export function parseRunDataCsv(text: string) {
+export function parseRunDataCsv(text: string, defaultScope: "s" | "r" = "r") {
   const grid = parseCsvGrid(text.replace(/^\uFEFF/, ""), { preserveWhitespace: true, strict: true });
   const header = grid.shift() || [];
   if (!header.length || header.some(value => !value.trim())) throw new Error("Every CSV column needs a parameter name.");
-  const columns = header.map(value => normalizeStepParameterName(value));
+  const columns = header.map(value => normalizeStepParameterName(value, defaultScope));
   if (new Set(columns).size !== columns.length) throw new Error("Two columns refer to the same parameter. Use distinct t., s., or r. names; @name and r.name are the same run parameter.");
   if (columns.length > 500) throw new Error("Use at most 500 parameter columns in one data set.");
   const dataRows = grid.filter(row => row.some(value => value.length));

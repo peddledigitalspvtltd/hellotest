@@ -77,6 +77,25 @@ async function inspectGate(page, name) {
 
 const metricValues = (page) => page.locator(".rr-layout-tile-head").allTextContents();
 
+test('Release selection clears stale Sprint restrictions; standalone Sprint selection preserves native scope', {timeout:60000}, async()=>withPage(async(page,base)=>{
+  await page.goto(`${base}?scenario=native&iteration_id=obsolete&sprint=Old`);
+  await ready(page);
+  await page.waitForFunction(()=>window.readinessCalls.some(call=>call.kind==='runs' && call.input.release_id==='native-release'));
+  assert.equal(await page.getByLabel('Sprint',{exact:true}).inputValue(),'');
+  assert.equal(new URL(page.url()).searchParams.get('iteration_id'),null);
+  const initial=await downloadEvidence(page);
+  assert.equal(initial.stories.length,3,'shared Stories retain membership despite their text stamp naming another Release');
+  assert.equal(initial.metrics.passing_outcomes.failed,1,'the native run remains evidence after its labels were renamed');
+  await page.getByLabel('Sprint',{exact:true}).selectOption({label:'Sprint 24'});
+  await page.waitForFunction(()=>window.readinessCalls.some(call=>call.kind==='runs' && !call.input.release_id && call.input.iteration_id==='native-sprint'));
+  assert.equal(new URL(page.url()).searchParams.get('release_id'),null);
+  assert.equal(new URL(page.url()).searchParams.get('iteration_id'),'native-sprint');
+  const scoped=await downloadEvidence(page);
+  assert.equal(scoped.stories.length,3,'Sprint association uses native IDs after a rename');
+  await page.reload();
+  await page.waitForFunction(()=>window.readinessCalls.some(call=>call.kind==='runs' && !call.input.release_id && call.input.iteration_id==='native-sprint'));
+}));
+
 test("release evidence preserves outcomes, scopes requests and discards stale AI responses after scope changes", {timeout: 60000}, async () => withPage(async (page, base) => {
   await page.goto(base);
   await ready(page);
@@ -89,7 +108,7 @@ test("release evidence preserves outcomes, scopes requests and discards stale AI
   await expect(evidence(page).getByRole("tab", {name: /Traceability/})).toHaveAttribute("aria-selected", "true");
   assert.match(await page.locator(".rr-story-row").first().innerText(), /1 failed/);
   await evidence(page).getByRole("tab", {name: /Traceability/}).press("End");
-  await expect(evidence(page).getByRole("tab", {name: /Bugs/})).toHaveAttribute("aria-selected", "true");
+  await expect(evidence(page).getByRole("tab", {name: /Defects/})).toHaveAttribute("aria-selected", "true");
   await evidence(page).getByRole("tab", {name: /Execution evidence/}).click();
   assert.match(await page.locator(".rr-run").first().innerText(), /2 passed.*1 failed.*1 not assessed/s);
   assert.match(await page.locator(".rr-run").first().innerText(), /Saved staging.*Saved Chromium 128/s);
@@ -119,7 +138,10 @@ test(
       await ready(page);
       await expect(page.locator('.rr-layout-hero .rr-badge')).toContainText(/provisional/i);
       await openSources(page);
-      await page.locator('.rr-boundary .hierarchy-auto-load-sentinel').evaluate(node => node.scrollIntoView({block:'center'}));
+      // Opening source details can already bring the sentinel into view. In
+      // that case it disappears after loading; verify the result and exact
+      // next-page request below instead of waiting for a removed sentinel.
+      await page.evaluate(() => document.querySelector('.rr-boundary .hierarchy-auto-load-sentinel')?.scrollIntoView({block:'center'}));
       await page
         .locator(".rr-layout-hero").getByText("Loaded sources complete", { exact: false })
         .waitFor();
@@ -301,7 +323,7 @@ test('readiness search, check drilldowns, exact Story relationships and exports 
   const inspector = page.locator('.rr-story-inspector');
   await inspector.locator('summary').filter({hasText:'Linked tests'}).click();
   await inspector.locator('summary').filter({hasText:'Execution evidence'}).click();
-  await inspector.locator('summary').filter({hasText:'Open Bugs'}).click();
+  await inspector.locator('summary').filter({hasText:'Open Defects'}).click();
   assert.deepEqual(await inspector.locator('a[href^="/test-cases"]').evaluateAll(links=>links.map(link=>link.getAttribute('href'))),['/test-cases?case=c1&project_id=project','/test-cases?case=c2&project_id=project']);
   assert.deepEqual(await inspector.locator('a[href^="/executions"]').evaluateAll(links=>links.map(link=>link.getAttribute('href'))),['/executions?execution=r1&project_id=project','/executions?execution=r2&project_id=project']);
   assert.equal(await inspector.getByRole('link',{name:/Payment is captured twice/}).getAttribute('href'),'/issues?issue=bug1&project_id=project');
@@ -323,7 +345,7 @@ test('readiness search, check drilldowns, exact Story relationships and exports 
 
   const gateNames = {'Failed test outcomes': 'Latest-result pass rate', 'Priority Story coverage': 'Priority story coverage', 'Cases awaiting assessment': 'Execution completion'};
   const drills=[
-    ['Critical defect exposure','Bugs','critical','.rr-record-explorer--bugs tbody > tr',1],
+    ['Critical defect exposure','Defects','critical','.rr-record-explorer--bugs tbody > tr',1],
     ['Failed test outcomes','Execution evidence','failed','.rr-run',1],
     ['Priority Story coverage','Traceability','priority','.rr-story-row',1],
     ['Cases awaiting assessment','Test cases','unassessed','.rr-record-explorer--cases tbody > tr',1],
@@ -448,7 +470,7 @@ test('case explorer retains run-only and missing-detail IDs without collapsing c
 test('Bug explorer filters scoped open records and follows exact relationships without exposing resolved bugs', {timeout:60000}, async()=>withPage(async(page,base)=>{
   await page.goto(`${base}?scenario=explorers`);
   await ready(page);
-  await evidence(page).getByRole('tab',{name:/Bugs/}).click();
+  await evidence(page).getByRole('tab',{name:/Defects/}).click();
   const explorer=page.locator('.rr-record-explorer--bugs');
   const rows=explorer.locator('tbody > tr');
   await expect(rows).toHaveCount(8);
@@ -513,7 +535,7 @@ test('evidence URL preserves filter, search, selected Story and observed check t
   assert.equal(new URL(page.url()).searchParams.get('evidence_filter'),'critical');
   await page.reload();
   await ready(page);
-  await expect(evidence(page).getByRole('tab',{name:/Bugs/})).toHaveAttribute("aria-selected", "true");
+  await expect(evidence(page).getByRole('tab',{name:/Defects/})).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('critical');
   assert.match(await page.locator('.rr-check-detail').innerText(),/Critical defect exposure/);
   await page.goBack();
@@ -548,8 +570,8 @@ test('scope funnel distinguishes unique cases from outcome percentages and prese
   await map.getByRole('button',{name:/Covered stories/}).click();
   await expect(page.getByRole('combobox',{name:'Filter evidence',exact:true})).toHaveValue('covered');
   await expect(page.locator('.rr-story-row')).toHaveCount(2);
-  await map.getByRole('button',{name:/Open Bugs/}).click();
-  await expect(evidence(page).getByRole('tab',{name:/Bugs/})).toHaveAttribute("aria-selected", "true");
+  await map.getByRole('button',{name:/Open Defects/}).click();
+  await expect(evidence(page).getByRole('tab',{name:/Defects/})).toHaveAttribute("aria-selected", "true");
   const exported=await downloadEvidence(page);
   assert.equal(exported.metrics.passing_outcomes.percent,67,'two passing outcomes of three are distinct from one fully passing case');
   assert.equal(exported.readiness_index.components.length,4);
@@ -574,7 +596,7 @@ test('every linked Story record remains reachable beyond five related cases, run
   await evidence(page).getByRole('tab',{name:/Traceability/}).click();
   await page.getByRole('button',{name:'Inspect evidence: Customers can securely complete checkout',exact:true}).click();
   const inspector=page.locator('.rr-story-inspector');
-  for(const label of ['Linked tests','Execution evidence','Open Bugs']) await inspector.locator('summary').filter({hasText:label}).click();
+  for(const label of ['Linked tests','Execution evidence','Open Defects']) await inspector.locator('summary').filter({hasText:label}).click();
   for(const [prefix,lastId,param] of [['/test-cases','c-missing','case'],['/executions','r7','execution'],['/issues','bug9','issue']]){
     assert.ok(await inspector.locator(`a[href^="${prefix}?"]`).count()>5,`${prefix}: every linked record is rendered`);
     await expect(inspector.locator(`a[href="${prefix}?${param}=${lastId}&project_id=project"]`)).toHaveCount(1);
@@ -605,7 +627,7 @@ test('permission fallbacks preserve available records and never present inaccess
   await page.goto(`${base}?scenario=restricted&evidence_view=bugs`);
   await ready(page);
   assert.match(await evidence(page).getByRole('tabpanel').innerText(),/Defect evidence is unavailable/);
-  await expect(evidence(page).getByRole('tab',{name:/Bugs/}).locator('span')).toHaveText('—');
+  await expect(evidence(page).getByRole('tab',{name:/Defects/}).locator('span')).toHaveText('—');
   assert.equal((await page.evaluate(()=>window.readinessCalls.filter(call=>call.kind==='bugs'))).length,0);
   assert.equal((await downloadEvidence(page)).readiness_index.score,null);
 }));

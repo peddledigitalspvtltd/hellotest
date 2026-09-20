@@ -211,7 +211,9 @@ test("test-case Gherkin uses inline behavior insertion and linked Test Data as E
   assert.match(editor, /!hasLinkedExamples && \(isOutline \|\| item\.examples\.trim\(\)\)/);
   assert.match(cases, /title=\{caseDraft\.authoring_mode === "gherkin" \? "Examples · Linked Test Data" : "Data Sets"\}/);
   assert.match(cases, /exampleRows=\{linkedDataSet\?\.mode === "table" \? linkedDataSet\.rows : \[\]\}/);
-  assert.match(cases, /caseDraft\.authoring_mode === "gherkin" \? linkedDataSet\.rows : linkedDataSet\.rows\.slice\(0, 3\)/);
+  assert.match(cases, /<AuthoringDataSetPanel/);
+  const dataPanel = await readSource("../src/components/AuthoringDataSetPanel.tsx");
+  assert.doesNotMatch(dataPanel, /<table|test-case-data-set-columns/);
   assert.match(styles, /\.gherkin-minimal-block \{[^}]*padding: 0/);
   assert.match(styles, /\.gherkin-minimal-steps \{[^}]*padding-left: 1\.15rem/);
   assert.match(styles, /\.gherkin-editor\.is-document-layout[\s\S]*?--gherkin-step: #0645d6;[\s\S]*?--gherkin-parameter: #2f8a26;[\s\S]*?--gherkin-value: #a43a32;/);

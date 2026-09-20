@@ -1,4 +1,5 @@
 import type { Requirement } from '../types';
+import type { RequirementCatalogMetrics } from './requirementCatalog';
 
 export type StoryCoverageMetric = {
   total: number;
@@ -27,11 +28,31 @@ export function deriveStoryMetrics(story?: Requirement | null) {
   const passRate: StoryCoverageMetric = { total: executed, covered: passed, percent: percent(passed, executed), known: executed, complete: executionComplete };
   const automation: StoryCoverageMetric = { total: linkedCases, covered: automated, percent: percent(automated, linkedCases), known: evidence ? linkedCases : 0, complete: Boolean(evidence && evidence.automation_complete !== false) };
   const bugResolution: StoryCoverageMetric = { total: totalBugs, covered: closedBugs, percent: percent(closedBugs, totalBugs), complete: Boolean(evidence) };
-  const openBugHealth = openBugs === null ? null : Math.max(0, 100 - openBugs * 25);
-  const readiness = executionComplete && linkedCases > 0 && executed > 0 && openBugHealth !== null ? Math.round(testCoverage * 0.3 + (executed ? passed / executed * 100 : 0) * 0.5 + openBugHealth * 0.2) : null;
+  const readiness = evidence?.readiness?.score ?? null;
   return { linkedCases, totalBugs, openBugs, testCoverage, passRate, automation, bugResolution, readiness, defectDensity: evidence ? totalBugs : null, groomed: evidence?.groomed, specified: evidence?.specified, slipped: evidence?.slipped, completed: evidence?.completed };
 }
 
 export function formatStoryPassRate(metric: { total: number; percent: number; complete?: boolean }) {
   return !metric.complete ? '—' : metric.total ? `${metric.percent}%` : 'No runs';
+}
+
+export function deriveBacklogPlanningMetrics(metrics:RequirementCatalogMetrics) {
+  const growth = metrics.growth;
+  const combined = metrics.total ? Math.round(metrics.highPriority / metrics.total * 100) : null;
+  const critical = metrics.total && typeof metrics.criticalPriority === 'number' ? Math.round(metrics.criticalPriority / metrics.total * 100) : null;
+  const high = metrics.total && typeof metrics.highOnlyPriority === 'number' ? Math.round(metrics.highOnlyPriority / metrics.total * 100) : null;
+  return {
+    growth:{
+      label:'Backlog Growth Rate', value:growth ? `${growth.added}:${growth.departures}` : '—', progress:null,
+      tone:!growth || !growth.added && !growth.departures ? 'neutral' as const : growth.added > growth.departures ? 'danger' as const : 'success' as const,
+      detail:growth ? `${growth.added} added, ${growth.completed} completed, ${growth.removed} removed; net ${growth.net > 0 ? '+' : ''}${growth.net}. Full project, independent of catalog filters. ${growth.partial ? `Partial UTC month: tracking began ${new Date(growth.tracking_started_at).toLocaleDateString()}; earlier history is unavailable.` : `UTC month from ${new Date(growth.period_start).toLocaleDateString()}.`}` : 'Durable backlog history is unavailable; no historical activity has been inferred from current Stories.',
+      methodology:'Monthly additions : (completions + removals). A ratio above 1:1 means backlog demand is growing faster than it leaves. Created, reopened, and returned Stories count as additions. Sprint/Release assignment counts as removal; completed Stories are counted once. Deletions remain in the history.'
+    },
+    priority:{
+      label:'Priority Distribution', value:critical === null || high === null ? '—' : `${combined}%`, progress:combined,
+      tone:metrics.total && metrics.highPriority / metrics.total >= 0.6 ? 'danger' as const : critical === null ? 'neutral' as const : (metrics.criticalPriority || 0) / metrics.total < 0.2 ? 'success' as const : 'warning' as const,
+      detail:critical === null || high === null ? 'Full-scope P1/P2 priority counts are unavailable.' : `P1 Critical: ${metrics.criticalPriority}/${metrics.total} (${critical}%). P2 High: ${metrics.highOnlyPriority}/${metrics.total} (${high}%). Combined P1/P2: ${combined}%. Includes every matching backlog Story.`,
+      methodology:'P1 or P2 Stories ÷ all matching backlog Stories × 100. Healthy when Critical is below 20%; danger when combined P1 + P2 is 60% or more.'
+    }
+  };
 }

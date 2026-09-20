@@ -10,6 +10,7 @@ type PageHeaderTextProps = {
   description?: ReactNode;
   eyebrow?: string;
   title: ReactNode;
+  textAside?: ReactNode;
 };
 
 /** Canonical title and description text shared by every workspace page. */
@@ -17,13 +18,15 @@ export function PageHeaderText({
   className = "",
   description,
   eyebrow,
-  title
+  title,
+  textAside
 }: PageHeaderTextProps) {
   return (
     <div className={["page-header-text", className].filter(Boolean).join(" ")}>
       {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
       <div className="page-header-title-row"><h1 className="page-header-title">{title}</h1></div>
       {description ? <div className="page-header-copy">{description}</div> : null}
+      {textAside ? <div className="page-header-text-aside">{textAside}</div> : null}
     </div>
   );
 }
@@ -34,6 +37,7 @@ export function PageHeader({
   description,
   actions,
   meta,
+  textAside,
   className = ""
 }: {
   eyebrow?: string;
@@ -41,11 +45,12 @@ export function PageHeader({
   description?: ReactNode;
   actions?: ReactNode;
   meta?: PageHeaderMetaItem[];
+  textAside?: ReactNode;
   className?: string;
 }) {
   return (
     <header className={["page-header", actions ? "" : "page-header--no-actions", className].filter(Boolean).join(" ")}>
-      <PageHeaderText description={description} eyebrow={eyebrow} title={title} />
+      <PageHeaderText description={description} eyebrow={eyebrow} title={title} textAside={textAside} />
       {meta?.length ? (
         <dl className="page-header-meta">
           {meta.map((item) => <div className="page-header-meta-item" key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}

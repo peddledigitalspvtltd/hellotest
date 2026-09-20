@@ -1,3 +1,5 @@
+const { redactSharedStepData, regenerateSharedStepData } = require("./sharedStepDataSnapshot.service");
+const { normalizeDataOptions, composeScopedTestData, sharedParameterNames } = require("../utils/scopedTestData");
 const { preserveFrozenRunParameters, normalizeFrozenCapturedValues } = require("../utils/frozenRunParameterCompatibility");
 const { expandSuiteSelection, loadSuiteContexts } = require("./suiteExecutionContext.service");
 const db = require("../db");
@@ -22,6 +24,14 @@ const { redactTestDataSetRows } = require("./testDataSet.service");
 const { getExecutionResultDurationMs } = require("../utils/executionCaseLifecycle");
 
 const runError = (message, code = "INVALID_RUN_EDIT", statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
+const validateRunDeliveryRelations = async (projectId, input) => {
+  for (const [field, table, label] of [['release_id', 'requirement_releases', 'Release'], ['iteration_id', 'requirement_iterations', 'Sprint']]) {
+    const id = typeof input[field] === 'string' ? input[field].trim() : '';
+    if (!id) continue;
+    const row = await db.prepare(`SELECT id FROM ${table} WHERE id = ? AND project_id = ?`).get(id, projectId);
+    if (!row) throw runError(`${label} does not belong to the selected project.`, 'INVALID_RUN_DELIVERY_SCOPE');
+  }
+};
 const assertRunEditable = (execution) => {
   if (!["queued", "running", "retrying"].includes(execution.status) || execution.ended_at) {
     throw runError("Finished runs cannot be edited. Create a rerun to change the run setup.", "RUN_FINISHED", 409);
@@ -105,14 +115,14 @@ async function loadExecutionMetrics(executionIds) {
 }
 
 const getCaseSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
+  SELECT execution_id, test_case_id, test_case_title, test_case_description, external_references, suite_id, suite_name, module_id, module_name, priority, status, parameter_values, parameter_template_values, test_data_options, suite_parameter_values, suite_parameter_template_values, test_data_set_id, test_data_set_name, test_data_set_snapshot, data_set_source, sort_order, assigned_to, assigned_to_ids, assignment_source
   FROM execution_case_snapshots
   WHERE execution_id = ?
   ORDER BY sort_order ASC, test_case_title ASC
 `);
 
 const getStepSnapshotsForExecution = db.prepare(`
-  SELECT execution_id, test_case_id, snapshot_step_id, step_order, action, expected_result, step_type, automation_code, api_request, group_id, group_name, group_kind, reusable_group_id
+  SELECT execution_id, test_case_id, snapshot_step_id, step_order, action, expected_result, step_type, automation_code, api_request, group_id, group_name, group_kind, reusable_group_id, shared_parameter_values, shared_parameter_template_values, shared_parameter_sensitive_names
   FROM execution_step_snapshots
   WHERE execution_id = ?
   ORDER BY test_case_id ASC, step_order ASC
@@ -150,6 +160,7 @@ const selectCasesForSuite = db.prepare(`
     test_cases.description AS test_case_description,
     test_cases.external_references,
     test_cases.parameter_values,
+    test_cases.test_data_options,
     test_suites.parameter_values AS suite_parameter_values,
     test_case_modules.id AS module_id,
     test_case_modules.name AS module_name,
@@ -159,8 +170,12 @@ const selectCasesForSuite = db.prepare(`
   FROM suite_test_cases
   JOIN test_cases ON test_cases.id = suite_test_cases.test_case_id
   JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
-  LEFT JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id
-  LEFT JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id
+  LEFT JOIN LATERAL (
+    SELECT membership.module_id FROM test_case_effective_module_cases membership
+    WHERE membership.test_case_id = test_cases.id
+    ORDER BY membership.is_explicit DESC, membership.sort_order, membership.module_id LIMIT 1
+  ) case_module ON TRUE
+  LEFT JOIN test_case_modules ON test_case_modules.id = case_module.module_id
   WHERE suite_test_cases.suite_id = ?
   ORDER BY suite_test_cases.sort_order ASC, test_cases.created_at DESC
 `);
@@ -173,13 +188,18 @@ const selectCaseForExecution = db.prepare(`
     test_cases.description AS test_case_description,
     test_cases.external_references,
     test_cases.parameter_values,
+    test_cases.test_data_options,
     test_cases.priority,
     test_cases.status,
     test_case_modules.id AS module_id,
     test_case_modules.name AS module_name
   FROM test_cases
-  LEFT JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id
-  LEFT JOIN test_case_modules ON test_case_modules.id = test_case_module_cases.module_id
+  LEFT JOIN LATERAL (
+    SELECT membership.module_id FROM test_case_effective_module_cases membership
+    WHERE membership.test_case_id = test_cases.id
+    ORDER BY membership.is_explicit DESC, membership.sort_order, membership.module_id LIMIT 1
+  ) case_module ON TRUE
+  LEFT JOIN test_case_modules ON test_case_modules.id = case_module.module_id
   WHERE test_cases.id = ?
 `);
 
@@ -541,8 +561,11 @@ function resolveExecutionCaseDataSetIteration(execution, caseSnapshot, requested
   };
 }
 
-function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}, dataSetIterationIndex = null) {
+function buildExecutionRuntimeParameterValues(execution, caseSnapshot, capturedValues = {}, dataSetIterationIndex = null, stepSnapshot = null) {
   return resolveParameterLayers({
+    sharedValues: stepSnapshot?.shared_parameter_values,
+    dataPolicy: caseSnapshot?.test_data_options?.runtime_policy,
+    isSharedStep: Boolean(stepSnapshot?.reusable_group_id || stepSnapshot?.group_kind === "reusable"),
     caseValues: normalizeParameterValues(caseSnapshot?.parameter_values),
     suiteValues: normalizeParameterValues(caseSnapshot?.suite_parameter_values),
     environmentVariables: execution?.test_environment?.snapshot?.variables,
@@ -584,8 +607,14 @@ function shapeAssignedUser(user) {
 
 function redactExecutionDataSetSnapshot(value) {
   const snapshot = parseJsonValue(value, null);
-  return snapshot ? { ...snapshot, rows: redactTestDataSetRows(snapshot.mode, snapshot.rows),
-    ...(snapshot.template_rows ? { template_rows: redactTestDataSetRows(snapshot.mode, snapshot.template_rows) } : {}) } : null;
+  if (!snapshot) return null;
+  const hidden = new Set(snapshot.sensitive_names || []);
+  const redact = (rows, mode = snapshot.mode) => redactTestDataSetRows(mode, rows).map(row => mode === "key_value" ? row :
+    Object.fromEntries(Object.entries(row).filter(([key]) => !hidden.has(key))));
+  return { ...snapshot, ...(snapshot.parameter_data_layers ? { parameter_data_layers: Object.fromEntries(Object.entries(snapshot.parameter_data_layers).map(([name, layer]) => [name, layer ? { ...layer, rows: redact(layer.rows, "table"), template_rows: redact(layer.template_rows, "table") } : null])) } : {}), rows: redact(snapshot.rows),
+    ...(snapshot.template_rows ? { template_rows: redact(snapshot.template_rows) } : {}),
+    ...(snapshot.shared_rows ? { shared_rows: redact(snapshot.shared_rows, "table") } : {}),
+    ...(snapshot.shared_template_rows ? { shared_template_rows: redact(snapshot.shared_template_rows, "table") } : {}) };
 }
 
 function attachExecutionContext(execution) {
@@ -652,6 +681,7 @@ async function loadExecutionRuntimeContext(execution) {
     test_environment: execution.test_environment ? { ...execution.test_environment, snapshot: parseJsonValue(stored.test_environment_snapshot, null) } : null,
     test_configuration: execution.test_configuration ? { ...execution.test_configuration, snapshot: parseJsonValue(stored.test_configuration_snapshot, null) } : null,
     test_data_set: execution.test_data_set ? { ...execution.test_data_set, snapshot: parseJsonValue(stored.test_data_set_snapshot, null) } : null,
+    step_snapshots: await getStepSnapshotsForExecution.all(execution.id),
     case_snapshots: (execution.case_snapshots || []).map((snapshot) => {
       const raw = storedCases.find((item) => item.test_case_id === snapshot.test_case_id);
       return raw ? { ...snapshot, test_data_set_snapshot: parseJsonValue(raw.test_data_set_snapshot, null) } : snapshot;
@@ -967,21 +997,12 @@ function buildExecutionDataSetSnapshot(resource) {
   });
 }
 
-async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null) {
+async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null, dataOptions, steps = []) {
   if (!Array.isArray(caseSnapshots) || !caseSnapshots.length) {
     return [];
   }
 
-  if (executionDataSet?.snapshot) {
-    return caseSnapshots.map((snapshot) => ({
-      ...snapshot,
-      test_data_set_id: executionDataSet.id || executionDataSet.snapshot.id || null,
-      test_data_set_name: executionDataSet.name || executionDataSet.snapshot.name || null,
-      test_data_set_snapshot: executionDataSet.snapshot,
-      data_set_source: "run"
-    }));
-  }
-
+  const runOptions = normalizeDataOptions(dataOptions);
   const testCaseIds = [...new Set(caseSnapshots.map((snapshot) => normalizeText(snapshot.test_case_id)).filter(Boolean))];
   if (!testCaseIds.length) {
     return caseSnapshots;
@@ -1026,25 +1047,25 @@ async function attachCaseDataSetSnapshots(caseSnapshots, executionDataSet = null
     });
   });
 
+  const stepsByCase = new Map();
+  for (const step of steps) {
+    if (!stepsByCase.has(step.test_case_id)) stepsByCase.set(step.test_case_id, []);
+    stepsByCase.get(step.test_case_id).push(step);
+  }
   return caseSnapshots.map((snapshot) => {
-    const suiteData = suiteContexts.get(snapshot.suite_id)?.dataSet;
+    const suiteContext = suiteContexts.get(snapshot.suite_id);
+    const suiteData = suiteContext?.dataSet;
     if (suiteData && !materializedByDataSetId.has(suiteData.id)) materializedByDataSetId.set(suiteData.id, buildExecutionDataSetSnapshot(suiteData));
-    const linkedDataSet = suiteData ? { id: suiteData.id, name: suiteData.name, snapshot: materializedByDataSetId.get(suiteData.id) } : linkByCaseId.get(snapshot.test_case_id);
-    return linkedDataSet
-      ? {
-          ...snapshot,
-          test_data_set_id: linkedDataSet.id,
-          test_data_set_name: linkedDataSet.name,
-          test_data_set_snapshot: linkedDataSet.snapshot,
-          data_set_source: suiteData ? "suite" : "test_case"
-        }
-      : {
-          ...snapshot,
-          test_data_set_id: null,
-          test_data_set_name: null,
-          test_data_set_snapshot: null,
-          data_set_source: null
-        };
+    const effective = composeScopedTestData({ hierarchical: true, caseData: linkByCaseId.get(snapshot.test_case_id)?.snapshot,
+      caseOptions: snapshot.test_data_options,
+      suiteData: suiteData ? materializedByDataSetId.get(suiteData.id) : null,
+      runData: executionDataSet?.snapshot, suiteOptions: suiteContext?.dataOptions, runOptions,
+      sharedNames: sharedParameterNames(stepsByCase.get(snapshot.test_case_id) || []) });
+    return { ...snapshot, test_data_options: { ...snapshot.test_data_options, runtime_policy: {
+      version: 2, case: normalizeDataOptions(snapshot.test_data_options), suite: normalizeDataOptions(suiteContext?.dataOptions), run: runOptions
+    } }, test_data_set_id: effective.snapshot?.id || null,
+      test_data_set_name: effective.snapshot?.name || null,
+      test_data_set_snapshot: effective.snapshot, data_set_source: effective.source };
   });
 }
 
@@ -1096,6 +1117,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         status: suiteCase.status,
         parameter_values: materializeParameterValues(parameterTemplateValues),
         parameter_template_values: parameterTemplateValues,
+        test_data_options: normalizeDataOptions(suiteCase.test_data_options),
         suite_parameter_values: suiteParameterValues,
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
@@ -1123,7 +1145,10 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
           group_id: step.group_id,
           group_name: step.group_name,
           group_kind: step.group_kind,
-          reusable_group_id: step.reusable_group_id
+          reusable_group_id: step.reusable_group_id,
+          shared_parameter_values: step.shared_parameter_values || {},
+          shared_parameter_template_values: step.shared_parameter_template_values || {},
+          shared_parameter_sensitive_names: step.shared_parameter_sensitive_names || []
         });
       }
     }
@@ -1156,6 +1181,7 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
         status: directCase.status,
         parameter_values: materializeParameterValues(parameterTemplateValues),
         parameter_template_values: parameterTemplateValues,
+        test_data_options: normalizeDataOptions(directCase.test_data_options),
         suite_parameter_values: materializeParameterValues(suiteParameterTemplateValues),
         suite_parameter_template_values: suiteParameterTemplateValues,
         sort_order: sortOrder,
@@ -1183,14 +1209,17 @@ async function buildSnapshotPayload(executionId, suiteRows, options = {}) {
           group_id: step.group_id,
           group_name: step.group_name,
           group_kind: step.group_kind,
-          reusable_group_id: step.reusable_group_id
+          reusable_group_id: step.reusable_group_id,
+          shared_parameter_values: step.shared_parameter_values || {},
+          shared_parameter_template_values: step.shared_parameter_template_values || {},
+          shared_parameter_sensitive_names: step.shared_parameter_sensitive_names || []
         });
       }
     }
   }
 
   return {
-    caseSnapshots: await attachCaseDataSetSnapshots(caseSnapshots, options.executionDataSet || null),
+    caseSnapshots: await attachCaseDataSetSnapshots(caseSnapshots, options.executionDataSet || null, options.testDataOptions, stepSnapshots),
     stepSnapshots
   };
 }
@@ -1269,7 +1298,7 @@ async function attachDetailedScope(execution) {
       suite_snapshots: hydratedSuiteSnapshots,
       module_snapshots: hydratedModules,
       case_snapshots: hydratedCaseSnapshots,
-      step_snapshots: storedStepSnapshots
+      step_snapshots: storedStepSnapshots.map(redactSharedStepData)
     };
   }
 
@@ -1282,7 +1311,7 @@ async function attachDetailedScope(execution) {
     {
       assignedTo: hydrated.assigned_to || null,
       assignedToIds: hydrated.assigned_to_ids || [],
-      executionDataSet: hydrated.test_data_set || null
+      executionDataSet: hydrated.test_data_set || null, testDataOptions: hydrated.test_data_options
     }
   );
 
@@ -1295,7 +1324,7 @@ async function attachDetailedScope(execution) {
       liveSnapshotPayload.caseSnapshots
     ),
     case_snapshots: await attachExecutionCaseAssignees(liveSnapshotPayload.caseSnapshots),
-    step_snapshots: liveSnapshotPayload.stepSnapshots
+    step_snapshots: liveSnapshotPayload.stepSnapshots.map(redactSharedStepData)
   };
 }
 
@@ -1309,6 +1338,7 @@ exports.createExecution = async ({
   test_environment_id,
   test_configuration_id,
   test_data_set_id,
+  test_data_options,
   execution_hooks = [],
   parallel_enabled = false,
   parallel_count = 1,
@@ -1318,6 +1348,8 @@ exports.createExecution = async ({
   assigned_to_ids = [],
   release,
   sprint,
+  release_id,
+  iteration_id,
   build,
   name,
   start_date,
@@ -1332,6 +1364,7 @@ exports.createExecution = async ({
   }
 
   const plannedDates = normalizeExecutionDates({ start_date, end_date });
+  await validateRunDeliveryRelations(project_id, { release_id, iteration_id });
 
   const project = await db.prepare(`
     SELECT id FROM projects WHERE id = ?
@@ -1508,6 +1541,8 @@ exports.createExecution = async ({
     ? await resolveLocalEngineBaseUrl(engine_base_url)
     : null;
 
+  const dataOptions = normalizeDataOptions(test_data_options);
+  if (test_data_set_id && app_type_id) await require('./runParameterPlan.service').assertRunDataSetCompatible({ project_id, app_type_id, suite_ids: uniqueSuiteIds, test_case_ids: uniqueTestCaseIds, test_data_set_id, test_data_options: dataOptions });
   const transaction = db.transaction(async () => {
     await db.prepare(`
       INSERT INTO executions
@@ -1573,7 +1608,13 @@ exports.createExecution = async ({
       created_by
     );
 
-    await db.prepare("UPDATE executions SET parameter_scope_default = 'r' WHERE id = ?").run(id);
+    await db.prepare("UPDATE executions SET parameter_scope_default = 'r', test_data_options = ? WHERE id = ?").run(dataOptions, id);
+    if (release_id !== undefined || iteration_id !== undefined) {
+      const fields = [], values = [];
+      if (release_id !== undefined) { fields.push('release_id = ?'); values.push(normalizeText(release_id)); }
+      if (iteration_id !== undefined) { fields.push('iteration_id = ?'); values.push(normalizeText(iteration_id)); }
+      await db.prepare(`UPDATE executions SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
+    }
 
     for (const suiteRow of suiteRows) {
       await insertExecutionSuite.run(id, suiteRow.suite_id, suiteRow.suite_name);
@@ -1584,7 +1625,7 @@ exports.createExecution = async ({
       directCases: directCaseRows,
       assignedTo: resolvedAssignedTo,
       assignedToIds: resolvedAssignedToIds,
-      executionDataSet: selectedDataSet
+      executionDataSet: selectedDataSet, testDataOptions: dataOptions
     });
 
     await persistExecutionSnapshots(snapshotPayload);
@@ -1812,6 +1853,12 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       created_by
     );
 
+    await db.prepare("UPDATE executions SET test_data_options = ? WHERE id = ?").run(normalizeDataOptions(sourceExecution.test_data_options), nextExecutionId);
+    if (sourceExecution.release_id || sourceExecution.iteration_id) {
+      await db.prepare('UPDATE executions SET release_id = ?, iteration_id = ? WHERE id = ?')
+        .run(sourceExecution.release_id || null, sourceExecution.iteration_id || null, nextExecutionId);
+    }
+
     for (const suite of filteredSuiteSnapshots) {
       await insertExecutionSuite.run(nextExecutionId, suite.id, suite.name || "Deleted Suite");
     }
@@ -1829,12 +1876,12 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
       const rerunDataSetSource = ["test_case", "suite"].includes(snapshot.data_set_source)
         ? snapshot.data_set_source
         : (rerunDataSetSnapshot || sourceCaseDataSetSnapshot) ? "run" : null;
-      let rerunCaseDataSetSnapshot = rerunDataSetSource === "run"
+      let rerunCaseDataSetSnapshot = sourceCaseDataSetSnapshot?.data_scope_policy ? materializeDataSetSnapshot(sourceCaseDataSetSnapshot) : rerunDataSetSource === "run"
         ? rerunDataSetSnapshot || materializeDataSetSnapshot(sourceCaseDataSetSnapshot)
         : null;
 
-      if (["test_case", "suite"].includes(rerunDataSetSource) && sourceCaseDataSetSnapshot) {
-        const dataSetKey = snapshot.test_data_set_id || sourceCaseDataSetSnapshot.id || `case:${snapshot.test_case_id}`;
+      if (sourceCaseDataSetSnapshot && (["test_case", "suite"].includes(rerunDataSetSource) || sourceCaseDataSetSnapshot.data_scope_policy?.version === 2)) {
+        const dataSetKey = sourceCaseDataSetSnapshot.data_scope_policy ? `case:${snapshot.test_case_id}` : snapshot.test_data_set_id || sourceCaseDataSetSnapshot.id || `case:${snapshot.test_case_id}`;
         rerunCaseDataSetSnapshot = rerunLinkedDataSetSnapshots.get(dataSetKey)
           || materializeDataSetSnapshot(sourceCaseDataSetSnapshot);
         rerunLinkedDataSetSnapshots.set(dataSetKey, rerunCaseDataSetSnapshot);
@@ -1861,7 +1908,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     });
     await persistExecutionSnapshots({
       caseSnapshots: rerunCaseSnapshots,
-      stepSnapshots: filteredStepSnapshots.map(snapshot => ({ ...snapshot, execution_id: nextExecutionId, snapshot_step_id: uuid() }))
+      stepSnapshots: regenerateSharedStepData(filteredStepSnapshots).map(snapshot => ({ ...snapshot, execution_id: nextExecutionId, snapshot_step_id: uuid() }))
     });
   });
 
@@ -2262,7 +2309,8 @@ exports.runExecutionApiStep = async (
     execution,
     caseSnapshot,
     capturedValues,
-    dataSetIteration.result_metadata.data_set_iteration_index
+    dataSetIteration.result_metadata.data_set_iteration_index,
+    stepSnapshot
   );
   const stepResult = await apiRequestExecutionService.executeApiRequestStep({
     api_request: apiRequest,
@@ -2370,6 +2418,7 @@ exports.updateExecution = async (id, input = {}) => {
   }
   assertRunEditable(execution);
   const currentRevision = assertExpectedRevision(execution.revision, input.expected_revision, "Run");
+  await validateRunDeliveryRelations(execution.project_id, input);
   const has = (field) => Object.prototype.hasOwnProperty.call(input, field);
   const metadataFields = [];
   const metadataValues = [];
@@ -2390,7 +2439,12 @@ exports.updateExecution = async (id, input = {}) => {
   }
 
   const contextFields = ["test_environment_id", "test_configuration_id", "test_data_set_id", "parallel_enabled", "parallel_count"];
-  const contextChanged = contextFields.some((field) => has(field) && (input[field] || null) !== (execution[field] || null));
+  const dataOptions = normalizeDataOptions(input.test_data_options ?? execution.test_data_options);
+  const dataOptionsChanged = JSON.stringify(dataOptions) !== JSON.stringify(normalizeDataOptions(execution.test_data_options));
+  if (execution.app_type_id && (has("test_data_set_id") || dataOptionsChanged || has("suite_ids") || has("test_case_ids")) && (input.test_data_set_id === undefined ? execution.test_data_set_id : input.test_data_set_id)) {
+    await require('./runParameterPlan.service').assertRunDataSetCompatible({ ...input, execution_id: id, project_id: execution.project_id, app_type_id: execution.app_type_id, test_data_options: dataOptions });
+  }
+  const contextChanged = dataOptionsChanged || contextFields.some((field) => has(field) && (input[field] || null) !== (execution[field] || null));
   const currentMode = execution.trigger === "manual" ? "manual" : execution.trigger === "local" || execution.execution_mode === "local" ? "local" : "remote";
   const modeChanged = has("execution_mode") && input.execution_mode !== currentMode;
   if (has("execution_mode") && !["manual", "remote", "local"].includes(input.execution_mode)) throw runError("Select manual, remote or local run mode.");
@@ -2423,6 +2477,7 @@ exports.updateExecution = async (id, input = {}) => {
     setField(`${resource.prefix}_snapshot`, selected?.snapshot || null);
     if (resource.field === "test_data_set_id") selectedDataSet = selected;
   }
+  if (has("test_data_options")) setField("test_data_options", dataOptions);
   if (has("parallel_enabled")) setField("parallel_enabled", Boolean(input.parallel_enabled));
   if (has("parallel_count")) setField("parallel_count", normalizeParallelCount(input.parallel_count));
 
@@ -2470,7 +2525,7 @@ exports.updateExecution = async (id, input = {}) => {
     // Existing selected scope is frozen. Authoring changes or deletions must not
     // silently replace its cases when adding unrelated scope to this run.
     const additions = await buildSnapshotPayload(id, suites.filter((suite) => !oldSuiteIds.has(suite.suite_id)), { persisted: true, directCases,
-      assignedTo: execution.assigned_to, assignedToIds: execution.assigned_to_ids, executionDataSet: selectedDataSet });
+      assignedTo: execution.assigned_to, assignedToIds: execution.assigned_to_ids, executionDataSet: selectedDataSet, testDataOptions: dataOptions });
     const desired = { caseSnapshots: [...new Map([...additions.caseSnapshots, ...retainedCases].map((row) => [row.test_case_id, row])).values()],
       stepSnapshots: additions.stepSnapshots };
     if (!desired.caseSnapshots.length) throw runError("Select at least one test case or a suite containing test cases.");
@@ -2509,12 +2564,12 @@ exports.updateExecution = async (id, input = {}) => {
     }
   }
 
-  if (has("test_data_set_id") && (input.test_data_set_id || null) !== (execution.test_data_set_id || null)) {
-    const snapshots = await attachCaseDataSetSnapshots(await getCaseSnapshotsForExecution.all(id), selectedDataSet);
+  if (dataOptionsChanged || (has("test_data_set_id") && (input.test_data_set_id || null) !== (execution.test_data_set_id || null))) {
+    const snapshots = await attachCaseDataSetSnapshots(await getCaseSnapshotsForExecution.all(id), selectedDataSet, dataOptions, await getStepSnapshotsForExecution.all(id));
     for (const snapshot of snapshots) await db.prepare(`UPDATE execution_case_snapshots
-      SET test_data_set_id = ?, test_data_set_name = ?, test_data_set_snapshot = ?, data_set_source = ?
+      SET test_data_set_id = ?, test_data_set_name = ?, test_data_set_snapshot = ?, data_set_source = ?, test_data_options = ?
       WHERE execution_id = ? AND test_case_id = ?`).run(snapshot.test_data_set_id || null, snapshot.test_data_set_name || null,
-        snapshot.test_data_set_snapshot || null, snapshot.data_set_source || null, id, snapshot.test_case_id);
+        snapshot.test_data_set_snapshot || null, snapshot.data_set_source || null, snapshot.test_data_options || {}, id, snapshot.test_case_id);
   }
 
   if (Object.prototype.hasOwnProperty.call(input, "assigned_to_ids") || Object.prototype.hasOwnProperty.call(input, "assigned_to")) {
@@ -2526,7 +2581,7 @@ exports.updateExecution = async (id, input = {}) => {
     await recalculateExecutionScopeAssignments(id, { ...execution, assigned_to: assignedToIds[0] || null, assigned_to_ids: assignedToIds });
   }
 
-  ["release", "sprint", "build"].forEach((field) => {
+  ["release", "sprint", "release_id", "iteration_id", "build"].forEach((field) => {
     if (Object.prototype.hasOwnProperty.call(input, field)) {
       metadataFields.push(`${field} = ?`);
       metadataValues.push(normalizeText(input[field]));

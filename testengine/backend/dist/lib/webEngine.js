@@ -2308,6 +2308,7 @@ export const createWebRunSession = (envelope, capturedValues = {}) => {
         },
         stop: async (finalStatus) => session.stop(finalStatus),
         runStep: async (step) => {
+            const stepContext = buildInitialContext(envelope, context.capturedValues, step);
             const captures = {};
             let recoveryAttempted = false;
             let recoverySucceeded = false;
@@ -2316,7 +2317,9 @@ export const createWebRunSession = (envelope, capturedValues = {}) => {
             const startedAtMs = Date.now();
             const collectWebDetail = () => session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0));
             try {
-                await executeStepAttempt(session, { step, context, envelope }, captures);
+                await executeStepAttempt(session, { step, context: stepContext, envelope }, captures);
+                for (const [key, value] of Object.entries(captures))
+                    registerContextValue(context, key, value);
                 return {
                     status: "passed",
                     note: buildStepNote({
@@ -2340,7 +2343,9 @@ export const createWebRunSession = (envelope, capturedValues = {}) => {
                 recoveryAttempted = true;
                 try {
                     await session.waitForTimeout(resolveTimeoutPolicy(envelope).recoveryWait * attempt);
-                    await executeStepAttempt(session, { step, context, envelope }, captures);
+                    await executeStepAttempt(session, { step, context: stepContext, envelope }, captures);
+                    for (const [key, value] of Object.entries(captures))
+                        registerContextValue(context, key, value);
                     recoverySucceeded = true;
                     return {
                         status: "passed",

@@ -139,7 +139,7 @@ const countRequirementsForPlanning = db.prepare(`
 
 const selectModuleMappingsForPlanning = db.prepare(`
   SELECT tcmc.test_case_id, tcm.id AS module_id, tcm.name AS module_name
-  FROM test_case_module_cases tcmc
+  FROM test_case_effective_module_cases tcmc
   JOIN test_case_modules tcm ON tcm.id = tcmc.module_id
   WHERE tcm.app_type_id = ?
   ORDER BY tcmc.test_case_id ASC, tcmc.sort_order ASC, tcm.name ASC
@@ -1029,10 +1029,10 @@ const rankSmartExecutionCases = ({
     }
     if (openBugs.length) {
       riskScore += Math.min(28, openBugs.reduce((total, bug) => total + bugRiskPoints(bug), 0));
-      selectionBasis.push(`${openBugs.length} open linked Bug${openBugs.length === 1 ? "" : "s"}`);
+      selectionBasis.push(`${openBugs.length} open linked Defect${openBugs.length === 1 ? "" : "s"}`);
     } else if (bugs.length) {
       riskScore += 6;
-      selectionBasis.push(`${bugs.length} linked scoped Bug${bugs.length === 1 ? "" : "s"}`);
+      selectionBasis.push(`${bugs.length} linked scoped Defect${bugs.length === 1 ? "" : "s"}`);
     }
     if (linkedSelectedRequirements.length) {
       riskScore += 18;
@@ -1047,7 +1047,7 @@ const rankSmartExecutionCases = ({
     }
     if (exactBugMatches.length) {
       riskScore += 10;
-      selectionBasis.push("Linked Bug matches an exact delivery key");
+      selectionBasis.push("Linked Defect matches an exact delivery key");
     }
     if (keywordMatches.length) {
       riskScore += Math.min(18, keywordMatches.length * 3);
@@ -1498,7 +1498,7 @@ exports.previewSmartExecution = async ({
     impactedRequirementIds.length ? "Selected Story traceability links" : null,
     searchTerms.length ? "Change-scope keyword match" : null,
     scopedResults.length ? "Matching execution results" : null,
-    scopedBugs.length ? "Linked and delivery-scoped Bugs" : null,
+    scopedBugs.length ? "Linked and delivery-scoped Defects" : null,
     executionContext.length ? "Selected execution context records" : null
   ]);
   const evidenceSummary = {
@@ -1553,7 +1553,7 @@ exports.previewSmartExecution = async ({
         id: "context",
         status: "complete",
         detail: "Project evidence retrieved within recorded limits",
-        evidence: `${cases.length} Test Cases, ${requirementById.size} Stories, ${executionResults.length} results, and ${bugs.length} Bugs were read; ${partialSources.length ? `limits were reached for ${partialSources.join(", ")}` : "no source limit was reached"}.`,
+        evidence: `${cases.length} Test Cases, ${requirementById.size} Stories, ${executionResults.length} results, and ${bugs.length} Defects were read; ${partialSources.length ? `limits were reached for ${partialSources.join(", ")}` : "no source limit was reached"}.`,
         item_count: cases.length + requirementById.size + executionResults.length + bugs.length
       },
       {

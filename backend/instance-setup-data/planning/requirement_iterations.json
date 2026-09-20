@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-sprint-launch",
+      "project_id": "sample-project",
+      "name": "Launch sprint",
+      "description": "Sample commerce delivery iteration.",
+      "goal": "Validate checkout and account recovery across channels.",
+      "state": "active",
+      "start_date": "2026-09-13T09:00:00.000Z",
+      "end_date": "2026-09-27T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "display_id": "DEMO2-S1"
+    },
+    {
+      "id": "sample-v2-sprint-next",
+      "project_id": "sample-project",
+      "name": "Recovery improvements",
+      "description": "Sample commerce delivery iteration.",
+      "goal": "Close refund coverage and improve recovery paths.",
+      "state": "future",
+      "start_date": "2026-09-28T09:00:00.000Z",
+      "end_date": "2026-10-11T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "display_id": "DEMO2-S2"
+    },
+    {
+      "id": "sample-v3-ht-sprint-foundation",
+      "display_id": "HTDEMO3-S1",
+      "project_id": "sample-project",
+      "name": "HT 01 · Workspace foundations",
+      "description": "Illustrative HelloTest acceptance sprint. Workspace foundations: Create a correctly scoped project, applications and membership; verify permission-aware navigation. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Create a correctly scoped project, applications and membership; verify permission-aware navigation.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "workspace"
+      ],
+      "state": "active",
+      "start_date": "2026-09-14T09:00:00.000Z",
+      "end_date": "2026-09-27T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 28,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-planning",
+      "display_id": "HTDEMO3-S2",
+      "project_id": "sample-project",
+      "name": "HT 02 · Product planning",
+      "description": "Illustrative HelloTest acceptance sprint. Product management: Author actionable stories and preserve canonical Sprint and Release assignments through CRUD operations. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Author actionable stories and preserve canonical Sprint and Release assignments through CRUD operations.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "planning"
+      ],
+      "state": "future",
+      "start_date": "2026-09-28T09:00:00.000Z",
+      "end_date": "2026-10-11T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 44,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-design",
+      "display_id": "HTDEMO3-S3",
+      "project_id": "sample-project",
+      "name": "HT 03 · Reusable test design",
+      "description": "Illustrative HelloTest acceptance sprint. Test design and data: Build traceable cases, shared steps, suites and data-driven environment configurations. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Build traceable cases, shared steps, suites and data-driven environment configurations.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "design"
+      ],
+      "state": "future",
+      "start_date": "2026-10-12T09:00:00.000Z",
+      "end_date": "2026-10-25T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 38,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-execution",
+      "display_id": "HTDEMO3-S4",
+      "project_id": "sample-project",
+      "name": "HT 04 · Execution and triage",
+      "description": "Illustrative HelloTest acceptance sprint. Execution and defects: Capture reproducible run evidence, correct final outcomes and actionable defect relationships. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Capture reproducible run evidence, correct final outcomes and actionable defect relationships.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "execution"
+      ],
+      "state": "future",
+      "start_date": "2026-10-26T09:00:00.000Z",
+      "end_date": "2026-11-08T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 33,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-automation",
+      "display_id": "HTDEMO3-S5",
+      "project_id": "sample-project",
+      "name": "HT 05 · Automation delivery",
+      "description": "Illustrative HelloTest acceptance sprint. Automation and mobile: Review executable assets, locator bindings and configured local, remote and mobile execution. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Review executable assets, locator bindings and configured local, remote and mobile execution.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "automation"
+      ],
+      "state": "future",
+      "start_date": "2026-11-09T09:00:00.000Z",
+      "end_date": "2026-11-22T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 54,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-intelligence",
+      "display_id": "HTDEMO3-S6",
+      "project_id": "sample-project",
+      "name": "HT 06 · Grounded intelligence",
+      "description": "Illustrative HelloTest acceptance sprint. Knowledge and AI: Curate permission-scoped knowledge and review AI outputs with provenance and recovery states. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Curate permission-scoped knowledge and review AI outputs with provenance and recovery states.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "intelligence"
+      ],
+      "state": "future",
+      "start_date": "2026-11-23T09:00:00.000Z",
+      "end_date": "2026-12-06T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 31,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-sprint-operations",
+      "display_id": "HTDEMO3-S7",
+      "project_id": "sample-project",
+      "name": "HT 07 · Quality and operations",
+      "description": "Illustrative HelloTest acceptance sprint. Insights and operations: Validate metric methodology, readiness evidence, background recovery and repeatable administrator setup. Stories describe current product behavior to verify; they do not assert that verification has completed.",
+      "goal": "Validate metric methodology, readiness evidence, background recovery and repeatable administrator setup.",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "operations"
+      ],
+      "state": "future",
+      "start_date": "2026-12-07T09:00:00.000Z",
+      "end_date": "2026-12-20T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 54,
+      "original_dev_id": null,
+      "original_qa_id": null,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v4-metrics-sprint",
+      "display_id": "DEMO4-S1",
+      "project_id": "sample-project",
+      "name": "Metric verification · synthetic",
+      "description": "Synthetic delivery scope demonstrating separate development and QA completion.",
+      "goal": "Compare native Story, test execution, defect and readiness evidence.",
+      "state": "active",
+      "start_date": "2026-09-12T09:00:00.000Z",
+      "end_date": "2026-09-26T09:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 21,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ]
+    }
+  ]
+}

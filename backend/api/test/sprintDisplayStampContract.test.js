@@ -46,7 +46,7 @@ test("direct Story create and update derive native Sprint names but preserve unr
   const create = functionSection(source, "createRequirement", "getRequirements");
   const update = functionSection(source, "updateRequirement", "previewRequirementOptimization");
 
-  assert.match(source, /SELECT id, project_id, name\s+FROM requirement_iterations/);
+  assert.match(source, /SELECT id, project_id, name, state\s+FROM requirement_iterations/);
   assert.match(create, /const nativeIteration = await ensureIterationBelongsToProject/);
   assert.match(create, /nativeIteration\?\.name \|\| normalizeText\(sprint\)/);
 

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-comment-checkout",
+      "project_id": "sample-project",
+      "entity_type": "issue",
+      "entity_id": "sample-v2-issue-checkout",
+      "body": "Sample review: reproduce with the linked scenario and attach fresh evidence before resolving.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-comment-retry",
+      "project_id": "sample-project",
+      "entity_type": "issue",
+      "entity_id": "sample-v2-issue-retry",
+      "body": "Sample review: reproduce with the linked scenario and attach fresh evidence before resolving.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v2-comment-offline",
+      "project_id": "sample-project",
+      "entity_type": "issue",
+      "entity_id": "sample-v2-issue-offline",
+      "body": "Sample review: the recovery control is visible after the layout adjustment. Retain the linked regression scenario.",
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

@@ -141,8 +141,8 @@ test("reference layout keeps three primary tabs and opens full evidence from hea
   assert.match(await drilldown.locator(".rr-run").first().innerText(), /Saved staging.*Saved Chromium 128.*2 passed.*1 failed/s);
   assert.match(await drilldown.locator(".rr-run").last().innerText(), /Archived staging.*Archived Firefox.*1 not assessed/s);
 
-  await page.getByRole("button", { name: "Open Bugs", exact: true }).click();
-  await expect(drilldown.getByRole("tab", { name: /Bugs/ })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Open Defects", exact: true }).click();
+  await expect(drilldown.getByRole("tab", { name: /Defects/ })).toHaveAttribute("aria-selected", "true");
   await expect(drilldown.getByRole("link", { name: "Payment is captured twice after retry", exact: true })).toHaveAttribute("href", "/issues?issue=bug1&project_id=project");
 }));
 
@@ -150,13 +150,14 @@ test("inline scope controls apply immediately and keep evidence requests scoped"
   await openReadiness(page, base);
   await page.getByRole("combobox", { name: "Sprint", exact: true }).selectOption("Sprint 24");
   await expect.poll(() => new URL(page.url()).searchParams.get("sprint")).toBe("Sprint 24");
-  await page.waitForFunction(() => window.readinessCalls.some(call => call.kind === "runs" && call.input.release === "Autumn 2026" && call.input.sprint === "Sprint 24"));
-  await page.getByRole("combobox", { name: "Release / fix version", exact: true }).selectOption("");
   await expect.poll(() => new URL(page.url()).searchParams.get("release")).toBe(null);
   await page.waitForFunction(() => window.readinessCalls.some(call => call.kind === "runs" && !call.input.release && call.input.sprint === "Sprint 24"));
   assert.ok((await page.evaluate(() => window.readinessCalls)).every(call => call.input.project_id === "project"));
+  await page.getByRole("combobox", { name: "Release / fix version", exact: true }).selectOption("Autumn 2026");
+  await expect(page.getByRole("combobox", { name: "Sprint", exact: true })).toHaveValue("");
+  await page.waitForFunction(() => window.readinessCalls.some(call => call.kind === "runs" && call.input.release === "Autumn 2026" && !call.input.sprint));
   await page.goBack();
-  await expect(page.getByRole("combobox", { name: "Release / fix version", exact: true })).toHaveValue("Autumn 2026");
+  await expect(page.getByRole("combobox", { name: "Release / fix version", exact: true })).toHaveValue("");
   await expect(page.getByRole("combobox", { name: "Sprint", exact: true })).toHaveValue("Sprint 24");
 }));
 
@@ -200,14 +201,14 @@ test("both decision brief AI placements open the scoped explanation and revoke i
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.evaluate(() => window.finishReadinessAi());
   await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Open Bugs", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Open Defects", exact: true })).toBeDisabled();
 }));
 
 test("unavailable sources stay unavailable in the new layout and shortcuts", { timeout: 90000 }, async () => withPage(async (page, base) => {
   for (const [scenario, deniedSource, shortcut] of [
     ["cases-denied", "cases", "Review gaps"],
     ["runs-denied", "runs", "Execution evidence"],
-    ["restricted", "bugs", "Open Bugs"],
+    ["restricted", "bugs", "Open Defects"],
   ]) {
     await openReadiness(page, base, `?scenario=${scenario}`);
     await expect(page.getByRole("button", { name: shortcut, exact: true })).toBeDisabled();

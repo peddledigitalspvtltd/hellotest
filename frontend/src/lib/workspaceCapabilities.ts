@@ -26,7 +26,7 @@ export const WORKSPACE_CAPABILITIES: WorkspaceCapability[] = [
   { id: "environments", to: "/test-environments", name: "Environments", group: "design", description: "Define application targets and environment variables.", requiresProject: true },
   { id: "data", to: "/test-data", name: "Test data", group: "design", description: "Prepare parameter values and data rows for execution.", requiresProject: true },
   { id: "configurations", to: "/test-configurations", name: "Configurations", group: "design", description: "Choose browsers, platforms and execution variables.", requiresProject: true },
-  { id: "bugs", to: "/issues", name: "Bugs", group: "investigate", description: "Triage defects, review history and convert gaps into tests." },
+  { id: "bugs", to: "/issues", name: "Defects", group: "investigate", description: "Triage defects, review history and convert gaps into tests." },
   { id: "knowledge", to: "/knowledge-repo", name: "Knowledge repository", group: "investigate", description: "Curate the sources used by Ask AI and quality specialists.", keywords: "chat context documents rag" },
   { id: "telemetry", to: "/ops-telemetry", name: "Telemetry", group: "investigate", description: "Inspect operational health and processing signals.", requiresProject: true },
   { id: "traces", to: "/traces", name: "Distributed traces", group: "investigate", description: "Follow operations across services.", requiresProject: true },

@@ -1,6 +1,7 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
 const testSuiteService = require("./testSuite.service");
+const { validateTestCaseImportRow } = require("../utils/testCaseImportValidation");
 const sharedStepSyncService = require("./sharedStepSync.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
@@ -17,6 +18,7 @@ const {
 } = require("../utils/testStepAutomation");
 const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
+const { normalizeDataOptions } = require("../utils/scopedTestData");
 const { setGherkinFeatureTitle } = require("../utils/gherkinFeatureTitle");
 
 const DEFAULT_PRIORITY = 3;
@@ -74,19 +76,19 @@ const selectTestDataSet = db.prepare(`
 `);
 
 const selectSuitesForAppType = db.prepare(`
-  SELECT id, name, app_type_id
+  SELECT id, display_id, name, app_type_id
   FROM test_suites
   WHERE app_type_id = ?
 `);
 
 const selectRequirementsForProject = db.prepare(`
-  SELECT id, title, project_id
+  SELECT id, display_id, title, project_id
   FROM requirements
   WHERE project_id = ?
 `);
 
 const selectSharedStepGroupsForAppType = db.prepare(`
-  SELECT id, name, app_type_id
+  SELECT id, display_id, name, app_type_id
   FROM shared_step_groups
   WHERE app_type_id = ?
 `);
@@ -108,6 +110,7 @@ const insertTestCaseRecord = db.prepare(`
     external_references,
     labels,
     parameter_values,
+    test_data_options,
     automated,
     automation_status,
     manual_test_case_id,
@@ -132,7 +135,7 @@ const insertTestCaseRecord = db.prepare(`
     source_issue_id,
     updated_at
   )
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const selectTestCaseBySourceIdempotency = db.prepare(`
@@ -143,7 +146,7 @@ const selectTestCaseBySourceIdempotency = db.prepare(`
 
 const updateTestCaseRecord = db.prepare(`
   UPDATE test_cases
-  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, author_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+  SET app_type_id = ?, suite_id = ?, title = ?, description = ?, external_references = ?, labels = ?, parameter_values = ?, test_data_options = ?, automated = ?, automation_status = ?, manual_test_case_id = ?, authoring_mode = ?, test_case_type = ?, gherkin_document = ?, priority = ?, status = ?, requirement_id = ?, reviewer_id = ?, review_status = ?, review_history = ?, ai_quality_score = ?, author_id = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
   WHERE id = ?
 `);
 
@@ -246,7 +249,7 @@ const hydrateTestCases = async (testCases) => {
       ORDER BY test_case_id ASC, sort_order ASC, suite_id ASC
     `).all(...ids),
     db.prepare(`
-      SELECT mapping.test_case_id, mapping.requirement_id, requirements.title
+      SELECT mapping.test_case_id, mapping.requirement_id, requirements.title, requirements.display_id
       FROM (
         SELECT test_case_id, requirement_id
         FROM requirement_test_cases
@@ -257,13 +260,17 @@ const hydrateTestCases = async (testCases) => {
         WHERE id IN (${placeholders}) AND requirement_id IS NOT NULL
       ) AS mapping
       JOIN requirements ON requirements.id = mapping.requirement_id
+      JOIN test_cases story_case ON story_case.id = mapping.test_case_id
+      LEFT JOIN test_suites story_suite ON story_suite.id = story_case.suite_id
+      LEFT JOIN app_types story_app ON story_app.id = COALESCE(story_case.app_type_id, story_suite.app_type_id)
+      WHERE COALESCE(story_case.app_type_id, story_suite.app_type_id) IS NULL OR story_app.project_id = requirements.project_id
       ORDER BY mapping.test_case_id ASC, mapping.requirement_id ASC
     `).all(...ids, ...ids),
     db.prepare(`
-      SELECT test_case_id, module_id
-      FROM test_case_module_cases
+      SELECT test_case_id, module_id, is_explicit
+      FROM test_case_effective_module_cases
       WHERE test_case_id IN (${placeholders})
-      ORDER BY test_case_id ASC, sort_order ASC, module_id ASC
+      ORDER BY test_case_id ASC, is_explicit DESC, sort_order ASC, module_id ASC
     `).all(...ids),
     db.prepare(`
       SELECT test_case_id, issue_id
@@ -314,11 +321,14 @@ const hydrateTestCases = async (testCases) => {
       external_references: normalizeStoredReferenceList(testCase.external_references),
       labels: normalizeStoredReferenceList(testCase.labels),
       parameter_values: normalizeParameterValues(testCase.parameter_values),
+      test_data_options: normalizeDataOptions(testCase.test_data_options || {}),
       review_history: normalizeReviewHistory(testCase.review_history),
       author_id: testCase.author_id || testCase.created_by || null,
       suite_ids: (suitesByCase.get(testCase.id) || []).map((row) => row.suite_id),
       requirement_ids: normalizeTextList([primaryRequirement?.requirement_id, ...linkedRequirements.map((row) => row.requirement_id)]),
+      linked_requirements: linkedRequirements.map((row) => ({ id: row.requirement_id, display_id: row.display_id || null, title: row.title })),
       module_ids: (modulesByCase.get(testCase.id) || []).map((row) => row.module_id),
+      primary_module_id: (modulesByCase.get(testCase.id) || []).find(row => row.is_explicit)?.module_id || null,
       defect_ids: (defectsByCase.get(testCase.id) || []).map((row) => row.issue_id),
       manual_test_case_ids: (automationLinksByCase.get(testCase.id) || []).map((row) => row.manual_test_case_id),
       test_data_set_ids: (dataSetsByCase.get(testCase.id) || []).map((row) => row.test_data_set_id),
@@ -782,19 +792,15 @@ const splitImportSequence = (value) => {
     .map((item) => item.trim());
 };
 
-const buildNameLookup = (items = [], field) => {
-  return items.reduce((lookup, item) => {
-    const key = normalizeComparableText(item?.[field]);
-
-    if (!key) {
-      return lookup;
-    }
-
+const buildNameLookup = (items = [], field) => items.reduce((lookup, item) => {
+  for (const value of [item?.[field], item?.id, item?.display_id, item?.email]) {
+    const key = normalizeComparableText(value);
+    if (!key) continue;
     lookup[key] = lookup[key] || [];
-    lookup[key].push(item);
-    return lookup;
-  }, {});
-};
+    if (!lookup[key].some(row => row.id === item.id)) lookup[key].push(item);
+  }
+  return lookup;
+}, {});
 
 const resolveNamedRows = (lookup, values = [], entityLabel) => {
   const resolved = [];
@@ -1164,6 +1170,7 @@ const createPersistablePayload = async ({
   requirement_id,
   requirement_ids = [],
   test_data_set_ids = [],
+  test_data_options = { override_shared_steps: false },
   parameter_values,
   steps = [],
   ai_generation_source,
@@ -1245,6 +1252,7 @@ const createPersistablePayload = async ({
     suite_ids: resolvedSuiteIds,
     requirement_ids: resolvedRequirementIds,
     test_data_set_ids: resolvedDataSetIds,
+    test_data_options: normalizeDataOptions(test_data_options),
     title: resolvedTitle,
     description: normalizeText(description),
     external_references: normalizeReferenceList(external_references),
@@ -1296,7 +1304,7 @@ const createOne = db.transaction(async (payload) => {
     // links. Check and retain its project scope for the complete transaction.
     const source = await db.prepare("SELECT id, project_id FROM feedback WHERE id = ? FOR SHARE").get(payload.source_issue_id);
     if (!source || !payload.project_id || source.project_id !== payload.project_id) {
-      throw Object.assign(new Error("The source Bug must belong to the Test Case project"), { statusCode: 403 });
+      throw Object.assign(new Error("The source Defect must belong to the Test Case project"), { statusCode: 403 });
     }
   }
 
@@ -1312,6 +1320,7 @@ const createOne = db.transaction(async (payload) => {
     payload.external_references,
     payload.labels,
     payload.parameter_values,
+    payload.test_data_options,
     payload.automated,
     payload.automation_status,
     payload.manual_test_case_id,
@@ -1361,7 +1370,7 @@ const createOne = db.transaction(async (payload) => {
   return { id, display_id: payload.display_id, idempotent_replay: false };
 });
 
-exports.createTestCase = async (input) => {
+exports.createTestCase = async (input, { syncSharedGroups = true } = {}) => {
   const payload = await createPersistablePayload(input);
   await mobileFeatureService.assertAuthoringMobileFeatureEnabled({
     app_type_id: payload.app_type_id,
@@ -1400,7 +1409,7 @@ exports.createTestCase = async (input) => {
       return targets;
     }, []);
 
-  for (const target of sharedGroupTargets) {
+  for (const target of syncSharedGroups ? sharedGroupTargets : []) {
     await sharedStepSyncService.syncSharedGroupFromReference(
       target.reusable_group_id,
       response.id,
@@ -1426,7 +1435,6 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
   const resolvedAppTypeId = normalizeText(app_type_id);
   const defaultRequirementId = normalizeText(requirement_id);
   const normalizedBatches = normalizeImportBatches({ batches, rows, import_source });
-  const sharedGroupCache = new Map();
 
   if (!resolvedAppTypeId) {
     throw new Error("app_type_id is required");
@@ -1452,17 +1460,23 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
       : `${normalizedBatches.length} source files`;
 
   if (defaultRequirementId) {
-    await ensureRequirementsExist([defaultRequirementId]);
+    await ensureRequirementsExist([defaultRequirementId], appType.project_id);
   }
 
-  const [availableSuites, availableRequirements, availableSharedGroups] = await Promise.all([
+  const [availableSuites, availableRequirements, availableSharedGroups, availableModules, availableDataSets, availableUsers] = await Promise.all([
     selectSuitesForAppType.all(resolvedAppTypeId),
     selectRequirementsForProject.all(appType?.project_id || ""),
-    selectSharedStepGroupsForAppType.all(resolvedAppTypeId)
+    selectSharedStepGroupsForAppType.all(resolvedAppTypeId),
+    db.prepare("SELECT id, display_id, name FROM test_case_modules WHERE app_type_id = ?").all(resolvedAppTypeId),
+    db.prepare("SELECT id, name FROM test_data_sets WHERE project_id = ? AND (app_type_id = ? OR app_type_id IS NULL)").all(appType.project_id, resolvedAppTypeId),
+    db.prepare("SELECT u.id, u.name, u.email FROM users u JOIN project_members pm ON pm.user_id = u.id WHERE pm.project_id = ?").all(appType.project_id)
   ]);
   const suiteLookup = buildNameLookup(availableSuites, "name");
   const requirementLookup = buildNameLookup(availableRequirements, "title");
   const sharedGroupLookup = buildNameLookup(availableSharedGroups, "name");
+  const moduleLookup = buildNameLookup(availableModules, "name");
+  const dataSetLookup = buildNameLookup(availableDataSets, "name");
+  const userLookup = buildNameLookup(availableUsers, "name");
   const transactionMetadata = {
     import_source: isSingleSource ? uniqueSources[0] : "mixed",
     import_sources: uniqueSources,
@@ -1532,72 +1546,74 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
       const rowNumber = batch.row_offset + index + 1;
 
       try {
-        const normalizedRow = row || {};
-        const importedSteps = buildStepsFromImportRow(normalizedRow, { sharedGroupLookup }).map((step) => ({ ...step }));
-        const resolvedSuites = await resolveOrCreateImportSuites({
-          lookup: suiteLookup,
-          values: splitImportSequence(normalizedRow.suites || normalizedRow.suite),
-          app_type_id: resolvedAppTypeId,
-          created_by
-        });
-        const resolvedSuiteIds = resolvedSuites.map((suite) => suite.id);
-        const resolvedRequirementIdsFromNames = resolveNamedRows(
-          requirementLookup,
-          splitImportSequence(normalizedRow.requirements || normalizedRow.requirement),
-          "Requirement"
-        ).map((requirement) => requirement.id);
-
-        for (const step of importedSteps) {
-          if (step.group_kind !== "reusable") {
-            continue;
-          }
-
-          if (!step.reusable_group_id) {
-            step.group_kind = step.group_id ? "local" : null;
-            continue;
-          }
-
-          if (!sharedGroupCache.has(step.reusable_group_id)) {
-            sharedGroupCache.set(step.reusable_group_id, await selectSharedStepGroup.get(step.reusable_group_id));
-          }
-
-          const sharedGroup = sharedGroupCache.get(step.reusable_group_id);
-
-          if (!sharedGroup || sharedGroup.app_type_id !== resolvedAppTypeId) {
-            step.group_kind = step.group_id ? "local" : null;
-            step.reusable_group_id = null;
-            continue;
-          }
-
-          if (!step.group_name) {
-            step.group_name = sharedGroup.name;
-          }
+        const normalizedRow = validateTestCaseImportRow(row);
+        const sourceKey = `import:${transaction.id}:${batch.batch_index}:${rowNumber}`;
+        // A worker lease can be retried after committing a row. Never recreate or
+        // overwrite that case, even if the author has edited it since the import.
+        let response = await selectTestCaseBySourceIdempotency.get(resolvedAppTypeId, sourceKey);
+        if (!response) {
+          const rowSuiteLookup = { ...suiteLookup };
+          const rowSharedLookup = { ...sharedGroupLookup };
+          response = await db.transaction(async () => {
+            const linkedStories = resolveNamedRows(requirementLookup, [
+              ...splitImportSequence(normalizedRow.requirements || normalizedRow.requirement),
+              ...(Array.isArray(normalizedRow.requirement_ids) ? normalizedRow.requirement_ids : []),
+              normalizedRow.requirement_id || normalizedRow.requirementId
+            ], "Story").map(item => item.id);
+            const moduleRefs = normalizeTextList(splitImportSequence(normalizedRow.modules || normalizedRow.module || normalizedRow.module_id));
+            if (moduleRefs.length > 1) throw new Error("Only one primary Module can be imported; additional module membership comes from linked Stories");
+            const linkedModules = resolveNamedRows(moduleLookup, moduleRefs, "Module");
+            const dataSets = resolveNamedRows(dataSetLookup, [
+              ...splitImportSequence(normalizedRow.test_data_references),
+              ...(Array.isArray(normalizedRow.test_data_set_ids) ? normalizedRow.test_data_set_ids : [])
+            ], "Test Data Set").map(item => item.id);
+            const author = resolveNamedRows(userLookup, [normalizedRow.author || normalizedRow.author_id], "Author")[0];
+            const reviewer = resolveNamedRows(userLookup, [normalizedRow.reviewer || normalizedRow.reviewer_id], "Reviewer")[0];
+            const explicitSuites = resolveNamedRows(rowSuiteLookup, Array.isArray(normalizedRow.suite_ids) ? normalizedRow.suite_ids : [], "Test Suite");
+            const namedSuites = await resolveOrCreateImportSuites({ lookup: rowSuiteLookup,
+              values: splitImportSequence(normalizedRow.suites || normalizedRow.suite), app_type_id: resolvedAppTypeId, created_by });
+            const resolvedSuites = [...new Map([...explicitSuites, ...namedSuites].map(item => [item.id, item])).values()];
+            for (const definition of normalizedRow.shared_groups || []) {
+              const name = normalizeText(definition.name);
+              if (!name) throw new Error("Each Shared Step Group definition needs a name");
+              const existing = rowSharedLookup[normalizeComparableText(definition.id || name)] || rowSharedLookup[normalizeComparableText(name)] || [];
+              if (existing.length > 1) throw new Error(`Multiple Shared Step Groups match "${name}"; use an ID`);
+              let group = existing[0];
+              if (!group) {
+                if (!Array.isArray(definition.steps) || !definition.steps.length) throw new Error(`Shared Step Group "${name}" needs steps before it can be created`);
+                const createdGroup = await require("./sharedStepGroup.service").createSharedStepGroup({ ...definition, app_type_id: resolvedAppTypeId, created_by });
+                group = { id: createdGroup.id, app_type_id: resolvedAppTypeId, name };
+              }
+              for (const ref of [definition.id, name, group.id]) if (ref) rowSharedLookup[normalizeComparableText(ref)] = [group];
+            }
+            const importedSteps = buildStepsFromImportRow(normalizedRow, { sharedGroupLookup: rowSharedLookup }).map(step => ({ ...step }));
+            for (const step of importedSteps) {
+              if (step.group_kind !== "reusable") continue;
+              const shared = resolveNamedRows(rowSharedLookup, [step.reusable_group_id || step.group_name], "Shared Step Group")[0];
+              if (!shared) throw new Error("Shared steps require a Shared Step Group name or ID");
+              step.reusable_group_id = shared.id;
+              step.group_name = shared.name;
+            }
+            const result = await exports.createTestCase({
+              app_type_id: resolvedAppTypeId, title: normalizedRow.title, description: normalizedRow.description,
+              labels: normalizedRow.labels, author_id: author?.id, reviewer_id: reviewer?.id,
+              authoring_mode: normalizedRow.authoring_mode, test_case_type: normalizedRow.test_case_type,
+              gherkin_document: normalizedRow.gherkin_document, automation_status: normalizedRow.automation_status,
+              external_references: normalizeReferenceList(normalizedRow.external_references || normalizedRow.externalReferences || normalizedRow.references || normalizedRow.reference),
+              parameter_values: normalizedRow.parameter_values || normalizedRow.parameterValues,
+              test_data_options: normalizedRow.test_data_options,
+              automated: normalizedRow.automated, priority: normalizedRow.priority,
+              status: normalizeStatus(normalizedRow.status, "draft"),
+              suite_ids: resolvedSuites.map(item => item.id),
+              requirement_ids: normalizeTextList([defaultRequirementId, ...linkedStories]),
+              test_data_set_ids: dataSets, steps: importedSteps, source_idempotency_key: sourceKey, created_by
+            }, { syncSharedGroups: false });
+            if (linkedModules[0]) await require("./testCaseModule.service").assignCases(linkedModules[0].id, [result.id]);
+            return result;
+          })();
+          Object.assign(suiteLookup, rowSuiteLookup);
+          Object.assign(sharedGroupLookup, rowSharedLookup);
         }
-
-        const response = await exports.createTestCase({
-          app_type_id: resolvedAppTypeId,
-          title: normalizedRow?.title,
-          description: normalizedRow?.description,
-          external_references: normalizeReferenceList(
-            normalizedRow?.external_references
-            || normalizedRow?.externalReferences
-            || normalizedRow?.reference
-            || normalizedRow?.references
-          ),
-          parameter_values: normalizedRow?.parameter_values || normalizedRow?.parameterValues,
-          automated: normalizedRow?.automated,
-          priority: normalizedRow?.priority,
-          status: normalizeStatus(normalizedRow?.status, "draft"),
-          suite_ids: resolvedSuiteIds,
-          requirement_ids: normalizeTextList([
-            defaultRequirementId,
-            normalizedRow?.requirement_id,
-            normalizedRow?.requirementId,
-            ...resolvedRequirementIdsFromNames
-          ]),
-          steps: importedSteps,
-          created_by
-        });
 
         created.push({
           row: rowNumber,
@@ -1605,6 +1621,7 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
           file_name: batch.file_name,
           import_source: batch.import_source,
           id: response.id,
+          display_id: response.display_id,
           title: normalizeText(row?.title) || "Untitled test case"
         });
       } catch (error) {
@@ -1691,7 +1708,11 @@ exports.bulkImportTestCases = async ({ app_type_id, requirement_id, rows = [], c
     }
   });
 
-  return response;
+  const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
+    file_name: "test-case-import-results.json", mime_type: "application/json",
+    content: JSON.stringify({ transaction_id: transaction.id, ...response }, null, 2)
+  });
+  return { ...response, transaction_id: transaction.id, artifact_id: artifact.id };
 };
 
 exports.getTestCases = async ({ project_id, suite_id, requirement_id, module_id, unassigned_module = false, status, app_type_id }) => {
@@ -1721,9 +1742,9 @@ exports.getTestCases = async ({ project_id, suite_id, requirement_id, module_id,
   }
 
   if (module_id) {
-    joins.push(`JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id`);
+    joins.push(`JOIN test_case_effective_module_cases ON test_case_effective_module_cases.test_case_id = test_cases.id`);
   } else if (unassigned_module) {
-    joins.push(`LEFT JOIN test_case_module_cases ON test_case_module_cases.test_case_id = test_cases.id`);
+    joins.push(`LEFT JOIN test_case_effective_module_cases ON test_case_effective_module_cases.test_case_id = test_cases.id`);
   }
 
   if (suite_id) {
@@ -1747,10 +1768,10 @@ exports.getTestCases = async ({ project_id, suite_id, requirement_id, module_id,
   }
 
   if (module_id) {
-    where.push(`test_case_module_cases.module_id = ?`);
+    where.push(`test_case_effective_module_cases.module_id = ?`);
     params.push(module_id);
   } else if (unassigned_module) {
-    where.push(`test_case_module_cases.module_id IS NULL`);
+    where.push(`test_case_effective_module_cases.module_id IS NULL`);
   }
 
   if (status) {
@@ -1888,6 +1909,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry } = {}) => {
     suite_ids: requestedSuiteIds,
     requirement_ids: requestedRequirementIds,
     test_data_set_ids: requestedDataSetIds,
+    test_data_options: normalizeDataOptions(data.test_data_options === undefined ? existing.test_data_options || {} : data.test_data_options),
     title: normalizeText(data.title) || existing.title,
     description: data.description !== undefined ? normalizeText(data.description) : existing.description,
     external_references: data.external_references !== undefined
@@ -1975,6 +1997,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry } = {}) => {
       payload.external_references,
       payload.labels,
       payload.parameter_values,
+      payload.test_data_options,
       payload.automated,
       payload.automation_status,
       payload.manual_test_case_id,
@@ -2072,7 +2095,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry } = {}) => {
         return targets;
       }, []);
 
-    for (const target of sharedGroupTargets) {
+    for (const target of syncSharedGroups ? sharedGroupTargets : []) {
       await sharedStepSyncService.syncSharedGroupFromReference(
         target.reusable_group_id,
         id,

@@ -170,6 +170,19 @@ const materializeDataSetSnapshot = (snapshot, now = new Date()) => {
     return null;
   }
 
+  if (snapshot.parameter_data_layers) {
+    snapshot = { ...snapshot, parameter_data_layers: Object.fromEntries(Object.entries(snapshot.parameter_data_layers).map(([name, layer]) => [name, layer ? materializeDataSetSnapshot({ ...layer, mode: 'table' }, now) : null])) };
+  }
+  if (snapshot.data_scope_policy?.version === 2 && snapshot.parameter_data_layers) {
+    const resolve = require('./stepParameterResolution').resolveParameterLayers;
+    const rows = Array.from({ length: Math.max(1, snapshot.rows?.length || 1) }, (_, rowIndex) => resolve({ dataSet: snapshot, rowIndex }));
+    return { ...snapshot, rows, generated_at: now.toISOString() };
+  }
+  if (Array.isArray(snapshot.shared_rows)) {
+    const shared = materializeDataSetSnapshot({ mode: 'table', columns: [], rows: snapshot.shared_rows, template_rows: snapshot.shared_template_rows }, now);
+    snapshot = { ...snapshot, shared_rows: shared.rows, shared_template_rows: shared.template_rows };
+  }
+
   const sourceRows = Array.isArray(snapshot.template_rows)
     ? snapshot.template_rows
     : Array.isArray(snapshot.rows) ? snapshot.rows : [];

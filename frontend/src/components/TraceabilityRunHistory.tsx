@@ -182,7 +182,7 @@ export function TraceabilityRunHistory({
     },
     {
       key: "defects",
-      label: "Bugs",
+      label: "Defects",
       sortValue: (item) => item.defects.length,
       render: (item) => item.defects.length
     },
@@ -223,7 +223,7 @@ export function TraceabilityRunHistory({
             <span>Execution health</span>
             <strong>{runHealth.health.label}</strong>
             <p>{runHealth.finalized
-              ? `${runHealth.recentRate ?? "—"}% pass rate across the latest ${Math.min(runHealth.finalized, 5)} finalized outcomes${runHealth.defectCount ? ` · ${runHealth.defectCount} linked ${runHealth.defectCount === 1 ? "Bug" : "Bugs"}` : ""}.`
+              ? `${runHealth.recentRate ?? "—"}% pass rate across the latest ${Math.min(runHealth.finalized, 5)} finalized outcomes${runHealth.defectCount ? ` · ${runHealth.defectCount} linked ${runHealth.defectCount === 1 ? "Defect" : "Defects"}` : ""}.`
               : "Finalized outcomes will establish the first health signal."}</p>
           </div>
           <span className="story-run-trend-direction">{runHealth.direction}</span>
@@ -268,7 +268,7 @@ export function TraceabilityRunHistory({
           <SearchIcon />
           <input
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search runs, test cases, bugs, release"
+            placeholder="Search runs, test cases, defects, release"
             value={searchTerm}
           />
         </label>

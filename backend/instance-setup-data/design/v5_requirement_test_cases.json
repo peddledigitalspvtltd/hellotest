@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "requirement_id": "sample-v5-data-story",
+      "test_case_id": "sample-v5-data-case-execution"
+    },
+    {
+      "requirement_id": "sample-v5-data-story",
+      "test_case_id": "sample-v5-data-case-review"
+    }
+  ]
+}

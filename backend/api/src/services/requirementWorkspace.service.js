@@ -337,6 +337,11 @@ const buildReadiness = ({ hasIntent, intentEvidenceRefs, sections, sectionRefs, 
 const buildDeterministicGrooming = ({ requirement, comments = [], linkedCases = [], defects = [] }) => {
   const storyRef = `requirement:${requirement.id}`;
   const { sections, section_refs: sectionRefs, explicit_not_applicable_refs: explicitNotApplicableRefs } = buildEvidenceSections({ description: requirement.description, storyRef, comments });
+  const explicitAcceptance = normalizeList(requirement.acceptance_criteria || requirement.additional_fields?.acceptance_criteria);
+  if (explicitAcceptance.length) {
+    sections.acceptance_criteria = normalizeList([...explicitAcceptance, ...sections.acceptance_criteria]);
+    sectionRefs.acceptance_criteria = normalizeList([storyRef, ...(sectionRefs.acceptance_criteria || [])]);
+  }
   const purposeSummary = normalizeText(sections.feature_purpose.join(" "), 900)
     || normalizeText(sections.intended_behaviors.join(" "), 900)
     || descriptionLead(requirement.description);
@@ -824,7 +829,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     body: boundedDescriptionSnapshot(item.body, 500)
   }));
   const sources = [
-    { type: "story", ref: `requirement:${requirement.id}`, id: requirement.display_id || requirement.id, title: requirement.title, excerpt: description, status: requirement.status },
+    { type: "story", ref: `requirement:${requirement.id}`, id: requirement.display_id || requirement.id, title: requirement.title, excerpt: description, acceptance_criteria: normalizeList(requirement.acceptance_criteria || requirement.additional_fields?.acceptance_criteria), status: requirement.status },
     ...boundedComments.map((item) => ({ type: "comment", ref: `comment:${item.id}`, id: item.id, title: "Story comment", excerpt: item.body })),
     ...attachments.map((item) => ({ type: "attachment", ref: `attachment:${item.id}`, id: item.id, title: item.file_name, excerpt: `${item.mime_type}; ${item.size_bytes} bytes` })),
     ...externalReferencePointers.map((item, index) => ({ type: "external-reference", ref: `external-reference:${hash(item)}`, id: `REF-${index + 1}`, title: item, excerpt: "Pointer only; content was not fetched." })),
@@ -941,6 +946,17 @@ exports.exportRequirements = async ({ projectId, requirementIds = [], userId, fo
   });
   if (!ids.length && selected.length > REQUIREMENT_EXPORT_LIMIT) {
     throw Object.assign(new Error(`This project has more than ${REQUIREMENT_EXPORT_LIMIT} Stories. Select a smaller export set.`), { statusCode: 413, code: "EXPORT_LIMIT_EXCEEDED" });
+  }
+  if (selected.length) {
+    const memberships = await db.prepare(`SELECT ri.requirement_id, rel.id, rel.name, rel.fix_version
+      FROM requirement_release_items ri JOIN requirement_releases rel ON rel.id = ri.release_id
+      WHERE rel.project_id = ? AND ri.source = 'manual' AND ri.requirement_id IN (${selected.map(() => '?').join(',')})`)
+      .all(projectId, ...selected.map(item => item.id));
+    for (const story of selected) {
+      const options = memberships.filter(item => item.requirement_id === story.id);
+      const matches = options.filter(item => (story.release && item.name === story.release) || (story.fix_version && item.fix_version === story.fix_version));
+      story.release_id = (matches.length === 1 ? matches[0] : options.length === 1 ? options[0] : null)?.id || null;
+    }
   }
   const skipped = ids.filter((id) => !selected.some((item) => item.id === id)).map((id) => ({ id, code: "NOT_FOUND", message: "Story is missing or outside the selected project." }));
   const completedAt = new Date().toISOString();

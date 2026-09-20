@@ -25,15 +25,47 @@ const dataSetParameterValues = (dataSet, rowIndex = 0) => {
 
 // Frozen values are never re-generated here. An absent cell does not override;
 // a present empty cell does. The same order is used by frontend and Test Engine.
-const resolveParameterLayers = ({ caseValues, suiteValues, environmentVariables, configurationVariables, runValues, dataSet, rowIndex = 0, capturedValues } = {}) => ({
+const resolveParameterLayers = ({ caseValues, suiteValues, environmentVariables, configurationVariables, runValues, dataSet, rowIndex = 0, capturedValues, sharedValues, isSharedStep = false, dataPolicy } = {}) => {
+  const policy = dataPolicy || dataSet?.data_scope_policy;
+  if (policy?.version === 2) return resolveHierarchicalLayers({ caseValues, suiteValues, environmentVariables, configurationVariables, runValues, dataSet, rowIndex, capturedValues, sharedValues, isSharedStep, policy });
+  return ({
+  ...normalizeParameterLayer(sharedValues, "r"),
   ...normalizeParameterLayer(caseValues, "r"),
   ...normalizeParameterLayer(suiteValues, "s"),
   ...normalizeParameterLayer(variableValues(environmentVariables), "r"),
   ...normalizeParameterLayer(variableValues(configurationVariables), "r"),
   ...normalizeParameterLayer(runValues, "r"),
-  ...dataSetParameterValues(dataSet, rowIndex),
+  ...dataSetParameterValues(isSharedStep && Array.isArray(dataSet?.shared_rows) ? { ...dataSet, mode: "table", rows: dataSet.shared_rows } : dataSet, rowIndex),
   ...normalizeParameterLayer(capturedValues, "r")
 });
+};
+
+// Runtime order belongs to the supplying layer, not the variable namespace.
+function resolveHierarchicalLayers({ caseValues, suiteValues, environmentVariables, configurationVariables, runValues, dataSet, rowIndex, capturedValues, sharedValues, isSharedStep, policy }) {
+  const layers = dataSet?.parameter_data_layers || {};
+  const row = layer => { const rows = layers[layer]?.rows || []; return rows[rows.length === 1 ? 0 : rowIndex] || {}; };
+  const shared = normalizeParameterLayer(sharedValues);
+  const caseLayer = { ...normalizeParameterLayer(caseValues), ...row('case') };
+  const suiteLayer = { ...normalizeParameterLayer(suiteValues, 's'), ...row('suite') };
+  const runLayer = { ...normalizeParameterLayer(variableValues(environmentVariables)), ...normalizeParameterLayer(variableValues(configurationVariables)), ...normalizeParameterLayer(runValues), ...row('run') };
+  const sharedKeys = new Set(Object.keys(shared));
+  const caseKeys = new Set(Object.keys(caseLayer));
+  const suiteKeys = new Set();
+  const result = { ...shared };
+  const apply = (values, options, scope) => {
+    for (const [key,value] of Object.entries(values)) {
+      if (isSharedStep && options?.override_shared_steps === false && sharedKeys.has(key)) continue;
+      if (scope !== 'case' && options?.override_test_case_data === false && (key.startsWith('t.') || caseKeys.has(key)) && !(isSharedStep && sharedKeys.has(key) && policy.case?.override_shared_steps === false)) continue;
+      if (scope === 'run' && options?.override_suite_data === false && (key.startsWith('s.') || suiteKeys.has(key))) continue;
+      result[key] = value;
+      if (scope === 'suite') suiteKeys.add(key);
+    }
+  };
+  apply(caseLayer, policy.case, 'case');
+  apply(suiteLayer, policy.suite, 'suite');
+  apply(runLayer, policy.run, 'run');
+  return { ...result, ...normalizeParameterLayer(capturedValues) };
+}
 
 const collectPriorParameterCaptures = (snapshots, currentCaseId, capturesByCaseId) => {
   const current = snapshots.find((snapshot) => snapshot.test_case_id === currentCaseId);

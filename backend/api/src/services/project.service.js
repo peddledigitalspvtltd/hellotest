@@ -3,6 +3,7 @@ const { randomUUID: uuid } = require("crypto");
 const { APP_TYPE_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const attachmentService = require("./attachment.service");
+const { deleteProjectData } = require("./projectDeletion.repository");
 
 const VALID_APP_TYPES = new Set(APP_TYPE_VALUES);
 
@@ -32,241 +33,6 @@ const insertAppType = db.prepare(`
 const selectUserById = db.prepare(`
   SELECT id, is_workspace_admin
   FROM users
-  WHERE id = ?
-`);
-
-const selectProjectForDeletion = db.prepare(`
-  SELECT id FROM projects WHERE id = ? FOR UPDATE
-`);
-
-// Execution activity lives in the same database as project records. Use the
-// same adapter so a later constraint failure also rolls this cleanup back.
-const deleteProjectTransactionEvents = db.prepare(`
-  DELETE FROM workspace_transaction_events
-  WHERE transaction_id IN (
-    SELECT id
-    FROM workspace_transactions
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectExecutionResults = db.prepare(`
-  DELETE FROM execution_results
-  WHERE execution_id IN (
-      SELECT id
-      FROM executions
-      WHERE project_id = ?
-    )
-    OR app_type_id IN (
-      SELECT id
-      FROM app_types
-      WHERE project_id = ?
-    )
-`);
-
-const deleteProjectExecutionStepSnapshots = db.prepare(`
-  DELETE FROM execution_step_snapshots
-  WHERE execution_id IN (
-    SELECT id
-    FROM executions
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectExecutionCaseSnapshots = db.prepare(`
-  DELETE FROM execution_case_snapshots
-  WHERE execution_id IN (
-    SELECT id
-    FROM executions
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectExecutionSuites = db.prepare(`
-  DELETE FROM execution_suites
-  WHERE execution_id IN (
-    SELECT id
-    FROM executions
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectExecutions = db.prepare(`
-  DELETE FROM executions
-  WHERE project_id = ?
-`);
-
-const deleteProjectExecutionSchedules = db.prepare(`
-  DELETE FROM execution_schedules
-  WHERE project_id = ?
-`);
-
-const deleteProjectTestSteps = db.prepare(`
-  DELETE FROM test_steps
-  WHERE test_case_id IN (
-    SELECT test_cases.id
-    FROM test_cases
-    JOIN app_types ON app_types.id = test_cases.app_type_id
-    WHERE app_types.project_id = ?
-  )
-`);
-
-const deleteProjectSuiteMappings = db.prepare(`
-  DELETE FROM suite_test_cases
-  WHERE suite_id IN (
-      SELECT test_suites.id
-      FROM test_suites
-      JOIN app_types ON app_types.id = test_suites.app_type_id
-      WHERE app_types.project_id = ?
-    )
-    OR test_case_id IN (
-      SELECT test_cases.id
-      FROM test_cases
-      JOIN app_types ON app_types.id = test_cases.app_type_id
-      WHERE app_types.project_id = ?
-    )
-`);
-
-const deleteProjectRequirementMappings = db.prepare(`
-  DELETE FROM requirement_test_cases
-  WHERE requirement_id IN (
-      SELECT id
-      FROM requirements
-      WHERE project_id = ?
-    )
-    OR test_case_id IN (
-      SELECT test_cases.id
-      FROM test_cases
-      JOIN app_types ON app_types.id = test_cases.app_type_id
-      WHERE app_types.project_id = ?
-    )
-`);
-
-const clearLegacyProjectCaseSuiteIds = db.prepare(`
-  UPDATE test_cases
-  SET suite_id = NULL
-  WHERE app_type_id IN (
-    SELECT id
-    FROM app_types
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectTestCases = db.prepare(`
-  DELETE FROM test_cases
-  WHERE app_type_id IN (
-    SELECT id
-    FROM app_types
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectTestSuites = db.prepare(`
-  DELETE FROM test_suites
-  WHERE app_type_id IN (
-    SELECT id
-    FROM app_types
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectRequirements = db.prepare(`
-  DELETE FROM requirements
-  WHERE project_id = ?
-`);
-
-const deleteProjectSharedStepGroups = db.prepare(`
-  DELETE FROM shared_step_groups
-  WHERE app_type_id IN (
-    SELECT id
-    FROM app_types
-    WHERE project_id = ?
-  )
-`);
-
-const deleteProjectTestEnvironments = db.prepare(`
-  DELETE FROM test_environments
-  WHERE project_id = ?
-`);
-
-const deleteProjectTestConfigurations = db.prepare(`
-  DELETE FROM test_configurations
-  WHERE project_id = ?
-`);
-
-const deleteProjectTestDataSets = db.prepare(`
-  DELETE FROM test_data_sets
-  WHERE project_id = ?
-`);
-
-const deleteProjectAiGenerationJobs = db.prepare(`
-  DELETE FROM ai_test_case_generation_jobs
-  WHERE project_id = ?
-`);
-
-const deleteProjectKnowledge = db.prepare(`
-  DELETE FROM ai_knowledge_repo WHERE project_id = ?
-`);
-
-const deleteProjectPromptTemplates = db.prepare(`
-  DELETE FROM ai_prompt_templates WHERE project_id = ?
-`);
-
-const deleteProjectWorkflowRuns = db.prepare(`
-  DELETE FROM agentic_workflow_runs WHERE project_id = ?
-`);
-
-const deleteProjectWorkflows = db.prepare(`
-  DELETE FROM agentic_workflows WHERE project_id = ?
-`);
-
-const deleteProjectAutomationJobs = db.prepare(`
-  DELETE FROM automation_generator_jobs
-  WHERE project_id = ?
-    OR (project_id IS NULL AND (
-      transaction_id IN (SELECT id FROM workspace_transactions WHERE project_id = ?)
-      OR app_type_id IN (SELECT id FROM app_types WHERE project_id = ?)
-      OR test_case_id IN (
-        SELECT test_cases.id FROM test_cases
-        JOIN app_types ON app_types.id = test_cases.app_type_id
-        WHERE app_types.project_id = ?
-      )
-    ))
-`);
-
-const clearDeletedProjectIntegrationScope = db.prepare(`
-  UPDATE integrations
-  SET
-    config = CASE
-      WHEN config->>'project_id' = ? THEN config - 'project_id'
-      ELSE config
-    END,
-    project_key = CASE
-      WHEN project_key = ? THEN NULL
-      ELSE project_key
-    END,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE config->>'project_id' = ?
-     OR project_key = ?
-`);
-
-const deleteProjectWorkspaceTransactions = db.prepare(`
-  DELETE FROM workspace_transactions
-  WHERE project_id = ?
-`);
-
-const deleteProjectAppTypes = db.prepare(`
-  DELETE FROM app_types
-  WHERE project_id = ?
-`);
-
-const deleteProjectMembers = db.prepare(`
-  DELETE FROM project_members
-  WHERE project_id = ?
-`);
-
-const deleteProjectRecord = db.prepare(`
-  DELETE FROM projects
   WHERE id = ?
 `);
 
@@ -575,40 +341,14 @@ exports.updateProject = async (id, data) => {
 
 exports.deleteProject = async (id) => {
   const executeDelete = db.transaction(async () => {
-    if (!await selectProjectForDeletion.get(id)) throw new Error("Project not found");
+    if (!(await db.query("SELECT id FROM projects WHERE id = $1 FOR UPDATE", [id])).rows.length) {
+      throw Object.assign(new Error("Project not found"), { statusCode: 404 });
+    }
     const projectAttachmentObjects = await attachmentService.listProjectObjects(id);
-    await deleteProjectAutomationJobs.run(id, id, id, id);
-    await deleteProjectTransactionEvents.run(id);
-    await deleteProjectWorkspaceTransactions.run(id);
-    await deleteProjectExecutionResults.run(id, id);
-    await deleteProjectExecutionStepSnapshots.run(id);
-    await deleteProjectExecutionCaseSnapshots.run(id);
-    await deleteProjectExecutionSuites.run(id);
-    await deleteProjectExecutions.run(id);
-    await deleteProjectExecutionSchedules.run(id);
-    await deleteProjectTestSteps.run(id);
-    await deleteProjectSuiteMappings.run(id, id);
-    await deleteProjectRequirementMappings.run(id, id);
-    await clearLegacyProjectCaseSuiteIds.run(id);
-    await deleteProjectTestCases.run(id);
-    await deleteProjectTestSuites.run(id);
-    await deleteProjectRequirements.run(id);
-    await deleteProjectSharedStepGroups.run(id);
-    await deleteProjectTestEnvironments.run(id);
-    await deleteProjectTestConfigurations.run(id);
-    await deleteProjectTestDataSets.run(id);
-    await deleteProjectAiGenerationJobs.run(id);
-    await deleteProjectKnowledge.run(id);
-    await deleteProjectPromptTemplates.run(id);
-    await deleteProjectWorkflowRuns.run(id);
-    await deleteProjectWorkflows.run(id);
-    await clearDeletedProjectIntegrationScope.run(id, id, id, id);
-    await deleteProjectAppTypes.run(id);
-    await deleteProjectMembers.run(id);
-    await deleteProjectRecord.run(id);
+    // db.query executes on the caller's AsyncLocalStorage transaction client.
+    await deleteProjectData({ client: db, projectId: id });
     return projectAttachmentObjects;
   });
-
   const projectAttachmentObjects = await executeDelete();
   const attachmentCleanup = await attachmentService.purgeProjectObjects(id, projectAttachmentObjects);
   return { deleted: true, attachment_cleanup: attachmentCleanup };

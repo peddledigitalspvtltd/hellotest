@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { IconBug, IconCheck, IconChecklist, IconChevronDown, IconChevronRight, IconCopy, IconExternalLink, IconFlagCheck, IconPlayerPlay, IconSparkles, IconTargetArrow, IconTrash } from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconChevronRight, IconCopy, IconExternalLink, IconFlagCheck, IconPlayerPlay, IconSparkles, IconTargetArrow, IconTrash } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
 import { AddIcon, PencilIcon, ReleaseIcon, ReleaseNotesIcon, ReleaseReadinessIcon, SearchIcon, SprintIcon, StoryIcon } from "../components/AppIcons";
 import { AppErrorState } from "../components/AppErrorBoundary";
@@ -19,18 +19,21 @@ import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { LoadingState } from "../components/LoadingState";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
+import { QualityMetricStrip, type QualityMetric } from "../components/QualityMetricStrip";
+import { EntityHealthButton, EntityHealthDialog } from "../components/EntityHealthDialog";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { TileBrowserPane } from "../components/TileBrowserPane";
-import { TileCardFact, TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
+import { TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { ToastMessage } from "../components/ToastMessage";
 import { useCurrentProject } from "../hooks/useCurrentProject";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
 import { isDeliveryStatusComplete } from "../lib/deliveryStatus";
-import { releasePortfolioCompletion, releaseStoryCompletion as storyCompletionFor, type ReleaseCatalogReadiness } from "../lib/releaseCatalogMetrics";
+import { releaseLifecycleCounts, releasePortfolioHealth, releaseStoryCompletion as storyCompletionFor, type ReleaseCatalogReadiness } from "../lib/releaseCatalogMetrics";
 import { hasPermission } from "../lib/permissions";
+import { deriveStoryReadiness, storyReadinessMethodology } from "../lib/storyReadiness";
 import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes } from "../types";
 import "./ReleasesPage.css";
 
@@ -112,6 +115,7 @@ export function ReleasesPage() {
   const [releaseStateFilter, setReleaseStateFilter] = useState("all");
   const [releaseViewMode, setReleaseViewMode] = useState<"tile" | "list">("tile");
   const [selectedReleaseIds, setSelectedReleaseIds] = useState<string[]>([]);
+  const [healthReleaseId, setHealthReleaseId] = useState("");
   const [completionBlockedRelease, setCompletionBlockedRelease] = useState<RequirementRelease | null>(null);
   const [releaseNotesRelease, setReleaseNotesRelease] = useState<RequirementRelease | null>(null);
   const [releaseNotes, setReleaseNotes] = useState<RequirementReleaseNotes | null>(null);
@@ -121,17 +125,20 @@ export function ReleasesPage() {
   const canCreate = hasPermission(session, "requirement_iteration.create", projectId);
   const canUpdate = hasPermission(session, "requirement_iteration.update", projectId);
   const canDelete = hasPermission(session, "requirement_iteration.delete", projectId);
+  const canReadStories = hasPermission(session, "requirement.view", projectId);
   const canReadReadiness = ["requirement_iteration.view", "requirement.view", "testcase.view", "run.view", "result.view", "feedback.view"]
     .every((permission) => hasPermission(session, permission, projectId));
   const readinessAccessKey = JSON.stringify([session?.user.id, session?.user.role, session?.user.status, session?.user.permissions, session?.user.workspace_permissions, session?.user.project_permissions]);
 
   const releasesQuery = useQuery({
-    queryKey: ["requirement-releases", projectId],
+    queryKey: ["requirement-releases", projectId, readinessAccessKey],
     queryFn: () => api.requirementReleases.list({ project_id: projectId }),
     enabled: Boolean(projectId)
   });
   const releases = asArray(releasesQuery.data);
   const expandedRelease = releases.find((release) => release.id === selectedReleaseId);
+  const healthRelease = canReadStories ? releases.find((release) => release.id === healthReleaseId && release.story_scope_visible !== false) : undefined;
+  useEffect(() => setHealthReleaseId(""), [projectId]);
   const releaseReadinessQuery = useQuery({
     queryKey: ["requirement-release-readiness", "project", projectId, readinessAccessKey],
     queryFn: async () => await api.requirementReleases.listReadiness({ project_id: projectId }) as ReleaseCatalogReadiness[],
@@ -145,9 +152,9 @@ export function ReleasesPage() {
     enabled: Boolean(projectId)
   });
   const storiesQuery = useQuery({
-    queryKey: ["release-story-picker", projectId],
+    queryKey: ["release-story-picker", projectId, readinessAccessKey],
     queryFn: () => api.requirements.list({ project_id: projectId, limit: 5000, projection: "summary" }),
-    enabled: Boolean(projectId && isCreateOpen)
+    enabled: Boolean(projectId && isCreateOpen && canReadStories)
   });
   const createRelease = useMutation({ mutationFn: api.requirementReleases.create });
   const updateRelease = useMutation({ mutationFn: ({ id, state }: { id: string; state: "in_progress" | "released" }) => api.requirementReleases.update(id, { state }) });
@@ -182,21 +189,21 @@ export function ReleasesPage() {
   }, [releases]);
   const sprintStoryIds = useMemo(() => new Set(stories.filter((story) => draft.sprintIds.includes(String(story.iteration_id || ""))).map((story) => story.id)), [draft.sprintIds, stories]);
   const selectedStoryCount = new Set([...draft.requirementIds, ...sprintStoryIds]).size;
-  const portfolioReadiness = releases.map((release) => readinessByReleaseId.get(release.id)).filter((readiness): readiness is ReleaseCatalogReadiness => Boolean(readiness));
+  const portfolioHealth = releasePortfolioHealth(releases, readinessByReleaseId);
   const isReadinessLoading = canReadReadiness && releaseReadinessQuery.isLoading;
-  const hasMissingReleaseEvidence = releaseReadinessQuery.isSuccess && releases.some((release) => !readinessByReleaseId.has(release.id));
+  const hasMissingReleaseEvidence = releaseReadinessQuery.isSuccess && portfolioHealth.missingEvidence.length > 0;
   const isReadinessUnavailable = !canReadReadiness || releaseReadinessQuery.isError || hasMissingReleaseEvidence;
   const readinessUnavailableReason = !canReadReadiness
-    ? "Release evidence requires access to Stories, Test Cases, Runs, Results and Bugs in this project."
+    ? "Release evidence requires access to Stories, Test Cases, Runs, Results and Defects in this project."
     : releaseReadinessQuery.error instanceof Error ? releaseReadinessQuery.error.message : hasMissingReleaseEvidence ? "Evidence is missing for one or more Releases. Retry to refresh the complete portfolio." : "Release evidence could not be loaded.";
-  const releaseReadyCount = portfolioReadiness.filter((item) => item.total_stories > 0 && item.readiness_state === "ready").length;
-  const atRiskCount = releases.filter((release) => {
-    if (release.persisted_state === "released") return false;
-    const readiness = readinessByReleaseId.get(release.id);
-    return release.state === "overdue" || Boolean(readiness?.total_stories && readiness.readiness_state !== "ready");
-  }).length;
-  const releaseStoryCompletion = releasePortfolioCompletion(releases);
-  const portfolioCompletionPercent = releaseStoryCompletion.percent;
+  const releaseReadyCount = portfolioHealth.ready.length;
+  const atRiskCount = portfolioHealth.atRisk.length;
+  const releaseCounts = releaseLifecycleCounts(portfolioHealth.scope);
+  const releaseEvidenceNames = (scope: RequirementRelease[]) => scope.length
+    ? `${scope.slice(0, 3).map(release => `${release.name} (${release.fix_version})`).join("; ")}${scope.length > 3 ? `; +${scope.length - 3} more` : ""}.`
+    : "None in this project.";
+  const qualityEvidenceDetail = isReadinessUnavailable ? readinessUnavailableReason
+    : isReadinessLoading ? "Loading complete Release quality evidence. No count is available yet." : null;
   const releaseStoryColumns = useMemo<Array<DataTableColumn<Requirement>>>(() => [
     {
       key: "id",
@@ -259,8 +266,16 @@ export function ReleasesPage() {
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["requirement-releases", projectId] }),
-      queryClient.invalidateQueries({ queryKey: ["requirement-release-readiness"] }),
-      queryClient.invalidateQueries({ queryKey: ["requirements", projectId] })
+      queryClient.invalidateQueries({ queryKey: ["requirement-release-readiness", "project", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirements", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-detail", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-route-detail", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["requirement-iterations", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["sprint-requirement-children", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["release-story-picker", projectId] }),
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) => queryKey[2] === projectId && [
+        "release-review-context", "release-review-stories", "release-review-cases", "release-review-bugs", "release-review-runs"
+      ].includes(String(queryKey[0])) })
     ]);
   };
   const openCreateRelease = () => {
@@ -313,7 +328,7 @@ export function ReleasesPage() {
             target_date: draft.targetDate ? dateOnlyToMidnightIso(draft.targetDate) : "",
             external_link: draft.externalLink.trim(),
             sprint_ids: draft.sprintIds,
-            requirement_ids: draft.requirementIds
+            ...(editingRelease.story_scope_visible === false || !canReadStories ? {} : { requirement_ids: draft.requirementIds })
           }
         });
         setMessageTone("success");
@@ -479,7 +494,35 @@ export function ReleasesPage() {
       </div>
     );
   };
+  const releaseHealthMetrics = (release: RequirementRelease): QualityMetric[] => {
+    const readiness = readinessByReleaseId.get(release.id);
+    const completion = storyCompletionFor(release);
+    const devCompletion = storyCompletionFor(release, "dev");
+    const unavailable = isReadinessUnavailable ? readinessUnavailableReason : "Loading this Release's quality evidence.";
+    const evidenceValue = (value: number | null | undefined, suffix = "") => readiness ? value == null ? "No evidence" : `${value}${suffix}` : isReadinessUnavailable ? "Unavailable" : "Loading…";
+    return [
+      { label: "Stories", value: completion.total, tone: "info", detail: `${completion.total} unique Stories in ${release.name}.`, methodology: "Includes Stories linked directly to this Release and every linked Sprint. Shared Stories are counted once." },
+      { label: "Readiness", value: evidenceValue(readiness?.readiness_score, "%"), tone: !readiness || readiness.readiness_score === null ? "neutral" : readiness.readiness_state === "ready" ? "success" : readiness.readiness_state === "at_risk" ? "warning" : "danger",
+        detail: readiness ? `${readinessLabel(readiness)} · ${readiness.covered_stories}/${readiness.total_stories} Stories covered · ${readiness.passed_cases}/${readiness.executed_cases} finalized cases passed · ${readiness.open_bugs} open Defects.` : unavailable,
+        methodology: "30% Story test coverage + 50% finalized case pass rate + 20% Defect health. Defect health is 100 minus 25 × open Defects per Story, floored at zero. A finalized case outcome is required; ready requires at least 80% and no open Defects." },
+      { label: "Dev Story Completion", value: devCompletion.percent === null ? "Unavailable" : `${devCompletion.percent}%`, tone: devCompletion.percent === 100 && devCompletion.total > 0 ? "success" : "neutral",
+        detail: `${devCompletion.completed}/${devCompletion.total} unique scoped Stories reached development completion.`, methodology: "Counts Dev Done, QA states, QA Done, and completed statuses. A partially loaded Story scope has no percentage." },
+      { label: "QA Story Completion", value: completion.percent === null ? "Unavailable" : `${completion.percent}%`, tone: completion.percent === 100 && completion.total > 0 ? "success" : "neutral",
+        detail: `${completion.completed}/${completion.total} unique scoped Stories reached QA completion.`, methodology: "Counts QA Done and completed statuses (Done, Closed, Resolved, Accepted, Complete). Dev Done alone does not count. A partially loaded Story scope has no percentage." },
+      { label: "Test Coverage", value: evidenceValue(readiness?.test_coverage_percent, "%"), tone: !readiness ? "neutral" : (readiness.test_coverage_percent ?? 0) >= 80 ? "success" : "warning",
+        detail: readiness ? `${readiness.covered_stories}/${readiness.total_stories} Stories have linked Test Cases; ${readiness.linked_cases} distinct cases in scope.` : unavailable, methodology: "Covered scoped Stories divided by all unique Stories in this Release. A case linked to several Stories provides coverage for each Story." },
+      { label: "Pass Rate", value: evidenceValue(readiness?.pass_rate_percent, "%"), tone: !readiness || readiness.pass_rate_percent === null ? "neutral" : readiness.pass_rate_percent >= 80 ? "success" : "warning",
+        detail: readiness ? `${readiness.passed_cases}/${readiness.executed_cases} cases with finalized Release outcomes passed.` : unavailable, methodology: readiness?.methodology?.pass_rate || "Uses the latest finalized case outcome from this Release's runs. Pending outcomes are excluded; failed or blocked data rows determine the case outcome." },
+      { label: "Open Defects", value: evidenceValue(readiness?.open_bugs), tone: !readiness ? "neutral" : readiness.open_bugs ? "danger" : "success",
+        detail: readiness ? `${readiness.open_bugs} open Defects across ${readiness.total_bugs} distinct linked Defects.` : unavailable, methodology: "Counts distinct Defects linked to scoped Stories or Test Cases. Closed, resolved and completed Defects are excluded from the open count." },
+      { label: "Automation Coverage", value: evidenceValue(readiness?.automation_coverage_percent, "%"), tone: "info",
+        detail: readiness ? `${readiness.automated_cases ?? "—"}/${readiness.linked_cases} linked Test Cases are automated.` : unavailable, methodology: "Automated linked Test Cases divided by distinct linked Test Cases. Informational; this does not change the Release readiness score." },
+      { label: "Defect Density", value: evidenceValue(readiness?.bug_density), tone: !readiness ? "neutral" : readiness.total_bugs ? "warning" : "success",
+        detail: readiness ? `${readiness.total_bugs} distinct linked Defects across ${readiness.total_stories} Stories.` : unavailable, methodology: "Distinct linked Defects divided by unique scoped Stories, including closed Defects." }
+    ];
+  };
   const renderReleaseMetrics = (release: RequirementRelease) => {
+    if (release.story_scope_visible === false || !canReadStories) return null;
     const readiness = readinessByReleaseId.get(release.id);
     const completion = storyCompletionFor(release);
     return (
@@ -492,28 +535,14 @@ export function ReleasesPage() {
             label: "Readiness",
             value: readiness ? readiness.readiness_score === null ? "No runs" : `${readiness.readiness_score}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
             tone: !readiness || readiness.readiness_score === null ? "neutral" : readiness.readiness_state === "ready" ? "success" : readiness.readiness_state === "at_risk" ? "warning" : "danger",
-            title: isReadinessUnavailable ? readinessUnavailableReason : readinessLabel(readiness)
+            title: readiness ? readinessLabel(readiness) : isReadinessUnavailable ? readinessUnavailableReason : "Loading release evidence."
           },
           {
             icon: <IconCheck aria-hidden="true" size={13} stroke={1.8} />,
-            label: "Story completion",
+            label: "QA Story Completion",
             value: completion.percent === null ? "Unavailable" : `${completion.percent}%`,
             tone: completion.percent === 100 && completion.total > 0 ? "success" : "neutral",
-            title: `${completion.completed}/${completion.total} scoped Stories are QA done.`
-          },
-          {
-            icon: <IconChecklist aria-hidden="true" size={13} stroke={1.8} />,
-            label: "Test coverage",
-            value: readiness ? readiness.test_coverage_percent === null ? "—" : `${readiness.test_coverage_percent}%` : isReadinessUnavailable ? "Unavailable" : "Loading…",
-            tone: !readiness ? "neutral" : (readiness.test_coverage_percent ?? 0) >= 80 ? "success" : "warning",
-            title: readiness ? `${readiness.covered_stories}/${readiness.total_stories} scoped Stories have linked test coverage.` : isReadinessUnavailable ? readinessUnavailableReason : "Loading release test evidence."
-          },
-          {
-            icon: <IconBug aria-hidden="true" size={13} stroke={1.8} />,
-            label: "Open Bugs",
-            value: readiness ? String(readiness.open_bugs) : isReadinessUnavailable ? "Unavailable" : "Loading…",
-            tone: !readiness ? "neutral" : readiness.open_bugs ? "danger" : "success",
-            title: readiness ? `${readiness.open_bugs} open Bugs across ${readiness.total_bugs} total Bugs.` : isReadinessUnavailable ? readinessUnavailableReason : "Loading release Bug evidence."
+            title: `${completion.completed}/${completion.total} unique scoped Stories reached QA Done or a completed status. Dev Done alone does not count.`
           }
         ]}
       />
@@ -547,7 +576,7 @@ export function ReleasesPage() {
     const isExpanded = release.id === selectedReleaseId;
     const isSelected = selectedReleaseIds.includes(release.id);
     return (
-      <div className={`test-case-module-header requirement-iteration-header release-iteration-header${listView ? " requirement-iteration-list-header" : ""}`}>
+      <div className={`test-case-module-header requirement-iteration-header release-iteration-header entity-health-hierarchy-header${listView ? " requirement-iteration-list-header" : ""}`} data-health-entity="Release">
         <label className="checkbox-field release-selection-checkbox" onClick={(event) => event.stopPropagation()}>
           <input
             aria-label={`Select release ${release.name}`}
@@ -567,7 +596,10 @@ export function ReleasesPage() {
         </button>
         {renderReleaseIdentity(release)}
         {renderReleaseActions(release)}
-        {renderReleaseMetrics(release)}
+        <div className="entity-health-ribbon">
+          {renderReleaseMetrics(release)}
+          {canReadStories && release.story_scope_visible !== false ? <EntityHealthButton entityType="Release" entityName={release.name} onClick={() => setHealthReleaseId(release.id)} /> : null}
+        </div>
       </div>
     );
   };
@@ -577,9 +609,10 @@ export function ReleasesPage() {
     const linkedCaseCount = metrics?.linked_cases;
     const linkedBugCount = metrics?.total_bugs;
     const passPercent = metrics?.pass_rate_percent ?? null;
-    const automationPercent = metrics?.automation_coverage_percent ?? null;
-    const readinessScore = metrics?.readiness_score ?? null;
-    const evidenceState = isReadinessLoading ? "Loading…" : "Unavailable";
+    const automationPercent = metrics?.linked_cases ? metrics.automation_coverage_percent : null;
+    const storyReadiness = deriveStoryReadiness(story, { forceRelease: true });
+    const readinessScore = storyReadiness.score;
+    const readinessEvidence = `${storyReadiness.met}/${storyReadiness.total} checks met; ${storyReadiness.known}/${storyReadiness.total} verified. ${storyReadinessMethodology}\n${storyReadiness.checks.map(check => `${check.label}: ${check.status.replace(/_/g, " ")} — ${check.evidence}`).join("\n")}`;
     const passCoverageTitle = !metrics
       ? isReadinessLoading ? "Loading this Release's execution evidence" : readinessUnavailableReason
       : metrics.executed_cases
@@ -631,11 +664,7 @@ export function ReleasesPage() {
             <TileCardMetric className="story-tile-metric" label="Priority" tone={(evidenceStory.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${evidenceStory.priority ?? 3}`} />
             <TileCardMetric className="story-tile-metric" label="Linked cases" tone={linkedCaseCount ? "success" : "neutral"} value={linkedCaseCount === undefined ? "—" : String(linkedCaseCount)} />
             <TileCardMetric className="story-tile-metric" label="Defect density" tone={linkedBugCount === undefined ? "neutral" : linkedBugCount ? "danger" : "success"} value={linkedBugCount === undefined ? "—" : linkedBugCount.toFixed(2)} />
-            <TileCardMetric className="story-tile-metric" label="Release readiness" tone={readinessScore === null ? "neutral" : readinessScore >= 80 ? "success" : readinessScore >= 50 ? "info" : "danger"} value={metrics ? readinessScore === null ? "No runs" : `${readinessScore}%` : evidenceState} />
-          </div>
-          <div className="tile-card-facts release-story-context-facts" aria-label={`${evidenceStory.title} delivery context`}>
-            <TileCardFact label={evidenceStory.sprint || "No Sprint"} title={evidenceStory.sprint ? `Included through Sprint ${evidenceStory.sprint}` : "Direct Release scope without a Sprint"} tone={evidenceStory.sprint ? "info" : "neutral"}><SprintIcon size={14} /></TileCardFact>
-            <TileCardFact label={evidenceStory.fix_version || "Version pending"} title={evidenceStory.fix_version ? `Fix Version ${evidenceStory.fix_version}` : "No Fix Version stamped"} tone={evidenceStory.fix_version ? "success" : "warning"}><ReleaseIcon size={14} /></TileCardFact>
+            <TileCardMetric className="story-tile-metric" label={storyReadiness.label} title={readinessEvidence} tone={readinessScore === null ? "neutral" : readinessScore === 100 ? "success" : "warning"} value={readinessScore === null ? "Unverified" : `${readinessScore}%`} />
           </div>
         </div>
       </article>
@@ -649,7 +678,7 @@ export function ReleasesPage() {
       rows: isExpanded ? asArray(release.requirements) : [],
       header: renderReleaseHeader(release, true),
       content: isExpanded && !asArray(release.requirements).length
-        ? <div className="hierarchy-children-state hierarchy-children-state--list">No Stories are scoped to this Release yet.</div>
+        ? <div className="hierarchy-children-state hierarchy-children-state--list">{release.story_scope_visible === false || !canReadStories ? "Story scope is unavailable with your current permissions." : "No Stories are scoped to this Release yet."}</div>
         : null
     };
   });
@@ -677,24 +706,40 @@ export function ReleasesPage() {
     <div className="page-content page-content--library-full releases-page">
       <ToastMessage message={message} onDismiss={() => setMessage("")} tone={messageTone} />
       {confirmationDialog}
+      {healthRelease ? <EntityHealthDialog
+        entityType="Release"
+        entityName={healthRelease.name}
+        metrics={releaseHealthMetrics(healthRelease)}
+        summary={`${healthRelease.sprint_ids.length} linked Sprint${healthRelease.sprint_ids.length === 1 ? "" : "s"} · Includes directly linked Stories and all Stories from linked Sprints. Metrics use the complete Release scope, independent of expanded Stories or search.`}
+        onClose={() => setHealthReleaseId("")}
+        footer={canReadReadiness ? <button className="primary-button" onClick={() => { setHealthReleaseId(""); openReleaseReadiness(healthRelease); }} type="button">Open Release Readiness</button> : undefined}
+      /> : null}
       <PageHeader
         eyebrow="Product Management"
         title="Releases"
         description="Plan versioned delivery scope from Stories and Sprints, then review evidence-backed readiness from the exact release context."
         meta={[
-          { label: "Releases", value: releases.length },
+          { label: "Releases", value: releaseCounts.total },
           { label: "Release ready", value: isReadinessUnavailable ? "Unavailable" : isReadinessLoading ? "Loading…" : releaseReadyCount },
-          { label: "Overdue", value: releases.filter((item) => item.state === "overdue").length }
+          { label: "Overdue", value: releaseCounts.overdue }
         ]}
       />
-      <section aria-busy={isReadinessLoading} aria-label="Release portfolio health" className="release-portfolio-grid">
-        <article className="release-portfolio-card tone-scope"><span>Total releases</span><strong>{releases.length}</strong><small>{releases.filter((item) => item.persisted_state === "planned").length} planned</small></article>
-        <article className="release-portfolio-card tone-active"><span>In progress</span><strong>{releases.filter((item) => item.state === "in_progress").length}</strong><small>Actively moving toward a target</small></article>
-        <article className="release-portfolio-card tone-ready"><span>Release ready</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : releaseReadyCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Loading quality evidence…" : "Quality evidence meets the readiness policy"}</small></article>
-        <article className="release-portfolio-card tone-risk"><span>At risk</span><strong>{isReadinessLoading || isReadinessUnavailable ? "—" : atRiskCount}</strong><small>{isReadinessUnavailable ? "Quality evidence unavailable" : isReadinessLoading ? "Evaluating schedule and quality…" : "Schedule or quality evidence needs action"}</small></article>
-        <article className="release-portfolio-card tone-overdue"><span>Overdue</span><strong>{releases.filter((item) => item.state === "overdue").length}</strong><small>Open releases beyond their target date</small></article>
-        <article className="release-portfolio-card tone-completion"><span>Story completion</span><strong>{portfolioCompletionPercent === null ? "—" : `${portfolioCompletionPercent}%`}</strong><small>{portfolioCompletionPercent === null ? "Complete Story scope unavailable" : `${releaseStoryCompletion.completed}/${releaseStoryCompletion.total} unique scoped Stories QA done`}</small></article>
-      </section>
+      <div aria-busy={isReadinessLoading} className="release-portfolio-health">
+        <QualityMetricStrip ariaLabel="Release portfolio health" metrics={[
+          { label: "Total Releases", value: releaseCounts.total, badge: `${releaseCounts.planned} Planned`, tone: "info",
+            detail: `${releaseCounts.total} distinct Releases in this project. ${releaseEvidenceNames(portfolioHealth.scope)}`,
+            methodology: "Counts all project Release plans, including released versions. Search and status filters apply only to the Release plan below." },
+          { label: "Release Ready", value: qualityEvidenceDetail ? "—" : releaseReadyCount, badge: "Quality Evidence", tone: qualityEvidenceDetail ? "neutral" : "success",
+            detail: qualityEvidenceDetail || `${releaseReadyCount} Releases meet the quality readiness policy. ${releaseEvidenceNames(portfolioHealth.ready)}`,
+            methodology: "Requires scoped Stories and a ready assessment from finalized test and Defect evidence. Empty scopes are excluded; released versions remain included." },
+          { label: "At Risk", value: qualityEvidenceDetail ? "—" : atRiskCount, badge: "Schedule And Quality", tone: qualityEvidenceDetail ? "neutral" : atRiskCount ? "warning" : "success",
+            detail: qualityEvidenceDetail || `${atRiskCount} unreleased Releases need action. ${releaseEvidenceNames(portfolioHealth.atRisk)}`,
+            methodology: "Counts each unreleased Release once when overdue or when its scoped Stories do not meet the quality policy. Released versions are excluded; schedule and quality risks may overlap." },
+          { label: "Overdue", value: portfolioHealth.overdue.length, badge: "Target Date", tone: portfolioHealth.overdue.length ? "danger" : "success",
+            detail: `${portfolioHealth.overdue.length} open Releases are past their target date. ${releaseEvidenceNames(portfolioHealth.overdue)}`,
+            methodology: "Uses the server's current schedule status across all project Releases. Completed Releases are excluded. This count remains available without test or Defect evidence." }
+        ]} />
+      </div>
 
       {isReadinessUnavailable ? <div className="notice" role="status"><strong>Release evidence unavailable. </strong>{readinessUnavailableReason}{canReadReadiness ? <button className="ghost-button compact" type="button" onClick={() => void releaseReadinessQuery.refetch()}>Retry evidence</button> : null}</div> : null}
 
@@ -742,7 +787,7 @@ export function ReleasesPage() {
                       <Fragment key={release.id}>
                         {renderReleaseHeader(release)}
                         {isExpanded ? asArray(release.requirements).map(renderReleaseStoryTile) : null}
-                        {isExpanded && !asArray(release.requirements).length ? <div className="hierarchy-children-state hierarchy-children-state--tile">No Stories are scoped to this Release yet.</div> : null}
+                        {isExpanded && !asArray(release.requirements).length ? <div className="hierarchy-children-state hierarchy-children-state--tile">{release.story_scope_visible === false || !canReadStories ? "Story scope is unavailable with your current permissions." : "No Stories are scoped to this Release yet."}</div> : null}
                       </Fragment>
                     );
                   })}

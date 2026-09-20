@@ -15,18 +15,27 @@ test("1,000 case and 5,000 step snapshots use 24 bounded inserts preserving ever
     snapshot_step_id: `step-${index}`, step_order: index % 5 + 1, api_request: { method: "GET", url: `https://example.test/${index}` } }));
   await snapshots.persist({ caseSnapshots, stepSnapshots });
   assert.equal(statements.length, 24);
-  assert.ok(statements.every(statement => statement.values.length <= 5750));
-  const cases = statements.filter(statement => /execution_case_snapshots/.test(statement.sql)).flatMap(statement => {
+  assert.ok(statements.every(statement => statement.values.length <= 6000));
+  const readRows = statement => {
+    const columns = statement.sql.match(/\(([^)]+)\)/)[1].split(/,\s*/);
     const rows = [];
-    for (let offset = 0; offset < statement.values.length; offset += 23) rows.push(statement.values.slice(offset, offset + 23));
+    for (let offset = 0; offset < statement.values.length; offset += columns.length) {
+      rows.push(Object.fromEntries(columns.map((column, index) => [column, statement.values[offset + index]])));
+    }
     return rows;
-  });
-  assert.deepEqual(cases.map(values => values[1]), caseSnapshots.map(row => row.test_case_id));
-  assert.deepEqual(cases[999].slice(11, 15), [{ answer: 999 }, { answer: 999 }, {}, {}]);
-  assert.deepEqual(cases[999].slice(19), [1000, "actor", ["actor"], null]);
-  const steps = statements.filter(statement => /execution_step_snapshots/.test(statement.sql));
-  assert.equal(steps.at(-1).values.at(-5).url, "https://example.test/4999");
-  t.diagnostic("Snapshot writes: 6000 -> 24 (99.6% fewer database round trips), max 5750 bind parameters.");
+  };
+  const cases = statements.filter(statement => /execution_case_snapshots/.test(statement.sql)).flatMap(readRows);
+  assert.deepEqual(cases.map(row => row.test_case_id), caseSnapshots.map(row => row.test_case_id));
+  assert.deepEqual(cases[999].parameter_values, { answer: 999 });
+  assert.deepEqual(cases[999].parameter_template_values, { answer: 999 });
+  assert.deepEqual(cases[999].test_data_options, {});
+  assert.equal(cases[999].sort_order, 1000);
+  assert.deepEqual(cases[999].assigned_to_ids, ['actor']);
+  const steps = statements.filter(statement => /execution_step_snapshots/.test(statement.sql)).flatMap(readRows);
+  assert.equal(steps.at(-1).api_request.url, "https://example.test/4999");
+  assert.deepEqual(steps.at(-1).shared_parameter_values, {});
+  assert.deepEqual(steps.at(-1).shared_parameter_sensitive_names, []);
+  t.diagnostic("Snapshot writes: 6000 -> 24 (99.6% fewer database round trips), max 6000 bind parameters.");
 });
 
 test("snapshot failure rolls back the owning transaction without submitting later chunks", async t => {
@@ -61,7 +70,7 @@ test("snapshot steps batch 1,000 selected cases into four reads while retaining 
   assert.deepEqual(calls.flatMap(call => call.ids), ids);
   assert.deepEqual(result.get("case-999").map(step => step.id), ["case-999:1", "case-999:2"]);
   assert.equal(result.size, 1000);
-  assert.ok(calls.every(call => /ORDER BY test_case_id ASC, step_order ASC, id ASC/.test(call.sql)));
+  assert.ok(calls.every(call => /ORDER BY test_case_id ASC, step_order ASC, (?:test_steps\.)?id ASC/.test(call.sql)));
   assert.equal((await snapshots.loadSteps([])).size, 0);
   assert.equal(calls.length, 4);
 });
@@ -151,7 +160,7 @@ test("quality traceability counts a defect linked through several paths once and
     get: async () => ({ id: "project", name: "Project" }),
     all: async () => {
       if (sql.includes("FROM requirements WHERE")) return stories;
-      if (sql.includes("FROM test_cases JOIN")) return Array.from({ length: 1001 }, (_, index) => ({ id: `case-${index}` }));
+      if (sql.includes("FROM test_cases LEFT JOIN")) return Array.from({ length: 1001 }, (_, index) => ({ id: `case-${index}` }));
       if (sql.includes("FROM feedback")) return issues;
       return [];
     }

@@ -115,9 +115,11 @@ function SpecKitSectionSurface({ definition, value, onChange }: {
   );
 }
 
-export function SpecKitEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function SpecKitEditor({ value, onChange, compact = false }: { value: string; onChange: (value: string) => void; compact?: boolean }) {
   const sections = useMemo(() => splitSpecKitDocument(value), [value]);
-  const populatedCount = SECTION_DEFINITIONS.filter(({ key }) => sections[key].trim()).length;
+  const populatedKeys = new Set(SECTION_DEFINITIONS.filter(({ key }) => sections[key].replace(/\[[^\]]+\]/g, '').trim()).map(({key}) => key));
+  const populatedCount = populatedKeys.size;
+  const requiredPopulated = (['intent', 'requirements', 'acceptance'] as const).every(key => populatedKeys.has(key));
 
   const commit = (key: SpecKitSectionKey, content: string) => onChange(composeSpecKitDocument({ ...sections, [key]: content }));
   const appendRule = (key: SpecKitSectionKey, starter: string) => {
@@ -126,7 +128,7 @@ export function SpecKitEditor({ value, onChange }: { value: string; onChange: (v
   };
 
   return (
-    <section aria-label="Spec Kit Story authoring" className="speckit-editor">
+    <section aria-label="Spec Kit Story authoring" className={`speckit-editor${compact ? ' is-compact' : ''}`}>
       <div className="speckit-editor-toolbar" role="toolbar" aria-label="Spec Kit document actions">
         <div className="speckit-editor-heading"><span><IconFileDescription size={17} /></span><div><strong>Product specification</strong><small>Intent, requirements, completion rules, and operational constraints.</small></div></div>
         <div className="speckit-editor-actions">
@@ -140,9 +142,9 @@ export function SpecKitEditor({ value, onChange }: { value: string; onChange: (v
           <SpecKitSectionSurface definition={definition} key={definition.key} onChange={(content) => commit(definition.key, content)} value={sections[definition.key]} />
         ))}
       </div>
-      <div className={populatedCount >= 3 ? "speckit-editor-status is-valid" : "speckit-editor-status has-issues"} role="status">
+      <div className={requiredPopulated ? "speckit-editor-status is-valid" : "speckit-editor-status has-issues"} role="status">
         <span><strong>{populatedCount}</strong> of {SECTION_DEFINITIONS.length} sections populated</span>
-        <strong><IconCheck size={14} />Structured Story intent</strong>
+        <strong>{requiredPopulated ? <><IconCheck size={14} />Core sections populated</> : 'Complete the required sections'}</strong>
       </div>
     </section>
   );

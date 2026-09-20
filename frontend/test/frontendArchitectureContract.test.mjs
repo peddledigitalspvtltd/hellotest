@@ -58,7 +58,7 @@ test("release readiness is loaded in one project request instead of one browser 
 
   assert.match(page, /api\.requirementReleases\.listReadiness/);
   assert.doesNotMatch(page, /useQueries/);
-  assert.match(page, /isReadinessLoading \|\| isReadinessUnavailable \? "—"/);
+  assert.match(page, /value: qualityEvidenceDetail \? "—" : releaseReadyCount/);
   assert.match(page, /Release evidence unavailable/);
   assert.match(page, /canReadReadiness && !releaseReadinessQuery\.isError \? asArray\(releaseReadinessQuery\.data\) : \[\]/);
   assert.match(page, /readinessByReleaseId\.get\(expandedRelease\.id\)\?\.story_metrics\?\.\[story\.id\]/);

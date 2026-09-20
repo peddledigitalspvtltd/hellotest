@@ -70,19 +70,24 @@ export function InfoTooltip({
       setIsOpen(false);
     };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || triggerRef.current?.closest("[inert], [aria-hidden='true']")) return;
+      const eventDialog = event.target instanceof Element ? event.target.closest("[role='dialog']") : null;
+      if (eventDialog && eventDialog !== triggerRef.current?.closest("[role='dialog']")) return;
+      // Close the foreground tooltip before its containing dialog handles Escape.
+      event.preventDefault();
+      event.stopPropagation();
       setIsOpen(false);
       triggerRef.current?.focus();
     };
     window.addEventListener("resize", handleViewportChange);
     window.addEventListener("scroll", handleViewportChange, true);
     document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
     return () => {
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
       document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [isOpen, updatePosition]);
 

@@ -36,3 +36,11 @@ test("unscoped text and explicit run text share the same complete replacement", 
   assert.equal(resolveStepParameterText(text, { "r.name": "a long value", "t.name": "test", "s.name": "suite" }), "Use a long value then a long value, test, suite");
   assert.deepEqual(collectStepParameters([{ id: "step", action: text }]).map(item => item.name).sort(), ["r.name", "s.name", "t.name"]);
 });
+
+
+test("suite CSV qualifies bare columns while preserving explicit case and run scopes", () => {
+  assert.deepEqual(parseRunDataCsv("customer,t.expected,r.build\nAlex,approved,42\n", "s"), {
+    columns: ["s.customer", "t.expected", "r.build"], rows: [{ "s.customer": "Alex", "t.expected": "approved", "r.build": "42" }]
+  });
+  assert.throws(() => parseRunDataCsv("customer,s.customer\nAlex,Priya\n", "s"), /same parameter/);
+});

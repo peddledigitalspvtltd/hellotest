@@ -145,20 +145,23 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.match(app, /import\("\.\/pages\/ReleasesPage"\)/);
   for (const capability of [
     "Dev completion target", "QA completion target", "Scrum team", "Spec Kit",
-    "Test coverage", "Release readiness", "Automation progress", "Retrospective",
+    "Test coverage", "StoryReadinessChecklist", "Automation progress", "Retrospective",
     "Slipped", "On course", "Groomed", "Not groomed", "Link Story"
   ]) assert.match(stories, new RegExp(capability, "i"));
-  assert.match(storyMetrics, /testCoverage \* 0\.3/);
+  assert.match(storyMetrics, /evidence\?\.readiness\?\.score/);
   assert.match(stories, /selectedStoryMetrics\.readiness/);
-  assert.match(storyMetrics, /passed \/ executed \* 100 : 0\) \* 0\.5/);
-  assert.match(storyMetrics, /openBugHealth \* 0\.2/);
+
+  assert.doesNotMatch(storyMetrics, /openBugHealth|testCoverage \* 0\.3/);
   assert.match(stories, /Automation is informational and is not part of readiness/);
-  for (const productMetric of ["Grooming readiness", "Specification ready", "High-priority demand", "Team ownership"]) {
+  assert.match(releases, /deriveStoryReadiness\(story, \{ forceRelease: true \}\)/);
+  for (const productMetric of ["Grooming readiness", "Team ownership"]) {
     assert.match(stories, new RegExp(productMetric, "i"));
   }
+  assert.match(storyMetrics, /Priority Distribution/);
+  assert.match(storyMetrics, /Backlog Growth Rate/);
   assert.match(stories, /isStoryAssignedToSprint/);
   assert.match(stories, /selectedRequirementHasSprint \? <button[\s\S]*AI Test Cases Generation/);
-  assert.match(stories, /selectedRequirementHasSprint && canViewTestCases \? \[[\s\S]*Linked test cases[\s\S]*Linked bugs[\s\S]*Historical runs/);
+  assert.match(stories, /selectedRequirementHasSprint && canViewTestCases \? \[[\s\S]*Linked test cases[\s\S]*Linked defects[\s\S]*Historical runs/);
   assert.match(stories, /workspaceMode === "backlog"[\s\S]*<StoryIcon size=\{16\}/);
   assert.match(stories, /IconPlayerPlay[\s\S]*IconFlagCheck[\s\S]*IconNotes/);
   assert.match(stories, /listRequirements\(iteration\.id, \{ page_size: 200, cursor, projection: "summary" \}\)/);
@@ -181,7 +184,7 @@ test("Product Management workspaces expose delivery governance without using aut
   assert.doesNotMatch(icons, /IconHierarchy3|release-readiness-icon__hierarchy/);
   assert.match(releases, /release_id=/);
   assert.match(releases, /Release portfolio health/i);
-  for (const metric of ["Release ready", "At risk", "Story completion", "Test coverage", "Open Bugs"]) {
+  for (const metric of ["Release ready", "At risk", "Story completion", "Test coverage", "Open Defects"]) {
     assert.match(releases, new RegExp(metric, "i"));
   }
   assert.match(releases, /visibleReleases\.map/);
@@ -240,7 +243,7 @@ test("Story-linked test-case creation enters the standard new-case workspace wit
   assert.match(page, /requirement_id: requirementId/);
 });
 
-test("project tiles present exact delivery scope in Stories, Modules, Cases, Bugs order", async () => {
+test("project tiles present exact delivery scope in Stories, Modules, Cases, Defects order", async () => {
   const [page, types] = await Promise.all([
     readSource("../src/pages/ProjectsPage.tsx"),
     readSource("../src/types.ts")
@@ -249,7 +252,7 @@ test("project tiles present exact delivery scope in Stories, Modules, Cases, Bug
 
   assert.ok(metaGrid.indexOf("Stories") < metaGrid.indexOf("Modules"));
   assert.ok(metaGrid.indexOf("Modules") < metaGrid.indexOf("Test cases"));
-  assert.ok(metaGrid.indexOf("Test cases") < metaGrid.indexOf("Bugs"));
+  assert.ok(metaGrid.indexOf("Test cases") < metaGrid.indexOf("Defects"));
   assert.match(metaGrid, /TileCardMetric/);
   assert.match(metaGrid, /item\.requirementCount/);
   assert.match(metaGrid, /item\.moduleCount/);
@@ -352,7 +355,7 @@ test("project portfolio analytics are all-project, configurable, prioritized, fl
   assert.match(styles, /\.projects-command-card--evidence \.projects-command-insight \{[\s\S]*width: min\(100%, 29rem\);[\s\S]*max-width: 29rem;[\s\S]*justify-self: end;/);
   assert.match(page, /label="Execution failure cases"/);
   assert.match(page, /label="Evidence Missing"/);
-  assert.match(page, /label="Bugs"/);
+  assert.match(page, /label="Defects"/);
   assert.match(page, /compactImpactEvidence\("Modules"/);
   assert.match(page, /compactImpactEvidence\("Stories"/);
   assert.match(page, /item\.bugCount/);
@@ -400,7 +403,7 @@ test("project traceability toolbar keeps compact app scope and embedded search c
   assert.match(traceability, /className="project-traceability-sprints"/);
   assert.match(traceability, /Backlog \/ No sprint/);
   assert.match(traceability, /Module links are derived from the Story’s linked cases/);
-  assert.match(traceability, /Bugs include direct Story, module, and test-case references/);
+  assert.match(traceability, /Defects include direct Story, module, and test-case references/);
   assert.match(page, /traceabilitySprintsQuery/);
   assert.match(page, /sprints=\{\(traceabilitySprintsQuery\.data \|\| \[\]\)/);
   assert.match(styles, /\.project-traceability-search > svg[\s\S]*position: absolute/);
@@ -431,8 +434,8 @@ test("planning dates, simplified Sprint creation, and rich-text links retain the
   assert.match(stories, /queryKey: \["sprint-backlog-picker", projectId, iterationRequirementSearch\.trim\(\), iterationRequirementStatusFilter\][\s\S]*unassigned: true/);
   assert.match(stories, /const selectedStoryIds = \[\.\.\.new Set\(sprintDraftRequirementIds/);
   assert.match(stories, /aria-label="Filter backlog Stories by status"/);
-  assert.match(stories, /<GherkinEditor featureTitle=\{createDraft\.title/);
-  assert.match(stories, /<SpecKitEditor onChange=/);
+  assert.match(stories, /<GherkinEditor compact minimalBehaviorEditor allowMultipleScenarios featureTitle=\{createDraft\.title/);
+  assert.match(stories, /<SpecKitEditor compact onChange=/);
   assert.match(stories, /<optgroup label="HelloTest releases">/);
   assert.match(stories, /createStorySprintOptions\.map/);
   assert.match(stories, /story-related-create-actions[\s\S]*Link related Stories/);
@@ -468,9 +471,11 @@ test("test data authoring uses an iteration grid and module health loads before 
 
   assert.doesNotMatch(testCases, /function DataSetCreationModal/);
   assert.match(testCases, /<DataSetForm/);
-  assert.match(testCases, /function TestDataSetPickerDialog/);
-  assert.match(testCases, /No Data Sets Defined/);
-  assert.match(testCases, /type="radio"/);
+  const picker = await readSource("../src/components/TestDataSetPickerDialog.tsx");
+  const dataPanel = await readSource("../src/components/AuthoringDataSetPanel.tsx");
+  assert.match(testCases, /<TestDataSetPickerDialog/);
+  assert.match(dataPanel, /No Data Sets Defined/);
+  assert.match(picker, /type="radio"/);
   assert.match(testCases, /setLinkedDataSetDraftIds\(\[created\.id\]\)/);
   assert.match(testCases, /setLinkedDataSetDraftIds\(\[dataSetLinkDraftId\]\)/);
   assert.match(testData, /Data file import/);

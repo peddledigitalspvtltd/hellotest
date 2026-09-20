@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { findAiMetricCriteriaByLabel } from "../lib/aiPromptRegistry";
@@ -32,7 +33,7 @@ export function HierarchyQuickInsights({
     >
       <div className="hierarchy-quick-insights-grid">
         <span className="hierarchy-quick-insight hierarchy-quick-insight-count">
-          <small>{countLabel}</small>
+          <small>{metricTitle(countLabel)}</small>
           <strong>{count}</strong>
         </span>
         {metrics.map((metric) => {
@@ -44,10 +45,11 @@ export function HierarchyQuickInsights({
             <span
               className={`hierarchy-quick-insight tone-${metric.tone || "neutral"}`}
               key={metric.label}
+              title={metric.title}
             >
               <span className="hierarchy-quick-insight-icon">{metric.icon}</span>
               <small className="hierarchy-quick-insight-label-row">
-                <span>{metric.label}</span>
+                <span>{metricTitle(metric.label)}</span>
                 {governedMetric ? (
                   <MetricMethodologyInfo
                     criteriaKey={governedMetric.key}

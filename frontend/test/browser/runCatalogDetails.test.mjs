@@ -77,6 +77,7 @@ api.projects.list = async () => [project]; api.appTypes.list = async () => [app]
 api.projectMembers.list = async () => assignees.map(user => ({ user_id: user.id, user_name: user.name, user_email: user.email, project_id: "project" }));
 api.executions.list = async () => runs;
 api.executions.get = async id => runs.find(run => run.id === id);
+api.executions.parameterPlan = async () => ({case_count:6,suite_count:1,expected_instance_count:6,parameters:[]});
 window.fixtureAnalysisCalls = [];
 api.executions.analyzeCase = async (executionId, testCaseId) => {
   window.fixtureAnalysisCalls.push({ executionId, testCaseId });
@@ -109,7 +110,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     page.setDefaultTimeout(15000);
     const errors = [];
-    page.on("pageerror", error => errors.push(error.message));
+    page.on("pageerror", error => { errors.push(error.message); void writeFile("/tmp/qaira-run-catalog-error.txt", String(error.stack)); });
     const url = `${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`;
     const assertNoOverflow = async label => {
       const overflow = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, main: document.querySelector(".workspace-main")?.getBoundingClientRect().toJSON(), content: document.querySelector(".page-content")?.getBoundingClientRect().toJSON() }));
@@ -150,8 +151,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     assert.equal(await direct.locator(".tile-card-title-group").evaluate(element => getComputedStyle(element, "::before").content), "none", "run title has one visible field label");
     assert.equal(await direct.locator('.tile-card-metric').filter({ hasText: "Defects" }).innerText().then(value => value.replace(/\s+/g, " ").trim()), "2 Defects");
     assert.match(await direct.innerText(), /2\/3/);
-    for (const run of ["Direct", "Aborted", "Completed"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).isDisabled(), true);
-    for (const run of ["Suite", "Active"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).isEnabled(), true);
+    for (const run of ["Direct", "Aborted", "Completed", "Suite", "Active"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).count(), 0, "Tile edit buttons are removed; the selection toolbar owns editing");
 
     for (const view of ["List view", "Tile view"]) {
       await page.getByRole("button", { name: view, exact: true }).click();
@@ -203,17 +203,18 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     }
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole("button", { name: "Edit Suite checkout run", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Select Suite checkout run", exact: true }).check();
+    await page.getByRole("button", { name: "Edit selected run", exact: true }).click();
     await page.getByRole("dialog", { name: "Edit run", exact: true }).waitFor();
     assert.equal(await page.getByRole("textbox", { name: "Run Name", exact: true }).inputValue(), "Suite checkout run");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await direct.getByRole("button", { name: "Open run", exact: true }).click();
+    await direct.locator(".tile-card-open-button").click();
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
     assert.equal(await page.locator(".execution-command-actions").getByRole("button", { name: "Edit run", exact: true }).isDisabled(), true);
-    assert.equal(await page.getByRole("button", { name: "View evidence for Run results", exact: true }).locator(":scope > strong").innerText(), "33%", "Run pass rate uses finalized instances");
+    assert.equal(await page.getByRole("button", { name: "View evidence for Run Results", exact: true }).locator(":scope > strong").innerText(), "33%", "Run pass rate uses finalized instances");
     assert.match(await page.getByRole("button", { name: "View evidence for Defects", exact: true }).innerText(), /2/);
-    assert.match(await page.getByRole("button", { name: "View evidence for Run impacted stories", exact: true }).innerText(), /2\/3/);
-    assert.match(await page.getByRole("button", { name: "View evidence for Evidence readiness", exact: true }).innerText(), /100%/);
+    assert.match(await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).innerText(), /2\/3/);
+    assert.match(await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).innerText(), /100%/);
     assert.equal(await page.locator(".execution-command-analysis > .agent-process-rail, .execution-command-analysis .execution-command-readiness").count(), 0, "The side panel has no duplicate readiness card or always-visible workflow");
     assert.equal(await page.locator("details > summary").filter({ hasText: /^Evidence analysis$/i }).count(), 0, "Evidence analysis is not duplicated below the page");
     assert.equal(await page.getByRole("dialog").count(), 0, "Review and workflow dialogs open only on request");
@@ -223,7 +224,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       const actionPosition = await page.locator(".execution-run-command-center").evaluate(root => ({ heading: root.querySelector(".execution-command-header").getBoundingClientRect().bottom, actions: root.querySelector(".execution-command-actions").getBoundingClientRect().top }));
       assert.ok(actionPosition.actions >= actionPosition.heading - 1, JSON.stringify({ width, actionPosition }));
       const health = page.locator('[aria-label="Execution health"]');
-      for (const label of ["Run results", "Execution progress", "Total duration", "Defects"]) {
+      for (const label of ["Run Results", "Execution Progress", "Total Duration", "Defects"]) {
         const front = health.getByRole("button", { name: `View evidence for ${label}`, exact: true });
         await front.click();
         const evidence = health.getByRole("list", { name: `${label} evidence`, exact: true });
@@ -254,12 +255,12 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     }
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByRole("button", { name: "View evidence for Run impacted stories", exact: true }).click();
-    await page.getByRole("list", { name: "Run impacted stories evidence", exact: true }).waitFor();
-    assert.match(await page.getByRole("list", { name: "Run impacted stories evidence", exact: true }).innerText(), /Checkout story/);
+    await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).click();
+    await page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true }).waitFor();
+    assert.match(await page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true }).innerText(), /Checkout story/);
     await page.getByRole("button", { name: "Inspect failed cases", exact: true }).click();
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 3);
-    await page.getByRole("button", { name: "View evidence for Evidence readiness", exact: true }).click();
+    await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
     for (const width of [1440, 1024, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       const evidenceTrigger = page.getByRole("button", { name: "Open evidence", exact: true });
@@ -302,8 +303,8 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       await page.setViewportSize({ width, height: 900 });
       await assertNoOverflow(`case workspace ${width}`);
       if (process.env.BROWSER_SCREENSHOT_DIR && [1440, 1024, 390].includes(width)) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-case-${width}.png`), animations: "disabled" });
-      const positions = await page.locator(".execution-case-run-header").evaluate(header => ({ identity: header.querySelector(".execution-case-run-identity").getBoundingClientRect().bottom, actions: header.querySelector(".execution-case-run-header-actions").getBoundingClientRect().top, display: getComputedStyle(header).display, direction: getComputedStyle(header).flexDirection, columns: getComputedStyle(header).gridTemplateColumns, actionPosition: getComputedStyle(header.querySelector(".execution-case-run-header-actions")).position }));
-      assert.ok(positions.actions >= positions.identity - 1, JSON.stringify({ width, positions }));
+      const positions = await page.locator(".execution-case-run-header").evaluate(header => ({ identity: header.querySelector(".execution-case-run-identity").getBoundingClientRect().toJSON(), actions: header.querySelector(".execution-case-run-header-actions").getBoundingClientRect().toJSON() }));
+      assert.ok(positions.actions.top >= positions.identity.bottom - 1 || positions.actions.left >= positions.identity.right - 1 || positions.actions.right <= positions.identity.left + 1, JSON.stringify({ width, positions }));
     }
     await page.goto(`${url}?route=${encodeURIComponent("/executions?view=test-case-runs&execution=direct&testCase=case-1")}`);
     await page.getByRole("heading", { name: "Checkout scenario 1", exact: true }).waitFor();
@@ -314,7 +315,7 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     await assertNoOverflow("legacy direct case link");
     await page.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=suite")}`);
     await page.getByRole("heading", { name: "Suite checkout run", exact: true }).waitFor();
-    for (const [label, value] of [["Run results", "—"], ["Execution progress", "0%"], ["Defects", "0"]]) {
+    for (const [label, value] of [["Run Results", "—"], ["Execution Progress", "0%"], ["Defects", "0"]]) {
       assert.equal(await page.getByRole("button", { name: `View evidence for ${label}`, exact: true }).locator(":scope > strong").innerText(), value, `Queued ${label} distinguishes missing results from zero progress or defects`);
     }
     await page.getByRole("button", { name: "Workflow", exact: true }).click();
@@ -323,12 +324,12 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     await page.keyboard.press("Escape");
     await page.goto(`${url}?route=${encodeURIComponent("/executions?view=suite-runs&execution=running")}`);
     await page.getByRole("heading", { name: "Active checkout run", exact: true }).waitFor();
-    const durationMetric = page.locator('button[aria-label="View evidence for Total duration"] > strong');
+    const durationMetric = page.locator('button[aria-label="View evidence for Total Duration"] > strong');
     const durationBeforeTick = await durationMetric.innerText();
-    await page.getByRole("button", { name: "View evidence for Total duration", exact: true }).click();
-    await page.waitForFunction(previous => document.querySelector('button[aria-label="View evidence for Total duration"] > strong').textContent !== previous, durationBeforeTick, { timeout: 3000 });
-    assert.equal(await page.getByRole("button", { name: "Back to Total duration metric", exact: true }).isVisible(), true, "Live duration updates preserve the evidence face");
-    await page.getByRole("button", { name: "Back to Total duration metric", exact: true }).click();
+    await page.getByRole("button", { name: "View evidence for Total Duration", exact: true }).click();
+    await page.waitForFunction(previous => document.querySelector('button[aria-label="View evidence for Total Duration"] > strong').textContent !== previous, durationBeforeTick, { timeout: 3000 });
+    assert.equal(await page.getByRole("button", { name: "Back to Total Duration metric", exact: true }).isVisible(), true, "Live duration updates preserve the evidence face");
+    await page.getByRole("button", { name: "Back to Total Duration metric", exact: true }).click();
     const runRoot = page.getByRole("button", { name: "Run: Active checkout run", exact: true });
     assert.equal(await runRoot.locator(".execution-hierarchy-completion").innerText(), "67%");
     assert.equal(await page.locator(".execution-command-case-inspect").count(), 6, "The run root starts with every case in scope");
@@ -392,8 +393,8 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
     for (const width of [1440, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.getByRole("button", { name: "View evidence for Run impacted stories", exact: true }).click();
-      const evidence = page.getByRole("list", { name: "Run impacted stories evidence", exact: true });
+      await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).click();
+      const evidence = page.getByRole("list", { name: "Run Impacted Stories evidence", exact: true });
       await evidence.waitFor();
       const evidenceBounds = await evidence.evaluate(element => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth, overscrollY: getComputedStyle(element).overscrollBehaviorY }));
       assert.ok(evidenceBounds.scrollHeight <= evidenceBounds.height + 1 && evidenceBounds.scrollWidth <= evidenceBounds.width + 1, JSON.stringify({ width, evidenceBounds }));
@@ -406,12 +407,12 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       assert.equal(await evidence.evaluate(element => element.scrollTop), 0, "long evidence uses the page scrollbar");
       await assertNoOverflow(`long flipped evidence ${width}`);
       if (process.env.BROWSER_SCREENSHOT_DIR) await evidence.locator("xpath=ancestor::article[1]").screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `run-story-evidence-${width}.png`), animations: "disabled" });
-      await page.getByRole("button", { name: "Back to Run impacted stories metric", exact: true }).click();
+      await page.getByRole("button", { name: "Back to Run Impacted Stories metric", exact: true }).click();
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${url}?delayedResults=1&route=${encodeURIComponent("/executions?view=suite-runs&execution=direct")}`);
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
-    await page.getByRole("button", { name: "View evidence for Evidence readiness", exact: true }).click();
+    await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
     await page.getByRole("button", { name: "Open evidence", exact: true }).click();
     const delayedAnalysis = page.getByRole("dialog", { name: "Evidence Analysis", exact: true });
     const summary = delayedAnalysis.getByRole("textbox", { name: "Edit run analysis summary", exact: true });
@@ -449,9 +450,9 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     const switchRun = async name => {
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "Back to run library", exact: true }).click();
-      await page.getByRole("article", { name: `Open run ${name}`, exact: true }).getByRole("button", { name: "Open run", exact: true }).click();
+      await page.getByRole("article", { name: `Open run ${name}`, exact: true }).locator(".tile-card-open-button").click();
       await page.getByRole("heading", { name, exact: true }).waitFor();
-      await page.getByRole("button", { name: "View evidence for Evidence readiness", exact: true }).click();
+      await page.getByRole("button", { name: "View evidence for Evidence Readiness", exact: true }).click();
       await page.getByRole("button", { name: "Open evidence", exact: true }).click();
     };
     await switchRun("Completed checkout run");

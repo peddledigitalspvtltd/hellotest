@@ -87,6 +87,7 @@ test("test case restore preserves review history, dataset limits, revision check
   assert.deepEqual(update.slice(1), ["case-1", {
     title: "Restored checkout",
     test_data_set_ids: ["dataset-1"],
+    test_data_options: {},
     expected_revision: 7,
     reviewer_id: "assigned-reviewer",
     review_status: "pending",

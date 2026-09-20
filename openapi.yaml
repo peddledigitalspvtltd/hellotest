@@ -25,7 +25,7 @@ tags:
   - name: Integrations
   - name: Requirements
   - name: Releases
-  - name: Issues
+  - name: Defects
   - name: Test Suites
   - name: Test Cases
   - name: Test Case Modules
@@ -594,14 +594,42 @@ paths:
                 $ref: "#/components/schemas/UpdatedResponse"
     delete:
       tags: [Projects]
-      summary: Delete project
+      summary: Queue durable project deletion
+      description: |
+        Requires project.delete for an existing project. Repeated requests return
+        the same job; failed jobs can be explicitly retried. Database deletion is
+        atomic and stored-file cleanup continues after commit. The original
+        requester or an administrator can retry cleanup after the project is gone.
       responses:
-        "200":
-          description: Delete result
+        "202":
+          description: Deletion accepted; poll the Location endpoint for completion
+          headers:
+            Location:
+              schema: { type: string }
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeletedResponse"
+                type: object
+                required: [accepted, job]
+                properties:
+                  accepted: { type: boolean, enum: [true] }
+                  job: { $ref: "#/components/schemas/ProjectDeletionJob" }
+
+  /projects/{id}/deletion:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    get:
+      tags: [Projects]
+      summary: Read project deletion progress
+      description: Available to the original requester, administrators, or users with current project.delete access. Remains available after the project is deleted.
+      responses:
+        "200":
+          description: Durable job state; only completed means database and external cleanup finished
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectDeletionJob" }
+        "404":
+          description: No visible deletion job exists
 
   /project-members:
     get:
@@ -882,9 +910,9 @@ paths:
   /feedback/metrics:
     get:
       tags:
-        - Issues
-      summary: Get complete Bug catalog metrics
-      description: Aggregates every Bug matching the project, visibility and search filters without loading individual
+        - Defects
+      summary: Get complete Defect catalog metrics
+      description: Aggregates every Defect matching the project, visibility and search filters without loading individual
         records. Requires feedback.view for project-scoped requests. Non-admin callers must supply project_id.
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
@@ -900,17 +928,17 @@ paths:
             type: string
         - name: assignee_id
           in: query
-          description: Assignee identifier, or __unassigned__ for Bugs without an assignee.
+          description: Assignee identifier, or __unassigned__ for Defects without an assignee.
           schema:
             type: string
         - name: q
           in: query
-          description: Literal case-insensitive search across Bug details, people, delivery context and linked run metadata.
+          description: Literal case-insensitive search across Defect details, people, delivery context and linked run metadata.
           schema:
             type: string
       responses:
         "200":
-          description: Complete matching Bug metrics.
+          description: Complete matching Defect metrics.
           content:
             application/json:
               schema:
@@ -1104,11 +1132,56 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeletedResponse"
 
+  /requirements/{id}/readiness:
+    parameters:
+      - $ref: "#/components/parameters/IdParam"
+    put:
+      tags: [Requirements]
+      summary: Record evidence for Story readiness checks
+      description: Requires requirement.update in the persisted Story project. Reviews are revision checked and stamped with the authenticated reviewer, time, and content fingerprint. Content changes invalidate prior reviews. Ordinary Story saves cannot create or replace these reserved reviews.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision, checks]
+              properties:
+                expected_revision: { type: integer, minimum: 1 }
+                checks:
+                  type: object
+                  minProperties: 1
+                  maxProperties: 10
+                  description: Keys are persona_value, acceptance_criteria, wireframe, dependencies, story_points, acceptance_tests, code_review, automated_tests, critical_defects, or product_owner.
+                  additionalProperties:
+                    type: object
+                    required: [status, evidence]
+                    properties:
+                      status: { type: string, enum: [met, not_met, unverified] }
+                      evidence: { type: string, maxLength: 2000, description: A nonblank evidence note is required for a reviewed status. }
+                      attachment_id: { type: string, description: Required for a met wireframe check; must belong to this Story. }
+      responses:
+        "200":
+          description: Saved review and incremented Story revision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated, revision]
+                properties:
+                  updated: { type: boolean }
+                  revision: { type: integer, minimum: 1 }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "401": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+
   /requirement-defects:
     get:
       tags: [Requirements]
       summary: List requirement defect mappings
-      description: Requires requirement.view and feedback.view in the persisted Story or Bug project. Non-administrators must supply requirement_id or issue_id. Both filters, when present, must belong to the same project.
+      description: Requires requirement.view and feedback.view in the persisted Story or Defect project. Non-administrators must supply requirement_id or issue_id. Both filters, when present, must belong to the same project.
       parameters:
         - $ref: "#/components/parameters/RequirementIdQuery"
         - name: issue_id
@@ -1131,7 +1204,7 @@ paths:
     put:
       tags: [Requirements]
       summary: Replace linked defects for a requirement
-      description: Requires requirement.view and feedback.manage in the persisted Story project. Every selected Bug must belong to that project. Invalid selection preserves existing links; an empty issue_ids array clears them. At most 1000 Bug IDs may be submitted.
+      description: Requires requirement.view and feedback.manage in the persisted Story project. Every selected Defect must belong to that project. Invalid selection preserves existing links; an empty issue_ids array clears them. At most 1000 Defect IDs may be submitted.
       requestBody:
         required: true
         content:
@@ -1651,6 +1724,9 @@ paths:
                 project_id: { type: string }
                 app_type_id: { type: string }
                 execution_id: { type: string, maxLength: 255 }
+                suite_context_id: { type: string, description: "Edited suite context without implicitly adding its saved case membership." }
+                data_scope: { type: string, enum: [suite, run], default: run }
+                test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
                 suite_ids: { type: array, maxItems: 1000, items: { type: string } }
                 test_case_ids: { type: array, maxItems: 5000, items: { type: string } }
                 test_data_set_id: { type: string }
@@ -2555,21 +2631,21 @@ paths:
           description: Sanitized allowlisted HTML plus integration and human-review provenance
   /feedback/ai-draft-preview:
     post:
-      tags: [Issues]
-      summary: Create a review-only bug draft from bounded HelloTest evidence
+      tags: [Defects]
+      summary: Create a review-only defect draft from bounded HelloTest evidence
       responses:
         "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /issues/ai-draft-preview:
     post:
-      tags: [Issues]
-      summary: Alias for the review-only bug drafting endpoint
+      tags: [Defects]
+      summary: Alias for the review-only defect drafting endpoint
       responses:
         "200": { description: "Evidence-linked draft, confidence, provenance, and human-review requirement" }
   /feedback:
     get:
       tags:
-        - Issues
-      summary: List Bugs visible to the current user
+        - Defects
+      summary: List Defects visible to the current user
       description: Project-scoped access requires feedback.view. Set include_page=true for a bounded database page of 25
         records by default. Cursors preserve creation-time precision and are tied to the current filters. Use
         include_total=false with the metrics endpoint to omit a repeated full-scope count. Without include_page or cursor,
@@ -2588,12 +2664,12 @@ paths:
             type: string
         - name: assignee_id
           in: query
-          description: Assignee identifier, or __unassigned__ for Bugs without an assignee.
+          description: Assignee identifier, or __unassigned__ for Defects without an assignee.
           schema:
             type: string
         - name: q
           in: query
-          description: Literal case-insensitive search across Bug details, people, delivery context and linked run metadata.
+          description: Literal case-insensitive search across Defect details, people, delivery context and linked run metadata.
           schema:
             type: string
         - $ref: "#/components/parameters/CatalogPageSizeQuery"
@@ -2603,7 +2679,7 @@ paths:
         - $ref: "#/components/parameters/CatalogProjectionQuery"
       responses:
         "200":
-          description: Bugs or a bounded catalog page.
+          description: Defects or a bounded catalog page.
           content:
             application/json:
               schema:
@@ -2617,8 +2693,8 @@ paths:
         "403":
           $ref: "#/components/responses/ErrorResponse"
     post:
-      tags: [Issues]
-      summary: Create a Bug with optional delivery and traceability context
+      tags: [Defects]
+      summary: Create a Defect with optional delivery and traceability context
       requestBody:
         required: true
         content:
@@ -2626,7 +2702,7 @@ paths:
             schema: { $ref: "#/components/schemas/CreateIssueRequest" }
       responses:
         "200":
-          description: Bug created
+          description: Defect created
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IssueCreatedResponse" }
@@ -2634,17 +2710,17 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     get:
-      tags: [Issues]
-      summary: Read a Bug
+      tags: [Defects]
+      summary: Read a Defect
       responses:
         "200":
-          description: Bug record
+          description: Defect record
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Issue" }
     put:
-      tags: [Issues]
-      summary: Update a Bug, including its delivery and traceability context
+      tags: [Defects]
+      summary: Update a Defect, including its delivery and traceability context
       requestBody:
         required: true
         content:
@@ -2652,16 +2728,16 @@ paths:
             schema: { $ref: "#/components/schemas/UpdateIssueRequest" }
       responses:
         "200":
-          description: Bug updated
+          description: Defect updated
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UpdatedResponse" }
     delete:
-      tags: [Issues]
-      summary: Delete a Bug
+      tags: [Defects]
+      summary: Delete a Defect
       responses:
         "200":
-          description: Bug deleted
+          description: Defect deleted
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DeletedResponse" }
@@ -2669,12 +2745,12 @@ paths:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     get:
-      tags: [Issues]
-      summary: Read Bug field changes with editor identity, previous/new values, and timestamps
-      description: Requires feedback.view in the Bug project. Returns newest events first, including the known creation event for older Bugs whose earlier edits were not recorded.
+      tags: [Defects]
+      summary: Read Defect field changes with editor identity, previous/new values, and timestamps
+      description: Requires feedback.view in the Defect project. Returns newest events first, including the known creation event for older Defects whose earlier edits were not recorded.
       responses:
         "200":
-          description: Bug history
+          description: Defect history
           content:
             application/json:
               schema:
@@ -2840,7 +2916,7 @@ paths:
     get:
       tags: [Releases]
       summary: Calculate readiness metrics for one Release
-      description: Requires delivery, Story, Test Case, Run, Result and Bug read grants in the persisted Release project. Caller-supplied scope does not override ownership. Runs must have that project's exact normalized stored Release fix version. No matching results produces a null pass rate; results from other releases are not substituted.
+      description: Requires delivery, Story, Test Case, Run, Result and Defect read grants in the persisted Release project. Caller-supplied scope does not override ownership. Runs must have that project's exact normalized stored Release fix version. No matching results produces a null pass rate; results from other releases are not substituted.
       responses:
         "200":
           description: Release readiness evidence
@@ -3145,7 +3221,7 @@ paths:
   /requirement-iterations/health:
     get:
       tags: [Requirements]
-      summary: Calculate bounded Sprint health from Stories, traceability, results, and Bugs
+      summary: Calculate bounded Sprint health from Stories, traceability, results, and Defects
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
@@ -3177,38 +3253,38 @@ paths:
         "200": { description: Unassignment result }
   /issues/create-metadata:
     get:
-      tags: [Issues]
-      summary: Read the native Bug create-field and workflow contract
+      tags: [Defects]
+      summary: Read the native Defect create-field and workflow contract
       parameters:
         - $ref: "#/components/parameters/ProjectIdQuery"
       responses:
-        "200": { description: Project-scoped Bug field and status metadata }
+        "200": { description: Project-scoped Defect field and status metadata }
   /issues/{id}/edit-metadata:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     get:
-      tags: [Issues]
-      summary: Read the native Bug edit-field and workflow contract
+      tags: [Defects]
+      summary: Read the native Defect edit-field and workflow contract
       responses:
-        "200": { description: Current values plus project-scoped Bug metadata }
+        "200": { description: Current values plus project-scoped Defect metadata }
   /issues/ai-triage-preview:
     post:
-      tags: [Issues]
-      summary: Classify and prioritize a bounded set of Bugs without mutating records
+      tags: [Defects]
+      summary: Classify and prioritize a bounded set of Defects without mutating records
       responses:
         "200": { description: Evidence-based triage recommendations with human-review provenance }
   /issues/export:
     post:
-      tags: [Issues]
-      summary: Export authoritative project-scoped Bug records
+      tags: [Defects]
+      summary: Export authoritative project-scoped Defect records
       responses:
-        "200": { description: Exported Bug records and count }
+        "200": { description: Exported Defect records and count }
   /issues/bulk-delete:
     delete:
-      tags: [Issues]
-      summary: Atomically delete selected Bugs inside one project
+      tags: [Defects]
+      summary: Atomically delete selected Defects inside one project
       responses:
-        "200": { description: Deleted Bug IDs and count }
+        "200": { description: Deleted Defect IDs and count }
   /test-steps/bulk:
     post:
       tags: [Test Steps]
@@ -3647,7 +3723,7 @@ paths:
       - $ref: "#/components/parameters/IdParam"
     put:
       tags: [Execution Results]
-      summary: Link project-scoped Bugs to result steps with optimistic revision protection
+      summary: Link project-scoped Defects to result steps with optimistic revision protection
       requestBody:
         required: true
         content:
@@ -3661,7 +3737,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExecutionResultDefectLinksResponse"
-        "409": { description: Result revision is stale or a Bug/step is outside the run scope }
+        "409": { description: Result revision is stale or a Defect/step is outside the run scope }
   /quality-dashboards/{id}/report.pdf:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -4523,7 +4599,7 @@ paths:
         "200": { description: Successful response }
   /feedback/bulk-delete:
     delete:
-      tags: [Issues]
+      tags: [Defects]
       summary: Delete feedback bulk delete
       responses:
         "200": { description: Successful response }
@@ -4554,6 +4630,16 @@ paths:
       summary: Update projects knowledge
       responses:
         "200": { description: Successful response }
+  /shared-step-groups/metrics:
+    get:
+      tags: [Shared Step Groups]
+      summary: Read scoped Shared Step reuse and recorded execution metrics
+      description: Exact current repository counts and 90-day recorded step outcomes. Requires shared_step.view and testcase.view. Run and result permissions control execution evidence. Reusability Index divides executed shared-step instances by current repository step rows and may exceed 100 percent. MTTI is unavailable without recorded failure-to-isolation pairs.
+      parameters:
+        - { name: app_type_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Repository reuse, nullable execution ratios and bounded per-group failure evidence }
+        "403": { description: Shared Step or Test Case access denied }
   /shared-step-groups/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -4566,12 +4652,24 @@ paths:
       tags: [Shared Step Groups]
       summary: Read shared step groups
       responses:
-        "200": { description: Successful response }
+        "200":
+          description: Shared group with one selected data row; secret values are redacted and linked data contents require data.view.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SharedStepGroup" }
     put:
       tags: [Shared Step Groups]
       summary: Update shared step groups
+      description: Dataset changes require data.view. The dataset must belong to the same project and apply to the group's application. A linked table contributes only its selected row, never additional execution iterations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SharedStepGroupWrite" }
       responses:
         "200": { description: Successful response }
+        "400": { description: Invalid dataset scope or selected row }
+        "403": { description: Shared Step Group or Test Data access denied }
   /test-cases/{id}/reject-generated:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -4729,16 +4827,18 @@ paths:
     get:
       tags: [Admin Portal]
       summary: Read module sample coverage and installation state
-      description: Returns the versioned sample catalog with feature examples, dependencies, feature availability, and exact installed/expected record counts. Includes role presets with canonical permission_codes, current_permission_codes, role_id, and installed/customized/not_installed status. Requires a workspace administrator.
+      description: Returns the repository-owned dataset catalog with its version, authored date, manifest hash and file count, feature examples, dependencies, feature availability, and exact installed/expected record counts. Includes role presets with canonical permission_codes, current_permission_codes, role_id, and installed/customized/not_installed status. Requires a workspace administrator.
       security:
         - bearerAuth: []
       responses:
         "200": { description: "Catalog containing version, project_id, modules, roles, and connected-service notes." }
+        "401": { description: Authentication required. }
         "403": { description: Workspace administrator access required. }
+        "409": { description: Repository setup files or their manifest are missing, invalid or inconsistent. }
     post:
       tags: [Admin Portal]
-      summary: Install connected sample modules
-      description: Adds required dependencies, missing role presets and missing versioned sample records in one audited transaction. Existing records, customized role grants, user assignments and feature settings are retained. Omit modules to install all modules; an explicit empty selection is rejected. No background jobs or external services are started.
+      summary: Queue repository-backed instance setup
+      description: Queues a durable background job and returns immediately. Files are validated and processed in dependency order, with a transaction per file, bounded retries and saved checkpoints. Existing records, customized role grants, user assignments and feature settings are retained. Omit modules to install all modules; an explicit empty selection is rejected. If setup is already active, returns that active job. No external services or test executions are started. Poll the status endpoint until every file is verified and the job completes.
       security:
         - bearerAuth: []
       requestBody:
@@ -4754,12 +4854,84 @@ paths:
                   maxItems: 64
                   items:
                     type: string
-                    enum: [workspace, planning, design, environments, issues, execution, knowledge, automation, agents, dashboards, integrations, testops]
+                    enum: [workspace_roles, workspace, planning, design, environments, issues, execution, knowledge, automation, agents, dashboards, integrations, testops]
       responses:
-        "200": { description: "Installation results including requested/installed modules, dependencies_added, inserted_records, existing_records, per-module counts, and roles.created/roles.retained arrays of role IDs and names." }
+        "202":
+          description: Setup queued, or the current active setup returned. This response does not mean installation has completed.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceSetupSnapshot'
         "400": { description: Invalid or empty module selection. }
+        "401": { description: Authentication required. }
         "403": { description: Workspace administrator access required. }
-        "409": { description: Sample identifiers conflict with existing records; the transaction is rolled back. }
+        "409": { description: Repository dataset metadata or dependency declarations are invalid. }
+        "503": { description: The API is restarting; retry setup shortly. }
+  /admin-portal/setup/sample-data/status:
+    get:
+      tags: [Admin Portal]
+      summary: Read durable instance setup progress
+      description: Returns a requested setup job, or the active job followed by the most recently updated job when job_id is omitted. If no job has ever been created, job is null and running is false. Failed jobs retain their completed file checkpoints and an actionable error. Requires a workspace administrator.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: query
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200":
+          description: Current durable setup progress and optional verified result.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceSetupSnapshot'
+        "400": { description: Invalid job ID. }
+        "401": { description: Authentication required. }
+        "403": { description: Workspace administrator access required. }
+        "404": { description: The requested setup job does not exist. }
+  /admin-portal/setup/sample-data/{jobId}/retry:
+    post:
+      tags: [Admin Portal]
+      summary: Resume a failed instance setup
+      description: Requeues a failed job against the same manifest hash and preserves its completed file checkpoints. The installer rechecks saved identities before skipping files and restores missing rows without overwriting existing data. An active or completed job is returned unchanged. If the dataset changed, start a new setup instead. Requires a workspace administrator.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+      responses:
+        "202":
+          description: Failed setup requeued, or the active/completed job returned unchanged.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceSetupSnapshot'
+        "400": { description: Invalid job ID or unexpected retry parameters. }
+        "401": { description: Authentication required. }
+        "403": { description: Workspace administrator access required. }
+        "404": { description: Setup job not found. }
+        "409": { description: Another setup is active, or the repository manifest changed; preserve current data and start a new setup when appropriate. }
+        "503": { description: The API is restarting; retry setup shortly. }
   /admin-portal/status:
     get:
       tags: [Admin Portal]
@@ -4864,13 +5036,13 @@ paths:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
-      tags: [Issues]
+      tags: [Defects]
       summary: Read feedback edit metadata
       responses:
         "200": { description: Successful response }
   /feedback/create-metadata:
     get:
-      tags: [Issues]
+      tags: [Defects]
       summary: Read feedback create metadata
       responses:
         "200": { description: Successful response }
@@ -5037,12 +5209,28 @@ paths:
       tags: [Shared Step Groups]
       summary: Read shared step groups
       responses:
-        "200": { description: Successful response }
+        "200":
+          description: Shared groups with dataset IDs and selected row indexes. Dataset contents are omitted from list responses to avoid repeating large linked tables.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SharedStepGroup" }
     post:
       tags: [Shared Step Groups]
-      summary: Execute shared step groups
+      summary: Create shared step group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/SharedStepGroupWrite" }
+                - { type: object, required: [app_type_id, name] }
       responses:
         "200": { description: Successful response }
+        "400": { description: Invalid dataset scope or selected row }
+        "403": { description: Shared Step Group or Test Data access denied }
   /suite-test-cases:
     get:
       tags: [Test Suites]
@@ -5060,7 +5248,7 @@ paths:
       - { name: testCaseId, in: path, required: true, schema: { type: string } }
     get:
       tags: [Test Cases]
-      summary: Read test case defects issues
+      summary: Read defects linked to a test case
       responses:
         "200": { description: Successful response }
   /test-cases/ai-generation-jobs:
@@ -5442,13 +5630,13 @@ paths:
         "200": { description: Successful response }
   /feedback/ai-triage-preview:
     post:
-      tags: [Issues]
+      tags: [Defects]
       summary: Execute feedback ai triage preview
       responses:
         "200": { description: Successful response }
   /feedback/export:
     post:
-      tags: [Issues]
+      tags: [Defects]
       summary: Execute feedback export
       responses:
         "200": { description: Successful response }
@@ -6048,6 +6236,141 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    InstanceSetupSnapshot:
+      type: object
+      required: [running, job]
+      properties:
+        running:
+          type: boolean
+          description: True while the durable job is queued or running.
+        job:
+          $ref: '#/components/schemas/InstanceSetupJob'
+    InstanceSetupJob:
+      type: object
+      nullable: true
+      required: [id, status, phase, requested_modules, installed_modules, dataset_version, manifest_hash, files, current_file, total_files, completed_files, attempts, error, result, created_at, started_at, finished_at, updated_at]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        phase: { type: string, enum: [validating, installing, verifying] }
+        requested_modules: { type: array, items: { type: string } }
+        installed_modules:
+          type: array
+          description: Selected modules plus their required dependencies, in installation order.
+          items: { type: string }
+        dataset_version: { type: integer, minimum: 1 }
+        manifest_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceSetupFile'
+        current_file: { type: string, nullable: true }
+        total_files: { type: integer, minimum: 0 }
+        completed_files: { type: integer, minimum: 0 }
+        attempts: { type: integer, minimum: 0 }
+        error:
+          type: object
+          nullable: true
+          required: [code, message, retryable]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            file: { type: string }
+            retryable: { type: boolean }
+        result:
+          $ref: '#/components/schemas/InstanceSetupResult'
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+    InstanceSetupFile:
+      type: object
+      required: [key, module, path, depends_on, record_count, sha256, status, attempts]
+      properties:
+        key: { type: string }
+        module: { type: string }
+        path: { type: string, description: Relative repository JSON file path. }
+        table: { type: string }
+        keys: { type: array, items: { type: string } }
+        kind: { type: string, enum: [role_presets] }
+        depends_on: { type: array, items: { type: string } }
+        record_count: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        status: { type: string, enum: [pending, running, retrying, completed, failed] }
+        attempts: { type: integer, minimum: 0 }
+        error: { type: string }
+        fallback_batch_size: { type: integer, enum: [10, 1] }
+        inserted_records: { type: integer, minimum: 0 }
+        existing_records: { type: integer, minimum: 0 }
+        total_records: { type: integer, minimum: 0 }
+        administrator_memberships: { type: integer, minimum: 0 }
+        roles:
+          $ref: '#/components/schemas/InstanceSetupRoles'
+    InstanceSetupRoles:
+      type: object
+      required: [created, retained]
+      properties:
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceSetupRoleIdentity'
+        retained:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceSetupRoleIdentity'
+    InstanceSetupRoleIdentity:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    InstanceSetupResult:
+      type: object
+      nullable: true
+      description: Present only after all selected files have passed final verification and the installation audit has been saved.
+      required: [requested, installed, dependencies_added, project_id, administrator_memberships, roles, idempotent, version, manifest_hash, inserted_records, existing_records, module_results, file_results]
+      properties:
+        requested: { type: array, items: { type: string } }
+        installed: { type: array, items: { type: string } }
+        dependencies_added: { type: array, items: { type: string } }
+        project_id: { type: string, nullable: true }
+        administrator_memberships: { type: integer, minimum: 0 }
+        roles:
+          $ref: '#/components/schemas/InstanceSetupRoles'
+        idempotent: { type: boolean, enum: [true] }
+        version: { type: integer, minimum: 1 }
+        manifest_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        inserted_records: { type: integer, minimum: 0 }
+        existing_records: { type: integer, minimum: 0 }
+        module_results:
+          type: array
+          items:
+            type: object
+            required: [key, inserted_records, existing_records, total_records]
+            properties:
+              key: { type: string }
+              inserted_records: { type: integer, minimum: 0 }
+              existing_records: { type: integer, minimum: 0 }
+              total_records: { type: integer, minimum: 0 }
+        file_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/InstanceSetupFile'
+    ProjectDeletionJob:
+      type: object
+      required: [id, project_id, project_name, status, phase, processed_rows, attempts]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        project_name: { type: string }
+        status: { type: string, enum: [queued, running, cleanup, completed, failed] }
+        phase: { type: string, nullable: true }
+        processed_rows: { type: integer, minimum: 0 }
+        attempts: { type: integer, minimum: 0 }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
     RequirementPage:
       type: object
       description: A bounded record page. total is optional and omitted when include_total=false.
@@ -6111,7 +6434,7 @@ components:
         automation_complete: { type: boolean }
     RequirementReleaseStoryMetrics:
       type: object
-      description: Distinct case and Bug evidence for one Story, using finalized execution outcomes from this Release. Pass rate is passed divided by finalized cases; unknown rates and readiness remain null. Readiness uses 30% Story coverage, 50% pass rate and 20% open-Bug health, rounding only the final score.
+      description: Distinct case and Defect evidence for one Story, using finalized execution outcomes from this Release. Pass rate is passed divided by finalized cases; unknown rates and readiness remain null. Readiness uses 30% Story coverage, 50% pass rate and 20% open-Defect health, rounding only the final score.
       properties:
         linked_cases: { type: integer, minimum: 0 }
         automated_cases: { type: integer, minimum: 0 }
@@ -6653,19 +6976,19 @@ components:
         open:
           type: integer
           minimum: 0
-          description: Bugs outside closed, resolved, done and accepted statuses.
+          description: Defects outside closed, resolved, done and accepted statuses.
         priority_risks:
           type: integer
           minimum: 0
-          description: Open Bugs with high or highest priority.
+          description: Open Defects with high or highest priority.
         unassigned:
           type: integer
           minimum: 0
-          description: Open Bugs without an assignee.
+          description: Open Defects without an assignee.
         converted:
           type: integer
           minimum: 0
-          description: Bugs converted to Test Cases within the same project.
+          description: Defects converted to Test Cases within the same project.
         statuses:
           type: object
           additionalProperties:
@@ -8046,6 +8369,9 @@ components:
         iteration_id: { type: string }
         fix_version: { type: string }
         release: { type: string }
+        release_id:
+          type: string
+          description: Same-project local Release ID; assigns direct scope atomically and applies its name and fix version. Requires requirement_iteration.update. An empty string clears the prior selected direct scope while preserving Sprint inheritance and independent Release scopes. Omit to preserve existing mappings on update.
         priority: { type: integer }
         status: { type: string }
     UpdateRequirementRequest:
@@ -8064,9 +8390,13 @@ components:
         iteration_id: { type: string }
         fix_version: { type: string }
         release: { type: string }
+        release_id:
+          type: string
+          description: Same-project local Release ID; assigns direct scope atomically and applies its name and fix version. Requires requirement_iteration.update. An empty string clears the prior selected direct scope while preserving Sprint inheritance and independent Release scopes. Omit to preserve existing mappings on update.
         priority: { type: integer }
         status: { type: string }
     Issue:
+      title: Defect
       type: object
       required: [id, project_id, user_id, title, message, status]
       properties:
@@ -8086,7 +8416,7 @@ components:
         environment: { type: string, nullable: true }
         build: { type: string, nullable: true }
         jira_bug_key: { type: string, nullable: true }
-        has_converted_test_cases: { type: boolean, readOnly: true, description: Whether an existing same-project Test Case has this Bug as its recorded conversion origin. Ordinary case links are excluded. }
+        has_converted_test_cases: { type: boolean, readOnly: true, description: Whether an existing same-project Test Case has this Defect as its recorded conversion origin. Ordinary case links are excluded. }
         linked_test_run_id: { type: string, nullable: true }
         linked_test_case_ids:
           type: array
@@ -8266,9 +8596,41 @@ components:
               row: { type: integer }
               title: { type: string, nullable: true }
               message: { type: string }
+    TestDataOptions:
+      type: object
+      description: Scope-specific dataset override policy. Existing records default to both overrides enabled. The highest selected data scope drives iteration count; preserving lower data aligns rows or broadcasts a single default row. Mismatched multi-row sources return 422 before execution.
+      properties:
+        override_lower_scopes: { type: boolean, default: true, description: "False restricts suite columns to s. and run columns to r., preserving inherited data." }
+        override_shared_steps: { type: boolean, default: true, description: "False preserves shared group data at this scope instead of overriding it from the case, suite, or run. Case policy applies to case parameter values and the linked case dataset; suite/run policies remain independent." }
+    SharedStepGroupWrite:
+      type: object
+      properties:
+        app_type_id: { type: string }
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true }
+        authoring_mode: { type: string, enum: [structured, gherkin] }
+        gherkin_document: { type: string, nullable: true }
+        steps: { type: array, items: { $ref: "#/components/schemas/TestStep" } }
+        parameter_values: { type: object, additionalProperties: { type: string } }
+        test_data_set_id: { type: string, nullable: true, description: "One project-compatible dataset. Null unlinks it. Linking and row selection require data.view." }
+        test_data_row_index: { type: integer, minimum: 0, default: 0, description: "Zero-based selected table row. Key-value datasets use 0. A group consumes exactly one row without expanding case iterations." }
+    SharedStepGroup:
+      allOf:
+        - { $ref: "#/components/schemas/SharedStepGroupWrite" }
+        - type: object
+          properties:
+            id: { type: string }
+            display_id: { type: string, nullable: true }
+            step_count: { type: integer, minimum: 0 }
+            test_data_set:
+              allOf:
+                - { $ref: "#/components/schemas/ExecutionDataSetSnapshot" }
+              nullable: true
+              description: Linked dataset for the row selector. Secret key-value entries have blank values. Omitted without data.view.
     TestSuite:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         test_case_count: { type: integer, minimum: 0, description: "Distinct member cases; picker and summary projections." }
         automated_case_count: { type: integer, minimum: 0, description: "Summary projection; member cases marked automated=yes." }
         total_step_count: { type: integer, minimum: 0, description: "Summary projection; total stored steps across distinct member cases." }
@@ -8287,6 +8649,7 @@ components:
       type: object
       required: [app_type_id, name]
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         description: { type: string, nullable: true }
         parameter_values: { type: object, additionalProperties: { type: string } }
         test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
@@ -8296,6 +8659,7 @@ components:
     UpdateTestSuiteRequest:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         description: { type: string, nullable: true }
         parameter_values: { type: object, additionalProperties: { type: string } }
         test_data_set_id: { type: string, nullable: true, description: "Default suite data set; the run can override it." }
@@ -8369,7 +8733,7 @@ components:
       properties:
         id: { type: string }
         app_type_id: { type: string, nullable: true }
-        source_issue_id: { type: string, nullable: true, readOnly: true, description: Immutable Bug conversion origin recorded when this Test Case was created. }
+        source_issue_id: { type: string, nullable: true, readOnly: true, description: Immutable Defect conversion origin recorded when this Test Case was created. }
         suite_id: { type: string, nullable: true }
         suite_ids: { type: array, items: { type: string } }
         title: { type: string }
@@ -8384,6 +8748,7 @@ components:
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. Table rows remain separate execution iterations. }
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         author_id: { type: string, nullable: true, description: Selected Test Case author. Legacy records fall back to the immutable creator. }
         author:
           type: object
@@ -8465,7 +8830,7 @@ components:
       properties:
         ai_generation_source: { type: string, enum: [interactive], description: Marks a new AI-authored draft. The server defaults its reviewer to the acting user and starts pending review. }
         app_type_id: { type: string }
-        source_issue_id: { type: string, description: Source Bug for an explicit conversion. Must be visible and belong to the Test Case project. }
+        source_issue_id: { type: string, description: Source Defect for an explicit conversion. Must be visible and belong to the Test Case project. }
         suite_id: { type: string }
         suite_ids: { type: array, items: { type: string } }
         title: { type: string }
@@ -8480,6 +8845,7 @@ components:
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Zero or one reusable data set linked to this Test Case. }
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         author_id: { type: string, description: Project member recorded as the Test Case author. Defaults to the acting user. }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
@@ -8509,6 +8875,7 @@ components:
         authoring_mode: { type: string, enum: [structured, gherkin] }
         test_case_type: { type: string, minLength: 1, maxLength: 120, pattern: "^[a-z][a-z0-9_-]{0,119}$", description: "Test Case Type value from the test_cases.types dropdown catalog. New assignments require an active option; unchanged historical values remain valid on edits." }
         test_data_set_ids: { type: array, maxItems: 1, items: { type: string }, description: Replaces the Test Case data link with zero or one reusable data set. }
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         author_id: { type: string, description: Project member to record as the Test Case author. }
         gherkin_document: { type: string, nullable: true }
         priority: { type: integer }
@@ -9042,6 +9409,7 @@ components:
     Execution:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         parameter_scope_default: { type: string, enum: [t, r], description: "Frozen parameter policy; legacy runs use t and newly created runs use r." }
         id: { type: string }
         display_id: { type: string, nullable: true }
@@ -9157,6 +9525,7 @@ components:
       type: object
       required: [project_id, created_by]
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         project_id: { type: string }
         app_type_id: { type: string, nullable: true }
         suite_ids:
@@ -9191,6 +9560,7 @@ components:
     UpdateExecutionRequest:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         name: { type: string, minLength: 1, maxLength: 255 }
         start_date: { type: string, nullable: true, maxLength: 10, description: Planned YYYY-MM-DD date; empty or null clears it. Validated against the retained end date on partial updates. }
         end_date: { type: string, nullable: true, maxLength: 10, description: Planned YYYY-MM-DD date; empty or null clears it. Must be on or after the resulting start date. }
@@ -9320,6 +9690,7 @@ components:
     ExecutionSchedule:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         id: { type: string }
         project_id: { type: string }
         app_type_id: { type: string, nullable: true }
@@ -9358,6 +9729,7 @@ components:
       type: object
       required: [project_id, created_by]
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         project_id: { type: string }
         app_type_id: { type: string, nullable: true }
         name: { type: string }
@@ -9385,6 +9757,7 @@ components:
     UpdateExecutionScheduleRequest:
       type: object
       properties:
+        test_data_options: { $ref: "#/components/schemas/TestDataOptions" }
         project_id: { type: string }
         app_type_id: { type: string, nullable: true }
         name: { type: string }

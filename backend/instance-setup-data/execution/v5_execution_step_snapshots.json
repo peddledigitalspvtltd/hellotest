@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v5-data-run",
+      "snapshot_step_id": "sample-v5-data-step-execution-shared",
+      "test_case_id": "sample-v5-data-case-execution",
+      "step_order": 1,
+      "action": "Establish the synthetic session in @r.session_region.",
+      "expected_result": "The session region equals the supplied region.",
+      "step_type": "web",
+      "group_id": "sample-v5-data-shared-group",
+      "group_name": "Reusable session data boundary · SYNTHETIC SAMPLE",
+      "group_kind": "reusable",
+      "reusable_group_id": "sample-v5-data-shared-group",
+      "shared_parameter_values": {
+        "r.session_region": "group-default-region"
+      },
+      "shared_parameter_template_values": {
+        "r.session_region": "group-default-region"
+      },
+      "shared_parameter_sensitive_names": []
+    },
+    {
+      "execution_id": "sample-v5-data-run",
+      "snapshot_step_id": "sample-v5-data-step-execution-local",
+      "test_case_id": "sample-v5-data-case-execution",
+      "step_order": 2,
+      "action": "Review @t.email in @s.tenant using build @r.build.",
+      "expected_result": "The displayed account, tenant and build match this input row.",
+      "step_type": "web",
+      "group_id": "sample-v5-data-local-execution",
+      "group_name": "Inspect supplied inputs",
+      "group_kind": "local",
+      "shared_parameter_values": {},
+      "shared_parameter_template_values": {},
+      "shared_parameter_sensitive_names": []
+    }
+  ]
+}

@@ -703,15 +703,13 @@
 
 .ai-test-generator-context-engine .ai-prompt-context-panel { position: relative; gap: 8px !important; }
 .ai-test-generator-context-engine > .ai-test-generator-section__heading small { display: none; }
-.ai-test-generator-context-engine .ai-prompt-context-head { position: absolute; z-index: 2; top: -34px; right: 0; display: flex !important; align-items: center; justify-content: flex-end; gap: 8px; margin: 0 !important; padding: 0 !important; border: 0 !important; }
+.ai-test-generator-context-engine .ai-prompt-context-head { position: static; order: 0; display: flex !important; align-items: center; justify-content: flex-end; gap: 8px; margin: 0 !important; padding: 0 !important; border: 0 !important; }
 .ai-test-generator-context-engine .ai-prompt-context-head > span { display: none; }
-.ai-test-generator-context-engine .ai-prompt-context-head::before { padding: 5px 12px; color: #fff; background: #003d9b; border-radius: 999px; content: "Manual"; font-size: 10px; font-weight: 700; }
-.ai-test-generator-context-engine .ai-prompt-template-trigger { min-height: 25px; padding: 4px 12px; color: #434654; background: #e1e8ff; border: 1px solid #c3c6d6; border-radius: 999px; }
+.ai-test-generator-context-engine .ai-prompt-template-trigger { min-height: 34px; padding: 5px 7px; color: #434654; background: #e1e8ff; border: 1px solid #c3c6d6; border-radius: 7px; }
 .ai-test-generator-context-engine .ai-prompt-template-trigger svg { display: none; }
-.ai-test-generator-context-engine .ai-prompt-template-trigger > span { font-size: 0; }
-.ai-test-generator-context-engine .ai-prompt-template-trigger > span::after { content: "Template"; font-size: 10px; }
+.ai-test-generator-context-engine .ai-prompt-template-trigger > span { font-size: 11px; }
 .ai-test-generator-context-engine .ai-prompt-context-tabs { gap: 3px; padding: 2px; background: #eceefa; border-radius: 7px; }
-.ai-test-generator-context-engine .ai-prompt-context-tabs button { min-height: 30px; padding: 5px 7px; font-size: 11px; }
+.ai-test-generator-context-engine .ai-prompt-context-tabs button { min-height: 30px; padding: 5px 4px; font-size: 11px; }
 .ai-test-generator-context-engine .ai-prompt-context-panel textarea { min-height: 96px !important; padding: 10px !important; font-size: 12px !important; line-height: 18px !important; }
 .ai-test-generator-context-engine .ai-smart-context-card { padding: 9px !important; }
 .ai-test-generator-context-engine .ai-smart-context-card strong,
@@ -941,16 +939,33 @@ html body .modal-backdrop.test-case-ai-studio-backdrop .ai-test-generator-header
 
 @media (max-width: 720px) {
   html body .modal-backdrop.test-case-ai-studio-backdrop { padding: 0 !important; }
-  html body .modal-backdrop.test-case-ai-studio-backdrop > .modal-card.ai-test-generator-modal { width: 100vw !important; height: 100dvh !important; max-width: 100vw !important; max-height: 100dvh !important; border: 0 !important; border-radius: 0 !important; }
+  html body .modal-backdrop.test-case-ai-studio-backdrop > .modal-card.ai-test-generator-modal { width: 100vw !important; height: 100dvh !important; max-width: 100vw !important; max-height: 100dvh !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; border: 0 !important; border-radius: 0 !important; scrollbar-gutter: auto; }
   .modal-backdrop > .ai-test-generator-modal { grid-template-rows: 60px minmax(0, 1fr) auto; }
   .ai-test-generator-layout { display: block; overflow: auto; }
   .ai-test-generator-context { border: 0; border-bottom: 1px solid #d3d8e6; }
-  .ai-test-generator-workspace { min-height: calc(100dvh - 112px); }
+  .ai-test-generator-workspace { min-height: calc(100dvh - 112px); grid-template-rows: auto auto auto minmax(280px, 1fr) auto; }
+  .ai-test-generator-header { gap: 8px; padding-inline: 12px; }
+  .ai-test-generator-header > div:first-child { min-width: 0; }
+  .ai-test-generator-header > div:first-child > svg { flex: 0 0 auto; }
+  .ai-test-generator-header h1 { font-size: 16px; line-height: 20px; }
+  .ai-test-generator-header__actions { flex: 0 0 auto; gap: 4px; }
   .ai-test-generator-header__actions label { display: none; }
   .ai-test-generator-header__actions .ai-test-generator-insight-toggle span { display: none; }
   .ai-test-generator-workspace__header,
   .ai-test-generator-selection-bar,
   .ai-test-generator-footer { padding-right: 14px; padding-left: 14px; }
+  .ai-test-generator-workspace__header { align-items: stretch; flex-direction: column; gap: 12px; padding-block: 14px; }
+  .ai-test-generator-workspace__identity { justify-content: space-between; gap: 8px; }
+  .ai-test-generator-workspace__identity > div { min-width: 0; }
+  .ai-test-generator-workspace__header h2 { font-size: 22px; line-height: 26px; }
+  .ai-test-generator-workspace__identity > span { padding-inline: 10px; font-size: 11px; }
+  .ai-test-generator-view-controls { flex-wrap: wrap; gap: 6px; }
+  .ai-test-generator-authoring-tabs button { gap: 4px; padding-inline: 6px; }
+  .ai-test-generator-selection-bar { flex-wrap: wrap; gap: 10px 16px; padding-block: 12px; }
+  .ai-test-generator-selection-bar > span { flex-basis: 100%; margin-left: 0; white-space: normal; }
+  .ai-test-generator-context-engine .ai-prompt-context-toolbar { gap: 4px; }
+  .ai-test-generator-context-engine .ai-prompt-context-tabs { gap: 1px; }
+  .ai-test-generator-context-engine .ai-prompt-context-tabs button { padding-inline: 3px; }
   .ai-test-generator-drafts { padding: 18px 14px; }
   .ai-test-generator-step-table { overflow-x: auto; }
   .ai-test-generator-step-table__head,

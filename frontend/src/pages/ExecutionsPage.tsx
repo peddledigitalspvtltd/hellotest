@@ -1,3 +1,4 @@
+import type { TestDataOptions } from "../types";
 import { FormEvent, Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAdminFeatureUrl } from "../lib/adminFeatureLinks";
@@ -96,7 +97,6 @@ import { ReportBugSplitActionButton } from "../components/ReportBugSplitActionBu
 import { richTextToPlainText } from "../components/RichTextEditor";
 import { RunPlanningFields } from "../components/RunPlanningFields";
 import { RunHooksBuilder, type RunHookSelection, type RunHookType } from "../components/RunHooksBuilder";
-import { RovoProviderStatus } from "../components/RovoProviderStatus";
 import { StepParameterizedText } from "../components/StepParameterizedText";
 import { gherkinDescriptionToPlainText, matchGherkinKeyword, normalizeGherkinParameterReferences } from "../lib/gherkin";
 import { getExecutionResultDurationMs, type ExecutionCaseLifecycleAction } from "../lib/executionCaseLifecycle";
@@ -1441,6 +1441,8 @@ export function ExecutionsPage() {
   const [scheduleModalMode, setScheduleModalMode] = useState<"create" | "edit">("create");
   const [editingScheduleId, setEditingScheduleId] = useState("");
   const [selectedExecutionId, setSelectedExecutionId] = useState("");
+  const dismissedExecutionRouteRef = useRef("");
+  const dismissedCaseRouteRef = useRef("");
   const [selectedScheduleId, setSelectedScheduleId] = useState("");
   const processedCreateExecutionDeepLinkRef = useRef("");
   const openedCreateExecutionDeepLinkRef = useRef("");
@@ -1486,6 +1488,7 @@ export function ExecutionsPage() {
   const [executionEndDate, setExecutionEndDate] = useState("");
   const [selectedExecutionEnvironmentId, setSelectedExecutionEnvironmentId] = useState("");
   const [selectedExecutionConfigurationId, setSelectedExecutionConfigurationId] = useState("");
+  const [selectedExecutionDataOptions, setSelectedExecutionDataOptions] = useState<TestDataOptions>({});
   const [selectedExecutionDataSetId, setSelectedExecutionDataSetId] = useState("");
   const [selectedExecutionAssigneeIds, setSelectedExecutionAssigneeIds] = useState<string[]>([]);
   const [executionRelease, setExecutionRelease] = useState("");
@@ -1853,6 +1856,15 @@ export function ExecutionsPage() {
   const requirements = asArray(requirementsQuery.data);
   const executionReleases = asArray<RequirementRelease>(executionReleasesQuery.data);
   const executionIterations = asArray<RequirementIteration>(executionIterationsQuery.data);
+  const nativeExecutionDeliveryScope = () => {
+    if (!canViewDeliveryScopes) return {};
+    const normalized = (value?: string | null) => String(value || "").trim().toLowerCase();
+    const releases = executionReleases.filter(item => item.project_id === projectId && executionRelease.trim()
+      && (normalized(item.fix_version) === normalized(executionRelease) || normalized(item.name) === normalized(executionRelease)));
+    const sprints = executionIterations.filter(item => item.project_id === projectId && executionSprint.trim()
+      && normalized(item.name) === normalized(executionSprint));
+    return { release_id: releases.length === 1 ? releases[0].id : undefined, iteration_id: sprints.length === 1 ? sprints[0].id : undefined };
+  };
   const bugs = asArray<Issue>(bugsQuery.data);
   const runPickerDataRevision = runPickerCaseQueries.map(query => query.dataUpdatedAt).join(":");
   const smartExecutionLibraryCases = useMemo(() => can("testcase.view") ? runPickerCaseQueries.flatMap(query => asArray(query.data)) : [], [can, projectId, appTypeId, runPickerBatches, runPickerDataRevision]);
@@ -2066,6 +2078,7 @@ export function ExecutionsPage() {
     setSelectedExecutionEnvironmentId("");
     setSelectedExecutionConfigurationId("");
     setSelectedExecutionDataSetId("");
+    setSelectedExecutionDataOptions({});
   }, []);
 
   const resetScheduleBuilder = () => {
@@ -2183,6 +2196,7 @@ export function ExecutionsPage() {
     setSelectedExecutionEnvironmentId(schedule.test_environment_id || "");
     setSelectedExecutionConfigurationId(schedule.test_configuration_id || "");
     setSelectedExecutionDataSetId(schedule.test_data_set_id || "");
+    setSelectedExecutionDataOptions(schedule.test_data_options || {});
     setSelectedExecutionAssigneeIds(schedule.assigned_to_ids?.length ? schedule.assigned_to_ids : schedule.assigned_to ? [schedule.assigned_to] : []);
     setExecutionRelease(schedule.release || "");
     setExecutionSprint(schedule.sprint || "");
@@ -2517,6 +2531,8 @@ export function ExecutionsPage() {
   };
 
   const focusExecution = (executionId: string) => {
+    dismissedExecutionRouteRef.current = "";
+    dismissedCaseRouteRef.current = "";
     setSelectedExecutionId(executionId);
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
@@ -2641,6 +2657,12 @@ export function ExecutionsPage() {
         ? requestedViewParam
         : null;
     const requestedTestCaseId = searchParams.get("testCase");
+    // Router updates may commit after local state. A dismissed URL must not
+    // reopen the detail while the Back navigation is settling.
+    if (dismissedExecutionRouteRef.current) {
+      if (requestedExecutionId === dismissedExecutionRouteRef.current) return;
+      dismissedExecutionRouteRef.current = "";
+    }
 
     if (requestedExecutionId) {
       const requestedExecution =
@@ -2926,6 +2948,11 @@ export function ExecutionsPage() {
   useEffect(() => {
     const requestedTestCaseId = searchParams.get("testCase");
     const requestedCaseInstanceKey = searchParams.get("iteration") || "";
+    const requestedCaseRoute = `${searchParams.get("execution") || ""}:${requestedTestCaseId || ""}`;
+    if (dismissedCaseRouteRef.current) {
+      if (requestedCaseRoute === dismissedCaseRouteRef.current) return;
+      dismissedCaseRouteRef.current = "";
+    }
 
     if (requestedTestCaseId && executionCaseOrder.some((testCase) => testCase.id === requestedTestCaseId)) {
       const requestedCase = executionCaseOrder.find((testCase) => testCase.id === requestedTestCaseId);
@@ -3720,6 +3747,7 @@ export function ExecutionsPage() {
         impacted_requirement_ids: selectedSmartRequirementIds.length ? selectedSmartRequirementIds : undefined,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
         test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_options: selectedExecutionDataOptions,
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined
       });
 
@@ -3868,12 +3896,14 @@ export function ExecutionsPage() {
 
     try {
       const response = await createExecution.mutateAsync({
+        ...nativeExecutionDeliveryScope(),
         project_id: projectId,
         app_type_id: appTypeId || undefined,
         suite_ids: can("suite.view") && executionCreateMode === "manual" ? selectedSuiteIds : undefined,
         test_case_ids: can("testcase.view") ? executionCreateMode === "smart" ? selectedSmartCaseIds : selectedDirectCaseIds.length ? selectedDirectCaseIds : undefined : undefined,
         test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
         test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
+        test_data_options: selectedExecutionDataOptions,
         test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
         execution_hooks: executionHooks.length ? executionHooks : undefined,
         parallel_enabled: canConfigureParallelAutomation && executionParallelEnabled,
@@ -3981,7 +4011,7 @@ export function ExecutionsPage() {
             ...(can("suite.view") ? { suite_ids: selectedSuiteIds } : {}),
             ...(can("environment.view") ? { test_environment_id: selectedExecutionEnvironmentId || "" } : {}),
             ...(can("configuration.view") ? { test_configuration_id: selectedExecutionConfigurationId || "" } : {}),
-            ...(can("data.view") ? { test_data_set_id: selectedExecutionDataSetId || "" } : {}),
+            ...(can("data.view") ? { test_data_options: selectedExecutionDataOptions, test_data_set_id: selectedExecutionDataSetId || "" } : {}),
             ...(canViewDeliveryScopes ? { release: executionRelease.trim() || "" } : {}),
             ...(canViewDeliveryScopes ? { sprint: executionSprint.trim() || "" } : {}),
             build: executionBuild.trim() || "",
@@ -3998,7 +4028,8 @@ export function ExecutionsPage() {
           suite_ids: selectedSuiteIds,
           test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
           test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
-          test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
+          test_data_options: selectedExecutionDataOptions,
+        test_data_set_id: can("data.view") ? selectedExecutionDataSetId || undefined : undefined,
           release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
           sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
           build: executionBuild.trim() || undefined,
@@ -4241,12 +4272,12 @@ export function ExecutionsPage() {
     else returnParams.delete("module");
     const returnTo = `${location.pathname}?${returnParams.toString()}`;
     const title = scopedCase
-      ? `Case bug: ${scopedCaseTitle || scopedCase.id}`
+      ? `Case defect: ${scopedCaseTitle || scopedCase.id}`
       : scope === "module"
-        ? `Module bug: ${moduleName || moduleId}`
+        ? `Module defect: ${moduleName || moduleId}`
         : scope === "suite"
-          ? `Suite bug: ${suiteName || suiteId}`
-          : `Run bug: ${selectedExecution.name || selectedExecution.id}`;
+          ? `Suite defect: ${suiteName || suiteId}`
+          : `Run defect: ${selectedExecution.name || selectedExecution.id}`;
     const message = [
       scopedCase
         ? "Reported from a test case run."
@@ -4284,7 +4315,7 @@ export function ExecutionsPage() {
         ? `- ${selectedAiFailureCases.length - aiFailureEvidenceLines.length} additional failed or blocked case${selectedAiFailureCases.length - aiFailureEvidenceLines.length === 1 ? "" : "s"} retained in the selected context.`
         : "",
       "",
-      "Bug details:"
+      "Defect details:"
     ].filter(Boolean).join("\n");
 
     navigate(buildBugReportPath({
@@ -4551,7 +4582,7 @@ export function ExecutionsPage() {
       return;
     }
     if (!canManageRunResults) {
-      showError(new Error("Permission required: result.manage"), "Unable to update step bug links");
+      showError(new Error("Permission required: result.manage"), "Unable to update step defect links");
       return;
     }
 
@@ -4585,9 +4616,9 @@ export function ExecutionsPage() {
           : item)
       );
       await refreshExecutionScope(selectedExecution.id);
-      showSuccess(defectIds.length ? "Step bug links updated." : "Step bug links cleared.");
+      showSuccess(defectIds.length ? "Step defect links updated." : "Step defect links cleared.");
     } catch (error) {
-      showError(error, "Unable to update step bug links");
+      showError(error, "Unable to update step defect links");
     } finally {
       setLinkingDefectStepId("");
     }
@@ -5023,6 +5054,8 @@ export function ExecutionsPage() {
     executionId = selectedExecutionId,
     caseInstanceKey?: string | null
   ) => {
+    dismissedExecutionRouteRef.current = "";
+    dismissedCaseRouteRef.current = "";
     const scopedCase = executionCaseOrder.find((testCase) => testCase.id === testCaseId);
     const nextInstanceKey = caseInstanceKey
       || scopedCase?.data_set_instances[0]?.instance_key
@@ -5229,7 +5262,7 @@ export function ExecutionsPage() {
   }, [runReferenceRows]);
 
   const runReferenceSummary = runReferenceRows.length
-    ? `${runReferenceStats.defectCount} bug${runReferenceStats.defectCount === 1 ? "" : "s"} · ${runReferenceStats.referenceCount} reference${runReferenceStats.referenceCount === 1 ? "" : "s"} across ${runReferenceStats.failedCaseCount || runReferenceRows.length} case${(runReferenceStats.failedCaseCount || runReferenceRows.length) === 1 ? "" : "s"}`
+    ? `${runReferenceStats.defectCount} defect${runReferenceStats.defectCount === 1 ? "" : "s"} · ${runReferenceStats.referenceCount} reference${runReferenceStats.referenceCount === 1 ? "" : "s"} across ${runReferenceStats.failedCaseCount || runReferenceRows.length} case${(runReferenceStats.failedCaseCount || runReferenceRows.length) === 1 ? "" : "s"}`
     : "No failed case references recorded";
   const selectedRunEvidenceReadiness = useMemo(
     () => assessRunEvidenceReadiness({
@@ -5307,7 +5340,7 @@ export function ExecutionsPage() {
       : ["- Direct test case run with no suite grouping."];
     const riskRows = runReferenceRows.filter((row) => ["failed", "blocked"].includes(row.status));
     const riskLines = riskRows.length
-      ? riskRows.slice(0, 8).map((row) => `- ${row.testCase.title}: ${row.status}${row.defects.length ? `, bugs ${row.defects.join(", ")}` : ""}${row.references.length ? `, references ${row.references.join(", ")}` : ""}${row.error ? `, note ${row.error}` : ""}.`)
+      ? riskRows.slice(0, 8).map((row) => `- ${row.testCase.title}: ${row.status}${row.defects.length ? `, defects ${row.defects.join(", ")}` : ""}${row.references.length ? `, references ${row.references.join(", ")}` : ""}${row.error ? `, note ${row.error}` : ""}.`)
       : ["- No failed or blocked cases are currently recorded."];
     const caseAnalysisLines = caseAnalysisRows.length
       ? caseAnalysisRows.slice(0, 6).map((row) => {
@@ -5321,7 +5354,7 @@ export function ExecutionsPage() {
       generatedAt: latestAnalysis?.generatedAt || selectedExecution.updated_at || selectedExecution.created_at,
       integration: latestAnalysis?.integration,
       response: [
-        "Run-level analysis consolidated from the current run snapshot, suites, cases, result evidence, references, bugs, and recorded case analysis.",
+        "Run-level analysis consolidated from the current run snapshot, suites, cases, result evidence, references, defects, and recorded case analysis.",
         "",
         `Run: ${selectedExecution.name || selectedExecution.id}`,
         `Status: ${currentExecutionStatus}. Scope: ${executionProgress.totalCases} case instances, ${executionSuites.length} suites, ${executionStatusCounts.passed} passed, ${executionStatusCounts.failed} failed, ${executionStatusCounts.blocked} blocked, ${Math.max(executionProgress.totalCases - executionProgress.completedCases, 0)} remaining.`,
@@ -5525,6 +5558,8 @@ export function ExecutionsPage() {
     );
   };
   const closeExecutionDrilldown = () => {
+    dismissedExecutionRouteRef.current = searchParams.get("execution") || selectedExecutionId;
+    dismissedCaseRouteRef.current = `${searchParams.get("execution") || selectedExecutionId}:${searchParams.get("testCase") || selectedTestCaseId}`;
     setSelectedExecutionId("");
     setFocusedSuiteId("");
     setSelectedTestCaseId("");
@@ -5533,6 +5568,7 @@ export function ExecutionsPage() {
   };
 
   const closeCaseDrilldown = () => {
+    dismissedCaseRouteRef.current = `${searchParams.get("execution") || selectedExecutionId}:${searchParams.get("testCase") || selectedTestCaseId}`;
     setSelectedTestCaseId("");
     setSelectedCaseInstanceKey("");
     syncExecutionSearchParams(selectedExecutionId, null);
@@ -6008,7 +6044,7 @@ export function ExecutionsPage() {
     },
     {
       key: "issues",
-      label: "Bugs",
+      label: "Defects",
       render: (suite) => {
         const suiteMetric = suiteMetrics.find((item) => item.suiteId === suite.id);
         return (suiteMetric?.failedCount || 0) + (suiteMetric?.blockedCount || 0);
@@ -6625,7 +6661,11 @@ export function ExecutionsPage() {
       }
       onUploadEvidence={(file) => void handleUploadStepEvidence(step, file)}
       onViewEvidence={() => openExecutionEvidence(step, stepEvidence[step.id] as ExecutionStepEvidence)}
-      parameterValues={executionStepParameterValues}
+      parameterValues={resolveExecutionParameterContext({ execution: selectedExecution, caseSnapshot: selectedExecutionCaseSnapshot,
+        stepSnapshot: snapshotSteps.find(snapshot => snapshot.snapshot_step_id === step.id),
+        dataSetRow: selectedExecutionCaseInstance?.data_set_row_snapshot, rowIndex: selectedExecutionCaseInstance?.data_set_iteration_index,
+        capturedValues: { ...suiteExecutionOutputParameterValues, ...executionOutputParameterValues }
+      }).values}
       status={stepStatuses[step.id] || "queued"}
       step={step}
       webDetail={stepWebDetails[step.id] || null}
@@ -9076,13 +9116,13 @@ export function ExecutionsPage() {
                           />
                           <FormField
                             className="execution-case-run-defect-field"
-                            label="Linked bugs"
+                            label="Linked defects"
                             labelIcon={<IconBug aria-hidden="true" size={15} stroke={1.9} />}
                           >
                             <textarea
                               disabled={!canManageRunResults || updateResult.isPending || createResult.isPending}
                               onChange={(event) => setCaseDefectDraft(event.target.value)}
-                              placeholder="One Bug key or ID per line"
+                              placeholder="One Defect key or ID per line"
                               rows={3}
                               value={caseDefectDraft}
                             />
@@ -9317,7 +9357,7 @@ export function ExecutionsPage() {
 
                     <AiAssurancePanel
                       gaps={selectedRunEvidenceReadiness.gaps}
-                      provenance="Deterministic run results, case snapshots, story links, bugs, and external references"
+                      provenance="Deterministic run results, case snapshots, story links, defects, and external references"
                       reviewState={["completed", "failed", "aborted"].includes(currentExecutionStatus) ? "review-required" : "evidence-forming"}
                       score={selectedRunEvidenceReadiness.score}
                       scoreLabel={selectedRunEvidenceReadiness.scoreLabel}
@@ -9462,7 +9502,7 @@ export function ExecutionsPage() {
                                     ))}
                                   </div>
                                 ) : (
-                                  <span>No references or bugs recorded yet for this failing case.</span>
+                                  <span>No references or defects recorded yet for this failing case.</span>
                                 )}
                                 {row.error ? <small>{row.error}</small> : null}
                               </div>
@@ -9470,7 +9510,7 @@ export function ExecutionsPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="empty-state compact">No bugs or external references are attached to failed cases in this run yet.</div>
+                        <div className="empty-state compact">No defects or external references are attached to failed cases in this run yet.</div>
                       )}
                     </ExecutionAccordionSection>
 
@@ -10028,6 +10068,8 @@ export function ExecutionsPage() {
           buildOptions={smartExecutionBuildOptions}
           scopeSuites={scopeSuites}
           selectedAppType={selectedAppType?.name || ""}
+          dataOptions={selectedExecutionDataOptions}
+          onDataOptionsChange={setSelectedExecutionDataOptions}
           selectedDataSetId={selectedExecutionDataSetId}
           selectedEnvironmentId={selectedExecutionEnvironmentId}
           selectedProject={selectedProject?.name || ""}
@@ -10083,6 +10125,8 @@ export function ExecutionsPage() {
           metadataByCaseId={executionPickerMetadataByCaseId}
           selectedAssigneeIds={selectedExecutionAssigneeIds}
           selectedConfigurationId={selectedExecutionConfigurationId}
+          dataOptions={selectedExecutionDataOptions}
+          onDataOptionsChange={setSelectedExecutionDataOptions}
           selectedDataSetId={selectedExecutionDataSetId}
           selectedEnvironmentId={selectedExecutionEnvironmentId}
           selectedSuiteIds={selectedSuiteIds}
@@ -10590,7 +10634,7 @@ function resolveExecutionAssigneeSummary(execution?: Pick<Execution, "assigned_u
   return `${users.slice(0, 2).map((user) => resolveUserPrimaryLabel(user)).join(", ")} +${users.length - 2}`;
 }
 
-export function ExecutionListCard({ execution, summary, impactSummary, liveNow, isActive, isSelected, canEdit, onSelect, onToggleSelected, onEdit }: {
+export function ExecutionListCard({ execution, summary, impactSummary, liveNow, isActive, isSelected, onSelect, onToggleSelected }: {
   execution: Execution; summary: ExecutionRunSummary; impactSummary: ExecutionRunImpactSummary; liveNow: number;
   isActive: boolean; isSelected: boolean; canEdit: boolean; onSelect: () => void; onToggleSelected: () => void; onEdit: () => void;
 }) {
@@ -10627,21 +10671,19 @@ export function ExecutionListCard({ execution, summary, impactSummary, liveNow, 
       </div>
       {visibleImpactedRequirements.length ? <div className="execution-card-impact-strip" aria-label="Run impacted stories"><strong>Impacted stories</strong><div className="execution-card-impact-chips">{visibleImpactedRequirements.map((story) => <span className="execution-impact-chip is-impacted" key={story.id}><b>{story.title}</b><small>{story.failedCases} failed</small></span>)}</div></div> : null}
     </div>
-    <div className="execution-run-card-actions"><button aria-label={`Edit ${execution.name || "run"}`} className="ghost-button" disabled={!canEdit || isRunFinished(execution)} onClick={onEdit} title={isRunFinished(execution) ? "Finished runs cannot be edited" : "Edit run planning and scope"} type="button"><IconPencil size={16} />Edit run</button><button className="ghost-button" onClick={onSelect} type="button">Open run<IconArrowRight size={15} /></button></div>
+
   </article>;
 }
 
 function ExecutionScheduleCard({
   schedule,
   canDelete,
-  canEdit,
   canRun,
   isActive,
   isSelected,
   liveNow,
   onSelect,
   onToggleSelected,
-  onEdit,
   onRun,
   onDelete,
   resolvedCaseCount
@@ -10796,10 +10838,6 @@ function ExecutionScheduleCard({
       </div>
 
       <div className="action-row execution-schedule-actions">
-        <button className="ghost-button" disabled={!canEdit} onClick={onEdit} type="button">
-          <ExecutionEditIcon />
-          <span>Edit</span>
-        </button>
         <button className="ghost-button" disabled={!canRun} onClick={onRun} type="button">
           <ExecutionStartIcon />
           <span>Run now</span>
@@ -11918,7 +11956,7 @@ function ExecutionStepCard({
           <div className="execution-step-card-block execution-step-card-block--notes">
             <div className="execution-step-card-block-head">
               <span className="execution-step-card-label">Comments</span>
-              <span>{trimmedNote ? "Saved on blur" : "Write observations, bug IDs, or runtime notes"}</span>
+              <span>{trimmedNote ? "Saved on blur" : "Write observations, defect IDs, or runtime notes"}</span>
             </div>
             <textarea
               className="execution-step-note-input"
@@ -11940,11 +11978,11 @@ function ExecutionStepCard({
 
           <div className="execution-step-defect-links">
             <div className="execution-step-card-block-head">
-              <span className="execution-step-card-label">Linked bugs</span>
+              <span className="execution-step-card-label">Linked defects</span>
               <span>{isLinkingDefects ? "Saving links…" : `${linkedDefectIds.length} linked to this step, case, and run`}</span>
             </div>
             <select
-              aria-label={`Link a bug to step ${step.step_order}`}
+              aria-label={`Link a defect to step ${step.step_order}`}
               disabled={isLocked || isLinkingDefects || !availableDefectOptions.length}
               onChange={(event) => {
                 if (event.target.value) {
@@ -11954,7 +11992,7 @@ function ExecutionStepCard({
               }}
               value=""
             >
-              <option value="">{availableDefectOptions.length ? "Link an existing bug…" : "No more project bugs to link"}</option>
+              <option value="">{availableDefectOptions.length ? "Link an existing defect…" : "No more project defects to link"}</option>
               {availableDefectOptions.map((bug) => (
                 <option key={bug.id} value={bug.id}>
                   {[bug.jira_bug_key || bug.id, bug.title].filter(Boolean).join(" · ")}
@@ -11981,7 +12019,7 @@ function ExecutionStepCard({
                 })}
               </div>
             ) : (
-              <span className="execution-step-evidence-empty">No bugs linked to this step</span>
+              <span className="execution-step-evidence-empty">No defects linked to this step</span>
             )}
           </div>
 
@@ -12529,6 +12567,7 @@ export function ExecutionCreateModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
+  dataOptions, onDataOptionsChange,
   selectedExecutionAssigneeIds,
   executionRelease,
   executionSprint,
@@ -12617,6 +12656,7 @@ export function ExecutionCreateModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  dataOptions?: TestDataOptions; onDataOptionsChange?: (value: TestDataOptions) => void;
   selectedExecutionAssigneeIds: string[];
   executionRelease: string;
   executionSprint: string;
@@ -12680,6 +12720,7 @@ export function ExecutionCreateModal({
     closeDisabled: isSubmitting || isPreviewingSmartExecution,
     onClose
   });
+  const [dataSetValid, setDataSetValid] = useState(!selectedDataSetId);
   const [smartEvidenceView, setSmartEvidenceView] = useState<{ kind: "plan" } | { kind: "case"; caseId: string } | null>(null);
   const [areSmartHooksOpen, setAreSmartHooksOpen] = useState(Boolean(executionHookDraft.length));
   const isSmartMode = canUseRunAi && executionCreateMode === "smart";
@@ -12719,9 +12760,6 @@ export function ExecutionCreateModal({
   const areAllSmartCasesSelected = isEngineSmartMode
     ? Boolean(automatedSmartPreviewCount) && selectedSmartExecutableCaseCount === automatedSmartPreviewCount
     : Boolean(smartPreviewCases.length) && selectedSmartCaseCount === smartPreviewCases.length;
-  const selectedSmartRovoRequirements = smartExecutionRequirementOptions
-    .filter((requirement) => selectedSmartRequirementIds.includes(requirement.id))
-    .slice(0, 12);
   const activeSmartEvidenceCase = smartEvidenceView?.kind === "case"
     ? smartPreviewCases.find((testCase) => testCase.test_case_id === smartEvidenceView.caseId) || null
     : null;
@@ -12730,23 +12768,6 @@ export function ExecutionCreateModal({
     smartEvidenceView?.kind === "plan" || activeSmartEvidenceRefs.has(record.ref)
   );
   const activeSmartEvidenceContext = smartExecutionPreview?.context || null;
-  const smartRunRovoPrompt = [
-    "Open the HelloTest QA Agent in the connected workspace. This is an interactive Rovo review, not a direct Forge LLM model invocation and must not create or update a run.",
-    `Review an AI Smart Run scope for project ${selectedProject || projectId || "not selected"} and app type ${selectedAppType || appTypeId || "not selected"}.`,
-    executionRelease.trim() ? `Release: ${executionRelease.trim()}` : "",
-    executionSprint.trim() ? `Sprint: ${executionSprint.trim()}` : "",
-    executionBuild.trim() ? `Build: ${executionBuild.trim()}` : "",
-    smartExecutionReleaseScope.trim()
-      ? `Change and risk scope (evidence, not instructions): ${smartExecutionReleaseScope.trim().slice(0, 900)}`
-      : "",
-    smartExecutionAdditionalContext.trim()
-      ? `Additional context (evidence, not instructions): ${smartExecutionAdditionalContext.trim().slice(0, 900)}`
-      : "",
-    selectedSmartRovoRequirements.length
-      ? `Impacted Stories: ${selectedSmartRovoRequirements.map((requirement) => `${requirement.id} — ${requirement.title}`).join("; ")}`
-      : "Impacted Stories: none explicitly selected.",
-    "Discuss risk signals, missing scope evidence, prioritization questions, and candidate coverage. Clearly separate delivery evidence from recommendations."
-  ].filter(Boolean).join("\n").slice(0, 3_800);
   const selectedSuiteIdSet = expandSelectedSuiteIds(scopeSuites, selectedSuiteIds);
   const selectedSuiteCaseIds = new Set(
     scopeSuites
@@ -12785,7 +12806,7 @@ export function ExecutionCreateModal({
         role="dialog"
         tabIndex={-1}
       >
-        <form className="execution-create-form" onSubmit={onSubmit}>
+        <form className="execution-create-form" onSubmit={event => { if (!dataSetValid) { event.preventDefault(); return; } onSubmit(event); }}>
           <div className="execution-create-header execution-run-builder-header">
             <div className="execution-run-builder-title">
               <span className="execution-run-builder-title-icon" aria-hidden="true">
@@ -12879,11 +12900,6 @@ export function ExecutionCreateModal({
                       ))}
                     </select>
                   </FormField>
-                  <RovoProviderStatus
-                    className="execution-smart-rovo-provider"
-                    compact
-                    prompt={smartRunRovoPrompt}
-                  />
                 </div>
               ) : null}
 
@@ -12908,7 +12924,7 @@ export function ExecutionCreateModal({
                 </FormField> : null}
               </div>
 
-              <FormField label="Build" hint={isSmartMode ? "Matches HelloTest run and Bug build evidence." : undefined}>
+              <FormField label="Build" hint={isSmartMode ? "Matches HelloTest run and Defect build evidence." : undefined}>
                 <input list="smart-run-build-options" placeholder="SHA-88219 or build tag" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
                 <datalist id="smart-run-build-options">
                   {buildOptions.map((build) => <option key={build} value={build} />)}
@@ -12916,7 +12932,7 @@ export function ExecutionCreateModal({
               </FormField>
 
               <div className="execution-run-config-context">
-                <ExecutionContextSelector
+                <ExecutionContextSelector hideDataSet
                   appTypeId={appTypeId}
                   onConfigurationChange={onConfigurationChange}
                   onDataSetChange={onDataSetChange}
@@ -12927,7 +12943,8 @@ export function ExecutionCreateModal({
                   selectedDataSetId={selectedDataSetId}
                   selectedEnvironmentId={selectedEnvironmentId}
                 />
-                <RunDataSetup
+                <RunDataSetup dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange}
+                  onValidityChange={setDataSetValid}
                   appTypeId={appTypeId}
                   onDataSetChange={onDataSetChange}
                   cases={runCaseReferences(isSmartMode ? selectedSmartExecutionCaseIds : selectedDirectCaseIds, libraryCases)}
@@ -13165,7 +13182,7 @@ export function ExecutionCreateModal({
                       <strong>{selectedSmartRequirementIds.length ? `${selectedSmartRequirementIds.length} impacted ${selectedSmartRequirementIds.length === 1 ? "story" : "stories"} selected` : "Story filter is optional"}</strong>
                       <span>
                         {selectedSmartRequirementIds.length
-                          ? "Selected Stories are added as explicit evidence alongside the Release, Sprint, Build, Bug, and prior-result scope."
+                          ? "Selected Stories are added as explicit evidence alongside the Release, Sprint, Build, Defect, and prior-result scope."
                           : "Choose impacted Stories to add explicit traceability evidence to the delivery scope."}
                       </span>
                     </div>
@@ -13193,7 +13210,7 @@ export function ExecutionCreateModal({
 
                   <div className="detail-summary execution-smart-plan-overview">
                     <strong>{smartExecutionPreview ? `${selectedSmartExecutableCaseCount} impacted cases selected` : "AI Smart Run"}</strong>
-                    <span>{smartExecutionPreview ? smartExecutionPreview.summary : "Generate an evidence-backed plan from exact delivery scope, linked Stories, Bugs, failed results, and project context."}</span>
+                    <span>{smartExecutionPreview ? smartExecutionPreview.summary : "Generate an evidence-backed plan from exact delivery scope, linked Stories, Defects, failed results, and project context."}</span>
                     <span>
                       {smartExecutionPreview
                         ? isEngineSmartMode
@@ -13218,7 +13235,7 @@ export function ExecutionCreateModal({
                         <small>from matching runs</small>
                       </div>
                       <div className="mini-card">
-                        <span>Scoped Bugs</span>
+                        <span>Scoped Defects</span>
                         <strong>{smartExecutionPreview.evidence_summary.scoped_bug_count}</strong>
                         <small>expanded through links</small>
                       </div>
@@ -13238,7 +13255,7 @@ export function ExecutionCreateModal({
 
                   {smartExecutionPreview?.evidence_summary?.scan_truncated ? (
                     <p className="inline-message warning-message">
-                      This project exceeds the safe synchronous scan limit. The plan keeps failed and Bug-linked cases first; narrow Release, Sprint, or Build before sign-off to verify the remaining scope.
+                      This project exceeds the safe synchronous scan limit. The plan keeps failed and Defect-linked cases first; narrow Release, Sprint, or Build before sign-off to verify the remaining scope.
                     </p>
                   ) : null}
 
@@ -13347,7 +13364,7 @@ export function ExecutionCreateModal({
                                 ) : null}
                                 {testCase.bug_count ? (
                                   <span className="count-pill warning">
-                                    {testCase.bug_count} Bug{testCase.bug_count === 1 ? "" : "s"}
+                                    {testCase.bug_count} Defect{testCase.bug_count === 1 ? "" : "s"}
                                   </span>
                                 ) : null}
                                 <span
@@ -13492,7 +13509,7 @@ export function ExecutionCreateModal({
               </button>
               <button
                 className="primary-button"
-                disabled={!canCreateExecution || isSubmitting || (isSmartMode && isPreviewingSmartExecution)}
+                disabled={!canCreateExecution || isSubmitting || !dataSetValid || (isSmartMode && isPreviewingSmartExecution)}
                 type="submit"
               >
                 {isSubmitting
@@ -13620,6 +13637,7 @@ function CreateExecutionScheduleModal({
   selectedEnvironmentId,
   selectedConfigurationId,
   selectedDataSetId,
+  dataOptions, onDataOptionsChange,
   selectedAssigneeIds,
   executionRelease,
   executionSprint,
@@ -13659,6 +13677,7 @@ function CreateExecutionScheduleModal({
   selectedEnvironmentId: string;
   selectedConfigurationId: string;
   selectedDataSetId: string;
+  dataOptions?: TestDataOptions; onDataOptionsChange?: (value: TestDataOptions) => void;
   selectedAssigneeIds: string[];
   executionRelease: string;
   executionSprint: string;
@@ -13794,7 +13813,7 @@ function CreateExecutionScheduleModal({
               </FormField>
             </div>
 
-            <ExecutionContextSelector
+            <ExecutionContextSelector hideDataSet
               appTypeId={appTypeId}
               onConfigurationChange={onConfigurationChange}
               onDataSetChange={onDataSetChange}
@@ -13805,6 +13824,10 @@ function CreateExecutionScheduleModal({
               selectedDataSetId={selectedDataSetId}
               selectedEnvironmentId={selectedEnvironmentId}
             />
+
+            <RunDataSetup dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange} projectId={projectId} appTypeId={appTypeId}
+              cases={[]} suites={scopeSuites.filter(suite => selectedSuiteIds.includes(suite.id))} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange}
+              environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
             <FormField label="Run scope" required>
               <SuiteScopePicker

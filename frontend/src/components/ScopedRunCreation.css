@@ -1,0 +1,57 @@
+.modal-card.scoped-run-create-modal {
+  width: min(78rem, 100%) !important;
+  height: min(850px, calc(100dvh - 2rem));
+}
+
+.scoped-run-create-modal .scoped-run-create-body {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden !important;
+  scrollbar-gutter: auto;
+}
+
+.scoped-run-create-modal .scoped-run-config-pane,
+.scoped-run-create-modal .scoped-run-selection-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  gap: 18px;
+  padding: 18px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.scoped-run-create-modal .scoped-run-config-pane {
+  border-right: 1px solid var(--hellotest-dialog-border, var(--line));
+  background: var(--surface-secondary, #f7f8fa);
+}
+
+.scoped-run-create-modal .scoped-run-config-pane > *,
+.scoped-run-create-modal .scoped-run-selection-pane > * { flex-shrink: 0; min-width: 0; }
+.scoped-run-create-modal .scoped-run-pane-heading { display: grid; gap: 4px; }
+.scoped-run-create-modal .scoped-run-pane-heading strong { font-size: 13px; }
+.scoped-run-create-modal .scoped-run-pane-heading span { color: var(--text-muted); font-size: 12px; }
+.scoped-run-create-modal .scoped-run-config-pane .execution-create-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.scoped-run-create-modal .scoped-run-config-pane .execution-context-grid { grid-template-columns: minmax(0, 1fr); }
+.scoped-run-create-modal .scoped-run-config-pane .execution-create-grid--metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.scoped-run-create-modal .scoped-run-config-pane .execution-create-grid--metadata > :last-child { grid-column: 1 / -1; }
+.scoped-run-create-modal .scoped-run-config-pane .detail-summary { margin: 0; padding: 10px 12px; overflow-wrap: anywhere; }
+.scoped-run-create-modal .scoped-run-selection-pane .selection-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.scoped-run-create-modal .scoped-run-selection-pane .suite-modal-picker-shell { width: 100%; max-width: none; min-height: 220px; }
+.scoped-run-create-modal .execution-create-actions { display: flex; flex-direction: row; align-items: center; flex-wrap: nowrap; gap: 8px; }
+.scoped-run-create-modal .execution-create-actions > button { flex: 0 1 auto; height: 36px !important; min-height: 36px !important; max-height: 36px; min-width: 0; margin: 0; padding: 0 16px; }
+.scoped-run-create-modal .execution-create-header { flex-direction: row; }
+
+@media (max-width: 760px) {
+  .scoped-run-create-modal .scoped-run-create-body { display: block; overflow: auto !important; }
+  .scoped-run-create-modal .scoped-run-config-pane,
+  .scoped-run-create-modal .scoped-run-selection-pane { overflow: visible; padding: 14px 10px; }
+  .scoped-run-create-modal .scoped-run-config-pane { border-right: 0; border-bottom: 1px solid var(--hellotest-dialog-border, var(--line)); }
+  .scoped-run-create-modal .execution-create-actions > button { padding-inline: 10px; }
+}

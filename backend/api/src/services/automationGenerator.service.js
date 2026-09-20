@@ -42,6 +42,10 @@ const selectQueuedJob = obsDb.prepare(`
   WHERE (status = 'queued'
      OR (status = 'leased' AND lease_expires_at < CURRENT_TIMESTAMP))
     AND (payload->>'scheduled_at' IS NULL OR (payload->>'scheduled_at')::timestamptz <= CURRENT_TIMESTAMP)
+    AND NOT EXISTS (
+      SELECT 1 FROM project_deletion_jobs
+      WHERE project_id = automation_generator_jobs.project_id AND status IN ('queued', 'running', 'cleanup')
+    )
   ORDER BY created_at ASC, id ASC
   LIMIT 1
 `);
@@ -66,6 +70,10 @@ const markRunning = obsDb.prepare(`
       updated_at = CURRENT_TIMESTAMP
   WHERE id = ? AND status = 'leased' AND leased_by = ?
     AND lease_expires_at > CURRENT_TIMESTAMP
+    AND NOT EXISTS (
+      SELECT 1 FROM project_deletion_jobs
+      WHERE project_id = automation_generator_jobs.project_id AND status IN ('queued', 'running', 'cleanup')
+    )
 `);
 
 const markCompleted = obsDb.prepare(`

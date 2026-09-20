@@ -1,3 +1,4 @@
+import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -662,7 +663,7 @@ export function GroundedAssistant() {
                       </span>
                     ) : null}
                   </div>
-                  {message.scope ? <div className="grounded-assistant-message-scope">{message.scope.filters?.source_kinds?.filter((kind) => kind !== "product_help").map((kind) => kind.replace(/_/g, " ")).join(" · ") || "All permitted project sources"}{message.scope.filters?.as_of ? ` · As of ${new Date(message.scope.filters.as_of).toLocaleString()}` : " · Current knowledge"}</div> : null}
+                  {message.scope ? <div className="grounded-assistant-message-scope">{message.scope.filters?.source_kinds?.filter((kind) => kind !== "product_help").map((kind) => formatRecordKindLabel(kind)).join(" · ") || "All permitted project sources"}{message.scope.filters?.as_of ? ` · As of ${new Date(message.scope.filters.as_of).toLocaleString()}` : " · Current knowledge"}</div> : null}
                   <div className="grounded-assistant-message-content">
                     {notice ? <div className="grounded-assistant-turn-notice" role={notice.kind === "error" ? "alert" : "status"}><strong>{notice.title}</strong><p>{notice.message}</p>{message.content && ![notice.message, notice.title].includes(message.content) && notice.kind === "error" ? <details><summary>Service details</summary><p>{message.content}</p></details> : null}</div>
                       : <>{modelUnavailable ? <div className="grounded-assistant-evidence-notice"><strong>{citations.length ? "Sources found; answer model unavailable" : "Answer model unavailable"}</strong><span>{citations.length ? knowledgeModelFailureMessage(message.retrieval?.provider_error_code) : "The model could not finish this answer. Try evidence only to look for relevant sources."}</span></div> : null}{isAssistant ? validatedAnswer ? <KnowledgeAnswer message={message} onEvidenceOpen={(citation) => citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind)) ? setSelectedCitation(citation) : setExpandedSources((current) => ({ ...current, [message.id]: true }))} /> : message.answer_contract || message.retrieval?.answer_contract ? <p>This saved answer uses an unsupported evidence contract. Ask the question again to retrieve current evidence.</p> : <StructuredAssistantAnswer content={message.content} structure={message.retrieval?.answer_structure} /> : message.content}</>}
@@ -700,7 +701,7 @@ export function GroundedAssistant() {
                                 <span>
                                   <strong>{citation.title || citation.label || "Project source"}</strong>
                                   <small>
-                                    {citation.source_kind?.replace(/_/g, " ") || "knowledge"}
+                                    {formatRecordKindLabel(citation.source_kind, "knowledge")}
                                     {knowledgeCitationLocation(citation) ? ` · ${knowledgeCitationLocation(citation)}` : ""}
                                     {citation.freshness?.current === false ? " · Historical revision" : citation.freshness?.current ? " · Current revision" : ""}
                                     {citation.excerpt ? ` · ${citation.excerpt}` : ""}
@@ -783,7 +784,7 @@ export function GroundedAssistant() {
                     ["requirement", "Stories"],
                     ["test_case", "Test Cases"],
                     ["execution", "Test Runs"],
-                    ["bug", "Bugs"],
+                    ["bug", "Defects"],
                     ["file", "Files"],
                     ["text", "Notes"],
                     ["chat", "Chats"]
@@ -829,7 +830,7 @@ export function GroundedAssistant() {
                     void submitPrompt();
                   }
                 }}
-                placeholder={isSending ? "Draft your next question while the answer is prepared…" : messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, bugs, or HelloTest usage…"}
+                placeholder={isSending ? "Draft your next question while the answer is prepared…" : messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, defects, or HelloTest usage…"}
                 ref={composerRef}
                 rows={2}
                 value={prompt}

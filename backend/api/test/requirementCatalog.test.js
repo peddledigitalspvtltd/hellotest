@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 function loadService(db = {}) {
-  const context = { exports: {}, require: (name) => { if (name === 'crypto') return require('crypto'); if (name === '../utils/finalizedCaseMetrics') return require('../src/utils/finalizedCaseMetrics'); assert.equal(name, '../db'); return db; }, Buffer, Date };
+  const context = { exports: {}, require: (name) => { if (name === '../utils/deliveryScopeSql') return require('../src/utils/deliveryScopeSql'); if (name === '../utils/storyReadiness') return require('../src/utils/storyReadiness'); if (name === 'crypto') return require('crypto'); if (name === '../utils/finalizedCaseMetrics') return require('../src/utils/finalizedCaseMetrics'); assert.equal(name, '../db'); return db; }, Buffer, Date };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/services/requirementCatalog.service.js'), 'utf8'), context);
   return context.exports;
 }
@@ -78,7 +78,7 @@ test('PostgreSQL story catalog covers full-scope metrics, all page boundaries, a
     for (const id of ['000', '001']) await db.prepare('INSERT INTO requirement_test_cases (requirement_id, test_case_id) VALUES (?, ?)').run(`${prefix}-${id}`, `${prefix}-case`);
     await db.prepare('INSERT INTO feedback (id, project_id, user_id, title, message, status, priority) VALUES (?, ?, ?, ?, ?, ?, ?)').run(`${prefix}-bug`, prefix, `${prefix}-user`, 'Shared bug', 'Test evidence', 'open', 'high');
     for (const id of ['000', '001']) await db.prepare('INSERT INTO requirement_defects (requirement_id, issue_id) VALUES (?, ?)').run(`${prefix}-${id}`, `${prefix}-bug`);
-    await db.prepare('INSERT INTO executions (id, project_id, app_type_id, status) VALUES (?, ?, ?, ?)').run(`${prefix}-run`, prefix, `${prefix}-app`, 'passed');
+    await db.prepare('INSERT INTO executions (id, project_id, app_type_id, status, iteration_id, sprint) VALUES (?, ?, ?, ?, ?, ?)').run(`${prefix}-run`, prefix, `${prefix}-app`, 'passed',`${prefix}-sprint`,'Catalog sprint');
     for (const [index, status] of ['failed', 'passed'].entries()) await db.prepare('INSERT INTO execution_results (id, execution_id, test_case_id, app_type_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?::timestamptz)').run(`${prefix}-result-${index}`, `${prefix}-run`, `${prefix}-case`, `${prefix}-app`, status, `2026-01-0${index + 1}`);
     await db.prepare('UPDATE requirements SET description = ? WHERE id = ?').run('x'.repeat(1700) + ' offpage evidence', `${prefix}-001`);
     const descriptionMatch = await service.getRequirementsPage({ project_id: prefix, search: 'offpage evidence', projection: 'summary' });

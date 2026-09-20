@@ -136,8 +136,8 @@ test("dispatch expands each Test Case by its own associated Data Set rows and sn
   assert.match(bootstrap, /execution_case_snapshots_data_set_source_check/);
   assert.match(execution, /test_case_data_sets/);
   assert.match(execution, /attachCaseDataSetSnapshots/);
-  assert.match(execution, /if \(executionDataSet\?\.snapshot\)[\s\S]*data_set_source: "run"/);
-  assert.match(execution, /data_set_source: suiteData \? "suite" : "test_case"/);
+  assert.match(execution, /composeScopedTestData\(\{ hierarchical: true/);
+  assert.match(execution, /data_set_source: effective\.source/);
   assert.match(execution, /materializeDataSetSnapshot/);
   assert.match(caseLoop, /resolveExecutionDataSetIterations/);
   assert.match(caseLoop, /for \(const dataSetIteration of dataSetIterations\)/);

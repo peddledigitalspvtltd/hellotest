@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v5-data-run",
+      "test_case_id": "sample-v5-data-case-execution",
+      "test_case_title": "Inspect two saved override iterations · SYNTHETIC SAMPLE",
+      "test_case_description": "SYNTHETIC SAMPLE: authored manual case for dataset inheritance. Shared-group data is protected at case level; a suite or run must independently opt in to an override. Saved evidence is illustrative only.",
+      "suite_id": "sample-v5-data-suite",
+      "suite_name": "Scoped data walkthrough · SYNTHETIC SAMPLE",
+      "module_id": "sample-v5-data-module",
+      "module_name": "Data inheritance and shared failure evidence · SYNTHETIC SAMPLE",
+      "priority": 2,
+      "status": "ready",
+      "parameter_values": {
+        "t.email": "case-default@example.test"
+      },
+      "parameter_template_values": {
+        "t.email": "case-default@example.test"
+      },
+      "suite_parameter_values": {
+        "s.tenant": "suite-tenant"
+      },
+      "suite_parameter_template_values": {
+        "s.tenant": "suite-tenant"
+      },
+      "test_data_options": {
+        "override_shared_steps": false,
+        "runtime_policy": {
+          "version": 2,
+          "case": {
+            "override_lower_scopes": true,
+            "override_shared_steps": false,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          },
+          "suite": {
+            "override_lower_scopes": true,
+            "override_shared_steps": false,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          },
+          "run": {
+            "override_lower_scopes": true,
+            "override_shared_steps": true,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          }
+        }
+      },
+      "test_data_set_id": "sample-v5-data-dataset-run",
+      "test_data_set_name": "Run override iterations · SYNTHETIC SAMPLE",
+      "test_data_set_snapshot": {
+        "id": "sample-v5-data-dataset-run",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Run override iterations · SYNTHETIC SAMPLE",
+        "description": "SYNTHETIC SAMPLE: authored input values only. These fixed rows demonstrate scoped inheritance and do not contain production accounts or secrets.",
+        "mode": "table",
+        "columns": [
+          "r.build",
+          "r.session_region",
+          "s.tenant",
+          "t.email"
+        ],
+        "rows": [
+          {
+            "t.email": "run-one@example.test",
+            "s.tenant": "run-tenant-a",
+            "r.build": "synthetic-rc-1",
+            "r.session_region": "run-region-a"
+          },
+          {
+            "t.email": "run-two@example.test",
+            "s.tenant": "run-tenant-b",
+            "r.build": "synthetic-rc-2",
+            "r.session_region": "run-region-b"
+          }
+        ],
+        "created_at": "2026-09-20T08:00:00.000Z",
+        "parameter_data_layers": {
+          "case": {
+            "rows": [
+              {
+                "t.email": "case-one@example.test",
+                "s.tenant": "case-tenant",
+                "r.build": "case-build-1",
+                "r.session_region": "case-region-1"
+              }
+            ],
+            "template_rows": [
+              {
+                "t.email": "case-one@example.test",
+                "s.tenant": "case-tenant",
+                "r.build": "case-build-1",
+                "r.session_region": "case-region-1"
+              }
+            ],
+            "sensitive_names": []
+          },
+          "suite": {
+            "rows": [
+              {
+                "t.email": "suite@example.test",
+                "s.tenant": "suite-tenant",
+                "r.build": "suite-build",
+                "r.session_region": "suite-region"
+              }
+            ],
+            "template_rows": [
+              {
+                "t.email": "suite@example.test",
+                "s.tenant": "suite-tenant",
+                "r.build": "suite-build",
+                "r.session_region": "suite-region"
+              }
+            ],
+            "sensitive_names": []
+          },
+          "run": {
+            "rows": [
+              {
+                "t.email": "run-one@example.test",
+                "s.tenant": "run-tenant-a",
+                "r.build": "synthetic-rc-1",
+                "r.session_region": "run-region-a"
+              },
+              {
+                "t.email": "run-two@example.test",
+                "s.tenant": "run-tenant-b",
+                "r.build": "synthetic-rc-2",
+                "r.session_region": "run-region-b"
+              }
+            ],
+            "template_rows": [
+              {
+                "t.email": "run-one@example.test",
+                "s.tenant": "run-tenant-a",
+                "r.build": "synthetic-rc-1",
+                "r.session_region": "run-region-a"
+              },
+              {
+                "t.email": "run-two@example.test",
+                "s.tenant": "run-tenant-b",
+                "r.build": "synthetic-rc-2",
+                "r.session_region": "run-region-b"
+              }
+            ],
+            "sensitive_names": []
+          }
+        },
+        "data_scope_policy": {
+          "version": 2,
+          "row_strategy": "highest_scope",
+          "case": {
+            "override_lower_scopes": true,
+            "override_shared_steps": false,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          },
+          "suite": {
+            "override_lower_scopes": true,
+            "override_shared_steps": false,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          },
+          "run": {
+            "override_lower_scopes": true,
+            "override_shared_steps": true,
+            "override_test_case_data": true,
+            "override_suite_data": true
+          }
+        },
+        "shared_rows": [
+          {
+            "r.session_region": "run-region-a",
+            "t.email": "run-one@example.test",
+            "s.tenant": "run-tenant-a",
+            "r.build": "synthetic-rc-1"
+          },
+          {
+            "r.session_region": "run-region-b",
+            "t.email": "run-two@example.test",
+            "s.tenant": "run-tenant-b",
+            "r.build": "synthetic-rc-2"
+          }
+        ],
+        "sensitive_names": []
+      },
+      "data_set_source": "run",
+      "sort_order": 1,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    }
+  ]
+}

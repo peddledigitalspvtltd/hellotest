@@ -8,10 +8,17 @@ const integrationService = require("./integration.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { getOptionalEvidenceAccess } = require("./optionalEvidenceAccess.service");
-const { normalizeReferenceList, normalizeStoredReferenceList } = require("../utils/externalReferences");
+const { normalizeReferenceList: normalizeDelimitedReferenceList } = require("../utils/externalReferences");
+// JSON arrays already define item boundaries; commas and pipes inside an item are content.
+const normalizeReferenceList = value => Array.isArray(value)
+  ? [...new Set(value.flat().map(item => String(item || '').trim()).filter(Boolean))]
+  : normalizeDelimitedReferenceList(value);
+const normalizeStoredReferenceList = value => normalizeReferenceList(parseStoredJson(value, []));
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { assertExpectedRevision } = require("../utils/revision");
+const { storyAdditionalFields } = require("../utils/storyAcceptanceCriteria");
+const { normalizeStoryImportRow } = require("../utils/storyImportRow");
 const { groupRows, placeholdersFor, uniqueIds } = require("../utils/batchHydration");
 const { resilientHttpRequest } = require("../utils/resilientHttpClient");
 const { SERVICE_ERROR_CODES, serviceError } = require("../utils/serviceErrors");
@@ -188,7 +195,7 @@ const buildStoryCompletionEvidence = ({ requirement, linkedTestCases, knowledge,
     type: "story",
     title: requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title,
     label: requirement.display_id ? `${requirement.display_id} · ${requirement.title}` : requirement.title,
-    excerpt: compactStoryEvidenceText(requirement.description || requirement.title, 900),
+    excerpt: compactStoryEvidenceText([requirement.description || requirement.title, ...(requirement.acceptance_criteria || [])].join('\n'), 900),
     trust: "workspace",
     citation_allowed: true,
     limitation: null
@@ -316,18 +323,25 @@ const findExistingRequirementForImport = async ({ project_id, title, external_re
   const candidates = await db.prepare(`
     SELECT *
     FROM requirements
-    WHERE project_id = ?
-  `).all(project_id);
+    WHERE project_id = ? AND (
+      LOWER(REGEXP_REPLACE(BTRIM(title), '\\s+', ' ', 'g')) = ?
+      OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(external_references, '[]'::jsonb)) ref
+        WHERE LOWER(ref) IN (SELECT jsonb_array_elements_text(?::jsonb))))
+    ORDER BY CASE WHEN EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(external_references, '[]'::jsonb)) ref
+        WHERE LOWER(ref) IN (SELECT jsonb_array_elements_text(?::jsonb))) THEN 0 ELSE 1 END, id
+    LIMIT 2
+  `).all(project_id, normalizedTitle, JSON.stringify([...normalizedReferences]), JSON.stringify([...normalizedReferences]));
 
   if (normalizedReferences.size) {
-    const referenceMatch = candidates.find((candidate) =>
+    const referenceMatches = candidates.filter((candidate) =>
       normalizeStoredReferenceList(candidate.external_references).some((reference) =>
         normalizedReferences.has(reference.toLowerCase())
       )
     );
 
-    if (referenceMatch) {
-      return referenceMatch;
+    if (referenceMatches.length > 1) throw new Error('More than one Story matches these references. Use a Story ID and Expected Revision.');
+    if (referenceMatches[0]) {
+      return referenceMatches[0];
     }
   }
 
@@ -335,7 +349,9 @@ const findExistingRequirementForImport = async ({ project_id, title, external_re
     return null;
   }
 
-  return candidates.find((candidate) => normalizeMatchText(candidate.title) === normalizedTitle) || null;
+  const titleMatches = candidates.filter((candidate) => normalizeMatchText(candidate.title) === normalizedTitle);
+  if (titleMatches.length > 1) throw new Error('More than one Story has this title. Use a Story ID and Expected Revision.');
+  return titleMatches[0] || null;
 };
 
 const upsertRequirementFromImport = async ({
@@ -347,8 +363,22 @@ const upsertRequirementFromImport = async ({
   sprint,
   fix_version,
   release,
+  iteration_id,
+  release_id,
   priority,
   status,
+  story_id,
+  expected_revision,
+  preserve_existing = false,
+  import_marker,
+  acceptance_criteria,
+  additional_fields,
+  gherkin_scenarios,
+  specification_format,
+  specification_content,
+  dev_completion_target_date,
+  qa_completion_target_date,
+  scrum_team,
   created_by
 }) => {
   const normalizedTitle = normalizeText(title);
@@ -357,14 +387,28 @@ const upsertRequirementFromImport = async ({
     throw new Error("Missing required fields");
   }
 
-  const existing = await findExistingRequirementForImport({
+  const existing = story_id
+    ? await db.prepare('SELECT * FROM requirements WHERE project_id = ? AND (id = ? OR display_id = ?)').get(project_id, story_id, story_id)
+    : await findExistingRequirementForImport({
     project_id,
     title: normalizedTitle,
     external_references
   });
+  if (story_id && !existing) throw new Error('Story ID was not found in this project.');
+  const previousImport = parseStoredJson(existing?.additional_fields, {})._story_import;
+  const requestedImport = import_marker;
+  if (previousImport && requestedImport && previousImport.transaction_id === requestedImport.transaction_id && previousImport.row === requestedImport.row) return {action:previousImport.action, id:existing.id, title:existing.title, display_id:existing.display_id};
+  if (existing && preserve_existing && !story_id) return {action:'skipped',id:existing.id,title:existing.title};
+  if (import_marker) {
+    const fields = storyAdditionalFields(additional_fields, acceptance_criteria, parseStoredJson(existing?.additional_fields, {}));
+    if (JSON.stringify({...fields, _story_import:import_marker}).length > 50000) {
+      throw Object.assign(new Error('Story import metadata and custom fields exceed 50,000 characters. Reduce the custom-field content.'), {statusCode:400});
+    }
+  }
+  const contentFields = {acceptance_criteria, additional_fields, gherkin_scenarios, specification_format, specification_content, dev_completion_target_date, qa_completion_target_date, scrum_team};
 
   if (existing) {
-    const nextReferences = mergeReferences(existing.external_references, external_references);
+    const nextReferences = story_id && external_references !== undefined ? external_references : mergeReferences(existing.external_references, external_references);
 
     await exports.updateRequirement(existing.id, {
       project_id,
@@ -375,14 +419,20 @@ const upsertRequirementFromImport = async ({
       sprint: sprint !== undefined ? sprint : existing.sprint,
       fix_version: fix_version !== undefined ? fix_version : existing.fix_version,
       release: release !== undefined ? release : existing.release,
+      ...(iteration_id !== undefined ? { iteration_id } : {}),
+      ...(release_id !== undefined ? { release_id } : {}),
       priority: priority ?? existing.priority,
       status: status || existing.status,
+      ...contentFields,
+      ...(expected_revision !== undefined ? {expected_revision} : {}),
       updated_by: created_by
     });
+    if (import_marker) await db.prepare("UPDATE requirements SET additional_fields = jsonb_set(COALESCE(additional_fields, '{}'::jsonb), '{_story_import}', ?::jsonb) WHERE id = ?").run(import_marker, existing.id);
 
     return {
       action: "updated",
       id: existing.id,
+      display_id: existing.display_id,
       title: normalizedTitle
     };
   }
@@ -396,14 +446,19 @@ const upsertRequirementFromImport = async ({
     sprint,
     fix_version,
     release,
+    iteration_id,
+    release_id,
     priority,
     status,
+    ...contentFields,
     created_by
   });
+  if (import_marker) await db.prepare("UPDATE requirements SET additional_fields = jsonb_set(COALESCE(additional_fields, '{}'::jsonb), '{_story_import}', ?::jsonb) WHERE id = ?").run(import_marker, created.id);
 
   return {
     action: "created",
     id: created.id,
+    display_id: (await db.prepare('SELECT display_id FROM requirements WHERE id = ?').get(created.id))?.display_id,
     title: normalizedTitle
   };
 };
@@ -579,7 +634,7 @@ const resolveLlmIntegration = async (integrationId, projectId, { userId, usageKe
   return integration;
 };
 
-const requestRequirementOptimization = async ({ integration, prompt, images = [] }) => {
+const requestRequirementOptimization = async ({ integration, prompt, images = [], fallbackContent, contextState }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const userContent = images.length
     ? [
@@ -608,7 +663,7 @@ const requestRequirementOptimization = async ({ integration, prompt, images = []
         }
       ]
     })
-  }, { operation: "requirement.optimize" });
+  }, { operation: "requirement.optimize", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -632,7 +687,7 @@ const buildRequirementOptimizationPrompt = ({ requirement, linkedTestCases, know
   "Return strict JSON with this shape:",
   "{",
   '  "title": "optimized requirement title",',
-  '  "description": "complete requirement description with acceptance criteria, business rules, data rules, negative cases, and measurable outcomes",',
+  '  "description": "complete Story description with persona, business value, business rules, and measurable outcomes; put completion rules only in acceptance_criteria",',
   '  "priority": 1,',
   '  "status": "open|active|ready|done or current workflow status",',
   '  "external_references": ["reference"],',
@@ -803,7 +858,7 @@ const buildRequirementCreationPrompt = ({ additionalContext, externalLinks, imag
   additionalContext || "No written product context was supplied. Return an empty requirements array instead of inventing a Story."
 ].join("\n");
 
-const requestRequirementCreation = async ({ integration, prompt, images }) => {
+const requestRequirementCreation = async ({ integration, prompt, images, fallbackContent, contextState }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const safeImages = (Array.isArray(images) ? images : [])
     .filter((image) => typeof image?.url === "string" && /^data:image\/(?:png|jpe?g|webp);base64,/i.test(image.url))
@@ -837,7 +892,7 @@ const requestRequirementCreation = async ({ integration, prompt, images }) => {
           { role: "user", content: userContent }
         ]
       })
-    }, { operation: "requirement.generate" });
+    }, { operation: "requirement.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
     if (!response.ok) {
       const raw = await response.text();
@@ -916,6 +971,7 @@ const normalizeRequirementFields = (requirement) => ({
   ...requirement,
   gherkin_scenarios: normalizeStoredTextList(requirement.gherkin_scenarios),
   additional_fields: normalizeJsonObject(parseStoredJson(requirement.additional_fields, {})),
+  acceptance_criteria: normalizeJsonObject(parseStoredJson(requirement.additional_fields, {})).acceptance_criteria || [],
   ai_review: parseStoredJson(requirement.ai_review, null),
   external_references: normalizeStoredReferenceList(requirement.external_references),
   labels: normalizeStoredReferenceList(requirement.labels)
@@ -1036,6 +1092,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
 
   const created = [];
   const updated = [];
+  const skipped = [];
   const errors = [];
   const transaction = transaction_id
     ? await workspaceTransactionService.updateTransaction(transaction_id, {
@@ -1043,8 +1100,8 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         category: "bulk_import",
         action: "requirement_import",
         status: "running",
-        title: "Requirement import",
-        description: `Importing ${rows.length} requirement${rows.length === 1 ? "" : "s"} from CSV.`,
+        title: "Story Import",
+        description: `Importing ${rows.length} Story${rows.length === 1 ? "" : "s"} from CSV.`,
         metadata: {
           import_source: "csv",
           total_rows: rows.length,
@@ -1060,8 +1117,8 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         category: "bulk_import",
         action: "requirement_import",
         status: "running",
-        title: "Requirement import",
-        description: `Importing ${rows.length} requirement${rows.length === 1 ? "" : "s"} from CSV.`,
+        title: "Story Import",
+        description: `Importing ${rows.length} Story${rows.length === 1 ? "" : "s"} from CSV.`,
         metadata: {
           import_source: "csv",
           total_rows: rows.length,
@@ -1075,12 +1132,16 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
       });
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {
     phase: "prepare",
-    message: `Started requirement import for ${rows.length} CSV row${rows.length === 1 ? "" : "s"}.`,
+    message: `Started Story import for ${rows.length} CSV row${rows.length === 1 ? "" : "s"}.`,
     details: {
       import_source: "csv",
       total_rows: rows.length
     }
   });
+
+  const completedRows = new Map((await db.prepare(`SELECT id, display_id, title, additional_fields FROM requirements
+    WHERE project_id = ? AND additional_fields #>> '{_story_import,transaction_id}' = ?`).all(project_id, transaction.id))
+    .map(item => [parseStoredJson(item.additional_fields, {})._story_import?.row, item]));
 
   for (const [index, row] of rows.entries()) {
     const title = typeof row?.title === "string" ? row.title.trim() : "";
@@ -1090,31 +1151,51 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
         throw new Error("Title must be at least 2 characters");
       }
 
-      const response = await upsertRequirementFromImport({
+      const normalized = normalizeStoryImportRow(row);
+      const previous = completedRows.get(index + 1);
+      const response = previous ? {id:previous.id, display_id:previous.display_id, action:parseStoredJson(previous.additional_fields, {})._story_import?.action || 'created'} : await db.transaction(async () => {
+        // Serialize the short match/create section across competing imports in this project.
+        await db.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))').get(`story-import:${project_id}`);
+        const result = await upsertRequirementFromImport({
+        ...normalized,
         project_id,
         title,
         description: typeof row?.description === "string" ? row.description : undefined,
-        external_references: normalizeReferenceList(row?.external_references || row?.externalReferences || row?.reference || row?.references),
+        external_references: row.external_references !== undefined || row.externalReferences !== undefined || row.reference !== undefined || row.references !== undefined
+          ? normalizeReferenceList(row.external_references ?? row.externalReferences ?? row.reference ?? row.references) : undefined,
         labels: row?.labels !== undefined || row?.label !== undefined ? normalizeReferenceList(row?.labels || row?.label) : undefined,
         sprint: typeof row?.sprint === "string" ? row.sprint : undefined,
         fix_version: typeof row?.fix_version === "string" ? row.fix_version : typeof row?.fixVersion === "string" ? row.fixVersion : undefined,
         release: typeof row?.release === "string" ? row.release : undefined,
-        priority: typeof row?.priority === "number" && Number.isFinite(row.priority) ? row.priority : undefined,
-        status: typeof row?.status === "string" ? row.status : undefined,
+        iteration_id: typeof row?.iteration_id === "string" ? row.iteration_id : undefined,
+        release_id: typeof row?.release_id === "string" ? row.release_id : undefined,
+        priority: normalized.priority,
+        status: normalized.status,
+        preserve_existing: true,
+        additional_fields: normalized.additional_fields,
+        import_marker: {transaction_id:transaction.id, row:index + 1, action:normalized.story_id ? 'updated' : 'created'},
         created_by
       });
 
-      const bucket = response.action === "updated" ? updated : created;
+        if (result.action !== 'skipped') {
+          if (normalized.linked_test_cases !== undefined) await require('./requirementTestCase.service').replaceMappingsForRequirement(result.id, normalizeReferenceList(normalized.linked_test_cases));
+          if (normalized.linked_bugs !== undefined) await require('./requirementDefect.service').replaceMappingsForRequirement(result.id, normalizeReferenceList(normalized.linked_bugs));
+        }
+        return result;
+      })();
+
+      const bucket = response.action === "skipped" ? skipped : response.action === "updated" ? updated : created;
       bucket.push({
         row: index + 1,
         id: response.id,
+        display_id: response.display_id,
         title
       });
     } catch (error) {
       errors.push({
         row: index + 1,
         title: title || null,
-        message: error.message || "Unable to import requirement"
+        message: error.message || "Unable to import Story"
       });
     }
 
@@ -1122,12 +1203,13 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
 
     if (processed === 1 || processed === rows.length || processed % 10 === 0) {
       await workspaceTransactionService.updateTransaction(transaction.id, {
-        description: `Processed ${processed} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} so far.`,
+        description: `Processed ${processed} of ${rows.length} Story${rows.length === 1 ? "" : "s"} so far.`,
         metadata: {
           processed_items: processed,
           total_items: rows.length,
           imported: created.length,
           updated: updated.length,
+          skipped: skipped.length,
           failed: errors.length,
           progress_percent: rows.length ? Math.round((processed / rows.length) * 100) : 0,
           current_phase: "import"
@@ -1135,12 +1217,13 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
       });
       await workspaceTransactionService.appendTransactionEvent(transaction.id, {
         phase: "import",
-        message: `Processed ${processed} of ${rows.length} requirement row${rows.length === 1 ? "" : "s"}.`,
+        message: `Processed ${processed} of ${rows.length} Story row${rows.length === 1 ? "" : "s"}.`,
         details: {
           processed_items: processed,
           total_items: rows.length,
           imported: created.length,
           updated: updated.length,
+          skipped: skipped.length,
           failed: errors.length
         }
       });
@@ -1148,19 +1231,22 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
   }
 
   const response = {
+    transaction_id: transaction.id,
     imported: created.length,
     updated: updated.length,
+    skipped: skipped.length,
     failed: errors.length,
     created,
     updated_records: updated,
+    skipped_records: skipped,
     errors
   };
 
   await workspaceTransactionService.updateTransaction(transaction.id, {
-    status: created.length || updated.length ? "completed" : "failed",
-    description: created.length || updated.length
-      ? `Imported ${created.length} and updated ${updated.length} of ${rows.length} requirement${rows.length === 1 ? "" : "s"} from CSV.`
-      : "No requirements were imported from the CSV file.",
+    status: created.length || updated.length || skipped.length ? "completed" : "failed",
+    description: created.length || updated.length || skipped.length
+      ? `Imported ${created.length}, updated ${updated.length}, preserved ${skipped.length} existing Stories; ${errors.length} rows failed.`
+      : "No Stories were imported from the CSV file.",
     metadata: {
       import_source: "csv",
       total_rows: rows.length,
@@ -1168,6 +1254,7 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
       processed_items: rows.length,
       imported: created.length,
       updated: updated.length,
+      skipped: skipped.length,
       failed: errors.length,
       progress_percent: 100,
       current_phase: "completed"
@@ -1175,20 +1262,25 @@ exports.bulkImportRequirements = async ({ project_id, rows = [], created_by, tra
     completed_at: new Date().toISOString()
   });
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {
-    level: created.length || updated.length ? "success" : "error",
+    level: created.length || updated.length || skipped.length ? "success" : "error",
     phase: "complete",
-    message: created.length || updated.length
-      ? `Imported ${created.length}, updated ${updated.length}, with ${errors.length} failure${errors.length === 1 ? "" : "s"}.`
-      : "Requirement import completed with no created records.",
+    message: created.length || updated.length || skipped.length
+      ? `Imported ${created.length}, updated ${updated.length}, preserved ${skipped.length}, with ${errors.length} failure${errors.length === 1 ? "" : "s"}.`
+      : "Story import completed with no created records.",
     details: {
       imported: created.length,
       updated: updated.length,
+      skipped: skipped.length,
       failed: errors.length,
       sample_errors: errors.slice(0, 10)
     }
   });
 
-  return response;
+  const artifact = await workspaceTransactionService.createTransactionArtifact(transaction.id, {
+    file_name:'story-import-results.json', mime_type:'application/json', content:JSON.stringify(response, null, 2)
+  });
+
+  return {...response, artifact_id:artifact.id};
 };
 
 exports.listAlmProjects = async ({ integration_id } = {}) => {
@@ -1444,7 +1536,7 @@ const ensureIterationBelongsToProject = async (iterationId, projectId) => {
   }
 
   const iteration = await db.prepare(`
-    SELECT id, project_id, name
+    SELECT id, project_id, name, state
     FROM requirement_iterations
     WHERE id = ?
   `).get(normalizedIterationId);
@@ -1468,7 +1560,7 @@ const ensureStoriesInProject = async (requirementIds, projectId) => {
   }
 };
 
-exports.createRequirement = async ({ project_id, title, description, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, related_requirement_ids = [], created_by }) => {
+exports.createRequirement = async ({ project_id, title, description, acceptance_criteria, gherkin_scenarios, additional_fields, ai_review, external_references, labels, sprint, fix_version, release, release_id, iteration_id, dev_completion_target_date, qa_completion_target_date, scrum_team, specification_format, specification_content, priority, status, related_requirement_ids = [], created_by }) => {
   if (!project_id || !title) {
     throw new Error("Missing required fields");
   }
@@ -1479,6 +1571,7 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
 
   if (!project) throw new Error("Project not found");
   const nativeIteration = await ensureIterationBelongsToProject(iteration_id, project_id);
+  if (nativeIteration?.state === "closed") throw Object.assign(new Error("Completed Sprints cannot accept a Story"), { statusCode: 409, code: "SPRINT_SCOPE_LOCKED" });
   const relatedRequirementIds = normalizeReferenceList(related_requirement_ids);
   await ensureStoriesInProject(relatedRequirementIds, project_id);
 
@@ -1496,7 +1589,7 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
       title,
       description || null,
       normalizeTextList(gherkin_scenarios, 20, 4_000),
-      normalizeJsonObject(additional_fields),
+      storyAdditionalFields(normalizeJsonObject(additional_fields), acceptance_criteria),
       normalizeStoryAiReview(ai_review, created_by),
       normalizeReferenceList(external_references),
       normalizeReferenceList(labels),
@@ -1522,6 +1615,9 @@ exports.createRequirement = async ({ project_id, title, description, gherkin_sce
       `).run(id, relatedId);
     }
     await requirementReleaseService.syncSprintMembership(iteration_id, { updated_by: created_by });
+    if (release_id !== undefined) await requirementReleaseService.setStoryRelease(id, {
+      releaseId: release_id, projectId: project_id, updated_by: created_by
+    });
   });
   await transaction();
 
@@ -1594,6 +1690,9 @@ exports.updateRequirement = async (id, data) => {
       previousIterationId ? ensureIterationBelongsToProject(previousIterationId, existing.project_id) : null,
       nextIterationId ? ensureIterationBelongsToProject(nextIterationId, targetProjectId) : null
     ]);
+    if (nextIterationId !== previousIterationId && nextIteration?.state === "closed") {
+      throw Object.assign(new Error("Completed Sprints cannot accept a Story"), { statusCode: 409, code: "SPRINT_SCOPE_LOCKED" });
+    }
     const nextSprint = nextIteration
       ? nextIteration.name
       : data.sprint !== undefined
@@ -1613,9 +1712,7 @@ exports.updateRequirement = async (id, data) => {
       data.gherkin_scenarios !== undefined
         ? normalizeTextList(data.gherkin_scenarios, 20, 4_000)
         : normalizeStoredTextList(existing.gherkin_scenarios),
-      data.additional_fields !== undefined
-        ? normalizeJsonObject(data.additional_fields)
-        : normalizeJsonObject(parseStoredJson(existing.additional_fields, {})),
+      storyAdditionalFields(data.additional_fields, data.acceptance_criteria, parseStoredJson(existing.additional_fields, {})),
       data.ai_review !== undefined
         ? normalizeStoryAiReview(data.ai_review, data.updated_by ?? existing.updated_by ?? existing.created_by)
         : parseStoredJson(existing.ai_review, null),
@@ -1646,6 +1743,11 @@ exports.updateRequirement = async (id, data) => {
         await requirementReleaseService.syncSprintMembership(sprintId, { updated_by: data.updated_by });
       }
     }
+
+    if (data.release_id !== undefined) await requirementReleaseService.setStoryRelease(id, {
+      releaseId: data.release_id, projectId: targetProjectId,
+      previousRelease: existing.release, previousFixVersion: existing.fix_version, updated_by: data.updated_by
+    });
 
     return { updated: true, revision: currentRevision + 1 };
   });
@@ -1697,11 +1799,18 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
   let suggestion;
   let fallbackUsed = false;
   let fallbackReason = null;
+  const contextState = { reduced: false };
 
   if (integration) {
     try {
       const content = await requestRequirementOptimization({
         integration,
+        contextState,
+        fallbackContent: buildRequirementOptimizationPrompt({
+          requirement: { id: requirement.id, title: String(requirement.title || "").slice(0, 500) },
+          linkedTestCases: [], knowledge: [], additionalContext: "Only the saved Story title is supplied after a provider size limit. Propose only title-supported changes and list missing information as open questions.",
+          externalLinks: [], imageNames: [], evidenceCatalog: evidence.filter((item) => item.ref === `story:${requirement.id}`).map((item) => ({ ...item, excerpt: requirement.title }))
+        }),
         images: safeImages,
         prompt: buildRequirementOptimizationPrompt({
           requirement,
@@ -1824,6 +1933,8 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     evaluation,
     processing,
     review_status: "awaiting_review",
+    context_reduced: contextState.reduced,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
     generation_mode: fallbackUsed ? "deterministic" : "llm",
     fallback_used: fallbackUsed,
     fallback_reason: fallbackReason || suggestion.fallback_reason || null,
@@ -1841,6 +1952,8 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
       provider: fallbackUsed ? "HelloTest evidence-preserving fallback" : integration?.name || null,
       model: fallbackUsed ? null : integration?.model || null,
       attempted_provider: fallbackUsed ? integration?.name || null : null,
+      context_reduced: contextState.reduced,
+      context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
       generation_mode: fallbackUsed ? "deterministic" : "llm",
       generated_at: new Date().toISOString()
     }
@@ -1895,11 +2008,18 @@ exports.previewRequirementCreation = async ({
   let rawCandidates;
   let fallbackUsed = false;
   let fallbackReason = null;
+  const contextState = { reduced: false };
 
   if (integration) {
     try {
       const result = await requestRequirementCreation({
         integration,
+        contextState,
+        fallbackContent: buildRequirementCreationPrompt({
+          additionalContext: String(additionalContext || "").slice(0, 2000), externalLinks: [], imageNames: [],
+          maxRequirements, priority: defaultPriority, status: defaultStatus,
+          evidenceCatalog: evidence.filter((item) => item.citation_allowed).slice(0, 6).map((item) => ({ ...item, excerpt: String(item.excerpt || "").slice(0, 400) }))
+        }),
         images: safeImages,
         prompt: buildRequirementCreationPrompt({
           additionalContext,
@@ -1995,6 +2115,8 @@ exports.previewRequirementCreation = async ({
     limitations,
     processing,
     review_status: "awaiting_review",
+    context_reduced: contextState.reduced,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
     generation_mode: fallbackUsed ? "deterministic" : "llm",
     requires_human_review: true,
     preview_only: true,
@@ -2007,6 +2129,8 @@ exports.previewRequirementCreation = async ({
       provider: fallbackUsed ? "HelloTest evidence-preserving fallback" : integration?.name || null,
       model: fallbackUsed ? null : integration?.model || null,
       attempted_provider: fallbackUsed ? integration?.name || null : null,
+      context_reduced: contextState.reduced,
+      context_reduction_reason: contextState.reduced ? "The provider rejected the full context size; a shorter evidence context was used. Review the proposal against the original Story and attachments." : null,
       generation_mode: fallbackUsed ? "deterministic" : "llm",
       generated_at: new Date().toISOString()
     }

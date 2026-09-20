@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { InfoTooltip } from "./InfoTooltip";
 
 export function StatCard({
@@ -12,8 +13,8 @@ export function StatCard({
   return (
     <div className="stat-card card">
       <span className="stat-card-label-row">
-        <span>{label}</span>
-        <InfoTooltip content={hint} label={`${label} information`} />
+        <span>{metricTitle(label)}</span>
+        <InfoTooltip content={hint} label={`${metricTitle(label)} information`} />
       </span>
       <strong>{value}</strong>
     </div>

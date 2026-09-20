@@ -275,11 +275,12 @@ export function structuredStepsToSharedGherkin(steps: Array<{ action?: string | 
   return composeSharedStepGherkin(behavior);
 }
 
-export function sharedStepGherkinToStructuredSteps(value: string): StructuredGherkinStep[] {
+export function sharedStepGherkinToStructuredSteps(value: string, { normalizeParameters = false }: { normalizeParameters?: boolean } = {}): StructuredGherkinStep[] {
   const result: StructuredGherkinStep[] = [];
   let phase: "action" | "expected" = "action";
   parseSharedStepGherkin(value).forEach((step) => {
-    const text = [step.text, step.argument].filter(Boolean).join("\n").trim();
+    const authoredText = [step.text, step.argument].filter(Boolean).join("\n").trim();
+    const text = normalizeParameters ? normalizeGherkinParameterReferences(authoredText) : authoredText;
     if (!text) return;
     if (step.keyword === "Then") phase = "expected";
     else if (step.keyword === "Given" || step.keyword === "When") phase = "action";

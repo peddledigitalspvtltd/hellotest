@@ -44,7 +44,7 @@ test('Product Story metrics reconcile full scope, legacy links, statuses and fin
         await db.prepare('INSERT INTO feedback(id,project_id,user_id,title,message,status,priority) VALUES(?,?,?,?,?,?,?)').run(id(`bug-${bug}`), id(project), id('user'), bug, 'Evidence', status, priority);
       }
       for (const [story, bug] of [[1, 'open'], [2, 'open'], [1, 'resolved'], [11, 'foreign']]) await db.prepare('INSERT INTO requirement_defects(requirement_id,issue_id) VALUES(?,?)').run(id(`story-${story}`), id(`bug-${bug}`));
-      for (const run of ['old', 'pending', 'blocked', 'partial', 'dataset', 'foreign']) await db.prepare('INSERT INTO executions(id,project_id,app_type_id,status) VALUES(?,?,?,?)').run(id(run), id(run === 'foreign' ? 'other' : 'project'), id(run === 'foreign' ? 'other-app' : 'app'), 'running');
+      for (const run of ['old', 'pending', 'blocked', 'partial', 'dataset', 'foreign']) await db.prepare('INSERT INTO executions(id,project_id,app_type_id,status,release,sprint) VALUES(?,?,?,?,?,?)').run(id(run), id(run === 'foreign' ? 'other' : 'project'), id(run === 'foreign' ? 'other-app' : 'app'), 'running',run === 'foreign' ? null : '1.0',run === 'foreign' ? null : 'Legacy Sprint');
       const result = async (name, run, caseN, status, date, iteration = null) => db.prepare(`INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,created_at,data_set_iteration_index) VALUES(?,?,?,?,?,?::timestamptz,?)`).run(id(name), id(run), id(`case-${caseN}`), id(run === 'foreign' ? 'other-app' : 'app'), status, date, iteration);
       await result('passed', 'old', 1, 'passed', '2026-01-01');
       await result('new-pending', 'pending', 1, 'pending', '2026-02-01');
@@ -65,6 +65,20 @@ test('Product Story metrics reconcile full scope, legacy links, statuses and fin
       assert.equal(metrics.all.qaTotal, 7);
       assert.equal(metrics.all.completed, 5, 'Completed backlog Story stays outside QA denominator');
       assert.equal(metrics.all.completionPercent, 71);
+      assert.equal(metrics.all.devTotal, 7, 'Dev completion uses the same Sprint scope as QA completion');
+      assert.equal(metrics.all.devCompleted, 7, 'Dev Done, QA stages and completed aliases have reached Dev Done');
+      assert.equal(metrics.all.devCompletionPercent, 100, 'Unassigned completed Stories do not inflate Dev completion');
+      const devDoneOnly = await catalog.getMetrics({ ...query, status: 'dev_done' });
+      assert.equal(devDoneOnly.all.devCompleted, 1);
+      assert.equal(devDoneOnly.all.devTotal, 1);
+      assert.equal(devDoneOnly.all.devCompletionPercent, 100);
+      const backlogOnly = await catalog.getMetrics({ ...query, unassigned: true });
+      assert.equal(backlogOnly.all.devTotal, 0);
+      assert.equal(backlogOnly.all.devCompleted, 0);
+      assert.equal(backlogOnly.all.devCompletionPercent, 0);
+      const emptyScope = await catalog.getMetrics({ ...query, search: 'no matching Stories' });
+      assert.equal(emptyScope.all.devTotal, 0);
+      assert.equal(emptyScope.all.devCompletionPercent, 0);
       assert.equal(metrics.all.mapped, 5);
       assert.equal(metrics.all.coveragePercent, 15);
       assert.equal(metrics.all.groomed, 10, 'Empty HTML and blank scenarios are not grooming evidence');
@@ -85,7 +99,11 @@ test('Product Story metrics reconcile full scope, legacy links, statuses and fin
       const storyRows = await service.getRequirementsPage({ ...query, projection: 'summary' });
       assert.equal(storyRows.items.length, 25);
       const getFacts = async (n, include_execution = true) => (await catalog.withCatalogMetrics([{ id: id(`story-${n}`) }], { include_execution }))[0].catalog_metrics;
-      assert.deepEqual(await getFacts(1), { linked_cases: 1, automated_cases: 1, executed_cases: 1, passed_cases: 1, total_bugs: 2, open_bugs: 1, closed_bugs: 1, described: true, specified: true, groomed: true, slipped: false, completed: true, execution_complete: true, automation_complete: true });
+      const { readiness: storyReadiness, assigned, release_scoped, open_priority_bugs, ...baseFacts } = await getFacts(1);
+      assert.equal(storyReadiness.mode, "release");
+      assert.equal(storyReadiness.checks.length, 5);
+      assert.equal(open_priority_bugs, 1);
+      assert.deepEqual(baseFacts, { linked_cases: 1, automated_cases: 1, executed_cases: 1, passed_cases: 1, total_bugs: 2, open_bugs: 1, closed_bugs: 1, described: true, specified: true, groomed: true, slipped: false, completed: true, execution_complete: true, automation_complete: true });
       assert.equal((await getFacts(2)).automated_cases, 2, 'Ready automation counts alongside automated=yes');
       const neverRun = await getFacts(3);
       assert.equal(neverRun.executed_cases, 0);
@@ -109,6 +127,42 @@ test('Product Story metrics reconcile full scope, legacy links, statuses and fin
       assert.equal(noExecution.sprint_health[0].pass_percent, null);
       assert.ok(!noExecution.sprint_health[0].exact_fields.includes('passed_cases'));
       assert.ok(noExecution.sprint_health[0].exact_fields.includes('covered_stories'));
+      // Sprint-derived Release membership is live: newly assigned Stories need
+      // no stale text stamp or materialized membership row to count as scoped.
+      await db.prepare('INSERT INTO requirement_releases(id,project_id,name,fix_version,sprint_ids) VALUES(?,?,?,?,?::jsonb)')
+        .run(id('live-release'), id('project'), 'Live Release', '2.0', JSON.stringify([id('sprint')]));
+      const releaseScope = await catalog.getMetrics(query);
+      assert.equal(releaseScope.all.releaseScoped, 7, 'Direct, native Sprint and unambiguous legacy Sprint memberships count each Story once');
+      assert.ok(releaseScope.filter_options.releases.includes('Live Release'));
+      assert.ok(releaseScope.filter_options.fix_versions.includes('2.0'));
+      await db.prepare('UPDATE requirements SET iteration_id = ? WHERE id = ?').run(id('sprint'), id('story-33'));
+      const filteredScope = await catalog.getMetrics({ ...query, search: 'Story 33' });
+      assert.equal(filteredScope.all.total, 1);
+      assert.equal(filteredScope.all.releaseScoped, 1, 'Inherited Release scope follows an off-page Story into its Sprint');
+      assert.equal(filteredScope.sprints.total, 1);
+      assert.equal(filteredScope.all.devCompleted, 0, 'An open Sprint Story has not reached Dev Done');
+      assert.equal(filteredScope.all.devTotal, 1, 'Filters apply before Dev completion aggregation');
+      assert.equal((await catalog.getMetrics(query)).all.devCompletionPercent, 88, 'Open Sprint Stories stay in the denominator across page boundaries');
+      for (const [status, expected] of [['dev_ready', 0], ['dev_in_progress', 0], ['dev_blocked', 0], ['ready', 0], ['dev_done', 1], ['qa_ready', 1], ['qa_in_progress', 1], ['qa_blocked', 1], ['qa_done', 1], ['done', 1]]) {
+        await db.prepare('UPDATE requirements SET status = ? WHERE id = ?').run(status, id('story-33'));
+        const filteredDev = await catalog.getMetrics({ ...query, search: 'Story 33' });
+        assert.equal(filteredDev.all.devCompleted, expected, `${status} follows the Dev Done milestone`);
+        assert.equal(filteredDev.all.devCompletionPercent, expected * 100);
+      }
+      await db.prepare('UPDATE requirements SET status = ? WHERE id = ?').run('open', id('story-33'));
+      assert.equal(filteredScope.backlog.total, 0);
+      assert.equal((await catalog.getMetrics({ ...query, release: 'Live Release' })).all.total, 8, 'Release filter uses the same native and legacy Sprint membership as its cards');
+      assert.equal((await service.getRequirementsPage({ project_id: id('project'), fix_version: '2.0' })).total, 8, 'Version filter includes inherited Stories without a text stamp');
+      await db.prepare('UPDATE requirements SET iteration_id = NULL WHERE id = ?').run(id('story-33'));
+      await db.prepare('UPDATE requirements SET status = ? WHERE id = ?').run(' Dev--Done ', id('story-7'));
+      assert.equal((await catalog.getMetrics(query)).all.devCompleted, 7, 'Dev Done separators normalize consistently');
+      assert.equal((await catalog.getMetrics({ ...query, search: 'Story 33' })).all.releaseScoped, 0);
+      await db.prepare('UPDATE requirements SET status = ? WHERE id = ?').run(' QA--Done ', id('story-1'));
+      assert.equal((await catalog.getMetrics(query)).all.completed, 5, 'Completion separators normalize consistently');
+      const iterations = require('../../src/services/requirementIteration.service');
+      await db.prepare('INSERT INTO requirement_iterations(id,project_id,name,state) VALUES(?,?,?,?)').run(id('alias-sprint'), id('project'), 'Alias Sprint', 'active');
+      await db.prepare('UPDATE requirements SET iteration_id = ? WHERE id = ?').run(id('alias-sprint'), id('story-1'));
+      assert.equal((await iterations.updateIteration(id('alias-sprint'), { state: 'closed' })).sprint.state, 'closed', 'Sprint completion guard agrees with its metrics');
       throw rollback;
     })();
   } catch (error) { if (error !== rollback) throw error; }

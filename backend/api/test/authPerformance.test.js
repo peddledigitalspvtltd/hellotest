@@ -13,6 +13,10 @@ const replacementHash = token.hashPassword("Replacement password after a reset!"
 const legacyHash = crypto.pbkdf2Sync(password, process.env.PASSWORD_SALT || "hellotest-dev-salt", 100_000, 64, "sha256").toString("hex");
 
 function sessionFixture(t, overrides = {}) {
+  t.mock.method(require("../src/services/defaultProjectMembership.service"), "assign", async () => false);
+  // These fixtures model SQL responses; the integration test verifies actual
+  // PostgreSQL atomicity and rollback rather than imitating it in this mock.
+  t.mock.method(db, "transaction", callback => (...args) => callback(...args));
   const state = {
     user: { id: "member-1", email: "member@example.test", name: "Member", status: "active", is_workspace_admin: false },
     hash: modernHash,
@@ -42,6 +46,7 @@ function sessionFixture(t, overrides = {}) {
     },
     run: async (...params) => {
       if (/UPDATE users/.test(sql) && /AND password_hash = \?/.test(sql) && params.at(-1) !== state.hash) return { changes: 0 };
+      if (/UPDATE users/.test(sql) && /status IS DISTINCT FROM 'suspended'/.test(sql) && state.user?.status === 'suspended') return { changes: 0 };
       state.writes.push({ sql, params });
       if (/SET password_hash/.test(sql)) state.hash = params[0];
       return { changes: 1 };
@@ -142,6 +147,23 @@ test("login rereads account status after password verification before issuing a 
   state.user.status = "suspended";
   await assert.rejects(pending, { statusCode: 403 });
   assert.equal(state.writes.length, 0);
+});
+
+test("a suspension after the fresh session read is rejected by the conditional login write", async (t) => {
+  const state = sessionFixture(t, { onSessionRead: () => queueMicrotask(() => { state.user.status = 'suspended'; }) });
+  await assert.rejects(auth.login({ email: state.user.email, password }), { statusCode: 401 });
+  assert.equal(state.writes.length, 0);
+});
+
+test("returning users do not repeat first-login membership or session reads", async (t) => {
+  const state = sessionFixture(t);
+  state.user.last_login_at = '2026-01-01T00:00:00Z';
+  const assign = require('../src/services/defaultProjectMembership.service').assign;
+  const loggedIn = await auth.login({ email: state.user.email, password });
+  assert.equal(loggedIn.user.id, state.user.id);
+  assert.equal(assign.mock.callCount(), 0);
+  assert.equal(state.queries.length, 3, 'One credential lookup plus the existing two-read permission profile');
+  assert.equal(state.writes.length, 1);
 });
 
 test("a modern password reset during async verification prevents the old credential from creating a session", async (t) => {

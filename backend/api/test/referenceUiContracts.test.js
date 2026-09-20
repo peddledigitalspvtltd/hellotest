@@ -35,7 +35,7 @@ test("native Story and Bug metadata preserves the reference UI field contract", 
   assert.equal(story.project_key, "QA");
   assert.equal(story.workflow_statuses.statuses.some((status) => status.current), true);
   assert.equal(story.core_fields.some((item) => item.id === "summary" && item.required), true);
-  assert.equal(bug.issue_type_name, "Bug");
+  assert.equal(bug.issue_type_name, "Defect");
   assert.equal(bug.core_fields.some((item) => item.id === "assignee"), true);
   assert.match(story.strategy.requirements_source, /PostgreSQL/);
 });
@@ -136,7 +136,7 @@ test("Test Improve accepts pointer-only links and validated image context withou
     "TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS",
     'type: "image_url"',
     "External URLs are opaque pointers only. Their page contents were not fetched.",
-    "requestChatCompletion({ integration, prompt, images: safeImages })"
+    "requestChatCompletion({ integration, prompt, images: safeImages, fallbackContent, contextState })"
   ]) {
     assert.equal(serviceSource.includes(contractMarker), true, contractMarker);
   }

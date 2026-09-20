@@ -1,3 +1,4 @@
+import { metricTitle } from "../lib/metricTitle";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   IconAlertTriangle,
@@ -363,7 +364,7 @@ export function AnalyticsMissionControl({
                 <MetricButton className="qa-release-card" evidence="readiness" onOpenEvidence={onOpenEvidence}>
                   <IconRosetteDiscountCheck aria-hidden="true" className="qa-release-watermark" size={70} stroke={2.8} />
                   <span className="qa-card-label qa-card-label-with-info">
-                    <span>Release posture</span>
+                    <span>Release Posture</span>
                     {metricMethodology(
                       "metric.analytics.release_posture",
                       `${storyCoverage}% Story coverage, ${designCompleteness}% design completeness, ${latestPassRate}% latest pass confidence, and ${latestFailedSignals} failed or blocked latest tests.`,
@@ -380,7 +381,7 @@ export function AnalyticsMissionControl({
 
                 <MetricButton evidence="requirements" onOpenEvidence={onOpenEvidence}>
                   <span className="qa-card-label qa-card-label-with-info">
-                    <span>Story coverage</span>
+                    <span>Story Coverage</span>
                     {metricMethodology("metric.story.coverage", `${mappedStories} linked Stories ÷ ${totalStories} scoped Stories.`)}
                   </span>
                   <strong className="qa-card-value">{storyCoverage}%</strong>
@@ -390,7 +391,7 @@ export function AnalyticsMissionControl({
 
                 <MetricButton evidence="design" onOpenEvidence={onOpenEvidence}>
                   <span className="qa-card-label qa-card-label-with-info">
-                    <span>Design completeness</span>
+                    <span>Design Completeness</span>
                     {metricMethodology("metric.test.design_completeness", `${executableCases} cases with steps ÷ ${verifiedCases} cases with a known step summary.`)}
                   </span>
                   <strong className="qa-card-value">{designCompleteness}%</strong>
@@ -402,7 +403,7 @@ export function AnalyticsMissionControl({
                 <div className="qa-compact-kpi-stack">
                   <MetricButton className="qa-compact-kpi is-error" evidence="passRate" onOpenEvidence={onOpenEvidence}>
                     <span className="qa-card-label qa-card-label-with-info">
-                      <span>Latest pass rate</span>
+                      <span>Latest Pass Rate</span>
                       {metricMethodology("metric.analytics.latest_pass_confidence", `${latestFailedSignals} latest failed or blocked result${latestFailedSignals === 1 ? "" : "s"}; open the evidence card for the full current denominator.`)}
                     </span>
                     <strong className="qa-card-value">{latestPassRate}%</strong>
@@ -410,7 +411,7 @@ export function AnalyticsMissionControl({
                   </MetricButton>
                   <MetricButton className="qa-compact-kpi is-warning" evidence="risks" onOpenEvidence={onOpenEvidence}>
                     <span className="qa-card-label qa-card-label-with-info">
-                      <span>Open risks</span>
+                      <span>Open Risks</span>
                       {metricMethodology("metric.analytics.open_risks", `${openRiskCount} action signals, including ${releaseBlockerCount} release blockers.`)}
                     </span>
                     <strong className="qa-card-value">{openRiskCount}</strong>
@@ -523,7 +524,7 @@ export function AnalyticsMissionControl({
                 {funnelMetrics.map((metric) => (
                   <article key={metric.id} title={metric.detail}>
                     <strong>{metric.value}</strong>
-                    <span>{metric.label}</span>
+                    <span>{metricTitle(metric.label)}</span>
                     <small className="qa-visually-hidden">{metric.detail}</small>
                   </article>
                 ))}
@@ -554,10 +555,10 @@ export function AnalyticsMissionControl({
               <article className="qa-surface-card qa-automation-panel">
                 <header className="qa-panel-heading"><h2 id="qa-automation-heading">Automation reach and reliability</h2><p>Operational leverage shown separately from release-readiness scoring.</p></header>
                 <div className="qa-automation-grid">
-                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label qa-card-label-with-info"><span>Case coverage</span>{metricMethodology("metric.automation.coverage", `${automatedCases} automated cases ÷ ${verifiedAutomationCases} cases with a verified automation state.`)}</span><strong className="qa-card-value">{automationCoverage}%</strong><p>{automatedCases} of {verifiedAutomationCases} verified cases marked automated</p></MetricButton>
-                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label">Automated runs</span><strong className="qa-card-value">{automatedRuns}</strong><p>CI and local-agent executions</p></MetricButton>
-                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label qa-card-label-with-info"><span>Automated pass rate</span>{metricMethodology("metric.analytics.latest_pass_confidence", `Passed latest automated results ÷ ${automatedResults} latest automated results.`)}</span><strong className="qa-card-value">{automatedPassRate}%</strong><p>{automatedResults} latest automated result{automatedResults === 1 ? "" : "s"}</p></MetricButton>
-                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label">Candidate backlog</span><strong className="qa-card-value">{automationCandidates}</strong><p>Verified manual cases to prioritize</p></MetricButton>
+                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label qa-card-label-with-info"><span>Case Coverage</span>{metricMethodology("metric.automation.coverage", `${automatedCases} automated cases ÷ ${verifiedAutomationCases} cases with a verified automation state.`)}</span><strong className="qa-card-value">{automationCoverage}%</strong><p>{automatedCases} of {verifiedAutomationCases} verified cases marked automated</p></MetricButton>
+                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label">Automated Runs</span><strong className="qa-card-value">{automatedRuns}</strong><p>CI and local-agent executions</p></MetricButton>
+                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label qa-card-label-with-info"><span>Automated Pass Rate</span>{metricMethodology("metric.analytics.latest_pass_confidence", `Passed latest automated results ÷ ${automatedResults} latest automated results.`)}</span><strong className="qa-card-value">{automatedPassRate}%</strong><p>{automatedResults} latest automated result{automatedResults === 1 ? "" : "s"}</p></MetricButton>
+                  <MetricButton evidence="automation" onOpenEvidence={onOpenEvidence}><span className="qa-card-label">Candidate Backlog</span><strong className="qa-card-value">{automationCandidates}</strong><p>Verified manual cases to prioritize</p></MetricButton>
                 </div>
               </article>
             </section>

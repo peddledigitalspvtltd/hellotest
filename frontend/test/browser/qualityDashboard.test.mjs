@@ -28,6 +28,7 @@ const dashboards = new URLSearchParams(location.search).has('empty') ? [] : [{ i
 window.dashboardCalls = []; window.dashboardWrites = []; window.dashboardOpened = []; window.open = (url, target, features) => { window.dashboardOpened.push({ url, target, features }); return null; };
 const result = (gadget, projectId = 'project') => ({ gadget, project: { id: projectId, key: 'QA', name: 'Release workspace' }, jql: gadget.jql, total: 84, returned: 84, value: ({ releaseConfidence: 82, requirementCoverage: 91, openDefects: 7, completedRuns30d: 24, testCases: 146 })[gadget.metric] ?? 34, value_label: gadget.title, evaluated_at: new Date().toISOString(), truncated: false, methodology: 'Project evidence', drilldown_target: ['openDefects', 'issues'].includes(gadget.metric) ? '/issues' : ['coverageGaps', 'requirementCoverage'].includes(gadget.metric) ? '/stories' : '/executions', series: gadget.group_by === 'module' ? [{ label: 'Checkout', value: 58 }, { label: 'Accounts', value: 39 }, { label: 'Search', value: 49 }] : gadget.group_by === 'priority' ? [{ label: 'High', value: 3 }, { label: 'Medium', value: 2 }, { label: 'Low', value: 2 }] : gadget.type === 'line' ? [{ label: '2026-07', value: 12 }, { label: '2026-08', value: 24 }, { label: '2026-09', value: 34 }] : [{ label: 'Completed', value: 58 }, { label: 'Failed', value: 7 }, { label: 'Queued', value: 19 }], rows: gadget.type === 'table' && gadget.metric === 'coverageGaps' ? [{ id: 'story-gap', key: 'ST-14', title: 'Checkout story needs tests', status: 'in_progress', priority: 'High', type: 'story', assignee: null, updated: null }] : [] });
 api.qualityDashboards.list = async query => structuredClone(dashboards.filter(item => item.project_id === query.project_id));
+api.requirementReleases.list = async () => [{id:'native-release',name:'Autumn Release'}];
 api.qualityDashboards.create = async input => { window.dashboardWrites.push(input); const saved = { ...input, id: 'created-' + window.dashboardWrites.length }; dashboards.push(saved); return structuredClone(saved); };
 api.qualityDashboards.update = async (id, input) => { window.dashboardWrites.push(input); const index = dashboards.findIndex(item => item.id === id); dashboards[index] = { ...input, id }; return structuredClone(dashboards[index]); };
 api.analytics.queryBatch = async input => { window.dashboardCalls.push(input); await new Promise(resolve => setTimeout(resolve, 80)); return { project: { id: 'project', key: 'QA', name: 'Release workspace' }, evaluated_at: new Date().toISOString(), results: input.gadgets.map(gadget => ({ gadget_id: gadget.id, result: result(gadget, input.project_id) })) }; };
@@ -36,6 +37,50 @@ api.analytics.designDashboard = async input => new Promise(resolve => { window.f
 function FixtureDashboard() { const [projectId, setProjectId] = React.useState('project'); window.changeDashboardProject = setProjectId; return <CustomQualityDashboard projectId={projectId} canManage canUseAi canUseAutomation />; }
 createRoot(document.getElementById('root')).render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><AuthProvider><div className="app-shell app-layout" style={{ gridTemplateColumns: "minmax(0, 1fr)", padding: 0 }}><main className="workspace-main" data-route="/"><div className="page-content page-content--overview overview-layout"><FixtureDashboard /></div></main></div></AuthProvider></QueryClientProvider></MemoryRouter>);
 `;
+
+test('relational dashboard queries, native release selection and new charts save and render', { timeout: 45000 }, async () => {
+  const name = `dashboard-relations-${randomUUID()}`;
+  const html = new URL(`${name}.html`, root); const tsx = new URL(`${name}.tsx`, root);
+  let browser;
+  try {
+    await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx, fixture);
+    browser = await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE ? {executablePath:process.env.CHROME_EXECUTABLE} : {})});
+    const page = await browser.newPage({viewport:{width:1440,height:1000}});
+    const errors=[]; page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5178'}/${name}.html`);
+    await page.getByRole('button',{name:'Delivery Development & QA progress',exact:true}).click();
+    await page.locator('.quality-column-chart').first().waitFor();
+    assert.equal(await page.locator('.quality-column-chart').count(),2);
+    await page.getByRole('button',{name:'Triage Defects & failing tests',exact:true}).click();
+    await page.locator('.quality-area-fill').waitFor();
+    await page.getByRole('button',{name:'Create dashboard',exact:true}).first().click();
+    const dialog=page.getByRole('dialog');
+    await dialog.getByRole('button',{name:'Delivery 8 widgets',exact:true}).click();
+    await dialog.getByRole('button',{name:'Configure Stories By Release',exact:true}).click();
+    const query=dialog.getByRole('combobox',{name:'Query / Metric',exact:true});
+    assert.ok(await query.locator('option').count()>=30);
+    await query.selectOption('storyTestPassRate');
+    await dialog.getByRole('combobox',{name:'Release Scope',exact:true}).selectOption('native-release');
+    await dialog.getByRole('combobox',{name:'Group by',exact:true}).selectOption('status');
+    await dialog.getByRole('combobox',{name:'Visualization',exact:true}).selectOption('column');
+    assert.match(await dialog.locator('.dashboard-derived-note').innerText(),/Stories → Linked Tests → Latest Results/);
+    await dialog.getByRole('button',{name:'Apply widget changes',exact:true}).click();
+    await dialog.getByRole('button',{name:'Create dashboard',exact:true}).click();
+    await dialog.waitFor({state:'hidden'});
+    const saved=await page.evaluate(()=>window.dashboardWrites.at(-1));
+    const widget=saved.gadgets.find(item=>item.release==='native-release');
+    assert.equal(widget.metric,'storyTestPassRate'); assert.equal(widget.type,'column'); assert.equal(widget.group_by,'status');
+    await page.locator('.quality-column-chart').first().waitFor();
+    await mkdir('/tmp/qaira-dashboard-design',{recursive:true});
+    for(const width of [1440,390,320]) {
+      await page.setViewportSize({width,height:1000});
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`Relational dashboard overflow at ${width}`);
+      await page.screenshot({path:`/tmp/qaira-dashboard-design/relations-${width}.png`,fullPage:true});
+    }
+    assert.deepEqual(errors,[]);
+  } finally { await browser?.close(); await Promise.allSettled([unlink(html),unlink(tsx)]); }
+});
 
 test('dashboard presets, creation, layout and request behavior', { timeout: 90000 }, async () => {
   const name = `dashboard-check-${randomUUID()}`;
@@ -72,7 +117,7 @@ test('dashboard presets, creation, layout and request behavior', { timeout: 9000
     assert.equal(await page.evaluate(() => window.dashboardCalls.length), initialCalls, 'Editing layout and metadata does not fetch data');
     await dialog.getByRole('button', { name: 'Configure Run cycle time', exact: true }).click();
     await dialog.getByLabel(/Gadget title/).fill('Mean run cycle');
-    assert.equal(await dialog.getByRole('combobox', { name: 'Metric', exact: true }).locator('option[value="resolved"]').count(), 0);
+    assert.equal(await dialog.getByRole('combobox', { name: 'Query / Metric', exact: true }).locator('option[value="resolved"]').count(), 0);
     await dialog.getByRole('button', { name: 'Apply widget changes', exact: true }).click();
     await dialog.getByRole('tab', { name: 'Preview data', exact: true }).click();
     await dialog.locator('.quality-gadget').first().waitFor();

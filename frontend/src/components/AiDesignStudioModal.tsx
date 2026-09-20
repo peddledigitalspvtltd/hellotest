@@ -8,6 +8,7 @@ import {
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { AiPromptContextPanel } from "./AiPromptContextPanel";
+import { AiLlmSelect } from "./AiLlmSelect";
 import { SelectionToggleIcon } from "./AppIcons";
 import { buildGherkinFromSteps, GherkinEditor } from "./GherkinEditor";
 import { FormField } from "./FormField";
@@ -129,7 +130,9 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
   const selectedStories = useMemo(() => requirements.filter((item) => selectedRequirementIds.includes(item.id)), [requirements, selectedRequirementIds]);
   const selectedStory = selectedStories[0];
   const linkCount = externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length;
-  const currentIntegration = integrations.find((item) => item.id === integrationId) || integrations[0];
+  const currentIntegration = integrations.find((item) => item.id === integrationId);
+  const integrationLabel = integrationId ? currentIntegration?.name || "Unavailable LLM" : "Configured LLM";
+  const integrationUnavailable = Boolean(integrationId && !currentIntegration);
   const visibleDrafts = useMemo(() => {
     const query = draftSearch.trim().toLowerCase();
     return query ? previewCases.filter((item) => [item.title, item.description, ...item.requirement_titles].some((value) => String(value || "").toLowerCase().includes(query))) : previewCases;
@@ -230,8 +233,9 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               <AiPromptContextPanel additionalContext={additionalContext} appTypeId={promptTemplateAppTypeId} disabled={busy} externalLinksText={externalLinksText} onAddImages={onAddImages} onAdditionalContextChange={onAdditionalContextChange} onBusyChange={setContextBusy} onExternalLinksTextChange={onExternalLinksTextChange} onRemoveImage={onRemoveImage} promptScope="test_case_generation" projectId={promptTemplateProjectId} referenceImages={referenceImages} referenceUploadPresentation="dropzone" requirements={selectedStories} showPromptEditor />
             </section>
             <section className="ai-test-generator-section">
-              <div className="ai-test-generator-section__heading"><span>Intelligence Engine</span><small>{currentIntegration?.name || "Configured provider"}</small></div>
-              <div className="ai-test-generator-engines" role="radiogroup" aria-label="Intelligence engine">{integrations.map((engine, index) => <label className={engine.id === (integrationId || integrations[0]?.id) ? "is-selected" : ""} key={engine.id}><input checked={engine.id === (integrationId || integrations[0]?.id)} disabled={busy} name="ai-test-generator-engine" onChange={() => onIntegrationIdChange(engine.id)} type="radio" /><span><strong>{engine.name}</strong><small>{index === 0 ? "Recommended" : engine.type}</small></span>{index === 0 ? <IconSparkles size={15} /> : null}</label>)}</div>
+              <div className="ai-test-generator-section__heading"><span>Intelligence Engine</span><small>{integrationLabel}</small></div>
+              <AiLlmSelect disabled={busy} integrations={integrations} onChange={onIntegrationIdChange} value={integrationId} />
+              {integrationUnavailable ? <p role="status">Choose an available LLM or Configured LLM to generate new drafts.</p> : null}
               <label className="ai-test-generator-count">Draft count<select disabled={busy} onChange={(event) => onMaxCasesChange(Number(event.target.value))} value={maxCases}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select></label>
               {onParallelRequirementCountChange ? <label className="ai-test-generator-count">Stories in parallel<input disabled={busy} max="5" min="1" onChange={(event) => onParallelRequirementCountChange(Number(event.target.value) || 1)} type="number" value={parallelRequirementCount || 1} /></label> : null}
             </section>
@@ -257,7 +261,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
             </div>
 
             <div className={`ai-test-generator-drafts is-${viewMode}`}>
-              {!previewCases.length ? <div className="ai-test-generator-empty"><IconSparkles size={34} /><h3>Ready to generate {authoringMode === "gherkin" ? "Gherkin" : "structured"} drafts</h3><p>Select Story evidence, choose an intelligence engine, and add coverage constraints.</p><button className="primary-button" disabled={disablePreview || busy} onClick={() => onPreview(authoringMode)} type="button">{isPreviewing ? "Generating…" : "Generate drafts"}</button></div> : null}
+              {!previewCases.length ? <div className="ai-test-generator-empty"><IconSparkles size={34} /><h3>Ready to generate {authoringMode === "gherkin" ? "Gherkin" : "structured"} drafts</h3><p>Select Story evidence, choose an intelligence engine, and add coverage constraints.</p><button className="primary-button" disabled={disablePreview || busy || integrationUnavailable} onClick={() => onPreview(authoringMode)} type="button">{isPreviewing ? "Generating…" : "Generate drafts"}</button></div> : null}
               {visibleDrafts.map((draft, draftIndex) => {
                 const expanded = expandedIds.includes(draft.client_id);
                 const editing = editingIds.includes(draft.client_id);
@@ -281,7 +285,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               {previewCases.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><IconSearch size={30} /><h3>No matching drafts</h3><p>Clear or change the search to see generated cases.</p></div> : null}
               {existingCases.length ? <details className="ai-test-generator-existing"><summary><span><strong>{existingCasesTitle}</strong><small>{existingCasesSubtitle}</small></span><span>{existingCases.length}</span></summary><div>{existingCases.slice(0, 8).map((testCase) => <button disabled={!onViewExistingCase} key={testCase.id} onClick={() => onViewExistingCase?.(testCase.id)} type="button"><strong>{testCase.title}</strong><span>{testCase.step_count || 0} steps</span></button>)}</div></details> : null}
             </div>
-            <footer className="ai-test-generator-footer"><strong>{selectedCount} Selected</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy} onClick={() => onPreview(authoringMode)} type="button"><IconRefresh size={17} />{isPreviewing ? "Generating…" : previewCases.length ? "Regenerate" : "Generate"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(selectedIds)} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : `${acceptLabel} (${selectedCount})`}</button> : null}</div></footer>
+            <footer className="ai-test-generator-footer"><strong>{selectedCount} Selected</strong><div>{previewCases.length ? <button disabled={busy} onClick={() => previewCases.forEach((draft) => onRemovePreviewCase(draft.client_id))} type="button">Decline all</button> : null}{onSchedule ? <span><button disabled={disableSchedule || busy || integrationUnavailable} onClick={() => onSchedule(authoringMode)} type="button"><IconCalendarTime size={17} />{isScheduling ? "Scheduling…" : "Schedule"}</button><InfoTooltip content={scheduleHelperText || "Queue generation for the selected Stories. Generated cases return as reviewable drafts."} label="Scheduled generation information" /></span> : null}<button disabled={disablePreview || busy || integrationUnavailable} onClick={() => onPreview(authoringMode)} type="button"><IconRefresh size={17} />{isPreviewing ? "Generating…" : previewCases.length ? "Regenerate" : "Generate"}</button>{previewCases.length ? <button className="primary-button" disabled={disableAccept || !selectedCount || invalidSelectedDraft || busy} onClick={() => onAccept(selectedIds)} title={invalidSelectedDraft ? "Complete the selected draft title and required test content before accepting." : undefined} type="button"><IconLibraryPlus size={17} />{isAccepting ? "Accepting…" : `${acceptLabel} (${selectedCount})`}</button> : null}</div></footer>
           </main>
 
           {intelligenceOpen ? <aside aria-label="AI generation intelligence status" className="ai-test-generator-intelligence">
@@ -293,7 +297,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
               <li className={completeCount === previewCases.length && previewCases.length ? "is-complete" : ""}><span>{completeCount === previewCases.length && previewCases.length ? <IconCheck size={14} /> : "3"}</span><div><strong>{authoringMode === "gherkin" ? "Gherkin Syntax Checked" : "Step Quality Checked"}</strong><small>{completeCount} valid draft{completeCount === 1 ? "" : "s"}</small></div></li>
               <li className={previewCases.length && duplicateCount === 0 ? "is-complete" : ""}><span>{previewCases.length && duplicateCount === 0 ? <IconCheck size={14} /> : "4"}</span><div><strong>Conflict Check</strong><small>{duplicateCount ? `${duplicateCount} matching existing title${duplicateCount === 1 ? "" : "s"}` : previewCases.length ? "No exact existing-title match" : "Awaiting drafts"}</small></div></li>
             </ul></section>
-            <section className="ai-test-generator-session"><h3><IconHistory size={17} />Session Log</h3><ol>{previewCases.length ? <li><span /><div><strong>Drafts generated</strong><small>{previewCases.length} {authoringMode} · {currentIntegration?.name || "configured provider"}</small></div></li> : null}<li><span /><div><strong>Context synced</strong><small>{selectedRequirementIds.length} Stories · {linkCount + referenceImages.length} attachments</small></div></li><li><span /><div><strong>{appTypeName}</strong><small>Application scope loaded</small></div></li></ol></section>
+            <section className="ai-test-generator-session"><h3><IconHistory size={17} />Session Log</h3><ol>{previewCases.length ? <li><span /><div><strong>Drafts generated</strong><small>{previewCases.length} {authoringMode} · {integrationLabel}</small></div></li> : null}<li><span /><div><strong>Context synced</strong><small>{selectedRequirementIds.length} Stories · {linkCount + referenceImages.length} attachments</small></div></li><li><span /><div><strong>{appTypeName}</strong><small>Application scope loaded</small></div></li></ol></section>
             <section className="ai-test-generator-sources"><span><IconFile size={15} />{referenceImages.length} visual references</span><span><IconExternalLink size={15} />{linkCount} external links</span></section>
           </aside> : null}
         </div>
@@ -301,7 +305,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
           <span>© {new Date().getFullYear()} HelloTest QA Intelligence</span>
           <div>
             <span>API Status</span>
-            <span>Model: {currentIntegration?.model || currentIntegration?.name || "Configured provider"}</span>
+            <span>Model: {currentIntegration?.model || integrationLabel}</span>
             <span>Human-reviewed output</span>
           </div>
         </footer>

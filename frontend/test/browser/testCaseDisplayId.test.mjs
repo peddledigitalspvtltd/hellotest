@@ -48,7 +48,7 @@ api.appTypes.list=async()=>[{id:'case-app',project_id:'case-project',name:'Web a
 const cases=Array.from({length:3},(_,index)=>{
  const n=index+1;
  return {id:'00000000-0000-4000-8000-'+String(n).padStart(12,'0'),display_id:n===1?'TC_7001':n===2?'DEMO2-T3':null,app_type_id:'case-app',title:n===60?'Distant boundary coverage':'Checkout coverage '+String(n).padStart(2,'0'),description:'Fixture case description '+n,
-  suite_id:null,suite_ids:[],requirement_id:n===60?'story-run':null,requirement_ids:n===60?['story-run']:[],module_ids:n>60?['case-module']:[],defect_ids:[],labels:[],external_references:[],
+  suite_id:null,suite_ids:[],requirement_id:n===1?'11111111-1111-4111-8111-111111111111':null,requirement_ids:n===1?['11111111-1111-4111-8111-111111111111']:[],linked_requirements:n===1?[{id:'11111111-1111-4111-8111-111111111111',display_id:'STORY-41',title:'Secure sign in'}]:[],module_ids:n>60?['case-module']:[],defect_ids:[],labels:[],external_references:[],
   automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'not_requested',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,
   created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T10:00:00Z'};
 });
@@ -97,7 +97,12 @@ test('Test Case details retain readable IDs during loading and with no steps, an
   const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
   const errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(10000);
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5186'}/${name}.html`);
-  await page.locator('.test-case-catalog-card').filter({hasText:'TC_7001'}).click();
+  const generatedTile=page.locator('.test-case-catalog-card').filter({hasText:'TC_7001'});
+  await generatedTile.waitFor();
+  assert.match(await generatedTile.innerText(), /STORY-41/);
+  assert.match(await generatedTile.innerText(), /Secure sign in/);
+  assert.doesNotMatch(await generatedTile.innerText(), /11111111-1111/);
+  await generatedTile.click();
   await page.waitForFunction(()=>typeof window.releaseDetails==='function'&&typeof window.releaseSteps==='function');
   const header=page.locator('.test-case-workspace-commandbar');
   assert.equal(await header.locator('.display-id-badge code').innerText(),'TC_7001');

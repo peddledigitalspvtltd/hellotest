@@ -35,6 +35,7 @@ const build = ({ project, kind, mode = "create", currentValues = {}, classificat
     field("fixVersions", "Fix version / Release"),
     field("status", "Status", { allowedValues: statuses(statusOptions, currentValues.status).map((item) => ({ value: item.value, name: item.label, label: item.label })) })
   ];
+  if (isRequirement) coreFields.splice(2, 0, field("acceptance_criteria", "Acceptance Criteria", {type:"array"}));
   if (!isRequirement) coreFields.push(field("assignee", "Assignee"), ...classificationFields);
 
   return {
@@ -42,7 +43,7 @@ const build = ({ project, kind, mode = "create", currentValues = {}, classificat
     project_id: project.id,
     project_key: project.display_id || project.id,
     issue_type_id: isRequirement ? "hellotest-story" : "hellotest-bug",
-    issue_type_name: isRequirement ? "Story" : "Bug",
+    issue_type_name: isRequirement ? "Story" : "Defect",
     hellotest_core_field_ids: coreFields.map((item) => item.id),
     required_fields: [],
     core_fields: coreFields,
@@ -52,14 +53,14 @@ const build = ({ project, kind, mode = "create", currentValues = {}, classificat
     workflow_statuses: {
       source: "hellotest-project-workflow",
       issue_type_id: isRequirement ? "hellotest-story" : "hellotest-bug",
-      issue_type_name: isRequirement ? "Story" : "Bug",
+      issue_type_name: isRequirement ? "Story" : "Defect",
       default_status: defaultStatus,
       current_status: mode === "edit" ? statuses(statusOptions, currentValues.status).find((item) => item.current) || null : null,
       statuses: statuses(statusOptions, currentValues.status)
     },
     strategy: {
       requirements_source: "HelloTest PostgreSQL requirements",
-      bugs_source: "HelloTest PostgreSQL issues",
+      bugs_source: "HelloTest PostgreSQL defects",
       synced_fields: coreFields.map((item) => item.id),
       note: "Fields are validated and persisted by HelloTest's native workflow service."
     }
@@ -72,7 +73,7 @@ module.exports = {
     const classificationFields = await Promise.all([
       ["root_cause", "Primary Root Cause", "issues.root_causes"],
       ["qa_root_cause", "QA Root Cause", "issues.qa_root_causes"],
-      ["bug_type", "Bug Type", "issues.bug_types"]
+      ["bug_type", "Defect Type", "issues.bug_types"]
     ].map(async ([id, name, key]) => {
       const current = input.mode === "edit" ? input.currentValues?.[id] : null;
       const options = await dropdownCatalog.getOptions(key, { includeInactive: true });

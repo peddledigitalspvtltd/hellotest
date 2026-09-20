@@ -586,6 +586,7 @@ const buildHookStepFromSnapshot = (stepSnapshot, index, appTypeKind = "web") => 
     expected_result: normalizeText(stepSnapshot.expected_result),
     automation_code: normalizeRichText(stepSnapshot.automation_code),
     api_request: stepType === "api" ? normalizeApiRequest(stepSnapshot.api_request) : null,
+    shared_parameter_values: normalizeStringRecord(stepSnapshot.shared_parameter_values),
     group_name: normalizeText(stepSnapshot.group_name),
     group_kind: stepSnapshot.group_kind === "local" || stepSnapshot.group_kind === "reusable"
       ? stepSnapshot.group_kind
@@ -1161,6 +1162,7 @@ const buildEngineEnvelope = async ({
     case_parameters: normalizeStringRecord(caseSnapshot.parameter_values),
     run_parameters: normalizeStringRecord(execution.parameter_values),
     parameters_frozen: true,
+    data_policy: caseSnapshot.test_data_options?.runtime_policy,
     environment: execution.test_environment
       ? {
           name: execution.test_environment.name,
@@ -1192,6 +1194,12 @@ const buildEngineEnvelope = async ({
           rows: dataSetIteration?.row
             ? [dataSetIteration.row]
             : toEngineDataSetRows(caseDataSet.snapshot?.rows),
+          data_scope_policy: caseDataSet.snapshot?.data_scope_policy,
+          parameter_data_layers: caseDataSet.snapshot?.parameter_data_layers ? Object.fromEntries(Object.entries(caseDataSet.snapshot.parameter_data_layers).map(([name, layer]) => [name, layer ? { ...layer,
+            rows: [layer.rows[layer.rows.length === 1 ? 0 : dataSetIteration?.index || 0] || {}],
+            template_rows: undefined } : null])) : undefined,
+          shared_rows: Array.isArray(caseDataSet.snapshot?.shared_rows)
+            ? [caseDataSet.snapshot.shared_rows[dataSetIteration?.index || 0] || {}] : undefined,
           iteration: dataSetIteration ? {
             index: dataSetIteration.index,
             number: dataSetIteration.index + 1,
@@ -1298,7 +1306,10 @@ const hydrateJob = (row) => {
   };
 };
 
-const buildRuntimeParameterValues = (envelope, capturedValues = {}) => resolveParameterLayers({
+const buildRuntimeParameterValues = (envelope, capturedValues = {}, step = null) => resolveParameterLayers({
+  sharedValues: step?.shared_parameter_values,
+  dataPolicy: envelope.data_policy,
+  isSharedStep: step?.group_kind === "reusable",
   caseValues: { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
   suiteValues: envelope.suite_parameters,
   environmentVariables: envelope.environment?.variables,
@@ -1429,7 +1440,8 @@ async function planExecutionDispatch(execution, options = {}) {
         expected_result: normalizeText(stepSnapshot.expected_result),
         automation_code: normalizeRichText(stepSnapshot.automation_code),
         api_request: stepType === "api" ? normalizeApiRequest(stepSnapshot.api_request) : null,
-        group_name: normalizeText(stepSnapshot.group_name),
+        shared_parameter_values: normalizeStringRecord(stepSnapshot.shared_parameter_values),
+    group_name: normalizeText(stepSnapshot.group_name),
         group_kind: stepSnapshot.group_kind === "local" || stepSnapshot.group_kind === "reusable"
           ? stepSnapshot.group_kind
           : null
@@ -1845,6 +1857,7 @@ async function queueSingleStepDispatch({
     expected_result: normalizeText(stepSnapshot.expected_result),
     automation_code: normalizeRichText(stepSnapshot.automation_code),
     api_request: null,
+    shared_parameter_values: normalizeStringRecord(stepSnapshot.shared_parameter_values),
     group_name: normalizeText(stepSnapshot.group_name),
     group_kind: stepSnapshot.group_kind === "local" || stepSnapshot.group_kind === "reusable"
       ? stepSnapshot.group_kind
@@ -2387,7 +2400,7 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
 
   const runtimeState = parseRuntimeState(job.runtime_state);
   const existingLogs = parseStructuredLogs(runtimeState.logs);
-  const parameterValues = buildRuntimeParameterValues(job.payload, runtimeState.captured_values);
+  const parameterValues = buildRuntimeParameterValues(job.payload, runtimeState.captured_values, step);
   const stepResult = await apiRequestExecutionService.executeApiRequestStep({
     api_request: step.api_request,
     parameter_values: parameterValues

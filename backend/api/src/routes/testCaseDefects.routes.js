@@ -10,7 +10,7 @@ const authorizeMappings = async (fastify, req, { test_case_id, issue_id }, permi
   const issue = issue_id ? await entityScopes.resolveEntityScope({ entityType: "issue", entityId: issue_id }) : null;
   const projectId = testCase?.project_ids[0] || issue?.projectId || null;
   if (!projectId && req.user.role !== "admin") throw scopeError("test_case_id or issue_id is required when listing Test Case defect mappings", 400);
-  if (issue && issue.projectId !== projectId) throw scopeError("Test Case and Bug must belong to the same project", 403);
+  if (issue && issue.projectId !== projectId) throw scopeError("Test Case and Defect must belong to the same project", 403);
   await fastify.requirePermission("testcase.view", { projectId })(req);
   await fastify.requirePermission(permission, { projectId })(req);
 };

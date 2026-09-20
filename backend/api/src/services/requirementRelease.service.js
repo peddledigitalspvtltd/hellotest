@@ -5,6 +5,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { latestFinalizedCaseResultsCte } = require("../utils/finalizedCaseMetrics");
 const { mapWithConcurrency } = require("../utils/boundedConcurrency");
+const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require("../utils/deliveryScopeSql");
 
 const normalizeText = (value) => typeof value === "string" && value.trim() ? value.trim() : null;
 const normalizeList = (values = []) => [...new Set((Array.isArray(values) ? values : []).map(normalizeText).filter(Boolean))];
@@ -23,7 +24,7 @@ const normalizeDate = (value) => {
 };
 
 const COMPLETED_STORY_STATUSES = ["qa_done", "qa done", "done", "closed", "resolved", "accepted", "complete", "completed"];
-const isCompletedStoryStatus = (value) => COMPLETED_STORY_STATUSES.includes(String(value || "").trim().toLowerCase());
+const isCompletedStoryStatus = (value) => COMPLETED_STORY_STATUSES.includes(String(value || "").trim().toLowerCase().replace(/[ _-]+/g, "_"));
 const isOpenReleaseBug = (status) => !["closed", "done", "resolved", "accepted", "complete", "completed", "fixed", "verified"].includes(String(status || "").trim().toLowerCase());
 const isAutomatedReleaseCase = (row) => String(row.automated || "").trim().toLowerCase() === "yes"
   || ["ready", "automated", "yes", "covered"].includes(String(row.automation_status || "").trim().toLowerCase());
@@ -65,9 +66,7 @@ const ensureReleaseStoriesComplete = async (release, requirementIds, sprintIds) 
     FROM requirements
     WHERE id IN (${effectiveIds.map(() => "?").join(",")})
   `).all(...effectiveIds) : [];
-  const incomplete = stories.filter((story) =>
-    !COMPLETED_STORY_STATUSES.includes(String(story.status || "").trim().toLowerCase())
-  );
+  const incomplete = stories.filter((story) => !isCompletedStoryStatus(story.status));
   if (!incomplete.length) return;
   const error = new Error(`Release “${release.name}” cannot be completed because ${incomplete.length} ${incomplete.length === 1 ? "Story is" : "Stories are"} unfinished. Move every Story to QA Done, Done, Resolved, Accepted, or Closed, then try again.`);
   error.statusCode = 409;
@@ -85,16 +84,22 @@ const ensureProject = async (projectId) => {
 };
 
 const ensureSprints = async (sprintIds, projectId) => {
+  if (!sprintIds.length) return;
+  const rows = await db.prepare("SELECT id, project_id FROM requirement_iterations WHERE id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))").all(JSON.stringify(sprintIds));
+  const byId = new Map(rows.map(row => [row.id, row]));
   for (const sprintId of sprintIds) {
-    const row = await db.prepare("SELECT id, project_id FROM requirement_iterations WHERE id = ?").get(sprintId);
+    const row = byId.get(sprintId);
     if (!row) throw new Error(`Sprint not found: ${sprintId}`);
     if (row.project_id !== projectId) throw new Error("Sprint must belong to the same project as the release");
   }
 };
 
 const ensureStories = async (requirementIds, projectId) => {
+  if (!requirementIds.length) return;
+  const rows = await db.prepare("SELECT id, project_id FROM requirements WHERE id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))").all(JSON.stringify(requirementIds));
+  const byId = new Map(rows.map(row => [row.id, row]));
   for (const requirementId of requirementIds) {
-    const row = await db.prepare("SELECT id, project_id FROM requirements WHERE id = ?").get(requirementId);
+    const row = byId.get(requirementId);
     if (!row) throw new Error(`Story not found: ${requirementId}`);
     if (row.project_id !== projectId) throw new Error("Story must belong to the same project as the release");
   }
@@ -105,8 +110,12 @@ const resolveMembership = async ({ requirementIds, sprintIds, projectId }) => {
   await ensureStories(requirementIds, projectId);
   const sprintRows = sprintIds.length ? await db.prepare(`
     SELECT id, iteration_id FROM requirements
-    WHERE project_id = ? AND iteration_id IN (${sprintIds.map(() => "?").join(",")})
-  `).all(projectId, ...sprintIds) : [];
+    WHERE project_id = ? AND (iteration_id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))
+      OR (iteration_id IS NULL AND NULLIF(TRIM(sprint), '') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM requirement_iterations i WHERE i.project_id = requirements.project_id AND LOWER(TRIM(i.name)) = LOWER(TRIM(requirements.sprint))
+          AND i.id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))
+          AND (SELECT COUNT(*) FROM requirement_iterations candidate WHERE candidate.project_id = i.project_id AND LOWER(TRIM(candidate.name)) = LOWER(TRIM(i.name))) = 1)))
+  `).all(projectId, JSON.stringify(sprintIds), JSON.stringify(sprintIds)) : [];
   const sourceById = new Map(requirementIds.map((id) => [id, "manual"]));
   sprintRows.forEach((row) => sourceById.set(row.id, sourceById.get(row.id) || "sprint"));
   return sourceById;
@@ -114,14 +123,16 @@ const resolveMembership = async ({ requirementIds, sprintIds, projectId }) => {
 
 const deriveState = (release) => {
   if (release.state === "released") return "released";
-  if (release.target_date && Date.parse(release.target_date) < Date.now()) return "overdue";
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  if (release.target_date && Date.parse(release.target_date) < today.getTime()) return "overdue";
   return release.state || "planned";
 };
 
 const hydrateReleases = async (releases, { includeDetails = true } = {}) => {
   if (!releases.length) return [];
   const selectedReleases = releases.map((release) => ({
-    id: release.id, project_id: release.project_id,
+    id: release.id, project_id: release.project_id, name: release.name, fix_version: release.fix_version,
     sprint_ids: Array.isArray(release.sprint_ids) ? release.sprint_ids : []
   }));
   // Hydrate the complete catalog in one query. The selected release recordset
@@ -130,23 +141,30 @@ const hydrateReleases = async (releases, { includeDetails = true } = {}) => {
     SELECT ${includeDetails ? "requirements.*" : "requirements.id"}, selected.id AS hydration_release_id,
       CASE
         WHEN requirement_release_items.source = 'manual' THEN 'manual'
-        WHEN selected.sprint_ids @> jsonb_build_array(requirements.iteration_id) THEN 'sprint'
+        WHEN EXISTS (SELECT 1 FROM requirement_release_sprints scope JOIN requirement_iterations sprint ON sprint.id = scope.iteration_id
+          WHERE scope.release_id = selected.id AND (scope.iteration_id = requirements.iteration_id
+            OR (requirements.iteration_id IS NULL AND LOWER(TRIM(sprint.name)) = LOWER(TRIM(requirements.sprint))))) THEN 'sprint'
         ELSE COALESCE(requirement_release_items.source, 'manual')
       END AS release_membership_source
-    FROM jsonb_to_recordset(?::jsonb) AS selected(id text, project_id text, sprint_ids jsonb)
+    FROM jsonb_to_recordset(?::jsonb) AS selected(id text, project_id text, name text, fix_version text, sprint_ids jsonb)
     JOIN LATERAL (
-      SELECT requirement_id FROM requirement_release_items WHERE release_id = selected.id
+      SELECT requirement_id FROM requirement_release_items WHERE release_id = selected.id AND source = 'manual'
       UNION
-      SELECT id FROM requirements
-      WHERE project_id = selected.project_id
-        AND iteration_id IN (SELECT value FROM jsonb_array_elements_text(selected.sprint_ids))
-    ) membership ON TRUE
+      SELECT story.id FROM requirement_release_sprints scope JOIN requirements story ON story.iteration_id = scope.iteration_id
+        WHERE scope.release_id = selected.id AND story.project_id = selected.project_id
+      UNION
+      SELECT story.id FROM requirement_release_sprints scope JOIN requirement_iterations sprint ON sprint.id = scope.iteration_id
+        JOIN requirements story ON story.project_id = selected.project_id AND story.iteration_id IS NULL AND LOWER(TRIM(story.sprint)) = LOWER(TRIM(sprint.name))
+        WHERE scope.release_id = selected.id
+      UNION
+      SELECT story.id FROM requirements story WHERE story.project_id = selected.project_id
+        AND LOWER(TRIM(COALESCE(NULLIF(TRIM(story.fix_version), ''), story.release))) IN (LOWER(TRIM(selected.fix_version)), LOWER(TRIM(selected.name)))
+    ) membership(requirement_id) ON TRUE
     JOIN requirements ON requirements.id = membership.requirement_id AND requirements.project_id = selected.project_id
     LEFT JOIN requirement_release_items
       ON requirements.id = requirement_release_items.requirement_id
       AND requirement_release_items.release_id = selected.id
-    WHERE requirement_release_items.release_id IS NOT NULL
-      OR selected.sprint_ids @> jsonb_build_array(requirements.iteration_id)
+    WHERE ${releaseStoryMembershipSql('requirements', 'selected')}
     ORDER BY selected.id, COALESCE(requirements.updated_at, requirements.created_at) DESC, requirements.title
   `).all(JSON.stringify(selectedReleases));
   const itemsByRelease = new Map(releases.map((release) => [release.id, []]));
@@ -314,6 +332,47 @@ exports.syncSprintMembership = async (sprintId, { remove = false, updated_by } =
   return { updated: true, releases: scopedReleaseIds.length };
 };
 
+// A Story's selected release is one direct membership. Independent manual
+// scope and membership inherited from a Sprint are preserved when it changes.
+// The caller's Story transaction owns this operation and its delivery stamps.
+exports.setStoryRelease = async (requirementId, { releaseId, projectId, previousRelease, previousFixVersion, updated_by } = {}) => {
+  const selectedId = normalizeText(releaseId);
+  const releases = await db.prepare(`
+    SELECT releases.* FROM requirement_releases releases
+    WHERE releases.id = ? OR (releases.project_id = ?
+      AND releases.name = ? AND releases.fix_version = ?
+      AND EXISTS (SELECT 1 FROM requirement_release_items items
+        WHERE items.release_id = releases.id AND items.requirement_id = ? AND items.source = 'manual'))
+    ORDER BY releases.id FOR UPDATE
+  `).all(selectedId, projectId, normalizeText(previousRelease), normalizeText(previousFixVersion), requirementId);
+  const selected = releases.find(release => release.id === selectedId);
+  if (selectedId && !selected) throw Object.assign(new Error("Release not found"), { statusCode: 404 });
+  if (selected && selected.project_id !== projectId) throw Object.assign(new Error("Release must belong to the Story's project"), { statusCode: 400 });
+  if (releases.some(release => release.state === 'released')) {
+    throw Object.assign(new Error("Completed Releases are read-only and cannot change Story scope"), { statusCode: 409, code: "RELEASE_SCOPE_LOCKED" });
+  }
+  for (const release of releases) {
+    if (release.id !== selectedId) {
+      const inherited = await db.prepare(`SELECT id FROM requirements WHERE id = ? AND project_id = ?
+        AND ?::jsonb @> jsonb_build_array(iteration_id)`).get(requirementId, projectId, JSON.stringify(release.sprint_ids || []));
+      if (inherited) await db.prepare("UPDATE requirement_release_items SET source = 'sprint' WHERE release_id = ? AND requirement_id = ?").run(release.id, requirementId);
+      else await db.prepare("DELETE FROM requirement_release_items WHERE release_id = ? AND requirement_id = ? AND source = 'manual'").run(release.id, requirementId);
+    }
+    await db.prepare("UPDATE requirement_releases SET updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(normalizeText(updated_by) || release.updated_by || release.created_by, release.id);
+  }
+  if (selected) {
+    await db.prepare(`INSERT INTO requirement_release_items(release_id,requirement_id,source) VALUES (?,?,'manual')
+      ON CONFLICT (release_id,requirement_id) DO UPDATE SET source='manual'`).run(selected.id, requirementId);
+    await db.prepare("UPDATE requirements SET release = ?, fix_version = ? WHERE id = ?").run(selected.name, selected.fix_version, requirementId);
+  } else if (previousRelease || previousFixVersion) {
+    await db.prepare(`UPDATE requirements SET
+      release = CASE WHEN release = ? THEN NULL ELSE release END,
+      fix_version = CASE WHEN fix_version = ? THEN NULL ELSE fix_version END WHERE id = ?`)
+      .run(normalizeText(previousRelease), normalizeText(previousFixVersion), requirementId);
+  }
+};
+
 exports.listReleases = async ({ project_id } = {}) => {
   if (!normalizeText(project_id)) throw new Error("project_id is required");
   let query = "SELECT * FROM requirement_releases WHERE 1 = 1";
@@ -331,6 +390,15 @@ exports.getRelease = async (id) => {
   const release = await getReleaseRow(id);
   if (!release) throw new Error("Release not found");
   return hydrateRelease(release);
+};
+
+// Enrich only after the route has checked access to the underlying evidence.
+// Dedupe shared Stories once, then restore each Release's membership metadata.
+exports.withStoryMetrics = async (releases, { includeExecution = false } = {}) => {
+  const stories = [...new Map(releases.flatMap(release => release.requirements || []).map(story => [story.id, story])).values()];
+  const hydrated = await require('./requirementCatalog.service').withCatalogMetrics(stories, { include_execution:includeExecution });
+  const byId = new Map(hydrated.map(story => [story.id, story.catalog_metrics]));
+  return releases.map(release => ({ ...release, requirements:(release.requirements || []).map(story => ({ ...story, catalog_metrics:byId.get(story.id) })) }));
 };
 
 exports.createRelease = async ({ project_id, name, description, fix_version, target_date_label, plan_date, target_date, external_link, state, sprint_ids = [], requirement_ids = [], created_by } = {}) => {
@@ -410,17 +478,17 @@ exports.getReadiness = async (id, { release: hydratedRelease } = {}) => {
   // Runs persist the canonical delivery token (fix_version), not a release ID.
   // Resolve it from the stored Release; a shared case's unrelated latest run is
   // not evidence for this Release, even when it belongs to the same project.
-  const releaseToken = String(release.fix_version || "").trim().toLowerCase();
   const latestResults = caseIds.length ? await db.prepare(`
     WITH ${latestFinalizedCaseResultsCte(`
       SELECT er.id, er.execution_id, er.test_case_id, er.status, er.created_at,
              er.ended_at, er.data_set_iteration_index, er.data_set_iteration_key
       FROM execution_results er JOIN executions e ON e.id = er.execution_id
+      JOIN requirement_releases rel ON rel.id = ? AND rel.project_id = e.project_id
       WHERE er.test_case_id IN (${casePlaceholders}) AND e.project_id = ?
-        AND ? <> '' AND LOWER(TRIM(COALESCE(e.release, ''))) = ?
+        AND ${releaseExecutionMembershipSql()}
     `)}
     SELECT test_case_id, status FROM latest_finalized
-  `).all(...caseIds, release.project_id, releaseToken, releaseToken) : [];
+  `).all(release.id, ...caseIds, release.project_id) : [];
   const cases = caseIds.length ? await db.prepare(`SELECT id, automated, automation_status FROM test_cases WHERE id IN (${casePlaceholders})`).all(...caseIds) : [];
   const bugLinks = await getReleaseBugLinks(storyIds, release.project_id);
   const bugs = [...new Map(bugLinks.map((row) => [row.id, row])).values()];
@@ -488,9 +556,9 @@ exports.getReadiness = async (id, { release: hydratedRelease } = {}) => {
       test_coverage: "Stories with at least one linked Test Case divided by release Stories.",
       pass_rate: "Latest finalized passed case divided by linked Test Cases with a finalized passed, failed or blocked outcome in this Release's runs. All planned Data Set rows must be finalized; a failed or blocked row determines the case outcome.",
       no_run_evidence: "Readiness is unavailable until at least one linked Test Case has a finalized outcome.",
-      execution_scope: "Same project and exact normalized run release matching the stored Release fix version; linked Test Cases only.",
+      execution_scope: "Linked Test Cases in same-project runs linked by native Release ID, or release-unassigned runs in its Sprints. Legacy labels are accepted only when they identify one project Release; renamed native relationships retain historical runs.",
       release_token: release.fix_version || "",
-      bug_health: "100 minus 25 points per open Bug per Story, floored at zero."
+      bug_health: "100 minus 25 points per open Defect per Story, floored at zero."
     }
   };
 };
@@ -499,7 +567,7 @@ exports.listReadiness = async ({ project_id } = {}) => {
   const projectId = normalizeText(project_id);
   if (!projectId) throw new Error("project_id is required");
   const rows = await db.prepare(`
-    SELECT id, project_id, sprint_ids, fix_version
+    SELECT id, project_id, name, sprint_ids, fix_version
     FROM requirement_releases
     WHERE project_id = ?
     ORDER BY updated_at DESC, id ASC
@@ -615,7 +683,7 @@ exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) =>
       health,
       outcome: outcome || null,
       acceptance_scope: acceptanceScope || null,
-      summary: `${completed ? "Delivery complete" : "Delivery in progress"}; ${linkedCases} linked test case${linkedCases === 1 ? "" : "s"}; ${bugs.open} open Bug${bugs.open === 1 ? "" : "s"}.`
+      summary: `${completed ? "Delivery complete" : "Delivery in progress"}; ${linkedCases} linked test case${linkedCases === 1 ? "" : "s"}; ${bugs.open} open Defect${bugs.open === 1 ? "" : "s"}.`
     };
   });
   const completedStories = storyEvaluations.filter((story) => story.completed);
@@ -642,13 +710,13 @@ exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) =>
   const defaultLimitations = [
     !storyEvaluations.length ? "Release scope is empty; add Stories before publishing these notes." : "",
     storyEvaluations.some((story) => !story.completed) ? `${storyEvaluations.filter((story) => !story.completed).length} scoped changes are still in progress and are not included as delivered changes.` : "",
-    readiness.open_bugs ? `${readiness.open_bugs} open Bugs remain across the Release scope.` : "",
+    readiness.open_bugs ? `${readiness.open_bugs} open Defects remain across the Release scope.` : "",
     readiness.test_coverage_percent !== null && readiness.test_coverage_percent < 80 ? `Story test coverage is ${readiness.test_coverage_percent}%, below the 80% release target.` : "",
     readiness.pass_rate_percent === null ? "No finalized Release test outcomes are available to assess pass rate or readiness." : "",
     release.state === "overdue" ? "The Release target date has passed." : ""
   ].filter(Boolean);
   const validationSummary = storyEvaluations.length
-    ? `${completedStories.length} of ${storyEvaluations.length} scoped changes are complete. Linked evidence reports ${readiness.test_coverage_percent ?? 0}% Story coverage, ${readiness.pass_rate_percent === null ? "no finalized test outcomes" : `${readiness.pass_rate_percent}% finalized-case pass rate`}, and ${readiness.open_bugs} open ${readiness.open_bugs === 1 ? "Bug" : "Bugs"}.`
+    ? `${completedStories.length} of ${storyEvaluations.length} scoped changes are complete. Linked evidence reports ${readiness.test_coverage_percent ?? 0}% Story coverage, ${readiness.pass_rate_percent === null ? "no finalized test outcomes" : `${readiness.pass_rate_percent}% finalized-case pass rate`}, and ${readiness.open_bugs} open ${readiness.open_bugs === 1 ? "Defect" : "Defects"}.`
     : "Validation is unavailable because the Release has no scoped Stories.";
   const deterministic = {
     executive_summary: completedStories.length

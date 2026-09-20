@@ -6,10 +6,13 @@ import { EvidenceFlipCard } from "./EvidenceFlipCard";
 export type QualityMetricTone = "neutral" | "info" | "success" | "warning" | "danger";
 
 export type QualityMetric = {
+  actionLabel?: string;
   badge?: ReactNode;
   criteriaKey?: string;
   detail?: ReactNode;
   disabled?: boolean;
+  frontAccessory?: ReactNode;
+  frontVisual?: ReactNode;
   label: string;
   methodology?: ReactNode;
   onClick?: () => void;
@@ -21,6 +24,7 @@ export type QualityMetric = {
 
 type QualityMetricStripProps = {
   ariaLabel: string;
+  autoResetMs?: number;
   className?: string;
   metrics: QualityMetric[];
 };
@@ -29,6 +33,7 @@ const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(val
 
 export function QualityMetricStrip({
   ariaLabel,
+  autoResetMs,
   className = "",
   metrics
 }: QualityMetricStripProps) {
@@ -62,11 +67,14 @@ export function QualityMetricStrip({
 
         return (
           <EvidenceFlipCard
+            autoResetMs={autoResetMs}
             actionDisabled={metric.disabled}
-            actionLabel={metric.onClick ? "Open metric details" : undefined}
+            actionLabel={metric.onClick ? metric.actionLabel || "Open metric details" : undefined}
             caption={caption}
             className="quality-metric-card quality-metric-flip-card"
             evidence={evidence.length ? evidence : [metric.title || "No additional evidence is available for this metric."]}
+            frontAccessory={metric.frontAccessory}
+            frontVisual={metric.frontVisual}
             key={metric.label}
             label={metric.label}
             maxEvidenceItems={3}

@@ -16,3 +16,4 @@ fieldset.resource-form-fields {
   padding: 0;
   border: 0;
 }
+.test-data-form .test-data-single-iteration-note { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--surface-secondary, #f7f8fa); color: var(--text-muted); font-size: 12px; line-height: 1.5; }

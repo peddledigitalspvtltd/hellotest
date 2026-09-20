@@ -1,4 +1,4 @@
-import type { Execution, ExecutionCaseSnapshot, ExecutionDataSetSnapshot, KeyValueEntry } from "../types";
+import type { Execution, ExecutionCaseSnapshot, ExecutionDataSetSnapshot, ExecutionStepSnapshot, KeyValueEntry } from "../types";
 import { normalizeGherkinParameterReferences } from "./gherkin";
 import {
   buildDataSetParameterDefinitions, buildDataSetParameterValues, buildStepParameterDefinitionsFromValues,
@@ -52,8 +52,8 @@ const variableLayer = (source: string, sourceLabel: string, snapshot?: { variabl
   sensitiveNames: (snapshot?.variables || []).filter((entry) => entry.is_secret).map((entry) => entry.key)
 });
 
-export function resolveExecutionParameterContext({ execution, caseSnapshot, steps = [], caseTitle, dataSetRow, rowIndex = 0, capturedValues = {} }: {
-  execution: Execution | null; caseSnapshot: ExecutionCaseSnapshot | null; steps?: StepParameterSource[];
+export function resolveExecutionParameterContext({ execution, caseSnapshot, steps = [], caseTitle, dataSetRow, rowIndex = 0, capturedValues = {}, stepSnapshot }: {
+  execution: Execution | null; caseSnapshot: ExecutionCaseSnapshot | null; stepSnapshot?: ExecutionStepSnapshot | null; steps?: StepParameterSource[];
   caseTitle?: string; dataSetRow?: Record<string, unknown> | null; rowIndex?: number | null; capturedValues?: Record<string, string>;
 }) {
   const snapshot = caseSnapshot?.test_data_set_snapshot || execution?.test_data_set?.snapshot || null;
@@ -64,26 +64,57 @@ export function resolveExecutionParameterContext({ execution, caseSnapshot, step
     action: isGherkinText(step.action) ? normalizeGherkinParameterReferences(step.action || "") : step.action,
     expected_result: isGherkinText(step.expected_result) ? normalizeGherkinParameterReferences(step.expected_result || "") : step.expected_result
   }));
-  const sourceRow = dataSetRow ?? snapshot?.rows?.[rowIndex ?? 0];
+  const isShared = Boolean(stepSnapshot?.reusable_group_id || stepSnapshot?.group_kind === "reusable");
+  const sourceRow = isShared && snapshot?.shared_rows ? snapshot.shared_rows[rowIndex ?? 0] : dataSetRow ?? snapshot?.rows?.[rowIndex ?? 0];
   const selectedRow = sourceRow && execution?.parameter_scope_default === "t" ? Object.fromEntries(Object.entries(sourceRow).map(([key, value]) => [normalizeStepParameterName(key, "t"), value])) : sourceRow;
-  const dataSet = snapshot?.mode === "table" ? { ...snapshot, rows: selectedRow ? [selectedRow] : [] } as ExecutionDataSetSnapshot : snapshot;
+  const dataSet = snapshot?.mode === "table" || (isShared && snapshot?.shared_rows) ? { ...snapshot, mode: "table", rows: selectedRow ? [selectedRow] : [] } as ExecutionDataSetSnapshot : snapshot;
   const definitions = mergeStepParameterDefinitions(
+    buildStepParameterDefinitionsFromValues(stepSnapshot?.shared_parameter_values),
     collectStepParameters([...declarationSteps, { id: "case-title", action: isGherkinCase ? normalizeGherkinParameterReferences(title) : title, expected_result: null, automation_code: null, api_request: null }]),
     buildStepParameterDefinitionsFromValues(caseSnapshot?.parameter_values),
     buildStepParameterDefinitionsFromValues(normalizeStepParameterValues(caseSnapshot?.suite_parameter_values, "s")),
     buildDataSetParameterDefinitions(snapshot)
   );
-  const dataSetTemplates = snapshot?.template_rows
-    ? buildDataSetParameterValues({ ...snapshot, rows: snapshot.mode === "table" ? [snapshot.template_rows[rowIndex ?? 0] || {}] : snapshot.template_rows }) : {};
-  return resolveStepParameterContext([
+  const selectedTemplates = isShared && snapshot?.shared_rows ? snapshot.shared_template_rows : snapshot?.template_rows;
+  const templateMode = isShared && snapshot?.shared_rows ? "table" : snapshot?.mode;
+  const dataSetTemplates = selectedTemplates && snapshot
+    ? buildDataSetParameterValues({ ...snapshot, mode: templateMode || "table", rows: templateMode === "table" ? [selectedTemplates[rowIndex ?? 0] || {}] : selectedTemplates }) : {};
+  const layers: ParameterLayer[] = [
+    { source: "shared_group", sourceLabel: stepSnapshot?.group_name || "Shared group default", scope: "r", values: stepSnapshot?.shared_parameter_values || {}, templates: stepSnapshot?.shared_parameter_template_values, sensitiveNames: stepSnapshot?.shared_parameter_sensitive_names },
     { source: "case", sourceLabel: "Case default", scope: "r", values: caseSnapshot?.parameter_values || {}, templates: caseSnapshot?.parameter_template_values },
     { source: "suite", sourceLabel: "Suite value", scope: "s", values: caseSnapshot?.suite_parameter_values || {}, templates: caseSnapshot?.suite_parameter_template_values },
     variableLayer("environment", "Run environment", execution?.test_environment?.snapshot),
     variableLayer("configuration", "Run configuration", execution?.test_configuration?.snapshot),
     { source: "run", sourceLabel: "Run value", scope: "r", values: (execution as (Execution & { parameter_values?: Record<string, string> }) | null)?.parameter_values || {} },
-    { source: "data_set", sourceLabel: snapshot ? `${snapshot.name || "Test data"}${snapshot.mode === "table" ? ` · Row ${(rowIndex ?? 0) + 1}` : ""}` : "Test data", scope: "r", values: buildDataSetParameterValues(dataSet), templates: dataSetTemplates, sensitiveNames: collectSensitiveDataSetParameterNames(snapshot) },
+    { source: "data_set", sourceLabel: snapshot ? `${snapshot.name || "Test data"}${snapshot.mode === "table" ? ` · Row ${(rowIndex ?? 0) + 1}` : ""}` : "Test data", scope: "r", values: buildDataSetParameterValues(dataSet), templates: dataSetTemplates, sensitiveNames: [...collectSensitiveDataSetParameterNames(snapshot), ...(snapshot?.sensitive_names || [])] },
     { source: "capture", sourceLabel: "Captured output", scope: "r", values: execution?.parameter_scope_default === "t" ? normalizeStepParameterValues(capturedValues, "t") : capturedValues }
-  ], definitions);
+  ];
+  const policy = caseSnapshot?.test_data_options?.runtime_policy || snapshot?.data_scope_policy;
+  if (policy?.version !== 2) return resolveStepParameterContext(layers, definitions);
+  const rawLayers = snapshot?.parameter_data_layers;
+  const scopedDataLayer = (name: "case" | "suite" | "run"): ParameterLayer => {
+    const data = rawLayers?.[name];
+    const index = data?.rows.length === 1 ? 0 : rowIndex ?? 0;
+    return { source: "data_set", sourceLabel: `${name === "case" ? "Case" : name === "suite" ? "Suite" : "Run"} data · Row ${index + 1}`,
+      scope: "r", values: data?.rows[index] || {}, templates: data?.template_rows?.[index], sensitiveNames: data?.sensitive_names };
+  };
+  const caseData = scopedDataLayer("case"), suiteData = scopedDataLayer("suite"), runData = scopedDataLayer("run");
+  const keys = (values: ParameterLayer[]) => new Set(values.flatMap(layer => [...Object.keys(normalizeStepParameterValues(layer.values, layer.scope)), ...(layer.sensitiveNames || []).map(name => normalizeStepParameterName(name, layer.scope))]));
+  const sharedKeys = keys([layers[0]]), caseKeys = keys([layers[1],caseData]), suiteKeys = new Set<string>();
+  const protect = (layer: ParameterLayer, scope: "case" | "suite" | "run") => {
+    const options = policy[scope];
+    const allowed = (name: string) => {
+      const key = normalizeStepParameterName(name, layer.scope);
+      if (isShared && options?.override_shared_steps === false && sharedKeys.has(key)) return false;
+      if (scope !== "case" && options?.override_test_case_data === false && (key.startsWith("t.") || caseKeys.has(key)) && !(isShared && sharedKeys.has(key) && policy.case?.override_shared_steps === false)) return false;
+      if (scope === "run" && options?.override_suite_data === false && (key.startsWith("s.") || suiteKeys.has(key))) return false;
+      if (scope === "suite") suiteKeys.add(key);
+      return true;
+    };
+    return { ...layer, values: Object.fromEntries(Object.entries(layer.values).filter(([key]) => allowed(key))), sensitiveNames: layer.sensitiveNames?.filter(allowed) };
+  };
+  return resolveStepParameterContext([layers[0], protect(layers[1], "case"), protect(caseData,"case"),
+    protect(layers[2],"suite"), protect(suiteData,"suite"), ...layers.slice(3,6).map(layer => protect(layer,"run")), protect(runData,"run"), layers[7]], definitions);
 }
 
 /** Canonical scoped headers preserve namespaces and include declared-but-empty values. */

@@ -25,7 +25,7 @@ test("conversion metrics count distinct filtered bugs with recorded origins, not
   assert.equal(countConvertedBugs([]), 0);
 });
 
-test("Bug conversion maps descriptive fields, delivery evidence, and every linked association", () => {
+test("Defect conversion maps descriptive fields, delivery evidence, and every linked association", () => {
   const draft = buildBugToTestCaseDraft({
     id: "bug-1",
     display_id: "BUG-42",
@@ -80,7 +80,7 @@ test("Bug conversion maps descriptive fields, delivery evidence, and every linke
   );
 });
 
-test("Bug reproduction parsing handles rich text, bullets, inline numbering, and a single overall outcome", () => {
+test("Defect reproduction parsing handles rich text, bullets, inline numbering, and a single overall outcome", () => {
   assert.deepEqual(
     parseBugStepLines("<ol><li>Open the app</li><li>Tap Pay</li></ol>"),
     ["Open the app", "Tap Pay"]
@@ -111,7 +111,7 @@ test("Bug reproduction parsing handles rich text, bullets, inline numbering, and
   assert.equal(mapBugPriorityToTestCase("Lowest", ""), 5);
 });
 
-test("Bug conversion creation persists all links and links the created Test Case back to its source Bug", async () => {
+test("Defect conversion creation persists all links and links the created Test Case back to its source Defect", async () => {
   const [issues, testCases] = await Promise.all([
     readFile(new URL("../src/pages/IssuesPage.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/pages/TestCasesPage.tsx", import.meta.url), "utf8")
@@ -121,7 +121,7 @@ test("Bug conversion creation persists all links and links the created Test Case
   assert.match(issues, /actions=\{!isCreating && selectedItem[\s\S]*issue-detail-convert-button[\s\S]*Convert to Test Case/);
   assert.ok(
     issues.indexOf("issue-detail-convert-button") < issues.indexOf('className="issue-detail-footer"'),
-    "Bug conversion must be available in the top detail header before the sticky footer"
+    "Defect conversion must be available in the top detail header before the sticky footer"
   );
   assert.match(testCases, /test_case_type: "regression"/);
   assert.match(testCases, /source_issue_id: activeBugConversion\?\.bugId/);
@@ -132,5 +132,5 @@ test("Bug conversion creation persists all links and links the created Test Case
   assert.match(testCases, /suite_ids: suiteIds/);
   assert.match(testCases, /Promise\.allSettled\(moduleIds\.map/);
   assert.match(testCases, /linked_test_case_ids:[\s\S]*response\.id/);
-  assert.match(testCases, /Mapped from Bug/);
+  assert.match(testCases, /Mapped from Defect/);
 });

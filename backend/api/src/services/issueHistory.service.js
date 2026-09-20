@@ -14,7 +14,7 @@ const FIELD_LABELS = {
   priority: "Priority",
   environment: "Environment",
   build: "Build",
-  jira_bug_key: "External Bug Key",
+  jira_bug_key: "External Defect Key",
   linked_test_run_id: "Linked Test Run",
   linked_test_case_ids: "Linked Test Cases",
   linked_test_suite_ids: "Linked Test Suites",
@@ -27,7 +27,7 @@ const FIELD_LABELS = {
   assignee_id: "Assignee",
   root_cause: "Primary Root Cause",
   qa_root_cause: "QA Root Cause",
-  bug_type: "Bug Type",
+  bug_type: "Defect Type",
   regression: "Regression"
 };
 

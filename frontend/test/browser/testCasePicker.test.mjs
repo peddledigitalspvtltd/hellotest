@@ -288,9 +288,10 @@ test('Shared picker pages, searches, hydrates exact selections, reorders and ret
     }
     await page.setViewportSize({width:1440,height:1000});await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
     await dialog.getByRole('button',{name:'Create Suite',exact:true}).click();
-    await page.waitForFunction(()=>window.calls.assign.length===1);
+    await page.waitForFunction(()=>window.calls.create.length===1);
     assert.equal(await page.evaluate(()=>window.calls.create[0].name),'Fast reusable suite');
-    assert.deepEqual(await page.evaluate(()=>window.calls.assign[0][1]),['case-60','case-1','case-26'],'Create saves the arrow order across loaded pages and server search');
+    assert.deepEqual(await page.evaluate(()=>window.calls.create[0].test_case_ids),['case-60','case-1','case-26'],'Atomic Create saves the arrow order across loaded pages and server search');
+    assert.equal(await page.evaluate(()=>window.calls.assign.length),0,'Suite metadata and selected cases are saved in one request');
 
     await page.goto(base+'?mode=design-run');
     await page.getByRole('checkbox',{name:'Select Test Suite Checkout regression',exact:true}).check();

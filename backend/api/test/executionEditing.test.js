@@ -140,7 +140,7 @@ test("adding an unrelated case preserves deleted saved selections and changed au
     if (/FROM execution_case_snapshots/.test(sql)) return snapshots;
     if (/FROM execution_suites/.test(sql)) return [{ suite_id: "saved-suite", suite_name: "Deleted saved suite" }];
     if (/FROM test_suites\s+WHERE id/.test(sql)) throw new Error("Retained saved suites must not require an authoring record.");
-    if (/FROM test_cases\s+LEFT JOIN test_case_module_cases/.test(sql)) {
+    if (/FROM test_cases\s+LEFT JOIN LATERAL/.test(sql)) {
       assert.equal(values[0], "new-case", "Existing independent pins retain their snapshot even after authoring deletion.");
       return [{ test_case_id: "new-case", test_case_title: "New case", app_type_id: "app-1" }];
     }
@@ -163,7 +163,7 @@ test("an explicitly pinned case overlapping a suite survives suite removal and r
     if (/WITH run_cases/.test(sql)) return [];
     if (/FROM execution_case_snapshots/.test(sql)) return [snapshot];
     if (/FROM execution_suites/.test(sql) && !/DELETE /.test(sql)) return suites;
-    if (/FROM test_cases\s+LEFT JOIN test_case_module_cases/.test(sql)) return [{ ...snapshot, app_type_id: "app-1" }];
+    if (/FROM test_cases\s+LEFT JOIN LATERAL/.test(sql)) return [{ ...snapshot, app_type_id: "app-1" }];
     if (/FROM suite_test_cases\s+JOIN test_suites/.test(sql)) return [{ suite_id: "suite-1", suite_name: "Suite" }];
     if (/DELETE FROM execution_suites/.test(sql)) suites = [];
     if (/UPDATE executions\s+SET direct_test_case_ids/.test(sql)) stored.direct_test_case_ids = values[0];

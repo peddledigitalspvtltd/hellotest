@@ -42,7 +42,7 @@ const selectRequirement = db.prepare(`
 
 const selectModuleCaseIds = db.prepare(`
   SELECT test_case_id
-  FROM test_case_module_cases
+  FROM test_case_effective_module_cases
   WHERE module_id = ?
   ORDER BY sort_order ASC, test_case_id ASC
 `);
@@ -172,10 +172,10 @@ exports.listModules = async ({ app_type_id, project_id, projection } = {}) => {
   let query = `
     SELECT
       test_case_modules.*,
-      COUNT(test_case_module_cases.test_case_id)::INTEGER AS test_case_count,
+      COUNT(test_case_effective_module_cases.test_case_id)::INTEGER AS test_case_count,
       ${projection === "summary" ? "'[]'::jsonb" : `COALESCE(
-        jsonb_agg(test_case_module_cases.test_case_id ORDER BY test_case_module_cases.sort_order ASC)
-          FILTER (WHERE test_case_module_cases.test_case_id IS NOT NULL),
+        jsonb_agg(test_case_effective_module_cases.test_case_id ORDER BY test_case_effective_module_cases.sort_order ASC)
+          FILTER (WHERE test_case_effective_module_cases.test_case_id IS NOT NULL),
         '[]'::jsonb
       )`} AS test_case_ids,
       COALESCE(
@@ -190,7 +190,7 @@ exports.listModules = async ({ app_type_id, project_id, projection } = {}) => {
         '[]'::jsonb
       ) AS requirement_ids
     FROM test_case_modules
-    LEFT JOIN test_case_module_cases ON test_case_module_cases.module_id = test_case_modules.id
+    LEFT JOIN test_case_effective_module_cases ON test_case_effective_module_cases.module_id = test_case_modules.id
     WHERE 1 = 1
   `;
   const params = [];
@@ -229,10 +229,10 @@ exports.getModuleCases = async (moduleId) => {
 
   const rows = await db.prepare(`
     SELECT test_cases.*
-    FROM test_case_module_cases
-    JOIN test_cases ON test_cases.id = test_case_module_cases.test_case_id
-    WHERE test_case_module_cases.module_id = ?
-    ORDER BY test_case_module_cases.sort_order ASC, test_cases.title ASC
+    FROM test_case_effective_module_cases
+    JOIN test_cases ON test_cases.id = test_case_effective_module_cases.test_case_id
+    WHERE test_case_effective_module_cases.module_id = ?
+    ORDER BY test_case_effective_module_cases.sort_order ASC, test_cases.title ASC
   `).all(moduleId);
 
   return rows.map((row) => ({
@@ -340,7 +340,7 @@ exports.assignCases = async (id, testCaseIds = [], { append = true } = {}) => {
   const caseIds = normalizeTextList(testCaseIds);
   await ensureCasesMatchAppType(caseIds, module.app_type_id);
 
-  const existingIds = append ? module.test_case_ids || [] : [];
+  const existingIds = append ? (await db.prepare("SELECT test_case_id FROM test_case_module_cases WHERE module_id = ? ORDER BY sort_order, test_case_id").all(id)).map((row) => row.test_case_id) : [];
   const nextIds = [...new Set([...existingIds, ...caseIds])];
 
   const transaction = db.transaction(async () => {
@@ -358,17 +358,24 @@ exports.assignCases = async (id, testCaseIds = [], { append = true } = {}) => {
 };
 
 exports.removeCases = async (id, testCaseIds = []) => {
-  await exports.getModule(id);
+  await exports.getModule(id, { summary: true });
   const caseIds = normalizeTextList(testCaseIds);
-
-  for (const testCaseId of caseIds) {
-    await db.prepare(`
+  return db.transaction(async () => {
+    const removed = await db.prepare(`
       DELETE FROM test_case_module_cases
-      WHERE module_id = ? AND test_case_id = ?
-    `).run(id, testCaseId);
-  }
-
-  return { updated: true, removed: caseIds.length };
+      WHERE module_id = ? AND test_case_id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))
+    `).run(id, JSON.stringify(caseIds));
+    const retained = await db.prepare(`
+      SELECT test_case_id FROM test_case_effective_module_cases
+      WHERE module_id = ? AND test_case_id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb))
+      ORDER BY test_case_id
+    `).all(id, JSON.stringify(caseIds));
+    return {
+      updated: true, removed: removed.changes,
+      retained_test_case_ids: retained.map(row => row.test_case_id),
+      ...(retained.length ? { message: 'Story-linked module membership remains. Change the Test Case Story assignment or remove the Story from the module to remove this inherited membership.' } : {})
+    };
+  })();
 };
 
 exports.deleteModule = async (id) => {

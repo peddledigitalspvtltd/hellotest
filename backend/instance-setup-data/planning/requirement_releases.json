@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-release-launch",
+      "project_id": "sample-project",
+      "name": "Commerce 1.0",
+      "fix_version": "1.0.0",
+      "description": "Sample release scope for readiness review.",
+      "state": "in_progress",
+      "plan_date": "2026-09-13T09:00:00.000Z",
+      "target_date": "2026-09-27T09:00:00.000Z",
+      "sprint_ids": [
+        "sample-v2-sprint-launch"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "display_id": "DEMO2-V1"
+    },
+    {
+      "id": "sample-v2-release-next",
+      "project_id": "sample-project",
+      "name": "Commerce 1.1",
+      "fix_version": "1.1.0",
+      "description": "Sample release scope for readiness review.",
+      "state": "planned",
+      "plan_date": "2026-09-28T09:00:00.000Z",
+      "target_date": "2026-10-11T09:00:00.000Z",
+      "sprint_ids": [
+        "sample-v2-sprint-next"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "display_id": "DEMO2-V2"
+    },
+    {
+      "id": "sample-v3-ht-release-foundation",
+      "display_id": "HTDEMO3-V1",
+      "project_id": "sample-project",
+      "name": "HelloTest Foundation · sample",
+      "description": "Establish authorized workspace access and a consistent Story → Sprint → Release planning flow. This is an illustrative sample acceptance milestone, not an announced HelloTest release.",
+      "fix_version": "demo-foundation-1.0",
+      "target_date_label": "Illustrative target",
+      "state": "in_progress",
+      "plan_date": "2026-09-14T09:00:00.000Z",
+      "target_date": "2026-10-11T09:00:00.000Z",
+      "external_link": null,
+      "sprint_ids": [
+        "sample-v3-ht-sprint-foundation",
+        "sample-v3-ht-sprint-planning"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-release-quality",
+      "display_id": "HTDEMO3-V2",
+      "project_id": "sample-project",
+      "name": "HelloTest Quality Delivery · sample",
+      "description": "Connect reusable test design, execution evidence, defect investigation and automation. This is an illustrative sample acceptance milestone, not an announced HelloTest release.",
+      "fix_version": "demo-quality-1.0",
+      "target_date_label": "Illustrative target",
+      "state": "planned",
+      "plan_date": "2026-10-12T09:00:00.000Z",
+      "target_date": "2026-11-22T09:00:00.000Z",
+      "external_link": null,
+      "sprint_ids": [
+        "sample-v3-ht-sprint-design",
+        "sample-v3-ht-sprint-execution",
+        "sample-v3-ht-sprint-automation"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v3-ht-release-intelligence",
+      "display_id": "HTDEMO3-V3",
+      "project_id": "sample-project",
+      "name": "HelloTest Intelligence & Operations · sample",
+      "description": "Ground AI assistance in project evidence and make quality, setup and operational activity inspectable. This is an illustrative sample acceptance milestone, not an announced HelloTest release.",
+      "fix_version": "demo-intelligence-1.0",
+      "target_date_label": "Illustrative target",
+      "state": "planned",
+      "plan_date": "2026-11-23T09:00:00.000Z",
+      "target_date": "2026-12-20T09:00:00.000Z",
+      "external_link": null,
+      "sprint_ids": [
+        "sample-v3-ht-sprint-intelligence",
+        "sample-v3-ht-sprint-operations"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__"
+    },
+    {
+      "id": "sample-v4-metrics-release",
+      "display_id": "DEMO4-V1",
+      "project_id": "sample-project",
+      "name": "Metric walkthrough · synthetic",
+      "description": "Illustrative release for joined metrics. Saved outcomes and reviews are synthetic, not production certification.",
+      "fix_version": "demo-metrics-4",
+      "state": "in_progress",
+      "plan_date": "2026-09-12T09:00:00.000Z",
+      "target_date": "2026-09-26T09:00:00.000Z",
+      "sprint_ids": [
+        "sample-v4-metrics-sprint"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__"
+    }
+  ]
+}

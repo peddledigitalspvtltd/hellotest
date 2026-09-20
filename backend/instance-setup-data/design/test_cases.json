@@ -1,0 +1,461 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-case-login",
+      "display_id": "DEMO2-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v2-suite-smoke",
+      "title": "Customer signs in",
+      "description": "Sample scenario: a verified customer account. the account overview is displayed.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Customer signs in\n\n  Background: Preconditions\n    Given a verified customer account\n\n  Scenario: Customer signs in\n    When the customer signs in with <email>\n    Then the account overview is displayed",
+      "test_case_type": "smoke",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 1,
+      "status": "active",
+      "requirement_id": "sample-v2-req-auth",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-08T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-checkout",
+      "display_id": "DEMO2-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v2-suite-smoke",
+      "title": "Customer completes checkout",
+      "description": "Sample scenario: a basket with an in-stock product. one order is created and a receipt is displayed.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Customer completes checkout\n\n  Background: Preconditions\n    Given a basket with an in-stock product\n\n  Scenario: Customer completes checkout\n    When the customer pays with <payment_method>\n    Then one order is created and a receipt is displayed",
+      "test_case_type": "smoke",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 1,
+      "status": "active",
+      "requirement_id": "sample-v2-req-checkout",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-08T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-keyboard",
+      "display_id": "DEMO2-T3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v2-suite-smoke",
+      "title": "Checkout supports keyboard navigation",
+      "description": "Sample scenario: checkout is open without using a pointer. focus remains visible and reaches the confirmation button.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Checkout supports keyboard navigation\n\n  Background: Preconditions\n    Given checkout is open without using a pointer\n\n  Scenario: Checkout supports keyboard navigation\n    When the customer tabs through each payment control\n    Then focus remains visible and reaches the confirmation button",
+      "test_case_type": "accessibility",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-accessibility",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-09T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-expired-session",
+      "display_id": "DEMO2-T4",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v2-suite-smoke",
+      "title": "Expired sessions preserve the basket",
+      "description": "Sample scenario: a basket exists and the session has expired. the basket is restored without exposing another account.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Expired sessions preserve the basket\n\n  Background: Preconditions\n    Given a basket exists and the session has expired\n\n  Scenario: Expired sessions preserve the basket\n    When the customer signs in again\n    Then the basket is restored without exposing another account",
+      "test_case_type": "security",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-auth",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-09T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-declined-payment",
+      "display_id": "DEMO2-T5",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v2-suite-smoke",
+      "title": "Declined payments allow a safe retry",
+      "description": "Sample scenario: the payment provider declines the first authorization. one charge and one order are created.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Declined payments allow a safe retry\n\n  Background: Preconditions\n    Given the payment provider declines the first authorization\n\n  Scenario: Declined payments allow a safe retry\n    When the customer retries with an approved payment method\n    Then one charge and one order are created",
+      "test_case_type": "regression",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-checkout",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-stock-api",
+      "display_id": "DEMO2-T6",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v2-suite-api",
+      "title": "Inventory API returns available stock",
+      "description": "Sample scenario: SKU <sku> exists in the staging inventory. the response is 200 and available quantity is non-negative.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Inventory API returns available stock\n\n  Background: Preconditions\n    Given SKU <sku> exists in the staging inventory\n\n  Scenario: Inventory API returns available stock\n    When GET /v1/inventory/<sku> is requested\n    Then the response is 200 and available quantity is non-negative",
+      "test_case_type": "integration",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-inventory",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-10T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-duplicate-api",
+      "display_id": "DEMO2-T7",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v2-suite-api",
+      "title": "Order API rejects duplicate idempotency keys",
+      "description": "Sample scenario: an order was created with idempotency key <request_key>. the existing order is returned without a second charge.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Order API rejects duplicate idempotency keys\n\n  Background: Preconditions\n    Given an order was created with idempotency key <request_key>\n\n  Scenario: Order API rejects duplicate idempotency keys\n    When POST /v1/orders is repeated with the same key\n    Then the existing order is returned without a second charge",
+      "test_case_type": "integration",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-checkout",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-unauthorized-api",
+      "display_id": "DEMO2-T8",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v2-suite-api",
+      "title": "Order API requires authentication",
+      "description": "Sample scenario: no customer authorization is provided. the response is 401 without customer information.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Order API requires authentication\n\n  Background: Preconditions\n    Given no customer authorization is provided\n\n  Scenario: Order API requires authentication\n    When GET /v1/orders is requested\n    Then the response is 401 without customer information",
+      "test_case_type": "security",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-auth",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-11T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-mobile-cart",
+      "display_id": "DEMO2-T9",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v2-suite-mobile",
+      "title": "Mobile basket survives an app restart",
+      "description": "Sample scenario: a customer added a product to the mobile basket. the product and quantity are retained.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Mobile basket survives an app restart\n\n  Background: Preconditions\n    Given a customer added a product to the mobile basket\n\n  Scenario: Mobile basket survives an app restart\n    When the app is closed and reopened\n    Then the product and quantity are retained",
+      "test_case_type": "regression",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-mobile",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-12T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-mobile-offline",
+      "display_id": "DEMO2-T10",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v2-suite-mobile",
+      "title": "Mobile checkout explains an offline connection",
+      "description": "Sample scenario: the basket has an in-stock product. an offline message is shown and the basket remains intact.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Mobile checkout explains an offline connection\n\n  Background: Preconditions\n    Given the basket has an in-stock product\n\n  Scenario: Mobile checkout explains an offline connection\n    When the customer starts checkout without a network connection\n    Then an offline message is shown and the basket remains intact",
+      "test_case_type": "functional",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-mobile",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-12T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v2-case-mobile-accessibility",
+      "display_id": "DEMO2-T11",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v2-suite-mobile",
+      "title": "Mobile controls have accessible labels",
+      "description": "Sample scenario: the accessibility reader is enabled. each control announces its name and state.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Feature: Mobile controls have accessible labels\n\n  Background: Preconditions\n    Given the accessibility reader is enabled\n\n  Scenario: Mobile controls have accessible labels\n    When the customer navigates basket controls\n    Then each control announces its name and state",
+      "test_case_type": "accessibility",
+      "automated": "no",
+      "automation_status": "not_automated",
+      "parameter_values": {
+        "email": "alex@example.test",
+        "payment_method": "approved-card",
+        "sku": "TRAIL-100",
+        "request_key": "sample-order-001",
+        "region": "eu-west"
+      },
+      "priority": 2,
+      "status": "active",
+      "requirement_id": "sample-v2-req-accessibility",
+      "author_id": "__SETUP_ACTOR_ID__",
+      "labels": [
+        "sample",
+        "commerce-launchpad"
+      ],
+      "created_at": "2026-09-13T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-qa-done",
+      "display_id": "DEMO4-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v4-metrics-suite",
+      "requirement_id": "sample-v4-metrics-story-qa-done",
+      "title": "Customer sign-in accepted by QA · sample: verify the observable result",
+      "description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "ready",
+      "priority": 3,
+      "automated": "yes",
+      "automation_status": "ready",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-dev-done",
+      "display_id": "DEMO4-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v4-metrics-suite",
+      "requirement_id": "sample-v4-metrics-story-dev-done",
+      "title": "Payment retry ready for QA verification · sample: verify the observable result",
+      "description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "ready",
+      "priority": 2,
+      "automated": "no",
+      "automation_status": "not_automated",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-blocked",
+      "display_id": "DEMO4-T3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v4-metrics-suite",
+      "requirement_id": "sample-v4-metrics-story-blocked",
+      "title": "Offline checkout blocked by a delivery defect · sample: verify the observable result",
+      "description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "ready",
+      "priority": 1,
+      "automated": "no",
+      "automation_status": "not_automated",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-not-applicable",
+      "display_id": "DEMO4-T4",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v4-metrics-suite",
+      "requirement_id": "sample-v4-metrics-story-not-applicable",
+      "title": "Optional device flow awaiting applicability review · sample: verify the observable result",
+      "description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "ready",
+      "priority": 3,
+      "automated": "no",
+      "automation_status": "not_automated",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-backlog-covered",
+      "display_id": "DEMO4-T5",
+      "app_type_id": "sample-app-web",
+      "suite_id": null,
+      "requirement_id": "sample-v4-metrics-story-backlog-covered",
+      "title": "Backlog receipt formatting with proposed test coverage · sample: verify the observable result",
+      "description": "Synthetic test design for relational metrics; configure a real target before executing.",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "ready",
+      "priority": 3,
+      "automated": "no",
+      "automation_status": "not_automated",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-17T09:00:00.000Z",
+      "updated_at": "2026-09-19T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v4-metrics-case-unlinked",
+      "display_id": "DEMO4-T6",
+      "app_type_id": "sample-app-web",
+      "title": "Unlinked draft awaiting Story triage · sample",
+      "description": "Synthetic coverage gap for custom dashboard drilldowns.",
+      "suite_id": null,
+      "requirement_id": null,
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "status": "draft",
+      "priority": 4,
+      "automated": "no",
+      "automation_status": "not_automated",
+      "labels": [
+        "sample",
+        "synthetic-metric-evidence"
+      ],
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-19T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-qa-done",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-dev-done",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-blocked",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-not-applicable",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-backlog-covered",
+      "sort_order": 1
+    },
+    {
+      "module_id": "sample-v4-metrics-module",
+      "requirement_id": "sample-v4-metrics-story-backlog-uncovered",
+      "sort_order": 1
+    }
+  ]
+}
