@@ -122,6 +122,7 @@ import {
   observeRequirementSprintMoveSettlement,
   resolveRequirementSprintIteration,
   resolveRequirementSprintIterationFromEvidence,
+  groupRequirementsBySprint,
   writePersistedRequirementSprintExpansion,
   writePersistedRequirementSprintMoves,
   type ConfirmedRequirementSprintMove
@@ -2152,21 +2153,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const areAllIterationRequirementsSelected = sprintStorySelectionState.isAllSelected;
 
   const requirementIterationGroups = useMemo(() => {
-    const assignedRequirementIds = new Set<string>();
-    const groups = requirementIterations.map((iteration) => {
-      const locallyAssignedIds = new Set((iteration.requirement_ids || []).map(String));
-      const groupRequirements = filteredRequirements.filter((requirement) => {
-        if (assignedRequirementIds.has(requirement.id)) return false;
-        const matches = requirementIterationById.get(requirement.id)?.id === iteration.id
-          || locallyAssignedIds.has(requirement.id)
-          || Boolean(requirement.iteration_id && requirement.iteration_id === iteration.id)
-          || Boolean(requirement.sprint_id && iteration.jira_sprint_id && String(requirement.sprint_id) === String(iteration.jira_sprint_id))
-          || Boolean(!requirement.sprint_id && requirement.sprint && [iteration.jira_sprint_name, iteration.name].some((name) => name === requirement.sprint));
-        if (matches) assignedRequirementIds.add(requirement.id);
-        return matches;
-      });
-      return { iteration, requirements: groupRequirements };
-    }).filter(({ iteration, requirements: groupRequirements }) => {
+    const membership = groupRequirementsBySprint(filteredRequirements, requirementIterations, requirementIterationById);
+    const groups = membership.groups.filter(({ iteration, requirements: groupRequirements }) => {
       if (groupRequirements.length || !hasActiveRequirementCatalogFilter) return true;
       const authoritativeHealth = requirementSprintHealthById.get(iteration.id);
       if (authoritativeHealth) return Number(authoritativeHealth.total_stories) > 0;
@@ -2184,14 +2172,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 
       return childScopeIncomplete;
     });
-    const unassignedRequirements = filteredRequirements.filter((requirement) =>
-      !assignedRequirementIds.has(requirement.id)
-      && !requirement.sprint_id
-      && !requirement.sprint
-      && !requirementIterationById.has(requirement.id)
-    );
-
-    return { groups, unassignedRequirements };
+    return { groups, unassignedRequirements: membership.unassignedRequirements };
   }, [expandedIterationIds, filteredRequirements, hasActiveRequirementCatalogFilter, requirementIterationById, requirementIterations, sprintPageStateById, requirementSprintHealthById]);
 
   const getSprintHealthView = (iterationId: string) => {

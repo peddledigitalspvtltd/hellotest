@@ -13,6 +13,7 @@ import {
   splitGherkinDocument,
   structuredCaseToGherkin,
   structuredStepsToSharedGherkin,
+  syncSharedStepGherkin,
   tokenizeGherkinInlineText
 } from "../src/lib/gherkin.ts";
 import { collectStepParameters } from "../src/lib/stepParameters.ts";
@@ -138,4 +139,19 @@ test("Gherkin resolves and highlights quoted data columns without changing autho
   ]);
   assert.equal(resolveGherkinParameterText("When @t. is being edited", { "t.t": "incorrect" }), "When @t. is being edited");
   assert.equal(resolveGherkinParameterText("When <name> enters @t.[First Name]", { "r.name": "@s.tenant", "t.first name": "<name>", "s.tenant": "incorrect" }), "When @s.tenant enters <name>");
+});
+
+
+test("structured saves generate the first shared fragment and refresh stale behavior", () => {
+  const steps = [{ action: "<p>Sign in with @t.user</p>", expected_result: "<p>Home is visible</p>" }];
+  const expected = "When Sign in with @t.user\nThen Home is visible";
+  assert.equal(syncSharedStepGherkin("", steps), expected);
+  assert.equal(syncSharedStepGherkin("When Old action\nThen Old result", steps), expected);
+  assert.equal(syncSharedStepGherkin(expected, []), "");
+});
+
+test("structured saves retain original Gherkin keywords and arguments for unchanged behavior", () => {
+  const document = 'Given an account exists\nWhen submit the message\n  """\n  payload\n  """\nThen accepted\nAnd a receipt appears';
+  const steps = sharedStepGherkinToStructuredSteps(document, { normalizeParameters: true });
+  assert.equal(syncSharedStepGherkin(document, steps), document);
 });

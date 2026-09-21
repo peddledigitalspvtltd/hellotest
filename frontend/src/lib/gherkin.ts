@@ -293,6 +293,14 @@ export function sharedStepGherkinToStructuredSteps(value: string, { normalizePar
   return result;
 }
 
+/** Refreshes a group's fragment after structured edits, retaining its original
+ * keywords and arguments when the behavior has not changed. */
+export function syncSharedStepGherkin(document: string, steps: Array<{ action?: string | null; expected_result?: string | null }>) {
+  const previous = structuredStepsToSharedGherkin(sharedStepGherkinToStructuredSteps(document, { normalizeParameters: true }));
+  const next = structuredStepsToSharedGherkin(steps);
+  return previous === next ? composeSharedStepGherkin(parseSharedStepGherkin(document)) : next;
+}
+
 /** Retains each existing step's identity and capabilities when behavior is
  * edited or reordered in Gherkin. New rows receive fresh metadata. */
 export function mergeGherkinStepMetadata<T extends StructuredGherkinStep>(

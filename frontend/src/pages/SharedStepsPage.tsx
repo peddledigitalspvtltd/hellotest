@@ -45,7 +45,7 @@ import { api } from "../lib/api";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { asArray } from "../lib/collectionGuards";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
-import { composeSharedStepGherkin, mergeGherkinStepMetadata, normalizeGherkinParameterReferences, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin } from "../lib/gherkin";
+import { composeSharedStepGherkin, mergeGherkinStepMetadata, normalizeGherkinParameterReferences, parseSharedStepGherkin, sharedStepGherkinToStructuredSteps, structuredStepsToSharedGherkin, syncSharedStepGherkin } from "../lib/gherkin";
 import { removeSharedStepGroupFromCache, upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import {
@@ -393,10 +393,22 @@ export function SharedStepsPage() {
     { ...sharedParameterValues, ...linkedDataParameterValues }, sensitiveDataParameterNames
   );
 
+  const structuredSharedSteps = useMemo<SharedGroupDraftStep[]>(() => {
+    if (stepInsertIndex === null || (!richTextToPlainText(newStepDraft.action).trim() && !richTextToPlainText(newStepDraft.expected_result).trim())) {
+      return groupDraft.steps;
+    }
+    const steps = [...groupDraft.steps];
+    steps.splice(Math.max(0, Math.min(stepInsertIndex, steps.length)), 0, {
+      ...createEmptyDraftStep(),
+      ...newStepDraft
+    });
+    return steps;
+  }, [groupDraft.steps, newStepDraft, stepInsertIndex]);
+
   const authoredSharedSteps = useMemo<SharedGroupDraftStep[]>(() => {
-    if (groupDraft.authoring_mode !== "gherkin") return groupDraft.steps;
+    if (groupDraft.authoring_mode !== "gherkin") return structuredSharedSteps;
     return mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(groupDraft.gherkin_document, { normalizeParameters: true }), groupDraft.steps, createEmptyDraftStep);
-  }, [groupDraft.authoring_mode, groupDraft.gherkin_document, groupDraft.steps]);
+  }, [groupDraft.authoring_mode, groupDraft.gherkin_document, groupDraft.steps, structuredSharedSteps]);
 
   const visualSharedSteps = useMemo<TestStep[]>(
     () =>
@@ -839,9 +851,7 @@ export function SharedStepsPage() {
     });
   };
 
-  const handleInsertStep = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
+  const handleInsertStep = () => {
     if (stepInsertIndex === null) {
       return;
     }
@@ -1001,20 +1011,18 @@ export function SharedStepsPage() {
     setSelectedStepIds([]);
     setGroupDraft((current) => {
       if (authoringMode === "gherkin") {
-        const previousBehavior = structuredStepsToSharedGherkin(sharedStepGherkinToStructuredSteps(current.gherkin_document, { normalizeParameters: true }));
-        const nextBehavior = structuredStepsToSharedGherkin(current.steps);
         return {
           ...current,
           authoring_mode: "gherkin",
-          gherkin_document: previousBehavior === nextBehavior
-            ? composeSharedStepGherkin(parseSharedStepGherkin(current.gherkin_document))
-            : nextBehavior
+          steps: structuredSharedSteps,
+          gherkin_document: syncSharedStepGherkin(current.gherkin_document, structuredSharedSteps)
         };
       }
 
       const steps = mergeGherkinStepMetadata(sharedStepGherkinToStructuredSteps(current.gherkin_document, { normalizeParameters: true }), current.steps, createEmptyDraftStep);
       return { ...current, authoring_mode: "structured", steps };
     });
+    resetStepComposer();
   };
 
   const openDataSetCreator = () => {
@@ -1068,7 +1076,7 @@ export function SharedStepsPage() {
     const parameterValues = filterStepParameterValues(normalizeStepParameterValues(sharedParameterValues), detectedSharedParameters);
     const gherkinDocument = groupDraft.authoring_mode === "gherkin"
       ? composeSharedStepGherkin(parseSharedStepGherkin(groupDraft.gherkin_document))
-      : groupDraft.gherkin_document;
+      : syncSharedStepGherkin(groupDraft.gherkin_document, steps);
     let savedGroupId = selectedGroup?.id || "";
 
     try {
@@ -2462,7 +2470,7 @@ function InlineSharedGroupStepInsertSlot({
   onActivate: () => void;
   onCancel: () => void;
   onChange: (draft: SharedGroupStepInput) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: () => void;
 }) {
   const insertTitle = index === 0 ? "Add first step" : "Insert step here";
 
@@ -2479,7 +2487,7 @@ function InlineSharedGroupStepInsertSlot({
           </SharedGroupStepIconButton>
         </div>
       ) : (
-        <form className="step-create step-create--inline" onSubmit={onSubmit}>
+        <div className="step-create step-create--inline" role="group" aria-label="New shared step">
           <div className="step-card-summary-top">
             <span aria-label="Shared Step Group step" className="step-kind-badge is-shared" title="Shared Step Group step">
               <StandardStepIcon />
@@ -2506,12 +2514,12 @@ function InlineSharedGroupStepInsertSlot({
             />
           </FormField>
           <div className="action-row">
-            <button className="primary-button" type="submit">Save step</button>
+            <button className="primary-button" onClick={onSubmit} type="button">Save step</button>
             <button className="ghost-button" onClick={onCancel} type="button">
               Cancel
             </button>
           </div>
-        </form>
+        </div>
       )}
     </div>
   );

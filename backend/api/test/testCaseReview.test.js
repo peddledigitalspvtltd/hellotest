@@ -12,7 +12,7 @@ const initialCase = overrides => ({
 });
 
 function fixture(overrides = {}) {
-  const state = { row: initialCase(overrides), revision: 1, versions: [], deletes: 0, notifications: [], beforeTransaction: null };
+  const state = { row: initialCase(overrides), steps: [], sharedGroupSyncs: [], revision: 1, versions: [], deletes: 0, notifications: [], beforeTransaction: null };
   let queue = Promise.resolve();
   let transactionActive = false;
   const db = {
@@ -23,10 +23,10 @@ function fixture(overrides = {}) {
         await before();
       }
       const work = queue.then(async () => {
-        const original = clone(state.row), revision = state.revision, versions = state.versions.length;
+        const original = clone(state.row), steps = clone(state.steps), revision = state.revision, versions = state.versions.length;
         transactionActive = true;
         try { return await callback(...args); }
-        catch (error) { state.row = original; state.revision = revision; state.versions.length = versions; throw error; }
+        catch (error) { state.row = original; state.steps = steps; state.revision = revision; state.versions.length = versions; throw error; }
         finally { transactionActive = false; }
       });
       queue = work.catch(() => {});
@@ -43,7 +43,7 @@ function fixture(overrides = {}) {
           if (/FROM test_cases/.test(sql)) return clone(state.row);
           return null;
         },
-        all: async () => [],
+        all: async () => /FROM test_steps/.test(sql) ? clone(state.steps) : [],
         run: async (...args) => {
           if (/^INSERT INTO test_cases \(/.test(sql)) {
             const columns = sql.match(/^INSERT INTO test_cases \(([^)]+)\)/)[1].split(',').map(x => x.trim());
@@ -53,6 +53,11 @@ function fixture(overrides = {}) {
             const fields = sql.match(/ SET (.+) WHERE id = \?/)[1].split(',').filter(x => x.includes('?')).map(x => x.split('=')[0].trim());
             fields.forEach((field, i) => { state.row[field] = clone(args[i]); });
             if (/updated_at = CURRENT_TIMESTAMP/.test(sql)) state.row.updated_at = new Date(new Date(state.row.updated_at).getTime() + 1000).toISOString();
+          } else if (/^DELETE FROM test_steps WHERE/.test(sql)) {
+            state.steps = [];
+          } else if (/^INSERT INTO test_steps \(/.test(sql)) {
+            const columns = sql.match(/^INSERT INTO test_steps \(([^)]+)\)/)[1].split(',').map(x => x.trim());
+            state.steps.push(Object.fromEntries(columns.map((column, i) => [column, clone(args[i])])));
           } else if (/^DELETE FROM test_cases WHERE/.test(sql)) { state.deletes++; state.row = null; }
           return { changes: 1 };
         }
@@ -71,6 +76,9 @@ function fixture(overrides = {}) {
       if (dependency === './dropdownCatalog.service') return { getDefaultValue: async () => 'functional', validateValue: async (_, value) => value };
       if (dependency === './mobileFeature.service') return { assertAuthoringMobileFeatureEnabled: noop };
       if (dependency === './notification.service') return { createNotification: async item => state.notifications.push(item) };
+      if (dependency === './sharedStepSync.service') return {
+        syncSharedGroupFromReference: async (...args) => state.sharedGroupSyncs.push(args)
+      };
       if (dependency === './testCaseVersion.service') return {
         assertExpectedRevision: async (_, expected) => { if (expected !== undefined && expected !== state.revision) throw Object.assign(new Error('Stale revision'), { statusCode: 409 }); },
         capture: async data => { state.versions.push(clone(data)); state.revision++; },
@@ -81,6 +89,57 @@ function fixture(overrides = {}) {
   });
   return { service, state };
 }
+
+test('successive saves of metadata and steps complete without reporting a failure after committing', async () => {
+  const { service, state } = fixture();
+  for (let edit = 1; edit <= 3; edit++) {
+    const result = await service.updateTestCase('case', {
+      title: `Checkout edit ${edit}`,
+      description: `Description ${edit}`,
+      labels: ['checkout', `edit-${edit}`],
+      parameter_values: { account: `customer-${edit}` },
+      priority: edit,
+      expected_revision: edit,
+      updated_by: 'creator',
+      steps: [{ step_order: 1, action: `Pay ${edit}`, expected_result: `Receipt ${edit}` }]
+    });
+    assert.equal(result.updated, true);
+    assert.equal(state.row.title, `Checkout edit ${edit}`);
+    assert.equal(state.row.description, `Description ${edit}`);
+    assert.deepEqual(state.row.labels, ['checkout', `edit-${edit}`]);
+    assert.deepEqual(state.row.parameter_values, { account: `customer-${edit}` });
+    assert.equal(state.row.priority, edit);
+    assert.equal(state.steps.length, 1);
+    assert.equal(state.steps[0].action, `Pay ${edit}`);
+    assert.equal(state.steps[0].expected_result, `Receipt ${edit}`);
+    assert.equal(state.versions.length, edit);
+    assert.equal(state.revision, edit + 1);
+  }
+  assert.deepEqual(state.sharedGroupSyncs, []);
+  const beforeStaleSave = clone(state);
+  await assert.rejects(service.updateTestCase('case', {
+    title: 'Stale title', expected_revision: 1, steps: [], updated_by: 'creator'
+  }), { statusCode: 409 });
+  assert.deepEqual(clone(state), beforeStaleSave);
+  const cleared = await service.updateTestCase('case', { steps: [], expected_revision: 4, updated_by: 'creator' });
+  assert.equal(cleared.updated, true);
+  assert.equal(state.steps.length, 0);
+  assert.equal(state.revision, 5);
+});
+
+test('saving reusable steps synchronizes each shared group instance once by default', async () => {
+  const { service, state } = fixture();
+  const steps = [1, 2].map(step_order => ({
+    step_order, action: `Shared action ${step_order}`, group_id: 'group-instance',
+    group_name: 'Shared login', group_kind: 'reusable', reusable_group_id: 'shared-login'
+  }));
+  const result = await service.updateTestCase('case', { steps, expected_revision: 1, updated_by: 'creator' });
+  assert.equal(result.updated, true);
+  assert.equal(state.steps.length, 2);
+  assert.deepEqual(state.sharedGroupSyncs, [['shared-login', 'case', 'group-instance']]);
+  await service.updateTestCase('case', { steps, expected_revision: 2, updated_by: 'creator' }, { syncSharedGroups: false });
+  assert.equal(state.sharedGroupSyncs.length, 1);
+});
 
 for (const source of [null, 'scheduler', 'interactive', 'repository']) {
   for (const decision of ['accepted', 'changes_requested']) {

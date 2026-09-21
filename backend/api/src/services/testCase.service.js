@@ -1855,7 +1855,7 @@ exports.getTestCase = async (id) => {
   return hydrateSuiteIds(testCase);
 };
 
-exports.updateTestCase = async (id, data, { reviewHistoryEntry } = {}) => {
+exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups = true } = {}) => {
   const existing = await exports.getTestCase(id);
 
   const requestedSuiteIds = data.suite_ids !== undefined

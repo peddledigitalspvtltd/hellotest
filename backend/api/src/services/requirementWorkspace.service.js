@@ -802,7 +802,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     evidenceAccess["feedback.view"] ? db.prepare("SELECT feedback.id, feedback.jira_bug_key, feedback.title, feedback.status FROM requirement_defects JOIN feedback ON feedback.id = requirement_defects.issue_id WHERE requirement_defects.requirement_id = ? AND feedback.project_id = ? ORDER BY feedback.created_at DESC LIMIT 50").all(requirement.id, project.id) : [],
     evidenceAccess["comment.view"] ? db.prepare("SELECT COUNT(*) AS count FROM entity_comments WHERE entity_type = 'requirement' AND entity_id = ?").get(requirement.id) : null,
     evidenceAccess["attachment.view"] ? db.prepare("SELECT COUNT(*) AS count FROM attachments WHERE entity_type = 'requirement' AND entity_id = ?").get(requirement.id) : null,
-    evidenceAccess["testcase.view"] ? db.prepare("SELECT COUNT(*) AS count FROM requirement_test_cases JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id JOIN app_types ON app_types.id = test_cases.app_type_id WHERE requirement_id = ? AND app_types.project_id = ?").get(requirement.id, project.id) : null,
+    evidenceAccess["testcase.view"] ? db.prepare("SELECT COUNT(*) AS count FROM requirement_test_cases JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id JOIN app_types ON app_types.id = test_cases.app_type_id WHERE requirement_test_cases.requirement_id = ? AND app_types.project_id = ?").get(requirement.id, project.id) : null,
     evidenceAccess["feedback.view"] ? db.prepare("SELECT COUNT(*) AS count FROM requirement_defects JOIN feedback ON feedback.id = requirement_defects.issue_id WHERE requirement_id = ? AND feedback.project_id = ?").get(requirement.id, project.id) : null
   ]);
   const totals = {

@@ -25,7 +25,7 @@ api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePr
 api.featureFlags.snapshot=async()=>{await new Promise(resolve=>setTimeout(resolve,100));return {flags:new Proxy({},{get:()=>true})}};
 api.metadata.domain=async()=>({requirements:{default_status:'open',statuses:[{value:'open',label:'Open'}]},jira:{sprints:[],versions:[]}});
 api.projects.list=async()=>[{id:'project',name:'Project'}];api.appTypes.list=async()=>[{id:'app',project_id:'project',name:'Web',type:'web'}];
-const sprints=[{id:'native-sprint',project_id:'project',name:'Sprint Alpha',jira_sprint_id:'42',state:'active',requirement_count:0},{id:'next-sprint',project_id:'project',name:'Sprint Beta',state:'future',requirement_count:0},{id:'foreign-sprint',project_id:'other',name:'Foreign Sprint',state:'future'}];
+const sprints=[{id:'native-sprint',project_id:'project',name:'Sprint Alpha',jira_sprint_id:'42',state:'active',requirement_count:0,requirement_ids:['saved-story']},{id:'next-sprint',project_id:'project',name:'Sprint Beta',state:'future',requirement_count:0},{id:'foreign-sprint',project_id:'other',name:'Foreign Sprint',state:'future'}];
 const releases=[{id:'open-release',project_id:'project',name:'Autumn delivery',fix_version:'v2',state:'planned',persisted_state:'planned',sprint_ids:[],requirement_ids:[],requirement_count:0},{id:'next-release',project_id:'project',name:'Winter delivery',fix_version:'v3',state:'planned',sprint_ids:[],requirement_ids:[],requirement_count:0},{id:'closed-release',project_id:'project',name:'Summer delivery',fix_version:'v1',state:'released',sprint_ids:[],requirement_ids:[],requirement_count:0},{id:'foreign-release',project_id:'other',name:'Foreign release',fix_version:'foreign',state:'planned',sprint_ids:[],requirement_ids:[],requirement_count:0}];
 api.requirementIterations.list=async input=>{window.calls.push({kind:'sprints',input});await new Promise(resolve=>setTimeout(resolve,80));return sprints};
 api.requirementReleases.list=async input=>{window.calls.push({kind:'releases',input});await new Promise(resolve=>setTimeout(resolve,80));return releases};
@@ -39,6 +39,7 @@ api.requirements.create=async input=>{window.calls.push({kind:'create',input});s
 api.requirements.get=async()=>story;
 api.requirements.bulkImport=async input=>{window.calls.push({kind:'import',input});return {transaction_id:'story-import-receipt',queued:true,status:'queued'}};
 api.requirements.update=async(id,input)=>{window.calls.push({kind:'update',id,input});story={...story,...input,sprint:sprints.find(item=>item.id===input.iteration_id)?.name||story.sprint,revision:story.revision+1,updated_at:'2026-09-20T11:00:00Z'};return{updated:true,revision:story.revision}};
+api.requirementIterations.assignRequirements=async(id,ids)=>{window.calls.push({kind:'move',id,ids});story={...story,iteration_id:id,sprint:sprints.find(item=>item.id===id).name};return {assigned:ids.length,assigned_issue_ids:ids,assigned_issue_keys:ids.map(()=>story.display_id)}};
 api.requirementReleases.appendScope=async()=>{throw new Error('Story assignment must be atomic in its create/update request')};
 const mode=new URLSearchParams(location.search).get('mode')||'stories';
 const router=createMemoryRouter([{path:'/',element:<RequirementsPage workspaceMode={mode}/>},{path:'/testops',element:<h1>Batch Process Receipt</h1>}],{initialEntries:['/?create=1&sprint_id=native-sprint&release_id=open-release']});
@@ -132,6 +133,35 @@ test("Story create/edit preserves planning, criteria layout, multiple scenarios 
       assert.equal(updated.fix_version, "v3");
       assert.ok(calls.filter(call => ["sprints", "releases"].includes(call.kind)).every(call => call.input.project_id === "project"));
       assert.deepEqual(errors, []);
+      if(mode==='sprints') {
+        await page.getByRole('button',{name:'Back to Story tiles',exact:true}).click();
+        await page.getByRole('button',{name:'List view',exact:true}).click();
+        const movedRow=page.getByRole('row').filter({hasText:'Mapped Story sprints'});
+        await movedRow.waitFor();
+        const assignedSprint=()=>movedRow.evaluate(row=>{
+          let previous=row.previousElementSibling;
+          while(previous) {
+            const heading=previous.querySelector('.requirement-sprint-heading strong');
+            if(heading)return heading.textContent;
+            previous=previous.previousElementSibling;
+          }
+          return null;
+        });
+        assert.equal(await movedRow.count(),1,'A moved Story appears only once across expanded Sprints');
+        assert.equal(await assignedSprint(),'Sprint Beta','A stale origin header cannot reclaim a saved Sprint assignment');
+        await movedRow.locator('input[type=checkbox]').check();
+        await page.getByRole('combobox',{name:'Move 1 selected Story to Sprint',exact:true}).selectOption('native-sprint');
+        await page.waitForFunction(()=>window.calls.some(call=>call.kind==='move'));
+        await page.waitForFunction(()=>{
+          const row=Array.from(document.querySelectorAll('tr')).find(candidate=>!candidate.classList.contains('data-table-group-row')&&candidate.textContent.includes('Mapped Story sprints'));
+          let previous=row?.previousElementSibling;
+          while(previous){const heading=previous.querySelector('.requirement-sprint-heading strong');if(heading)return heading.textContent==='Sprint Alpha';previous=previous.previousElementSibling;}
+          return false;
+        });
+        assert.equal(await movedRow.count(),1,'Moving back removes the Story from the previous destination');
+        assert.equal(await assignedSprint(),'Sprint Alpha');
+        assert.deepEqual(errors,[]);
+      }
       if(mode==='stories') {
         await page.getByRole('button',{name:'Back to Story tiles',exact:true}).click();
         await page.getByRole('button',{name:'Open create Story options',exact:true}).click();

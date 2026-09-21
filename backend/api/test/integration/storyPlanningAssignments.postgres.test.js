@@ -12,6 +12,7 @@ test("Story Sprint and Release assignments remain scoped, atomic and consistent"
   const db = require("../../src/db");
   const obsDb = require("../../src/obsDb");
   const stories = require("../../src/services/requirement.service");
+  const iterations = require("../../src/services/requirementIteration.service");
   const read = id => db.prepare("SELECT * FROM requirements WHERE id = ?").get(id);
   const memberships = id => db.prepare("SELECT release_id,source FROM requirement_release_items WHERE requirement_id = ? ORDER BY release_id").all(id);
   try {
@@ -79,6 +80,26 @@ test("Story Sprint and Release assignments remain scoped, atomic and consistent"
       assert.equal(updated.errors.length, 0);
       assert.equal((await read(row.id)).iteration_id, "sprint");
       assert.equal((await read(row.id)).release, "Next delivery");
+    });
+    await t.test("moving a Story replaces origin Sprint membership and inherited Release scope", async () => {
+      const next = await iterations.createIteration({ project_id: "project", name: "Sprint Beta", created_by: "planner" });
+      await db.prepare("INSERT INTO requirement_releases(id,project_id,name,fix_version,sprint_ids) VALUES ('destination','project','Next Sprint delivery','v4',?::jsonb)").run(JSON.stringify([next.id]));
+      const created = await stories.createRequirement({ project_id: "project", title: "Story to move", iteration_id: "sprint", created_by: "planner" });
+      assert.deepEqual(await memberships(created.id), [{ release_id: "old", source: "sprint" }]);
+      const receipt = await iterations.assignRequirements(next.id, [created.id]);
+      assert.deepEqual(receipt.assigned_issue_ids, [created.id]);
+      assert.equal((await read(created.id)).iteration_id, next.id);
+      assert.equal((await read(created.id)).sprint, "Sprint Beta");
+      assert.ok(!(await iterations.getIteration("sprint")).requirement_ids.includes(created.id));
+      assert.ok((await iterations.getIteration(next.id)).requirement_ids.includes(created.id));
+      const originPage = await stories.getRequirementsPage({ project_id: "project", sprint_id: "sprint" });
+      const destinationPage = await stories.getRequirementsPage({ project_id: "project", sprint_id: next.id });
+      assert.ok(!originPage.items.some(item => item.id === created.id));
+      assert.deepEqual(destinationPage.items.map(item => item.id), [created.id]);
+      assert.deepEqual(await memberships(created.id), [{ release_id: "destination", source: "sprint" }]);
+      await stories.updateRequirement(created.id, { iteration_id: "sprint", updated_by: "planner" });
+      assert.ok(!(await iterations.getIteration(next.id)).requirement_ids.includes(created.id));
+      assert.deepEqual(await memberships(created.id), [{ release_id: "old", source: "sprint" }]);
     });
   } finally { await Promise.all([db.close(), obsDb.close()]); }
 });

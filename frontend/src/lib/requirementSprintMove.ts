@@ -457,10 +457,9 @@ export function resolveRequirementSprintIterationFromEvidence(
 
   evidence.forEach(({ requirement, scopedIteration }) => {
     const direct = resolveRequirementSprintIteration(requirement, iterations);
-    const candidate = direct
-      || (scopedIteration
-        ? resolveRequirementSprintIteration(requirement, iterations, scopedIteration)
-        : undefined);
+    const candidate = scopedIteration
+      ? resolveRequirementSprintIteration(requirement, iterations, scopedIteration)
+      : direct;
     if (!candidate) return;
 
     const sprintId = String(requirement.sprint_id || "");
@@ -469,11 +468,13 @@ export function resolveRequirementSprintIterationFromEvidence(
       ? String(candidate.jira_sprint_id || "") === sprintId
       : Boolean(sprintName) && [candidate.jira_sprint_name, candidate.name]
         .some((value) => normalizedValue(value) === sprintName);
-    const rank = hasMatchingNativeEvidence
-      ? 3
-      : direct
-        ? 1
-        : 2;
+    const rank = candidate.source === "hellotest" && requirement.iteration_id === candidate.id
+      ? 4
+      : hasMatchingNativeEvidence
+        ? 3
+        : direct?.id === candidate.id
+          ? 1
+          : 2;
 
     // Preserve the first observation within an equal evidence tier. Duplicate
     // expanded Sprint pages can briefly disagree, but neither scoped page is
@@ -485,4 +486,27 @@ export function resolveRequirementSprintIterationFromEvidence(
   });
 
   return resolved;
+}
+
+export function groupRequirementsBySprint(
+  requirements: Requirement[],
+  iterations: RequirementIteration[],
+  iterationByRequirementId: ReadonlyMap<string, RequirementIteration>
+) {
+  // Resolve membership once. A stale header's requirement_ids or Sprint label
+  // must not claim a Story whose saved assignment or confirmed move points to
+  // another Sprint (or back to the backlog).
+  const groups = iterations.map((iteration) => ({
+    iteration,
+    requirements: requirements.filter((requirement) =>
+      iterationByRequirementId.get(requirement.id)?.id === iteration.id
+    )
+  }));
+  const unassignedRequirements = requirements.filter((requirement) =>
+    !iterationByRequirementId.has(requirement.id)
+    && !requirement.iteration_id
+    && !requirement.sprint_id
+    && !normalizedValue(requirement.sprint)
+  );
+  return { groups, unassignedRequirements };
 }
