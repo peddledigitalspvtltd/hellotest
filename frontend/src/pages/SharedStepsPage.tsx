@@ -1485,6 +1485,10 @@ export function SharedStepsPage() {
                           <RichTextContent className="tile-card-description" value={group.description} fallback={preview} />
                           <div className="tile-card-progress-stack shared-step-group-progress-stack">
                             <TileCardProgress
+                              breakdown={{ total: stepCount, segments: [
+                                { key: "covered", label: "Complete steps", count: completeStepCount },
+                                { key: "uncovered", label: "Incomplete steps", count: stepCount - completeStepCount }
+                              ] }}
                               displayValue={stepCount ? `${definitionCompleteness}%` : "No steps"}
                               label="Step completeness"
                               title={stepCount ? `${completeStepCount} of ${stepCount} steps include both an action and expected result` : "No steps are defined"}
@@ -1492,6 +1496,10 @@ export function SharedStepsPage() {
                               value={stepCount ? definitionCompleteness : null}
                             />
                             <TileCardProgress
+                              breakdown={{ total: executedSteps ?? 0, segments: [
+                                { key: "passed", label: "Passed", count: passedSteps ?? 0 },
+                                { key: "failed", label: "Failed", count: failedSteps ?? 0 }
+                              ] }}
                               displayValue={passRate === null ? "Unavailable" : `${passRate}%`}
                               label="Shared Step Pass Rate"
                               title={executedSteps ? `${passedSteps} passed of ${executedSteps} recorded passed/failed shared step outcomes in the last 90 days. Case failures do not imply shared step failures.` : measured?.execution_evidence_reason || "No recorded shared step execution outcomes"}

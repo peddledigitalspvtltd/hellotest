@@ -45,6 +45,7 @@ import {
   TileCardCaseIcon,
   TileCardFact,
   TileCardIconFrame,
+  TileCardProgress,
   TileCardRunsIcon,
   TileCardStepsIcon,
   getTileCardTone
@@ -62,6 +63,7 @@ import { mergeAutomationMetadataFields, mergeAutomationMetadataValue } from "../
 import { buildAutomationCreateParameters } from "../lib/automationCreateParameters";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
+import { buildHistoryStatusBreakdown } from "../lib/tileProgressBreakdown";
 import {
   canEditAutomationCode as resolveCanEditAutomationCode,
   canGenerateAutomationCode as resolveCanGenerateAutomationCode,
@@ -5247,10 +5249,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                             <TileCardFact label={`P${testCase.priority || 3}`} title="Priority"><TileCardStepsIcon /></TileCardFact>
                           </div>
                           <div className="tile-card-footer">
-                            <div className="test-case-card-progress-row" aria-label={history.length ? `${passRate}% recent pass rate` : "No recent run coverage"}>
-                              <div className="test-case-card-progress-track"><span style={{ width: `${passRate}%` }} /></div>
-                              <small>{history.length ? `${passRate}% passed` : "No runs"}</small>
-                            </div>
+                            <TileCardProgress
+                              breakdown={buildHistoryStatusBreakdown(history)}
+                              displayValue={history.length ? `${passRate}%` : "No runs"}
+                              label="Recent pass rate"
+                              title={history.length ? `${passedRuns} of ${history.length} recent run outcomes passed` : "No recent run outcomes"}
+                              value={history.length ? passRate : null}
+                            />
                           </div>
                         </div>
                       </div>

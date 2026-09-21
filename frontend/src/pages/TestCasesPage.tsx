@@ -69,6 +69,7 @@ import {
   TileCardFact,
   TileCardIconFrame,
   TileCardMetric,
+  TileCardProgress,
   TileCardSuiteIcon,
   TileCardStepsIcon,
   formatTileCardLabel
@@ -148,6 +149,7 @@ import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/feat
 import { downloadCsvRecords } from "../lib/csvExport";
 import { summarizeExecutionStart } from "../lib/executionStartSummary";
 import { deriveModuleHealth } from "../lib/hierarchyHealth";
+import { buildHistoryStatusBreakdown, buildReadinessScoreBreakdown } from "../lib/tileProgressBreakdown";
 import { chunkHierarchyMoveIds, readHierarchyDragPayload, resolveHierarchyDragIds, writeHierarchyDragPayload } from "../lib/hierarchyDrag";
 import { getHierarchyPageSize, getUnassignedPageSize } from "../lib/hierarchyPagination";
 import { upsertSharedStepGroupInCache } from "../lib/sharedStepGroupCache";
@@ -10641,38 +10643,21 @@ export function TestCasesPage() {
 	                            value={testCase.description}
 	                          />
                           <div className="test-case-readiness-grid test-case-card-progress-stack">
-                            {canUseAutomationWorkspace ? <div className="test-case-card-progress-row" aria-label={automationReadiness === null ? "Automation readiness available on open" : `${automationReadiness}% automation readiness`}>
-                              <div>
-                                <span>Automation readiness</span>
-                                <strong>{automationReadiness === null ? "On open" : `${automationReadiness}%`}</strong>
-                              </div>
-                              <div
-                                aria-label="Automation readiness"
-                                aria-valuemax={100}
-                                aria-valuemin={0}
-                                aria-valuenow={automationReadiness ?? undefined}
-                                className="test-case-card-progress-track"
-                                role="progressbar"
-                              >
-                                <span style={{ width: `${automationReadiness ?? 0}%` }} />
-                              </div>
-                            </div> : null}
-                            <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent stability` : "No recent run stability"}>
-                              <div>
-                                <span>Stability</span>
-                                <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
-                              </div>
-                              <div
-                                aria-label="Recent stability"
-                                aria-valuemax={100}
-                                aria-valuemin={0}
-                                aria-valuenow={history.length ? stabilityScore : undefined}
-                                className={["test-case-card-progress-track", history.length && stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}
-                                role="progressbar"
-                              >
-                                <span style={{ width: `${history.length ? stabilityScore : 0}%` }} />
-                              </div>
-                            </div>
+                            {canUseAutomationWorkspace ? <TileCardProgress
+                              breakdown={buildReadinessScoreBreakdown(automationReadiness)}
+                              displayValue={automationReadiness === null ? "On open" : `${automationReadiness}%`}
+                              label="Automation readiness"
+                              title={automationReadiness === null ? "Automation readiness available on open" : `${automationReadiness}% automation readiness score`}
+                              value={automationReadiness}
+                            /> : null}
+                            <TileCardProgress
+                              breakdown={buildHistoryStatusBreakdown(history)}
+                              displayValue={history.length ? `${stabilityScore}%` : "No runs"}
+                              label="Stability"
+                              title={history.length ? `${passedRuns} of the last ${history.length} case results passed` : "No recent run stability"}
+                              tone={!history.length ? "neutral" : stabilityScore >= 80 ? "success" : stabilityScore >= 60 ? "warning" : "danger"}
+                              value={history.length ? stabilityScore : null}
+                            />
                           </div>
                           <div className="tile-card-facts test-case-tile-metrics" aria-label={`${testCase.title} facts`}>
                             <TileCardMetric
@@ -11988,10 +11973,13 @@ export function TestCasesPage() {
                                   <TileCardFact label={`P${automationCase.priority || 3}`} title="Priority"><TestCaseIcon /></TileCardFact>
                                 </div>
                                 <div className="tile-card-footer">
-                                  <div className="test-case-card-progress-row" aria-label={recentHistory.length ? `${passRate}% recent pass rate` : "No recent run coverage"}>
-                                    <div className="test-case-card-progress-track"><span style={{ width: `${passRate}%` }} /></div>
-                                    <small>{recentHistory.length ? `${passRate}% passed` : "No runs yet"}</small>
-                                  </div>
+                                  <TileCardProgress
+                                    breakdown={buildHistoryStatusBreakdown(recentHistory)}
+                                    displayValue={recentHistory.length ? `${passRate}% passed` : "No runs yet"}
+                                    label="Pass rate"
+                                    title={recentHistory.length ? `${passedRuns} of the last ${recentHistory.length} case results passed` : "No recent run coverage"}
+                                    value={recentHistory.length ? passRate : null}
+                                  />
                                   <span className="test-case-linked-automation-open">Open workspace <OpenIcon size={16} /></span>
                                 </div>
                               </div>

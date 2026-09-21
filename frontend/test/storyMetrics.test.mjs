@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deriveStoryMetrics, formatStoryPassRate, deriveBacklogPlanningMetrics } from '../src/lib/storyMetrics.ts';
+import { deriveStoryMetrics, formatStoryPassRate, deriveBacklogPlanningMetrics, storyCoverageBreakdown } from '../src/lib/storyMetrics.ts';
 
 const story = {
   id: 'story', title: 'Release authentication', project_id: 'project',
@@ -56,6 +56,30 @@ test('An empty Story has no execution or readiness denominator', () => {
   assert.equal(formatStoryPassRate(metrics.passRate), 'No runs');
   assert.equal(metrics.readiness, null);
   assert.equal(metrics.automation.total, 0);
+});
+
+test('Story tile bars keep actual finalized and automation populations without inventing failure outcomes', () => {
+  const metrics = deriveStoryMetrics(story);
+  assert.deepEqual(storyCoverageBreakdown(metrics.passRate, 'pass'), {
+    total: 3,
+    segments: [
+      { key: 'passed', label: 'Passed', count: 2 },
+      { key: 'unknown', label: 'Other finalized outcomes', count: 1 }
+    ]
+  });
+  assert.deepEqual(storyCoverageBreakdown(metrics.automation, 'automation'), {
+    total: 4,
+    segments: [
+      { key: 'covered', label: 'Automated', count: 3 },
+      { key: 'uncovered', label: 'Not automated', count: 1 }
+    ]
+  });
+});
+
+test('Story tile bars do not manufacture populations when complete evidence is unavailable', () => {
+  assert.equal(storyCoverageBreakdown(undefined, 'pass'), undefined);
+  assert.equal(storyCoverageBreakdown({ total: 4, covered: 1, complete: false }, 'automation'), undefined);
+  assert.deepEqual(storyCoverageBreakdown({ total: 0, covered: 0, complete: true }, 'pass')?.segments.map(segment => segment.count), [0, 0]);
 });
 
 

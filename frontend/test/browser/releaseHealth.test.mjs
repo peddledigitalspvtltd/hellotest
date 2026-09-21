@@ -38,7 +38,7 @@ api.appTypes.list=async()=>[{id:'health-app',project_id:'health-project',name:'W
 const story=(id,status)=>({id,project_id:'health-project',title:id,status,priority:3,labels:[],gherkin_scenarios:[],test_case_ids:[]});
 const stories=[story('story-dev','dev_done'),story('story-qa','qa_done'),story('story-open','open')];
 api.requirementReleases.list=async()=>[{id:'health-release',project_id:'health-project',name:'Checkout Release',fix_version:'V1',state:'planned',persisted_state:'planned',sprint_ids:['sprint-a','sprint-b'],requirement_ids:stories.map(s=>s.id),requirements:stories,requirement_count:3,story_scope_visible:true,description:'Delivery across two linked Sprints',plan_date:'2026-09-01',target_date:'2026-10-01'}];
-api.requirementReleases.listReadiness=async input=>{window.calls.push({path:'requirementReleases.listReadiness',args:[input]});return[{release_id:'health-release',total_stories:3,covered_stories:2,test_coverage_percent:67,linked_cases:5,executed_cases:4,passed_cases:3,pass_rate_percent:75,total_bugs:2,open_bugs:1,bug_density:0.67,automated_cases:2,automation_coverage_percent:40,readiness_score:73,readiness_state:'at_risk'}]};
+api.requirementReleases.listReadiness=async input=>{window.calls.push({path:'requirementReleases.listReadiness',args:[input]});return[{release_id:'health-release',total_stories:3,covered_stories:2,test_coverage_percent:67,linked_cases:5,executed_cases:4,passed_cases:3,pass_rate_percent:75,total_bugs:2,open_bugs:1,bug_density:0.67,automated_cases:2,automation_coverage_percent:40,readiness_score:73,readiness_state:'at_risk',story_metrics:{'story-dev':{linked_cases:5,executed_cases:4,passed_cases:3,pass_rate_percent:75,automated_cases:2,automation_coverage_percent:40,total_bugs:2,open_bugs:1},'story-qa':{linked_cases:0,executed_cases:0,passed_cases:0,pass_rate_percent:null,automated_cases:0,automation_coverage_percent:0,total_bugs:0,open_bugs:0}}}]};
 api.requirementIterations.list=async()=>[];
 const router=createMemoryRouter([{path:'/releases',element:<ReleasesPage/>},{path:'/',element:<h1>Scoped Readiness</h1>}],{initialEntries:['/releases']});
 window.fixtureLocation=()=>router.state.location;
@@ -66,6 +66,16 @@ test('Release Health keeps exact scoped evidence in a modal while ribbon retains
   await page.locator('.release-iteration-header:not(.requirement-iteration-list-header)').waitFor();
   await assertHealthAtRibbonEnd(ribbon.getByRole('button',{name:'Release Health: Checkout Release'}));
   await ribbon.locator('.module-toggle-button').click();
+  const storyTile=page.locator('.release-story-tile').filter({hasText:'story-dev'});
+  await storyTile.waitFor();
+  assert.equal(await storyTile.locator('[title="Passed: 3"]').innerText(),'3');
+  assert.equal(await storyTile.locator('[title="Other finalized outcomes: 1"]').innerText(),'1');
+  assert.equal(await storyTile.locator('[title="Automated: 2"]').innerText(),'2');
+  assert.equal(await storyTile.locator('[title="Not automated: 3"]').innerText(),'3');
+  assert.match(await page.locator('.release-story-tile').filter({hasText:'story-qa'}).innerText(),/No runs/);
+  const unavailable=page.locator('.release-story-tile').filter({hasText:'story-open'});
+  assert.deepEqual(await unavailable.locator('.tile-card-progress-head strong').allTextContents(),['—','—']);
+  assert.equal(await unavailable.locator('[title^="Passed:"],[title^="Other finalized outcomes:"],[title^="Automated:"],[title^="Not automated:"]').count(),0,'Missing Release evidence does not render invented counts');
   await assertHealthAtRibbonEnd(ribbon.getByRole('button',{name:'Release Health: Checkout Release'}));
   await ribbon.locator('.module-toggle-button').click();
   await assertHealthAtRibbonEnd(ribbon.getByRole('button',{name:'Release Health: Checkout Release'}));

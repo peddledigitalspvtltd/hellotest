@@ -1,5 +1,6 @@
 // Production IssuesPage with isolated API responses; no backend reads or writes.
 import assert from 'node:assert/strict';
+import {assertCountSegments} from './metricStatusBarAssertions.mjs';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
@@ -112,7 +113,10 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     page.setDefaultTimeout(10000);
     await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5173'}/${name}.html`);
     await page.waitForFunction(()=>document.querySelectorAll('.issue-catalog-card').length===25);
-    const total = page.getByRole('group',{name:'Bug catalog quality metrics'}).getByRole('button',{name:'View evidence for Total bugs'}).locator('strong');
+    const secondTile = page.locator('.issue-catalog-card').nth(1);
+    await assertCountSegments(secondTile.locator('.tile-card-progress').nth(0).locator('.metric-status-bar'),4,[{key:'covered',label:'Completed evidence fields',count:4}]);
+    await assertCountSegments(secondTile.locator('.tile-card-progress').nth(1).locator('.metric-status-bar'),3,[{key:'covered',label:'Completed triage fields',count:2},{key:'uncovered',label:'Missing triage fields',count:1}]);
+    const total = page.getByRole('group',{name:'Defect catalog quality metrics'}).getByRole('button',{name:/View evidence for Total defects/i}).locator('strong');
     assert.equal(await total.innerText(), '60', 'Metrics cover the full catalog beyond the 25 loaded rows');
     await page.waitForTimeout(250);
     let calls = await page.evaluate(()=>window.calls);
@@ -140,7 +144,7 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     assert.equal(calls.catalog[1].cursor,'25');
     assert.equal(calls.catalog[1].page_size,25);
     assert.equal(calls.metrics.length,1,'Appending records does not refetch metrics');
-    assert.equal(await page.locator('.issue-catalog-card').first().getAttribute('aria-label'),'Open Bug BUG-1: Checkout bug 01');
+    assert.equal(await page.locator('.issue-catalog-card').first().getAttribute('aria-label'),'Open Defect BUG-1: Checkout bug 01');
     await page.waitForTimeout(150);
     assert.equal(await page.evaluate(()=>window.calls.catalog.length),2,'The catalog stops fetching after filling the viewport');
 
@@ -152,7 +156,7 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     await page.waitForTimeout(180);
     assert.deepEqual(await page.evaluate(()=>({catalog:window.calls.catalog.length,metrics:window.calls.metrics.length})),beforeRemount,'A recent remount reuses cached pages and metrics');
 
-    await page.getByRole('searchbox',{name:'Search bugs'}).fill('boundary');
+    await page.getByRole('searchbox',{name:'Search defects'}).fill('boundary');
     await page.waitForFunction(()=>window.calls.catalog.some(call=>call.q==='boundary')&&document.querySelectorAll('.issue-catalog-card').length===1);
     assert.match(await page.locator('.issue-catalog-card').innerText(), /Boundary failure beyond the first pages/);
     assert.equal(await total.innerText(),'1');
@@ -162,13 +166,13 @@ test('Bugs fetch 25 records independently from complete metrics, append on scrol
     assert.equal(calls.metrics.at(-1).q,'boundary');
     await page.screenshot({path:artifacts+'/bugs-server-search.png'});
 
-    await page.getByRole('searchbox',{name:'Search bugs'}).fill('');
+    await page.getByRole('searchbox',{name:'Search defects'}).fill('');
     await page.waitForFunction(()=>document.querySelectorAll('.issue-catalog-card').length===50);
     const beforeDetail=await page.evaluate(()=>({catalog:window.calls.catalog.length,metrics:window.calls.metrics.length}));
     await page.evaluate(()=>window.fixtureNavigate('/away'));
     await page.getByRole('heading',{name:'Away from Bugs'}).waitFor();
     await page.evaluate(()=>window.fixtureNavigate('/issues?issue=EXT-60'));
-    const title=page.getByRole('textbox',{name:'Bug Title'});
+    const title=page.getByRole('textbox',{name:'Defect Title'});
     await title.waitFor();
     assert.equal(await title.inputValue(),'Boundary failure beyond the first pages');
     assert.equal(await page.evaluate(()=>window.fixtureRoute()),'/issues?issue=bug-60','External keys canonicalize to the resolved Bug');

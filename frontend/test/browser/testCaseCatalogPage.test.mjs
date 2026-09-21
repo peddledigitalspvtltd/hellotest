@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { assertHealthAtRibbonEnd } from './healthRibbonAssertions.mjs';
+import { assertCountSegments } from './metricStatusBarAssertions.mjs';
 const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../', import.meta.url);
@@ -84,6 +85,52 @@ const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>},{
 window.fixtureNavigate=to=>router.navigate(to);window.fixtureLocation=()=>router.state.location;
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId="reviewer"><main style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
+
+test('Test Case tile bars show outcome counts, score units, and no-data states', { timeout:60000 }, async()=>{
+ const name='test-case-progress-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+ const progressFixture=fixture.replace('const client=new QueryClient', `
+ cases[0].recent_results=['passed','passed','failed','blocked','running','skipped'].map((status,index)=>({id:'outcome-'+index,execution_id:'run-'+index,test_case_id:'case-1',status,created_at:'2026-09-15T10:0'+index+':00Z'}));
+ cases[0].run_count=6;delete cases[1].step_count;
+ const client=new QueryClient`);
+ try{
+  await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx,progressFixture);
+  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+  const page=await browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/**',route=>{errors.push('Unexpected live API request');return route.abort()});
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5189'}/${name}.html`);
+  const cards=page.locator('.test-case-library-scroll .test-case-catalog-card');
+  await cards.nth(1).waitFor();
+  const stability=cards.first().locator('.tile-card-progress').filter({hasText:'Stability'});
+  const readiness=cards.first().locator('.tile-card-progress').filter({hasText:'Automation Readiness'});
+  for(const theme of ['light','dark'])for(const width of [1440,390]){
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    await page.setViewportSize({width,height:900});
+    await assertCountSegments(stability.locator('.metric-status-bar'),6,[
+      {key:'passed',label:'Passed',count:2,color:'rgb(34, 160, 107)'},
+      {key:'failed',label:'Failed',count:1,color:'rgb(227, 73, 53)'},
+      {key:'blocked',label:'Blocked',count:1,color:'rgb(226, 178, 3)'},
+      {key:'running',label:'Running',count:1,color:'rgb(12, 102, 228)'},
+      {key:'skipped',label:'Skipped',count:1,color:'rgb(107, 119, 140)'}
+    ]);
+    assert.equal(await stability.locator('.tile-card-progress-head strong').innerText(),'33%');
+    const bounds=await stability.locator('.metric-status-bar').evaluate(node=>({height:node.getBoundingClientRect().height,within:node.getBoundingClientRect().right<=node.parentElement.getBoundingClientRect().right+1}));
+    assert.equal(bounds.height,14);assert.equal(bounds.within,true);
+  }
+  assert.deepEqual(await readiness.locator('.metric-status-segment').evaluateAll(nodes=>nodes.map(node=>({title:node.title,text:node.textContent}))),[
+    {title:'Readiness score: 58%',text:'58%'},{title:'Remaining score: 42%',text:'42%'}
+  ]);
+  const unavailable=cards.nth(1).locator('.tile-card-progress').filter({hasText:'Automation Readiness'});
+  assert.match(await unavailable.innerText(),/On open/);
+  assert.equal(await unavailable.locator('.metric-status-segment').count(),0);
+  const empty=cards.nth(1).locator('.tile-card-progress').filter({hasText:'Stability'});
+  assert.match(await empty.innerText(),/No runs/);
+  assert.equal(await empty.locator('.metric-status-segment').count(),0);
+  assert.equal(await empty.locator('.metric-status-bar').getAttribute('role'),null);
+  assert.deepEqual(errors,[]);
+ }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
+});
 
 test('Test Cases load 25 independently from metrics, fetch expanded modules, scroll and lazily prepare run scopes', { timeout:90000 }, async()=>{
  const name='test-case-catalog-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);

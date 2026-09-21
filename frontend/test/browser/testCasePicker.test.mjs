@@ -4,6 +4,7 @@ import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { assertCountSegments } from './metricStatusBarAssertions.mjs';
 const require = createRequire(new URL('../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../', import.meta.url);
@@ -76,6 +77,55 @@ const mode=new URLSearchParams(location.search).get('mode');
 const router=createMemoryRouter([{path:'/',element:mode?.startsWith('design')?<DesignPage/>:<PickerFixture/>},{path:'/executions',element:<h1>Created run</h1>}],{initialEntries:['/']});
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><LocalizationProvider userId='reviewer'><RouterProvider router={router}/></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
+
+test('Suite and nested case tile bars show coverage and finalized outcome counts', {timeout:60000}, async()=>{
+  const name='suite-case-progress-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+  const progressFixture=fixture.replace('const client=new QueryClient', `
+  localStorage.setItem('hellotest.default_catalog_view_mode','tile');window.holdFirst=false;window.holdNext=false;
+  api.executionResults.list=async()=>['passed','passed','failed','blocked','running'].map((status,index)=>({id:'outcome-'+index,execution_id:'run-'+index,test_case_id:'case-1',suite_id:'suite-existing',status,created_at:'2026-09-15T10:0'+index+':00Z'}));
+  const client=new QueryClient`);
+  try{
+    await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(tsx,progressFixture);
+    browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+    const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});page.setDefaultTimeout(15000);
+    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    await page.route('**/api/**',route=>{errors.push('Unexpected live API request');return route.abort()});
+    await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5189'}/${name}.html?mode=design`);
+    const suite=page.locator('.test-suite-card').filter({hasText:'Checkout regression'});
+    const coverage=suite.locator('.tile-card-progress').filter({hasText:'Story Coverage'});
+    await assertCountSegments(coverage.locator('.metric-status-bar'),60,[
+      {key:'covered',label:'Story-linked cases',count:30,color:'rgb(133, 184, 255)'},
+      {key:'uncovered',label:'Cases without stories',count:30,color:'rgb(179, 185, 196)'}
+    ]);
+    const stability=suite.locator('.tile-card-progress').filter({hasText:'Suite Stability'});
+    await assertCountSegments(stability.locator('.metric-status-bar'),4,[
+      {key:'passed',label:'Passed',count:2},{key:'failed',label:'Failed',count:1},{key:'blocked',label:'Blocked',count:1}
+    ]);
+    assert.equal(await stability.locator('.tile-card-progress-head strong').innerText(),'50%');
+    assert.equal(await stability.locator('.metric-status-segment.is-running').count(),0,'Suite stability retains its finalized-run denominator');
+    const empty=page.locator('.test-suite-card').filter({hasText:'Empty suite'});
+    assert.equal(await empty.locator('.metric-status-segment').count(),0);
+    assert.match(await empty.innerText(),/No cases/);assert.match(await empty.innerText(),/No runs/);
+    await suite.locator('.tile-card-open-button').click();
+    await page.getByRole('button',{name:'Expand Unassigned module',exact:true}).click();
+    const nested=page.locator('.suite-case-workspace-card').filter({hasText:'Checkout case 01'});
+    await nested.waitFor();
+    const caseStability=nested.locator('.tile-card-progress').filter({hasText:'Stability'});
+    await assertCountSegments(caseStability.locator('.metric-status-bar'),5,[
+      {key:'passed',label:'Passed',count:2},{key:'failed',label:'Failed',count:1},
+      {key:'blocked',label:'Blocked',count:1},{key:'running',label:'Running',count:1}
+    ]);
+    assert.equal(await caseStability.locator('.tile-card-progress-head strong').innerText(),'40%');
+    const readiness=nested.locator('.tile-card-progress').filter({hasText:'Automation Readiness'});
+    assert.ok((await readiness.locator('.metric-status-segment').evaluateAll(nodes=>nodes.map(node=>node.title))).every(title=>/%$/.test(title)));
+    assert.deepEqual(errors,[]);
+  }catch(error){
+    const page=browser?.contexts()[0]?.pages()[0];
+    if(page){await writeFile('/tmp/suite-tile-progress-failure.html',await page.content());console.error(await page.locator('body').innerText());}
+    throw error;
+  }finally{await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)])}
+});
 
 test('Shared picker pages, searches, hydrates exact selections, reorders and retries without blocking Create Suite', {timeout:120000}, async()=>{
   const name='test-case-picker-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);

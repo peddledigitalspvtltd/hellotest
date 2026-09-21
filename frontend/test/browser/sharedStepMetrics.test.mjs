@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {assertCountSegments} from './metricStatusBarAssertions.mjs';
 import {createRequire} from 'node:module';import {randomUUID} from 'node:crypto';import {writeFile,rm,mkdir} from 'node:fs/promises';
 const require=createRequire(new URL('../../../testengine/backend/package.json',import.meta.url));const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root=new URL('../../',import.meta.url),name=`shared-metrics-${randomUUID()}`;
@@ -21,6 +22,8 @@ let browser;try{
  assert.equal(new Set(copies).size,4);assert.match(copies[2],/1 distinct open defects/);assert.match(copies[2],/DEF-1/);assert.match(copies[2],/does not establish root cause/);assert.match(copies[1],/more than 100%/);assert.match(copies[3],/not proof/);assert.equal(await top.getByRole('button',{name:/Mean Time To Isolation/}).count(),0);
  await top.getByRole('button',{name:'View evidence for Open Defects',exact:true}).click();assert.equal(await top.getByRole('link',{name:/DEF-1/}).getAttribute('href'),'/issues?issue=defect-1');assert.equal(await top.getByRole('link',{name:'Failure Evidence',exact:true}).getAttribute('href'),'/executions?execution=run1&testCase=case1');await top.getByRole('button',{name:'Back to Open Defects metric',exact:true}).click();
  const tile=page.locator('.shared-step-group-tile-card');assert.match(await tile.innerText(),/60%/);
+ await assertCountSegments(tile.locator('.tile-card-progress').nth(0).locator('.metric-status-bar'),1,[{key:'covered',label:'Complete steps',count:1}]);
+ await assertCountSegments(tile.locator('.tile-card-progress').nth(1).locator('.metric-status-bar'),5,[{key:'passed',label:'Passed',count:3,color:'rgb(34, 160, 107)'},{key:'failed',label:'Failed',count:2,color:'rgb(227, 73, 53)'}]);
  const tileMetrics=tile.locator('.tile-card-metric');assert.equal(await tileMetrics.count(),4);
  for(const [label,value]of [['Steps','1'],['Case Reuse','1'],['Executed Steps','5'],['Failed Steps','2']]){const metric=tileMetrics.filter({has:page.getByText(label,{exact:true})});assert.equal(await metric.locator('strong').innerText(),value);}
  assert.equal(await tile.locator('.evidence-flip-card').count(),0);assert.equal(await tile.getByRole('button',{name:/evidence/i}).count(),0);

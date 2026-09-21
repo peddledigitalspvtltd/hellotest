@@ -16,6 +16,7 @@ import { RecorderSessionInsights } from "../components/RecorderSessionInsights";
 import { RecorderStartControls, type RecorderStartOptions } from "../components/RecorderStartControls";
 import { StatusBadge } from "../components/StatusBadge";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
+import { TileCardProgress } from "../components/TileCardPrimitives";
 import { WorkspaceBackButton, WorkspaceMasterDetail } from "../components/WorkspaceMasterDetail";
 import { useDeleteConfirmation } from "../components/DeleteConfirmationDialog";
 import { useAuth } from "../auth/AuthContext";
@@ -32,6 +33,7 @@ import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
 import { isRovoIntegrationId } from "../lib/rovo";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
+import { transactionTileProgress } from "../lib/transactionTileProgress";
 import type { Integration, OpsTelemetryEvent, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../types";
 import "./TestOpsPage.rovo.css";
 
@@ -1133,6 +1135,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                   {filteredBatchTransactions.map((transaction) => {
                     const isActive = selectedTransactionId === transaction.id;
                     const isChecked = selectedBatchLogIds.includes(transaction.id);
+                    const tileProgress = transactionTileProgress(transaction, resolveProgressPercent(transaction));
 
                     return (
                       <article
@@ -1176,10 +1179,11 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                             </div>
                           </div>
                           <p className="tile-card-description">{transaction.description || formatLabel(transaction.category)}</p>
-                          <ProgressMeter
-                            value={resolveProgressPercent(transaction)}
+                          <TileCardProgress
+                            breakdown={tileProgress.breakdown}
+                            value={tileProgress.value}
                             label={formatLabel(String(transaction.metadata?.current_phase || transaction.status))}
-                            detail={formatProgressDetail(transaction)}
+                            title={formatProgressDetail(transaction) || "Reported process progress; item counts are unavailable"}
                             tone={transaction.status === "failed" ? "danger" : transaction.status === "completed" ? "success" : "info"}
                           />
                           <div className="batch-process-card-facts">
@@ -1201,7 +1205,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
                             </span>
                           </div>
                           <div className="batch-process-card-footer">
-                            <span className="count-pill">{resolveProgressPercent(transaction)}% complete</span>
+                            <span className="count-pill">{tileProgress.value}% complete</span>
                             <button
                               className="ghost-button compact-button"
                               onClick={(event) => {

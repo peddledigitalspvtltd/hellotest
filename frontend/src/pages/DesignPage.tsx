@@ -70,6 +70,7 @@ import { type AssigneeOption, buildAssigneeOptions } from "../lib/userDisplay";
 import { findByRoutableId, getRoutableId } from "../lib/urlSelection";
 import { formatReferenceList } from "../lib/externalReferences";
 import { selectLatestExecutionResultInstances } from "../lib/executionResultMetrics";
+import { buildHistoryStatusBreakdown, buildReadinessScoreBreakdown } from "../lib/tileProgressBreakdown";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
 import type { AppType, ExecutionResult, Project, ProjectMember, Requirement, RequirementIteration, RequirementRelease, TestCase, TestCaseModule, TestStep, TestSuite } from "../types";
 
@@ -2665,6 +2666,13 @@ function SuiteSidebar({
                       />
                       <div className="tile-card-progress-stack suite-tile-progress-stack">
                         <TileCardProgress
+                          breakdown={{
+                            total: mappedCaseCount,
+                            segments: [
+                              { key: "covered", label: "Story-linked cases", count: linkedRequirementCount },
+                              { key: "uncovered", label: "Cases without stories", count: Math.max(0, mappedCaseCount - linkedRequirementCount) }
+                            ]
+                          }}
                           displayValue={mappedCaseCount ? `${coverageScore}%` : "No cases"}
                           label="Story coverage"
                           title={mappedCaseCount ? `${coverageScore}% of suite cases link to stories` : "No cases are mapped to this suite"}
@@ -2672,6 +2680,7 @@ function SuiteSidebar({
                           value={mappedCaseCount ? coverageScore : null}
                         />
                         <TileCardProgress
+                          breakdown={buildHistoryStatusBreakdown(finalizedHistory)}
                           displayValue={finalizedHistory.length ? `${stabilityScore}%` : "No runs"}
                           label="Suite stability"
                           title={finalizedHistory.length ? `${stabilityScore}% of the last ${finalizedHistory.length} finalized suite runs passed` : "No finalized suite stability data"}
@@ -3358,24 +3367,20 @@ function TestCaseList({
                       </div>
                       <div className="tile-card-footer">
                         <div className="test-case-readiness-grid">
-                          <div className="test-case-card-progress-row" aria-label={`${automationReadiness}% automation readiness`}>
-                            <div>
-                              <span>Automation readiness</span>
-                              <strong>{`${automationReadiness}%`}</strong>
-                            </div>
-                            <div className="test-case-card-progress-track">
-                              <span style={{ width: `${automationReadiness}%` }} />
-                            </div>
-                          </div>
-                          <div className="test-case-card-progress-row" aria-label={history.length ? `${stabilityScore}% recent stability` : "No recent run stability"}>
-                            <div>
-                              <span>Stability</span>
-                              <strong>{history.length ? `${stabilityScore}%` : "No runs"}</strong>
-                            </div>
-                            <div className={["test-case-card-progress-track", stabilityScore < 60 ? "danger" : ""].filter(Boolean).join(" ")}>
-                              <span style={{ width: `${history.length ? stabilityScore : 8}%` }} />
-                            </div>
-                          </div>
+                          <TileCardProgress
+                            breakdown={buildReadinessScoreBreakdown(automationReadiness)}
+                            label="Automation readiness"
+                            title={`${automationReadiness}% automation readiness score`}
+                            value={automationReadiness}
+                          />
+                          <TileCardProgress
+                            breakdown={buildHistoryStatusBreakdown(history)}
+                            displayValue={history.length ? `${stabilityScore}%` : "No runs"}
+                            label="Stability"
+                            title={history.length ? `${passedRuns} of the last ${history.length} case results passed` : "No recent run stability"}
+                            tone={!history.length ? "neutral" : stabilityScore >= 80 ? "success" : stabilityScore >= 60 ? "warning" : "danger"}
+                            value={history.length ? stabilityScore : null}
+                          />
                         </div>
                         <div className={`test-case-ai-note ${aiInsightTone}`}>
                           <span aria-hidden="true">{isRiskCase ? "!" : "S"}</span>

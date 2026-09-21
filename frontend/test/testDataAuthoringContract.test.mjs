@@ -54,9 +54,11 @@ test("Test Case tiles keep every detail while progress bars lead modern metric c
   assert.ok(card.indexOf("test-case-readiness-grid") < card.indexOf("test-case-tile-metrics"));
   assert.ok(card.indexOf("test-case-tile-metrics") < card.indexOf("test-case-ai-note"));
   assert.equal((card.match(/<TileCardMetric/g) || []).length, 4);
-  assert.match(card, /role="progressbar"/);
-  assert.match(card, /aria-valuemax=\{100\}/);
-  assert.match(card, /aria-valuenow=\{automationReadiness \?\? undefined\}/);
+  assert.equal((card.match(/<TileCardProgress/g) || []).length, 2);
+  assert.match(card, /breakdown=\{buildReadinessScoreBreakdown\(automationReadiness\)\}/);
+  assert.match(card, /breakdown=\{buildHistoryStatusBreakdown\(history\)\}/);
+  assert.match(card, /value=\{automationReadiness\}/);
+  assert.match(card, /value=\{history\.length \? stabilityScore : null\}/);
   assert.match(modalStyles, /\.test-case-catalog-card \.test-case-tile-metrics[\s\S]*repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(modalStyles, /@media \(max-width: 560px\)[\s\S]*\.test-case-catalog-card \.test-case-tile-metrics[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
 });

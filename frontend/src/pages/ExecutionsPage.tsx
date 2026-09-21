@@ -220,6 +220,10 @@ type ExecutionRunSummary = {
   passed: number;
   failed: number;
   blocked: number;
+  skipped: number;
+  aborted: number;
+  running: number;
+  paused: number;
   total: number;
   passRate: number;
   avgDurationMs: number | null;
@@ -344,6 +348,10 @@ const EMPTY_EXECUTION_RUN_SUMMARY: ExecutionRunSummary = {
   passed: 0,
   failed: 0,
   blocked: 0,
+  skipped: 0,
+  aborted: 0,
+  running: 0,
+  paused: 0,
   total: 0,
   passRate: 0,
   avgDurationMs: null,
@@ -817,21 +825,26 @@ function buildProgressSegments(
   return segments.filter((segment) => segment.value > 0);
 }
 
-function buildFinalizedProgressSegments(
+function buildRunOutcomeBreakdown(
   passedCount: number,
   failedCount: number,
   blockedCount: number,
-  totalCount: number
+  totalCount: number,
+  otherOutcomes: { skipped?: number; aborted?: number; running?: number; paused?: number } = {}
 ) {
-  if (!totalCount) {
-    return [];
-  }
-
-  return [
-    { value: (passedCount / totalCount) * 100, tone: "success" as const },
-    { value: (failedCount / totalCount) * 100, tone: "danger" as const },
-    { value: (blockedCount / totalCount) * 100, tone: "warning" as const }
-  ].filter((segment) => segment.value > 0);
+  const segments = [
+    { key: "passed", label: "Passed", count: passedCount },
+    { key: "failed", label: "Failed", count: failedCount },
+    { key: "blocked", label: "Blocked", count: blockedCount },
+    { key: "skipped", label: "Skipped", count: otherOutcomes.skipped || 0 },
+    { key: "aborted", label: "Aborted", count: otherOutcomes.aborted || 0 },
+    { key: "running", label: "Running", count: otherOutcomes.running || 0 },
+    { key: "paused", label: "Paused", count: otherOutcomes.paused || 0 }
+  ];
+  return {
+    total: totalCount,
+    segments: [...segments, { key: "pending", label: "Pending", count: Math.max(totalCount - segments.reduce((sum, segment) => sum + segment.count, 0), 0) }]
+  };
 }
 
 const executionDateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -3255,6 +3268,8 @@ export function ExecutionsPage() {
         summary[result.execution_id].failed += 1;
       } else if (result.status === "blocked") {
         summary[result.execution_id].blocked += 1;
+      } else if (result.status === "skipped" || result.status === "aborted" || result.status === "running" || result.status === "paused") {
+        summary[result.execution_id][result.status] += 1;
       }
 
 
@@ -9580,6 +9595,10 @@ export function ExecutionsPage() {
                           passed: suiteMetric?.passedCount || 0,
                           failed: suiteMetric?.failedCount || 0,
                           blocked: suiteMetric?.blockedCount || 0,
+                          skipped: 0,
+                          aborted: 0,
+                          running: 0,
+                          paused: 0,
                           total: suiteResolvedCount,
                           passRate: suiteResolvedCount ? Math.round(((suiteMetric?.passedCount || 0) / suiteResolvedCount) * 100) : 0,
                           avgDurationMs: null,
@@ -9701,17 +9720,23 @@ export function ExecutionsPage() {
                                       </div>
                                     ) : null}
 
-                                    <ProgressMeter
-                                      detail={`${suiteMetric?.passedCount || 0} passed · ${suiteMetric?.failedCount || 0} failed · ${suiteMetric?.blockedCount || 0} blocked`}
-                                      hideCopy
+                                    <TileCardProgress
+                                      displayValue={suiteMetric?.count ? `${suiteMetric.percent}%` : "No cases"}
                                       label="Suite completion"
-                                      segments={buildProgressSegments(
+                                      title={`${suiteMetric?.completedCount || 0} of ${suiteMetric?.count || 0} case instances finalized, including skipped and aborted outcomes`}
+                                      breakdown={buildRunOutcomeBreakdown(
                                         suiteMetric?.passedCount || 0,
                                         suiteMetric?.failedCount || 0,
                                         suiteMetric?.blockedCount || 0,
-                                        suiteMetric?.count || 0
+                                        suiteMetric?.count || 0,
+                                        {
+                                          skipped: suiteMetric?.skippedCount || 0,
+                                          aborted: suiteMetric?.abortedCount || 0,
+                                          running: suiteMetric?.runningCount || 0,
+                                          paused: suiteMetric?.pausedCount || 0
+                                        }
                                       )}
-                                      value={suiteMetric?.percent || 0}
+                                      value={suiteMetric?.count ? suiteMetric.percent : null}
                                     />
                                   </div>
                                 </button>
@@ -10642,12 +10667,13 @@ export function ExecutionListCard({ execution, summary, impactSummary, liveNow, 
   const expectedOutcomeCount = execution.case_snapshots?.length ? executionExpectedOutcomeCount(execution) : totalScopedCases * executionDataIterationCount(execution);
   const resolvedOutcomeCount = Math.max(expectedOutcomeCount, summary.total, 0);
   const finalizedTotal = summary.passed + summary.failed + summary.blocked;
+  const completedTotal = finalizedTotal + (summary.skipped || 0) + (summary.aborted || 0);
   const executionStatus = normalizeExecutionStatus(execution.status);
   const defects = execution.metrics?.defect_count ?? 0;
   const stories = runStoryCounts(execution, impactSummary);
   const visibleImpactedRequirements = impactSummary.impactedRequirements.filter((story) => story.failedCases > 0).slice(0, 3);
   const durationLabel = formatDuration(execution.metrics?.duration_ms ?? summary.totalDurationMs, "0s");
-  const completionPercent = resolvedOutcomeCount ? Math.round(finalizedTotal / resolvedOutcomeCount * 100) : 0;
+  const completionPercent = resolvedOutcomeCount ? Math.round(completedTotal / resolvedOutcomeCount * 100) : 0;
   const passRate = finalizedTotal ? Math.round(summary.passed / finalizedTotal * 100) : 0;
   return <article aria-label={`Open run ${execution.name || "Unnamed run"}`} className={`record-card tile-card execution-card execution-run-tile-card virtual-card${isActive ? " is-active" : ""}`} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button, input, label, select, textarea")) onSelect(); }}>
     <div className="tile-card-select-row execution-run-selection-row" onClick={(event) => event.stopPropagation()}>
@@ -10660,8 +10686,8 @@ export function ExecutionListCard({ execution, summary, impactSummary, liveNow, 
         <button aria-current={isActive ? "page" : undefined} className="tile-card-title-group tile-card-open-button" onClick={onSelect} type="button"><span className="tile-card-kicker">Run Name</span><strong>{execution.name || "Unnamed run"}</strong></button>
       </div>
       <div className="tile-card-progress-stack execution-run-progress-stack">
-        <TileCardProgress displayValue={resolvedOutcomeCount ? `${completionPercent}%` : "No cases"} label="Run completion" segments={resolvedOutcomeCount ? buildFinalizedProgressSegments(summary.passed, summary.failed, summary.blocked, resolvedOutcomeCount) : undefined} title={`${finalizedTotal}/${resolvedOutcomeCount} case outcomes finalized`} tone={!resolvedOutcomeCount ? "neutral" : completionPercent === 100 ? "success" : "info"} value={resolvedOutcomeCount ? completionPercent : null} />
-        <TileCardProgress displayValue={finalizedTotal ? `${passRate}%` : "No results"} label="Pass rate" title={finalizedTotal ? `${summary.passed} of ${finalizedTotal} finalized results passed` : "No finalized results yet"} tone={!finalizedTotal ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger"} value={finalizedTotal ? passRate : null} />
+        <TileCardProgress breakdown={resolvedOutcomeCount ? buildRunOutcomeBreakdown(summary.passed, summary.failed, summary.blocked, resolvedOutcomeCount, summary) : undefined} displayValue={resolvedOutcomeCount ? `${completionPercent}%` : "No cases"} label="Run completion" title={`${completedTotal}/${resolvedOutcomeCount} case outcomes finalized, including skipped and aborted outcomes`} tone={!resolvedOutcomeCount ? "neutral" : completionPercent === 100 ? "success" : "info"} value={resolvedOutcomeCount ? completionPercent : null} />
+        <TileCardProgress breakdown={finalizedTotal ? buildRunOutcomeBreakdown(summary.passed, summary.failed, summary.blocked, finalizedTotal) : undefined} displayValue={finalizedTotal ? `${passRate}%` : "No results"} label="Pass rate" title={finalizedTotal ? `${summary.passed} of ${finalizedTotal} passed, failed, or blocked results passed` : "No passed, failed, or blocked results yet"} tone={!finalizedTotal ? "neutral" : passRate >= 85 ? "success" : passRate >= 65 ? "warning" : "danger"} value={finalizedTotal ? passRate : null} />
       </div>
       <div className="tile-card-metric-grid execution-tile-metrics" aria-label="Run metrics">
         <TileCardMetric label="Cases" title="Distinct test cases in this run" value={totalScopedCases} tone={totalScopedCases ? "info" : "neutral"} />
@@ -10767,6 +10793,10 @@ function ExecutionScheduleCard({
 
         <div className="tile-card-progress-stack execution-schedule-progress-stack">
           <TileCardProgress
+            breakdown={{ total: launchSignals.length, segments: [
+              { key: "passed", label: "Ready", count: completedLaunchCount },
+              { key: "pending", label: "Not ready", count: launchSignals.length - completedLaunchCount }
+            ] }}
             displayValue={`${completedLaunchCount}/${launchSignals.length} ready`}
             label="Launch readiness"
             title={launchTitle}
@@ -10774,6 +10804,10 @@ function ExecutionScheduleCard({
             value={launchPercent}
           />
           <TileCardProgress
+            breakdown={{ total: 3, segments: [
+              { key: "covered", label: "Attached", count: contextAttachedCount },
+              { key: "uncovered", label: "Not attached", count: 3 - contextAttachedCount }
+            ] }}
             displayValue={`${contextAttachedCount}/3 attached`}
             label="Run context"
             title={`${contextAttachedCount} of 3 run context resources attached: environment, configuration, and test data`}

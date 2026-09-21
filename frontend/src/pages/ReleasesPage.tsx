@@ -34,6 +34,7 @@ import { isDeliveryStatusComplete } from "../lib/deliveryStatus";
 import { releaseLifecycleCounts, releasePortfolioHealth, releaseStoryCompletion as storyCompletionFor, type ReleaseCatalogReadiness } from "../lib/releaseCatalogMetrics";
 import { hasPermission } from "../lib/permissions";
 import { deriveStoryReadiness, storyReadinessMethodology } from "../lib/storyReadiness";
+import { storyCoverageBreakdown } from "../lib/storyMetrics";
 import type { Requirement, RequirementIteration, RequirementRelease, RequirementReleaseNotes } from "../types";
 import "./ReleasesPage.css";
 
@@ -646,6 +647,7 @@ export function ReleasesPage() {
           <CatalogCardDescription fallback="No Story description captured yet." profile="story" value={evidenceStory.description} />
           <div className="requirement-progress-stack release-story-progress-stack">
             <TileCardProgress
+              breakdown={storyCoverageBreakdown(metrics ? { total: metrics.executed_cases, covered: metrics.passed_cases } : undefined, "pass")}
               displayValue={metrics ? passPercent === null ? "No runs" : `${Math.round(passPercent)}%` : "—"}
               label="Pass rate"
               title={passCoverageTitle}
@@ -653,6 +655,7 @@ export function ReleasesPage() {
               value={passPercent}
             />
             <TileCardProgress
+              breakdown={storyCoverageBreakdown(metrics ? { total: metrics.linked_cases, covered: metrics.automated_cases } : undefined, "automation")}
               displayValue={automationPercent === null ? "—" : `${Math.round(automationPercent)}%`}
               label="Automation coverage"
               title={automationCoverageTitle}

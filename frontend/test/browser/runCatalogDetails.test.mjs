@@ -57,7 +57,7 @@ const makeRun = (id, name, status, suites = [], trigger = "manual", day = 1) => 
 });
 const runs = [makeRun("direct", "Direct checkout run", "failed", [], "manual", 9), makeRun("suite", "Suite checkout run", "queued", ["suite"], "manual", 8), makeRun("running", "Active checkout run", "running", ["suite"], "manual", 7), makeRun("aborted", "Aborted checkout run", "aborted", [], "manual", 6), makeRun("completed", "Completed checkout run", "completed", [], "manual", 5), makeRun("local", "Local checkout run", "queued", [], "local", 4)];
 let results = runs.filter(run => run.status !== "queued").flatMap(run => cases.map((item, i) => {
-  const status = run.status === "running" ? ["failed", "passed", "blocked", "passed", "running", null][i] : statuses[i];
+  const status = run.status === "running" ? ["failed", "passed", "blocked", "passed", "running", null][i] : run.status === "aborted" ? ["passed", "failed", "blocked", "skipped", "aborted", "paused"][i] : statuses[i];
   if (!status) return null;
   return { id: run.id + "-" + item.id, execution_id: run.id, test_case_id: item.id, test_case_title: item.title, app_type_id: "app", status, duration_ms: 1000, started_at: status === "running" ? new Date(Date.now() - 1000).toISOString() : null, timer_started_at: status === "running" ? new Date(Date.now() - 1000).toISOString() : null, error: status === "failed" ? "Expected payment confirmation was not shown." : null, logs: JSON.stringify({ stepStatuses: { ["step-" + item.id]: status }, stepNotes: { ["step-" + item.id]: "Recorded execution notes." }, aiAnalysis: { executionId: run.id, testCaseId: item.id, response: "Review payment confirmation and retry handling against the recorded result.", generatedAt: "2026-09-09T10:00:00Z" } }), test_data_set_id: "data", data_set_iteration_index: 0, data_set_iteration_key: "data:0", data_set_row_snapshot: { email: "saved-at-run@example.test" }, external_references: ["https://example.test/evidence/" + item.id], defects: i < 3 ? ["BUG-" + (i < 2 ? 1 : 2)] : [], executed_by: "qa", created_at: "2026-09-09T09:10:00Z" };
 }).filter(Boolean));
@@ -90,6 +90,11 @@ api.testSuites.list = async () => [{ id: "suite", name: "Checkout suite", app_ty
 api.testEnvironments.list = async () => [{ ...environment, project_id: "project", app_type_id: "app" }];
 api.testConfigurations.list = async () => [{ ...configuration, project_id: "project", app_type_id: "app" }];
 api.testDataSets.list = async () => [{ ...data, project_id: "project", app_type_id: "app" }];
+api.executionSchedules.list = async () => [{
+  id: "scheduled", project_id: "project", app_type_id: "app", name: "Nightly checkout", cadence: "daily",
+  is_active: true, next_run_at: "2099-01-01T10:00:00Z", suite_ids: ["suite"], test_case_ids: [],
+  test_environment_id: "env", assigned_to_ids: ["qa"], assigned_users: [assignees[0]], created_by: "qa"
+}];
 function Fixture() {
   const location = useLocation();
   return <div className="app-shell app-layout app-layout--workspace-wide"><aside className="sidebar is-collapsed">Navigation</aside><main className="workspace-main main main--library-fill" data-route="/executions"><ExecutionsPage /></main><output hidden data-testid="location">{location.pathname + location.search}</output></div>;
@@ -151,6 +156,18 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     assert.equal(await direct.locator(".tile-card-title-group").evaluate(element => getComputedStyle(element, "::before").content), "none", "run title has one visible field label");
     assert.equal(await direct.locator('.tile-card-metric').filter({ hasText: "Defects" }).innerText().then(value => value.replace(/\s+/g, " ").trim()), "2 Defects");
     assert.match(await direct.innerText(), /2\/3/);
+    const segmentTitles = tile => tile.locator(".metric-status-segment").evaluateAll(elements => elements.map(element => element.title));
+    assert.deepEqual(await segmentTitles(direct.locator(".tile-card-progress").nth(0)), ["Passed: 2", "Failed: 3", "Blocked: 1"]);
+    assert.deepEqual(await segmentTitles(direct.locator(".tile-card-progress").nth(1)), ["Passed: 2", "Failed: 3", "Blocked: 1"]);
+    const activeRun = page.getByRole("article", { name: "Open run Active checkout run", exact: true });
+    assert.equal(await activeRun.locator(".tile-card-progress").nth(0).getByRole("progressbar").getAttribute("aria-valuenow"), "67");
+    assert.deepEqual(await segmentTitles(activeRun.locator(".tile-card-progress").nth(0)), ["Passed: 2", "Failed: 1", "Blocked: 1", "Running: 1", "Pending: 1"]);
+    assert.equal(await activeRun.locator(".tile-card-progress").nth(1).getByRole("progressbar").getAttribute("aria-valuenow"), "50");
+    assert.deepEqual(await segmentTitles(activeRun.locator(".tile-card-progress").nth(1)), ["Passed: 2", "Failed: 1", "Blocked: 1"]);
+    const abortedRun = page.getByRole("article", { name: "Open run Aborted checkout run", exact: true });
+    assert.equal(await abortedRun.locator(".tile-card-progress").nth(0).getByRole("progressbar").getAttribute("aria-valuenow"), "83", "Skipped and aborted outcomes complete work; paused outcomes do not");
+    assert.deepEqual(await segmentTitles(abortedRun.locator(".tile-card-progress").nth(0)), ["Passed: 1", "Failed: 1", "Blocked: 1", "Skipped: 1", "Aborted: 1", "Paused: 1"]);
+    assert.equal(await abortedRun.locator(".tile-card-progress").nth(1).getByRole("progressbar").getAttribute("aria-valuenow"), "33", "Pass rate preserves the passed/failed/blocked denominator");
     for (const run of ["Direct", "Aborted", "Completed", "Suite", "Active"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).count(), 0, "Tile edit buttons are removed; the selection toolbar owns editing");
 
     for (const view of ["List view", "Tile view"]) {
@@ -479,6 +496,40 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       await writeFile(join(process.env.BROWSER_SCREENSHOT_DIR, "run-review-failure.html"), await page.content());
     }
     throw error;
+  } finally {
+    await browser?.close();
+    await Promise.allSettled([unlink(htmlPath), unlink(sourcePath)]);
+  }
+});
+
+test("Scheduled Run tile bars show readiness and context counts with their own tooltips", { timeout: 60000 }, async () => {
+  const name = `scheduled-run-progress-qa-${randomUUID()}`;
+  const htmlPath = new URL(`${name}.html`, frontendRoot);
+  const sourcePath = new URL(`${name}.tsx`, frontendRoot);
+  let browser;
+  try {
+    await writeFile(htmlPath, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(sourcePath, fixtureSource);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html?route=${encodeURIComponent("/executions?view=scheduled-runs")}`);
+    const tile = page.getByRole("article", { name: "Open Scheduled Run scheduled: Nightly checkout", exact: true });
+    await tile.waitFor();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const launch = tile.locator(".tile-card-progress").nth(0);
+      const context = tile.locator(".tile-card-progress").nth(1);
+      assert.equal(await launch.getByRole("progressbar").getAttribute("aria-valuenow"), "100");
+      assert.deepEqual(await launch.locator(".metric-status-segment").evaluateAll(elements => elements.map(element => element.title)), ["Ready: 3"]);
+      assert.equal(await context.getByRole("progressbar").getAttribute("aria-valuenow"), "33");
+      assert.deepEqual(await context.locator(".metric-status-segment").evaluateAll(elements => elements.map(element => element.title)), ["Attached: 1", "Not attached: 2"]);
+      assert.match(await context.getByRole("progressbar").getAttribute("aria-valuetext"), /1 Attached.*2 Not attached/);
+      const bounds = await tile.evaluate(element => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
+      assert.ok(bounds.scrollWidth <= bounds.width + 1, JSON.stringify({ width, bounds }));
+    }
+    assert.deepEqual(errors, []);
   } finally {
     await browser?.close();
     await Promise.allSettled([unlink(htmlPath), unlink(sourcePath)]);

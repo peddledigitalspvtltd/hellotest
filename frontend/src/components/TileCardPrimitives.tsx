@@ -1,6 +1,8 @@
 import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { TestSuiteIcon } from "./AppIcons";
+import { MetricStatusBar } from "./MetricStatusBar";
+import type { MetricBreakdown } from "../lib/metricBreakdown";
 
 export type TileCardTone = "neutral" | "info" | "success" | "warning" | "danger";
 
@@ -105,28 +107,30 @@ export function TileCardMetric({
 }
 
 export function TileCardProgress({
+  breakdown,
   displayValue,
   label,
-  segments,
   title,
   tone = "info",
   value
 }: {
+  breakdown?: MetricBreakdown;
   displayValue?: ReactNode;
   label: string;
-  segments?: Array<{ value: number; tone: TileCardTone }>;
   title?: string;
   tone?: TileCardTone;
   value: number | null;
 }) {
-  const safeValue = value === null ? null : Math.max(0, Math.min(100, Math.round(value)));
-  const safeSegments = (segments || [])
-    .map((segment) => ({
-      ...segment,
-      value: Math.max(0, Math.min(100, segment.value))
-    }))
-    .filter((segment) => segment.value > 0);
+  const safeValue = value === null || !Number.isFinite(value) ? null : Math.max(0, Math.min(100, Math.round(value)));
   const resolvedDisplayValue = displayValue ?? (safeValue === null ? "No data" : `${safeValue}%`);
+  const resolvedBreakdown: MetricBreakdown = breakdown || {
+    total: safeValue === null ? 0 : 100,
+    unit: "percent",
+    segments: [
+      { key: "covered", label: metricTitle(label), count: safeValue || 0 },
+      { key: "pending", label: "Remaining", count: 100 - (safeValue || 0) }
+    ]
+  };
 
   return (
     <div className={`tile-card-progress tone-${tone}`} title={title}>
@@ -134,24 +138,15 @@ export function TileCardProgress({
         <span>{metricTitle(label)}</span>
         <strong>{resolvedDisplayValue}</strong>
       </div>
-      <div
-        aria-hidden={safeValue === null ? true : undefined}
-        aria-label={safeValue === null ? undefined : title || `${metricTitle(label)}: ${String(resolvedDisplayValue)}`}
-        aria-valuemax={safeValue === null ? undefined : 100}
-        aria-valuemin={safeValue === null ? undefined : 0}
-        aria-valuenow={safeValue ?? undefined}
-        aria-valuetext={safeValue === null ? undefined : String(resolvedDisplayValue)}
+      <MetricStatusBar
+        breakdown={resolvedBreakdown}
         className="tile-card-progress-track"
-        role={safeValue === null ? undefined : "progressbar"}
-      >
-        {safeSegments.length ? safeSegments.map((segment, index) => (
-          <span
-            className={`tone-${segment.tone}`}
-            key={`${segment.tone}-${index}`}
-            style={{ width: `${segment.value}%` }}
-          />
-        )) : <span className={`tone-${tone}`} style={{ width: `${safeValue ?? 0}%` }} />}
-      </div>
+        detail={title}
+        label={metricTitle(label)}
+        value={safeValue}
+        valueText={String(resolvedDisplayValue)}
+        progress
+      />
     </div>
   );
 }

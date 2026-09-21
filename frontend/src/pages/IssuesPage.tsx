@@ -2623,6 +2623,10 @@ export function IssuesPage() {
                       <RichTextContent className="tile-card-description" value={item.message} />
                       <div className="tile-card-progress-stack issue-tile-progress-stack">
                         <TileCardProgress
+                          breakdown={{ total: evidenceFields.length, segments: [
+                            { key: "covered", label: "Completed evidence fields", count: completedEvidenceFields },
+                            { key: "uncovered", label: "Missing evidence fields", count: evidenceFields.length - completedEvidenceFields }
+                          ] }}
                           displayValue={`${evidencePercent}%`}
                           label="Evidence completeness"
                           title={`${completedEvidenceFields} of ${evidenceFields.length} evidence fields completed`}
@@ -2630,6 +2634,10 @@ export function IssuesPage() {
                           value={evidencePercent}
                         />
                         <TileCardProgress
+                          breakdown={{ total: triageFields.length, segments: [
+                            { key: "covered", label: "Completed triage fields", count: completedTriageFields },
+                            { key: "uncovered", label: "Missing triage fields", count: triageFields.length - completedTriageFields }
+                          ] }}
                           displayValue={`${triagePercent}%`}
                           label="Triage completeness"
                           title={`${completedTriageFields} of ${triageFields.length} triage fields completed`}

@@ -26,18 +26,25 @@ const assertProgressFirstMetricCard = (card, trailingMarker, metricComponent = "
 };
 
 test("the shared tile primitives provide accessible progress and responsive metric cards", async () => {
-  const [primitives, styles] = await Promise.all([
+  const [primitives, styles, statusBar, barStyles] = await Promise.all([
     readSource("../src/components/TileCardPrimitives.tsx"),
-    readSource("../src/modal-system.css")
+    readSource("../src/modal-system.css"),
+    readSource("../src/components/MetricStatusBar.tsx"),
+    readSource("../src/components/MetricStatusBar.css")
   ]);
   const progress = sliceBetween(primitives, "export function TileCardProgress", "export function TileCardStatusIndicator");
 
-  for (const contract of ["role={safeValue === null ? undefined : \"progressbar\"}", "aria-valuemin={safeValue === null ? undefined : 0}", "aria-valuemax={safeValue === null ? undefined : 100}", "aria-valuenow={safeValue ?? undefined}", "aria-valuetext"] ) {
-    assert.match(progress, new RegExp(contract.replace(/[{}?]/g, "\\$&")));
-  }
-  assert.match(progress, /aria-hidden=\{safeValue === null \? true : undefined\}/);
-  assert.match(progress, /segments\?: Array/);
-  assert.match(progress, /safeValue \?\? 0/);
+  assert.match(progress, /<MetricStatusBar/);
+  assert.match(progress, /breakdown\?: MetricBreakdown/);
+  assert.match(statusBar, /role=\{progress \? \(available \? "progressbar"/);
+  assert.match(statusBar, /aria-valuemin=\{progress && available \? 0/);
+  assert.match(statusBar, /aria-valuemax=\{progress && available \? 100/);
+  assert.match(statusBar, /aria-valuenow/);
+  assert.match(statusBar, /aria-valuetext/);
+  assert.match(statusBar, /segment.displayCount/);
+  assert.match(statusBar, /title=\{description\}/);
+  assert.match(barStyles, /height: 14px/);
+  assert.match(barStyles, /@container \(max-width: 24px\)/);
   assert.match(styles, /\.tile-card-metric-grid \{[\s\S]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 560px\)[\s\S]*\.tile-card-metric-grid \{[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@container \(max-width: 360px\)[\s\S]*\.tile-card-metric-grid \{[\s\S]*repeat\(2, minmax\(0, 1fr\)\)/);
@@ -119,12 +126,14 @@ test("Test Run tiles use finalized results with concise defect and story metrics
   assertProgressFirstMetricCard(card);
   assert.match(card, /const finalizedTotal = summary\.passed \+ summary\.failed \+ summary\.blocked/);
   assert.match(card, /totalScopedCases \* executionDataIterationCount\(execution\)/);
-  assert.match(card, /finalizedTotal \/ resolvedOutcomeCount/);
+  assert.match(card, /completedTotal \/ resolvedOutcomeCount/);
   assert.match(card, /summary\.passed \/ finalizedTotal/);
   for (const detail of ["Run Name", "Cases", "Pass rate", "Duration", "Defects", "Story impact", "Impacted stories"]) {
     assert.match(card, new RegExp(detail));
   }
-  assert.match(card, /buildFinalizedProgressSegments/);
+  assert.match(card, /const completedTotal = finalizedTotal \+ \(summary\.skipped \|\| 0\) \+ \(summary\.aborted \|\| 0\)/);
+  assert.match(card, /breakdown=\{resolvedOutcomeCount \? buildRunOutcomeBreakdown/);
+  assert.match(card, /breakdown=\{finalizedTotal \? buildRunOutcomeBreakdown/);
   assert.match(card, /execution\.metrics\?\.defect_count \?\? 0/);
   assert.doesNotMatch(card, /execution-run-card-actions|>Edit run<|>Open run</);
   assert.match(card, /execution-run-selection-row[\s\S]*<input[\s\S]*<ExecutionStatusIndicator/);
@@ -168,7 +177,7 @@ test("Test Run summaries deduplicate Data Set iterations and keep pass rate term
     readSource("../src/lib/executionResultMetrics.ts")
   ]);
   const summary = sliceBetween(page, "const executionSummaryById = useMemo", "const executionImpactSummaryById");
-  const segments = sliceBetween(page, "function buildFinalizedProgressSegments", "const executionDateTimeFormatter");
+  const segments = sliceBetween(page, "function buildRunOutcomeBreakdown", "const executionDateTimeFormatter");
 
   assert.match(metrics, /executionResultInstanceKey/);
   assert.match(metrics, /data_set_iteration_key/);
@@ -179,8 +188,24 @@ test("Test Run summaries deduplicate Data Set iterations and keep pass rate term
   assert.match(summary, /item\.caseCount = caseIdsByExecutionId\[executionId\]\?\.size \|\| 0/);
   assert.match(summary, /const finalizedCount = item\.passed \+ item\.failed \+ item\.blocked/);
   assert.match(summary, /item\.passed \/ finalizedCount/);
-  assert.doesNotMatch(segments, /pendingCount|tone: "neutral"/);
-  assert.match(segments, /blockedCount \/ totalCount\) \* 100, tone: "warning"/);
+  assert.match(segments, /key: "pending", label: "Pending"/);
+  assert.match(segments, /key: "blocked", label: "Blocked", count: blockedCount/);
+  assert.match(segments, /key: "running", label: "Running"/);
+  assert.match(segments, /key: "skipped", label: "Skipped"/);
+  assert.match(segments, /key: "aborted", label: "Aborted"/);
+});
+
+test("nested Run Suite tiles reuse count segments and retain their case-instance completion denominator", async () => {
+  const page = await readSource("../src/pages/ExecutionsPage.tsx");
+  const card = sliceBetween(page, '"record-card tile-card execution-suite-card"', "{!filteredExecutionSuites.length ? (");
+  assert.match(card, /<TileCardProgress/);
+  assert.doesNotMatch(card, /<ProgressMeter/);
+  assert.match(card, /label="Suite completion"/);
+  assert.match(card, /breakdown=\{buildRunOutcomeBreakdown\(/);
+  for (const field of ["passedCount", "failedCount", "blockedCount", "count", "skippedCount", "abortedCount", "runningCount", "pausedCount"]) {
+    assert.ok(card.includes(`suiteMetric?.${field}`), field);
+  }
+  assert.match(card, /value=\{suiteMetric\?\.count \? suiteMetric\.percent : null\}/);
 });
 
 test("Bug tiles show evidence and triage health above their four summary metrics", async () => {

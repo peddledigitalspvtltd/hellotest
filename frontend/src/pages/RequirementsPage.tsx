@@ -1,4 +1,3 @@
-import { metricTitle } from "../lib/metricTitle";
 import { ChangeEvent, CSSProperties, Dispatch, DragEvent as ReactDragEvent, FormEvent, Fragment, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useSplitActionMenu } from "../hooks/useSplitActionMenu";
@@ -55,7 +54,7 @@ import { InfoTooltip } from "../components/InfoTooltip";
 import { HierarchyQuickInsights } from "../components/HierarchyQuickInsights";
 import { EntityHealthButton, EntityHealthDialog } from "../components/EntityHealthDialog";
 import { sprintHealthMetrics } from "../lib/sprintHealthMetrics";
-import { deriveBacklogPlanningMetrics, deriveStoryMetrics, formatStoryPassRate } from "../lib/storyMetrics";
+import { deriveBacklogPlanningMetrics, deriveStoryMetrics, formatStoryPassRate, storyCoverageBreakdown } from "../lib/storyMetrics";
 import { deriveStoryReadiness, storyReadinessMethodology } from "../lib/storyReadiness";
 import { StoryReadinessReviewDialog } from "../components/StoryReadinessChecklist";
 import { getStoryReleaseOptions, isRequirementReleaseClosed } from "../lib/requirementReleaseSelection";
@@ -70,13 +69,12 @@ import { LoadingState } from "../components/LoadingState";
 import { MetricMethodologyInfo } from "../components/MetricMethodologyInfo";
 import { PageHeader } from "../components/PageHeader";
 import { Panel } from "../components/Panel";
-import { ProgressMeter } from "../components/ProgressMeter";
 import { QualityMetricStrip, type QualityMetric } from "../components/QualityMetricStrip";
 import { RichTextEditor, richTextToPlainText } from "../components/RichTextEditor";
 import { SpecKitEditor } from "../components/SpecKitEditor";
 import { StatusBadge } from "../components/StatusBadge";
 import { StoryGroomingWorkspace } from "../components/StoryGroomingWorkspace";
-import { formatTileCardLabel, TileCardMetric } from "../components/TileCardPrimitives";
+import { formatTileCardLabel, TileCardMetric, TileCardProgress } from "../components/TileCardPrimitives";
 import { TileBrowserPane } from "../components/TileBrowserPane";
 import { TileCardSkeletonGrid } from "../components/TileCardSkeletonGrid";
 import { ToastMessage } from "../components/ToastMessage";
@@ -437,27 +435,28 @@ const getRequirementCoverageTone = (covered: number, total: number) => {
 function RequirementProgressBar({
   label,
   metric,
+  kind,
   detail
 }: {
   label: string;
   metric: RequirementCoverageMetric;
+  kind: "pass" | "automation";
   detail: string;
 }) {
   const safeValue = Math.max(0, Math.min(100, Math.round(metric.percent)));
   const isComplete = metric.complete !== false;
-  const isNoRuns = isComplete && label === "Pass rate" && !metric.total;
+  const isNoRuns = isComplete && kind === "pass" && !metric.total;
   const hasDenominator = metric.total > 0;
   const tone = isComplete ? getRequirementCoverageTone(metric.covered, metric.total) : "neutral";
-  const accessibleLabel = isNoRuns ? `${label}: no finalized runs` : isComplete && hasDenominator ? `${label} ${safeValue}%` : `${label} unavailable`;
-
   return (
-    <div className="requirement-progress-meter" aria-label={accessibleLabel} title={detail}>
-      <div className="requirement-progress-meter-header">
-        <span>{metricTitle(label)}</span>
-        <strong>{isNoRuns ? "No runs" : isComplete && hasDenominator ? `${safeValue}%` : "—"}</strong>
-      </div>
-      <ProgressMeter hideCopy label={accessibleLabel} tone={tone} value={isComplete && hasDenominator ? safeValue : 0} />
-    </div>
+    <TileCardProgress
+      breakdown={storyCoverageBreakdown(metric, kind)}
+      displayValue={isNoRuns ? "No runs" : isComplete && hasDenominator ? `${safeValue}%` : "—"}
+      label={label}
+      title={detail}
+      tone={tone}
+      value={isComplete && hasDenominator ? safeValue : null}
+    />
   );
 }
 
@@ -6102,8 +6101,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             value={item.description}
                           />
                           {isDeliveryStory ? <div className="requirement-progress-stack">
-                            <RequirementProgressBar detail={passCoverageTitle} label="Pass rate" metric={passCoverage} />
-                            {canUseAutomationWorkspace ? <RequirementProgressBar detail={automationCoverageTitle} label="Automation coverage" metric={automationCoverage} /> : null}
+                            <RequirementProgressBar detail={passCoverageTitle} kind="pass" label="Pass rate" metric={passCoverage} />
+                            {canUseAutomationWorkspace ? <RequirementProgressBar detail={automationCoverageTitle} kind="automation" label="Automation coverage" metric={automationCoverage} /> : null}
                           </div> : null}
                           <div className="tile-card-facts story-tile-metrics" aria-label={`${item.title} health metrics`}>
                             <StoryMetricFact label="Priority" tone={(item.priority ?? 3) <= 2 ? "danger" : "info"} value={`P${item.priority ?? 3}`} />

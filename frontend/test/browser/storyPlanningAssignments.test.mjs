@@ -35,7 +35,7 @@ api.requirements.listPage=async()=>page(story?[story]:[]);api.requirementIterati
 const metrics={total:0,mapped:0,highPriority:0,open:0,completed:0,qaTotal:0,totalDefects:0,completionPercent:0,coveragePercent:0,defectDensity:0,groomed:0,notGroomed:0,described:0,specified:0,teamAssigned:0,slipped:0,onCourse:0,sprintCommitted:0,releaseScoped:0,backlog:0};
 api.requirements.metrics=async()=>({all:metrics,backlog:metrics,sprints:metrics,sprint_health:[],filter_options:{statuses:['open'],labels:[],sprints:[],fix_versions:[],releases:[]}});
 api.requirements.createMetadata=api.requirements.editMetadata=async()=>({fields:[],core_fields:[],custom_fields:[],workflow_statuses:{default_status:'open',statuses:[{value:'open',label:'Open'},{value:'qa_done',label:'QA Done'}]}});
-api.requirements.create=async input=>{window.calls.push({kind:'create',input});story={id:'saved-story',display_id:'ST-1',...input,iteration_id:input.iteration_id||null,sprint:sprints.find(item=>item.id===input.iteration_id)?.name||input.sprint||'',labels:[],external_references:[],test_case_ids:[],defect_ids:[],gherkin_scenarios:input.gherkin_scenarios||[],revision:1,updated_at:'2026-09-20T10:00:00Z'};return{id:story.id}};
+api.requirements.create=async input=>{window.calls.push({kind:'create',input});story={id:'saved-story',display_id:'ST-1',...input,iteration_id:input.iteration_id||null,sprint:sprints.find(item=>item.id===input.iteration_id)?.name||input.sprint||'',labels:[],external_references:[],test_case_ids:[],defect_ids:[],gherkin_scenarios:input.gherkin_scenarios||[],revision:1,updated_at:'2026-09-20T10:00:00Z',catalog_metrics:{linked_cases:4,executed_cases:3,passed_cases:2,automated_cases:3,total_bugs:0,open_bugs:0,closed_bugs:0,execution_complete:true,automation_complete:true}};return{id:story.id}};
 api.requirements.get=async()=>story;
 api.requirements.bulkImport=async input=>{window.calls.push({kind:'import',input});return {transaction_id:'story-import-receipt',queued:true,status:'queued'}};
 api.requirements.update=async(id,input)=>{window.calls.push({kind:'update',id,input});story={...story,...input,sprint:sprints.find(item=>item.id===input.iteration_id)?.name||story.sprint,revision:story.revision+1,updated_at:'2026-09-20T11:00:00Z'};return{updated:true,revision:story.revision}};
@@ -135,6 +135,13 @@ test("Story create/edit preserves planning, criteria layout, multiple scenarios 
       assert.deepEqual(errors, []);
       if(mode==='sprints') {
         await page.getByRole('button',{name:'Back to Story tiles',exact:true}).click();
+        const storyTile=page.locator('.requirement-catalog-card').filter({hasText:'Mapped Story sprints'});
+        await storyTile.waitFor();
+        assert.equal(await storyTile.locator('[title="Passed: 2"]').innerText(),'2');
+        assert.equal(await storyTile.locator('[title="Other finalized outcomes: 1"]').innerText(),'1');
+        assert.equal(await storyTile.locator('[title="Automated: 3"]').innerText(),'3');
+        assert.equal(await storyTile.locator('[title="Not automated: 1"]').innerText(),'1');
+        assert.equal(await storyTile.locator('.is-failed').count(),0,'Finalized non-pass counts do not invent a failed/blocked split');
         await page.getByRole('button',{name:'List view',exact:true}).click();
         const movedRow=page.getByRole('row').filter({hasText:'Mapped Story sprints'});
         await movedRow.waitFor();

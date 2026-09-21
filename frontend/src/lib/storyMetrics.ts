@@ -36,6 +36,29 @@ export function formatStoryPassRate(metric: { total: number; percent: number; co
   return !metric.complete ? '—' : metric.total ? `${metric.percent}%` : 'No runs';
 }
 
+export function storyCoverageBreakdown(
+  metric: { total: number; covered: number; complete?: boolean } | undefined,
+  kind: 'pass' | 'automation'
+) {
+  if (!metric || metric.complete === false) return undefined;
+  const total = count(metric.total);
+  const covered = Math.min(total, count(metric.covered));
+  return {
+    total,
+    segments: kind === 'pass'
+      ? [
+          { key: 'passed', label: 'Passed', count: covered },
+          // The catalog provides a finalized total and pass count, without a
+          // failed/blocked split. Preserve that distinction in the tooltip.
+          { key: 'unknown', label: 'Other finalized outcomes', count: total - covered }
+        ]
+      : [
+          { key: 'covered', label: 'Automated', count: covered },
+          { key: 'uncovered', label: 'Not automated', count: total - covered }
+        ]
+  };
+}
+
 export function deriveBacklogPlanningMetrics(metrics:RequirementCatalogMetrics) {
   const growth = metrics.growth;
   const combined = metrics.total ? Math.round(metrics.highPriority / metrics.total * 100) : null;
