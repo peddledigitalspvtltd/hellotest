@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const test = require("node:test");
 
 const fixture = () => {
-  const state = { cases: new Map(), depth: 0, failSteps: false };
+  const state = { cases: new Map(), depth: 0, failSteps: false, revisions: new Map() };
   const bugs = new Map([
     ["bug", { id: "bug", project_id: "project" }],
     ["other-project-bug", { id: "other-project-bug", project_id: "other-project" }]
@@ -60,7 +60,15 @@ const fixture = () => {
       if (dependency === "./displayId.service") return { createDisplayId: async () => "TC-1" };
       if (dependency === "./dropdownCatalog.service") return { getDefaultValue: async () => "functional", validateValue: async (key, value) => { assert.equal(key, "test_cases.types"); assert.equal(value, "functional"); return value; } };
       if (dependency === "./mobileFeature.service") return { assertAuthoringMobileFeatureEnabled: noop };
-      if (dependency === "./testCaseVersion.service") return { assertExpectedRevision: noop, capture: noop, buildSnapshot: async () => ({ steps: [] }) };
+      if (dependency === "./testCaseVersion.service") return {
+        assertExpectedRevision: noop,
+        capture: async ({ testCase }) => {
+          const revision = state.revisions.get(testCase.id) || 1;
+          state.revisions.set(testCase.id, revision + 1);
+          return { revision };
+        },
+        buildSnapshot: async () => ({ steps: [] })
+      };
       return {};
     }
   });

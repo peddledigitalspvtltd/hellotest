@@ -49,6 +49,7 @@ import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject
 import { useWorkspaceResource } from "../hooks/useWorkspaceData";
 import { api } from "../lib/api";
 import { asArray } from "../lib/collectionGuards";
+import { smartContextKindsForScopes } from "../lib/smartContext";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { isRovoIntegrationId } from "../lib/rovo";
 import { readDefaultCatalogViewMode } from "../lib/viewPreferences";
@@ -761,9 +762,6 @@ export function AgenticWorkflowsPage() {
   const projects = asArray(projectsQuery.data);
   const allAppTypes = asArray(appTypesQuery.data);
   const llmIntegrations = asArray(llmIntegrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id));
-  useEffect(() => {
-    if (canViewIntegrations && assistantIntegrationId && llmIntegrationsQuery.isFetched && llmIntegrationsQuery.isSuccess && !llmIntegrations.some(integration => integration.id === assistantIntegrationId && integration.is_active)) setAssistantIntegrationId("");
-  }, [assistantIntegrationId, canViewIntegrations, llmIntegrations, llmIntegrationsQuery.isFetched, llmIntegrationsQuery.isSuccess]);
   const scopedAppTypes = allAppTypes.filter((appType) => appType.project_id === projectId);
   const selectedProject = projects.find((project) => project.id === projectId) || null;
   const selectedAppType = scopedAppTypes.find((appType) => appType.id === appTypeId) || null;
@@ -2347,6 +2345,7 @@ export function AgenticWorkflowsPage() {
                           initialQuery={[selectedNode.data.intent, selectedNode.data.prompt, selectedNode.data.summary]
                             .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
                             .join(" ")}
+                          preferredSourceKinds={smartContextKindsForScopes(String(selectedNode.data.knowledgeScope || "requirements,test-cases,test-runs,knowledge").split(","))}
                           onApply={(selection) => updateSelectedNodeFields({
                             knowledgeQuery: selection.query,
                             knowledgeSourceIds: selection.sourceIds,

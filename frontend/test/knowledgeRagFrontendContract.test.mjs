@@ -137,8 +137,10 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /integration\.scope === "workspace"/);
   assert.match(assistant, /integration\.scope === "project" && integration\.project_id === projectId/);
   assert.match(assistant, /integration\.is_default/);
-  assert.match(assistant, /ASSISTANT_LLM_SELECTION_STORAGE_PREFIX/);
-  assert.match(assistant, /session\?\.user\.id[\s\S]*projectId/);
+  assert.match(assistant, /resolveAiLlmDefault\(\{ preferences: promptRegistryQuery\.data\?\.preferences, usageKey: "ai\.knowledge\.assistant", projectId/);
+  assert.match(assistant, /userSelectedIntegration\.current \? current : nextIntegrationId/);
+  assert.doesNotMatch(assistant, /localStorage\.setItem/);
+  assert.match(assistant, /if \(isOpen\) void promptRegistryQuery\.refetch\(\)/);
   assert.match(assistant, /aria-label="Answer model"/);
   assert.match(assistant, /grounded-assistant-model-select[\s\S]*Start a new assistant chat/);
   assert.match(assistant, /integration_id: integrationId/);
@@ -194,7 +196,7 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
 
   assert.match(promptPanel, /<SmartContextWorkbench/);
   assert.match(experience, /enableSmartContext \? \([\s\S]*<SmartContextWorkbench/);
-  assert.match(issues, /agentName="Defect Reporter"[\s\S]*enableSmartContext/);
+  assert.match(issues, /<AiPromptContextPanel[\s\S]*promptScope="bug_creation"/);
   assert.doesNotMatch(issues, /<SmartContextWorkbench/);
   assert.doesNotMatch(issues, /aiBugTriageSmartContext/);
   assert.match(storyStudio, /\{settingsPane\}/);

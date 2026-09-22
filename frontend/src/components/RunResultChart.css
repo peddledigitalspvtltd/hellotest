@@ -1,0 +1,9 @@
+.execution-run-result-chart { position: relative; display: block; width: 4.3rem; height: 4.3rem; padding: 0; }
+.execution-run-result-chart > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.run-result-chart-track { stroke: var(--run-result-pending, #cbd5e1); }
+.run-result-chart-segment { pointer-events: visibleStroke; cursor: help; }
+.run-result-chart-segment:hover, .run-result-chart-segment:focus-visible { stroke-width: 17; outline: none; filter: brightness(1.08); }
+.execution-run-result-chart > .run-result-chart-core { position: absolute; inset: 17%; display: grid; align-content: center; justify-items: center; gap: .1rem; border-radius: 50%; pointer-events: none; }
+.execution-run-result-chart .run-result-chart-core b { font-size: 1rem; line-height: 1; }
+.execution-run-result-chart .run-result-chart-core > span { font-size: .5rem; line-height: 1; }
+.run-result-chart-tooltip { position: fixed; z-index: 10050; width: max-content; max-width: calc(100vw - 24px); padding: 8px 11px; border: 1px solid var(--line, #d6deea); border-radius: 7px; background: var(--surface, #fff); color: var(--text, #172b4d); box-shadow: 0 6px 22px #10234525; font-size: .75rem; font-weight: 600; pointer-events: none; }

@@ -1,7 +1,7 @@
 import { LoadingState } from "./LoadingState";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconX } from "@tabler/icons-react";
+import { IconRocket, IconX } from "@tabler/icons-react";
 import { api, HelloTestApiError } from "../lib/api";
 import { changedRunFields, retainRunSelections, runEditDraft, runEditLocks, type RunEditDraft } from "../lib/runEdit";
 import { isRunFinished } from "../lib/runCatalog";
@@ -10,6 +10,10 @@ import type { AssigneeOption } from "../lib/userDisplay";
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useAuth } from "../auth/AuthContext";
 import { hasPermission } from "../lib/permissions";
+import { buildDeliveryScopeOptions } from "../lib/deliveryScopeOptions";
+import { asArray } from "../lib/collectionGuards";
+import { areFeatureFlagsEnabled } from "../lib/featureFlags";
+import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { FormField } from "./FormField";
 import { RunPlanningFields } from "./RunPlanningFields";
 import { ExecutionContextSelector } from "./ExecutionContextSelector";
@@ -17,6 +21,7 @@ import { RunDataSetup } from "./RunDataSetup";
 import { MultiAssigneePicker } from "./MultiAssigneePicker";
 import { SuiteCasePicker, SuiteScopePicker } from "./SuiteCasePicker";
 import "./suite-authoring-reference.css";
+import "../execution-run-builder.css";
 import "./RunEditDialog.css";
 
 type Props = { executionId: string; assigneeOptions: AssigneeOption[]; canRunLocalAutomation: boolean; canRunRemoteAutomation: boolean; canConfigureParallelAutomation: boolean; onClose: () => void; onSaved: () => void };
@@ -45,6 +50,8 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
   const [latestRun, setLatestRun] = useState<Execution | null>(null);
   const [needsReload, setNeedsReload] = useState(false);
   const { session } = useAuth();
+  const featureFlags = useFeatureFlags(Boolean(session));
+  const scrollRef = useRef<HTMLFieldSetElement>(null);
   const queryClient = useQueryClient();
   const update = useMutation({ mutationFn: (changes: Parameters<typeof api.executions.update>[1]) => api.executions.update(execution.id, changes) });
   const busy = update.isPending || checkingLatest;
@@ -53,6 +60,11 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
   const scope = { project_id: execution.project_id, app_type_id: execution.app_type_id || undefined };
   const canViewSuites = hasPermission(session, "suite.view", execution.project_id);
   const canViewCases = hasPermission(session, "testcase.view", execution.project_id);
+  const canViewDeliveryScopes = hasPermission(session, "requirement_iteration.view", execution.project_id)
+    && areFeatureFlagsEnabled(featureFlags.data, ["hellotest.manual.requirements"]);
+  const releases = useQuery({ queryKey: ["requirement-releases", execution.project_id], queryFn: () => api.requirementReleases.list({ project_id: execution.project_id }), enabled: canViewDeliveryScopes, staleTime: 30_000 });
+  const iterations = useQuery({ queryKey: ["requirement-iterations", execution.project_id], queryFn: () => api.requirementIterations.list({ project_id: execution.project_id }), enabled: canViewDeliveryScopes, staleTime: 30_000 });
+  const deliveryMetadata = useQuery({ queryKey: ["domain-metadata", "execution-builder", execution.project_id], queryFn: api.metadata.domain, enabled: canViewDeliveryScopes, staleTime: 10 * 60 * 1000 });
   const suites = useQuery({ queryKey: ["test-suites", "run-edit", scope], queryFn: () => api.testSuites.list(scope), enabled: canViewSuites && !finished });
   const cases = useQuery({ queryKey: ["test-cases", "run-edit", scope], queryFn: () => api.testCases.list(scope), enabled: canViewCases && !finished });
   const { runtimeLocked, scopeLocked } = runEditLocks(latestRun || execution);
@@ -78,6 +90,31 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
     const user = execution.assigned_users?.find((item) => item.id === id) || (execution.assigned_user?.id === id ? execution.assigned_user : null);
     return { id, name: user?.name || null, email: user?.email || "", label: user?.name || user?.email || id, caption: "Current assignee" };
   });
+  const releaseRows = canViewDeliveryScopes ? asArray(releases.data) : [];
+  const sprintRows = canViewDeliveryScopes ? asArray(iterations.data) : [];
+  const mappedRelease = releaseRows.find(item => item.id === draft.release_id);
+  const mappedSprint = sprintRows.find(item => item.id === draft.iteration_id);
+  // IDs keep a saved selection attached through a rename. Loading its current
+  // label must not silently rewrite the saved plan or mark the form as edited.
+  const selectedRelease = mappedRelease?.fix_version || mappedRelease?.name || draft.release || draft.release_id;
+  const selectedSprint = mappedSprint?.jira_sprint_name || mappedSprint?.name || draft.sprint || draft.iteration_id;
+  const { releaseOptions, sprintOptions } = buildDeliveryScopeOptions({
+    releases: releaseRows, iterations: sprintRows,
+    jiraVersions: canViewDeliveryScopes ? deliveryMetadata.data?.jira?.versions : [],
+    jiraSprints: canViewDeliveryScopes ? deliveryMetadata.data?.jira?.sprints : [],
+    currentRelease: selectedRelease, currentSprint: selectedSprint
+  });
+  for (const [options, saved] of [[releaseOptions, initial.release || initial.release_id], [sprintOptions, initial.sprint || initial.iteration_id]] as const) {
+    if (saved && !options.some(option => option.value === saved)) options.push({ value: saved, label: saved, source: "current", sourceId: null, state: null });
+  }
+  const setDelivery = (kind: "release" | "sprint", value: string) => {
+    if (fieldsDisabled || !canViewDeliveryScopes) return;
+    const option = (kind === "release" ? releaseOptions : sprintOptions).find(item => item.value === value);
+    const relation = kind === "release" ? "release_id" : "iteration_id";
+    const restoreSaved = option?.source === "current" && value === (initial[kind] || initial[relation]);
+    setDraft(current => ({ ...current, [kind]: restoreSaved ? initial[kind] : value,
+      [relation]: restoreSaved ? initial[relation] : option?.source === "hellotest" ? option.sourceId || "" : "" }));
+  };
   const changes = changedRunFields(initial, draft);
   const dateError = draft.start_date && draft.end_date && draft.end_date < draft.start_date ? "End date must be on or after start date." : "";
   const submit = async (event: FormEvent) => {
@@ -121,19 +158,36 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
     finally { setCheckingLatest(false); }
   };
   return <div className="modal-backdrop modal-backdrop--scroll" role="presentation" onClick={() => !busy && onClose()}>
-    <div aria-labelledby="run-edit-title" aria-modal="true" role="dialog" className="modal-card run-edit-dialog" ref={dialogRef} onClick={(event) => event.stopPropagation()} tabIndex={-1}>
-      <form onSubmit={submit}>
-        <header className="run-edit-heading"><div><h2 id="run-edit-title">Edit run</h2><p>Update the plan and scope for {execution.name || "this run"}.</p></div><button aria-label="Close edit run" className="ghost-button" disabled={busy} onClick={onClose} type="button"><IconX size={20} /></button></header>
+    <div aria-labelledby="run-edit-title" aria-modal="true" role="dialog" className="modal-card execution-create-modal execution-run-builder-modal run-edit-dialog" ref={dialogRef} onClick={(event) => event.stopPropagation()} onWheel={(event) => {
+      // The header/footer share the form's scroll surface. Within the body,
+      // native wheel and touch scrolling handles inputs and open pickers.
+      if (!scrollRef.current?.contains(event.target as Node)) scrollRef.current?.scrollBy({ top: event.deltaY, left: event.deltaX });
+    }} tabIndex={-1}>
+      <form className="execution-create-form" onSubmit={submit}>
+        <header className="execution-create-header execution-run-builder-header run-edit-heading"><div className="execution-run-builder-title"><span className="execution-run-builder-title-icon" aria-hidden="true"><IconRocket size={17} /></span><div className="execution-run-builder-title-copy"><h2 className="dialog-title" id="run-edit-title">Edit run</h2><p>Update the plan and scope for {execution.name || "this run"}.</p></div></div><button aria-label="Close edit run" className="ghost-button dialog-close-button" disabled={busy} onClick={onClose} type="button"><IconX size={20} /></button></header>
         {finished ? <p role="status" className="inline-message">This run has finished. Its plan and captured results are locked.</p> : null}
         {error ? <p role="alert" className="inline-message error-message">{error}</p> : null}
         {needsReload && !finished ? <p className="inline-message" role="status">This run changed while you were editing. Reload its current values before saving; reloading replaces your unsaved edits. <button type="button" className="ghost-button" disabled={busy} onClick={() => void reloadLatest()}>Reload current run</button></p> : null}
-        <fieldset className="run-edit-fields" disabled={fieldsDisabled}>
-          <div className="run-edit-grid">
-            <section className="run-edit-settings">
+        <fieldset className="run-edit-fields" disabled={fieldsDisabled} ref={scrollRef}>
+          <div className="execution-create-body execution-run-builder-body run-edit-grid">
+            <section className="execution-run-config-rail run-edit-settings" aria-label="Run configuration">
+              <div className="execution-run-config-heading"><span>Run Configuration</span></div>
               <FormField label="Run Name" required><input value={draft.name} onChange={(event) => set("name", event.target.value)} maxLength={255} required /></FormField>
               <RunPlanningFields mode={draft.execution_mode} currentMode={initial.execution_mode} onModeChange={(value) => set("execution_mode", value)} startDate={draft.start_date} endDate={draft.end_date} onStartDateChange={(value) => set("start_date", value)} onEndDateChange={(value) => set("end_date", value)} canRunLocalAutomation={canRunLocalAutomation} canRunRemoteAutomation={canRunRemoteAutomation} modeDisabled={runtimeLocked} disabled={fieldsDisabled} modeHint={runtimeLocked ? "Run mode is fixed after execution starts." : "Changing the mode updates this run's plan. Saving does not start execution."} />
               <FormField label="Assignees" composite><MultiAssigneePicker options={retainedAssignees} selectedIds={draft.assigned_to_ids} onChange={(value) => set("assigned_to_ids", value)} disabled={fieldsDisabled} /></FormField>
-              <div className="run-edit-delivery">{(["release", "sprint", "build"] as const).map((key) => <FormField key={key} label={key[0].toUpperCase() + key.slice(1)}><input value={draft[key]} onChange={(event) => set(key, event.target.value)} /></FormField>)}</div>
+              <div className="run-edit-delivery">
+                <FormField label="Release"><select disabled={!canViewDeliveryScopes} value={selectedRelease} onChange={event => setDelivery("release", event.target.value)}>
+                  <option value="">No release</option>
+                  {releaseOptions.map(option => <option key={option.value} value={option.value}>{option.source === "current" && option.value === initial.release_id && !initial.release ? "Saved release (unavailable)" : option.label}</option>)}
+                </select></FormField>
+                <FormField label="Sprint"><select disabled={!canViewDeliveryScopes} value={selectedSprint} onChange={event => setDelivery("sprint", event.target.value)}>
+                  <option value="">No Sprint</option>
+                  {sprintOptions.map(option => <option key={option.value} value={option.value}>{option.source === "current" && option.value === initial.iteration_id && !initial.sprint ? "Saved Sprint (unavailable)" : option.label}</option>)}
+                </select></FormField>
+              </div>
+              {canViewDeliveryScopes && (releases.isLoading || iterations.isLoading || deliveryMetadata.isLoading) ? <LoadingState label="Loading releases and Sprints" /> : null}
+              {canViewDeliveryScopes && (releases.isError || iterations.isError || deliveryMetadata.isError) ? <p className="inline-message" role="alert">Some delivery options could not load. Saved selections are retained. <button className="text-button" type="button" onClick={() => { void releases.refetch(); void iterations.refetch(); void deliveryMetadata.refetch(); }}>Retry delivery options</button></p> : null}
+              <FormField label="Build"><input value={draft.build} onChange={event => set("build", event.target.value)} /></FormField>
               <fieldset className="run-edit-runtime" disabled={runtimeLocked}>
                 <legend>Run configuration</legend>
                 {runtimeLocked ? <p>Environment, test data and execution settings are fixed after this run starts.</p> : null}
@@ -143,7 +197,7 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
                 {draft.parallel_enabled ? <FormField label="Parallel workers"><input type="number" min={1} max={100} disabled={!canConfigureParallelAutomation} value={draft.parallel_count} onChange={(event) => set("parallel_count", Math.max(1, Number(event.target.value) || 1))} /></FormField> : null}
               </fieldset>
             </section>
-            <section className="run-edit-scope">
+            <section className="execution-run-selection-workspace run-edit-scope">
               <h3>Run scope</h3><p>{scopeLocked ? "Automated run scope is fixed after execution starts." : "Choose suites and any additional individual cases. Cases with recorded results must stay in the run."}</p>
               {suites.isError || cases.isError ? <p role="alert">Some scope options could not load. Existing selections are retained. <button className="ghost-button" type="button" onClick={() => { void suites.refetch(); void cases.refetch(); }}>Retry</button></p> : null}
               {suites.isLoading || cases.isLoading ? <LoadingState label="Loading suites and test cases" /> : <>
@@ -153,7 +207,7 @@ function RunEditForm({ execution, assigneeOptions, canRunLocalAutomation, canRun
             </section>
           </div>
         </fieldset>
-        <footer className="run-edit-footer"><button className="ghost-button" disabled={busy} onClick={onClose} type="button">Cancel</button><button className="primary-button" disabled={fieldsDisabled || Boolean(dateError) || !draft.name.trim() || !Object.keys(changes).length || (!draft.suite_ids.length && !draft.test_case_ids.length)} type="submit">{update.isPending ? "Saving…" : checkingLatest ? "Checking current run…" : "Save changes"}</button></footer>
+        <footer className="execution-run-builder-footer run-edit-footer"><button className="ghost-button" disabled={busy} onClick={onClose} type="button">Cancel</button><button className="primary-button" disabled={fieldsDisabled || Boolean(dateError) || !draft.name.trim() || !Object.keys(changes).length || (!draft.suite_ids.length && !draft.test_case_ids.length)} type="submit">{update.isPending ? "Saving…" : checkingLatest ? "Checking current run…" : "Save changes"}</button></footer>
       </form>
     </div>
   </div>;

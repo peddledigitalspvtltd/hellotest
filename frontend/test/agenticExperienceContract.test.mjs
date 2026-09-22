@@ -86,7 +86,8 @@ test("shared AI surfaces reuse the governed process rail", async () => {
     readSource("../src/pages/ExecutionsPage.tsx")
   ]);
 
-  for (const source of files) assert.match(source, /AgenticProcessRail/);
+  for (const [index, source] of files.entries()) assert.match(source, index === 2 ? /<StoryAiStudioShell/ : /AgenticProcessRail/);
+  assert.match(files[2], /processProfile="bug-create"/);
 });
 
 test("every AI output is review-first, editable, selectable, and explicitly accepted", async () => {
@@ -137,7 +138,8 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   assert.match(storyShell, /Output contract/);
   assert.match(storyShell, /Human gate/);
 
-  for (const source of [bugs, executions]) assert.match(source, /briefItems=/);
+  assert.match(executions, /briefItems=/);
+  for (const prop of ["contextLabel", "outputLabel", "approvalLabel"]) assert.match(bugs, new RegExp(`${prop}=`));
   assert.match(automation, /value=\{agentMission\}/);
   assert.match(automation, /Additional guidance & execution context/);
   assert.match(automation, /agentBuildReceipt/);
@@ -174,13 +176,13 @@ test("core AI authoring flows share the compact context, draft, and generation-f
   assert.match(storyShell, /ai-test-generator-authoring-tabs/);
   assert.match(storyShell, /is-intelligence-collapsed/);
 
-  assert.match(bugs, /ai-bug-authoring-workbench/);
-  assert.match(bugs, /orientation="vertical"/);
+  assert.match(bugs, /<StoryAiStudioShell/);
+  assert.match(bugs, /processProfile="bug-create"/);
   assert.match(bugs, /bounded evidence reference/);
   assert.match(bugs, /This does not measure model certainty/);
   assert.match(bugs, /reference_photos: aiReferenceImages/);
-  assert.match(bugs, /showModeSwitcher=\{false\}/);
-  assert.match(bugs, /aiDraftMessageTone === "warning" \? "warning-message"/);
+  assert.match(bugs, /showOutputFormat=\{false\}/);
+  assert.match(bugs, /aiDraftMessageTone === "error" \? "error" : "warning-message"/);
   assert.match(bugs, /aiDraftMessage && aiDraftMessageTone === "error" \? "failed"/);
   for (const evidenceSource of [
     /aiLinkedCaseIds\.length/,
@@ -281,7 +283,8 @@ test("compact AI workspaces show four focused phases with evidence in an on-dema
   assert.match(experience, /<AiEvidenceFlyout/);
   assert.match(experience, /View full run evidence/);
   assert.doesNotMatch(experience, /<details[^>]*agent-process-rail__details/);
-  for (const source of [storyShell, insights, bugs]) assert.match(source, /presentation="focused"/);
+  for (const source of [storyShell, insights]) assert.match(source, /presentation="focused"/);
+  assert.match(bugs, /<StoryAiStudioShell/);
 });
 
 test("feature rails use truthful profiles, backend stage snapshots, and an awaiting-review gate", async () => {
@@ -312,7 +315,7 @@ test("Defect authoring defers supporting evidence and draft reasoning until requ
   assert.match(bugs, /aiDraftPreview \? <button[^>]*>Accept into Defect form<\/button> : null/);
 });
 
-test("AI triage review groups findings, actions, and run details into accessible tabs", async () => {
+test("Shared AI insight review groups findings, actions, and run details into accessible tabs", async () => {
   const insights = await readSource("../src/components/AiInsightPreviewDialog.tsx");
 
   for (const [id, label] of [["findings", "Findings"], ["actions", "Actions"], ["details", "Run details"]]) {

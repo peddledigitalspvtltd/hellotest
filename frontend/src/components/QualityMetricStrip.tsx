@@ -27,6 +27,7 @@ type QualityMetricStripProps = {
   autoResetMs?: number;
   className?: string;
   metrics: QualityMetric[];
+  showCaptions?: boolean;
 };
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
@@ -35,7 +36,8 @@ export function QualityMetricStrip({
   ariaLabel,
   autoResetMs,
   className = "",
-  metrics
+  metrics,
+  showCaptions = true
 }: QualityMetricStripProps) {
   const { getMetricCriteria } = useAiPromptRegistry();
 
@@ -70,7 +72,7 @@ export function QualityMetricStrip({
             autoResetMs={autoResetMs}
             actionDisabled={metric.disabled}
             actionLabel={metric.onClick ? metric.actionLabel || "Open metric details" : undefined}
-            caption={caption}
+            caption={showCaptions ? caption : undefined}
             className="quality-metric-card quality-metric-flip-card"
             evidence={evidence.length ? evidence : [metric.title || "No additional evidence is available for this metric."]}
             frontAccessory={metric.frontAccessory}

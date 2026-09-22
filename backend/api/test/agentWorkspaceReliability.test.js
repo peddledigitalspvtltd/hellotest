@@ -136,7 +136,7 @@ test("citation validation rejects uncited findings and invented citations in sum
   assert.equal(assistant._internals.normalizeResult({ ...candidate, executive_summary: "Invented claim [K-fake]" }, fallback, [{ id: "K-real" }]), fallback);
 });
 
-test("read-only specialist model calls retry a transient failure and recover", async t => {
+test("specialist transport failures do not replay a potentially billable generation", async t => {
   resilience.resetServiceResilienceState();
   let calls = 0;
   t.mock.method(globalThis, "fetch", async (_url, request) => {
@@ -144,9 +144,8 @@ test("read-only specialist model calls retry a transient failure and recover", a
     calls += 1;
     return calls === 1 ? new Response("temporary outage", { status: 503 }) : new Response(JSON.stringify({ choices: [{ message: { content: '{"response":"Observed [K-real]","citation_ids":["K-real"]}' } }] }), { headers: { "content-type": "application/json" } });
   });
-  const result = await execution.bounded(() => assistant._internals.requestLlmResult({ integration: { name: "Provider", base_url: "https://llm.example.test/v1", model: "test", api_key: "test-key" }, agent: assistant.AGENT_CATALOG["story-architect"], mode: "agent", prompt: input.prompt, context: {}, citations: [{ id: "K-real" }], history: [], contextRoute: context.planContext({ prompt: input.prompt, agentId: "story-architect" }), knowledgeRetrieval: {} }), { timeoutMs: 3_000 });
-  assert.equal(calls, 2);
-  assert.deepEqual(result.citation_ids, ["K-real"]);
+  await assert.rejects(execution.bounded(() => assistant._internals.requestLlmResult({ integration: { name: "Provider", base_url: "https://llm.example.test/v1", model: "test", api_key: "test-key" }, agent: assistant.AGENT_CATALOG["story-architect"], mode: "agent", prompt: input.prompt, context: {}, citations: [{ id: "K-real" }], history: [], contextRoute: context.planContext({ prompt: input.prompt, agentId: "story-architect" }), knowledgeRetrieval: {} }), { timeoutMs: 3_000 }), /503/);
+  assert.equal(calls, 1);
 });
 
 test("specialist repairs one malformed model response without losing the evidence contract", async t => {

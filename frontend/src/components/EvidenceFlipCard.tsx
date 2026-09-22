@@ -7,7 +7,7 @@ type EvidenceFlipCardProps = {
   actionDisabled?: boolean;
   actionLabel?: string;
   autoResetMs?: number;
-  caption: string;
+  caption?: string;
   className?: string;
   evidence: ReactNode[];
   frontAccessory?: ReactNode;
@@ -99,7 +99,7 @@ export function EvidenceFlipCard({
           {frontAccessory && !isFlipped ? <span className="evidence-flip-card-front-accessory">{frontAccessory}</span> : null}
           <button
             aria-controls={evidenceId}
-            aria-describedby={`${evidenceId}-value ${evidenceId}-caption`}
+            aria-describedby={`${evidenceId}-value${caption ? ` ${evidenceId}-caption` : ""}`}
             aria-expanded={isFlipped}
             aria-label={`View evidence for ${metricTitle(label)}`}
             className="project-stat-card-trigger metric-evidence-trigger"
@@ -112,7 +112,7 @@ export function EvidenceFlipCard({
             <span>{metricTitle(label)}</span>
             <strong id={`${evidenceId}-value`}>{value}</strong>
             {frontVisual ? <span aria-hidden="true" className="evidence-flip-card-front-visual">{frontVisual}</span> : null}
-            <small id={`${evidenceId}-caption`}>{caption}</small>
+            {caption ? <small id={`${evidenceId}-caption`}>{caption}</small> : null}
             <span className="metric-evidence-hint">View evidence</span>
           </button>
         </div>

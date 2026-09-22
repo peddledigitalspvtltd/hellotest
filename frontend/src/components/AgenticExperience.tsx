@@ -1,3 +1,5 @@
+import { useAiLlmAutoSelection, useAiLlmDefault } from "../hooks/useAiLlmDefault";
+import { smartContextKindsForScopes } from "../lib/smartContext";
 import { formatRecordKindLabel } from "../lib/defectTerminology";
 import { LoadingState } from "./LoadingState";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -282,7 +284,7 @@ type AgenticCommandComposerProps = {
   contextScopes: string[];
   onContextScopesChange: (scopes: string[]) => void;
   integrationId?: string;
-  integrations?: Array<{ id: string; name: string; model?: string | null }>;
+  integrations?: Array<{ id: string; name: string; model?: string | null; is_active?: boolean; type?: string }>;
   onIntegrationChange?: (integrationId: string) => void;
   prompt: string;
   onPromptChange: (prompt: string) => void;
@@ -317,6 +319,8 @@ export function AgenticCommandComposer({
   scopeLabel = "Current project",
   smartContext = null
 }: AgenticCommandComposerProps) {
+  const defaultIntegrationId = useAiLlmDefault({ usageKey: "ai.agentic.workflow", projectId, integrations, enabled: Boolean(onIntegrationChange) });
+  const selectIntegration = useAiLlmAutoSelection({ integrations, value: integrationId, onChange: onIntegrationChange, defaultIntegrationId, scopeKey: projectId, disabled: disabled || running });
   const selectedAgent = agents.find((agent) => agent.id === agentId) || agents[0];
   const contextDetailsRef = useRef<HTMLDetailsElement>(null);
   const submit = (event: FormEvent) => {
@@ -400,6 +404,7 @@ export function AgenticCommandComposer({
               disabled={disabled || running}
               initialQuery={prompt}
               onApply={onSmartContextChange}
+              preferredSourceKinds={smartContextKindsForScopes(contextScopes)}
               projectId={projectId}
             />
           ) : null}
@@ -408,9 +413,10 @@ export function AgenticCommandComposer({
           {onIntegrationChange ? (
             <label className="agent-command-provider">
               <span className="sr-only">AI provider</span>
-              <select disabled={disabled || running} onChange={(event) => onIntegrationChange(event.target.value)} value={integrationId}>
+              <select disabled={disabled || running} onChange={(event) => selectIntegration(event.target.value)} value={integrationId}>
                 <option value="">Workspace default</option>
-                {integrations.map((integration) => (
+                {integrationId && !integrations.some((item) => item.id === integrationId && item.is_active !== false) ? <option disabled value={integrationId}>{integrationId} (unavailable)</option> : null}
+                {integrations.filter((item) => item.is_active !== false).map((integration) => (
                   <option key={integration.id} value={integration.id}>{integration.name}{integration.model ? ` · ${integration.model}` : ""}</option>
                 ))}
               </select>
@@ -440,7 +446,7 @@ export type AiFeatureComposerProps = {
   contextLabel: string;
   onContextClick?: () => void;
   integrationId?: string;
-  integrations?: Array<{ id: string; name: string; model?: string | null }>;
+  integrations?: Array<{ id: string; name: string; model?: string | null; is_active?: boolean; type?: string }>;
   onIntegrationChange?: (integrationId: string) => void;
   placeholder?: string;
   running?: boolean;
@@ -456,6 +462,7 @@ export type AiFeatureComposerProps = {
   showModeSwitcher?: boolean;
   showProviderSelector?: boolean;
   enableSmartContext?: boolean;
+  smartContextScopes?: string[];
 };
 
 export type AiFeatureBriefItem = {
@@ -547,10 +554,13 @@ export function AiFeatureComposer({
   showIdentity = true,
   showModeSwitcher = true,
   showProviderSelector = true,
-  enableSmartContext = false
+  enableSmartContext = false,
+  smartContextScopes = ["knowledge"]
 }: AiFeatureComposerProps) {
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
+  const defaultIntegrationId = useAiLlmDefault({ usageKey: "", projectId, integrations, enabled: Boolean(onIntegrationChange) && showProviderSelector });
+  const selectIntegration = useAiLlmAutoSelection({ integrations, value: integrationId, onChange: onIntegrationChange, defaultIntegrationId, scopeKey: projectId, disabled: disabled || running || !showProviderSelector });
   const canSubmit = allowEmptyPrompt || Boolean(prompt.trim());
   const effectiveSubmitLabel = submitLabel || (mode === "chat" ? "Ask" : "Delegate");
   const submit = (event: FormEvent) => {
@@ -609,6 +619,7 @@ export function AiFeatureComposer({
               disabled={disabled || running}
               initialQuery={[prompt, contextLabel].filter(Boolean).join(" ")}
               onApply={(selection: SmartContextSelection) => onPromptChange(replaceSmartContextPack(prompt, selection.contextText))}
+              preferredSourceKinds={smartContextKindsForScopes(smartContextScopes)}
               projectId={projectId}
             />
           ) : null}
@@ -619,9 +630,10 @@ export function AiFeatureComposer({
             onIntegrationChange ? (
               <label className="agent-command-provider">
                 <span className="sr-only">AI provider</span>
-                <select disabled={disabled || running} onChange={(event) => onIntegrationChange(event.target.value)} value={integrationId}>
+                <select disabled={disabled || running} onChange={(event) => selectIntegration(event.target.value)} value={integrationId}>
                   <option value="">Auto model</option>
-                  {integrations.map((integration) => (
+                  {integrationId && !integrations.some((item) => item.id === integrationId && item.is_active !== false) ? <option disabled value={integrationId}>{integrationId} (unavailable)</option> : null}
+                {integrations.filter((item) => item.is_active !== false).map((integration) => (
                     <option key={integration.id} value={integration.id}>{integration.name}{integration.model ? ` · ${integration.model}` : ""}</option>
                   ))}
                 </select>

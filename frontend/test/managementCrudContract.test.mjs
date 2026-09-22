@@ -125,7 +125,7 @@ test("Backlog uses the approved gear and dual-workflow-arrow artwork", async () 
 });
 
 test("Product Management workspaces expose delivery governance without using automation as readiness", async () => {
-  const [app, stories, releases, readiness, icons, issues, completionGuard, projects, api, types, storyMetrics] = await Promise.all([
+  const [app, stories, releases, readiness, icons, issues, completionGuard, projects, api, types, storyMetrics, storyRelations] = await Promise.all([
     readSource("../src/App.tsx"),
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/pages/ReleasesPage.tsx"),
@@ -136,7 +136,8 @@ test("Product Management workspaces expose delivery governance without using aut
     readSource("../src/pages/ProjectsPage.tsx"),
     readSource("../src/lib/api.ts"),
     readSource("../src/types.ts"),
-    readSource("../src/lib/storyMetrics.ts")
+    readSource("../src/lib/storyMetrics.ts"),
+    readSource("../src/components/StoryRelatedItemsPanel.tsx")
   ]);
 
   assert.match(app, /workspaceMode="backlog"/);
@@ -146,8 +147,11 @@ test("Product Management workspaces expose delivery governance without using aut
   for (const capability of [
     "Dev completion target", "QA completion target", "Scrum team", "Spec Kit",
     "Test coverage", "StoryReadinessChecklist", "Automation progress", "Retrospective",
-    "Slipped", "On course", "Groomed", "Not groomed", "Link Story"
+    "Slipped", "On course", "Groomed", "Not groomed"
   ]) assert.match(stories, new RegExp(capability, "i"));
+  assert.match(stories, /<RequirementRelatedItemsPanel/);
+  assert.match(storyRelations, /loadCandidates:/);
+  assert.match(storyRelations, /onReplace\(\[\.\.\.new Set\(\[\.\.\.linkedStoryIds, item\.id\]\)\]\)/);
   assert.match(storyMetrics, /evidence\?\.readiness\?\.score/);
   assert.match(stories, /selectedStoryMetrics\.readiness/);
 

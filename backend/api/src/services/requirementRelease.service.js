@@ -649,7 +649,7 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
         }
       ]
     })
-  }, { operation: "requirement-release.notes", actorId: userId });
+  }, { integration, operation: "requirement-release.notes", actorId: userId });
   if (!response.ok) throw new Error("Release-notes provider request failed");
   const payload = await response.json();
   return parseReleaseNotesJson(payload?.choices?.[0]?.message?.content);

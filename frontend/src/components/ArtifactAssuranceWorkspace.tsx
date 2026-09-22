@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { ChevronDownIcon, SparkIcon } from "./AppIcons";
 import { InfoTooltip } from "./InfoTooltip";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
@@ -32,6 +32,8 @@ export function ArtifactAssuranceWorkspace({
   analysisDisabled = false,
   isDraftChanged = false,
   analysisError,
+  analysisNotice,
+  providerControl,
   onAnalyze,
   onInspectImpact,
   criteriaKey
@@ -45,6 +47,8 @@ export function ArtifactAssuranceWorkspace({
   analysisDisabled?: boolean;
   isDraftChanged?: boolean;
   analysisError?: string | null;
+  analysisNotice?: string | null;
+  providerControl?: ReactNode;
   onAnalyze?: () => void;
   onInspectImpact?: () => void;
   criteriaKey?: "metric.assurance.story" | "metric.assurance.test_case";
@@ -116,6 +120,7 @@ export function ArtifactAssuranceWorkspace({
 
         <div className="artifact-assurance-overview-actions">
           <span className={`artifact-assurance-review-badge ${reviewState}`}>{REVIEW_LABEL[reviewState]}</span>
+          {providerControl}
           {onAnalyze ? (
             <button className="artifact-assurance-analyze-button" disabled={analysisDisabled || isAnalyzing} onClick={onAnalyze} type="button">
               <SparkIcon />
@@ -130,6 +135,7 @@ export function ArtifactAssuranceWorkspace({
         </div>
       </header>
 
+      {analysisNotice ? <p className="artifact-assurance-baseline-note" role="status">AI refinement is unavailable. {analysisNotice} Live draft scores remain available.</p> : null}
       {analysisError ? <p className="artifact-assurance-error" role="alert">Analysis could not be refreshed. {analysisError}</p> : null}
       {isDraftChanged ? (
         <p className="artifact-assurance-stale" role="status">

@@ -210,7 +210,7 @@ export function renderAiPromptTemplate(template: AiPromptTemplate) {
     template.role ? `${scopeConfig.roleLabel}: ${template.role}` : "",
     template.test_type ? `${scopeConfig.typeLabel}: ${template.test_type}` : "",
     template.test_format ? `${scopeConfig.formatLabel}: ${template.test_format}` : "",
-    template.test_count && scopeConfig.showCount ? `${scopeConfig.countLabel}: ${template.test_count}` : "",
+    template.test_count && scopeConfig.showCount && template.scope !== "requirement_creation" ? `${scopeConfig.countLabel}: ${template.test_count}` : "",
     "",
     `${scopeConfig.promptLabel}:`,
     template.prompt_text
@@ -416,7 +416,7 @@ export function AiPromptTemplatePicker({
                   </FormField>
                   {scopeConfig.showCount ? (
                     <FormField label={scopeConfig.countLabel}>
-                      <input min="1" max="50" type="number" value={draft.test_count} onChange={(event) => setDraft((current) => ({ ...current, test_count: event.target.value }))} />
+                      <input min="1" max={scope === "requirement_creation" ? "6" : "10"} type="number" value={draft.test_count} onChange={(event) => setDraft((current) => ({ ...current, test_count: event.target.value }))} />
                     </FormField>
                   ) : null}
                   <FormField label="Tags">

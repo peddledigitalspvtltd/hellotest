@@ -371,7 +371,7 @@ const requestChatCompletion = async ({ integration, content }) => {
         }
       ]
     })
-  }, { operation: "execution-planning.generate" });
+  }, { integration, operation: "execution-planning.generate" });
 
   if (!response.ok) {
     const raw = await response.text();

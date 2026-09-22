@@ -61,7 +61,7 @@ const buildIssueEvidenceSources = (issue) => {
       type,
       id: issue.id,
       field,
-      title: `${issue.jira_bug_key || issue.id} · ${title}`,
+      title: `${issue.display_id || issue.jira_bug_key || issue.id} · ${title}`,
       excerpt: stripMarkup(displayValue),
       trust: "workspace"
     });
@@ -303,7 +303,7 @@ const requestCategoryRefinements = async ({ integration, issueSnapshot, determin
         { role: "user", content: prompt }
       ]
     })
-  }, { operation: "bug-triage.refine-category" });
+  }, { integration, operation: "bug-triage.refine-category" });
   if (!response.ok) throw new Error(`LLM provider returned ${response.status}`);
   const payload = await response.json();
   return extractJson(payload?.choices?.[0]?.message?.content);
@@ -353,7 +353,7 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
     ].join(" ");
     return {
       issue_id: issue.id,
-      display_id: issue.jira_bug_key || issue.id,
+      display_id: issue.display_id || issue.jira_bug_key || issue.id,
       title: issue.title,
       category: category.category,
       current_priority: priority.current,

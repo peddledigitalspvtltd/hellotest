@@ -124,6 +124,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     eyebrow="AI Improvement"
     integrationId={integrationId}
     integrations={integrations}
+    llmUsageKey="ai.case_authoring.full_case"
     isAccepting={isApplying}
     isPreviewing={isPreviewing}
     maxCases={1}

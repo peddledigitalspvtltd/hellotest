@@ -33,6 +33,7 @@ type StoryGroomingWorkspaceProps = {
   error?: string | null;
   disabled?: boolean;
   onGenerate: () => void;
+  providerControl?: ReactNode;
 };
 
 type GroomingTab = "story" | "business" | "solution" | "validation" | "remaining" | "evidence";
@@ -261,7 +262,8 @@ export function StoryGroomingWorkspace({
   isLoading,
   error,
   disabled = false,
-  onGenerate
+  onGenerate,
+  providerControl
 }: StoryGroomingWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<GroomingTab>("story");
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -287,6 +289,7 @@ export function StoryGroomingWorkspace({
               dependencies, risks, and planning readiness—using only bounded Story evidence.
             </p>
             {error ? <p className="story-grooming-error" role="alert">Grooming could not be completed. {error}</p> : null}
+            {providerControl}
             <button className="story-grooming-primary" disabled={disabled} onClick={onGenerate} type="button">
               <IconSparkles />
               <span>{error ? "Try again" : "Generate refinement"}</span>
@@ -488,6 +491,7 @@ export function StoryGroomingWorkspace({
           </span>
         </div>
         <div className="story-grooming-hero-actions">
+          {providerControl}
           <span className="story-grooming-preview-badge"><IconShieldCheck /> Preview · Human review</span>
           <button className="story-grooming-refresh" disabled={disabled} onClick={onGenerate} type="button">
             <IconRefresh /> Refresh brief

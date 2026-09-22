@@ -203,6 +203,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
       body: JSON.stringify({
         model: integration.model,
         temperature: 0.2,
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
@@ -215,7 +216,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
         ]
       }),
       signal: controller.signal
-    }, { timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-report.generate" });
+    }, { integration, timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-report.generate" });
 
     if (!response.ok) {
       const raw = await response.text();
@@ -272,7 +273,8 @@ const generateAiAnalysis = async (report, { userId } = {}) => {
     const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId,
       usageKey: "ai.execution.analysis",
-      fallback: "global",
+      projectId: report.execution?.project_id,
+      fallback: "project-then-global",
       allowMissing: true
     });
 

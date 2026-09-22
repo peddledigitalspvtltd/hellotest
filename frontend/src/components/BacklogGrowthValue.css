@@ -1,0 +1,11 @@
+.backlog-growth-value { display: inline-flex; align-items: baseline; gap: .12em; }
+.backlog-growth-value .backlog-growth-separator { color: var(--text-muted, #64748b); }
+.backlog-growth-value.is-healthy .backlog-growth-intake,
+.backlog-growth-value.is-growing .backlog-growth-outflow { color: #b42318; }
+.backlog-growth-value.is-healthy .backlog-growth-outflow,
+.backlog-growth-value.is-growing .backlog-growth-intake { color: #087b55; }
+.backlog-growth-value.is-idle { color: var(--text-muted, #64748b); }
+:root[data-theme="dark"] .backlog-growth-value.is-healthy .backlog-growth-intake,
+:root[data-theme="dark"] .backlog-growth-value.is-growing .backlog-growth-outflow { color: #fda29b; }
+:root[data-theme="dark"] .backlog-growth-value.is-healthy .backlog-growth-outflow,
+:root[data-theme="dark"] .backlog-growth-value.is-growing .backlog-growth-intake { color: #6ce9a6; }

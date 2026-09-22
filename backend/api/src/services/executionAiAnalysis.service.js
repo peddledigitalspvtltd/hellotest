@@ -4,6 +4,7 @@ const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { boundedExecutionAiContext } = require("../utils/executionAiContext");
 
 const MAX_PROMPT_JSON_LENGTH = 18000;
 const MAX_AI_RESPONSE_LENGTH = 12000;
@@ -180,11 +181,7 @@ const buildAnalysisInput = ({ execution, caseSnapshot, steps, result, logs, inst
 };
 
 const buildPrompt = (input) => {
-  let serialized = JSON.stringify(input, null, 2);
-
-  if (serialized.length > MAX_PROMPT_JSON_LENGTH) {
-    serialized = `${serialized.slice(0, MAX_PROMPT_JSON_LENGTH)}\n...truncated for prompt size`;
-  }
+  const serialized = JSON.stringify(boundedExecutionAiContext(input, MAX_PROMPT_JSON_LENGTH));
 
   return [
     "Analyze this QA test case execution using the test case, steps, and execution result data.",
@@ -231,7 +228,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
         ]
       }),
       signal: controller.signal
-    }, { timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-analysis.generate" });
+    }, { integration, timeoutMs: AI_ANALYSIS_TIMEOUT_MS, operation: "execution-analysis.generate" });
 
     if (!response.ok) {
       const raw = await response.text();

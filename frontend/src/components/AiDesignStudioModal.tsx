@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestCase } from "../types";
 import { useDialogFocus } from "../hooks/useDialogFocus";
+import { useAiLlmDefault } from "../hooks/useAiLlmDefault";
 import { AiPromptContextPanel } from "./AiPromptContextPanel";
 import { AiLlmSelect } from "./AiLlmSelect";
 import { SelectionToggleIcon } from "./AppIcons";
@@ -43,6 +44,7 @@ type AiDesignStudioModalProps = {
   allowMultipleRequirements: boolean;
   onRequirementSelectionChange: (requirementIds: string[]) => void;
   integrations: Integration[];
+  llmUsageKey?: string;
   integrationId: string;
   onIntegrationIdChange: (value: string) => void;
   maxCases: number;
@@ -107,7 +109,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
     onAuthoringModeChange, onAccept, onClose, disablePreview, disableSchedule = true, disableAccept,
     isScheduling = false, closeDisabled = false, acceptLabel, dialogClassName, parallelRequirementCount,
     onParallelRequirementCountChange, scheduleHelperText, promptTemplateProjectId, promptTemplateAppTypeId,
-    sourceCase, studioTitle = "AI Test Case Generator",
+    sourceCase, llmUsageKey = "ai.test_case.design", studioTitle = "AI Test Case Generator",
     studioDescription = "Generate structured or Gherkin Test Case drafts, review them, and accept selected drafts into the library."
   } = props;
   const [authoringMode, setAuthoringMode] = useState<AuthoringMode>(() => previewCases[0]?.authoring_mode || "structured");
@@ -130,7 +132,8 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
   const selectedStories = useMemo(() => requirements.filter((item) => selectedRequirementIds.includes(item.id)), [requirements, selectedRequirementIds]);
   const selectedStory = selectedStories[0];
   const linkCount = externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length;
-  const currentIntegration = integrations.find((item) => item.id === integrationId);
+  const defaultIntegrationId = useAiLlmDefault({ usageKey: llmUsageKey, projectId: promptTemplateProjectId, integrations });
+  const currentIntegration = integrations.find((item) => item.id === integrationId && item.is_active !== false);
   const integrationLabel = integrationId ? currentIntegration?.name || "Unavailable LLM" : "Configured LLM";
   const integrationUnavailable = Boolean(integrationId && !currentIntegration);
   const visibleDrafts = useMemo(() => {
@@ -230,11 +233,15 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
             </section> : null}
             <section className="ai-test-generator-section ai-test-generator-context-engine">
               <div className="ai-test-generator-section__heading"><span>Generation Context</span><small>Manual + Templates</small></div>
-              <AiPromptContextPanel additionalContext={additionalContext} appTypeId={promptTemplateAppTypeId} disabled={busy} externalLinksText={externalLinksText} onAddImages={onAddImages} onAdditionalContextChange={onAdditionalContextChange} onBusyChange={setContextBusy} onExternalLinksTextChange={onExternalLinksTextChange} onRemoveImage={onRemoveImage} promptScope="test_case_generation" projectId={promptTemplateProjectId} referenceImages={referenceImages} referenceUploadPresentation="dropzone" requirements={selectedStories} showPromptEditor />
+              <AiPromptContextPanel additionalContext={additionalContext} includeArtifactContextInPack={false} artifactIds={sourceCase?.id ? [sourceCase.id] : []} artifactContext={sourceCase ? [
+                `Current Test Case: ${sourceCase.displayId || sourceCase.id || "draft"} — ${sourceCase.title}`,
+                sourceCase.description.slice(0, 1_500),
+                ...sourceCase.steps.slice(0, 8).map((step, index) => `${index + 1}. ${String(step.action || "").slice(0, 240)} Expected: ${String(step.expected_result || "").slice(0, 180)}`)
+              ].filter(Boolean).join("\n") : ""} appTypeId={promptTemplateAppTypeId} disabled={busy} externalLinksText={externalLinksText} onAddImages={onAddImages} onAdditionalContextChange={onAdditionalContextChange} onBusyChange={setContextBusy} onExternalLinksTextChange={onExternalLinksTextChange} onRemoveImage={onRemoveImage} promptScope={sourceCase ? "test_case_steps" : "test_case_generation"} projectId={promptTemplateProjectId} referenceImages={referenceImages} referenceUploadPresentation="dropzone" requirements={selectedStories} showPromptEditor />
             </section>
             <section className="ai-test-generator-section">
               <div className="ai-test-generator-section__heading"><span>Intelligence Engine</span><small>{integrationLabel}</small></div>
-              <AiLlmSelect disabled={busy} integrations={integrations} onChange={onIntegrationIdChange} value={integrationId} />
+              <AiLlmSelect defaultIntegrationId={defaultIntegrationId} disabled={busy} integrations={integrations} onChange={onIntegrationIdChange} scopeKey={`${promptTemplateProjectId}:${llmUsageKey}`} value={integrationId} />
               {integrationUnavailable ? <p role="status">Choose an available LLM or Configured LLM to generate new drafts.</p> : null}
               <label className="ai-test-generator-count">Draft count<select disabled={busy} onChange={(event) => onMaxCasesChange(Number(event.target.value))} value={maxCases}>{[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}</select></label>
               {onParallelRequirementCountChange ? <label className="ai-test-generator-count">Stories in parallel<input disabled={busy} max="5" min="1" onChange={(event) => onParallelRequirementCountChange(Number(event.target.value) || 1)} type="number" value={parallelRequirementCount || 1} /></label> : null}

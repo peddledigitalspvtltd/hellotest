@@ -5,6 +5,48 @@ const DEFAULT_SCOPE = "test_case_generation";
 
 const BUILT_IN_TEMPLATES = [
   {
+    id: "builtin-story-user-outcome", built_in: true, scope: "requirement_creation",
+    name: "User outcome", description: "Focused Stories for a user goal and measurable result.",
+    test_count: 3, test_format: "Actor, goal, business value and observable acceptance",
+    prompt_text: "Organize the supplied product brief into small, distinct user-outcome Stories. Give each a concise title and a description explaining the evidenced actor, goal, value and behavior. Write observable acceptance criteria only for supplied rules. Keep unknown details as short questions, never invented requirements. Avoid overlapping Stories or repeating criteria in the description. Use the requested count and supplied JSON schema; template guidance is not product evidence.",
+    applies_to: ["requirements"], tags: ["feature", "persona", "acceptance"]
+  },
+  {
+    id: "builtin-story-business-workflow", built_in: true, scope: "requirement_creation",
+    name: "Business workflow", description: "Reviewable workflow slices with roles, decisions and outcomes.",
+    test_count: 3, test_format: "Workflow slice with business rules and acceptance",
+    prompt_text: "Create distinct Stories around the supplied workflow's evidenced actors, trigger, decisions and outcomes. Keep each slice independently reviewable; preserve stated rules, handoffs and scope boundaries. Include alternate paths only when the brief defines their expected behavior. Use concise descriptions and measurable acceptance criteria, without duplicated workflow text. Respect the requested count and JSON schema. Do not invent roles, approvals, policies or integrations from this template.",
+    applies_to: ["requirements"], tags: ["workflow", "roles", "business rules"]
+  },
+  {
+    id: "builtin-story-api-integration", built_in: true, scope: "requirement_creation",
+    name: "API and integration", description: "Stories for evidenced service behavior and data exchange.",
+    test_count: 2, test_format: "Service outcome, contract boundaries and acceptance",
+    prompt_text: "Draft Stories for the service outcomes and data exchanges explicitly described in the supplied brief. Preserve known inputs, outputs, consumers, validation and failure behavior. Keep protocol details and dependencies only when provided; ask about missing contract details instead of inventing endpoints, fields, status codes, timing or retry policies. Separate behavior from observable acceptance, avoid redundant Stories and respect the requested count and JSON schema.",
+    applies_to: ["requirements"], tags: ["api", "integration", "contract"]
+  },
+  {
+    id: "builtin-story-quality-improvement", built_in: true, scope: "requirement_creation",
+    name: "Quality improvement", description: "A bounded reliability, accessibility or usability improvement.",
+    test_count: 1, test_format: "Observed problem, desired outcome and measurable acceptance",
+    prompt_text: "Turn the supplied observed problem and desired quality improvement into a bounded Story. State the affected user, current limitation and desired outcome only from supplied evidence. Preserve explicit targets and constraints; never invent performance thresholds, compliance claims or technical remedies. Define acceptance only where the desired result is observable, and keep missing measurements as concise questions. Respect the requested count and supplied JSON schema.",
+    applies_to: ["requirements"], tags: ["reliability", "accessibility", "usability"]
+  },
+  {
+    id: "builtin-story-completion-testability", built_in: true, scope: "requirement_completion",
+    name: "Clarify acceptance", description: "Refine the current Story into clear, testable outcomes.",
+    test_count: 1, test_format: "One refined Story with observable acceptance",
+    prompt_text: "Refine only the supplied current Story. Preserve its actor, business goal, scope, existing acceptance and executable specification. Clarify ambiguous wording and convert supported behavior into concise observable acceptance criteria. Keep planning facts and references unchanged unless supplied evidence supports a correction. Do not create another Story or invent missing behavior. Return one complete proposal in the supplied schema, with no before/after comparison or repeated review commentary.",
+    applies_to: ["requirements"], tags: ["completion", "acceptance", "testability"]
+  },
+  {
+    id: "builtin-story-completion-workflow", built_in: true, scope: "requirement_completion",
+    name: "Clarify workflow and scope", description: "Make the current Story's flow and boundaries explicit.",
+    test_count: 1, test_format: "One refined Story with clear flow and boundaries",
+    prompt_text: "Refine the current Story's evidenced trigger, actor, ordered behavior, outcome and scope boundaries. Use current acceptance criteria, specification and reviewed context to resolve wording, preserving every stated constraint. Ask about unsupported transitions or decisions instead of filling them with guesses. Keep description and acceptance distinct and concise. Return only one regenerated proposal using the supplied JSON schema; do not repeat the original Story or add unrelated scope.",
+    applies_to: ["requirements"], tags: ["completion", "workflow", "scope"]
+  },
+  {
     id: "builtin-risk-based-regression",
     built_in: true,
     scope: DEFAULT_SCOPE,
@@ -15,7 +57,7 @@ const BUILT_IN_TEMPLATES = [
     test_type: "Regression, negative, boundary, and data validation",
     test_format: "Manual test cases with clear preconditions, test data, steps, and expected results",
     test_count: 8,
-    prompt_text: "Generate high-signal tests for the most business-critical happy path, failure path, role/permission boundary, validation rules, and recovery flows. Prefer reusable @t test data tokens and avoid duplicate cases.",
+    prompt_text: "Design the requested number of distinct regression cases from the supplied Story acceptance, rules and existing coverage. Prioritize the critical happy path, a meaningful failure, boundary validation, evidenced permission checks and recovery. For each case return the required title, objective, preconditions, data, ordered atomic steps, observable expected results and exact Story references in the supplied JSON schema. Preserve @t/@s tokens and the selected structured or Gherkin mode. Reuse existing coverage without duplicating cases; do not invent requirements or outcomes. Keep cases concise and list unsupported details as review gaps.",
     applies_to: ["requirements", "test_cases"],
     tags: ["regression", "risk", "negative"]
   },
@@ -30,7 +72,7 @@ const BUILT_IN_TEMPLATES = [
     test_type: "Positive, negative, abuse, session, and permission tests",
     test_format: "Concise executable cases grouped by user role and risk",
     test_count: 10,
-    prompt_text: "Focus on login, logout, password reset, locked/disabled users, expired sessions, role-restricted actions, invalid credentials, rate limiting signals, and audit-worthy expectations. Include only behavior supported by the requirement context.",
+    prompt_text: "Design the requested number of distinct authentication or access-control tests for behavior evidenced in the selected Stories. Prioritize valid and invalid sign-in, session expiry, recovery and role boundaries when supported; include lockout, throttling or audit checks only if specified. Include explicit actor, prerequisites, fictional or @t test data, atomic actions and observable expected outcomes, with exact Story references. Preserve the requested structured or Gherkin mode and return only the supplied JSON schema. Do not invent security controls, credentials, timing limits or response messages; expose those gaps for review.",
     applies_to: ["requirements", "test_cases"],
     tags: ["auth", "security", "roles"]
   },
@@ -45,7 +87,7 @@ const BUILT_IN_TEMPLATES = [
     test_type: "Functional, interruption, permission, and device compatibility",
     test_format: "Mobile-ready manual cases using android/ios step types when helpful",
     test_count: 6,
-    prompt_text: "Create mobile-aware tests for the critical user journey, permission prompts, background/foreground behavior, network interruption, device rotation where relevant, and clear observable expected results.",
+    prompt_text: "Design the requested number of distinct mobile cases around the selected Story’s critical user journey. Add permission, background/foreground, network interruption or rotation coverage only where supported by the available behavior and platform context. Specify device/platform prerequisites, test data, atomic actions and observable expected outcomes; retain Android/iOS step types and exact Story references. Avoid redundant device permutations and unsupported platform assumptions. Return only the supplied case JSON schema in the requested structured or Gherkin mode, keeping missing requirements explicit.",
     applies_to: ["requirements", "test_cases"],
     tags: ["mobile", "android", "ios"]
   }
@@ -145,14 +187,14 @@ const normalizeJsonArray = (value, fallback = []) => {
   return fallback;
 };
 
-const normalizeCount = (value) => {
+const normalizeCount = (value, scope) => {
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
 
-  return Math.max(1, Math.min(50, Math.round(parsed)));
+  return Math.max(1, Math.min(scope === "requirement_creation" ? 6 : scope === "requirement_completion" ? 1 : 10, Math.round(parsed)));
 };
 
 const normalizePromptTemplateRow = (row) => row ? ({
@@ -166,7 +208,7 @@ const normalizePromptTemplateRow = (row) => row ? ({
   role: normalizeText(row.role),
   test_type: normalizeText(row.test_type),
   test_format: normalizeText(row.test_format),
-  test_count: normalizeCount(row.test_count),
+  test_count: normalizeCount(row.test_count, row.scope),
   prompt_text: String(row.prompt_text || ""),
   applies_to: normalizeJsonArray(row.applies_to, ["requirements", "test_cases"]),
   tags: normalizeJsonArray(row.tags, []),
@@ -198,7 +240,7 @@ const normalizePromptInput = (input = {}) => {
     role: normalizeText(input.role),
     test_type: normalizeText(input.test_type),
     test_format: normalizeText(input.test_format),
-    test_count: normalizeCount(input.test_count),
+    test_count: normalizeCount(input.test_count, input.scope),
     prompt_text: promptText,
     applies_to: normalizeJsonArray(input.applies_to, ["requirements", "test_cases"]),
     tags: normalizeJsonArray(input.tags, [])

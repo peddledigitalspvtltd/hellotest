@@ -74,7 +74,7 @@ const requestValues = async ({ integration, prompt, fieldContext, count, promptI
         }
       ]
     })
-  }, { operation: "test-data.synthetic" });
+  }, { integration, operation: "test-data.synthetic" });
   if (!response.ok) throw new Error(`Synthetic data provider returned ${response.status}.`);
   return extractJson((await response.json())?.choices?.[0]?.message?.content);
 };

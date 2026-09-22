@@ -44,3 +44,11 @@ test("scope options retain absent selected records once without replacing availa
   assert.deepEqual(result, [{ id: "current", name: "Current suite" }, { id: "deleted", name: "Saved suite" }]);
   assert.equal(options.length, 1);
 });
+
+test("delivery edits keep saved mappings until an explicit selection changes or clears them", () => {
+  const initial = runEditDraft({ ...run, release: "Saved release", sprint: "Saved Sprint", release_id: "release-1", iteration_id: "sprint-1" });
+  assert.deepEqual(changedRunFields(initial, { ...initial, name: "Renamed run" }), { name: "Renamed run" });
+  assert.deepEqual(changedRunFields(initial, { ...initial, release: "Next release", release_id: "release-2", sprint: "", iteration_id: "" }), {
+    release: "Next release", sprint: "", release_id: "release-2", iteration_id: ""
+  });
+});

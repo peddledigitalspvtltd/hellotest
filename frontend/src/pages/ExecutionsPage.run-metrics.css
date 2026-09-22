@@ -190,10 +190,6 @@
 }
 
 .execution-run-command-center .execution-run-metric-card--results .project-stat-card-trigger > small { margin-top: .3rem; }
-.execution-run-result-chart { display: grid; width: 4.3rem; height: 4.3rem; padding: .4rem; place-items: center; border-radius: 50%; }
-.execution-run-result-chart > span { display: grid; width: 100%; height: 100%; align-content: center; justify-items: center; gap: .1rem; border-radius: 50%; background: var(--execution-command-surface); }
-.execution-run-command-center .execution-run-result-chart b { color: var(--execution-command-ink); font-size: 1rem; line-height: 1; }
-.execution-run-command-center .execution-run-result-chart > span > span { color: var(--execution-command-muted); font-size: .5rem; line-height: 1; }
 .execution-run-progress-track { display: block; height: .4rem; overflow: hidden; border-radius: 9px; background: var(--run-result-pending); }
 .execution-run-progress-track > span { display: block; height: 100%; border-radius: inherit; background: var(--run-card-accent); }
 

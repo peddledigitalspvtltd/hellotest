@@ -1,4 +1,4 @@
-import type { AiArtifactAssuranceAnalysis, AiArtifactAssuranceDimension, AiArtifactAssuranceInsight } from "../types";
+import type { AiArtifactAssuranceAnalysis, AiArtifactAssuranceDimension, AiArtifactAssuranceInsight, AiArtifactAssuranceReview } from "../types";
 
 type AssuranceStep = {
   id?: string;
@@ -369,5 +369,29 @@ export function buildTestCaseAssuranceAnalysis(input: {
       label: "Test-practice benchmark",
       disclosure: "Compared with common risk-based and evidence-led test design practices."
     }
+  };
+}
+
+// Model narrative may explain a score; it cannot replace the deterministic measurement.
+export function mergeAssuranceReview(
+  baseline: AiArtifactAssuranceAnalysis,
+  review?: AiArtifactAssuranceReview | null
+): AiArtifactAssuranceAnalysis {
+  if (!review) return baseline;
+  const narrative = new Map((review.dimensions || []).map(item => [item.id, item]));
+  return {
+    ...baseline,
+    summary: review.summary?.trim() || baseline.summary,
+    verdict: review.verdict?.trim() || baseline.verdict,
+    dimensions: baseline.dimensions.map(item => {
+      const refinement = narrative.get(item.id);
+      return refinement ? {
+        ...item,
+        explanation: refinement.explanation?.trim() || item.explanation,
+        recommendation: refinement.recommendation?.trim() || item.recommendation
+      } : item;
+    }),
+    insights: review.insights?.length ? review.insights : baseline.insights,
+    limitations: [...new Set([...baseline.limitations, ...(review.limitations || [])])]
   };
 }

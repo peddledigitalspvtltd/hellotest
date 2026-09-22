@@ -13,6 +13,7 @@ async function fixture(t, { denyScope = false, deniedPermission = null } = {}) {
   t.mock.method(service, "getRequirement", async id => ({ id, project_id: "project", iteration_id: "sprint" }));
   t.mock.method(service, "createRequirement", async input => { calls.writes.push(input); return { id: "story" }; });
   t.mock.method(service, "updateRequirement", async (id, input) => { calls.writes.push(input); return { updated: true }; });
+  t.mock.method(service, "replaceRelatedRequirements", async (id, requirementIds) => { calls.writes.push({ id, requirementIds }); return { updated: true }; });
   t.mock.method(batchService, "queueRequirementImport", async input => { calls.writes.push(input); return { id: "job" }; });
   const app = Fastify();
   t.after(() => app.close());
@@ -73,5 +74,24 @@ test('Story imports cannot bypass edit or relationship permissions', async t => 
     const {app,calls}=await fixture(scoped,{deniedPermission:permission});
     assert.equal((await app.inject({method:'POST',url:'/requirements/import',payload:{project_id:'project',rows:[row]}})).statusCode,403);
     assert.equal(calls.writes.length,0);
+  });
+});
+
+test('replacing related Stories requires update permission in the owning project', async t => {
+  await t.test('denied access prevents linking and unlinking', async scoped => {
+    const { app, calls } = await fixture(scoped, { deniedPermission: 'requirement.update' });
+    for (const requirement_ids of [[], ['other-story']]) {
+      const response = await app.inject({ method: 'PUT', url: '/requirements/story/related-requirements', payload: { requirement_ids } });
+      assert.equal(response.statusCode, 403);
+    }
+    assert.equal(calls.writes.length, 0);
+    assert.deepEqual(calls.permissions, Array.from({ length: 2 }, () => ({ permission: 'requirement.update', projectId: 'project' })));
+  });
+  await t.test('authorized replacement passes the complete reviewed selection', async scoped => {
+    const { app, calls } = await fixture(scoped);
+    const response = await app.inject({ method: 'PUT', url: '/requirements/story/related-requirements', payload: { requirement_ids: ['incoming-story', 'new-story'] } });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(calls.permissions, [{ permission: 'requirement.update', projectId: 'project' }]);
+    assert.deepEqual(calls.writes, [{ id: 'story', requirementIds: ['incoming-story', 'new-story'] }]);
   });
 });

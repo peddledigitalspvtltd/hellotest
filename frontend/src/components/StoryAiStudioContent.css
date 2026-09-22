@@ -1153,3 +1153,5 @@
 .story-studio-intelligence-evidence summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 8px 0; }
 .story-studio-intelligence-evidence__notice { border-left: 3px solid var(--warning, #b7791f); padding-left: 8px; }
 .story-studio-intelligence-evidence .story-studio-evidence-section { margin-top: 12px; }
+
+.story-studio-shell .story-studio-title-card__body { padding: 0 16px 16px; }

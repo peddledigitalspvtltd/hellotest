@@ -1,4 +1,6 @@
 import "../components/ScopedRunCreation.css";
+import { AiReviewControls } from "../components/AiReviewControls";
+import { useAiLlmDefault } from "../hooks/useAiLlmDefault";
 import { AuthoringDataSetPanel } from "../components/AuthoringDataSetPanel";
 import { TestDataSetPickerDialog } from "../components/TestDataSetPickerDialog";
 import { downloadParameterCsvTemplate } from "../lib/executionParameterContext";
@@ -12,6 +14,7 @@ import type { InfiniteData } from "@tanstack/react-query";
 import { isPendingCaseReview, ownsCaseReview } from "../lib/testCaseReview";
 import "../components/test-case-review.css";
 import "./TestCasesPage.import.css";
+import "./TestCasesPage.detail.css";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { IconChartBar, IconClipboardCheck, IconDownload, IconFilter, IconInfoCircle } from "@tabler/icons-react";
 import { useAuth } from "../auth/AuthContext";
@@ -27,6 +30,7 @@ import { CatalogViewToggle } from "../components/CatalogViewToggle";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
 import { DataTable, type DataTableColumn } from "../components/DataTable";
 import { DetailSectionTabs } from "../components/DetailSectionTabs";
+import { RelatedWorkItemsPanel } from "../components/RelatedWorkItemsPanel";
 import { DisplayIdBadge } from "../components/DisplayIdBadge";
 import { ExternalReferencesField } from "../components/ExternalReferencesField";
 import { DialogCloseButton } from "../components/DialogCloseButton";
@@ -143,7 +147,7 @@ import {
 import { asArray, getVerifiedNextPageCursor, normalizePagedResult } from "../lib/collectionGuards";
 import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, toggleRequirementOnPreviewCase } from "../lib/aiDesignStudio";
 import { assessTestCaseReviewReadiness } from "../lib/aiAssurance";
-import { buildTestCaseAssuranceAnalysis } from "../lib/artifactAssurance";
+import { buildTestCaseAssuranceAnalysis, mergeAssuranceReview } from "../lib/artifactAssurance";
 import { formatReferenceList, parseReferenceList } from "../lib/externalReferences";
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "../lib/featureFlags";
 import { downloadCsvRecords } from "../lib/csvExport";
@@ -2092,6 +2096,7 @@ export function TestCasesPage() {
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
 	  const canUpdateSuites = can("suite.update")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.suites"]);
+  const canEditSuiteLinks = canUpdateSuites && canUpdateTestCases && can("suite.view");
 	  const canCreateRuns = can("run.create")
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
 	  const canViewExecutionInsights = can("run.view")
@@ -2118,7 +2123,7 @@ export function TestCasesPage() {
 	  const canUseMobileAppium = can("mobile.manage")
 	    && canUseAutomationWorkspace
 	    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.mobile.appium"]);
-	  const { getPrompt } = useAiPromptRegistry(Boolean(session));
+	  const { getPrompt, getLlmIntegrationId, getMetricCriteria } = useAiPromptRegistry(Boolean(session));
   const { confirmAction, confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const ensureTestCaseDetail = (testCaseId: string) => queryClient.fetchQuery<TestCase>({
@@ -2141,6 +2146,8 @@ export function TestCasesPage() {
   const [bulkReviewComment, setBulkReviewComment] = useState("");
   const [bulkReviewError, setBulkReviewError] = useState("");
   const [selectedTestCaseId, setSelectedTestCaseId] = useState("");
+  const currentCaseLinkScopeRef = useRef("");
+  currentCaseLinkScopeRef.current = `${projectId}:${selectedTestCaseId}`;
   const [activeTestCaseDetailTab, setActiveTestCaseDetailTab] = useState<TestCaseDetailTab>("details");
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
@@ -2282,8 +2289,7 @@ export function TestCasesPage() {
   const [isInsertingSharedGroups, setIsInsertingSharedGroups] = useState(false);
   const [selectedSharedGroupIds, setSelectedSharedGroupIds] = useState<string[]>([]);
   const [sharedGroupSearchTerm, setSharedGroupSearchTerm] = useState("");
-  const [isSuiteLinkModalOpen, setIsSuiteLinkModalOpen] = useState(false);
-  const [suiteLinkDraftIds, setSuiteLinkDraftIds] = useState<string[]>([]);
+  const [isSavingSuiteLinks, setIsSavingSuiteLinks] = useState(false);
   const [editingAutomationStepId, setEditingAutomationStepId] = useState("");
   const [rephrasingStepId, setRephrasingStepId] = useState("");
   const [codePreviewState, setCodePreviewState] = useState<{ title: string; subtitle: string; code: string; objectRepository?: AutomationLearningCacheEntry[] } | null>(null);
@@ -2308,6 +2314,13 @@ export function TestCasesPage() {
   const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
   const [aiRequirementIds, setAiRequirementIds] = useState<string[]>([]);
   const [integrationId, setIntegrationId] = useState("");
+  const [testCaseAssuranceIntegrationId, setTestCaseAssuranceIntegrationId] = useState("");
+  const [testCaseAssurancePromptGuidance, setTestCaseAssurancePromptGuidance] = useState<string | undefined>();
+  const [testCaseAssuranceContext, setTestCaseAssuranceContext] = useState("");
+  const [testCaseAssuranceContextBusy, setTestCaseAssuranceContextBusy] = useState(false);
+  useEffect(() => {
+    setTestCaseAssuranceIntegrationId(""); setTestCaseAssurancePromptGuidance(undefined); setTestCaseAssuranceContext("");
+  }, [projectId, selectedTestCaseId]);
   const [maxCases, setMaxCases] = useState(3);
   const parallelRequirementLimit = 1;
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
@@ -2954,6 +2967,7 @@ export function TestCasesPage() {
     [integrationsQuery.data]
   );
 
+  const testCaseAssuranceDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.quality.test_case_assurance", projectId, integrations: can("integration.view") ? integrations : undefined });
   const supportsLocalDesktopExecution = Boolean(session && canRunLocalAutomation);
   const userById = useMemo(
     () =>
@@ -3901,7 +3915,7 @@ export function TestCasesPage() {
                   ...(createSuiteContextId ? [createSuiteContextId] : []),
                   ...(activeBugConversion?.suiteIds || [])
                 ]
-              : selectedTestCase?.suite_ids || (selectedTestCase?.suite_id ? [selectedTestCase.suite_id] : [])
+              : [...(selectedTestCase?.suite_ids || []), ...(selectedTestCase?.suite_id ? [selectedTestCase.suite_id] : [])]
           ).filter(Boolean)
         )
       ) as string[],
@@ -4003,18 +4017,27 @@ export function TestCasesPage() {
       id: selectedTestCase?.id,
       display_id: selectedTestCase?.display_id || undefined,
       title: caseDraft.title,
+      priority: caseDraft.priority,
+      status: caseDraft.status,
+      test_case_type: caseDraft.test_case_type,
+      automated: caseDraft.automated,
+      module_ids: caseDraft.module_id ? [caseDraft.module_id] : [],
+      reviewer_id: caseDraft.reviewer_id || null,
+      labels: parseReferenceList(caseDraft.labelsText),
+      external_references: parseReferenceList(caseDraft.externalReferencesText),
+      ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
       description: caseDraft.description,
       authoring_mode: caseDraft.authoring_mode,
       gherkin_document: caseDraft.gherkin_document,
       parameter_values: testCaseParameterValues,
-      steps: displaySteps.map((step) => ({
+      steps: caseDraft.authoring_mode === "gherkin" ? buildGherkinQualitySteps(caseDraft.gherkin_document).map((step, index) => ({ ...step, step_order: index + 1 })) : displaySteps.map((step) => ({
         step_order: step.step_order,
         step_type: stepDrafts[step.id]?.step_type ?? step.step_type,
         action: stepDrafts[step.id]?.action ?? step.action,
         expected_result: stepDrafts[step.id]?.expected_result ?? step.expected_result
       }))
     }),
-    [caseDraft.authoring_mode, caseDraft.description, caseDraft.gherkin_document, caseDraft.title, displaySteps, selectedTestCase?.display_id, selectedTestCase?.id, stepDrafts, testCaseParameterValues]
+    [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.priority, caseDraft.status, caseDraft.test_case_type, caseDraft.automated, caseDraft.module_id, caseDraft.reviewer_id, caseDraft.labelsText, caseDraft.externalReferencesText, caseDraft.authoring_mode, caseDraft.description, caseDraft.gherkin_document, caseDraft.title, displaySteps, selectedTestCase?.display_id, selectedTestCase?.id, stepDrafts, testCaseParameterValues]
   );
   const aiCaseAuthoringAutomationStepCount = useMemo(
     () => canViewAutomationCode
@@ -4132,8 +4155,17 @@ export function TestCasesPage() {
         : current
     );
   };
-  const syncCachedTestCaseSuiteIds = (testCaseId: string, suiteIds: string[]) => {
+  const syncCachedTestCaseSuiteIds = (testCaseId: string, suiteIds: string[], revision?: number) => {
     const normalizedSuiteIds = Array.from(new Set(suiteIds.filter(Boolean)));
+    if (revision && currentCaseLinkScopeRef.current === `${projectId}:${testCaseId}`) {
+      // A relationship-only revision must not reseed unsaved metadata, Gherkin, or parameter drafts.
+      lastCaseDraftSeedRef.current = `case:${testCaseId}:${revision}:${selectedCaseModuleId}`;
+      lastTestCaseParameterSeedRef.current = `case:${testCaseId}:${revision}`;
+    }
+    queryClient.setQueriesData<TestCase>({ queryKey: testCaseDetailQueryKey(projectId, testCaseId) }, current => current ? {
+      ...current, suite_id: normalizedSuiteIds[0] || null, suite_ids: normalizedSuiteIds,
+      ...(revision ? { revision } : {})
+    } : current);
 
     queryClient.setQueryData<TestCase[]>(["global-test-cases", appTypeId], (current) =>
       current
@@ -5860,63 +5892,20 @@ export function TestCasesPage() {
     }
   };
 
-	  const handleOpenSuiteLinkModal = () => {
-	    if (!canUpdateSuites) {
-	      showError(new Error("Permission required: suite.update"), "Unable to link suites");
-	      return;
-	    }
-
-	    if (!selectedTestCase) {
-	      return;
-    }
-
-    setSuiteLinkDraftIds(selectedCaseSuiteIdsForModal);
-    setIsSuiteLinkModalOpen(true);
-  };
-
-	  const handleSaveSuiteLinks = async () => {
-	    if (!canUpdateSuites) {
-	      showError(new Error("Permission required: suite.update"), "Unable to update linked suites");
-	      return;
-	    }
-
-	    if (!selectedTestCase) {
-	      return;
-    }
-
-    const nextSuiteIds = Array.from(new Set(suiteLinkDraftIds.filter(Boolean)));
-    const currentSuiteIds = Array.from(new Set(selectedCaseSuiteIdsForModal.filter(Boolean)));
-
-    if (
-      nextSuiteIds.length === currentSuiteIds.length &&
-      nextSuiteIds.every((suiteId) => currentSuiteIds.includes(suiteId))
-    ) {
-      setIsSuiteLinkModalOpen(false);
-      setSuiteLinkDraftIds([]);
-      return;
-    }
-
+  const persistCaseSuiteLinks = async (nextSuiteIds: string[]) => {
+    if (!selectedTestCase || !canEditSuiteLinks || isSavingSuiteLinks) return;
+    setIsSavingSuiteLinks(true);
     try {
-      await updateTestCase.mutateAsync({
-        id: selectedTestCase.id,
-        input: {
-          suite_ids: nextSuiteIds
-        }
-      });
-
-      syncCachedTestCaseSuiteIds(selectedTestCase.id, nextSuiteIds);
-      setIsSuiteLinkModalOpen(false);
-      setSuiteLinkDraftIds([]);
-      showSuccess(
-        nextSuiteIds.length
-          ? `Updated linked suites for "${selectedTestCase.title}".`
-          : `Removed all linked suites from "${selectedTestCase.title}".`
-      );
-      await refreshCases();
-    } catch (error) {
-      showError(error, "Unable to update linked suites");
+      const response = await updateTestCase.mutateAsync({ id: selectedTestCase.id, input: { suite_ids: nextSuiteIds } });
+      syncCachedTestCaseSuiteIds(selectedTestCase.id, nextSuiteIds, response.revision);
+    } finally {
+      // Only relationship IDs are sent; authoring drafts and other Suite members remain separate.
+      try {
+        await Promise.all([refreshCases(), queryClient.invalidateQueries({ queryKey: ["test-case-suites", appTypeId, projectId] })]);
+      } finally { setIsSavingSuiteLinks(false); }
     }
   };
+
 
 	  const handleCreateSuite = async (input: SuiteCreateInput) => {
 	    if (!canCreateSuites) {
@@ -8124,10 +8113,17 @@ export function TestCasesPage() {
     priority: caseDraft.priority,
     automated: caseDraft.automated,
     requirement_id: caseDraft.requirement_id,
+    module_id: caseDraft.module_id,
+    author_id: caseDraft.author_id,
+    reviewer_id: caseDraft.reviewer_id,
+    authoring_mode: caseDraft.authoring_mode,
+    gherkin_document: caseDraft.gherkin_document,
+    test_case_type: caseDraft.test_case_type,
+    ...(canViewTestData ? { test_data_set_ids: linkedDataSetDraftIds, test_data_options: { override_shared_steps: overrideSharedGroupData } } : {}),
     external_references: parseReferenceList(caseDraft.externalReferencesText),
     labels: caseDraftLabels,
     parameter_values: testCaseParameterValues,
-    steps: displaySteps.map((step) => ({
+    steps: caseDraft.authoring_mode === "gherkin" ? gherkinQualitySteps : displaySteps.map((step) => ({
       id: step.id,
       step_order: step.step_order,
       step_type: stepDrafts[step.id]?.step_type ?? step.step_type,
@@ -8136,7 +8132,7 @@ export function TestCasesPage() {
       automation_code: canViewAutomationCode ? stepDrafts[step.id]?.automation_code ?? step.automation_code ?? "" : undefined,
       api_request: canViewAutomationCode ? stepDrafts[step.id]?.api_request ?? step.api_request ?? null : undefined
     }))
-  }), [canViewAutomationCode, caseDraft.automated, caseDraft.description, caseDraft.externalReferencesText, caseDraft.priority, caseDraft.requirement_id, caseDraft.status, caseDraft.title, caseDraftLabels, displaySteps, stepDrafts, testCaseParameterValues]);
+  }), [canViewTestData, linkedDataSetDraftIds, overrideSharedGroupData, caseDraft.module_id, caseDraft.author_id, caseDraft.reviewer_id, caseDraft.authoring_mode, caseDraft.gherkin_document, caseDraft.test_case_type, gherkinQualitySteps, canViewAutomationCode, caseDraft.automated, caseDraft.description, caseDraft.externalReferencesText, caseDraft.priority, caseDraft.requirement_id, caseDraft.status, caseDraft.title, caseDraftLabels, displaySteps, stepDrafts, testCaseParameterValues]);
   const selectedTestCaseAssuranceSteps = useMemo(
     () => caseDraft.authoring_mode === "gherkin" ? gherkinQualitySteps : selectedTestCaseAssuranceProposedChange.steps,
     [caseDraft.authoring_mode, gherkinQualitySteps, selectedTestCaseAssuranceProposedChange.steps]
@@ -8152,6 +8148,9 @@ export function TestCasesPage() {
     selectedTestCase
     && previewTestCaseImpact.variables?.testCaseId === selectedTestCase.id
     && JSON.stringify(previewTestCaseImpact.variables.input.proposed_change) === selectedTestCaseAssuranceFingerprint
+    && (previewTestCaseImpact.variables.input.additional_context || "") === testCaseAssuranceContext
+    && previewTestCaseImpact.variables.input.prompt_guidance === [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n")
+    && (previewTestCaseImpact.variables.input.integration_id || "") === (testCaseAssuranceIntegrationId || testCaseAssuranceDefaultIntegrationId)
   );
   const testCaseAssurancePreviewMatchesDraft = Boolean(
     testCaseAssuranceRequestMatchesDraft
@@ -8160,7 +8159,7 @@ export function TestCasesPage() {
   );
   const isTestCaseAssuranceDraftChanged = Boolean(
     selectedTestCase
-    && previewTestCaseImpact.data?.assurance
+    && (previewTestCaseImpact.data?.assurance_review || previewTestCaseImpact.data?.assurance)
     && previewTestCaseImpact.data.test_case.id === selectedTestCase.id
     && previewTestCaseImpact.variables?.testCaseId === selectedTestCase.id
     && !testCaseAssurancePreviewMatchesDraft
@@ -8203,14 +8202,18 @@ export function TestCasesPage() {
   }, [canUseAutomationWorkspace, selectedTestCaseImpactPreview]);
 
   const runTestCaseAssuranceAnalysis = (openImpactPreview = false) => {
-    if (!selectedTestCase || !projectId || !canUseTestCaseAi || previewTestCaseImpact.isPending) return;
+    if (!selectedTestCase || !projectId || !canUseTestCaseAi || previewTestCaseImpact.isPending || testCaseAssuranceContextBusy) return;
     setIsTestCaseImpactPreviewOpen(openImpactPreview);
     previewTestCaseImpact.reset();
     previewTestCaseImpact.mutate({
       testCaseId: selectedTestCase.id,
       input: {
         project_id: projectId,
-        proposed_change: selectedTestCaseAssuranceProposedChange
+        proposed_change: selectedTestCaseAssuranceProposedChange,
+        integration_id: testCaseAssuranceIntegrationId || testCaseAssuranceDefaultIntegrationId || undefined,
+        prompt_guidance: [testCaseAssurancePromptGuidance ?? getPrompt("ai.quality.test_case_assurance"), getMetricCriteria("metric.assurance.test_case")].filter(Boolean).join("\n\n"),
+        additional_context: testCaseAssuranceContext,
+        assurance_baseline: selectedTestCaseLocalAssurance
       }
     });
   };
@@ -8243,27 +8246,6 @@ export function TestCasesPage() {
     const suiteIdSet = new Set(suiteIds);
     return suites.filter((suite) => suiteIdSet.has(suite.id));
   }, [isCreating, selectedSuiteContext, selectedTestCase, suites]);
-  const selectedCaseSuiteIdsForModal = useMemo(
-    () => selectedCaseSuites.map((suite) => suite.id),
-    [selectedCaseSuites]
-  );
-  const hasSuiteLinkDraftChanges = useMemo(() => {
-    const currentSuiteIds = Array.from(new Set(selectedCaseSuiteIdsForModal.filter(Boolean))).sort();
-    const draftSuiteIds = Array.from(new Set(suiteLinkDraftIds.filter(Boolean))).sort();
-
-    if (currentSuiteIds.length !== draftSuiteIds.length) {
-      return true;
-    }
-
-    return currentSuiteIds.some((suiteId, index) => suiteId !== draftSuiteIds[index]);
-  }, [selectedCaseSuiteIdsForModal, suiteLinkDraftIds]);
-  useEffect(() => {
-    if (!isSuiteLinkModalOpen) {
-      return;
-    }
-
-    setSuiteLinkDraftIds(selectedCaseSuiteIdsForModal);
-  }, [isSuiteLinkModalOpen, selectedCaseSuiteIdsForModal]);
   const selectedHistory = useMemo(() => {
     if (!selectedTestCase) return [];
     const selectedCaseReferences = new Set(
@@ -8361,12 +8343,11 @@ export function TestCasesPage() {
     }),
     [selectedCaseHealthMetrics.finalizedRuns, selectedCaseHealthMetrics.passRate, selectedCaseSuites.length, selectedReviewStatus, selectedTestCaseAssuranceProposedChange, selectedTestCaseAssuranceSteps]
   );
-  const selectedTestCaseAssurance = testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data?.assurance
-    ? previewTestCaseImpact.data.assurance
-    : selectedTestCaseLocalAssurance;
-  const selectedTestCaseAssuranceSource = testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data?.assurance
-    ? (previewTestCaseImpact.data.fallback_used ? "fallback" : "ai")
-    : "local";
+  const selectedTestCaseAssurance = mergeAssuranceReview(selectedTestCaseLocalAssurance,
+    testCaseAssurancePreviewMatchesDraft ? previewTestCaseImpact.data?.assurance_review || previewTestCaseImpact.data?.assurance : null);
+  const selectedTestCaseAssuranceSource = testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data?.fallback_used
+    ? "fallback"
+    : testCaseAssurancePreviewMatchesDraft && (previewTestCaseImpact.data?.assurance_review || previewTestCaseImpact.data?.assurance) ? "ai" : "local";
   const selectedEditorSteps = useMemo(
     () => displaySteps.filter((step) => selectedStepIds.includes(step.id)),
     [displaySteps, selectedStepIds]
@@ -8692,8 +8673,6 @@ export function TestCasesPage() {
     setIsSharedGroupPickerOpen(false);
     setSelectedSharedGroupIds([]);
     setSharedGroupSearchTerm("");
-    setIsSuiteLinkModalOpen(false);
-    setSuiteLinkDraftIds([]);
     setTestCaseParameterValues({});
     setIsCaseParameterDialogOpen(false);
     setIsAiCaseAuthoringOpen(false);
@@ -8904,11 +8883,11 @@ export function TestCasesPage() {
         <div className={`yes-no-action-row test-case-review-actions${iconOnly ? " is-icon-only" : ""}`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
           <button aria-label={`Approve review for ${testCase.title}`} className="decision-button is-yes"
             disabled={isSaving} onClick={() => void handleSubmitReviewForCase(testCase.id, "accepted", "", testCase)} title="Approve review" type="button">
-            <TestCaseAcceptIcon />{!iconOnly ? <span>Yes</span> : null}
+            <TestCaseAcceptIcon />{!iconOnly ? <span>Approve</span> : null}
           </button>
           <button aria-label={`Request changes for ${testCase.title}`} className="decision-button is-no"
             disabled={isSaving} onClick={() => openReviewSuggestionDialog(testCase.id, "", testCase)} title="Request changes" type="button">
-            <TestCaseRejectIcon />{!iconOnly ? <span>No</span> : null}
+            <TestCaseRejectIcon />{!iconOnly ? <span>Reject</span> : null}
           </button>
         </div>
       );
@@ -9835,7 +9814,7 @@ export function TestCasesPage() {
   };
 
   return (
-    <div className={["page-content", "page-content--library-full", isCaseWorkspaceOpen ? "page-content--workspace-focus" : ""].join(" ")}>
+    <div className={["page-content", "page-content--library-full", "page-content--test-cases", isCaseWorkspaceOpen ? "page-content--workspace-focus" : ""].join(" ")}>
       {confirmationDialog}
       {healthModule && testCaseMetricsQuery.data ? <EntityHealthDialog
         entityType="Module"
@@ -10787,12 +10766,13 @@ export function TestCasesPage() {
                     <DetailSectionTabs
                       activeTab={activeTestCaseDetailTab}
                       ariaLabel="Test case detail sections"
+                      presentation="inline"
                       className="test-case-detail-navigation"
                       items={[
                         { value: "details", label: "Details", description: "Metadata, steps & data", icon: <PencilIcon /> },
                         { value: "automation" as const, label: "Automation Cases", description: "Executable coverage", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
                         { value: "assurance", label: "Assurance", description: "Quality & impact", icon: <TestCaseSparkIcon /> },
-                        { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: selectedCaseSuites.length },
+                        { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: selectedCaseSuiteIds.length },
                         { value: "history", label: "History", description: "Trend, runs & versions", icon: <ActivityIcon /> },
                         { value: "defects", label: "Defects", description: "Failure traceability", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
                         { value: "evidence", label: "Evidence", description: "Files & attachments", icon: <JiraAttachmentIcon /> }
@@ -11263,7 +11243,7 @@ export function TestCasesPage() {
                                   />
                                   <div className="action-row">
                                     <button
-                                      className="ghost-button compact"
+                                      className="ghost-button compact test-case-review-reject"
                                       disabled={reviewTestCase.isPending}
                                       onClick={() => openReviewSuggestionDialog(selectedTestCase.id, reviewComment)}
                                       type="button"
@@ -11271,7 +11251,7 @@ export function TestCasesPage() {
                                       Suggest changes
                                     </button>
                                     <button
-                                      className="primary-button compact"
+                                      className="primary-button compact test-case-review-approve"
                                       disabled={reviewTestCase.isPending}
                                       onClick={() => void handleSubmitReview("accepted")}
                                       type="button"
@@ -12000,8 +11980,10 @@ export function TestCasesPage() {
                 {!isCreating && activeTestCaseDetailTab === "assurance" && selectedTestCase ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <ArtifactAssuranceWorkspace
+                      providerControl={<AiReviewControls key={`case-assurance-${projectId}-${selectedTestCase.id}`} usageKey="ai.quality.test_case_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.test_case").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={testCaseAssuranceIntegrationId} onIntegrationIdChange={setTestCaseAssuranceIntegrationId} promptGuidance={testCaseAssurancePromptGuidance} onPromptGuidanceChange={setTestCaseAssurancePromptGuidance} additionalContext={testCaseAssuranceContext} onAdditionalContextChange={setTestCaseAssuranceContext} artifactIds={[selectedTestCase.id]} artifactContext={JSON.stringify(selectedTestCaseAssuranceProposedChange)} disabled={previewTestCaseImpact.isPending} onBusyChange={setTestCaseAssuranceContextBusy} />}
                       analysis={selectedTestCaseAssurance}
-                      analysisDisabled={!canUseTestCaseAi || !projectId || previewTestCaseImpact.isPending}
+                      analysisDisabled={!canUseTestCaseAi || !projectId || previewTestCaseImpact.isPending || testCaseAssuranceContextBusy}
+                      analysisNotice={testCaseAssurancePreviewMatchesDraft && previewTestCaseImpact.data?.fallback_used ? previewTestCaseImpact.data.fallback_reason : null}
                       analysisError={previewTestCaseImpact.error instanceof Error && testCaseAssuranceRequestMatchesDraft ? previewTestCaseImpact.error.message : null}
                       analysisSource={selectedTestCaseAssuranceSource}
                       criteriaKey="metric.assurance.test_case"
@@ -12017,27 +11999,18 @@ export function TestCasesPage() {
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "suites" && selectedTestCase ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
-                    <div className="detail-summary test-case-linked-suites-summary">
-                      <strong>Linked Suites</strong>
-                      <span>
-                        {selectedCaseSuites.length
-                          ? `This test case is currently referenced in ${selectedCaseSuites.length} suite${selectedCaseSuites.length === 1 ? "" : "s"}.`
-                          : "This test case is not linked to any suite yet."}
-                      </span>
-                      {selectedCaseSuites.length ? (
-                        <div className="selection-chip-row">
-                          {selectedCaseSuites.map((suite) => (
-                            <span className="selection-chip" key={suite.id}>{suite.name}</span>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="action-row">
-                        <button className="ghost-button" disabled={!canUpdateSuites} onClick={handleOpenSuiteLinkModal} type="button">
-                          <AddIcon />
-                          <span>{selectedCaseSuites.length ? "Manage suite links" : "Link to suite"}</span>
-                        </button>
-                      </div>
-                    </div>
+                    <RelatedWorkItemsPanel key={selectedTestCase.id} ariaLabel="Linked Suites" title="Linked Suites" eyebrow="Traceability" description="Organize this Test Case in reusable Suites and keep its coverage connections visible."
+                      items={selectedCaseSuiteIds.map(id => { const suite = suites.find(item => item.id === id); return { id, displayId: suite?.display_id, title: suite?.name || id, description: richTextToPlainText(suite?.description || ""), relation: "included in", icon: <TileCardSuiteIcon />, canUnlink: canEditSuiteLinks, onOpen: () => navigate(`/design?suite=${encodeURIComponent(id)}`) }; })}
+                      linking={canEditSuiteLinks ? {
+                        scopeKey: `case-suites:${projectId}:${appTypeId}:${selectedTestCase.id}`,
+                        loadCandidates: async () => ({ items: asArray(await api.testSuites.list({ app_type_id: appTypeId })).map(suite => ({ id: suite.id, displayId: suite.display_id, title: suite.name, description: richTextToPlainText(suite.description || ""), relation: "included in", icon: <TileCardSuiteIcon />, onOpen: () => navigate(`/design?suite=${encodeURIComponent(suite.id)}`) })) }),
+                        onLink: async suite => { await persistCaseSuiteLinks([...new Set([...selectedCaseSuiteIds, suite.id])]); }
+                      } : undefined}
+                      onUnlink={canEditSuiteLinks ? async suite => {
+                        const nextIds = selectedCaseSuiteIds.filter(id => id !== suite.id);
+                        await persistCaseSuiteLinks(nextIds);
+                      } : undefined}
+                    />
                   </div>
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "history" && selectedTestCase ? (
@@ -12124,21 +12097,6 @@ export function TestCasesPage() {
         />
       ) : null}
 
-      {isSuiteLinkModalOpen && selectedTestCase ? (
-        <TestCaseSuiteLinkModal
-          isSaving={updateTestCase.isPending}
-          linkedSuiteIds={suiteLinkDraftIds}
-          onChange={setSuiteLinkDraftIds}
-          onClose={() => {
-            setIsSuiteLinkModalOpen(false);
-            setSuiteLinkDraftIds([]);
-          }}
-          onSave={() => void handleSaveSuiteLinks()}
-          saveDisabled={!hasSuiteLinkDraftChanges}
-          suites={suites}
-          testCaseTitle={selectedTestCase.title}
-        />
-      ) : null}
 
       {isDataSetCreatorOpen && canCreateAndLinkTestData ? (
         <ResourceModalShell
@@ -13408,171 +13366,6 @@ function TestCaseSuiteTransferModal({
   );
 }
 
-function TestCaseSuiteLinkModal({
-  testCaseTitle,
-  suites,
-  linkedSuiteIds,
-  isSaving,
-  saveDisabled,
-  onChange,
-  onSave,
-  onClose
-}: {
-  testCaseTitle: string;
-  suites: TestSuite[];
-  linkedSuiteIds: string[];
-  isSaving: boolean;
-  saveDisabled: boolean;
-  onChange: (suiteIds: string[]) => void;
-  onSave: () => void;
-  onClose: () => void;
-}) {
-  const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSaving, onClose });
-  const linkedSuiteIdSet = useMemo(() => new Set(linkedSuiteIds), [linkedSuiteIds]);
-  const linkedSuites = useMemo(
-    () =>
-      suites
-        .filter((suite) => linkedSuiteIdSet.has(suite.id))
-        .slice()
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    [linkedSuiteIdSet, suites]
-  );
-  const orderedSuites = useMemo(
-    () =>
-      suites.slice().sort((left, right) => {
-        const leftRank = linkedSuiteIdSet.has(left.id) ? 0 : 1;
-        const rightRank = linkedSuiteIdSet.has(right.id) ? 0 : 1;
-
-        if (leftRank !== rightRank) {
-          return leftRank - rightRank;
-        }
-
-        return left.name.localeCompare(right.name);
-      }),
-    [linkedSuiteIdSet, suites]
-  );
-
-  const handleToggleSuite = (suiteId: string) => {
-    if (linkedSuiteIdSet.has(suiteId)) {
-      onChange(linkedSuiteIds.filter((currentId) => currentId !== suiteId));
-      return;
-    }
-
-    onChange([...linkedSuiteIds, suiteId]);
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={() => !isSaving && onClose()} role="presentation">
-      <div
-        aria-label="Manage linked suites"
-        aria-modal="true"
-        className="modal-card suite-create-modal suite-link-modal"
-        onClick={(event) => event.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <div className="suite-create-header">
-          <div className="suite-create-title">
-            <h2 className="dialog-title">Linked Suites</h2>
-            <p>Link or unlink "{testCaseTitle}" from suites. Linked suites stay pinned at the top for quick review.</p>
-          </div>
-          <DialogCloseButton disabled={isSaving} label="Close linked suites" onClick={onClose} />
-        </div>
-
-        <form
-          className="suite-modal-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSave();
-          }}
-        >
-          <div className="suite-link-modal-body">
-            <div className="suite-link-summary">
-              <div className="detail-summary">
-                <strong>{linkedSuites.length} linked suite{linkedSuites.length === 1 ? "" : "s"}</strong>
-                <span>
-                  {linkedSuites.length
-                    ? "Use the unlink icon in the linked list or suite list below to remove a reference."
-                    : "No suite links yet. Use the add icon below to attach this case to one or more suites."}
-                </span>
-              </div>
-
-              {linkedSuites.length ? (
-                <div className="suite-link-chip-row">
-                  {linkedSuites.map((suite) => (
-                    <div className="suite-link-chip" key={suite.id}>
-                      <span className="suite-link-chip-label">{suite.name}</span>
-                      <button
-                        aria-label={`Unlink ${suite.name}`}
-                        className="suite-link-chip-remove"
-                        disabled={isSaving}
-                        onClick={() => handleToggleSuite(suite.id)}
-                        title={`Unlink ${suite.name}`}
-                        type="button"
-                      >
-                        <SuiteUnlinkIcon size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state compact">This test case is not linked to any suites yet.</div>
-              )}
-            </div>
-
-            <div className="suite-link-list-shell">
-              <div className="suite-link-list-header">
-                <strong>All suites</strong>
-                <span>{orderedSuites.length} available</span>
-              </div>
-
-              {orderedSuites.length ? (
-                <div className="suite-link-list">
-                  {orderedSuites.map((suite, index) => {
-                    const isLinked = linkedSuiteIdSet.has(suite.id);
-
-                    return (
-                      <div className={isLinked ? "suite-link-row is-linked" : "suite-link-row"} key={suite.id}>
-                        <div className="suite-link-row-copy">
-                          <strong>{suite.name}</strong>
-                          {suite.display_id ? <span>{suite.display_id}</span> : null}
-                        </div>
-                        <div className="suite-link-row-actions">
-                          {isLinked ? <span className="suite-link-row-status">Linked</span> : null}
-                          <button
-                            aria-label={`${isLinked ? "Unlink" : "Link"} ${suite.name}`}
-                            className={isLinked ? "ghost-button suite-link-toggle is-linked" : "ghost-button suite-link-toggle"}
-                            data-autofocus={index === 0 ? "true" : undefined}
-                            disabled={isSaving}
-                            onClick={() => handleToggleSuite(suite.id)}
-                            title={`${isLinked ? "Unlink" : "Link"} ${suite.name}`}
-                            type="button"
-                          >
-                            {isLinked ? <SuiteUnlinkIcon /> : <AddIcon />}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="empty-state compact">Create a suite first to link this test case.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="action-row suite-modal-actions">
-            <button className="ghost-button" disabled={isSaving} onClick={onClose} type="button">Cancel</button>
-            <button className="primary-button" disabled={isSaving || saveDisabled} type="submit">
-              {isSaving ? "Saving…" : "Save links"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 function TestCaseExecutionModal({
   isPreparingOptions,

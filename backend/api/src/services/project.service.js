@@ -4,6 +4,7 @@ const { APP_TYPE_VALUES } = require("../domain/catalog");
 const displayIdService = require("./displayId.service");
 const attachmentService = require("./attachment.service");
 const { deleteProjectData } = require("./projectDeletion.repository");
+const { assertProjectRoleAssignmentAllowed } = require("./projectRoleAssignment");
 
 const VALID_APP_TYPES = new Set(APP_TYPE_VALUES);
 
@@ -35,6 +36,7 @@ const selectUserById = db.prepare(`
   FROM users
   WHERE id = ?
 `);
+const selectRoleById = db.prepare(`SELECT id, name FROM roles WHERE id = ?`);
 
 exports.createProject = async ({ name, description, visibility, created_by, members, member_ids, app_types }) => {
   if (!name || !created_by) throw new Error("Missing fields");
@@ -55,6 +57,9 @@ exports.createProject = async ({ name, description, visibility, created_by, memb
   const normalizedMemberIds = normalizedVisibility === "public" && Array.isArray(requestedMemberIds)
     ? [...new Set(requestedMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
     : [];
+  const requestedMemberRoles = new Map((Array.isArray(members) ? members : []).map((member) => [
+    String(member?.user_id || "").trim(), String(member?.role_id || "").trim()
+  ]));
   const normalizedAppTypes = Array.isArray(app_types)
     ? app_types
         .map((item = {}) => ({
@@ -88,12 +93,22 @@ exports.createProject = async ({ name, description, visibility, created_by, memb
     }
   });
 
+  const selectedMemberRoles = new Map();
   for (const memberId of normalizedMemberIds) {
     const memberUser = await selectUserById.get(memberId);
 
     if (!memberUser) {
       throw new Error("One of the selected members no longer exists");
     }
+    const roleId = requestedMemberRoles.get(memberId) || selectedMemberRoleId;
+    const role = await selectRoleById.get(roleId);
+    if (!role) {
+      const error = new Error("One of the selected project roles no longer exists");
+      error.statusCode = 400;
+      throw error;
+    }
+    assertProjectRoleAssignmentAllowed(memberUser, role);
+    selectedMemberRoles.set(memberId, role.id);
   }
 
   const adminUsers = normalizedVisibility === "public" ? await selectAdminUsers.all() : [];
@@ -107,7 +122,7 @@ exports.createProject = async ({ name, description, visibility, created_by, memb
 
   for (const memberId of normalizedMemberIds) {
     if (!memberships.has(memberId)) {
-      memberships.set(memberId, selectedMemberRoleId);
+      memberships.set(memberId, selectedMemberRoles.get(memberId));
     }
   }
 

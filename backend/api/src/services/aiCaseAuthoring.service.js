@@ -2,6 +2,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { storyAiSnapshot, testCaseAiSnapshot } = require("../utils/aiArtifactContext");
 
 const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   api: "api",
@@ -151,12 +152,13 @@ const extractJsonPayload = (content) => {
   }
 };
 
-const resolveIntegration = async (integration_id, { userId, usageKey } = {}) => {
+const resolveIntegration = async (integration_id, { userId, projectId, usageKey } = {}) => {
   const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
     integrationId: integration_id,
     userId,
+    projectId,
     usageKey,
-    fallback: "global"
+    fallback: "project-then-global"
   });
 
   if (!integration) {
@@ -188,7 +190,7 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return `${normalizedBaseUrl.replace(/\/+$/, "")}/chat/completions`;
 };
 
-const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState }) => {
+const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, operation = "case-authoring.generate" }) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_AUTHORING_TIMEOUT_MS);
   const headers = {
@@ -235,13 +237,14 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
           }
         ]
       })
-    }, { timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation: "case-authoring.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+    }, { integration, timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
-      throw new Error("AI authoring timed out while waiting for the LLM provider");
+      throw Object.assign(new Error("AI authoring timed out while waiting for the LLM provider"), { statusCode: 504 });
     }
 
-    throw new Error(`Unable to reach the AI authoring provider: ${error instanceof Error ? error.message : String(error)}`);
+    if (error?.statusCode || error?.code) throw error;
+    throw Object.assign(new Error("Unable to reach the AI authoring provider. Retry after checking the configured connection."), { statusCode: 502 });
   } finally {
     clearTimeout(timeout);
   }
@@ -266,14 +269,14 @@ const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additio
     "Complete and improve the following QA test case draft.",
     "",
     "Primary requirement to cover:",
-    `- Title: ${requirement.title}`,
-    `- Description: ${requirement.description || "No description provided."}`,
+    JSON.stringify(storyAiSnapshot(requirement)),
     "",
     `Application type: ${appType.name} (${appType.type})`,
     "",
     "Current test case draft:",
     `- Title: ${currentCase.title || "Untitled draft"}`,
     `- Description: ${currentCase.description || "No description yet."}`,
+    `- Metadata: ${JSON.stringify({ priority: currentCase.priority, status: currentCase.status, test_case_type: currentCase.test_case_type, labels: currentCase.labels, external_references: currentCase.external_references, automation_status: currentCase.automation_status, module_ids: currentCase.module_ids, reviewer_id: currentCase.reviewer_id, review_status: currentCase.review_status, test_data_set_ids: currentCase.test_data_set_ids, test_data_options: currentCase.test_data_options, context_limits: currentCase.context_limits, step_text_truncated: currentCase.step_text_truncated })}`,
     `- Current format: ${currentCase.authoring_mode === "gherkin" ? "Gherkin" : "Structured steps"}`,
     `- Requested output format: ${authoringMode === "gherkin" ? "Gherkin" : "Structured steps"}`
   ];
@@ -357,6 +360,8 @@ const buildPrompt = ({ requirement, appType, currentCase, authoringMode, additio
   prompt.push("- Detect duplicate or semantically similar steps, consolidate needless repetition, and keep related setup, action, and verification steps together in a clear contiguous flow.");
   prompt.push("- Preserve distinct validations when similar-looking steps verify different outcomes; never merge away requirement coverage.");
   prompt.push("- Add missing steps only when needed to complete the case against the requirement.");
+  prompt.push("- Acceptance criteria and specification fields are authoritative product evidence. Planning fields are context, never proof of implementation or test success.");
+  prompt.push("- Return at most 30 structured steps or 30 Gherkin steps. Avoid repeating the full Story or the same action and expected result in multiple places.");
   prompt.push("- Use @t.variable_name tokens anywhere reusable test data appears in the title, description, or steps.");
   prompt.push("- In parameter_values, return only raw variable names without the @t. prefix.");
   if (authoringMode === "gherkin") {
@@ -385,8 +390,7 @@ const buildStepRephrasePrompt = ({ requirement, appType, currentCase, step, addi
   ];
 
   if (requirement) {
-    prompt.push(`- Title: ${requirement.title}`);
-    prompt.push(`- Description: ${requirement.description || "No description provided."}`);
+    prompt.push(JSON.stringify(storyAiSnapshot(requirement, { textLimit: 1500, itemLimit: 250, listLimit: 4 })));
   } else {
     prompt.push("- No linked requirement was supplied. Preserve the current test case intent.");
   }
@@ -452,6 +456,7 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
     }
 
     const stepCount = (gherkin_document.match(/^\s*(?:Given|When|Then|And|But|\*)\b/gim) || []).length;
+    if (!stepCount || !/^\s*(?:Given|When)\b/im.test(gherkin_document) || !/^\s*Then\b/im.test(gherkin_document)) throw Object.assign(new Error("AI authoring Gherkin must include executable steps and a Then outcome"), { statusCode: 502 });
     return {
       summary: normalizeRichText(payload?.summary),
       title,
@@ -467,8 +472,8 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
 
   const steps = normalizeSteps(payload?.steps, fallbackStepType);
 
-  if (!steps.length) {
-    throw new Error("AI authoring response did not include any usable test steps");
+  if (!steps.length || steps.length > 30 || steps.some(step => !step.action || !step.expected_result)) {
+    throw Object.assign(new Error("AI authoring must return one to thirty steps, each with an action and expected result"), { statusCode: 502 });
   }
 
   return {
@@ -522,19 +527,20 @@ exports.previewCaseAuthoring = async ({
 
   const fallbackStepType = DEFAULT_STEP_TYPE_BY_APP_TYPE[appType.type] || "web";
   const authoringMode = authoring_mode === "gherkin" ? "gherkin" : "structured";
+  const boundedCase = testCaseAiSnapshot(test_case);
   const currentCase = {
-    title: normalizeText(test_case?.title) || "",
-    description: normalizeRichText(test_case?.description) || "",
-    authoring_mode: test_case?.authoring_mode === "gherkin" ? "gherkin" : "structured",
-    gherkin_document: normalizeText(test_case?.gherkin_document) || "",
-    parameter_values: normalizeParameterValues(test_case?.parameter_values),
-    steps: normalizeSteps(test_case?.steps, fallbackStepType)
+    ...boundedCase,
+    title: boundedCase.title,
+    description: normalizeRichText(boundedCase.description) || "",
+    parameter_values: normalizeParameterValues(boundedCase.parameter_values),
+    steps: normalizeSteps(boundedCase.steps, fallbackStepType)
   };
-  const additionalContext = normalizeRichText(additional_context);
-  const externalLinks = normalizeTextList(external_links);
+  const additionalContext = normalizeRichText(additional_context)?.slice(0, 8000);
+  const externalLinks = normalizeTextList(external_links, 10, 500);
   const safeImages = normalizeAiReferenceImages(images);
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
+    projectId: appType.project_id || requirement?.project_id,
     usageKey: "ai.case_authoring.full_case"
   });
   const prompt = buildPrompt({
@@ -596,16 +602,17 @@ exports.rephraseTestStep = async ({
   }
 
   const fallbackStepType = DEFAULT_STEP_TYPE_BY_APP_TYPE[appType.type] || "web";
+  const boundedCase = testCaseAiSnapshot(test_case);
   const currentCase = {
-    title: normalizeText(test_case?.title) || "",
-    description: normalizeRichText(test_case?.description) || "",
-    parameter_values: normalizeParameterValues(test_case?.parameter_values),
+    title: boundedCase.title,
+    description: normalizeRichText(boundedCase.description) || "",
+    parameter_values: normalizeParameterValues(boundedCase.parameter_values),
     steps: []
   };
   const currentStep = {
     step_order: Number.isFinite(Number(step?.step_order)) ? Number(step.step_order) : 1,
-    action: normalizeRichText(step?.action),
-    expected_result: normalizeRichText(step?.expected_result || step?.expectedResult),
+    action: normalizeRichText(step?.action)?.slice(0, 4000),
+    expected_result: normalizeRichText(step?.expected_result || step?.expectedResult)?.slice(0, 4000),
     step_type: normalizeTestStepType(step?.step_type || step?.stepType, fallbackStepType)
   };
 
@@ -615,6 +622,7 @@ exports.rephraseTestStep = async ({
 
   const integration = await resolveIntegration(integration_id, {
     userId: user_id,
+    projectId: appType.project_id || requirement?.project_id,
     usageKey: "ai.case_authoring.step_rephrase"
   });
   const prompt = buildStepRephrasePrompt({
@@ -622,9 +630,9 @@ exports.rephraseTestStep = async ({
     appType,
     currentCase,
     step: currentStep,
-    additionalContext: normalizeRichText(additional_context)
+    additionalContext: normalizeRichText(additional_context)?.slice(0, 4000)
   });
-  const content = await requestChatCompletion({ integration, prompt });
+  const content = await requestChatCompletion({ integration, prompt, operation: "case-authoring.step-rephrase" });
   const rephrasedStep = normalizeStepPreview(extractJsonPayload(content), currentStep, fallbackStepType);
 
   return {

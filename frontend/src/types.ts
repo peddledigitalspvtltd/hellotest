@@ -641,6 +641,8 @@ export type RequirementRelatedItem = {
   id: string;
   display_id?: string | null;
   title: string;
+  description?: string | null;
+  sprint?: string | null;
   issue_type: string;
   relation: string;
   direction: "inward" | "outward";
@@ -1571,7 +1573,25 @@ export type AiArtifactAssuranceAnalysis = {
   };
 };
 
+export type AiArtifactAssuranceReview = {
+  summary?: string;
+  verdict?: string;
+  dimensions?: Array<Pick<AiArtifactAssuranceDimension, "id"> & Partial<Pick<AiArtifactAssuranceDimension, "explanation" | "evidence" | "recommendation">>>;
+  insights?: AiArtifactAssuranceInsight[];
+  limitations?: string[];
+};
+
+export type AiArtifactAssuranceInput = {
+  project_id: string;
+  proposed_change?: Record<string, unknown>;
+  integration_id?: string;
+  prompt_guidance?: string;
+  assurance_baseline?: Pick<AiArtifactAssuranceAnalysis, "overall_score" | "dimensions">;
+  additional_context?: string;
+};
+
 export type RequirementImpactPreviewResponse = AiAssistedPreviewBase & {
+  scope?: { project_id: string; unavailable_sources?: string[] };
   requirement: {
     id: string;
     display_id: string;
@@ -1593,6 +1613,7 @@ export type RequirementImpactPreviewResponse = AiAssistedPreviewBase & {
     };
   };
   assurance?: AiArtifactAssuranceAnalysis;
+  assurance_review?: AiArtifactAssuranceReview;
   explanation: string;
   recommended_actions: string[];
 };
@@ -1623,6 +1644,7 @@ export type TestCaseImpactPreviewResponse = AiAssistedPreviewBase & {
     };
   };
   assurance?: AiArtifactAssuranceAnalysis;
+  assurance_review?: AiArtifactAssuranceReview;
   risk_signals: string[];
   explanation: string;
   recommended_actions: string[];
@@ -2432,6 +2454,7 @@ export type SharedStepMetrics = {
   reused_case_count: number;
   shared_step_references: number;
   shared_steps_executed: number | null;
+  /** Shared-group reference occurrences / all authored case step rows * 100; null when no steps exist. */
   reusability_index: number | null;
   failure_cluster_count: number | null;
   defects_visible?: boolean;

@@ -257,7 +257,7 @@ const requestAiDashboard = async ({ integration, projectId, stakeholder, release
           }
         ]
       })
-    }, { operation: "quality-dashboard.generate" });
+    }, { integration, operation: "quality-dashboard.generate" });
     if (!response.ok) throw new Error("Dashboard designer provider request failed.");
     return extractJsonObject((await response.json())?.choices?.[0]?.message?.content);
   } finally {

@@ -5,12 +5,14 @@ import { AiPromptTemplatePicker, type AiPromptScope } from "./AiPromptTemplatePi
 import { FormField } from "./FormField";
 import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import {
+  AI_CONTEXT_PACK_LIMIT,
   buildFileContextSection,
   buildRequirementContextSection,
   replaceSmartContextPack,
   stripSmartContextPack
 } from "../lib/aiDesignStudio";
-import type { AiDesignImageInput, Requirement } from "../types";
+import { SMART_CONTEXT_SOURCE_KINDS } from "../lib/smartContext";
+import type { AiDesignImageInput, AiPromptTemplate, Requirement } from "../types";
 import "./AiPromptContextPanel.css";
 
 const PROMPT_CONTEXT_COPY: Record<AiPromptScope, {
@@ -48,10 +50,14 @@ const PROMPT_CONTEXT_COPY: Record<AiPromptScope, {
 export function AiPromptContextPanel({
   additionalContext,
   appTypeId,
+  artifactContext = "",
+  artifactIds = [],
+  includeArtifactContextInPack = true,
   disabled = false,
   externalLinksText,
   onAddImages,
   onAdditionalContextChange,
+  onTemplateApply,
   onExternalLinksTextChange,
   onBusyChange,
   onRemoveImage,
@@ -64,10 +70,14 @@ export function AiPromptContextPanel({
 }: {
   additionalContext: string;
   appTypeId?: string;
+  artifactContext?: string;
+  artifactIds?: string[];
+  includeArtifactContextInPack?: boolean;
   disabled?: boolean;
   externalLinksText: string;
   onAddImages: (files: FileList | null) => void;
   onAdditionalContextChange: (value: string) => void;
+  onTemplateApply?: (prompt: string, template: AiPromptTemplate) => void;
   onExternalLinksTextChange: (value: string) => void;
   onBusyChange?: (busy: boolean) => void;
   onRemoveImage: (imageUrl: string) => void;
@@ -104,22 +114,11 @@ export function AiPromptContextPanel({
     setContextMessageTone("info");
 
     try {
-      const fileContext = await buildFileContextSection(contextFiles);
-      if (fileContext.overLimit) {
-        setContextMessageTone("warning");
-        setContextMessage(`Attachment limit exceeded. ${fileContext.blocked.join(" ")}`);
-        throw new Error(`Attachment limit exceeded. ${fileContext.blocked.join(" ")}`);
-      }
-      onAdditionalContextChange(replaceSmartContextPack(additionalContext, [
-        buildRequirementContextSection(requirements),
-        selection.contextText,
-        fileContext.section
-      ].filter(Boolean).join("\n\n")));
+      onAdditionalContextChange(replaceSmartContextPack(additionalContext, selection.contextText));
       setContextMessage([
         requirements.length ? `${requirements.length} ${requirements.length === 1 ? "story" : "stories"}` : "",
         `${selection.resultCount} reviewed Knowledge Repo source${selection.resultCount === 1 ? "" : "s"}`,
-        fileContext.section ? `file context compressed ${fileContext.totalOriginalChars.toLocaleString()}→${fileContext.totalPackedChars.toLocaleString()} chars` : "",
-        fileContext.skipped.length ? `Skipped ${fileContext.skipped.length}` : ""
+        contextFiles.length ? `${contextFiles.length} reference file${contextFiles.length === 1 ? "" : "s"} reviewed` : ""
       ].filter(Boolean).join(" · "));
     } catch (error) {
       setContextMessageTone("warning");
@@ -167,7 +166,7 @@ export function AiPromptContextPanel({
         <AiPromptTemplatePicker
           appTypeId={appTypeId}
           disabled={disabled || isBuildingContext}
-          onApply={onAdditionalContextChange}
+          onApply={onTemplateApply || onAdditionalContextChange}
           projectId={projectId}
           scope={promptScope}
           triggerLabel="Templates"
@@ -183,10 +182,20 @@ export function AiPromptContextPanel({
             buttonLabel={isBuildingContext ? "Applying…" : "Smart Context"}
             disabled={disabled || isBuildingContext}
             initialQuery={[
+              artifactContext,
               requirements.slice(0, 8).map((item) => `${item.title} ${item.description || ""}`).join(" "),
               stripSmartContextPack(additionalContext)
             ].filter(Boolean).join(" ")}
             onApply={applySmartContext}
+            onBusyChange={setIsBuildingContext}
+            preferredSourceKinds={SMART_CONTEXT_SOURCE_KINDS[promptScope]}
+            excludedSourceRefIds={[...artifactIds, ...requirements.map((item) => item.id)]}
+            contextLimit={Math.max(0, Math.min(12_000, AI_CONTEXT_PACK_LIMIT - stripSmartContextPack(additionalContext).length - 7))}
+            prepareEvidence={async () => {
+              const fileContext = await buildFileContextSection(contextFiles);
+              if (fileContext.overLimit) throw new Error(`Attachment limit exceeded. ${fileContext.blocked.join(" ")}`);
+              return [includeArtifactContextInPack ? artifactContext : "", includeArtifactContextInPack ? buildRequirementContextSection(requirements) : "", fileContext.section].filter(Boolean).join("\n\n");
+            }}
             projectId={projectId}
           />
         </div>

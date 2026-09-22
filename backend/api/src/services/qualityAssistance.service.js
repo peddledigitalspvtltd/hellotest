@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const db = require("../db");
 const { requireEntityPermission } = require("./entityScope.service");
+const { getOptionalEvidenceAccess } = require("./optionalEvidenceAccess.service");
+const { reviewArtifact } = require("./artifactAssurance.service");
 
 const fingerprint = (value) => crypto.createHash("sha256").update(JSON.stringify(value || {})).digest("hex").slice(0, 20);
 const reference = (row, type = "record") => ({
@@ -16,76 +18,86 @@ const reference = (row, type = "record") => ({
   kind: type
 });
 
-const assisted = ({ capability, input, evidence, confidence, payload }) => {
+const assisted = ({ capability, input, evidence, confidence, payload, aiReview = {} }) => {
   const requestId = `${capability}-${Date.now()}`;
   const generatedAt = new Date().toISOString();
   const provenance = {
     capability,
-    generation_mode: "deterministic",
-    provider: "HelloTest evidence graph",
-    model: null,
+    generation_mode: aiReview.generation_mode || "deterministic",
+    provider: aiReview.integration?.name || "HelloTest evidence graph",
+    model: aiReview.integration?.model || null,
     request_id: requestId,
     input_fingerprint: fingerprint(input),
     generated_at: generatedAt,
     confidence,
     evidence: [...new Set(evidence)],
-    fallback_used: false,
-    fallback_reason: null,
+    fallback_used: Boolean(aiReview.fallback_used),
+    fallback_reason: aiReview.fallback_reason || null,
     requires_human_review: true
   };
   return {
     ...payload,
-    integration: { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
+    ...(aiReview.assurance_review ? { assurance_review: aiReview.assurance_review } : {}),
+    integration: aiReview.integration || { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     provenance,
-    generation_mode: "deterministic",
+    generation_mode: provenance.generation_mode,
     generated_at: generatedAt,
     request_id: requestId,
     input_fingerprint: provenance.input_fingerprint,
     confidence,
-    fallback_used: false,
-    fallback_reason: null,
+    fallback_used: provenance.fallback_used,
+    fallback_reason: provenance.fallback_reason,
     requires_human_review: true,
     preview_only: true
   };
 };
 
-const previewRequirementImpact = async ({ user, requirementId, proposedChange }) => {
+const previewRequirementImpact = async ({ user, requirementId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext }) => {
   const scope = await requireEntityPermission({ user, permissionCode: "requirement.ai", entityType: "requirement", entityId: requirementId });
   const requirement = await db.prepare("SELECT * FROM requirements WHERE id = ?").get(requirementId);
+  const access = await getOptionalEvidenceAccess(user, scope.projectId, ["testcase.view", "suite.view", "run.view", "automation.view"]);
   const [testCases, suites, runs, automation] = await Promise.all([
-    db.prepare(`
+    access["testcase.view"] ? db.prepare(`
       SELECT test_cases.* FROM requirement_test_cases
       JOIN test_cases ON test_cases.id = requirement_test_cases.test_case_id
-      WHERE requirement_test_cases.requirement_id = ? ORDER BY test_cases.title
-    `).all(requirementId),
-    db.prepare(`
+      JOIN app_types ON app_types.id = test_cases.app_type_id
+      WHERE requirement_test_cases.requirement_id = ? AND app_types.project_id = ? ORDER BY test_cases.title
+    `).all(requirementId, scope.projectId) : [],
+    access["suite.view"] ? db.prepare(`
       SELECT DISTINCT test_suites.* FROM requirement_test_cases
       JOIN suite_test_cases ON suite_test_cases.test_case_id = requirement_test_cases.test_case_id
       JOIN test_suites ON test_suites.id = suite_test_cases.suite_id
-      WHERE requirement_test_cases.requirement_id = ? ORDER BY test_suites.name
-    `).all(requirementId),
-    db.prepare(`
+      JOIN app_types ON app_types.id = test_suites.app_type_id
+      WHERE requirement_test_cases.requirement_id = ? AND app_types.project_id = ? ORDER BY test_suites.name
+    `).all(requirementId, scope.projectId) : [],
+    access["run.view"] ? db.prepare(`
       SELECT DISTINCT executions.* FROM requirement_test_cases
       JOIN execution_case_snapshots ON execution_case_snapshots.test_case_id = requirement_test_cases.test_case_id
       JOIN executions ON executions.id = execution_case_snapshots.execution_id
-      WHERE requirement_test_cases.requirement_id = ? ORDER BY executions.created_at DESC
-    `).all(requirementId),
-    db.prepare(`
+      WHERE requirement_test_cases.requirement_id = ? AND executions.project_id = ? ORDER BY executions.created_at DESC
+    `).all(requirementId, scope.projectId) : [],
+    access["automation.view"] ? db.prepare(`
       SELECT DISTINCT automation_learning_cache.* FROM requirement_test_cases
       JOIN automation_learning_cache ON automation_learning_cache.test_case_id = requirement_test_cases.test_case_id
-      WHERE requirement_test_cases.requirement_id = ? ORDER BY automation_learning_cache.updated_at DESC
-    `).all(requirementId)
+      WHERE requirement_test_cases.requirement_id = ? AND automation_learning_cache.project_id = ? ORDER BY automation_learning_cache.updated_at DESC
+    `).all(requirementId, scope.projectId) : []
   ]);
-  const riskScore = Math.min(100, (Number(requirement.priority || 3) <= 2 ? 35 : 15) + Math.min(testCases.length * 8, 32) + Math.min(runs.length * 6, 24) + (automation.length ? 9 : 0));
+  const proposedPriority = Number(proposedChange?.priority);
+  const priority = Number.isInteger(proposedPriority) && proposedPriority >= 1 && proposedPriority <= 5 ? proposedPriority : requirement.priority;
+  const riskScore = Math.min(100, (Number(priority || 3) <= 2 ? 35 : 15) + Math.min(testCases.length * 8, 32) + Math.min(runs.length * 6, 24) + (automation.length ? 9 : 0));
   const riskLevel = riskScore >= 65 ? "high" : riskScore >= 30 ? "medium" : "low";
-  const evidence = [requirement, ...testCases, ...suites, ...runs].map((item) => `${item.display_id || item.id}`);
+  const evidence = [requirement, ...testCases, ...suites, ...runs, ...automation].map((item) => `${item.display_id || item.id}`);
+  const aiReview = await reviewArtifact({ artifactType: "story", savedArtifact: requirement, proposedChange,
+    baseline: assuranceBaseline, linkedEvidence: testCases.map(item => reference(item, "test-case")), user,
+    projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
     capability: "requirement-change-impact-preview",
-    input: { requirement_id: requirementId, proposed_change: proposedChange },
+    input: { requirement_id: requirementId, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
+    aiReview,
     evidence,
     confidence: testCases.length ? 0.82 : 0.58,
     payload: {
-      requirement: { id: requirement.id, display_id: requirement.display_id || requirement.id, title: requirement.title, priority: requirement.priority, risk_score: riskScore },
+      requirement: { id: requirement.id, display_id: requirement.display_id || requirement.id, title: typeof proposedChange?.title === "string" ? proposedChange.title : requirement.title, priority, risk_score: riskScore },
       impact: {
         risk_level: riskLevel,
         test_cases: testCases.map((item) => reference(item, "test-case")),
@@ -94,29 +106,34 @@ const previewRequirementImpact = async ({ user, requirementId, proposedChange })
         automation_assets: automation.map((item) => ({ ...reference(item, "automation-asset"), title: item.locator_intent, confidence: item.confidence })),
         totals: { test_cases: testCases.length, test_suites: suites.length, test_runs: runs.length, automation_assets: automation.length }
       },
-      explanation: testCases.length ? "Impact is derived from current HelloTest links, suite membership, run snapshots, and automation dependencies. No source record was changed." : "No linked test case was found, so the proposed requirement change exposes a coverage gap.",
-      recommended_actions: [testCases.length ? "Review linked test intent and expected results against the proposed change." : "Create and review tests for the changed acceptance criteria.", runs.length ? "Reassess queued, active, and release-scoped runs containing affected tests." : null, automation.length ? "Review automation and locator dependencies before the next automated run." : null, "Confirm impact with a human reviewer before applying changes."].filter(Boolean),
-      scope: { project_id: scope.projectId }
+      explanation: !access["testcase.view"] ? "Linked Test Case evidence is unavailable under current project permissions or feature settings; no coverage conclusion can be drawn." : testCases.length ? "Impact is derived from current HelloTest links, suite membership, run snapshots, and automation dependencies. No source record was changed." : "No linked test case was found, so the proposed requirement change exposes a coverage gap.",
+      recommended_actions: [!access["testcase.view"] ? "Review linked coverage when Test Case evidence is available." : testCases.length ? "Review linked test intent and expected results against the proposed change." : "Create and review tests for the changed acceptance criteria.", runs.length ? "Reassess queued, active, and release-scoped runs containing affected tests." : null, automation.length ? "Review automation and locator dependencies before the next automated run." : null, "Confirm impact with a human reviewer before applying changes."].filter(Boolean),
+      scope: { project_id: scope.projectId, unavailable_sources: Object.keys(access).filter(key => !access[key]) }
     }
   });
 };
 
-const previewTestCaseImpact = async ({ user, testCaseId, proposedChange }) => {
+const previewTestCaseImpact = async ({ user, testCaseId, proposedChange, integrationId, promptGuidance, assuranceBaseline, additionalContext }) => {
   const scope = await requireEntityPermission({ user, permissionCode: "testcase.ai", entityType: "test_case", entityId: testCaseId });
   const testCase = await db.prepare("SELECT * FROM test_cases WHERE id = ?").get(testCaseId);
+  const access = await getOptionalEvidenceAccess(user, scope.projectId, ["requirement.view", "suite.view", "run.view", "automation.view"]);
   const [requirements, suites, runs, automation, steps] = await Promise.all([
-    db.prepare(`SELECT requirements.* FROM requirement_test_cases JOIN requirements ON requirements.id = requirement_test_cases.requirement_id WHERE requirement_test_cases.test_case_id = ? ORDER BY requirements.title`).all(testCaseId),
-    db.prepare(`SELECT test_suites.* FROM suite_test_cases JOIN test_suites ON test_suites.id = suite_test_cases.suite_id WHERE suite_test_cases.test_case_id = ? ORDER BY test_suites.name`).all(testCaseId),
-    db.prepare(`SELECT executions.* FROM execution_case_snapshots JOIN executions ON executions.id = execution_case_snapshots.execution_id WHERE execution_case_snapshots.test_case_id = ? ORDER BY executions.created_at DESC`).all(testCaseId),
-    db.prepare("SELECT * FROM automation_learning_cache WHERE test_case_id = ? ORDER BY updated_at DESC").all(testCaseId),
+    access["requirement.view"] ? db.prepare(`SELECT requirements.* FROM requirement_test_cases JOIN requirements ON requirements.id = requirement_test_cases.requirement_id WHERE requirement_test_cases.test_case_id = ? AND requirements.project_id = ? ORDER BY requirements.title`).all(testCaseId, scope.projectId) : [],
+    access["suite.view"] ? db.prepare(`SELECT test_suites.* FROM suite_test_cases JOIN test_suites ON test_suites.id = suite_test_cases.suite_id JOIN app_types ON app_types.id = test_suites.app_type_id WHERE suite_test_cases.test_case_id = ? AND app_types.project_id = ? ORDER BY test_suites.name`).all(testCaseId, scope.projectId) : [],
+    access["run.view"] ? db.prepare(`SELECT executions.* FROM execution_case_snapshots JOIN executions ON executions.id = execution_case_snapshots.execution_id WHERE execution_case_snapshots.test_case_id = ? AND executions.project_id = ? ORDER BY executions.created_at DESC`).all(testCaseId, scope.projectId) : [],
+    access["automation.view"] ? db.prepare("SELECT * FROM automation_learning_cache WHERE test_case_id = ? AND project_id = ? ORDER BY updated_at DESC").all(testCaseId, scope.projectId) : [],
     db.prepare("SELECT * FROM test_steps WHERE test_case_id = ? ORDER BY step_order").all(testCaseId)
   ]);
   const lowConfidence = automation.filter((item) => Number(item.confidence || 0) < 0.75);
-  const signals = [Number(testCase.priority || 3) <= 2 ? "High-priority test case." : null, runs.some((item) => ["queued", "running"].includes(item.status)) ? "Included in a queued or active run." : null, testCase.automation_status === "incomplete" ? "Automation is incomplete." : null, lowConfidence.length ? `${lowConfidence.length} locator dependency item(s) have confidence below 75%.` : null, requirements.length ? null : "No linked requirement was found."].filter(Boolean);
+  const signals = [Number(testCase.priority || 3) <= 2 ? "High-priority test case." : null, runs.some((item) => ["queued", "running"].includes(item.status)) ? "Included in a queued or active run." : null, testCase.automation_status === "incomplete" ? "Automation is incomplete." : null, lowConfidence.length ? `${lowConfidence.length} locator dependency item(s) have confidence below 75%.` : null, requirements.length || !access["requirement.view"] ? null : "No linked requirement was found."].filter(Boolean);
   const evidence = [testCase, ...requirements, ...suites, ...runs, ...automation].map((item) => item.display_id || item.id);
+  const aiReview = await reviewArtifact({ artifactType: "test-case", savedArtifact: { ...testCase, steps }, proposedChange,
+    baseline: assuranceBaseline, linkedEvidence: requirements.map(item => ({ ...item, kind: "requirement" })), user,
+    projectId: scope.projectId, integrationId, promptGuidance, additionalContext });
   return assisted({
     capability: "test-case-change-impact-preview",
-    input: { test_case_id: testCaseId, proposed_change: proposedChange },
+    input: { test_case_id: testCaseId, proposed_change: proposedChange, integration_id: integrationId, prompt_guidance: promptGuidance, assurance_baseline: assuranceBaseline, additional_context: additionalContext },
+    aiReview,
     evidence,
     confidence: evidence.length > 1 ? 0.82 : 0.58,
     payload: {
@@ -133,7 +150,7 @@ const previewTestCaseImpact = async ({ user, testCaseId, proposedChange }) => {
       risk_signals: signals,
       explanation: "Impact is derived from current HelloTest relationships, run snapshots, steps, and object repository dependencies. This preview does not mutate the test case.",
       recommended_actions: ["Review expected results and steps against the proposed change.", runs.length ? "Decide whether affected queued or active runs need refreshing or rerunning." : null, automation.length ? "Review automation and locator dependencies before applying the change." : null, "Apply changes only after human review."].filter(Boolean),
-      scope: { project_id: scope.projectId }
+      scope: { project_id: scope.projectId, unavailable_sources: Object.keys(access).filter(key => !access[key]) }
     }
   });
 };

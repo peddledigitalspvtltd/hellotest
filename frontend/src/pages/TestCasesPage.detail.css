@@ -1,0 +1,30 @@
+/* The focused Case editor owns the available viewport; only its content scrolls. */
+:root .app-shell.app-layout > .workspace-main > .page-content--test-cases.page-content--workspace-focus {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+:root .app-shell.app-layout > .workspace-main > .page-content--test-cases.page-content--workspace-focus > :is(.page-header, .success-message) { flex: 0 0 auto; }
+:root .app-shell.app-layout > .workspace-main > .page-content--test-cases.page-content--workspace-focus > .workspace-master-detail {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+.page-content--test-cases .test-case-workspace-shell > .panel-actions-inline,
+.page-content--test-cases .test-case-workspace-tabs,
+.page-content--test-cases .test-case-detail-footer { flex: 0 0 auto; }
+.page-content--test-cases .test-case-workspace-shell > .detail-stack { flex: 1 1 0; min-height: 0; }
+.page-content--test-cases .test-case-workspace-shell .test-case-workspace-tabs { padding: 4px 16px 0; }
+.page-content--test-cases .test-case-workspace-shell .detail-stack > .detail-section-panel { flex: 1 1 0; min-height: 0; }
+.page-content--test-cases .test-case-workspace-shell .test-case-detail-layout { grid-template-rows: minmax(0, 1fr) auto; }
+.page-content--test-cases .test-case-workspace-shell .test-case-detail-grid { min-height: 0; overflow-y: auto; }
+.page-content--test-cases .test-case-workspace-shell :is(.requirement-label-picker, .requirement-reference-picker, .requirement-label-entry, .requirement-reference-entry) {
+  background: var(--ws2-paper, var(--test-case-input)) !important;
+  border-color: var(--ws2-line, var(--test-case-border)) !important;
+  color: var(--ws2-ink, var(--test-case-ink));
+  box-shadow: none;
+}
+@media (max-width: 700px) {
+  .page-content--test-cases .test-case-workspace-shell .test-case-workspace-tabs { padding-right: 10px; padding-left: 10px; }
+}

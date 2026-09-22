@@ -145,16 +145,17 @@ exports.getSharedStepMetrics = async ({ app_type_id, project_id, include_executi
       COUNT(DISTINCT ts.test_case_id) FILTER (WHERE g.id IS NOT NULL)::int AS reused_case_count,
       COUNT(*) FILTER (WHERE g.id IS NOT NULL)::int AS shared_step_references
     FROM test_steps ts JOIN test_cases tc ON tc.id = ts.test_case_id
+    JOIN app_types a ON a.id = tc.app_type_id AND a.project_id = ?
     LEFT JOIN shared_step_groups g ON g.id = ts.reusable_group_id AND g.app_type_id = tc.app_type_id
     WHERE tc.app_type_id = ?
-  `).get(app_type_id);
+  `).get(project_id, app_type_id);
   const usage = await db.prepare(`
     SELECT g.id, g.name, COUNT(DISTINCT ts.test_case_id)::int AS case_count
-    FROM shared_step_groups g
+    FROM shared_step_groups g JOIN app_types a ON a.id = g.app_type_id AND a.project_id = ?
     LEFT JOIN test_steps ts ON ts.reusable_group_id = g.id
       AND EXISTS (SELECT 1 FROM test_cases tc WHERE tc.id = ts.test_case_id AND tc.app_type_id = g.app_type_id)
     WHERE g.app_type_id = ? GROUP BY g.id,g.name ORDER BY g.name,g.id
-  `).all(app_type_id);
+  `).all(project_id, app_type_id);
   const measured = include_execution ? await db.prepare(`${evidenceCtes}
     SELECT g.id,
       (SELECT COUNT(*)::int FROM ambiguous_native a WHERE a.group_id = g.id) AS ambiguous_step_identity_count,
@@ -192,7 +193,9 @@ exports.getSharedStepMetrics = async ({ app_type_id, project_id, include_executi
     reused_case_count: Number(repository.reused_case_count),
     shared_step_references: Number(repository.shared_step_references),
     shared_steps_executed: executed,
-    reusability_index: executed !== null && repository.total_steps > 0 ? Math.round(executed / repository.total_steps * 1000) / 10 : null,
+    // Retain the API field name; Reusability measures authored step occurrences,
+    // including repeated uses of the same group within a single test case.
+    reusability_index: repository.total_steps > 0 ? Math.round(repository.shared_step_references / repository.total_steps * 1000) / 10 : null,
     failure_cluster_count: include_execution ? measured.filter(group => group.failed_cases >= 2).length : null,
     defects_visible: defectsVisible,
     open_defect_count: defectsVisible ? Number(defects.open_defect_count) : null,

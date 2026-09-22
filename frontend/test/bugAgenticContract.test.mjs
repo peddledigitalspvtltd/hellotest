@@ -4,20 +4,22 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("Defect creation and triage render feature-specific processing with evidence in flyouts", async () => {
-  const [issues, insightDialog] = await Promise.all([
+test("Defect creation and triage keep feature-specific reviews and cited evidence", async () => {
+  const [issues, insightDialog, triage] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
-    readSource("../src/components/AiInsightPreviewDialog.tsx")
+    readSource("../src/components/AiInsightPreviewDialog.tsx"),
+    readSource("../src/components/DefectTriageDialog.tsx")
   ]);
 
-  assert.match(issues, /profile="bug-create"/);
-  assert.match(issues, /profile="bug-triage"/);
+  assert.match(issues, /processProfile="bug-create"/);
+  assert.match(issues, /<DefectTriageDialog/);
   assert.match(issues, /aiDraftPreview\?\.processing/);
-  assert.match(issues, /previewAiBugTriage\.data\?\.processing/);
   assert.match(issues, /eyebrow="Defect creation · Input evidence"/);
   assert.match(issues, /eyebrow="Defect creation · Decision evidence"/);
-  assert.match(issues, /recommendation\.evidence_refs/);
-  assert.match(issues, /boundaryOmissions=\{asArray\(previewAiBugTriage\.data\?\.boundaries\?\.omissions\)\}/);
+  assert.match(triage, /active\?\.evidence_refs\.includes\(source\.ref\)/);
+  assert.match(triage, /preview\.data\.boundaries\?\.omissions/);
+  assert.match(triage, /smart_context: \{ reviewed_context:/);
+  assert.match(triage, /contextMaxLength=\{8_000\}/);
   assert.doesNotMatch(issues, /<details className="ai-bug-/);
 
   assert.match(insightDialog, /finding\.evidence\?\.length \? \(/);
@@ -30,16 +32,17 @@ test("Defect creation and triage render feature-specific processing with evidenc
 });
 
 test("Defect draft requests honor the prompt registry and preserve the bounded evidence contract", async () => {
-  const [issues, api, types] = await Promise.all([
+  const [issues, api, types, triage] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/lib/api.ts"),
-    readSource("../src/types.ts")
+    readSource("../src/types.ts"),
+    readSource("../src/components/DefectTriageDialog.tsx")
   ]);
 
   assert.match(issues, /getLlmIntegrationId\("ai\.bug\.draft"\)/);
   assert.match(issues, /getPrompt\("ai\.bug\.draft"\)/);
-  assert.match(issues, /getLlmIntegrationId\("ai\.bug\.triage"\)/);
-  assert.match(issues, /getPrompt\("ai\.bug\.triage"\)/);
+  assert.match(triage, /getLlmIntegrationId\("ai\.bug\.triage"\)/);
+  assert.match(triage, /getPrompt\("ai\.bug\.triage"\)/);
   assert.match(issues, /Object\.entries\(aiDraftPreview\.boundaries\.omitted\)/);
   assert.match(issues, /boundaries\.content_omissions/);
   assert.match(api, /prompt_guidance\?: string/);
@@ -82,18 +85,20 @@ test("human edits invalidate generated Defect field evidence before acceptance",
 });
 
 test("Defect authoring controls expose checkbox semantics, stable pane focus, contrast, and mobile safe area", async () => {
-  const [issues, issueStyles, modalStyles] = await Promise.all([
+  const [issues, issueStyles, modalStyles, shell] = await Promise.all([
     readSource("../src/pages/IssuesPage.tsx"),
     readSource("../src/pages/IssuesPage.css"),
-    readSource("../src/modal-system.css")
+    readSource("../src/modal-system.css"),
+    readSource("../src/components/StoryAiStudioShell.tsx")
   ]);
 
   assert.match(issues, /aria-labelledby=\{labelId\} className="impact-checkbox-list" role="group"/);
   assert.doesNotMatch(issues, /role="listbox"/);
-  assert.match(issues, /aria-controls=\{controlsId\}/);
-  assert.match(issues, /id=\{aiBugContextPaneId\}/);
-  assert.match(issues, /restoreAiBugContextToggleFocusRef/);
-  assert.match(issues, /aiBugContextPaneToggleRef\.current\?\.focus\(\)/);
+  assert.match(issues, /<StoryAiStudioShell/);
+  assert.match(issues, /entityLabel="Defect"/);
+  assert.match(issues, /showOutputFormat=\{false\}/);
+  assert.match(shell, /aria-controls=\{`\$\{titleId\}-intelligence`\}/);
+  assert.match(shell, /intelligenceToggle\.current\?\.focus\(\)/);
   assert.match(issueStyles, /:root\[data-theme="dark"\] \.ai-bug-evidence-sources article > span \{\s*color: #85b8ff;/);
   assert.match(modalStyles, /\.ai-authoring-dialog--bugs \.ai-bug-draft-footer \{\s*padding-bottom: max\(10px, env\(safe-area-inset-bottom\)\) !important;/);
 });

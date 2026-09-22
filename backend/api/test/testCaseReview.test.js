@@ -40,7 +40,9 @@ function fixture(overrides = {}) {
           if (/FROM app_types/.test(sql)) return { id: 'app', project_id: 'project' };
           if (/FROM users/.test(sql)) return { id, name: id };
           if (/FROM project_members/.test(sql)) return { user_id: id };
-          if (/FROM test_cases/.test(sql)) return clone(state.row);
+          if (/FROM test_cases/.test(sql)) return state.row
+            ? { ...clone(state.row), ...(/AS revision/.test(sql) ? { revision: state.revision } : {}) }
+            : null;
           return null;
         },
         all: async () => /FROM test_steps/.test(sql) ? clone(state.steps) : [],
@@ -81,7 +83,7 @@ function fixture(overrides = {}) {
       };
       if (dependency === './testCaseVersion.service') return {
         assertExpectedRevision: async (_, expected) => { if (expected !== undefined && expected !== state.revision) throw Object.assign(new Error('Stale revision'), { statusCode: 409 }); },
-        capture: async data => { state.versions.push(clone(data)); state.revision++; },
+        capture: async data => { state.versions.push(clone(data)); return { revision: state.revision++ }; },
         buildSnapshot: async row => ({ ...row, steps: [{ action: 'Pay' }] })
       };
       return {};
@@ -104,6 +106,7 @@ test('successive saves of metadata and steps complete without reporting a failur
       steps: [{ step_order: 1, action: `Pay ${edit}`, expected_result: `Receipt ${edit}` }]
     });
     assert.equal(result.updated, true);
+    assert.equal(result.revision, edit + 1);
     assert.equal(state.row.title, `Checkout edit ${edit}`);
     assert.equal(state.row.description, `Description ${edit}`);
     assert.deepEqual(state.row.labels, ['checkout', `edit-${edit}`]);
@@ -123,8 +126,31 @@ test('successive saves of metadata and steps complete without reporting a failur
   assert.deepEqual(clone(state), beforeStaleSave);
   const cleared = await service.updateTestCase('case', { steps: [], expected_revision: 4, updated_by: 'creator' });
   assert.equal(cleared.updated, true);
+  assert.equal(cleared.revision, 5);
   assert.equal(state.steps.length, 0);
   assert.equal(state.revision, 5);
+});
+
+test('suite-only saves return the committed revision and preserve authoring content for the next edit', async () => {
+  const document = 'Feature: Checkout\n\nScenario: Pay\n  When payment is submitted\n  Then a receipt is shown';
+  const { service, state } = fixture({ suite_id: 'old-suite', description: 'Original description', gherkin_document: document, authoring_mode: 'gherkin' });
+  state.steps = [{ step_order: 1, action: 'Pay', expected_result: 'Receipt' }];
+  const result = await service.updateTestCase('case', { suite_ids: [], expected_revision: 1, updated_by: 'creator' });
+  assert.equal(result.updated, true);
+  assert.equal(result.revision, 2);
+  assert.equal((await service.getTestCase('case')).revision, result.revision);
+  assert.equal(state.row.suite_id, null);
+  assert.equal(state.row.title, 'Checkout');
+  assert.equal(state.row.description, 'Original description');
+  assert.equal(state.row.gherkin_document, document);
+  assert.deepEqual(state.steps, [{ step_order: 1, action: 'Pay', expected_result: 'Receipt' }]);
+  const edited = await service.updateTestCase('case', {
+    title: 'Unsaved title now submitted', expected_revision: result.revision, updated_by: 'creator'
+  });
+  assert.equal(edited.revision, 3);
+  assert.equal((await service.getTestCase('case')).revision, edited.revision);
+  assert.equal(state.row.title, 'Unsaved title now submitted');
+  assert.equal(state.row.gherkin_document, document);
 });
 
 test('saving reusable steps synchronizes each shared group instance once by default', async () => {

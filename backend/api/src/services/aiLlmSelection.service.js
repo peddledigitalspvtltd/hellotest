@@ -2,6 +2,9 @@ const integrationService = require("./integration.service");
 const settingsService = require("./settings.service");
 
 const AI_PROMPT_LLM_OVERRIDES_KEY = "ai_prompt_registry_llm_overrides";
+const AI_LAST_SUCCESSFUL_LLM_KEY = "ai_last_successful_llm";
+const selectionContexts = new WeakMap();
+const pendingWrites = new Map();
 
 const normalizeText = (value) => {
   if (typeof value !== "string") {
@@ -40,20 +43,33 @@ const validateLlmIntegration = (integration) => {
   return integration;
 };
 
-const getConfiguredIntegrationId = async ({ userId, usageKey } = {}) => {
-  const normalizedUserId = normalizeText(userId);
-  const normalizedUsageKey = normalizeText(usageKey);
+const normalizeSuccessfulSelections = (value) => (Array.isArray(value) ? value : [])
+  .filter((entry) => entry && normalizeText(entry.integration_id) && Number.isFinite(Date.parse(entry.succeeded_at)))
+  .map((entry) => ({ integration_id: entry.integration_id.trim(), project_id: normalizeText(entry.project_id), usage_key: normalizeText(entry.usage_key), succeeded_at: entry.succeeded_at }))
+  .sort((left, right) => Date.parse(right.succeeded_at) - Date.parse(left.succeeded_at))
+  .slice(0, 100);
 
-  if (!normalizedUserId || !normalizedUsageKey) {
-    return null;
-  }
-
-  const preferences = await settingsService.getWorkspacePreferences(normalizedUserId);
-  const overrides = normalizePromptLlmOverrides(preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY]);
-  return overrides[normalizedUsageKey] || null;
+// A provider selection is only remembered after the shared HTTP client confirms
+// a usable response. Failed attempts and merely opening a selector never write.
+exports.recordSuccessfulLlmIntegration = async (integration) => {
+  const context = integration && selectionContexts.get(integration);
+  if (!context?.userId || !integration.id) return;
+  const previous = pendingWrites.get(context.userId) || Promise.resolve();
+  const write = previous.catch(() => {}).then(async () => {
+    const preferences = await settingsService.getWorkspacePreferences(context.userId);
+    const entries = normalizeSuccessfulSelections(preferences?.[AI_LAST_SUCCESSFUL_LLM_KEY])
+      .filter((entry) => entry.project_id !== context.projectId || entry.usage_key !== context.usageKey);
+    await settingsService.updateWorkspacePreferences(context.userId, {
+      [AI_LAST_SUCCESSFUL_LLM_KEY]: [{ integration_id: integration.id, project_id: context.projectId, usage_key: context.usageKey, succeeded_at: new Date().toISOString() }, ...entries].slice(0, 100)
+    });
+  });
+  pendingWrites.set(context.userId, write);
+  try { await write; } catch { /* Preference storage must not turn a working response into a failed request. */ }
+  finally { if (pendingWrites.get(context.userId) === write) pendingWrites.delete(context.userId); }
 };
 
 exports.AI_PROMPT_LLM_OVERRIDES_KEY = AI_PROMPT_LLM_OVERRIDES_KEY;
+exports.AI_LAST_SUCCESSFUL_LLM_KEY = AI_LAST_SUCCESSFUL_LLM_KEY;
 exports.normalizePromptLlmOverrides = normalizePromptLlmOverrides;
 
 exports.resolveLlmIntegrationForUsage = async ({
@@ -65,13 +81,33 @@ exports.resolveLlmIntegrationForUsage = async ({
   allowMissing = false
 } = {}) => {
   const explicitIntegrationId = normalizeText(integrationId);
-  const configuredIntegrationId = explicitIntegrationId
-    ? null
-    : await getConfiguredIntegrationId({ userId, usageKey });
-  const selectedIntegrationId = explicitIntegrationId || configuredIntegrationId;
-
-  if (selectedIntegrationId) {
-    return validateLlmIntegration(await integrationService.getIntegration(selectedIntegrationId));
+  const context = { userId: normalizeText(userId), usageKey: normalizeText(usageKey), projectId: normalizeText(projectId) };
+  const remember = (integration) => {
+    const validated = validateLlmIntegration(integration);
+    if (validated) selectionContexts.set(validated, context);
+    return validated;
+  };
+  if (explicitIntegrationId) {
+    return remember(await integrationService.getIntegration(explicitIntegrationId));
+  }
+  const preferences = context.userId ? await settingsService.getWorkspacePreferences(context.userId) : {};
+  const configuredIntegrationId = normalizePromptLlmOverrides(preferences?.[AI_PROMPT_LLM_OVERRIDES_KEY])[context.usageKey];
+  const successfulSelections = normalizeSuccessfulSelections(preferences?.[AI_LAST_SUCCESSFUL_LLM_KEY])
+    .filter((entry) => entry.project_id === context.projectId);
+  const candidates = [...new Set([
+    configuredIntegrationId,
+    ...successfulSelections.filter((entry) => entry.usage_key === context.usageKey).map((entry) => entry.integration_id),
+    ...successfulSelections.map((entry) => entry.integration_id)
+  ].filter(Boolean))];
+  for (const id of candidates) {
+    // Implicit preferences can become stale after an integration is retired.
+    // They must not prevent a remaining active provider from working.
+    let candidate;
+    try { candidate = await integrationService.getIntegration(id); }
+    catch (error) { if (error?.message === "Integration not found") continue; throw error; }
+    const candidateProject = normalizeText(candidate?.config?.project_id);
+    if (candidate?.type !== "llm" || !candidate.is_active || (candidateProject && candidateProject !== context.projectId)) continue;
+    return remember(candidate);
   }
 
   let integration = null;
@@ -96,5 +132,5 @@ exports.resolveLlmIntegrationForUsage = async ({
     throw new Error("No active LLM integration is configured");
   }
 
-  return validateLlmIntegration(integration);
+  return remember(integration);
 };

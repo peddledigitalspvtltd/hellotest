@@ -17,6 +17,7 @@ test("requirement Feature names preserve scenarios, tags, examples, parameters a
 const createServiceFixture = () => {
   const state = {
     row: null,
+    revision: 1,
     requirementIds: new Set(),
     stories: new Map([
       ["z-primary", { id: "z-primary", title: "Account access", project_id: "project" }],
@@ -68,7 +69,7 @@ const createServiceFixture = () => {
       if (dependency === "./displayId.service") return { createDisplayId: async () => "TC-1" };
       if (dependency === "./dropdownCatalog.service") return { getDefaultValue: async () => "functional", validateValue: async (key, value) => { assert.equal(key, "test_cases.types"); assert.equal(value, "functional"); return value; } };
       if (dependency === "./mobileFeature.service") return { assertAuthoringMobileFeatureEnabled: noop };
-      if (dependency === "./testCaseVersion.service") return { assertExpectedRevision: noop, capture: noop, buildSnapshot: async () => ({ steps: [] }) };
+      if (dependency === "./testCaseVersion.service") return { assertExpectedRevision: noop, capture: async () => ({ revision: state.revision++ }), buildSnapshot: async () => ({ steps: [] }) };
       return {};
     }
   });

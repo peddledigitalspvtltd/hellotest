@@ -864,11 +864,14 @@ button.execution-command-tree-row:hover,
 }
 
 .execution-command-case-copy strong {
+  min-width: 0;
+  width: 100%;
   overflow: hidden;
   color: var(--execution-command-ink);
   font-size: 0.88rem;
   font-weight: 650;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .execution-command-case-copy > span,
@@ -1876,3 +1879,16 @@ button.execution-command-tree-row:hover,
   max-width: 100%;
   white-space: normal;
 }
+
+.execution-command-failure-analysis { display: grid; min-width: 0; gap: .6rem; padding: .8rem; border-top: 1px solid var(--execution-command-line); }
+.execution-command-failure-analysis .ai-feature-composer { min-width: 0; margin: 0; }
+.execution-command-failure-analysis .ai-feature-composer__footer,
+.execution-command-failure-analysis .ai-feature-composer__controls { flex-wrap: wrap; }
+.execution-command-failure-analysis .ai-feature-composer__context { min-width: 0; max-width: 100%; white-space: normal; }
+.execution-command-cluster-button { min-height: 36px; padding: .5rem .65rem; border: 1px solid var(--execution-command-line); border-radius: 7px; color: var(--execution-command-ink); background: var(--execution-command-surface); font-size: .73rem; cursor: pointer; }
+.execution-command-cluster-button:disabled { opacity: .55; cursor: not-allowed; }
+.execution-command-feed strong,
+.execution-command-inspector-head strong,
+.execution-case-card .tile-card-title-group > strong,
+.execution-case-list-copy > strong { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.execution-case-list-copy { min-width: 0; max-width: 100%; }

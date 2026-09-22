@@ -147,7 +147,7 @@ const requestRephrase = async ({ integration, input }) => {
           }
         ]
       })
-    }, { timeoutMs: AI_TIMEOUT_MS, operation: "rich-text.rephrase" });
+    }, { integration, timeoutMs: AI_TIMEOUT_MS, operation: "rich-text.rephrase" });
 
     if (!response.ok) {
       const detail = normalizeText(await response.text(), 240);

@@ -72,7 +72,7 @@ test("Story grooming exposes an optional seven-section walkthrough without break
   assert.match(types, /readiness\?: StoryGroomingReadiness/);
   assert.match(types, /checks\?: StoryGroomingReadinessCheck\[\]/);
   assert.match(types, /external_references: number/);
-  assert.match(api, /previewGrooming: \(id: string, input: \{ project_id: string; integration_id\?: string; prompt_guidance\?: string \}\)/);
+  assert.match(api, /previewGrooming: \(id: string, input: \{ project_id: string; integration_id\?: string; prompt_guidance\?: string; additional_context\?: string \}\)/);
 });
 
 test("Story grooming prompt requires an evidence-grounded end-to-end walkthrough and forbids invention", async () => {
@@ -248,14 +248,14 @@ test("Story grooming retains the last successful brief when a refresh fails", as
   const page = await readSource("../src/pages/RequirementsPage.tsx");
 
   assert.match(page, /storyGroomingByRequirementId/);
-  assert.match(page, /onSuccess: \(response\) => \{/);
+  assert.match(page, /onSuccess: \(response, variables\) => \{/);
   assert.match(page, /\[response\.requirement\.id\]: response/);
   assert.match(page, /storyGroomingByRequirementId\[selectedRequirement\.id\] \|\| null/);
   assert.match(page, /storyGroomingContextChangedByRequirementId/);
   assert.match(page, /previewStoryGrooming\.error instanceof Error && storyGroomingMutationMatchesSelection/);
-  assert.match(page, /integration_id: getLlmIntegrationId\("ai\.requirement\.grooming"\)/);
-  assert.match(page, /prompt_guidance: getPrompt\("ai\.requirement\.grooming"\)/);
-  assert.match(page, /supportingContextChanged=\{Boolean\(storyGroomingContextChangedByRequirementId\[selectedRequirement\.id\]\)\}/);
+  assert.match(page, /integration_id: storyGroomingIntegrationId \|\| storyGroomingDefaultIntegrationId/);
+  assert.match(page, /prompt_guidance: storyGroomingPromptGuidance \?\? getPrompt\("ai\.requirement\.grooming"\)/);
+  assert.match(page, /supportingContextChanged=\{storyGroomingReviewContextChanged \|\| Boolean\(storyGroomingContextChangedByRequirementId\[selectedRequirement\.id\]\)\}/);
 });
 
 test("Story grooming prompt guidance stays within the backend contract", async () => {

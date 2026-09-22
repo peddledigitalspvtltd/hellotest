@@ -171,7 +171,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
             ? "project_analysis"
             : "project_knowledge";
   const validRequested = unique(asArray(requestedScopes).map((scope) => normalizeText(scope, 80).toLowerCase()).filter((scope) => CONTEXT_SCOPES.includes(scope)));
-  const baseScopes = validRequested.length ? validRequested : unique([...policy.priority_scopes, ...intentScopes]);
+  const baseScopes = validRequested.length ? validRequested : policy.priority_scopes;
   // Knowledge is a governed evidence source for every specialist. It is added
   // even when the caller chooses only relational scopes; ACL checks still run.
   const effectiveScopes = unique([...baseScopes, "knowledge"])
@@ -181,7 +181,7 @@ const planContext = ({ prompt, agentId, requestedScopes = [], mode = "chat", his
       return (leftRank < 0 ? 99 : leftRank) - (rightRank < 0 ? 99 : rightRank);
     });
   const priorityScopes = policy.priority_scopes.filter((scope) => effectiveScopes.includes(scope));
-  const liveScopes = unique([...validRequested, ...intentScopes, ...priorityScopes]).filter((scope) => scope !== "knowledge");
+  const liveScopes = effectiveScopes.filter((scope) => scope !== "knowledge");
   const indexedSourceKinds = pureProductHelp
     ? ["product_help"]
     : unique([

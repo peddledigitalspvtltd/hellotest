@@ -211,7 +211,8 @@
   font-size: 0.75rem;
 }
 
-.artifact-assurance-stale {
+.artifact-assurance-stale,
+.artifact-assurance-baseline-note {
   margin: 0;
   padding: 9px 11px;
   border: 1px solid #f5cd47;

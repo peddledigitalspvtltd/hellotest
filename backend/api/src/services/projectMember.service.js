@@ -1,5 +1,6 @@
 const db = require("../db");
 const { randomUUID: uuid } = require("crypto");
+const { assertProjectRoleAssignmentAllowed } = require("./projectRoleAssignment");
 
 const selectRoleById = db.prepare(`
   SELECT id, name
@@ -12,14 +13,6 @@ const selectUserById = db.prepare(`
   FROM users
   WHERE id = ?
 `);
-
-const assertProjectRoleAssignmentAllowed = (user, role) => {
-  if (String(role?.name || "").trim().toLowerCase() === "admin" && !user?.is_workspace_admin) {
-    const error = new Error("The workspace administrator role cannot be assigned through project membership");
-    error.statusCode = 403;
-    throw error;
-  }
-};
 
 exports.createProjectMember = async ({ project_id, user_id, role_id }) => {
   if (!project_id || !user_id || !role_id) {

@@ -23,6 +23,7 @@ import '/src/modal-system.css';
 import '/src/workspace-layout.css';
 import '/src/catalog-list.css';
 import '/src/execution-run-builder.css';
+import '/src/components/workspace-surfaces.css';
 let session={token:'review-browser',user:{id:'reviewer',name:'Reviewer',email:'reviewer@example.test',role:'admin'}};
 sessionStorage.write(session);setCurrentScope('case-project','case-app');
 localStorage.setItem('hellotest.default_catalog_view_mode','tile');
@@ -69,7 +70,7 @@ api.testCases.rejectGeneratedCase=api.testCases.acceptGeneratedCase;
 const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(['feature-flags'],flags);window.client=client;
 const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>}],{initialEntries:['/test-cases']});
 function Controls(){const auth=useAuth();window.changeUser=async(id,readOnly=false)=>{session={token:'token-'+id,user:{id,name:id,email:id+'@example.test',role:readOnly?'member':'admin',project_permissions:{'case-project':['testcase.view','project.view','app_type.view']}}};sessionStorage.write(session);await auth.refreshSession()};window.changeScope=(p,a)=>setCurrentScope(p,a);return null}
-createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><Controls/><LocalizationProvider userId='reviewer'><main style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></LocalizationProvider></AuthProvider></QueryClientProvider>);
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><Controls/><LocalizationProvider userId='reviewer'><div className='workspace-experience-v2'><main className='workspace-main' style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></div></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
 
 test('Review Cases owns complete pending queue across filters, modules, pagination, decisions and identities', {timeout:120000}, async()=>{
@@ -78,7 +79,7 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
  try{
   await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
-  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
   const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'}),errors=[];page.on('pageerror',error=>errors.push(error.stack));page.setDefaultTimeout(15000);
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
   const review=page.getByRole('button',{name:/^Review Cases/});
@@ -92,6 +93,13 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.getByText('My pending reviews',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Approve review for Manual review 01',exact:true}).waitFor();
   assert.equal(await page.locator('.test-case-module-header').count(),0,'queue is flat even for module-owned cases');
+  for (const theme of ['light','dark']) {
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    await page.waitForTimeout(300);
+    const colors=await page.locator('.test-case-review-actions').first().evaluate(element=>Array.from(element.querySelectorAll('button')).map(button=>getComputedStyle(button).backgroundColor));
+    assert.deepEqual(colors,theme==='dark'?['rgb(18, 58, 42)','rgb(74, 32, 44)']:['rgb(233, 248, 238)','rgb(255, 240, 241)'],'individual review colors '+theme);
+  }
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
   assert.equal(await page.getByRole('textbox',{name:'Search test cases'}).count(),0);
   const first=await page.evaluate(()=>window.calls.catalog.find(item=>item.review_queue==='mine'));
   assert.equal(first.search,undefined);assert.equal(first.unassigned_module,false);assert.equal(first.exclude_automated,undefined);
@@ -137,8 +145,8 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.getByRole('button',{name:'List view',exact:true}).click();
   await page.locator('.test-case-review-actions:not(.is-icon-only)').first().waitFor();
   await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).innerText(),'Yes');
-  assert.equal(await page.getByRole('button',{name:'Request changes for Manual review 03',exact:true}).innerText(),'No');
+  assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).innerText(),'Approve');
+  assert.equal(await page.getByRole('button',{name:'Request changes for Manual review 03',exact:true}).innerText(),'Reject');
   await page.screenshot({path:artifacts+'/list.png'});
   // A changed case is never silently approved from an older tile/list snapshot.
   await page.evaluate(()=>{const item=window.cases.find(item=>item.id==='case-3');item.revision=8;item.title='Updated manual review 03'});
@@ -159,6 +167,12 @@ test('Review Cases owns complete pending queue across filters, modules, paginati
   await page.getByRole('checkbox',{name:'Select Test Case Updated manual review 03',exact:true}).check();
   await page.getByRole('checkbox',{name:'Select Test Case AI review 04',exact:true}).check();
   assert.equal(await review.count(),0,'Review Cases is replaced while eligible cases are selected');
+  for(const theme of ['light','dark']) {
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await page.waitForTimeout(300);
+    const colors=await page.locator('.test-case-review-approve,.test-case-review-reject').evaluateAll(buttons=>buttons.map(button=>getComputedStyle(button).backgroundColor));
+    assert.deepEqual(colors,theme==='dark'?['rgb(18, 58, 42)','rgb(74, 32, 44)']:['rgb(233, 248, 238)','rgb(255, 240, 241)'],'bulk review colors '+theme);
+  }
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
   await page.evaluate(()=>window.failCase='case-4');
   await page.getByRole('button',{name:'Approve (2)',exact:true}).click();
   await page.getByText(/1 Test Case approved.*1 could not be reviewed/).waitFor();

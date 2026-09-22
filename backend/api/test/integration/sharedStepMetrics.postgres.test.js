@@ -11,7 +11,7 @@ test('Shared Step metrics use exact reuse, frozen step outcomes and truthful mis
     for (const [a,p] of [['a','p'],['foreign-a','foreign']]) await db.prepare('INSERT INTO app_types(id,project_id,name,type) VALUES(?,?,?,?)').run(a,p,a,'web');
     for (const [g,a] of [['g1','a'],['g2','a'],['foreign-g','foreign-a']]) await db.prepare('INSERT INTO shared_step_groups(id,app_type_id,name) VALUES(?,?,?)').run(g,a,g);
     for (const [c,a] of [['c1','a'],['c2','a'],['foreign-c','foreign-a']]) await db.prepare('INSERT INTO test_cases(id,app_type_id,title) VALUES(?,?,?)').run(c,a,c);
-    for (const [s,c,g] of [['s1','c1','g1'],['s2','c1','g2'],['s3','c2',null],['foreign-s','foreign-c','g1']]) await db.prepare('INSERT INTO test_steps(id,test_case_id,step_order,reusable_group_id) VALUES(?,?,1,?)').run(s,c,g);
+    for (const [s,c,g] of [['s1','c1','g1'],['s2','c1','g2'],['s3','c2',null],['s4','c1','g1'],['foreign-s','foreign-c','g1']]) await db.prepare('INSERT INTO test_steps(id,test_case_id,step_order,reusable_group_id) VALUES(?,?,1,?)').run(s,c,g);
     for (const [r,p,a] of [['r1','p','a'],['r2','p','a'],['foreign-r','foreign','foreign-a']]) await db.prepare('INSERT INTO executions(id,project_id,app_type_id,status) VALUES(?,?,?,?)').run(r,p,a,'completed');
     for (const [r,c,s,g] of [['r1','c1','s1','g1'],['r1','c1','s2','g2'],['r1','c2','s3','g1'],['r2','c1','s1','g1'],['foreign-r','foreign-c','foreign-s','g1']]) await db.prepare('INSERT INTO execution_step_snapshots(execution_id,test_case_id,snapshot_step_id,step_order,reusable_group_id) VALUES(?,?,?,1,?)').run(r,c,s,g);
     const results = [
@@ -26,10 +26,11 @@ test('Shared Step metrics use exact reuse, frozen step outcomes and truthful mis
     for (const [id,r,c,a,iteration,statuses,date] of results) await db.prepare('INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,data_set_iteration_index,logs,created_at) VALUES(?,?,?,?,?,?,?,?)').run(id,r,c,a,'failed',iteration,JSON.stringify({stepStatuses:statuses}),date);
     await db.prepare('INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,data_set_iteration_index,logs,created_at) VALUES(?,?,?,?,?,?,?,?)').run('plain','r1','c1','a','failed',3,'legacy text is not JSON','2026-09-05');
     const metrics = await service.getSharedStepMetrics({app_type_id:'a',project_id:'p',now});
-    assert.equal(metrics.total_repository_steps,3);
+    assert.equal(metrics.total_repository_steps,4);
+    assert.equal(metrics.shared_step_references,3,'the same group used twice in one case contributes two occurrences');
     assert.equal(metrics.reused_case_count,1,'case using two groups counts once; foreign links do not count');
     assert.equal(metrics.shared_steps_executed,5,'latest attempts and data rows count; blocked, malformed logs, foreign and old results do not');
-    assert.equal(metrics.reusability_index,166.7,'execution/repository ratio may exceed 100%');
+    assert.equal(metrics.reusability_index,75,'three shared references among four authored case steps; execution frequency is irrelevant');
     assert.equal(metrics.failure_cluster_count,1);
     assert.equal(metrics.mtti_ms,null);
     const g1=metrics.groups.find(g=>g.id==='g1'),g2=metrics.groups.find(g=>g.id==='g2');
@@ -39,7 +40,7 @@ test('Shared Step metrics use exact reuse, frozen step outcomes and truthful mis
     const listed=await groups.listSharedStepGroups({app_type_id:'a'});
     assert.equal(listed.find(g=>g.id==='g1').usage_count,1,'usage excludes invalid cross-application link');
     const hidden=await service.getSharedStepMetrics({app_type_id:'a',project_id:'p',now,include_execution:false});
-    assert.equal(hidden.reusability_index,null);assert.equal(hidden.shared_steps_executed,null);
+    assert.equal(hidden.reusability_index,75,'reuse remains visible without run access');assert.equal(hidden.shared_steps_executed,null);
     assert.ok(hidden.groups.every(g=>g.failed_steps===undefined && g.failure_evidence===undefined));
     // A native step outcome supersedes the corresponding manual log; it does
     // not count the same observation twice.
@@ -72,9 +73,9 @@ test('Shared Step metrics use exact reuse, frozen step outcomes and truthful mis
     await db.prepare('DELETE FROM execution_results WHERE id = ?').run('legacy-default');
     const ambiguous = await service.getSharedStepMetrics({app_type_id:'a',project_id:'p',now});
     assert.equal(ambiguous.shared_steps_executed,null,'unknown native-to-identified-manual correspondence cannot invent a distinct total');
-    assert.equal(ambiguous.reusability_index,null);assert.equal(ambiguous.execution_visible,true);
+    assert.equal(ambiguous.reusability_index,75,'ambiguous execution identities do not affect authored reuse');assert.equal(ambiguous.execution_visible,true);
     assert.match(ambiguous.execution_evidence_reason,/no data-row identity/);
-    assert.equal(ambiguous.reused_case_count,1);assert.equal(ambiguous.total_repository_steps,3,'exact repository counts remain available');
+    assert.equal(ambiguous.reused_case_count,1);assert.equal(ambiguous.total_repository_steps,4,'exact repository counts remain available');
     const uncertain = ambiguous.groups.find(g=>g.id==='g1');
     for (const field of ['executed_steps','passed_steps','failed_steps']) assert.equal(uncertain[field],null);
     assert.match(uncertain.execution_evidence_reason,/cannot be determined/);
@@ -135,5 +136,23 @@ test('Shared Step metrics use exact reuse, frozen step outcomes and truthful mis
     }
     await db.prepare("UPDATE feedback SET status = 'closed' WHERE id IN ('open-matching','native-only-defect','exact-step-defect')").run();
     assert.equal((await service.getSharedStepMetrics({app_type_id:'a',project_id:'p',now})).open_defect_count,0,'closing a defect immediately removes it from the metric');
+    const noExecution = {app_type_id:'a',project_id:'p',now,include_execution:false,include_defects:false};
+    const wrongProject = await service.getSharedStepMetrics({...noExecution,project_id:'foreign'});
+    assert.equal(wrongProject.total_repository_steps,0,'application counts must also match the requested project');
+    assert.equal(wrongProject.reusability_index,null);
+    assert.deepEqual(wrongProject.groups,[]);
+    await db.prepare("INSERT INTO app_types(id,project_id,name,type) VALUES('sibling-a','p','Sibling','web')").run();
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title) VALUES('sibling-c','sibling-a','Other application')").run();
+    await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order) VALUES('sibling-s','sibling-c',1)").run();
+    assert.equal((await service.getSharedStepMetrics(noExecution)).reusability_index,75,'other applications in the same project do not affect the ratio');
+    await db.prepare("DELETE FROM test_steps WHERE test_case_id IN ('c1','c2')").run();
+    assert.equal((await service.getSharedStepMetrics(noExecution)).reusability_index,null,'no steps means no percentage');
+    await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order) VALUES('standalone','c1',1)").run();
+    assert.equal((await service.getSharedStepMetrics(noExecution)).reusability_index,0,'standalone steps with no references mean zero reuse');
+    for (const id of ['repeat-1','repeat-2']) await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,reusable_group_id) VALUES(?,'c1',2,'g1')").run(id);
+    const repeated = await service.getSharedStepMetrics(noExecution);
+    assert.equal(repeated.shared_step_references,2);
+    assert.equal(repeated.reused_case_count,1);
+    assert.equal(repeated.reusability_index,66.7,'every occurrence counts, rounded to one decimal place');
   } finally { await db.close(); await require('../../src/obsDb').close(); }
 });

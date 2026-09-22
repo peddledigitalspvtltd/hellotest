@@ -59,6 +59,13 @@ const compressFileTextForPrompt = (value: string, limit: number) => {
 };
 
 export const buildRequirementContextSection = (requirements: Requirement[]) => {
+  const seen = new Set<string>();
+  requirements = requirements.filter((item) => {
+    const key = item.id || `${item.title}\n${item.description || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   if (!requirements.length) {
     return "";
   }
@@ -211,15 +218,19 @@ export const mergeAiContextPack = (current: string, sections: string[]) => {
   return trimToBudget([compactText(current), contextPack].filter(Boolean).join("\n\n---\n\n"), AI_CONTEXT_PACK_LIMIT);
 };
 
-export const stripSmartContextPack = (value: string) => compactText(value)
-  .replace(/\[HELLOTEST_SMART_CONTEXT_START\][\s\S]*?\[HELLOTEST_SMART_CONTEXT_END\]/g, "")
+export const stripSmartContextPack = (value: string) => value
+  .replace(/(?:\n\n---\n\n)?\[HELLOTEST_SMART_CONTEXT_START\][\s\S]*?\[HELLOTEST_SMART_CONTEXT_END\]/g, "")
   .replace(/\n{3,}/g, "\n\n")
   .trim();
 
 export const replaceSmartContextPack = (current: string, smartContext: string) => {
   const base = stripSmartContextPack(current);
-  const reviewedPack = compactText(smartContext);
-  return trimToBudget([base, reviewedPack].filter(Boolean).join("\n\n---\n\n"), AI_CONTEXT_PACK_LIMIT);
+  const reviewedPack = smartContext.trim();
+  const result = [base, reviewedPack].filter(Boolean).join("\n\n---\n\n");
+  if (result.length > AI_CONTEXT_PACK_LIMIT) {
+    throw new Error("Shorten the additional instructions or reviewed context before applying Smart Context.");
+  }
+  return result;
 };
 
 export const parseExternalLinks = (value: string) =>

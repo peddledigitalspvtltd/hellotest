@@ -150,7 +150,8 @@ test("AI Grooming provenance fingerprints the bounded evidence snapshot, not onl
   const serviceSource = await readSource("../src/services/requirementWorkspace.service.js");
 
   for (const field of ["sprint", "release", "fix_version", "labels", "external_reference_pointers"]) {
-    assert.match(serviceSource, new RegExp(`${field}:`), field);
+    const snapshotSource = await readSource("../src/utils/aiArtifactContext.js");
+    assert.match(serviceSource + snapshotSource, new RegExp(`${field}:`), field);
   }
   assert.match(serviceSource, /requirement: \{ \.\.\.groomingStoryMetadata\(boundedRequirement\), description \}/);
   assert.match(serviceSource, /project: \{ id: project\.id, key: project\.display_id \|\| project\.id \}/);

@@ -6,6 +6,7 @@ import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAg
 import type { ExecutionCaseIdentity, ExecutionCaseLifecycleAction } from "./executionCaseLifecycle";
 import type {
   AdminHealthSnapshot,
+  AiArtifactAssuranceInput,
   ApiRequestPreview,
   AgenticAssistantMode,
   AgenticAssistantSessionResponse,
@@ -1195,12 +1196,12 @@ export const api = {
       request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string; include_execution?: boolean }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
-    previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string }) =>
+    previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string; additional_context?: string }) =>
       request<StoryGroomingPreviewResponse>(`/requirements/${id}/ai-groom-preview`, {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
+    previewImpact: (id: string, input: AiArtifactAssuranceInput) =>
       request<RequirementImpactPreviewResponse>(`/requirements/${id}/ai-impact-preview`, {
         method: "POST",
         body: JSON.stringify(input)
@@ -1239,7 +1240,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewCreation: (input: { project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
+    previewCreation: (input: { prompt_guidance?: string; project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
       requestAiPreview<AiRequirementCreationPreviewResponse>("/requirements/ai-create-preview", {
         method: "POST",
         body: JSON.stringify(input)
@@ -1249,7 +1250,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    createGenerationJob: (input: { project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
+    createGenerationJob: (input: { prompt_guidance?: string; project_id: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; priority?: number; status?: string; max_requirements?: number }) =>
       requestAiPreview<AiRequirementGenerationJobResponse>("/requirements/ai-create-jobs", {
         method: "POST",
         body: JSON.stringify(input)
@@ -1268,7 +1269,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewOptimization: (id: string, input?: { integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; requirement_id?: string; selected_requirement_id?: string; single_requirement_only?: boolean; requirement_context?: Record<string, unknown> }) =>
+    previewOptimization: (id: string, input?: { prompt_guidance?: string; integration_id?: string; model?: string; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[]; requirement_id?: string; selected_requirement_id?: string; single_requirement_only?: boolean; requirement_context?: Record<string, unknown> }) =>
       requestAiPreview<{
         requirement: { id: string; title: string; description?: string; status?: string; priority?: number; external_references?: string[] };
         integration: { id: string; name: string; type: string; model?: string | null } | null;
@@ -1647,7 +1648,7 @@ export const api = {
       request<TestCase>(`/test-cases/${id}${toQueryString(query)}`, { signal: options?.signal }),
     create: (input: { ai_generation_source?: "interactive"; app_type_id?: string; source_issue_id?: string; suite_id?: string; suite_ids?: string[]; title: string; description?: string; external_references?: string[]; labels?: string[]; parameter_values?: Record<string, string>; automated?: "yes" | "no"; automation_status?: "not_automated" | "ready" | "incomplete"; manual_test_case_id?: string | null; manual_test_case_ids?: string[]; authoring_mode?: "structured" | "gherkin"; test_case_type?: TestCase["test_case_type"]; gherkin_document?: string | null; test_data_set_ids?: string[]; test_data_options?: TestDataOptions; priority?: number; status?: string; requirement_id?: string; requirement_ids?: string[]; author_id?: string; reviewer_id?: string | null; review_status?: TestCase["review_status"]; ai_quality_score?: number | null; steps?: Array<{ step_order?: number; action?: string; expected_result?: string; step_type?: TestStep["step_type"]; automation_code?: string; api_request?: TestStep["api_request"]; group_id?: string; group_name?: string; group_kind?: "local" | "reusable"; reusable_group_id?: string }> }) =>
       request<{ id: string }>("/test-cases", { method: "POST", body: JSON.stringify(input) }),
-    previewImpact: (id: string, input: { project_id: string; proposed_change?: Record<string, unknown> }) =>
+    previewImpact: (id: string, input: AiArtifactAssuranceInput) =>
       request<TestCaseImpactPreviewResponse>(`/test-cases/${id}/ai-impact-preview`, {
         method: "POST",
         body: JSON.stringify(input)

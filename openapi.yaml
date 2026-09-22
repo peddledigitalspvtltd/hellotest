@@ -1070,6 +1070,7 @@ paths:
               properties:
                 project_id: { type: string }
                 integration_id: { type: string }
+                prompt_guidance: { type: string, maxLength: 6000, description: "Feature prompt and selected template; editorial guidance only, never product evidence" }
                 additional_context: { type: string, maxLength: 20000 }
                 external_links:
                   type: array
@@ -1497,11 +1498,11 @@ paths:
               $ref: "#/components/schemas/UpdateTestCaseRequest"
       responses:
         "200":
-          description: Update result
+          description: Update result with the committed revision for the next save
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdatedResponse"
+                $ref: "#/components/schemas/RevisionUpdatedResponse"
     delete:
       tags: [Test Cases]
       summary: Delete test case
@@ -2571,16 +2572,40 @@ paths:
     post:
       tags: [Requirements]
       summary: Preview linked requirement change impact without mutating records
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id: { type: string, maxLength: 255 }
+                integration_id: { type: string, maxLength: 255 }
+                prompt_guidance: { type: string, maxLength: 12000 }
+                additional_context: { type: string, maxLength: 12000, description: User-reviewed supporting evidence }
+                proposed_change: { type: object, additionalProperties: true, description: Current unsaved artifact draft }
+                assurance_baseline: { type: object, additionalProperties: true, description: Deterministic scores and dimensions; the provider returns narrative only }
       responses:
-        "200": { description: Explainable impact graph with provenance }
+        "200": { description: Evidence graph and optional cited assurance_review narratives with deterministic scores preserved; fallback_reason explains provider failures }
   /test-cases/{id}/ai-impact-preview:
     parameters:
       - $ref: "#/components/parameters/IdParam"
     post:
       tags: [Test Cases]
       summary: Preview linked test-case change impact without mutating records
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id: { type: string, maxLength: 255 }
+                integration_id: { type: string, maxLength: 255 }
+                prompt_guidance: { type: string, maxLength: 12000 }
+                additional_context: { type: string, maxLength: 12000, description: User-reviewed supporting evidence }
+                proposed_change: { type: object, additionalProperties: true, description: Current unsaved artifact draft }
+                assurance_baseline: { type: object, additionalProperties: true, description: Deterministic scores and dimensions; the provider returns narrative only }
       responses:
-        "200": { description: Explainable impact graph with provenance }
+        "200": { description: Evidence graph and optional cited assurance_review narratives with deterministic scores preserved; fallback_reason explains provider failures }
   /executions/{id}/ai-failure-clusters:
     parameters:
       - $ref: "#/components/parameters/IdParam"
@@ -3150,6 +3175,16 @@ paths:
     post:
       tags: [Requirements]
       summary: Create an evidence-grounded, human-reviewed Story grooming preview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id: { type: string, maxLength: 255 }
+                integration_id: { type: string, maxLength: 255 }
+                prompt_guidance: { type: string, maxLength: 4000 }
+                additional_context: { type: string, maxLength: 12000, description: User-reviewed supporting evidence }
       responses:
         "200": { description: "Grooming summary, risks, questions, evidence, provenance, and review requirement" }
   /requirements/ai-description-rephrase:
@@ -3195,6 +3230,23 @@ paths:
     post:
       tags: [Requirements]
       summary: Create and persist a bounded Story generation job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                integration_id: { type: string, maxLength: 255 }
+                prompt_guidance: { type: string, maxLength: 6000, description: Feature prompt and selected template; editorial guidance only }
+                additional_context: { type: string, maxLength: 20000, description: Product brief and reviewed supporting context }
+                max_requirements: { type: integer, minimum: 1, maximum: 6 }
+                external_links: { type: array, maxItems: 20, items: { type: string } }
+                images: { type: array, maxItems: 4, items: { type: object, additionalProperties: true } }
+                priority: { type: integer, minimum: 1, maximum: 5 }
+                status: { type: string, maxLength: 100 }
       responses:
         "202":
           description: Persisted queued job; poll the URL in the Location header for terminal status
@@ -4634,11 +4686,11 @@ paths:
     get:
       tags: [Shared Step Groups]
       summary: Read scoped Shared Step reuse and recorded execution metrics
-      description: Exact current repository counts and 90-day recorded step outcomes. Requires shared_step.view and testcase.view. Run and result permissions control execution evidence. Reusability Index divides executed shared-step instances by current repository step rows and may exceed 100 percent. MTTI is unavailable without recorded failure-to-isolation pairs.
+      description: Exact current test case step counts and 90-day recorded execution outcomes in the selected application and its project. Requires shared_step.view and testcase.view. Reusability (returned in reusability_index for API compatibility) is shared-group reference occurrences across all test cases divided by all authored test case step rows times 100. Repeated uses of the same group within one case each count separately. The ratio is null when there are no steps and is independent of execution frequency and run permissions. Run and result permissions control execution evidence. MTTI is unavailable without recorded failure-to-isolation pairs.
       parameters:
         - { name: app_type_id, in: query, required: true, schema: { type: string } }
       responses:
-        "200": { description: Repository reuse, nullable execution ratios and bounded per-group failure evidence }
+        "200": { description: Repository reuse percentage, nullable execution counts and bounded per-group failure evidence }
         "403": { description: Shared Step or Test Case access denied }
   /shared-step-groups/{id}:
     parameters:
@@ -5681,6 +5733,18 @@ paths:
     post:
       tags: [Requirements]
       summary: Execute requirements ai optimize preview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                integration_id: { type: string, maxLength: 255 }
+                requirement_context: { type: object, additionalProperties: true, description: Current Story draft fields; identity and project must match the selected saved Story }
+                prompt_guidance: { type: string, maxLength: 6000, description: "Feature prompt and selected template; editorial guidance only, never product evidence" }
+                additional_context: { type: string, maxLength: 20000 }
+                external_links: { type: array, maxItems: 20, items: { type: string } }
+                images: { type: array, maxItems: 6, items: { type: object, additionalProperties: true } }
       responses:
         "200": { description: Successful response }
   /requirements/{id}/design-test-cases-accept:
@@ -5697,6 +5761,21 @@ paths:
     post:
       tags: [Requirements]
       summary: Execute requirements design test cases preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app_type_id]
+              properties:
+                app_type_id: { type: string }
+                integration_id: { type: string }
+                max_cases: { type: integer, minimum: 1, maximum: 10, default: 8, description: Larger requests must be split into separate previews }
+                authoring_mode: { type: string, enum: [structured, gherkin] }
+                additional_context: { type: string }
+                external_links: { type: array, items: { type: string } }
+                images: { type: array, maxItems: 4, items: { type: object, additionalProperties: true } }
       responses:
         "200": { description: Successful response }
   /requirements/{id}/generate-test-cases:
@@ -5705,6 +5784,21 @@ paths:
     post:
       tags: [Requirements]
       summary: Execute requirements generate test cases
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app_type_id]
+              properties:
+                app_type_id: { type: string }
+                integration_id: { type: string }
+                max_cases: { type: integer, minimum: 1, maximum: 10, default: 8, description: Larger requests must be split into separate previews }
+                authoring_mode: { type: string, enum: [structured, gherkin] }
+                additional_context: { type: string }
+                external_links: { type: array, items: { type: string } }
+                images: { type: array, maxItems: 4, items: { type: object, additionalProperties: true } }
       responses:
         "200": { description: Successful response }
   /requirements/import/alm:
@@ -5880,6 +5974,22 @@ paths:
     post:
       tags: [Test Cases]
       summary: Execute test cases design test cases preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app_type_id, requirement_ids]
+              properties:
+                requirement_ids: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+                app_type_id: { type: string }
+                integration_id: { type: string }
+                max_cases: { type: integer, minimum: 1, maximum: 10, default: 8, description: Larger requests must be split into separate previews }
+                authoring_mode: { type: string, enum: [structured, gherkin] }
+                additional_context: { type: string }
+                external_links: { type: array, items: { type: string } }
+                images: { type: array, maxItems: 4, items: { type: object, additionalProperties: true } }
       responses:
         "200": { description: Successful response }
   /test-cases/export:

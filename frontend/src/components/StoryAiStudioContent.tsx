@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   IconBold,
-  IconBulb,
   IconChecklist,
   IconChevronDown,
   IconCode,
@@ -59,7 +58,7 @@ export type StoryAiStudioFieldSelection = {
 };
 
 export function StoryAiDraftQueue({
-  activeDraftId, activeContent, allowSelection = true, drafts, searchQuery = "", viewMode = "list",
+  activeDraftId, activeContent, allowSelection = true, drafts, itemNoun = "Story", itemMeta, queueTitle, searchQuery = "", viewMode = "list",
   emptyMessage = "Add prompt context, then generate Story drafts for review.",
   emptyHeading = "Ready to generate Story drafts", isDraftSelectable, onActivateDraft,
   onClearSelection, onSelectAll, onToggleDraft, selectedDraftIds, selectAllLabel = "Select all"
@@ -73,6 +72,7 @@ export function StoryAiDraftQueue({
   emptyMessage?: string;
   emptyHeading?: string;
   itemNoun?: string;
+  itemMeta?: string;
   queueTitle?: string;
   isDraftSelectable?: (draft: StoryAiStudioDraft) => boolean;
   onActivateDraft: (draftId: string) => void;
@@ -90,14 +90,14 @@ export function StoryAiDraftQueue({
   useEffect(() => {
     if (visibleDrafts.length && !visibleDrafts.some(draft => draft.id === activeDraftId)) onActivateDraft(visibleDrafts[0].id);
   }, [activeDraftId, visibleDrafts, onActivateDraft]);
-  return <section className="story-studio-queue" aria-label="Story drafts">
+  return <section className="story-studio-queue" aria-label={queueTitle || `${itemNoun} drafts`}>
     <div className="ai-test-generator-selection-bar">
-      {allowSelection ? <><label><input checked={allSelected} disabled={!selectableDrafts.length} onChange={event => onSelectAll?.(event.target.checked)} type="checkbox" />{selectAllLabel}</label><button disabled={!selectedDraftIds.length} onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear selection</button></> : <strong>Current Story and generated proposal</strong>}
+      {allowSelection ? <><label><input checked={allSelected} disabled={!selectableDrafts.length} onChange={event => onSelectAll?.(event.target.checked)} type="checkbox" />{selectAllLabel}</label><button disabled={!selectedDraftIds.length} onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear selection</button></> : <strong>{queueTitle || `Generated ${itemNoun} proposal`}</strong>}
       <span>{drafts.length} {drafts.length === 1 ? "draft" : "drafts"} · Review before saving</span>
     </div>
     <div className={`ai-test-generator-drafts is-${viewMode}`}>
       {!drafts.length ? activeContent || <div className="ai-test-generator-empty"><IconSparkles size={32} /><h3>{emptyHeading}</h3><p>{emptyMessage}</p></div> : null}
-      {drafts.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><h3>No matching drafts</h3><p>Change the search to see the generated Stories.</p></div> : null}
+      {drafts.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><h3>No matching drafts</h3><p>Change the search to see the generated drafts.</p></div> : null}
       {visibleDrafts.map(draft => {
         const expanded = draft.id === activeDraftId && collapsedId !== draft.id;
         const selectable = allowSelection && (isDraftSelectable?.(draft) ?? true);
@@ -106,8 +106,8 @@ export function StoryAiDraftQueue({
           <header>
             {allowSelection ? <input aria-label={`Select ${draft.title}`} checked={selectedDraftIds.includes(draft.id)} disabled={!selectable} onChange={event => onToggleDraft?.(draft.id, event.target.checked)} type="checkbox" /> : <IconChecklist size={18} />}
             <span className={`ai-test-generator-priority p${draft.priority || 3}`}>P{draft.priority || 3}</span>
-            <div className="ai-test-generator-draft__identity"><button aria-expanded={expanded} className="story-studio-draft-tile__activation" onClick={activate} type="button"><strong>{draft.title}</strong><small>{draft.acceptanceCriteria?.length || 0} acceptance criteria · {draft.gherkinScenarios?.length || 0} scenarios</small></button></div>
-            <span className="ai-test-generator-ai-badge"><IconSparkles size={13} />{draft.generated ? "AI Draft" : "Current Story"}</span>
+            <div className="ai-test-generator-draft__identity"><button aria-expanded={expanded} className="story-studio-draft-tile__activation" onClick={activate} type="button"><strong>{draft.title}</strong><small>{itemMeta || `${draft.acceptanceCriteria?.length || 0} acceptance criteria · ${draft.gherkinScenarios?.length || 0} scenarios`}</small></button></div>
+            <span className="ai-test-generator-ai-badge"><IconSparkles size={13} />{draft.generated ? "AI Draft" : `Current ${itemNoun}`}</span>
             <button aria-label={expanded ? `Collapse ${draft.title}` : `Expand ${draft.title}`} onClick={activate} type="button"><IconChevronDown className={expanded ? "is-expanded" : ""} size={18} /></button>
           </header>
           {expanded && activeContent ? <div className="ai-test-generator-draft__body story-studio-inspector-scroll">{activeContent}</div> : null}
@@ -236,6 +236,9 @@ export function StoryAiDraftInspector({
           <span><IconSparkles size={14} stroke={1.9} />{draft.generated ? "AI Generated" : "Existing context"}</span>
         </div>
         {evidencePlacement === "inspector" ? <StoryAiEvidenceReview draft={draft} /> : null}
+        <section className="story-studio-card story-studio-title-card">
+          <div className="story-studio-card__toolbar"><h2>Title</h2></div>
+          <div className="story-studio-title-card__body">
         {editable && onTitleChange ? (
           <>
             <textarea
@@ -255,6 +258,8 @@ export function StoryAiDraftInspector({
             ) : null}
           </>
         ) : <h1>{draft.title}</h1>}
+          </div>
+        </section>
       </header>
 
       {outputFormat === "structured" ? <><section className="story-studio-card story-studio-description-card">
@@ -336,7 +341,7 @@ export function StoryAiDraftInspector({
             {fieldSelection.map((field) => (
               <label key={field.key}>
                 <input checked={field.checked} disabled={fieldSelectionDisabled} onChange={(event) => onFieldSelectionChange?.(field.key, event.target.checked)} type="checkbox" />
-                <span><strong>{field.label}</strong><small>{field.value || "No suggestion"}</small></span>
+                <span><strong>{field.label}</strong></span>
               </label>
             ))}
           </div>
@@ -429,21 +434,6 @@ export function StoryAiDraftInspector({
           }) : (
             <div className="story-studio-gherkin-card__empty">{showGherkin ? "No Gherkin scenario is available yet. Generate or regenerate with Include Gherkin enabled." : "Enable Include Gherkin in Context Setup, then generate scenarios from the supplied acceptance criteria."}</div>
           )}
-        </details>
-      ) : null}
-
-      {draft.rationale || draft.changeSummary?.length || draft.risks?.length || draft.openQuestions?.length ? (
-        <details className="story-studio-card story-studio-disclosure-card story-studio-rationale-card">
-          <summary><span><strong><IconBulb size={18} stroke={1.9} />Review notes</strong><small>Rationale, risks, and open questions</small></span><IconChevronDown aria-hidden="true" size={17} stroke={1.9} /></summary>
-          <div className="story-studio-rationale-card__body">
-            <p>{draft.rationale || draft.changeSummary?.join(" ") || "Generated from the supplied bounded context."}</p>
-            {draft.risks?.length || draft.openQuestions?.length ? (
-              <div className="story-studio-rationale-card__notes">
-                {draft.risks?.length ? <div><strong>Risks</strong><span>{draft.risks.join(" ")}</span></div> : null}
-                {draft.openQuestions?.length ? <div><strong>Open questions</strong><span>{draft.openQuestions.join(" ")}</span></div> : null}
-              </div>
-            ) : null}
-          </div>
         </details>
       ) : null}
 

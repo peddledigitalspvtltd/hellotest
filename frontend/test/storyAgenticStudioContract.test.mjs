@@ -12,7 +12,7 @@ test("Story creation and completion use the shared focused agent process with ba
 
   assert.match(shell, /processing\?: AgenticProcessingSnapshot/);
   assert.match(shell, /processing=\{processing\}/);
-  assert.match(shell, /profile=\{mode === "create" \? "story-create" : "story-complete"\}/);
+  assert.match(shell, /profile=\{processProfile \|\| \(mode === "create" \? "story-create" : "story-complete"\)\}/);
   assert.match(shell, /orientation="vertical"/);
   assert.match(shell, /presentation="focused"/);
   assert.match(shell, /Proposal ready · review required/);
@@ -77,4 +77,25 @@ test("Story API types expose stable evidence, limitations, progress, and review 
   assert.match(api, /unsupported_fields\?: string\[\]/);
   assert.match(api, /request_id\?: string/);
   assert.match(api, /input_fingerprint\?: string/);
+});
+
+test("Story templates are editorial guidance and completion exposes only its regenerated proposal", async () => {
+  const [page, content, picker] = await Promise.all([
+    readSource("../src/pages/RequirementsPage.tsx"),
+    readSource("../src/components/StoryAiStudioContent.tsx"),
+    readSource("../src/components/AiPromptTemplatePicker.tsx")
+  ]);
+  assert.match(page, /getPrompt\(requirementAiMode === "create" \? "ai\.requirement\.creation" : "ai\.requirement\.optimization"\)/);
+  assert.match(page, /prompt_guidance: promptGuidance \|\| undefined/);
+  assert.match(page, /additional_context: optimizeContext \|\| undefined/);
+  assert.match(page, /onTemplateApply=\{/);
+  assert.match(page, /setRequirementAiDraftCount\(Math\.max\(1, Math\.min\(6, template\.test_count\)\)\)/);
+  assert.match(picker, /template\.scope !== "requirement_creation"/);
+  assert.match(page, /completedStoryStudioDraft \? \[completedStoryStudioDraft\] : \[\]/);
+  assert.doesNotMatch(page, /existingStoryStudioDraft/);
+  assert.match(content, /<h2>Title<\/h2>/);
+  assert.doesNotMatch(content, /Review notes/);
+  const descriptionComposer = page.slice(page.indexOf("const composeAiRequirementDescription"), page.indexOf("const formatGherkinScenarios"));
+  assert.match(descriptionComposer, /return suggestion\.description/);
+  assert.doesNotMatch(descriptionComposer, /risks\.map|openQuestions\.map/);
 });

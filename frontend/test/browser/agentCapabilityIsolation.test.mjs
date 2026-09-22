@@ -26,7 +26,7 @@ api.integrations.list = async (query, options) => {
  if (window.holdProvider) return new Promise(resolve => { window.finishProvider = resolve; });
  return [{ id: 'model', type: 'llm', name: 'Project model', model: 'review-model', is_active: true }];
 };
-api.knowledgeRepo.search = async () => ({ results:[{id:'context-1',chunk_id:'chunk-1',source_id:'source-1',source_kind:'knowledge',title:'Review source',content:'Only approved evidence.',score:1}] });
+api.knowledgeRepo.search = async () => ({ results:[{id:'context-1',chunk_id:'chunk-1',source_id:'source-1',source_kind:'knowledge_item',title:'Review source',content:'Only approved evidence.',score:1}] });
 api.agenticWorkflows.ask = async input => {
  window.workflowCalls.reviews.push(input);
  return { transaction: {id:'review-created',project_id:'project',app_type_id:'app',metadata:{agent_id:'test-designer'}},result:{headline:'Manual review',executive_summary:'Manual review completed.',response:'Review the available sources.',recommendations:[],assumptions:[],evidence_gaps:[],citation_ids:[],findings:[],deliverables:[],evaluation:{grounding:0,completeness:0,traceability:0,risk_control:100},readiness:{status:'limited_evidence',limitations:[]}},citations:[],events:[],guardrails:[],provenance:{} };

@@ -1843,9 +1843,11 @@ exports.getTestCasesForRequirements = async ({ app_type_id, requirement_ids = []
 
 exports.getTestCase = async (id) => {
   const testCase = await db.prepare(`
-    SELECT *
+    SELECT test_cases.*,
+      COALESCE((SELECT MAX(version.revision) FROM test_case_versions version
+        WHERE version.test_case_id = test_cases.id), 0) + 1 AS revision
     FROM test_cases
-    WHERE id = ?
+    WHERE test_cases.id = ?
   `).get(id);
 
   if (!testCase) {
@@ -1981,7 +1983,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
       throw reviewError("The test case review changed while saving. Refresh before editing.");
     }
     await testCaseVersionService.assertExpectedRevision(id, data.expected_revision);
-    await testCaseVersionService.capture({
+    const capturedVersion = await testCaseVersionService.capture({
       testCase: existing,
       createdBy: payload.updated_by,
       nextSnapshot: {
@@ -2058,9 +2060,12 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
         );
       }
     }
+    // The captured snapshot is the previous version. Return this write's new
+    // revision while the row lock still protects it from concurrent saves.
+    return capturedVersion.revision + 1;
   });
 
-  await executeUpdate();
+  const revision = await executeUpdate();
 
   if (
     payload.reviewer_id
@@ -2104,7 +2109,7 @@ exports.updateTestCase = async (id, data, { reviewHistoryEntry, syncSharedGroups
     }
   }
 
-  return { updated: true };
+  return { updated: true, revision };
 };
 
 const applyReviewDecision = async (id, { review_status, comment, reviewed_by, expected_updated_at, expected_revision } = {}, { generatedOnly = false } = {}) => {

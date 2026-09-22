@@ -8,6 +8,17 @@ const contextOrchestrator = require("../src/services/aiContextOrchestrator.servi
 
 const readSource = (relativePath) => readFile(path.join(__dirname, relativePath), "utf8");
 
+test("requested evidence scopes remain authoritative when the prompt mentions other domains", () => {
+  const route = contextOrchestrator.planContext({ prompt: "Review story quality and risks from failed runs and open bugs", agentId: "story-architect", requestedScopes: ["stories"] });
+  assert.deepEqual(route.live_scopes, ["stories"]);
+  assert.deepEqual(route.effective_scopes, ["stories", "knowledge"]);
+  assert.equal(route.indexed_source_kinds.includes("execution"), false);
+  assert.equal(route.indexed_source_kinds.includes("bug"), false);
+  const specialist = contextOrchestrator.planContext({ prompt: "Review story quality and risks across project runs and bugs", agentId: "story-architect" });
+  assert.equal(specialist.live_scopes.includes("runs"), false);
+  assert.equal(specialist.live_scopes.includes("bugs"), false);
+});
+
 test("agent assistant sessions are permissioned and persist a complete review trace", async () => {
   const source = await readSource("../src/services/agenticAssistant.service.js");
 

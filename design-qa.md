@@ -1,52 +1,53 @@
-# Design QA
+# Detail, run, login, and AI triage UI review
 
-- Source visual truth: user-attached dark-theme Gherkin authoring reference (no filesystem path exposed to the workspace)
-- Source pixels: 1179 × 572 as supplied in the conversation
-- Implementation screenshot: unavailable
-- Viewport: cropped desktop authoring/details region; implementation viewport unavailable
-- Density normalization: not possible without a browser-rendered implementation capture
-- States in scope: Story creation/details and Test Case creation/details, including editable and read-only Gherkin
+The latest request supersedes the earlier large card-tab treatment: Story and Test Case secondary tabs must be compact, inline, and use the established application theme. The user's two inline attachments guide the login feature showcase: a five-card coverflow with interactive playback/navigation, and product copy about Story refinement, coverage, readiness, and agent workflows. They are references for structure and content; the existing app palette takes precedence over the reference's dark photographic/amber styling.
 
-## Full-view comparison evidence
+The original attachments are available in the conversation without local file paths. They were visually compared with the rendered implementation in the conversation. No automated pixel difference or composited side-by-side artifact is claimed. This is an adaptation within the existing production app, not a pixel-identical copy of the travel imagery.
 
-Blocked. The in-app Browser reported that its browser surface was unavailable, so the implementation could not be rendered at the matching desktop state and captured beside the reference.
+## Environment and evidence
 
-## Focused region comparison evidence
+Production React components are served at `http://127.0.0.1:5189`. The in-app Browser was explicitly checked and unavailable; the existing repository Playwright harness provided browser verification. Tests use isolated API fixtures and real page components, with no live provider requests or production record writes.
 
-Blocked for the same reason. Static inspection confirms the reference hierarchy is implemented as Background → Feature → Scenario, with right-aligned section actions, line-number gutters, syntax highlighting, active-line focus, and nested Examples. Static source is not visual evidence and cannot establish pixel fidelity.
+Desktop captures use 1440 or 1600 CSS pixels; mobile captures use 390 × 844, all at device scale factor 1. Edit Run is also checked at 760 and 320 pixels. Full-page login captures preserve the same 390-pixel width while including the below-form showcase. Scroll tests use viewport captures and visible action bounds; oversized element captures clipped by an ancestor scroller are excluded from QA.
 
-## Findings
+- Login baseline: `/tmp/qaira-auth-carousel/before-1440.png`, `before-390.png`.
+- Login final: `/tmp/qaira-auth-carousel/light-1440.png`, `dark-1440.png`, `light-390.png`, `dark-390.png`.
+- Test Case top and end: `/tmp/qaira-detail-workspace/case-light-1440.png`, `case-light-1440-end.png`, `case-dark-390.png`, `case-dark-390-end.png`.
+- Story navigation, footer, and related items: `/tmp/qaira-detail-workspace/story-light-1440-top.png`, `story-light-1440-footer.png`, `story-dark-1440-footer.png`, `story-dark-1440-related.png`.
+- Edit Run: `/tmp/qaira-execution-polish/run-edit-1440.png`, `run-edit-390.png`.
+- Run workspace: `/tmp/qaira-execution-polish/run-workspace-1600-tile.png`, `run-workspace-390-tile.png`, `run-workspace-390-list.png`.
+- Triage baseline: `/tmp/qaira-ui-refinement/triage-before.png` (captured during the old dialog transition; used for layout, not opacity/color conclusions).
+- Triage final: `/tmp/qaira-ui-refinement/triage-desktop.png`, `triage-mobile-dark.png`.
 
-- No code-level P0/P1/P2 defect was found in the implemented Gherkin state, association, validation, keyboard, or persistence contracts.
-- Visual fidelity remains unverified for typography, editor height, line-height alignment, border contrast, active-line position, responsive wrapping, dark-theme appearance, and read-only density.
-- Browser interactions and console status remain unverified because the required in-app Browser surface was unavailable.
+## Findings and corrections
 
-## Required fidelity surfaces
+1. **P1 — Detail viewport and scrolling.** Nested grid/flex constraints restricted the Test Case editor. The focused editor now fills the available height, with its content scrolling and its save footer reachable. A real page-shell test uses 32 steps and checks the final step and save action.
+2. **P1 — Edit Run scrolling.** Edit Run now uses the Create Run shell, configuration rail, body, and footer. One body scroller reaches all settings and selected cases; the footer stays reachable at desktop and phone widths. Existing save, conflict, lock, and permission behavior remains covered.
+3. **P2 — Secondary tab size and theme.** The 140-pixel cards and lavender overrides were replaced with inline icon/label tabs and existing workspace tokens. All nine Story tabs fit the desktop content width with the actual app shell; narrow screens retain one horizontally scrollable row. Related-item surfaces and detail field wrappers use the same theme. The inherited creation grid no longer places Save Story above the acceptance editor: the action sits below every field, aligned right. Individual and bulk Approve/Reject colors are verified as green/red in both themes.
+4. **P2 — Run case identity and titles.** Raw internal IDs were removed from visible case badges and title fallbacks. Titles remain on one line with ellipsis and a full-text tooltip. Both list and tile layouts pass mobile containment checks.
+5. **P2 — Run result meaning and panel placement.** Each chart segment exposes outcome, count, and percentage on pointer hover or keyboard focus. Failure Analyst occupies the left analysis area; Live feed is on the right. Run references are removed from the page display while persisted evidence remains available to analysis.
+6. **P2 — Login showcase and form order.** The initial redesign's transparent side cards allowed text to bleed through; final cards are opaque. Google sign-in and the email divider now precede email/password fields. Scoped dark controls and placeholders retain contrast. Unsubstantiated KPI claims were replaced with actual capabilities. Mobile places login before the showcase. Blur validation no longer moves a mode-switch or submit control between pointer down and click, so switching modes works on the first click.
+7. **P2 — Triage setup and review clarity.** Triage now has explicit model, prompt, and reviewed-context setup, a recommendation queue, priority comparison, missing fields, and inline supporting evidence. Stale settings are identified, failed requests can be retried, deterministic fallback is disclosed, and a closed review's late response cannot replace a newly opened review. Review Defect navigates to the record; analysis does not mutate it.
 
-- Fonts and typography: monospace code treatment and hierarchy are implemented; rendered comparison is blocked.
-- Spacing and layout: flat Background/Feature/Scenario progression, compact actions, scenario grouping, and responsive rules are implemented; rendered comparison is blocked.
-- Colors and tokens: dark code-surface, near-white syntax body text, colored Gherkin keywords, focus, invalid, and forced-colors tokens are implemented; rendered contrast comparison is blocked.
-- Image quality and asset fidelity: the reference contains product UI only; no image asset substitution is required.
-- Copy and content: section names, starter state, validation guidance, authoring-mode tabs, and read-only detail labels were statically reviewed.
-- Icons: the existing Tabler icon family is used for destructive and section actions; optical alignment is blocked pending a rendered capture.
-- Responsiveness and accessibility: 44-pixel narrow-screen tab targets, roving tab keyboard behavior, labels, described-by relationships, read-only regions, active focus, and forced-colors fallbacks have static contract coverage; zoom and viewport behavior remain visually unverified.
+## Fidelity and interaction checks
 
-## Primary interactions tested
+- **Typography:** Existing application fonts, compact secondary navigation, readable form labels, and single-line run case titles. Login headline and card hierarchy follow the supplied direction without copying unsupported claims.
+- **Layout:** Full-height detail editing, right-aligned Story save action, stable run modal footer, responsive login form and layered feature cards, and a scrollable triage body with visible footer.
+- **Colors:** Existing workspace and app tokens replace special purple detail surfaces. Approve/Reject use semantic green/red. Light/dark login and triage controls remain legible.
+- **Assets:** Existing HelloTest brand assets and Tabler icons are reused. Feature cards are native text content and controls; no fabricated product metrics, placeholder photography, or image-generated app screenshots are used.
+- **Content:** Product copy describes supported behavior. IDs, recommendations, evidence, and counts come from records or explicitly isolated test fixtures. Model output is clearly distinguished from deterministic priority and completeness rules.
 
-- Static contracts verify Story and Test Case reuse the same editor in create and details contexts.
-- Static contracts verify Scenario Outline/Examples association survives editing, reordering, and removal.
-- Static contracts verify authoring-mode switching preserves the inactive Gherkin document and supports arrow/Home/End tab navigation.
-- Static contracts verify Gherkin-aware quality/readiness metrics and the read-only linked Test Case presentation.
-- Browser typing, focus, scroll synchronization, section creation/removal, viewport behavior, and console errors: blocked.
+## Validation
 
-## Comparison history
+- Backend suite: 1,118 passed; 2 existing skips; no failures.
+- Frontend suite: 603 passed; no failures.
+- Triage focused frontend contracts: 24 passed; backend triage contracts: 9 passed.
+- Triage browser: explicit request inputs, 4,000/8,000-character prompt/context limits, search/filter, evidence, retry, fallback, stale settings, late responses, navigation, focus return, and mobile footer passed.
+- Execution browser: Edit Run scroll/save/conflict/lock behavior and run workspace tooltips/layout/title containment passed.
+- Login browser: carousel navigation, playback, pause on hover/focus, reduced motion, retained form values, first-click mode changes, validation, password visibility, and mocked authentication success/failure passed in desktop/mobile and light/dark layouts.
+- Detail browser: actual-shell Test Case viewport/end-of-steps/save, keyboard tab navigation, all three related-item workflows, and the complete Review Cases workflow with individual/bulk semantic colors passed. Final Story checks passed for desktop tab fit, mobile horizontal navigation, theme colors, footer position below the acceptance editor, and saving the edited record.
+- Production build and TypeScript checks passed, including the final CSS refinements. Vite's existing large-chunk advisory remains. Generated build artifacts were removed from the working changes; source and regression tests remain.
 
-- Pass 1: blocked before implementation capture because the in-app Browser surface was unavailable. No valid side-by-side visual comparison iteration could be completed.
+Final result: passed
 
-## Implementation checklist
-
-- Capture Story creation, Story details, Test Case creation, and Test Case details in dark theme at the reference width.
-- Compare the full authoring region and focused Background/Scenario editors beside the supplied reference.
-- Exercise keyboard authoring, active-line movement, scrolling, Outline/Examples ownership, responsive wrapping, and read-only rendering, then resolve any visible P0/P1/P2 drift.
-
-final result: blocked
+No unresolved P1/P2 finding remains in the requested changes reviewed here. Authentication and AI provider responses were mocked for browser verification; this report does not claim live-provider or deployed-environment validation.

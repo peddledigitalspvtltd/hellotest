@@ -7,6 +7,14 @@ const executionService = require("../services/execution.service");
 const appTypeService = require("../services/appType.service");
 
 module.exports = async function (fastify) {
+  const validateAssuranceInput = (body) => fastify.validate({
+    project_id: { required: false, type: "string", maxLength: 255 },
+    integration_id: { required: false, type: "string", maxLength: 255 },
+    additional_context: { required: false, type: "string", maxLength: 12000 },
+    prompt_guidance: { required: false, type: "string", maxLength: 12000 },
+    proposed_change: { required: false, type: "object" },
+    assurance_baseline: { required: false, type: "object" }
+  }, body || {});
   fastify.post("/ai/rich-text-rephrase", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({
@@ -35,19 +43,25 @@ module.exports = async function (fastify) {
 
   fastify.post("/requirements/:id/ai-impact-preview", async (req) => {
     await fastify.authenticate(req);
-    const requirement = await requirementService.getRequirement(req.params.id);
+    validateAssuranceInput(req.body);
+    const requirement = await requirementService.getRequirement(req.params.id, { includeLinkedRecords: false });
+    if (req.body?.project_id && req.body.project_id !== requirement.project_id) throw Object.assign(new Error("Story belongs to a different project"), { statusCode: 400 });
     await projectService.getProject(requirement.project_id, req.user.id);
     await fastify.requirePermission("requirement.ai", { projectId: requirement.project_id })(req);
-    return assistance.previewRequirementImpact({ user: req.user, requirementId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {} });
+    return assistance.previewRequirementImpact({ user: req.user, requirementId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {},
+      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context });
   });
 
   fastify.post("/test-cases/:id/ai-impact-preview", async (req) => {
     await fastify.authenticate(req);
+    validateAssuranceInput(req.body);
     const testCase = await testCaseService.getTestCase(req.params.id);
     const appType = await appTypeService.getAppType(testCase.app_type_id);
+    if (req.body?.project_id && req.body.project_id !== appType.project_id) throw Object.assign(new Error("Test Case belongs to a different project"), { statusCode: 400 });
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("testcase.ai", { projectId: appType.project_id })(req);
-    return assistance.previewTestCaseImpact({ user: req.user, testCaseId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {} });
+    return assistance.previewTestCaseImpact({ user: req.user, testCaseId: req.params.id, proposedChange: req.body?.proposed_change || req.body || {},
+      integrationId: req.body?.integration_id, promptGuidance: req.body?.prompt_guidance, assuranceBaseline: req.body?.assurance_baseline, additionalContext: req.body?.additional_context });
   });
 
   fastify.post("/executions/:id/ai-failure-clusters", async (req) => {

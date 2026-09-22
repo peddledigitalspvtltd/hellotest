@@ -1,5 +1,8 @@
 import { metricTitle } from "../lib/metricTitle";
 import { LoadingState } from "../components/LoadingState";
+import { AuthFeatureCarousel } from "../components/AuthFeatureCarousel";
+import { BrandWordmark } from "../components/BrandWordmark";
+import "../pages/AuthPage.css";
 import { SampleDataSetup as SetupPage } from './SampleDataSetup';
 import { DropdownValues } from "./DropdownValues";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -79,27 +82,23 @@ function Login({ onAuthenticated }: { onAuthenticated: (session: AdminSession) =
     catch (reason) { setError(reason instanceof Error ? reason.message : "Sign in failed"); }
     finally { setBusy(false); }
   };
-  return <main className="login-page">
-    <section className="login-story">
-      <div className="brand"><span className="brand-mark"><Sparkles size={20} /></span><span>HelloTest <b>Administration</b></span></div>
-      <div className="story-copy"><p className="kicker">Your quality platform, composed</p><h1>Launch with clarity.<br /><em>Operate with confidence.</em></h1><p>One secure control plane for the people, data, capabilities, and connected systems behind every HelloTest workspace.</p></div>
-      <div className="story-stats"><div><strong>01</strong><span>Shared backend</span></div><div><strong>01</strong><span>Shared database</span></div><div><strong>100%</strong><span>Auditable</span></div></div>
-      <div className="orb orb-one" /><div className="orb orb-two" />
-    </section>
-    <section className="login-panel"><div className="login-card">
-      <div className="mobile-brand brand"><span className="brand-mark"><Sparkles size={19} /></span><span>HelloTest <b>Administration</b></span></div>
-      <div className="status-pill"><i className={status?.database_ready ? "online" : "offline"} />{status?.database_ready ? "Control plane ready" : "Checking control plane"}</div>
-      <h2>Welcome back</h2><p>Sign in with an administrator account to manage this instance.</p>
-      <form onSubmit={submit}>
-        <label>Username or email<input autoComplete="username" autoFocus value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-        <label>Password<div className="input-with-icon"><LockKeyhole size={17} /><input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></div></label>
-        {error ? <div className="form-error"><CircleAlert size={16} />{error}</div> : null}
-        <button className="primary-button login-button" disabled={busy}>{busy ? "Signing in…" : "Enter administration"}<ArrowRight size={18} /></button>
-      </form>
-      {status?.bootstrap_login_enabled ? <div className="bootstrap-note"><KeyRound size={18} /><div><strong>New instance access</strong><span>Use admin / admin, then replace the password from Security.</span></div></div> : null}
-      <small className="login-foot">Separate portal · Same HelloTest backend and PostgreSQL data</small>
-    </div></section>
-  </main>;
+  return <div className="auth-page auth-feature-page auth-admin-page">
+    <div className="container auth-shell">
+      <aside className="left auth-aside" aria-label="Discover HelloTest administration"><AuthFeatureCarousel audience="admin" /></aside>
+      <main className="right auth-main"><div className="login-card">
+        <BrandWordmark className="auth-card-brand" subtitle="Administration" />
+        <header className="auth-card-header"><h2 className="auth-card-title">Welcome back</h2><p>Sign in with an administrator account to manage this instance.</p></header>
+        <form className="auth-form" onSubmit={submit}>
+          <label>Username or email<input autoComplete="username" autoFocus disabled={busy} value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+          <label>Password<input autoComplete="current-password" disabled={busy} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          {error ? <div className="form-error" role="alert"><CircleAlert size={16} />{error}</div> : null}
+          <button className="primary-button auth-submit" disabled={busy} type="submit">{busy ? "Signing in…" : "Enter administration"}<ArrowRight size={18} /></button>
+        </form>
+        <p className="auth-admin-status" role="status"><ShieldCheck size={15} aria-hidden="true" />{status?.database_ready ? "Control plane ready" : "Checking control plane"}</p>
+        {status?.bootstrap_login_enabled ? <div className="bootstrap-note"><KeyRound size={18} /><div><strong>New instance access</strong><span>Use admin / admin, then replace the password from Security.</span></div></div> : null}
+      </div></main>
+    </div>
+  </div>;
 }
 
 function Metric({ label, value, detail, icon }: { label: string; value: string | number; detail: string; icon: ReactNode }) {

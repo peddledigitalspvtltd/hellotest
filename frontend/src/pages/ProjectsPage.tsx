@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { getAssignableProjectRoles, getDefaultProjectMemberRoleId } from "../lib/projectMemberRoles";
 import type { CSSProperties, DragEvent, ReactNode } from "react";
 import {
   IconActivity,
@@ -113,12 +114,6 @@ type ProjectDetailsDraft = {
   description: string;
 };
 
-const NEW_PROJECT_ROLE_DEFAULTS = [
-  { id: "qa-lead", name: "QA lead" },
-  { id: "qa-member", name: "QA member" },
-  { id: "viewer", name: "Viewer" }
-] as const;
-const DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID = "qa-member";
 const MAX_PROJECT_ATTACHMENTS = 10;
 
 const formatProjectAttachmentBytes = (value: number) => {
@@ -660,6 +655,7 @@ export function ProjectsPage() {
   const deferredProjectSearch = useDeferredValue(projectSearch);
   const [projectAppTypeFilter, setProjectAppTypeFilter] = useState("all");
   const [projectMemberFilter, setProjectMemberFilter] = useState("all");
+  const [accessibleProjectsOnly, setAccessibleProjectsOnly] = useState(true);
   const [projectViewMode, setProjectViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [selectedActionProjectIds, setSelectedActionProjectIds] = useState<string[]>([]);
   const defaultAppTypeValue = domainMetadataQuery.data?.app_types?.default_type || "web";
@@ -1264,6 +1260,7 @@ export function ProjectsPage() {
 
     return projectPortfolioItems.filter((item) => {
       const { project } = item;
+      if (accessibleProjectsOnly && project.has_access === false) return false;
       const projectAppTypes = item.appTypes;
       const projectMemberUserIds = new Set(item.memberUserIds);
       const searchContent = [
@@ -1338,6 +1335,7 @@ export function ProjectsPage() {
       return 0;
     });
   }, [
+    accessibleProjectsOnly,
     projectAppTypeFilter,
     projectPortfolioItems,
     projectMemberFilter,
@@ -1357,7 +1355,7 @@ export function ProjectsPage() {
   }, [projectPortfolioItems]);
 
   const activeProjectFilterCount =
-    (projectAppTypeFilter !== "all" ? 1 : 0) + (projectMemberFilter !== "all" ? 1 : 0);
+    (accessibleProjectsOnly ? 1 : 0) + (projectAppTypeFilter !== "all" ? 1 : 0) + (projectMemberFilter !== "all" ? 1 : 0);
 
   const scopedMembers = useMemo(
     () => (projectMembers.data || []).filter((member) => String(member.project_id) === String(projectId)),
@@ -1455,16 +1453,14 @@ export function ProjectsPage() {
     }
   }, [scopedAppTypes, setCurrentAppTypeId, traceabilityAppTypeId]);
   const assignableProjectRoles = useMemo(
-    () => (roles.data || []).filter((role) => role.id !== "jira-admin" && String(role.name || "").trim().toLowerCase() !== "admin"),
+    () => getAssignableProjectRoles(roles.data || []),
     [roles.data]
   );
   const newProjectRoleOptions = useMemo(
-    () => NEW_PROJECT_ROLE_DEFAULTS.map((fallback) => {
-      const configured = (projectCreationRolesQuery.data || roles.data || []).find((role) => role.id === fallback.id);
-      return { id: fallback.id, name: configured?.name || fallback.name };
-    }),
+    () => getAssignableProjectRoles(projectCreationRolesQuery.data || roles.data || []),
     [projectCreationRolesQuery.data, roles.data]
   );
+  const defaultNewProjectMemberRoleId = getDefaultProjectMemberRoleId(newProjectRoleOptions);
 
   const projectMemberOptions = useMemo(
     () =>
@@ -1919,7 +1915,7 @@ export function ProjectsPage() {
       if (isSelected) {
         delete memberRoleIds[userId];
       } else {
-        memberRoleIds[userId] = DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID;
+        memberRoleIds[userId] = defaultNewProjectMemberRoleId;
       }
       return {
         ...current,
@@ -1944,7 +1940,7 @@ export function ProjectsPage() {
       memberIds: selectableProjectMemberIds,
       memberRoleIds: Object.fromEntries(selectableProjectMemberIds.map((userId) => [
         userId,
-        current.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
+        current.memberRoleIds[userId] || defaultNewProjectMemberRoleId
       ]))
     }));
   };
@@ -2023,6 +2019,14 @@ export function ProjectsPage() {
       return;
     }
 
+    if (projectDraft.visibility === "public" && projectDraft.memberIds.some((userId) =>
+      !newProjectRoleOptions.some((role) => role.id === (projectDraft.memberRoleIds[userId] || defaultNewProjectMemberRoleId))
+    )) {
+      setMessageTone("error");
+      setMessage("Choose an available project role for each selected member.");
+      return;
+    }
+
     createProject.mutate({
       project: {
         name: normalizedName,
@@ -2030,7 +2034,7 @@ export function ProjectsPage() {
         visibility: projectDraft.visibility,
         members: (projectDraft.visibility === "public" ? projectDraft.memberIds : []).map((userId) => ({
           user_id: userId,
-          role_id: projectDraft.memberRoleIds[userId] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID
+          role_id: projectDraft.memberRoleIds[userId] || defaultNewProjectMemberRoleId
         })),
         app_types: normalizedAppTypes
       },
@@ -2503,11 +2507,16 @@ export function ProjectsPage() {
                           ))}
                         </select>
                       </label>
+                      <label className="project-access-filter">
+                        <input checked={accessibleProjectsOnly} onChange={(event) => setAccessibleProjectsOnly(event.target.checked)} type="checkbox" />
+                        <span>Accessible projects only</span>
+                      </label>
                       <div className="catalog-filter-actions">
                         <button
                           className="ghost-button"
                           disabled={!activeProjectFilterCount}
                           onClick={() => {
+                            setAccessibleProjectsOnly(false);
                             setProjectAppTypeFilter("all");
                             setProjectMemberFilter("all");
                           }}
@@ -3207,19 +3216,19 @@ export function ProjectsPage() {
                 />
               </section>
 
-              <section className="project-risk-method" aria-labelledby="project-risk-method-title">
-                <div>
+              <details className="project-risk-method">
+                <summary>
                   <span className="project-risk-method-icon" aria-hidden="true">
                     <IconCircleCheck size={18} stroke={1.9} />
                   </span>
-                  <div>
-                    <h3 id="project-risk-method-title">How the signal is calculated</h3>
+                  <span className="project-risk-method-title">How the signal is calculated</span>
+                  <IconChevronDown aria-hidden="true" className="project-risk-method-chevron" size={17} />
+                </summary>
+                <div className="project-risk-method-body">
                     <p>
                       Readiness weights Story coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.story_weight ?? 35)}%, automation coverage at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.automation_weight ?? 25)}%, and the combined finalized Test Case and Defect pass rate at {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.portfolio_health"]?.pass_weight ?? 40)}%.
                       Evidence policy requires {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.execution_evidence"]?.minimum_coverage_percent ?? 80)}% latest-run evidence coverage.
                     </p>
-                  </div>
-                </div>
                 <dl>
                   <div>
                     <dt>Risky</dt>
@@ -3234,7 +3243,8 @@ export function ProjectsPage() {
                     <dd>Readiness of at least {Math.round(portfolioAnalyticsQuery.data?.configuration["metric.project.release_ready"]?.readiness_threshold ?? 80)}% with no hard risk or policy violation.</dd>
                   </div>
                 </dl>
-              </section>
+                </div>
+              </details>
 
               <section className="project-risk-projects" aria-labelledby="project-risk-projects-title">
                 <div className="project-risk-section-heading">
@@ -3432,7 +3442,7 @@ export function ProjectsPage() {
                           </button>
                         </div>
                         <div className="project-app-type-grid" hidden={!isExpanded} id={appPanelId}>
-                          <FormField label="App Name">
+                          <FormField label="App Name" required>
                             <input
                               onChange={(event) => updateProjectAppType(appType.id, { name: event.target.value })}
                               placeholder="e.g. Mobile API"
@@ -3492,7 +3502,7 @@ export function ProjectsPage() {
                     <IconInfoCircle aria-hidden="true" size={20} stroke={2} />
                     <div>
                       <strong>Project-scoped access</strong>
-                      <p>Users added here only have access to resources within this project. Assign <b>Administrator</b> for full project control, or <b>QA Lead</b> for testing management.</p>
+                      <p>Choose an available project role for each member. These assignments control access to resources within this project.</p>
                     </div>
                   </div>
 
@@ -3567,8 +3577,9 @@ export function ProjectsPage() {
                                 aria-label={`HelloTest role for ${user.name || visibleUserEmail(user.email) || "selected user"}`}
                                 onChange={(event) => updateProjectDraftMemberRole(user.id, event.target.value)}
                                 required
-                                value={projectDraft.memberRoleIds[user.id] || DEFAULT_NEW_PROJECT_MEMBER_ROLE_ID}
+                                value={projectDraft.memberRoleIds[user.id] || defaultNewProjectMemberRoleId}
                               >
+                                <option disabled value="">Select role</option>
                                 {newProjectRoleOptions.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
                               </select>
                             ) : null}

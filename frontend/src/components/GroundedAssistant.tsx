@@ -25,6 +25,7 @@ import { useCurrentAppType, useCurrentProject } from "../hooks/useCurrentProject
 import { useDialogFocus } from "../hooks/useDialogFocus";
 import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
+import { resolveAiLlmDefault } from "../lib/aiLlmDefault";
 import { api } from "../lib/api";
 import { areFeatureFlagsEnabled } from "../lib/featureFlags";
 import { hasPermission } from "../lib/permissions";
@@ -49,7 +50,6 @@ import "./GroundedAssistant.css";
 
 const EMPTY_CITATIONS: KnowledgeCitation[] = [];
 const DEFAULT_ASSISTANT_SOURCE_KINDS = ["requirement", "test_case", "execution", "bug", "file", "text", "chat"];
-const ASSISTANT_LLM_SELECTION_STORAGE_PREFIX = "hellotest:knowledge-assistant:llm";
 const RETRIEVAL_ONLY_INTEGRATION = "__retrieval_only__";
 type AssistantRetryTurn = { clientTurnId: string; integrationId: string; prompt: string; smartContext: SmartContextSelection | null; filters: KnowledgeSearchFilters; responseMode: "answer" | "evidence" };
 
@@ -65,26 +65,7 @@ function createClientTurnId() {
   return `assistant-turn-${randomId}`;
 }
 
-function assistantLlmSelectionStorageKey(userId: string, projectId: string) {
-  return `${ASSISTANT_LLM_SELECTION_STORAGE_PREFIX}:${userId}:${projectId}`;
-}
 
-function readStoredLlmSelection(key: string) {
-  try {
-    return window.localStorage.getItem(key) || "";
-  } catch {
-    return "";
-  }
-}
-
-function persistLlmSelection(key: string, integrationId: string) {
-  try {
-    if (integrationId) window.localStorage.setItem(key, integrationId);
-    else window.localStorage.removeItem(key);
-  } catch {
-    // A browser may block local storage; the in-memory selection still works.
-  }
-}
 
 function integrationOptionLabel(integration: KnowledgeAssistantIntegration) {
   const model = integration.model?.trim();
@@ -189,7 +170,7 @@ export function GroundedAssistant() {
   const [projectId] = useCurrentProject();
   const [appTypeId] = useCurrentAppType(projectId);
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const { getLlmIntegrationId, query: promptRegistryQuery } = useAiPromptRegistry(Boolean(session));
+  const { query: promptRegistryQuery } = useAiPromptRegistry(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<KnowledgeAssistantMessage[]>([]);
@@ -206,6 +187,7 @@ export function GroundedAssistant() {
   const [sourceKinds, setSourceKinds] = useState<string[]>(DEFAULT_ASSISTANT_SOURCE_KINDS);
   const [knowledgeAsOf, setKnowledgeAsOf] = useState("");
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
+  const userSelectedIntegration = useRef(false);
   const [smartContext, setSmartContext] = useState<SmartContextSelection | null>(null);
   const [activeRequestIntegrationId, setActiveRequestIntegrationId] = useState("");
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
@@ -237,8 +219,7 @@ export function GroundedAssistant() {
       return true;
     });
   }, [integrationsQuery.data, projectId]);
-  const configuredDefaultIntegrationId = getLlmIntegrationId("ai.knowledge.assistant");
-  const integrationSelectionStorageKey = assistantLlmSelectionStorageKey(session?.user.id || "anonymous", projectId || "none");
+  const configuredDefaultIntegrationId = resolveAiLlmDefault({ preferences: promptRegistryQuery.data?.preferences, usageKey: "ai.knowledge.assistant", projectId, integrations: assistantIntegrations });
   const activeRequestIntegration = assistantIntegrations.find((integration) => integration.id === activeRequestIntegrationId)
     || assistantIntegrations.find((integration) => integration.id === selectedIntegrationId)
     || null;
@@ -305,6 +286,7 @@ export function GroundedAssistant() {
     setTurnNotices({});
     setRequestStartedAt(null);
     setCitationDownloadError("");
+    userSelectedIntegration.current = false;
     setSelectedIntegrationId("");
     setSmartContext(null);
     setKnowledgeAsOf("");
@@ -317,26 +299,24 @@ export function GroundedAssistant() {
 
   useEffect(() => {
     if (!integrationsQuery.isSuccess || promptRegistryQuery.isLoading) return;
-    const storedIntegrationId = readStoredLlmSelection(integrationSelectionStorageKey);
     const hasIntegration = (id: string | undefined): id is string => Boolean(id && (id === RETRIEVAL_ONLY_INTEGRATION || assistantIntegrations.some((integration) => integration.id === id)));
-    if (storedIntegrationId && !hasIntegration(storedIntegrationId)) {
-      persistLlmSelection(integrationSelectionStorageKey, "");
-    }
     const nextIntegrationId = [
-      storedIntegrationId,
-      assistantIntegrations.find((integration) => integration.is_default)?.id,
       configuredDefaultIntegrationId,
+      assistantIntegrations.find((integration) => integration.is_default)?.id,
       assistantIntegrations.find((integration) => integration.scope === "project")?.id,
       assistantIntegrations[0]?.id
     ].find(hasIntegration) || RETRIEVAL_ONLY_INTEGRATION;
-    setSelectedIntegrationId(nextIntegrationId);
+    setSelectedIntegrationId((current) => userSelectedIntegration.current ? current : nextIntegrationId);
   }, [
     assistantIntegrations,
     configuredDefaultIntegrationId,
-    integrationSelectionStorageKey,
     integrationsQuery.isSuccess,
     promptRegistryQuery.isLoading
   ]);
+
+  useEffect(() => {
+    if (isOpen) void promptRegistryQuery.refetch();
+  }, [isOpen]);
 
   useEffect(() => () => { scopeGenerationRef.current += 1; requestControllerRef.current?.abort(); }, []);
 
@@ -507,6 +487,7 @@ export function GroundedAssistant() {
       if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
       setMessages((current) => [...current, { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } }]);
       void queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-sessions", requestProjectId] });
+      void queryClient.invalidateQueries({ queryKey: ["settings", "workspace-preferences", "ai-prompts"] });
     } catch (error) {
       if (requestGeneration !== scopeGenerationRef.current) return;
       const cancelled = controller.signal.aborted;
@@ -536,7 +517,7 @@ export function GroundedAssistant() {
     setPrompt(question);
     if (evidenceOnly) {
       setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION);
-      persistLlmSelection(integrationSelectionStorageKey, RETRIEVAL_ONLY_INTEGRATION);
+      userSelectedIntegration.current = true;
     }
     requestAnimationFrame(() => composerRef.current?.focus());
   };
@@ -582,7 +563,7 @@ export function GroundedAssistant() {
                   disabled={isSending || integrationsQuery.isLoading}
                   onChange={(event) => {
                     setSelectedIntegrationId(event.target.value);
-                    persistLlmSelection(integrationSelectionStorageKey, event.target.value);
+                    userSelectedIntegration.current = true;
                   }}
                   value={selectedIntegrationId}
                 >
@@ -591,6 +572,7 @@ export function GroundedAssistant() {
                       {integrationsQuery.isLoading ? "Loading models…" : integrationsQuery.isError ? "Models unavailable" : "No LLM configured"}
                     </option>
                   ) : null}
+                  {selectedIntegrationId && selectedIntegrationId !== RETRIEVAL_ONLY_INTEGRATION && !assistantIntegrations.some((item) => item.id === selectedIntegrationId) ? <option disabled value={selectedIntegrationId}>{selectedIntegrationId} (unavailable)</option> : null}
                   <option value={RETRIEVAL_ONLY_INTEGRATION}>Evidence only · no model</option>
                   {assistantIntegrations.map((integration) => (
                     <option key={integration.id} value={integration.id}>{integrationOptionLabel(integration)}</option>
@@ -775,7 +757,7 @@ export function GroundedAssistant() {
           </div>
 
           <footer className="grounded-assistant-composer-shell">
-            {integrationsQuery.isError ? <div className="grounded-assistant-model-error" role="status"><span>Answer models could not be loaded.</span><button onClick={() => void integrationsQuery.refetch()} type="button">Retry models</button><button onClick={() => { setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION); persistLlmSelection(integrationSelectionStorageKey, RETRIEVAL_ONLY_INTEGRATION); }} type="button">Use evidence only</button></div> : null}
+            {integrationsQuery.isError ? <div className="grounded-assistant-model-error" role="status"><span>Answer models could not be loaded.</span><button onClick={() => void integrationsQuery.refetch()} type="button">Retry models</button><button onClick={() => { setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION); userSelectedIntegration.current = true; }} type="button">Use evidence only</button></div> : null}
             <div className="grounded-assistant-context-row">
               <details className="grounded-assistant-context-control">
                 <summary>Context scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "live project + all Knowledge Repository sources" : `live matching records + ${sourceKinds.length} Knowledge Repository source types`}</summary>

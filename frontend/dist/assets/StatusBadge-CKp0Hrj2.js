@@ -1,1 +1,0 @@
-import{q as o,j as a}from"./index-BiMmk6g2.js";function i({value:s}){const{t}=o(),n=`status-badge ${String(s||"default").toLowerCase()}`,e=s==="pending"?"Unexecuted":s==="skipped"?"N/A":s==="paused"?"Paused":s||"unknown";return a.jsx("span",{className:n,children:t(`status.${s||"unknown"}`,e)})}export{i as S};

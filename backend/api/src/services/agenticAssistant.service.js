@@ -590,12 +590,14 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
       messages
     })
     }, {
+      integration,
+      compatibility: false,
       operation: jsonMode ? "agentic-assistant.respond" : "agentic-assistant.respond.json-mode-compatibility",
       timeoutMs: remaining,
       attemptTimeoutMs: Math.min(22_000, remaining),
-      maxAttempts: 2,
-      // This endpoint produces a read-only review; replay cannot apply project changes.
-      idempotent: true,
+      maxAttempts: 1,
+      // Read-only generation still incurs provider work and cost; do not replay on transport failures.
+      idempotent: false,
       maxResponseBytes: 512 * 1024
     });
   };
@@ -893,7 +895,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
             }), fallback, suppliedCitations);
           } catch (error) {
             execution.assertActive();
-            if (!(error instanceof SyntaxError) || attempt > 0 || deadline - Date.now() < 1_000) throw error;
+            if (!(error instanceof SyntaxError || error?.code === "AI_INVALID_JSON") || attempt > 0 || deadline - Date.now() < 1_000) throw error;
           }
           execution.assertActive();
           if (normalizedModelResult !== fallback || deadline - Date.now() < 1_000) break;

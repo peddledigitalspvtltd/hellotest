@@ -101,6 +101,7 @@ test('Test Case summaries and successive saves use the real schema and version-b
           steps: [{ step_order: 1, action: `Pay ${edit}`, expected_result: `Receipt ${edit}` }]
         });
         assert.equal(result.updated, true);
+        assert.equal(result.revision, edit + 1, 'Each save returns its committed revision');
         const saved = await cases.getTestCase(created.id);
         assert.equal(saved.title, `Save regression ${edit}`);
         assert.equal(saved.description, `Description ${edit}`);
@@ -120,15 +121,67 @@ test('Test Case summaries and successive saves use the real schema and version-b
       assert.equal((await cases.getTestCase(created.id)).title, 'Save regression 3');
       assert.equal((await loadSteps(created.id))[0].action, 'Pay 3');
       assert.equal(await versions.currentRevision(created.id), 4);
-      assert.equal((await cases.updateTestCase(created.id, {
+      assert.deepEqual(await cases.updateTestCase(created.id, {
         description: 'Metadata-only change', expected_revision: 4, updated_by: 'reviewer'
-      })).updated, true);
+      }), { updated: true, revision: 5 });
       assert.equal((await loadSteps(created.id))[0].action, 'Pay 3');
-      assert.equal((await cases.updateTestCase(created.id, {
+      assert.deepEqual(await cases.updateTestCase(created.id, {
         steps: [], expected_revision: 5, updated_by: 'reviewer'
-      })).updated, true);
+      }), { updated: true, revision: 6 });
       assert.deepEqual(await loadSteps(created.id), []);
       assert.equal(await versions.currentRevision(created.id), 6);
+    });
+    await t.test('Suite-only saves return authoritative revisions and preserve peer memberships and authoring content', async () => {
+      await db.query(`
+        INSERT INTO test_suites(id,app_type_id,name) VALUES
+          ('revision-suite-a','app','Original Suite'),('revision-suite-b','app','Second Suite');
+        INSERT INTO test_cases(id,app_type_id,title,suite_id) VALUES
+          ('suite-mapped-peer','app','Mapped peer','revision-suite-a'),
+          ('suite-legacy-peer','app','Legacy primary Suite peer','revision-suite-a');
+        INSERT INTO suite_test_cases(suite_id,test_case_id,sort_order) VALUES
+          ('revision-suite-a','suite-mapped-peer',7),('revision-suite-b','suite-mapped-peer',12);
+      `);
+      const created = await cases.createTestCase({
+        app_type_id: 'app', suite_ids: ['revision-suite-a'], title: 'Suite revision case',
+        description: 'Saved authoring description', labels: ['saved-label'],
+        parameter_values: { account: 'saved-account' }, created_by: 'reviewer',
+        steps: [{ action: 'Open checkout', expected_result: 'Checkout is available' }]
+      });
+      const peerMappings = () => db.prepare(`SELECT suite_id, test_case_id, sort_order FROM suite_test_cases
+        WHERE test_case_id IN ('suite-mapped-peer', 'suite-legacy-peer') ORDER BY suite_id, test_case_id`).all();
+      const peerPrimarySuites = () => db.prepare(`SELECT id, suite_id FROM test_cases
+        WHERE id IN ('suite-mapped-peer', 'suite-legacy-peer') ORDER BY id`).all();
+      const originalPeerMappings = await peerMappings();
+      const originalPeerSuites = await peerPrimarySuites();
+      const originalSteps = await loadSteps(created.id);
+      let revision = await versions.currentRevision(created.id);
+      const selections = [[], ['revision-suite-a', 'revision-suite-b'], ['revision-suite-b']];
+      for (const suiteIds of selections) {
+        const result = await cases.updateTestCase(created.id, {
+          suite_ids: suiteIds, expected_revision: revision, updated_by: 'reviewer'
+        });
+        assert.deepEqual(result, { updated: true, revision: revision + 1 });
+        revision = result.revision;
+        const saved = await cases.getTestCase(created.id);
+        assert.equal(saved.revision, revision, 'Response revision matches the refreshed detail used to preserve drafts');
+        assert.equal(await versions.currentRevision(created.id), revision);
+        assert.deepEqual([...saved.suite_ids].sort(), [...suiteIds].sort());
+        assert.equal(saved.suite_id, suiteIds[0] || null);
+        assert.equal(saved.title, 'Suite revision case');
+        assert.equal(saved.description, 'Saved authoring description');
+        assert.deepEqual(saved.labels, ['saved-label']);
+        assert.deepEqual(saved.parameter_values, { account: 'saved-account' });
+        assert.deepEqual(await loadSteps(created.id), originalSteps);
+        assert.deepEqual(await peerMappings(), originalPeerMappings, 'Other cases keep their mappings and sort order');
+        assert.deepEqual(await peerPrimarySuites(), originalPeerSuites, 'Legacy-only peer membership is retained');
+      }
+      await assert.rejects(cases.updateTestCase(created.id, {
+        suite_ids: [], expected_revision: revision - 1, updated_by: 'reviewer'
+      }), { statusCode: 409, code: 'REVISION_CONFLICT' });
+      assert.equal(await versions.currentRevision(created.id), revision);
+      assert.deepEqual((await cases.getTestCase(created.id)).suite_ids, ['revision-suite-b']);
+      assert.deepEqual(await peerMappings(), originalPeerMappings);
+      assert.deepEqual(await peerPrimarySuites(), originalPeerSuites);
     });
     await t.test('editing shared reference steps updates the canonical group and other cases without losing adjacent steps', async () => {
       await db.prepare('INSERT INTO shared_step_groups(id,app_type_id,name,steps) VALUES (?,?,?,?)')

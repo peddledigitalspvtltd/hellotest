@@ -55,8 +55,8 @@ const specialists = [
   ['automation-engineer', 'Automation Engineer', 5, 'Automation improvement plan'],
   ['run-planner', 'Smart Run Planner', 5, 'Risk-based run recommendation'],
   ['failure-analyst', 'Failure Analyst', 4, 'Failure investigation brief'],
-  ['bug-reporter', 'Bug Reporter', 5, 'Reviewable defect outline'],
-  ['bug-triage', 'Bug Triage Agent', 5, 'Defect prioritization brief'],
+  ['bug-reporter', 'Defect Reporter', 5, 'Reviewable defect outline'],
+  ['bug-triage', 'Defect Triage Agent', 5, 'Defect prioritization brief'],
   ['quality-evaluator', 'Quality Evaluator', 6, 'Evidence readiness review'],
   ['repository-curator', 'Object Repository Curator', 4, 'Repository maintenance brief']
 ];
@@ -152,7 +152,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await page.getByRole('combobox', { name: 'AI provider', exact: true }).selectOption('model');
     assert.equal(await page.getByRole('option', { name: 'Disabled model', exact: true }).count(), 0);
     await page.getByRole('button', { name: 'Add context', exact: true }).click();
-    await page.getByLabel('Bugs', { exact: true }).uncheck();
+    await page.getByLabel('Defects', { exact: true }).uncheck();
     await page.locator('.agent-command-context > summary').click();
     const requests = []; let requestMode = 'success', pendingRoute;
     await page.route(/\/agentic-assistant\/sessions(?:\?.*)?$/, async route => {
@@ -201,8 +201,8 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await capture(page, screenshots + '/05-specialist-result-dark-390.png');
     await page.getByRole('button', { name: 'Review another task', exact: true }).click();
     await page.locator('.agent-command-context > summary').click();
-    await page.getByLabel('Bugs', { exact: true }).check();
-    assert.equal(await page.getByLabel('Bugs', { exact: true }).isChecked(), true);
+    await page.getByLabel('Defects', { exact: true }).check();
+    assert.equal(await page.getByLabel('Defects', { exact: true }).isChecked(), true);
     const contextBox = await page.locator('.agent-command-context__menu').boundingBox();
     assert.ok(contextBox.x >= 0 && contextBox.x + contextBox.width <= 391, 'mobile context menu fits the viewport');
     await capture(page, screenshots + '/08-specialist-context-dark-390.png');

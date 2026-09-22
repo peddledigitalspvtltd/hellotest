@@ -6,7 +6,7 @@ import { isRunFinished } from "./runCatalog";
 export type RunEditDraft = {
   test_data_options: TestDataOptions;
   name: string; start_date: string; end_date: string;
-  release: string; sprint: string; build: string;
+  release: string; sprint: string; release_id: string; iteration_id: string; build: string;
   suite_ids: string[]; test_case_ids: string[]; assigned_to_ids: string[];
   test_environment_id: string; test_configuration_id: string; test_data_set_id: string;
   execution_mode: "manual" | "remote" | "local";
@@ -20,7 +20,7 @@ export function runEditDraft(run: Execution): RunEditDraft {
   return {
     test_data_options: { override_lower_scopes: run.test_data_options?.override_lower_scopes !== false, override_shared_steps: run.test_data_options?.override_shared_steps !== false },
     name: run.name || "", start_date: run.start_date?.slice(0, 10) || "", end_date: run.end_date?.slice(0, 10) || "",
-    release: run.release || "", sprint: run.sprint || "", build: run.build || "",
+    release: run.release || "", sprint: run.sprint || "", release_id: run.release_id || "", iteration_id: run.iteration_id || "", build: run.build || "",
     suite_ids: [...suiteIds], test_case_ids: [...(run.direct_test_case_ids ?? legacyDirectIds)],
     assigned_to_ids: [...(run.assigned_to_ids || (run.assigned_to ? [run.assigned_to] : []))],
     test_environment_id: run.test_environment?.id || run.test_environment?.snapshot?.id || "", test_configuration_id: run.test_configuration?.id || run.test_configuration?.snapshot?.id || "", test_data_set_id: run.test_data_set?.id || run.test_data_set?.snapshot?.id || "",

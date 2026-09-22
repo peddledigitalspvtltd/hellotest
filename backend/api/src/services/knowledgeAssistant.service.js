@@ -303,6 +303,11 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
       messages
     })
   }, {
+    integration,
+    compatibility: false,
+    // This gateway records usage and exposes its established MODEL_* errors.
+    validateResponse: false,
+    maxOutputTokens,
     operation: useJsonMode ? operation : `${operation}.json-mode-compatibility`,
     timeoutMs,
     maxAttempts: 1,
@@ -337,8 +342,11 @@ const openAiJsonCompletion = async ({ integration, messages, operation, signal, 
   if (payload.choices?.[0]?.finish_reason === "length") throw Object.assign(new Error("The answer provider reached its output limit."), { code: "MODEL_OUTPUT_TRUNCATED" });
   const content = completionContent(payload);
   if (!content) throw Object.assign(new Error("The answer provider returned no answer."), { code: "MODEL_EMPTY_RESPONSE" });
-  try { return extractJson(content); }
+  let parsed;
+  try { parsed = extractJson(content); }
   catch { throw Object.assign(new Error("The answer provider returned invalid answer JSON."), { code: "MODEL_INVALID_RESPONSE" }); }
+  await aiLlmSelectionService.recordSuccessfulLlmIntegration?.(integration);
+  return parsed;
 };
 
 modelGateway.registerAdapter("openai_compatible", openAiJsonCompletion);

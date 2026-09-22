@@ -17,24 +17,29 @@ import {AuthProvider} from '/src/auth/AuthContext';
 import {LocalizationProvider} from '/src/context/LocalizationContext';
 import '/src/styles.css';
 import '/src/modal-system.css';
-const providers=[{id:'first',name:'First provider',model:'model-a',type:'llm'},{id:'second',name:'Second provider',model:'model-b',type:'llm'}];
+const allProviders=[{id:'first',name:'First provider',model:'model-a',type:'llm'},{id:'second',name:'Second provider',model:'model-b',type:'llm'}];
+const scenario=new URLSearchParams(location.search).get('scenario');
+const providers=scenario==='sole' ? [allProviders[0],{...allProviders[1],is_active:false}] : allProviders;
+let preferences=scenario==='success' ? {ai_last_successful_llm:[{integration_id:'second',project_id:'project-1',usage_key:'ai.test_case.design',succeeded_at:'2026-09-22T12:00:00Z'}]} : {};
 const session={token:'browser-fixture',user:{id:'reviewer',name:'Reviewer',email:'reviewer@example.test',role:'admin'}};
 sessionStorage.write(session);
 api.auth.session=async()=>session;
 api.settings.getLocalization=async()=>({strings:{}});
-api.settings.getWorkspacePreferences=async()=>({preferences:{}});
+api.settings.getWorkspacePreferences=async()=>({preferences});
 api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});
 api.aiPromptTemplates.list=async()=>[];
 const story={id:'story-1',project_id:'project-1',title:'Verify customer checkout',description:'Review the customer checkout flow.',status:'open'};
 function Fixture(){
  const [integrationId,setIntegrationId]=useState('');
+ const [generation,setGeneration]=useState(0);
+ window.remountAfterSuccess=()=>{preferences={ai_last_successful_llm:[{integration_id:'first',project_id:'project-1',usage_key:'ai.test_case.design',succeeded_at:'2026-09-22T13:00:00Z'}]};setIntegrationId('');setGeneration(value=>value+1);};
  const [integrations,setIntegrations]=useState(providers);
  const [busy,setBusy]=useState(false);
  const [context,setContext]=useState('Preserve checkout validation');
  const [links,setLinks]=useState('https://example.test/reference');
  window.removeSecondProvider=()=>setIntegrations(providers.slice(0,1));
  const preview=async authoring_mode=>{setBusy(true);try{await api.testCases.previewDesignedCases({app_type_id:'app-1',requirement_ids:['story-1'],integration_id:integrationId||undefined,max_cases:2,authoring_mode,additional_context:context,external_links:[],images:[]})}finally{setBusy(false)}};
- return <AiDesignStudioModal eyebrow="AI Test Case Generation" requirementLabel="Stories" requirementHelpText="Choose Story scope" requirements={[story]} selectedRequirementIds={['story-1']} allowMultipleRequirements onRequirementSelectionChange={()=>{}} integrations={integrations} integrationId={integrationId} onIntegrationIdChange={setIntegrationId} maxCases={2} onMaxCasesChange={()=>{}} additionalContext={context} onAdditionalContextChange={setContext} externalLinksText={links} onExternalLinksTextChange={setLinks} referenceImages={[]} onAddImages={()=>{}} onRemoveImage={()=>{}} appTypeName="Checkout Web" existingCases={[]} existingCasesTitle="Existing cases" existingCasesSubtitle="Current coverage" previewCases={[]} onRemovePreviewCase={()=>{}} previewMessage="" previewTone="success" onPreviewMessageDismiss={()=>{}} isPreviewing={busy} isAccepting={false} onPreview={preview} onSchedule={()=>{}} onAccept={()=>{}} onClose={()=>{}} disablePreview={false} disableSchedule={false} disableAccept acceptLabel="Accept drafts" promptTemplateProjectId="project-1" promptTemplateAppTypeId="app-1"/>;
+ return <AiDesignStudioModal key={generation} eyebrow="AI Test Case Generation" requirementLabel="Stories" requirementHelpText="Choose Story scope" requirements={[story]} selectedRequirementIds={['story-1']} allowMultipleRequirements onRequirementSelectionChange={()=>{}} integrations={integrations} integrationId={integrationId} onIntegrationIdChange={setIntegrationId} maxCases={2} onMaxCasesChange={()=>{}} additionalContext={context} onAdditionalContextChange={setContext} externalLinksText={links} onExternalLinksTextChange={setLinks} referenceImages={[]} onAddImages={()=>{}} onRemoveImage={()=>{}} appTypeName="Checkout Web" existingCases={[]} existingCasesTitle="Existing cases" existingCasesSubtitle="Current coverage" previewCases={[]} onRemovePreviewCase={()=>{}} previewMessage="" previewTone="success" onPreviewMessageDismiss={()=>{}} isPreviewing={busy} isAccepting={false} onPreview={preview} onSchedule={()=>{}} onAccept={()=>{}} onClose={()=>{}} disablePreview={false} disableSchedule={false} disableAccept acceptLabel="Accept drafts" promptTemplateProjectId="project-1" promptTemplateAppTypeId="app-1"/>;
 }
 createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><AuthProvider><LocalizationProvider userId="reviewer"><Fixture/></LocalizationProvider></AuthProvider></QueryClientProvider>);
 `;
@@ -146,5 +151,36 @@ test('test generator LLM dropdown preserves explicit and configured payloads wit
     releasePreview?.();
     await browser?.close();
     await Promise.allSettled([unlink(html), unlink(tsx)]);
+  }
+});
+
+
+test('LLM defaults use the last working provider, refresh on reopening, and auto-select the sole active provider', { timeout: 30000 }, async () => {
+  const name = 'ai-llm-defaults-' + randomUUID();
+  const html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
+  let browser;
+  try {
+    await writeFile(html, '<!doctype html><html><body><div id="root"></div><script type="module" src="/' + name + '.tsx"></script></body></html>');
+    await writeFile(tsx, fixture);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    const page = await browser.newPage();
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    const url = (process.env.VITE_TEST_URL || 'http://127.0.0.1:5188') + '/' + name + '.html';
+    await page.goto(url + '?scenario=success');
+    const select = page.getByRole('combobox', { name: 'LLM', exact: true });
+    await page.waitForFunction(() => document.querySelector('.ai-llm-select select')?.value === 'second');
+    await select.selectOption('first');
+    assert.equal(await select.inputValue(), 'first', 'explicit user selection wins over the saved default');
+    await page.evaluate(() => window.remountAfterSuccess());
+    await page.waitForFunction(() => document.querySelector('.ai-llm-select select')?.value === 'first');
+    await page.goto(url + '?scenario=sole');
+    await page.waitForFunction(() => document.querySelector('.ai-llm-select select')?.value === 'first');
+    assert.equal(await select.locator('option[value="second"]').count(), 0, 'inactive providers are excluded');
+    await select.selectOption('');
+    assert.equal(await select.inputValue(), '', 'choosing automatic explicitly is preserved');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser?.close();
+    await Promise.all([unlink(html).catch(() => {}), unlink(tsx).catch(() => {})]);
   }
 });

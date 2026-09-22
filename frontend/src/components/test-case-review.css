@@ -12,31 +12,39 @@
 .test-case-review-queue-banner > div { display: grid; gap: 4px; }
 .test-case-review-queue-banner > div > span { font-size: 12px; }
 .test-case-review-count { font-variant-numeric: tabular-nums; }
-.test-case-catalog-toolbar .ghost-button.test-case-review-approve {
+/* Explicit decisions retain semantic colors inside the workspace button theme. */
+:root .page-content.page-content--test-cases :is(button.test-case-review-approve, .test-case-review-actions button.decision-button.is-yes) {
   color: #15703b !important;
   background: #e9f8ee !important;
   border-color: #a6ddbb !important;
 }
-.test-case-catalog-toolbar .ghost-button.test-case-review-approve:hover:not(:disabled) {
+:root .page-content.page-content--test-cases :is(button.test-case-review-reject, .test-case-review-actions button.decision-button.is-no) {
+  color: #b32936 !important;
+  background: #fff0f1 !important;
+  border-color: #f0bcc2 !important;
+}
+:root .page-content.page-content--test-cases :is(button.test-case-review-approve, .test-case-review-actions button.decision-button.is-yes):hover:not(:disabled) {
   color: #105b30 !important;
   background: #d9f2e2 !important;
   border-color: #78c695 !important;
 }
-:is([data-theme="dark"], .dark) .test-case-catalog-toolbar .ghost-button.test-case-review-approve {
+:root .page-content.page-content--test-cases :is(button.test-case-review-reject, .test-case-review-actions button.decision-button.is-no):hover:not(:disabled) {
+  color: #8e1c27 !important;
+  background: #ffe0e4 !important;
+  border-color: #de929d !important;
+}
+:root[data-theme="dark"] .page-content.page-content--test-cases :is(button.test-case-review-approve, .test-case-review-actions button.decision-button.is-yes) {
   color: #a9efbc !important;
   background: #123a2a !important;
   border-color: #286341 !important;
 }
-:is([data-theme="dark"], .dark) .test-case-catalog-toolbar .ghost-button.test-case-review-approve:hover:not(:disabled) {
-  color: #c4f5d1 !important;
-  background: #194b36 !important;
-  border-color: #398957 !important;
-}
-:is(:root[data-theme="dark"], .dark) .ghost-button.test-case-review-reject:hover:not(:disabled) {
+:root[data-theme="dark"] .page-content.page-content--test-cases :is(button.test-case-review-reject, .test-case-review-actions button.decision-button.is-no) {
   color: #ffb7bd !important;
   background: #4a202c !important;
   border-color: #843d49 !important;
 }
+:root[data-theme="dark"] .page-content.page-content--test-cases :is(button.test-case-review-approve, .test-case-review-actions button.decision-button.is-yes):hover:not(:disabled) { color: #c4f5d1 !important; background: #194b36 !important; border-color: #398957 !important; }
+:root[data-theme="dark"] .page-content.page-content--test-cases :is(button.test-case-review-reject, .test-case-review-actions button.decision-button.is-no):hover:not(:disabled) { color: #ffd1d5 !important; background: #5a2937 !important; border-color: #a45160 !important; }
 .test-case-review-actions.is-icon-only .decision-button {
   width: 28px;
   min-width: 28px;

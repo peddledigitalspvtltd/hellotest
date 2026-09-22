@@ -1,17 +1,17 @@
 import { formatDefectFieldLabel, formatRecordKindLabel } from "../lib/defectTerminology";
 import { FormEvent, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { BugIcon, ChevronRightIcon, ExportIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
-import { AiAuthoringDialogHeader } from "../components/AiAuthoringDialogHeader";
-import {
-  AiAuthoringContextPaneResizer,
-  useAiAuthoringContextPaneWidth
-} from "../components/AiAuthoringContextPane";
-import { AiInsightPreviewDialog, type AiPreviewFinding } from "../components/AiInsightPreviewDialog";
-import { AgenticProcessRail, AiEvidenceButton, AiEvidenceFlyout, AiFeatureComposer } from "../components/AgenticExperience";
+import { DefectTriageDialog } from "../components/DefectTriageDialog";
+import { AiEvidenceButton, AiEvidenceFlyout } from "../components/AgenticExperience";
+import { StoryAiStudioShell, StoryAiSettingsGroup } from "../components/StoryAiStudioShell";
+import { StoryAiDraftQueue } from "../components/StoryAiStudioContent";
+import { DefectAiDraftWorkspace } from "../components/DefectAiDraftWorkspace";
+import { AiLlmSelect } from "../components/AiLlmSelect";
+import { useAiLlmDefault } from "../hooks/useAiLlmDefault";
 import { AiPromptContextPanel } from "../components/AiPromptContextPanel";
 import { CatalogSelectionControls } from "../components/CatalogSelectionControls";
 import { CatalogSearchFilter } from "../components/CatalogSearchFilter";
@@ -82,18 +82,6 @@ const AI_BUG_DRAFT_PENDING_PROCESSING: AiProcessingSnapshot = {
   ]
 };
 
-const AI_BUG_TRIAGE_PENDING_PROCESSING: AiProcessingSnapshot = {
-  active_stage_id: "context",
-  completed_stage_count: 1,
-  total_stage_count: 4,
-  status_label: "Assessing recorded signals",
-  stages: [
-    { id: "intake", status: "complete", detail: "Selected Defect scope submitted.", evidence: "Only the explicitly selected Defects are in scope." },
-    { id: "context", status: "running", detail: "Reading recorded fields and traceability.", evidence: "Category and priority recommendations must cite their supporting fields." },
-    { id: "specialist", status: "queued", detail: "Recommendations wait for evidence validation." },
-    { id: "review", status: "queued", detail: "No Defect field changes without human review." }
-  ]
-};
 
 type IssueDraft = {
   title: string;
@@ -357,34 +345,6 @@ type ImpactPickerOption = {
   meta?: string;
 };
 
-function BugAiContextPaneToggle({
-  buttonRef,
-  controlsId,
-  isCollapsed,
-  onToggle
-}: {
-  buttonRef: RefObject<HTMLButtonElement>;
-  controlsId: string;
-  isCollapsed: boolean;
-  onToggle: () => void;
-}) {
-  const actionLabel = isCollapsed ? "Expand AI Defect context pane" : "Collapse AI Defect context pane";
-  return (
-    <button
-      aria-controls={controlsId}
-      aria-expanded={!isCollapsed}
-      aria-label={actionLabel}
-      className={`ghost-button ai-studio-sidebar-toggle ai-authoring-context-pane-toggle${isCollapsed ? "" : " is-expanded"}`}
-      onClick={onToggle}
-      ref={buttonRef}
-      title={actionLabel}
-      type="button"
-    >
-      <ChevronRightIcon size={17} />
-    </button>
-  );
-}
-
 function ImpactCheckboxPicker({
   disabled,
   emptyText,
@@ -597,6 +557,12 @@ export function IssuesPage() {
     selectionProjectRef.current = projectId;
     setSelectedIssueId(searchParams.get("issue") || "");
     setIsCreating(false);
+    setIsAiBugDraftOpen(false);
+    setIsAiBugEvidenceSetupOpen(false);
+    setIsAiBugDraftEvidenceOpen(false);
+    setAiDraftPreview(null);
+    setAiBugIntegrationId("");
+    aiBugRequestSequence.current += 1;
   }, [projectId, searchParams]);
   const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
   const rootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.root_causes", ISSUE_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.root_cause]);
@@ -618,6 +584,7 @@ export function IssuesPage() {
   const [isDeletingSelectedIssues, setIsDeletingSelectedIssues] = useState(false);
   const [isExportingIssues, setIsExportingIssues] = useState(false);
   const [isAiBugTriageOpen, setIsAiBugTriageOpen] = useState(false);
+  const [triageIssues, setTriageIssues] = useState<Issue[]>([]);
   const [issueSearch, setIssueSearch] = useState("");
   const deferredIssueSearch = useDeferredValue(issueSearch);
   const [catalogSearch, setCatalogSearch] = useState("");
@@ -629,6 +596,9 @@ export function IssuesPage() {
     return () => window.clearTimeout(timeout);
   }, [deferredIssueSearch]);
   const [isAiBugDraftOpen, setIsAiBugDraftOpen] = useState(false);
+  const aiBugRequestSequence = useRef(0);
+  const aiBugProjectRef = useRef(projectId);
+  aiBugProjectRef.current = projectId;
   const [aiIntent, setAiIntent] = useState("");
   const [aiEvidence, setAiEvidence] = useState("");
   const [aiAdditionalContext, setAiAdditionalContext] = useState("");
@@ -640,26 +610,20 @@ export function IssuesPage() {
   const [aiDraftPreview, setAiDraftPreview] = useState<AiBugDraftPreview | null>(null);
   const [aiDraftMessage, setAiDraftMessage] = useState("");
   const [aiDraftMessageTone, setAiDraftMessageTone] = useState<"error" | "warning">("error");
-  const [isAiContextCollapsed, setIsAiContextCollapsed] = useState(false);
-  const aiBugContextPaneId = `ai-bug-context-pane-${useId().replace(/:/g, "")}`;
-  const aiBugContextPaneToggleRef = useRef<HTMLButtonElement>(null);
-  const restoreAiBugContextToggleFocusRef = useRef(false);
+  const [aiBugIntegrationId, setAiBugIntegrationId] = useState("");
+  const [isAiBugContextBusy, setIsAiBugContextBusy] = useState(false);
   const [isAiBugEvidenceSetupOpen, setIsAiBugEvidenceSetupOpen] = useState(false);
   const [isAiBugDraftEvidenceOpen, setIsAiBugDraftEvidenceOpen] = useState(false);
-  const aiBugContextPane = useAiAuthoringContextPaneWidth();
   const [hasAppliedBugContextDefaults, setHasAppliedBugContextDefaults] = useState(true);
   const [hasAppliedAiBugContextDefaults, setHasAppliedAiBugContextDefaults] = useState(true);
 
-  useEffect(() => {
-    if (!restoreAiBugContextToggleFocusRef.current) return;
-    aiBugContextPaneToggleRef.current?.focus();
-    restoreAiBugContextToggleFocusRef.current = false;
-  }, [isAiContextCollapsed]);
-
-  const toggleAiBugContextPane = (collapsed: boolean) => {
-    restoreAiBugContextToggleFocusRef.current = true;
-    setIsAiContextCollapsed(collapsed);
-  };
+  const aiBugIntegrationsQuery = useQuery({
+    queryKey: ["integrations", "llm", "ai-bug-draft"],
+    queryFn: () => api.integrations.list({ type: "llm", is_active: true }),
+    enabled: isAiBugDraftOpen && can("integration.view")
+  });
+  const aiBugIntegrations = asArray(aiBugIntegrationsQuery.data);
+  const aiBugDefaultIntegrationId = useAiLlmDefault({ usageKey: "ai.bug.draft", projectId, integrations: can("integration.view") ? aiBugIntegrations : undefined, enabled: isAiBugDraftOpen });
   const shouldLoadBugContext = isCreating || Boolean(selectedIssueId) || isAiBugDraftOpen;
   const catalogFilters = useMemo(() => ({
     project_id: projectId,
@@ -1442,23 +1406,6 @@ export function IssuesPage() {
   };
 
   const previewAiBugDraft = useMutation({ mutationFn: api.issues.previewAiDraft });
-  const previewAiBugTriage = useMutation({ mutationFn: api.issues.previewAiTriage });
-  const aiBugTriageFindings = useMemo<AiPreviewFinding[]>(
-    () => asArray(previewAiBugTriage.data?.triage).map((recommendation) => ({
-      id: recommendation.issue_id,
-      title: `${recommendation.display_id} · ${recommendation.category}`,
-      severity: ["Highest", "High"].includes(recommendation.recommended_priority)
-        ? "high"
-        : recommendation.recommended_priority === "Medium"
-          ? "medium"
-          : "low",
-      description: recommendation.explanation,
-      action: asArray(recommendation.review_actions).join(" "),
-      meta: `${recommendation.title} · Current ${recommendation.current_priority} · Recommended ${recommendation.recommended_priority}`,
-      evidence: asArray(recommendation.evidence_refs)
-    })),
-    [previewAiBugTriage.data]
-  );
 
   const openManualBugReport = () => {
     if (!canCreateBugs) return;
@@ -1476,7 +1423,7 @@ export function IssuesPage() {
   };
 
   const openAiBugReport = () => {
-    if (!canUseAiBugDraft) return;
+    if (!canUseAiBugDraft || isAiBugContextBusy) return;
     const contextualTitle = String(searchParams.get("title") || "").trim();
     const contextualMessage = String(searchParams.get("message") || "").trim();
     const contextualStatus = String(searchParams.get("status") || "").trim();
@@ -1534,14 +1481,8 @@ export function IssuesPage() {
       setMessage(`Select no more than ${MAX_AI_BUG_TRIAGE_ITEMS} Defects for one AI triage preview. This keeps workspace reads and AI usage bounded.`);
       return;
     }
-    previewAiBugTriage.reset();
+    setTriageIssues(selectedActionIssues.slice());
     setIsAiBugTriageOpen(true);
-    previewAiBugTriage.mutate({
-      project_id: projectId,
-      issue_ids: selectedIssueIds,
-      integration_id: getLlmIntegrationId("ai.bug.triage") || undefined,
-      prompt_guidance: getPrompt("ai.bug.triage") || undefined
-    });
   };
 
   useEffect(() => {
@@ -1575,6 +1516,7 @@ export function IssuesPage() {
   }, [canUseAiBugDraft, searchParams, setSearchParams]);
 
   const invalidateAiBugDraft = () => {
+    aiBugRequestSequence.current += 1;
     setAiDraftPreview(null);
     setAiDraftMessage("");
     setAiDraftMessageTone("error");
@@ -1645,7 +1587,7 @@ export function IssuesPage() {
   };
 
   const handlePreviewAiBugDraft = async () => {
-    if (!canUseAiBugDraft) return;
+    if (!canUseAiBugDraft || isAiBugContextBusy) return;
     if (aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError) {
       setAiDraftMessageTone("error");
       setAiDraftMessage(aiCasePrefillQuery.isError
@@ -1661,6 +1603,8 @@ export function IssuesPage() {
 
     setAiDraftMessage("");
     setAiDraftMessageTone("error");
+    const requestSequence = ++aiBugRequestSequence.current;
+    const requestProjectId = projectId;
     try {
       const response = await previewAiBugDraft.mutateAsync({
         project_id: projectId,
@@ -1672,15 +1616,17 @@ export function IssuesPage() {
         linked_test_run_id: canViewRuns ? aiLinkedRunId : undefined,
         linked_test_case_ids: canViewTestCases ? aiLinkedCaseIds : [],
         linked_requirement_ids: canViewStories ? aiLinkedRequirementIds : [],
-        integration_id: getLlmIntegrationId("ai.bug.draft") || undefined,
+        integration_id: aiBugIntegrationId || getLlmIntegrationId("ai.bug.draft") || undefined,
         prompt_guidance: getPrompt("ai.bug.draft") || undefined
       });
+      if (requestSequence !== aiBugRequestSequence.current || requestProjectId !== aiBugProjectRef.current) return;
       setAiDraftPreview({
         ...response,
         client_review: { human_edited_fields: [], stale_field_evidence: {}, stale_gaps: {}, stale_fallback_fields: [] }
       });
     } catch (error) {
       setAiDraftMessageTone("error");
+      if (requestSequence !== aiBugRequestSequence.current || requestProjectId !== aiBugProjectRef.current) return;
       setAiDraftMessage(error instanceof Error ? error.message : "Unable to generate the defect draft.");
     }
   };
@@ -1898,6 +1844,7 @@ export function IssuesPage() {
   };
 
   const closeAiBugReport = () => {
+    aiBugRequestSequence.current += 1;
     setIsAiBugDraftOpen(false);
     setIsAiBugEvidenceSetupOpen(false);
     setIsAiBugDraftEvidenceOpen(false);
@@ -1952,99 +1899,65 @@ export function IssuesPage() {
   return (
     <div className="page-content issues-page">
       {confirmationDialog}
-      <AiInsightPreviewDialog
-        assuranceTitle="Evidence-grounded Defect triage"
-        boundaryOmissions={asArray(previewAiBugTriage.data?.boundaries?.omissions)}
-        emptyMessage="No classification recommendation was returned for the selected Defects."
-        evidenceSources={asArray(previewAiBugTriage.data?.evidence_sources)}
-        error={previewAiBugTriage.error instanceof Error ? previewAiBugTriage.error.message : null}
-        eyebrow="Defects · AI review"
-        findings={aiBugTriageFindings}
-        inputEvidenceCount={selectedActionIssues.length}
-        limitations={asArray(previewAiBugTriage.data?.limitations)}
-        loading={previewAiBugTriage.isPending}
+      {isAiBugTriageOpen && projectId ? <DefectTriageDialog
+        key={projectId}
+        projectId={projectId}
+        issues={triageIssues}
+        canViewIntegrations={can("integration.view")}
         onClose={() => setIsAiBugTriageOpen(false)}
-        open={isAiBugTriageOpen}
-        processing={previewAiBugTriage.data?.processing || (previewAiBugTriage.isPending ? AI_BUG_TRIAGE_PENDING_PROCESSING : undefined)}
-        profile="bug-triage"
-        recommendedActions={asArray(previewAiBugTriage.data?.review_sequence)}
-        response={previewAiBugTriage.data}
-        scoreLabel="Required evidence coverage"
-        subtitle={`Review categories and priority recommendations for up to ${MAX_AI_BUG_TRIAGE_ITEMS} selected project Defects. Nothing is updated automatically.`}
-        summary={previewAiBugTriage.data?.summary || "HelloTest compares the selected Defect fields and traceability signals, then explains each recommendation for human review."}
-        title="Classify and prioritize Defects"
-      />
+        onOpenIssue={id => { setIsAiBugTriageOpen(false); openIssueWorkspace(id); }}
+      /> : null}
       {isAiBugDraftOpen ? (
-        <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !previewAiBugDraft.isPending && closeAiBugReport()} role="presentation">
+        <div className="modal-backdrop story-ai-workbench-backdrop" onClick={() => !previewAiBugDraft.isPending && closeAiBugReport()} role="presentation">
           <div
             aria-labelledby="ai-bug-draft-title"
             aria-modal="true"
-            className="modal-card ai-design-modal ai-bug-draft-modal ai-authoring-dialog ai-authoring-dialog--bugs ai-feature-dialog"
+            className="modal-card story-ai-workbench-dialog defect-ai-workbench-dialog"
             onClick={(event) => event.stopPropagation()}
             ref={aiBugDialogRef}
             role="dialog"
             tabIndex={-1}
           >
-            <AiAuthoringDialogHeader
-              closeDisabled={previewAiBugDraft.isPending}
-              closeLabel="Close AI defect draft"
-              description="Start from bounded failure evidence, refine the scope, and review a HelloTest-ready Defect draft before anything is saved."
-              eyebrow="Defects"
-              onClose={closeAiBugReport}
-              secondaryAction={(
-                <span className={hasInheritedAiBugContext ? "ai-authoring-context-status is-inherited" : "ai-authoring-context-status"}>
-                  <strong>{hasInheritedAiBugContext ? "Auto-selected context" : "Context"}</strong>
-                  <span>{aiBugContextSource}</span>
-                </span>
-              )}
-              title="Report Defect using AI"
+            <StoryAiStudioShell
+              mode="create"
+              entityLabel="Defect"
+              studioTitle="Report Defect using AI"
               titleId="ai-bug-draft-title"
-            />
-
-            <div className="ai-bug-authoring-workbench">
-              <div
-              className={isAiContextCollapsed ? "ai-studio-shell ai-authoring-dialog-layout is-sidebar-collapsed" : "ai-studio-shell ai-authoring-dialog-layout"}
-              style={aiBugContextPane.style}
-              >
-              <aside
-                className={isAiContextCollapsed ? "ai-studio-sidebar ai-authoring-dialog-sidebar is-collapsed" : "ai-studio-sidebar ai-authoring-dialog-sidebar"}
-                id={aiBugContextPaneId}
-              >
-                {isAiContextCollapsed ? (
-                  <div className="ai-studio-sidebar-collapsed-bar">
-                    <BugAiContextPaneToggle
-                      buttonRef={aiBugContextPaneToggleRef}
-                      controlsId={aiBugContextPaneId}
-                      isCollapsed
-                      onToggle={() => toggleAiBugContextPane(false)}
-                    />
-                  </div>
-                ) : (
-                  <div className="ai-studio-sidebar-panels">
-                    <section className="ai-authoring-context-card" aria-label="AI Defect source context">
-                      <div>
-                        <span>{hasInheritedAiBugContext ? "Inherited from launcher" : "Selected in this dialog"}</span>
-                        <strong>{aiBugContextSource}</strong>
-                      </div>
-                      <div className="ai-authoring-context-facts">
-                        <span>{aiLinkedRunId ? "1 run" : "No run"}</span>
-                        <span>{aiLinkedCaseIds.length} case{aiLinkedCaseIds.length === 1 ? "" : "s"}</span>
-                        <span>{aiLinkedRequirementIds.length} Stor{aiLinkedRequirementIds.length === 1 ? "y" : "ies"}</span>
-                      </div>
-                      <p>
-                        {hasInheritedAiBugContext
-                          ? "Failed or blocked evidence was preselected from where you launched this flow. You can still refine it below."
-                          : "Add only the run, cases, and Stories that directly support this Defect."}
-                      </p>
-                    </section>
-                    <div className="ai-studio-sidebar-divider">
-                      <BugAiContextPaneToggle
-                        buttonRef={aiBugContextPaneToggleRef}
-                        controlsId={aiBugContextPaneId}
-                        isCollapsed={false}
-                        onToggle={() => toggleAiBugContextPane(true)}
-                      />
-                    </div>
+              descriptionId="ai-bug-draft-description"
+              studioDescription="Describe the failure, add supporting context, and review a Defect proposal before accepting it into the form."
+              showIncludeGherkin={false}
+              showOutputFormat={false}
+              processProfile="bug-create"
+              agentName="Defect Reporter"
+              agentStatus={previewAiBugDraft.isPending ? "running" : aiDraftPreview ? "completed" : aiDraftMessage && aiDraftMessageTone === "error" ? "failed" : "idle"}
+              processing={aiDraftPreview?.processing || (previewAiBugDraft.isPending ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
+              hasProposal={Boolean(aiDraftPreview)}
+              contextLabel={`${aiBugEvidenceSourceCount} evidence sources · ${aiBugContextSource}`}
+              integrationId={aiBugIntegrationId}
+              integrations={aiBugIntegrations}
+              outputLabel="Editable Defect draft with reproduction evidence"
+              approvalLabel="Accept into form, then review before create"
+              primaryGenerateLabel={previewAiBugDraft.isPending ? "Generating draft…" : aiDraftPreview ? "Regenerate draft" : "Generate draft"}
+              primaryGenerateDisabled={!canUseAiBugDraft || !projectId || !aiIntent.trim() || previewAiBugDraft.isPending || isAiBugContextBusy || aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
+              onPrimaryGenerate={() => void handlePreviewAiBugDraft()}
+              onClose={closeAiBugReport}
+              closeDisabled={previewAiBugDraft.isPending}
+                  stageEvidence={{
+                    intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Defect drafting boundary." : "Add the observed failure and expected behavior before delegating a Defect draft.",
+                    context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, ${aiBugExternalLinks.length} external link pointer${aiBugExternalLinks.length === 1 ? "" : "s"}, ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}, and ${aiEvidence.trim() || aiAdditionalContext.trim() ? "reporter notes" : "no reporter notes"} form the evidence pack.`,
+                    guardrails: "The agent cannot create a Defect, change connected work items, or treat reference text as trusted instructions.",
+                    specialist: "Defect Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
+                    outcome: "Title, severity, priority, description, reproduction, expected/actual result, environment, build, and labels remain editable proposal fields.",
+                    evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
+                    review: "The proposal must first be accepted into the Defect form and then explicitly created by a person."
+                  }}
+              settingsPane={<div className="story-studio-settings-content">
+                <StoryAiSettingsGroup title="Defect Intent" description="Observed failure and expected behavior">
+                  <FormField label="What failed?" required><textarea disabled={previewAiBugDraft.isPending} onChange={event => { setAiIntent(event.target.value); invalidateAiBugDraft(); }} placeholder="Describe what failed, where it failed, the expected behavior, and why the impact matters." rows={4} value={aiIntent} /></FormField>
+                  <p className="defect-studio-context-note"><strong>{hasInheritedAiBugContext ? "Auto-selected context" : "Context"}</strong> · {aiBugContextSource}</p>
+                  <AiEvidenceButton count={aiBugEvidenceSourceCount} label="Review evidence setup" onClick={() => setIsAiBugEvidenceSetupOpen(true)} />
+                </StoryAiSettingsGroup>
+                <StoryAiSettingsGroup title="Generation Context" description="Supporting evidence">
                     <AiPromptContextPanel
                       additionalContext={aiAdditionalContext}
                       disabled={previewAiBugDraft.isPending}
@@ -2062,140 +1975,20 @@ export function IssuesPage() {
                         setAiReferenceImages((current) => current.filter((image) => image.url !== imageUrl));
                         invalidateAiBugDraft();
                       }}
+                      onBusyChange={setIsAiBugContextBusy}
+                      referenceUploadPresentation="dropzone"
                       promptScope="bug_creation"
                       projectId={projectId}
                       referenceImages={aiReferenceImages}
                       requirements={requirementItems.filter((requirement) => aiLinkedRequirementIds.includes(requirement.id))}
                     />
-                  </div>
-                )}
-              </aside>
-
-              {!isAiContextCollapsed ? (
-                <AiAuthoringContextPaneResizer
-                  onWidthChange={aiBugContextPane.setWidth}
-                  width={aiBugContextPane.width}
-                />
-              ) : null}
-
-              <section aria-label="AI Defect draft workspace" className="ai-studio-main ai-bug-draft-main ai-authoring-dialog-workspace">
-                <div className="ai-bug-feature-composer">
-                  <AiFeatureComposer
-                    agentName="Defect Reporter"
-                    enableSmartContext
-                    briefItems={[
-                      {
-                        id: "context",
-                        kind: "context",
-                        label: "Failure evidence",
-                        onClick: () => setIsAiContextCollapsed(false),
-                        state: hasAiBugEvidenceContext ? "ready" : "attention",
-                        value: `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} · ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}`
-                      },
-                      { id: "output", kind: "output", label: "Output contract", state: "ready", value: "Editable Defect draft with reproduction evidence" },
-                      { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Accept into form, then review before create" }
-                    ]}
-                    briefCollapsible
-                    contextLabel={`${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"}`}
-                    density="compact"
-                    disabled={!projectId}
-                    mode="agent"
-                    onContextClick={() => setIsAiContextCollapsed(false)}
-                    onPromptChange={(value) => {
-                      setAiIntent(value);
-                      invalidateAiBugDraft();
-                    }}
-                    onSubmit={() => void handlePreviewAiBugDraft()}
-                    placeholder="Describe what failed, where it failed, the expected behavior, and why the impact matters."
-                    prompt={aiIntent}
-                    running={previewAiBugDraft.isPending}
-                    showIdentity={false}
-                    showModeSwitcher={false}
-                    showProviderSelector={false}
-                    submitLabel={aiDraftPreview ? "Regenerate draft" : "Generate draft"}
-                  />
-                </div>
-
-                <div className="ai-bug-evidence-launch">
-                  <span><strong>Evidence and impacted scope</strong><small>Add only logs, reproduction notes, runs, Test Cases, and Stories that support this Defect.</small></span>
-                  <AiEvidenceButton count={aiBugEvidenceSourceCount} label="Review evidence setup" onClick={() => setIsAiBugEvidenceSetupOpen(true)} />
-                </div>
-
-                <AiEvidenceFlyout
-                  description="Add or refine the bounded evidence pack used to prepare this Defect proposal. External URLs remain pointer-only."
-                  eyebrow="Defect creation · Input evidence"
-                  facts={[
-                    { label: "Linked run", value: aiLinkedRunId ? "1" : "0" },
-                    { label: "Test Cases", value: aiLinkedCaseIds.length },
-                    { label: "Stories", value: aiLinkedRequirementIds.length },
-                    { label: "Images", value: aiReferenceImages.length }
-                  ]}
-                  onClose={() => setIsAiBugEvidenceSetupOpen(false)}
-                  open={isAiBugEvidenceSetupOpen}
-                  title="Evidence and impacted scope"
-                >
-                  <div className="ai-bug-input-flyout__body">
-                    {aiCasePrefillQuery.isFetching ? <p className="inline-message" role="status">Preparing the selected Test Case scope…</p> : null}
-                    {aiCasePrefillQuery.isError ? <p className="inline-message error" role="alert">Could not prepare the selected Test Cases. <button type="button" className="ghost-button" onClick={() => void aiCasePrefillQuery.refetch()}>Retry</button></p> : null}
-                    <FormField label="Observed evidence">
-                      <textarea
-                        disabled={previewAiBugDraft.isPending}
-                        onChange={(event) => {
-                          setAiEvidence(event.target.value);
-                          invalidateAiBugDraft();
-                        }}
-                        placeholder="Error text, observed result, timestamps, logs, or reproduction notes"
-                        rows={4}
-                        value={aiEvidence}
-                      />
-                    </FormField>
-                    <div className="issue-form-grid issue-form-grid--triple ai-bug-scope-grid">
-                      <FormField label="Impacted Test Run">
-                        <select
-                          disabled={previewAiBugDraft.isPending || !canViewRuns}
-                          onChange={(event) => {
-                            setAiLinkedRunId(event.target.value);
-                            invalidateAiBugDraft();
-                          }}
-                          value={aiLinkedRunId}
-                        >
-                          <option value="">No linked run</option>
-                          {executionItems.map((execution) => (
-                            <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <TestCasePicker
-                        projectId={projectId}
-                        disabled={previewAiBugDraft.isPending || !canViewTestCases}
-                        initialItems={testCaseItems}
-                        onItemsResolved={rememberCaseItems}
-                        heading="Impacted Test Cases"
-                        presentation="impact"
-                        onChange={(ids, selectedItems) => {
-                          updateAiLinkedTestCases(ids, selectedItems);
-                          invalidateAiBugDraft();
-                        }}
-                        selectedIds={aiLinkedCaseIds}
-                      />
-                      <ImpactCheckboxPicker
-                        disabled={previewAiBugDraft.isPending || !canViewStories}
-                        emptyText="No stories are available for this project."
-                        items={requirementImpactOptions}
-                        label="Impacted Stories"
-                        onChange={(ids) => {
-                          setAiLinkedRequirementIds(ids);
-                          invalidateAiBugDraft();
-                        }}
-                        placeholder="Search stories..."
-                        selectedIds={aiLinkedRequirementIds}
-                      />
-                    </div>
-                  </div>
-                </AiEvidenceFlyout>
-
-                {aiDraftMessage ? <p className={`inline-message ${aiDraftMessageTone === "warning" ? "warning-message" : "error-message"}`} role={aiDraftMessageTone === "error" ? "alert" : "status"}>{aiDraftMessage}</p> : null}
-
+                </StoryAiSettingsGroup>
+                <StoryAiSettingsGroup title="Intelligence Engine" description="Provider for this draft">
+                  <AiLlmSelect scopeKey={projectId} defaultIntegrationId={aiBugDefaultIntegrationId} disabled={previewAiBugDraft.isPending} integrations={aiBugIntegrations} value={aiBugIntegrationId} onChange={value => { setAiBugIntegrationId(value); invalidateAiBugDraft(); }} />
+                </StoryAiSettingsGroup>
+              </div>}
+              queuePane={<StoryAiDraftQueue activeDraftId="defect-proposal" allowSelection={false} drafts={aiDraftPreview ? [{ id: "defect-proposal", title: aiDraftPreview.draft.title, description: aiDraftPreview.draft.message, generated: true }] : []} itemNoun="Defect" itemMeta="Reproduction, impact, and evidence" queueTitle="Defect proposal" onActivateDraft={() => {}} selectedDraftIds={aiDraftPreview ? ["defect-proposal"] : []} />}
+              inspectorContent={<DefectAiDraftWorkspace hasDraft={Boolean(aiDraftPreview)} statusContent={aiDraftMessage ? <p className={`inline-message ${aiDraftMessageTone === "error" ? "error" : "warning-message"}`} role={aiDraftMessageTone === "error" ? "alert" : "status"}>{aiDraftMessage}</p> : null}>
                 {aiDraftPreview ? (
                   <section className="ai-bug-review-card" aria-label="AI defect draft preview">
                     <div className="ai-bug-review-head">
@@ -2360,40 +2153,85 @@ export function IssuesPage() {
                     </AiEvidenceFlyout>
                   </section>
                 ) : null}
-              </section>
-              </div>
-              <aside aria-label="Defect Reporter generation flow" className="ai-bug-flow-pane">
-                <AgenticProcessRail
-                  agentName="Defect Reporter"
-                  compact
-                  orientation="vertical"
-                  presentation="focused"
-                  profile="bug-create"
-                  processing={aiDraftPreview?.processing || (previewAiBugDraft.isPending ? AI_BUG_DRAFT_PENDING_PROCESSING : undefined)}
-                  stageEvidence={{
-                    intake: aiIntent.trim() ? "Observed failure, expected behavior, and impact define the Defect drafting boundary." : "Add the observed failure and expected behavior before delegating a Defect draft.",
-                    context: `${aiLinkedRunId ? "One linked run" : "No linked run"}, ${aiLinkedCaseIds.length} Test Case${aiLinkedCaseIds.length === 1 ? "" : "s"}, ${aiLinkedRequirementIds.length} Stor${aiLinkedRequirementIds.length === 1 ? "y" : "ies"}, ${aiBugExternalLinks.length} external link pointer${aiBugExternalLinks.length === 1 ? "" : "s"}, ${aiReferenceImages.length} image${aiReferenceImages.length === 1 ? "" : "s"}, and ${aiEvidence.trim() || aiAdditionalContext.trim() ? "reporter notes" : "no reporter notes"} form the evidence pack.`,
-                    guardrails: "The agent cannot create a Defect, change connected work items, or treat reference text as trusted instructions.",
-                    specialist: "Defect Reporter is separating observed facts from assumptions and constructing reproducible evidence.",
-                    outcome: "Title, severity, priority, description, reproduction, expected/actual result, environment, build, and labels remain editable proposal fields.",
-                    evaluation: "The draft is checked for reproducibility, evidence linkage, impact clarity, and unsupported claims.",
-                    review: "The proposal must first be accepted into the Defect form and then explicitly created by a person."
-                  }}
-                  status={previewAiBugDraft.isPending ? "running" : aiDraftPreview ? "completed" : aiDraftMessage && aiDraftMessageTone === "error" ? "failed" : "idle"}
-                />
-              </aside>
-            </div>
-            <div className="action-row ai-studio-footer ai-bug-draft-footer">
-              <span className="ai-authoring-footer-status">
-                {aiDraftPreview ? "1 AI Defect draft ready for human review" : `${aiBugEvidenceSourceCount} evidence source${aiBugEvidenceSourceCount === 1 ? "" : "s"} selected`}
-              </span>
-              {aiDraftPreview ? (
-                <button className="ghost-button" onClick={() => { setIsAiBugDraftEvidenceOpen(false); setAiDraftPreview(null); }} type="button">Discard draft</button>
-              ) : (
-                <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={closeAiBugReport} type="button">Cancel</button>
-              )}
-              {aiDraftPreview ? <button className="primary-button" disabled={!aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Defect form</button> : null}
-            </div>
+              </DefectAiDraftWorkspace>}
+              commandBar={<>
+                {aiDraftPreview ? <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={() => { setIsAiBugDraftEvidenceOpen(false); setAiDraftPreview(null); }} type="button">Discard draft</button> : <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={closeAiBugReport} type="button">Cancel</button>}
+                {aiDraftPreview ? <button className="story-studio-accept-button" disabled={previewAiBugDraft.isPending || !aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Defect form</button> : null}
+              </>}
+            />
+                <AiEvidenceFlyout
+                  description="Add or refine the bounded evidence pack used to prepare this Defect proposal. External URLs remain pointer-only."
+                  eyebrow="Defect creation · Input evidence"
+                  facts={[
+                    { label: "Linked run", value: aiLinkedRunId ? "1" : "0" },
+                    { label: "Test Cases", value: aiLinkedCaseIds.length },
+                    { label: "Stories", value: aiLinkedRequirementIds.length },
+                    { label: "Images", value: aiReferenceImages.length }
+                  ]}
+                  onClose={() => setIsAiBugEvidenceSetupOpen(false)}
+                  open={isAiBugEvidenceSetupOpen}
+                  title="Evidence and impacted scope"
+                >
+                  <div className="ai-bug-input-flyout__body">
+                    {aiCasePrefillQuery.isFetching ? <p className="inline-message" role="status">Preparing the selected Test Case scope…</p> : null}
+                    {aiCasePrefillQuery.isError ? <p className="inline-message error" role="alert">Could not prepare the selected Test Cases. <button type="button" className="ghost-button" onClick={() => void aiCasePrefillQuery.refetch()}>Retry</button></p> : null}
+                    <FormField label="Observed evidence">
+                      <textarea
+                        disabled={previewAiBugDraft.isPending}
+                        onChange={(event) => {
+                          setAiEvidence(event.target.value);
+                          invalidateAiBugDraft();
+                        }}
+                        placeholder="Error text, observed result, timestamps, logs, or reproduction notes"
+                        rows={4}
+                        value={aiEvidence}
+                      />
+                    </FormField>
+                    <div className="issue-form-grid issue-form-grid--triple ai-bug-scope-grid">
+                      <FormField label="Impacted Test Run">
+                        <select
+                          disabled={previewAiBugDraft.isPending || !canViewRuns}
+                          onChange={(event) => {
+                            setAiLinkedRunId(event.target.value);
+                            invalidateAiBugDraft();
+                          }}
+                          value={aiLinkedRunId}
+                        >
+                          <option value="">No linked run</option>
+                          {executionItems.map((execution) => (
+                            <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
+                          ))}
+                        </select>
+                      </FormField>
+                      <TestCasePicker
+                        projectId={projectId}
+                        disabled={previewAiBugDraft.isPending || !canViewTestCases}
+                        initialItems={testCaseItems}
+                        onItemsResolved={rememberCaseItems}
+                        heading="Impacted Test Cases"
+                        presentation="impact"
+                        onChange={(ids, selectedItems) => {
+                          updateAiLinkedTestCases(ids, selectedItems);
+                          invalidateAiBugDraft();
+                        }}
+                        selectedIds={aiLinkedCaseIds}
+                      />
+                      <ImpactCheckboxPicker
+                        disabled={previewAiBugDraft.isPending || !canViewStories}
+                        emptyText="No stories are available for this project."
+                        items={requirementImpactOptions}
+                        label="Impacted Stories"
+                        onChange={(ids) => {
+                          setAiLinkedRequirementIds(ids);
+                          invalidateAiBugDraft();
+                        }}
+                        placeholder="Search stories..."
+                        selectedIds={aiLinkedRequirementIds}
+                      />
+                    </div>
+                  </div>
+                </AiEvidenceFlyout>
+
           </div>
         </div>
       ) : null}
@@ -2497,7 +2335,7 @@ export function IssuesPage() {
                 {canUseAiBugTriage ? (
                   <button
                     className="ghost-button catalog-selection-button"
-                    disabled={!selectedActionIssues.length || previewAiBugTriage.isPending || isDeletingSelectedIssues || isExportingIssues}
+                    disabled={!selectedActionIssues.length || isDeletingSelectedIssues || isExportingIssues}
                     onClick={openSelectedBugTriage}
                     title={selectedActionIssues.length > MAX_AI_BUG_TRIAGE_ITEMS
                       ? `Select up to ${MAX_AI_BUG_TRIAGE_ITEMS} Defects to keep workspace reads and AI usage bounded`

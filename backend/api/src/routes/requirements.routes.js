@@ -37,6 +37,7 @@ module.exports = async function (fastify) {
     fastify.validate({
       project_id: { required: false, type: "string", maxLength: 255 },
       integration_id: { required: false, type: "string", maxLength: 255 },
+      additional_context: { required: false, type: "string", maxLength: 12000 },
       prompt_guidance: { required: false, type: "string", maxLength: 4000 }
     }, req.body || {});
     const requirement = await service.getRequirement(req.params.id, { includeLinkedRecords: false });
@@ -49,6 +50,7 @@ module.exports = async function (fastify) {
       userId: req.user.id,
       user: req.user,
       integrationId: req.body?.integration_id,
+      additionalContext: req.body?.additional_context,
       promptGuidance: req.body?.prompt_guidance
     });
   });
@@ -84,6 +86,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     fastify.validate({
       project_id: { required: true, type: "string", maxLength: 255 },
+      prompt_guidance: { required: false, type: "string", maxLength: 6000 },
       integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 20000 },
       external_links: { required: false, type: "array", items: "string", maxItems: 20 },
@@ -244,6 +247,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       project_id: { required: true, type: "string" },
+      prompt_guidance: { required: false, type: "string", maxLength: 6000 },
       integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 20000 },
       external_links: { required: false, type: "array", items: "string", maxItems: 20 },
@@ -394,6 +398,8 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
 
     fastify.validate({
+      requirement_context: { required: false, type: "object" },
+      prompt_guidance: { required: false, type: "string", maxLength: 6000 },
       integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 20000 },
       external_links: { required: false, type: "array", items: "string", maxItems: 20 },
@@ -406,6 +412,8 @@ module.exports = async function (fastify) {
 
     return service.previewRequirementOptimization({
       id: req.params.id,
+      requirement_context: req.body?.requirement_context,
+      prompt_guidance: req.body?.prompt_guidance,
       integration_id: req.body?.integration_id,
       user_id: req.user.id,
       user: req.user,

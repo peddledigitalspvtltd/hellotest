@@ -470,16 +470,17 @@ const extractJsonPayload = (content) => {
   }
 };
 
-const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS) => {
-  return fetchLlmWithRetry(url, init, { timeoutMs, operation: "automation.generate" });
+const fetchWithTimeout = async (url, init = {}, timeoutMs = LLM_TIMEOUT_MS, integration) => {
+  return fetchLlmWithRetry(url, init, { integration, timeoutMs, operation: "automation.generate" });
 };
 
-const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey } = {}) => {
+const resolveLlmIntegration = async (integrationId, { allowFallback = true, userId, usageKey, projectId } = {}) => {
   const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
     integrationId,
     userId,
     usageKey,
-    fallback: "global",
+    projectId,
+    fallback: "project-then-global",
     allowMissing: allowFallback
   });
 
@@ -530,7 +531,7 @@ const requestChatCompletion = async ({ integration, prompt, content }) => {
         }
       ]
     })
-  }, LLM_TIMEOUT_MS);
+  }, LLM_TIMEOUT_MS, integration);
 
   if (!response.ok) {
     const raw = await response.text();
@@ -903,6 +904,7 @@ const buildAiRecorderRepositoryNameSuggestions = async ({
   try {
     integration = await resolveLlmIntegration(integrationId, {
       userId,
+      projectId: testCase.project_id,
       usageKey: "ai.automation.locator_repair"
     });
   } catch (error) {
@@ -2031,6 +2033,7 @@ const buildAiRecorderMappings = async ({
   try {
     integration = await resolveLlmIntegration(integrationId, {
       userId,
+      projectId: testCase.project_id,
       usageKey: "ai.automation.keyword_generation"
     });
   } catch (error) {
@@ -2797,6 +2800,7 @@ const buildCaseCore = async ({
   try {
     integration = await resolveLlmIntegration(integration_id, {
       userId: created_by,
+      projectId: testCase.project_id,
       usageKey: "ai.automation.keyword_generation"
     });
   } catch (error) {
@@ -4330,6 +4334,7 @@ exports.improveLearningCacheEntry = async ({ id, integration_id, user_id, guidan
   try {
     integration = await resolveLlmIntegration(integration_id, {
       userId: user_id,
+      projectId: existing.project_id,
       usageKey: "ai.automation.locator_repair"
     });
   } catch {
