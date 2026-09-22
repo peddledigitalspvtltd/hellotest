@@ -88,7 +88,7 @@ createRoot(document.getElementById('root')).render(<QueryClientProvider client={
 
 test('Test Case tile bars show outcome counts, score units, and no-data states', { timeout:60000 }, async()=>{
  const name='test-case-progress-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
- const progressFixture=fixture.replace('const client=new QueryClient', `
+ const progressFixture=fixture.replace('blocked:0,failed:0,critical:0', 'blocked:1,failed:2,critical:3').replace('const client=new QueryClient', `
  cases[0].recent_results=['passed','passed','failed','blocked','running','skipped'].map((status,index)=>({id:'outcome-'+index,execution_id:'run-'+index,test_case_id:'case-1',status,created_at:'2026-09-15T10:0'+index+':00Z'}));
  cases[0].run_count=6;delete cases[1].step_count;
  const client=new QueryClient`);
@@ -102,6 +102,10 @@ test('Test Case tile bars show outcome counts, score units, and no-data states',
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5189'}/${name}.html`);
   const cards=page.locator('.test-case-library-scroll .test-case-catalog-card');
   await cards.nth(1).waitFor();
+  const failedCases=page.getByRole('button',{name:/^View evidence for Failed or Blocked Cases$/i});
+  assert.equal(await failedCases.locator('strong').innerText(),'3','Failed/blocked metric uses complete catalog counts, not loaded page results');
+  await failedCases.click();
+  assert.match(await page.getByRole('list',{name:/^Failed or Blocked Cases evidence$/i}).innerText(),/1 blocked · 2 failed · latest finalized outcome per case/);
   const stability=cards.first().locator('.tile-card-progress').filter({hasText:'Stability'});
   const readiness=cards.first().locator('.tile-card-progress').filter({hasText:'Automation Readiness'});
   for(const theme of ['light','dark'])for(const width of [1440,390]){

@@ -232,6 +232,8 @@ exports.getReviewSummary = async ({ project_id, app_type_id, review_user_id } = 
 exports.getMetrics = async (query = {}) => {
   const { where, params } = buildScope(query);
   const execution = yes(query.include_execution);
+  // Recent pass rate samples ten results; case health keeps the latest finalized
+  // outcome across the full history so a queued/running retry cannot erase it.
   const rows = await db.prepare(`WITH scoped AS MATERIALIZED (
     SELECT tc.id, tc.priority, tc.automated, tc.review_status, tc.ai_generation_source, tc.ai_generation_review_status,
       ARRAY(SELECT module_id FROM test_case_effective_module_cases m WHERE m.test_case_id = tc.id) AS module_ids,
@@ -245,10 +247,10 @@ exports.getMetrics = async (query = {}) => {
         COUNT(*) FILTER (WHERE status = 'passed')::int AS passed,
         SUM(duration_ms) FILTER (WHERE status IN ('passed','failed') AND duration_ms >= 0) AS duration_sum,
         COUNT(*) FILTER (WHERE status IN ('passed','failed') AND duration_ms >= 0)::int AS duration_count,
-        (array_agg(status ORDER BY created_at DESC, id DESC))[1] AS latest_status,
-        (array_agg(status ORDER BY created_at DESC, id DESC) FILTER (WHERE status IN ('passed','failed','blocked')))[1] AS latest_finalized
+        (SELECT er.status FROM execution_results er WHERE er.test_case_id = s.id AND er.status IN ('passed','failed','blocked')
+          ORDER BY er.created_at DESC NULLS LAST, er.id DESC LIMIT 1) AS latest_finalized
         FROM (SELECT id, status, duration_ms, created_at FROM execution_results er WHERE er.test_case_id = s.id ORDER BY created_at DESC, id DESC LIMIT 10) recent`
-        : `SELECT 0 AS runs, 0 AS finalized, 0 AS passed, NULL::bigint AS duration_sum, 0 AS duration_count, NULL::text AS latest_status, NULL::text AS latest_finalized`}
+        : `SELECT 0 AS runs, 0 AS finalized, 0 AS passed, NULL::bigint AS duration_sum, 0 AS duration_count, NULL::text AS latest_finalized`}
     ) r ON TRUE
   ) , memberships AS (
     SELECT facts.*, scope.catalog, scope.module_id FROM facts
@@ -262,14 +264,14 @@ exports.getMetrics = async (query = {}) => {
     COUNT(*) FILTER (WHERE automated = 'yes')::int AS automated,
     COUNT(*) FILTER (WHERE automated IN ('yes','no'))::int AS automation_known,
     COUNT(*) FILTER (WHERE runs > 0)::int AS with_history,
-    COUNT(*) FILTER (WHERE latest_status = 'blocked')::int AS blocked,
-    COUNT(*) FILTER (WHERE latest_status = 'failed')::int AS failed,
+    COUNT(*) FILTER (WHERE latest_finalized = 'blocked')::int AS blocked,
+    COUNT(*) FILTER (WHERE latest_finalized = 'failed')::int AS failed,
     COUNT(*) FILTER (WHERE latest_finalized IS NOT NULL)::int AS executed,
     COUNT(*) FILTER (WHERE latest_finalized = 'passed')::int AS latest_passed,
     COALESCE(SUM(finalized),0)::int AS finalized, COALESCE(SUM(passed),0)::int AS passed,
     COALESCE(SUM(duration_sum),0)::float8 AS duration_sum, COALESCE(SUM(duration_count),0)::int AS duration_count,
     COUNT(*) FILTER (WHERE ${pendingReviewSql('f')})::int AS pending_review,
-    COUNT(*) FILTER (WHERE NOT covered OR NOT executable OR latest_status IN ('failed','blocked') OR (COALESCE(priority,3) <= 2 AND automated = 'no'))::int AS risk
+    COUNT(*) FILTER (WHERE NOT covered OR NOT executable OR latest_finalized IN ('failed','blocked') OR (COALESCE(priority,3) <= 2 AND automated = 'no'))::int AS risk
     FROM memberships f GROUP BY catalog, module_id)
     SELECT rollups.*, (SELECT COUNT(DISTINCT d.issue_id)::int FROM test_case_defects d JOIN scoped ds ON ds.id = d.test_case_id
       WHERE rollups.catalog = 1 OR rollups.module_id = ANY(ds.module_ids) OR (rollups.module_id IS NULL AND cardinality(ds.module_ids) = 0)) AS defects FROM rollups`).all(...params);

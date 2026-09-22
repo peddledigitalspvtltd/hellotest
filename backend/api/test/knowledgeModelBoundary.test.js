@@ -65,3 +65,58 @@ test("model context omits duplicated retrieval metadata while preserving exact e
   assert.equal(JSON.stringify(packet), original);
   assert.doesNotThrow(() => contracts.assertCompatibleContract(modelContext, "ContextPacket"));
 });
+
+test("schema-valid claim-only answers survive normalization and reach the renderable answer contract", () => {
+  for (const id of ["e1", "live:case_214", "K-record-with_underscores"]) {
+    const hits = [{ source_id: "source", citation: { id }, content: "Onboarding is Done.", is_current: true }];
+    const candidate = contracts.validateModelAnswer({ status: "answered", supported_claims: [{ statement: "Onboarding is Done.", citation_ids: [id] }] });
+    const normalized = assistant._internals.normalizeModelAnswer(candidate, hits);
+    assert.equal(normalized.status, "answered");
+    assert.match(normalized.content, /Onboarding is Done/);
+    const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: "project", query: "Onboarding status?" }), authorization: { enforced: true }, evidence: hits });
+    const answer = contracts.buildAnswerContract({ outcome: normalized, contextPacket: packet });
+    assert.equal(answer.status, "answered");
+    assert.deepEqual(answer.citation_ids, [id]);
+    assert.match(answer.summary, /Onboarding is Done/);
+  }
+});
+
+test("a missing duplicate inline citation does not discard explicitly cited claims, while invented inline IDs remain rejected", () => {
+  const hits = [{ citation: { id: "live:case_214" }, content: "Checkout passed." }];
+  const candidate = { status: "answered", executive_summary: "Checkout passed.", supported_claims: [{ statement: "Checkout passed.", citation_ids: ["live:case_214"] }] };
+  assert.equal(assistant._internals.normalizeModelAnswer(candidate, hits).status, "answered");
+  const rejected = assistant._internals.normalizeModelAnswer({ ...candidate, executive_summary: "Checkout passed. [invented_123]" }, hits);
+  assert.equal(rejected.status, "insufficient_context");
+  assert.equal(rejected.safety.invented_citations_rejected, 1);
+});
+
+test("synthesis repairs one invalid output using the same bounded evidence and never carries model text into instructions", async (context) => {
+  const requests = [];
+  context.mock.method(gateway, "request", async (input) => {
+    requests.push(input);
+    return requests.length === 1
+      ? { status: "answered", supported_claims: "INVALID_OUTPUT_MARKER" }
+      : { status: "answered", supported_claims: [{ statement: "Onboarding is Done.", citation_ids: ["e1"] }] };
+  });
+  const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: "project", query: "What changed?" }), authorization: { enforced: true }, evidence: [{ source_id: "source", citation: { id: "e1" }, content: "Onboarding is Done." }] });
+  const result = await execution.run({}, () => assistant._internals.requestGroundedAnswer({ integration, question: "What changed?", contextPacket: packet }));
+  assert.equal(result.status, "answered");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].messages[1].content, requests[1].messages[1].content);
+  assert.doesNotMatch(JSON.stringify(requests[1]), /INVALID_OUTPUT_MARKER/);
+  assert.equal(requests[0].maxOutputTokens, 4000);
+  assert.equal(requests[0].attemptTimeoutMs, requests[0].timeoutMs);
+  assert.ok(requests[1].timeoutMs <= requests[0].timeoutMs);
+});
+
+test("invalid synthesis output does not trigger repair after the model call budget is spent", async (context) => {
+  let calls = 0;
+  context.mock.method(gateway, "request", async () => {
+    calls++;
+    execution.current().modelStats.calls++;
+    return { status: "answered", supported_claims: "invalid" };
+  });
+  const packet = contracts.buildContextPacket({ retrievalRequest: contracts.buildRetrievalRequest({ projectId: "project", query: "What changed?" }), authorization: { enforced: true }, evidence: [] });
+  await assert.rejects(execution.run({ modelBudget: { max_tool_calls: 1 } }, () => assistant._internals.requestGroundedAnswer({ integration, question: "What changed?", contextPacket: packet })), { code: "ERR_CONTRACT_VALIDATION" });
+  assert.equal(calls, 1);
+});

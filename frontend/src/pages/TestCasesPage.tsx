@@ -21,7 +21,7 @@ import { useAuth } from "../auth/AuthContext";
 import { AiCaseAuthoringModal } from "../components/AiCaseAuthoringModal";
 import { ArtifactAssuranceWorkspace } from "../components/ArtifactAssuranceWorkspace";
 import { AiDesignStudioModal } from "../components/AiDesignStudioModal";
-import { AiInsightPreviewDialog, type AiPreviewFinding } from "../components/AiInsightPreviewDialog";
+import { TestCaseChangeImpactDialog } from "../components/TestCaseChangeImpactDialog";
 import { ActivityIcon, AddIcon, BugIcon, ChevronDownIcon, ChevronRightIcon, CollapseExpandIcon, CopyIcon, ExportIcon, FolderAddIcon, FolderOffIcon, ModuleIcon, MoveIcon, OpenIcon, PauseIcon, PencilIcon, RecordIcon, SearchIcon, SelectionToggleIcon, StoryIcon, TagIcon, TestCaseIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogActionMenu } from "../components/CatalogActionMenu";
 import { CatalogCardDescription } from "../components/CatalogCardDescription";
@@ -8167,40 +8167,6 @@ export function TestCasesPage() {
   const selectedTestCaseImpactPreview = testCaseAssurancePreviewMatchesDraft
     ? previewTestCaseImpact.data
     : null;
-  const testCaseImpactFindings = useMemo<AiPreviewFinding[]>(() => {
-    const preview = selectedTestCaseImpactPreview;
-    if (!preview) return [];
-
-    const groups = [
-      { id: "requirements", title: "Stories", items: preview.impact.requirements, action: "Confirm linked stories still describe the behavior and expected outcome." },
-      { id: "suites", title: "Suites", items: preview.impact.test_suites, action: "Review suite scope and ordering for any changed setup or behavior." },
-      { id: "runs", title: "Runs", items: preview.impact.test_runs, action: "Decide whether queued or active run snapshots need to be refreshed or rerun." },
-      ...(canUseAutomationWorkspace ? [
-        { id: "automation", title: "Automation assets", items: preview.impact.automation_assets, action: "Review automation mappings before applying the test case change." },
-        { id: "objects", title: "Object dependencies", items: preview.impact.object_repository_items, action: "Verify locator evidence and fallback strategies against the proposed test steps." }
-      ] : [])
-    ];
-    const findings: AiPreviewFinding[] = groups
-      .filter((group) => group.items.length)
-      .map((group) => ({
-        id: group.id,
-        title: `${group.items.length} affected ${group.title.toLowerCase()}`,
-        severity: preview.impact.risk_level,
-        description: group.items.slice(0, 5).map((item) => item.title || item.name || item.locator_intent || item.display_id || item.id).join(" · "),
-        action: group.action,
-        evidence: group.items.map((item) => item.display_id || item.id).filter(Boolean)
-      }));
-
-    preview.risk_signals.forEach((signal, index) => findings.unshift({
-      id: `risk-${index}`,
-      title: "Risk signal",
-      severity: preview.impact.risk_level,
-      description: signal,
-      action: "Verify this signal against the linked work items before changing the test case."
-    }));
-    return findings;
-  }, [canUseAutomationWorkspace, selectedTestCaseImpactPreview]);
-
   const runTestCaseAssuranceAnalysis = (openImpactPreview = false) => {
     if (!selectedTestCase || !projectId || !canUseTestCaseAi || previewTestCaseImpact.isPending || testCaseAssuranceContextBusy) return;
     setIsTestCaseImpactPreviewOpen(openImpactPreview);
@@ -9876,14 +9842,14 @@ export function TestCasesPage() {
                 tone: testCaseCatalogMetrics.recentPassRate === null ? "neutral" : "success"
               },
               {
-                label: "Failed Or Blocked Cases",
-                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : testCaseCatalogMetrics.critical,
+                label: "Failed or Blocked Cases",
+                value: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "—" : testCaseCatalogMetrics.failed + testCaseCatalogMetrics.blocked,
                 detail: !canViewExecutionInsights
                   ? "Run result access required"
                   : isTestCaseCatalogMetricLoading
                   ? "Loading recent results"
-                  : `${testCaseCatalogMetrics.blocked} blocked · ${testCaseCatalogMetrics.failed} failed`,
-                tone: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "neutral" : "danger"
+                  : `${testCaseCatalogMetrics.blocked} blocked · ${testCaseCatalogMetrics.failed} failed · latest finalized outcome per case`,
+                tone: !canViewExecutionInsights || isTestCaseCatalogMetricLoading ? "neutral" : testCaseCatalogMetrics.failed + testCaseCatalogMetrics.blocked > 0 ? "danger" : "neutral"
               }
             ]}
           />
@@ -12868,26 +12834,15 @@ export function TestCasesPage() {
         />
       ) : null}
 
-      <AiInsightPreviewDialog
-        assuranceTitle="Test case impact grounding"
-        emptyMessage="No linked downstream artifact was found for this test case. Review its intended traceability before applying a change."
+      <TestCaseChangeImpactDialog
         error={previewTestCaseImpact.error instanceof Error && testCaseAssuranceRequestMatchesDraft ? previewTestCaseImpact.error.message : null}
-        eyebrow="Test case details"
-        findings={testCaseImpactFindings}
-        gaps={selectedTestCaseImpactPreview?.impact.requirements.length ? [] : ["No live story link was found for this test case."]}
         loading={previewTestCaseImpact.isPending && testCaseAssuranceRequestMatchesDraft}
         onClose={() => setIsTestCaseImpactPreviewOpen(false)}
+        onRetry={() => runTestCaseAssuranceAnalysis(true)}
         open={isTestCaseImpactPreviewOpen && testCaseAssuranceRequestMatchesDraft}
-        recommendedActions={selectedTestCaseImpactPreview?.recommended_actions || []}
         response={selectedTestCaseImpactPreview}
-        signals={selectedTestCaseImpactPreview ? [
-          { label: "Impact level", value: selectedTestCaseImpactPreview.impact.risk_level, tone: selectedTestCaseImpactPreview.impact.risk_level === "high" ? "warning" : "neutral" },
-          { label: "Affected runs", value: String(selectedTestCaseImpactPreview.impact.totals.test_runs), tone: selectedTestCaseImpactPreview.impact.totals.test_runs ? "warning" : "neutral" },
-          { label: "Object links", value: String(selectedTestCaseImpactPreview.impact.totals.object_repository_items), tone: selectedTestCaseImpactPreview.impact.totals.object_repository_items ? "positive" : "neutral" }
-        ] : []}
-        subtitle={selectedTestCaseImpactPreview ? `${selectedTestCaseImpactPreview.test_case.display_id} · ${selectedTestCaseImpactPreview.test_case.title}` : selectedTestCase?.title || "Selected test case"}
-        summary={selectedTestCaseImpactPreview?.explanation}
-        title="Preview test case change impact"
+        showAutomation={canUseAutomationWorkspace}
+        testCaseTitle={caseDraft.title || selectedTestCase?.title || "Selected Test Case"}
       />
 
       {linkedPreviewCase ? (

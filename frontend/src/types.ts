@@ -1619,6 +1619,7 @@ export type RequirementImpactPreviewResponse = AiAssistedPreviewBase & {
 };
 
 export type TestCaseImpactPreviewResponse = AiAssistedPreviewBase & {
+  scope?: { project_id: string; unavailable_sources?: string[] };
   test_case: {
     id: string;
     display_id: string;

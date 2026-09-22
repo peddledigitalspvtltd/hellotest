@@ -3728,6 +3728,12 @@ export function ExecutionsPage() {
       return;
     }
 
+    if (smartExecutionReleaseScope.trim().length > 4000 || smartExecutionAdditionalContext.trim().length > 4000) {
+      setSmartExecutionPreviewTone("error");
+      setSmartExecutionPreviewMessage("Keep change scope and additional context within 4,000 characters each. Select fewer Smart Context records or shorten the notes.");
+      return;
+    }
+
     const requestToken = smartExecutionPreviewRequestRef.current + 1;
     const builderSessionToken = smartExecutionBuilderSessionRef.current;
     const requestScopeKey = buildSmartExecutionScopeKey();
@@ -8059,15 +8065,9 @@ export function ExecutionsPage() {
                 {testRunsView === "scheduled-runs" && catalogViewMode === "tile"
                   ? filteredSchedules.map((schedule) => (
                       <ExecutionScheduleCard
-                        canDelete={canDeleteSchedules}
-                        canEdit={canUpdateSchedules}
-                        canRun={canRunSchedules}
                         key={schedule.id}
                         isActive={selectedSchedule?.id === schedule.id}
                         isSelected={selectedActionScheduleIds.includes(schedule.id)}
-                        onDelete={() => void handleDeleteExecutionSchedule(schedule.id, schedule.name)}
-                        onEdit={() => openEditScheduleBuilder(schedule)}
-                        onRun={() => void handleRunExecutionSchedule(schedule.id)}
                         onSelect={() => focusExecutionSchedule(schedule.id)}
                         onToggleSelected={() =>
                           setSelectedActionScheduleIds((current) =>
@@ -10615,37 +10615,22 @@ export function ExecutionListCard({ execution, summary, impactSummary, liveNow, 
 
 function ExecutionScheduleCard({
   schedule,
-  canDelete,
-  canRun,
   isActive,
   isSelected,
   liveNow,
   onSelect,
   onToggleSelected,
-  onRun,
-  onDelete,
   resolvedCaseCount
 }: {
   schedule: ExecutionSchedule;
-  canDelete: boolean;
-  canEdit: boolean;
-  canRun: boolean;
   isActive: boolean;
   isSelected: boolean;
   liveNow: number;
   onSelect: () => void;
   onToggleSelected: () => void;
-  onEdit: () => void;
-  onRun: () => void;
-  onDelete: () => void;
   resolvedCaseCount: number;
 }) {
-  const nextRunLabel = formatExecutionTimestamp(schedule.next_run_at, "Not scheduled");
-  const lastRunLabel = formatExecutionTimestamp(schedule.last_run_at, "No runs yet");
   const assigneeLabel = resolveExecutionAssigneeSummary(schedule);
-  const releaseLabel = schedule.release || "Release not set";
-  const sprintLabel = schedule.sprint || "Sprint not set";
-  const buildLabel = schedule.build || "Build not set";
   const cadenceLabel = formatScheduleCadence(schedule.cadence);
   const assigneeCount = new Set([
     ...(schedule.assigned_to_ids || []),
@@ -10755,44 +10740,8 @@ function ExecutionScheduleCard({
           />
         </div>
 
-        <div className="execution-card-facts" aria-label="Schedule facts">
-          <ExecutionCardFact ariaLabel={`${schedule.suite_ids.length} suites in scope`} label={String(schedule.suite_ids.length)} title={`${schedule.suite_ids.length} suites in scope`}>
-            <ExecutionSuiteIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={`${schedule.test_case_ids.length} direct cases in scope`} label={String(schedule.test_case_ids.length)} title={`${schedule.test_case_ids.length} direct cases in scope`}>
-            <ExecutionScopeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={`Assigned to ${assigneeLabel}`} label={assigneeLabel} title={`Assigned to ${assigneeLabel}`}>
-            <ExecutionAssigneeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={releaseLabel} label={releaseLabel} title={releaseLabel}>
-            <ExecutionReleaseIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={sprintLabel} label={sprintLabel} title={sprintLabel}>
-            <ExecutionScopeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={buildLabel} label={buildLabel} title={buildLabel}>
-            <ExecutionBuildIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={`Next run ${nextRunLabel}`} label={nextRunLabel} title={`Next run ${nextRunLabel}`}>
-            <ExecutionTimeIcon />
-          </ExecutionCardFact>
-          <ExecutionCardFact ariaLabel={`Last run ${lastRunLabel}`} label={lastRunLabel} title={`Last run ${lastRunLabel}`}>
-            <ExecutionTimeIcon />
-          </ExecutionCardFact>
-        </div>
       </div>
 
-      <div className="action-row execution-schedule-actions">
-        <button className="ghost-button" disabled={!canRun} onClick={onRun} type="button">
-          <ExecutionStartIcon />
-          <span>Run now</span>
-        </button>
-        <button className="ghost-button danger" disabled={!canDelete} onClick={onDelete} type="button">
-          <ExecutionDeleteIcon />
-          <span>Delete</span>
-        </button>
-      </div>
     </article>
   );
 }
@@ -12667,6 +12616,7 @@ export function ExecutionCreateModal({
     onClose
   });
   const [dataSetValid, setDataSetValid] = useState(!selectedDataSetId);
+  const [smartSidebarTab, setSmartSidebarTab] = useState<"context" | "settings">("context");
   const [smartEvidenceView, setSmartEvidenceView] = useState<{ kind: "plan" } | { kind: "case"; caseId: string } | null>(null);
   const [areSmartHooksOpen, setAreSmartHooksOpen] = useState(Boolean(executionHookDraft.length));
   const isSmartMode = canUseRunAi && executionCreateMode === "smart";
@@ -12740,7 +12690,7 @@ export function ExecutionCreateModal({
     ? formatDuration(estimatedDurationMs, "Not estimated")
     : "Not estimated";
   return (
-    <div className="modal-backdrop modal-backdrop--scroll" onClick={() => !isSubmitting && !isPreviewingSmartExecution && onClose()} role="presentation">
+    <div className={`modal-backdrop modal-backdrop--scroll${isSmartMode ? " execution-smart-studio-backdrop" : ""}`} onClick={() => !isSubmitting && !isPreviewingSmartExecution && onClose()} role="presentation">
       <div
         aria-labelledby="create-execution-title"
         aria-modal="true"
@@ -12761,9 +12711,9 @@ export function ExecutionCreateModal({
               </span>
               <div className="execution-run-builder-title-copy">
                 <h2 className="dialog-title" id="create-execution-title">
-                  {isSmartMode ? "HelloTest Smart Run Planner" : "Create new run"}
+                  {isSmartMode ? "AI Smart Run" : "Create new run"}
                 </h2>
-                {isSmartMode ? <span>Evidence-ranked execution planning</span> : null}
+                {isSmartMode ? <span>Choose context, review coverage, create a run</span> : null}
               </div>
             </div>
             <div className="execution-run-builder-header-actions">
@@ -12783,32 +12733,17 @@ export function ExecutionCreateModal({
           <div className="execution-create-body execution-run-builder-body">
             <aside className="execution-run-config-rail" aria-label="Run configuration">
               <div className="execution-run-config-heading">
-                <span>{isSmartMode ? "Model & Run Settings" : "Run Configuration"}</span>
-                {isSmartMode ? <small>Define the governed model, delivery keys, runtime, and ownership.</small> : null}
+                <span>{isSmartMode ? "Context & settings" : "Run Configuration"}</span>
+                {isSmartMode ? <small>Choose the changes and stories to cover.</small> : null}
               </div>
 
-              <div className="execution-run-config-stack">
-              <FormField label="Run Name">
-                <input
-                  data-autofocus="true"
-                  placeholder="e.g. Q4_Regression_v2"
-                  value={executionName}
-                  onChange={(event) => onExecutionNameChange(event.target.value)}
-                />
-              </FormField>
-
-              <RunPlanningFields
-                canRunLocalAutomation={canRunLocalAutomation}
-                canRunRemoteAutomation={canRunRemoteAutomation}
-                disabled={isSubmitting}
-                endDate={executionEndDate}
-                mode={executionStartMode}
-                onEndDateChange={onExecutionEndDateChange}
-                onModeChange={onExecutionStartModeChange}
-                onStartDateChange={onExecutionStartDateChange}
-                startDate={executionStartDate}
-              />
-
+              {isSmartMode ? (
+                <div className="execution-smart-sidebar-tabs" role="tablist" aria-label="Smart run setup">
+                  <button aria-selected={smartSidebarTab === "context"} aria-controls="smart-run-context-panel" id="smart-run-context-tab" role="tab" type="button" onClick={() => setSmartSidebarTab("context")}>Context</button>
+                  <button aria-selected={smartSidebarTab === "settings"} aria-controls="smart-run-settings-panel" id="smart-run-settings-tab" role="tab" type="button" onClick={() => setSmartSidebarTab("settings")}>Run settings</button>
+                </div>
+              ) : null}
+              <div className="execution-run-config-stack" hidden={isSmartMode && smartSidebarTab !== "context"} id="smart-run-context-panel" role={isSmartMode ? "tabpanel" : undefined} aria-labelledby={isSmartMode ? "smart-run-context-tab" : undefined}>
               <FormField label="Project" required>
                 <ProjectDropdown
                   ariaLabel="Select a project"
@@ -12837,7 +12772,7 @@ export function ExecutionCreateModal({
 
               {isSmartMode ? (
                 <div className="execution-smart-provider-section">
-                  <FormField label="Explanation model (optional)" hint="Risk and case selection stay deterministic. A governed model may refine cited explanations.">
+                  <FormField label="AI model" hint="Optional. Refines explanations using the linked evidence.">
                     <AiLlmSelect
                       autoLabel="Configured prompt model, active default, or deterministic only"
                       defaultIntegrationId={smartExecutionDefaultIntegrationId}
@@ -12851,7 +12786,7 @@ export function ExecutionCreateModal({
               ) : null}
 
               <div className="execution-run-config-pair">
-                {can("requirement_iteration.view") ? <FormField label="Release" hint={isSmartMode ? "Exact Fix Version evidence key." : undefined}>
+                {can("requirement_iteration.view") ? <FormField label="Release" hint={isSmartMode ? "Finds stories and results in this release." : undefined}>
                   <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
                     <option value="">No release filter</option>
                     {executionRelease && !releaseOptions.some((option) => option.value === executionRelease) ? (
@@ -12860,7 +12795,7 @@ export function ExecutionCreateModal({
                     {releaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </FormField> : null}
-                {can("requirement_iteration.view") ? <FormField label="Sprint" hint={isSmartMode ? "Exact Sprint evidence key." : undefined}>
+                {can("requirement_iteration.view") ? <FormField label="Sprint" hint={isSmartMode ? "Finds stories and results in this sprint." : undefined}>
                   <select value={executionSprint} onChange={(event) => onExecutionSprintChange(event.target.value)}>
                     <option value="">No Sprint filter</option>
                     {executionSprint && !sprintOptions.some((option) => option.value === executionSprint) ? (
@@ -12871,106 +12806,14 @@ export function ExecutionCreateModal({
                 </FormField> : null}
               </div>
 
-              <FormField label="Build" hint={isSmartMode ? "Matches HelloTest run and Defect build evidence." : undefined}>
+              <FormField label="Build" hint={isSmartMode ? "Finds results and defects for this build." : undefined}>
                 <input list="smart-run-build-options" placeholder="SHA-88219 or build tag" value={executionBuild} onChange={(event) => onExecutionBuildChange(event.target.value)} />
                 <datalist id="smart-run-build-options">
                   {buildOptions.map((build) => <option key={build} value={build} />)}
                 </datalist>
               </FormField>
 
-              <div className="execution-run-config-context">
-                <ExecutionContextSelector hideDataSet
-                  appTypeId={appTypeId}
-                  onConfigurationChange={onConfigurationChange}
-                  onDataSetChange={onDataSetChange}
-                  onEnvironmentChange={onEnvironmentChange}
-                  prefillFirstAvailable={false}
-                  projectId={projectId}
-                  selectedConfigurationId={selectedConfigurationId}
-                  selectedDataSetId={selectedDataSetId}
-                  selectedEnvironmentId={selectedEnvironmentId}
-                />
-                <RunDataSetup dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange}
-                  onValidityChange={setDataSetValid}
-                  appTypeId={appTypeId}
-                  onDataSetChange={onDataSetChange}
-                  cases={runCaseReferences(isSmartMode ? selectedSmartExecutionCaseIds : selectedDirectCaseIds, libraryCases)}
-                  suites={scopeSuites.filter(suite => selectedSuiteIdSet.has(suite.id))}
-                  projectId={projectId}
-                  environmentId={selectedEnvironmentId}
-                  configurationId={selectedConfigurationId}
-                  dataSetId={selectedDataSetId}
-                  disabled={isSubmitting}
-                />
-              </div>
-
-              <FormField label="Primary assignee" hint="Select one or more testers for this run.">
-                <MultiAssigneePicker
-                  disabled={!projectId || !assigneeOptions.length}
-                  options={assigneeOptions}
-                  selectedIds={selectedExecutionAssigneeIds}
-                  onChange={onAssigneeChange}
-                />
-              </FormField>
-
-              {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
-                <FormField label="Parallel execution">
-                  <div className="execution-parallel-control">
-                    <label>
-                      <input
-                        checked={executionParallelEnabled}
-                        onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
-                        type="checkbox"
-                      />
-                      <span>Run tests in parallel</span>
-                    </label>
-                    <input
-                      aria-label="Parallel test count"
-                      disabled={!executionParallelEnabled}
-                      min={1}
-                      max={50}
-                      onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}
-                      type="number"
-                      value={executionParallelCount}
-                    />
-                  </div>
-                </FormField>
-              ) : null}
-              </div>
-            </aside>
-
-            <main className="execution-run-selection-workspace">
-              <div className="execution-run-selection-header">
-                <div>
-                  <h3>{isSmartMode ? "Scope, rank, and review" : "Suites"}</h3>
-                  {isSmartMode ? <p>The planner keeps source evidence visible while you review every ranked recommendation.</p> : null}
-                </div>
-                {canUseRunAi ? (
-                  <div className="execution-create-mode-segmented" aria-label="Run creation mode" role="group">
-                    <button
-                      aria-pressed={!isSmartMode}
-                      className={!isSmartMode ? "is-active" : ""}
-                      onClick={() => onExecutionCreateModeChange("manual")}
-                      type="button"
-                    >
-                      <IconCheckbox aria-hidden="true" size={16} stroke={1.9} />
-                      <span>Manual Snapshot</span>
-                    </button>
-                    <button
-                      aria-pressed={isSmartMode}
-                      className={isSmartMode ? "is-active" : ""}
-                      onClick={() => onExecutionCreateModeChange("smart")}
-                      type="button"
-                    >
-                      <IconSparkles aria-hidden="true" size={16} stroke={1.9} />
-                      <span>AI Smart Run</span>
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-            {isSmartMode ? (
-              <div className="execution-smart-agent-workspace">
+                {isSmartMode ? <>
                 <AiFeatureComposer
                   agentName="Smart Run Planner"
                   enableSmartContext
@@ -13010,29 +12853,13 @@ export function ExecutionCreateModal({
                   submitDisabled={!canGenerateSmartPlan}
                   submitLabel={smartExecutionPreview ? "Regenerate impact plan" : "Generate impact plan"}
                 />
-                <AgenticProcessRail
-                  agentName="Smart Run Planner"
-                  compact
-                  presentation="focused"
-                  profile="smart-run"
-                  processing={smartExecutionPreview?.processing}
-                  stageEvidence={{
-                    context: smartExecutionPreview
-                      ? `${smartExecutionPreview.retrieved_context_count || 0} returned evidence records are available within the recorded source limits.`
-                      : `${selectedSmartRequirementIds.length} selected Stories and ${[executionRelease, executionSprint, executionBuild].filter(Boolean).length} exact delivery keys are configured.`,
-                    outcome: smartExecutionPreview ? `${smartExecutionPreview.cases.length} ranked cases are available for selection and editing.` : "The ranked case proposal will remain separate from the saved run.",
-                    review: "Selected cases are only committed when Create AI Smart Run is accepted."
-                  }}
-                  status={isPreviewingSmartExecution ? "running" : smartExecutionPreview ? "completed" : smartExecutionPreviewTone === "error" && smartExecutionPreviewMessage ? "failed" : "idle"}
-                />
-                <div className="ai-studio-shell execution-smart-shell">
                 <div className="ai-studio-sidebar execution-smart-scope-pane" aria-label="Smart Run evidence scope">
                   <div className="execution-smart-pane-header">
                     <div>
                       <span className="execution-smart-pane-step">01</span>
                       <div>
                         <h3>Evidence Scope</h3>
-                        <p>Bound the plan with delivery context and linked Stories.</p>
+                        <p>Select the stories and changes to cover.</p>
                       </div>
                     </div>
                     <IconDatabase aria-hidden="true" size={18} stroke={1.8} />
@@ -13041,14 +12868,15 @@ export function ExecutionCreateModal({
                     <div className="panel-head">
                       <div>
                         <p className="eyebrow">Evidence scope</p>
-                        <p>Release, Sprint, and Build above are exact evidence keys; matching records are unioned and deduplicated. Add narrative only when links need a relevance signal.</p>
+                        <p>Select impacted stories or add notes to focus the plan.</p>
                       </div>
                     </div>
 
-                    <FormField label="Additional context" hint="Optional on its own too: rollout notes, known gaps, compliance focus, customer risk, or environment context.">
+                    <FormField label="Additional context" hint="Rollout notes, known gaps, customer risk, or environment details.">
                       <textarea
                         placeholder="Environment notes, known gaps, customer impact, compliance focus..."
-                        rows={5}
+                        maxLength={4000}
+                        rows={4}
                         value={smartExecutionAdditionalContext}
                         onChange={(event) => onSmartExecutionAdditionalContextChange(event.target.value)}
                       />
@@ -13142,13 +12970,146 @@ export function ExecutionCreateModal({
                   </section>
                 </div>
 
+                </> : null}
+              </div>
+              <div className="execution-run-config-stack execution-smart-run-settings" hidden={isSmartMode && smartSidebarTab !== "settings"} id="smart-run-settings-panel" role={isSmartMode ? "tabpanel" : undefined} aria-labelledby={isSmartMode ? "smart-run-settings-tab" : undefined}>
+              <FormField label="Run Name">
+                <input
+                  data-autofocus="true"
+                  placeholder="e.g. Q4_Regression_v2"
+                  value={executionName}
+                  onChange={(event) => onExecutionNameChange(event.target.value)}
+                />
+              </FormField>
+
+              <RunPlanningFields
+                canRunLocalAutomation={canRunLocalAutomation}
+                canRunRemoteAutomation={canRunRemoteAutomation}
+                disabled={isSubmitting}
+                endDate={executionEndDate}
+                mode={executionStartMode}
+                onEndDateChange={onExecutionEndDateChange}
+                onModeChange={onExecutionStartModeChange}
+                onStartDateChange={onExecutionStartDateChange}
+                startDate={executionStartDate}
+              />
+
+              <div className="execution-run-config-context">
+                <ExecutionContextSelector hideDataSet
+                  appTypeId={appTypeId}
+                  onConfigurationChange={onConfigurationChange}
+                  onDataSetChange={onDataSetChange}
+                  onEnvironmentChange={onEnvironmentChange}
+                  prefillFirstAvailable={false}
+                  projectId={projectId}
+                  selectedConfigurationId={selectedConfigurationId}
+                  selectedDataSetId={selectedDataSetId}
+                  selectedEnvironmentId={selectedEnvironmentId}
+                />
+                <RunDataSetup dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange}
+                  onValidityChange={setDataSetValid}
+                  appTypeId={appTypeId}
+                  onDataSetChange={onDataSetChange}
+                  cases={runCaseReferences(isSmartMode ? selectedSmartExecutionCaseIds : selectedDirectCaseIds, libraryCases)}
+                  suites={scopeSuites.filter(suite => selectedSuiteIdSet.has(suite.id))}
+                  projectId={projectId}
+                  environmentId={selectedEnvironmentId}
+                  configurationId={selectedConfigurationId}
+                  dataSetId={selectedDataSetId}
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <FormField label="Primary assignee" hint="Select one or more testers for this run.">
+                <MultiAssigneePicker
+                  disabled={!projectId || !assigneeOptions.length}
+                  options={assigneeOptions}
+                  selectedIds={selectedExecutionAssigneeIds}
+                  onChange={onAssigneeChange}
+                />
+              </FormField>
+
+              {executionStartMode !== "manual" && canConfigureParallelAutomation ? (
+                <FormField label="Parallel execution">
+                  <div className="execution-parallel-control">
+                    <label>
+                      <input
+                        checked={executionParallelEnabled}
+                        onChange={(event) => onExecutionParallelEnabledChange(event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>Run tests in parallel</span>
+                    </label>
+                    <input
+                      aria-label="Parallel test count"
+                      disabled={!executionParallelEnabled}
+                      min={1}
+                      max={50}
+                      onChange={(event) => onExecutionParallelCountChange(Math.max(1, Number(event.target.value) || 1))}
+                      type="number"
+                      value={executionParallelCount}
+                    />
+                  </div>
+                </FormField>
+              ) : null}
+              </div>
+            </aside>
+
+            <main className="execution-run-selection-workspace">
+              <div className="execution-run-selection-header">
+                <div>
+                  <h3>{isSmartMode ? "Review run plan" : "Suites"}</h3>
+                  {isSmartMode ? <p>Select the recommended cases to include in your run.</p> : null}
+                </div>
+                {canUseRunAi ? (
+                  <div className="execution-create-mode-segmented" aria-label="Run creation mode" role="group">
+                    <button
+                      aria-pressed={!isSmartMode}
+                      className={!isSmartMode ? "is-active" : ""}
+                      onClick={() => onExecutionCreateModeChange("manual")}
+                      type="button"
+                    >
+                      <IconCheckbox aria-hidden="true" size={16} stroke={1.9} />
+                      <span>Manual Snapshot</span>
+                    </button>
+                    <button
+                      aria-pressed={isSmartMode}
+                      className={isSmartMode ? "is-active" : ""}
+                      onClick={() => onExecutionCreateModeChange("smart")}
+                      type="button"
+                    >
+                      <IconSparkles aria-hidden="true" size={16} stroke={1.9} />
+                      <span>AI Smart Run</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+            {isSmartMode ? (
+              <div className="execution-smart-agent-workspace">
+                <AgenticProcessRail
+                  agentName="Smart Run Planner"
+                  compact
+                  presentation="focused"
+                  profile="smart-run"
+                  processing={smartExecutionPreview?.processing}
+                  stageEvidence={{
+                    context: smartExecutionPreview
+                      ? `${smartExecutionPreview.retrieved_context_count || 0} returned evidence records are available within the recorded source limits.`
+                      : `${selectedSmartRequirementIds.length} selected Stories and ${[executionRelease, executionSprint, executionBuild].filter(Boolean).length} exact delivery keys are configured.`,
+                    outcome: smartExecutionPreview ? `${smartExecutionPreview.cases.length} ranked cases are available for selection and editing.` : "The ranked case proposal will remain separate from the saved run.",
+                    review: "Selected cases are only committed when Create AI Smart Run is accepted."
+                  }}
+                  status={isPreviewingSmartExecution ? "running" : smartExecutionPreview ? "completed" : smartExecutionPreviewTone === "error" && smartExecutionPreviewMessage ? "failed" : "idle"}
+                />
+                <div className="ai-studio-shell execution-smart-shell">
                 <div className="ai-studio-main execution-smart-plan-pane" aria-label="Smart Run ranked coverage">
                   <div className="execution-smart-pane-header">
                     <div>
                       <span className="execution-smart-pane-step">02</span>
                       <div>
                         <h3>Ranked Coverage</h3>
-                        <p>Review the evidence, rationale, and executable scope before creation.</p>
+                        <p>Review why each case is included and adjust your selection.</p>
                       </div>
                     </div>
                     <span className="execution-smart-pane-count">

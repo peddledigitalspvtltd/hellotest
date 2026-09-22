@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDialogFocus } from "../hooks/useDialogFocus";
@@ -8,6 +8,7 @@ import { DialogCloseButton } from "./DialogCloseButton";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
 import { LoadingState } from "./LoadingState";
+import "./AiPromptTemplatePicker.css";
 
 export type AiPromptScope =
   | "requirement_creation"
@@ -238,6 +239,15 @@ export function AiPromptTemplatePicker({
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [editingTemplate, setEditingTemplate] = useState<AiPromptTemplate | null>(null);
+  const [savedMessage, setSavedMessage] = useState("");
+  useEffect(() => {
+    setIsOpen(false);
+    setDraft(emptyDraft);
+    setEditingTemplate(null);
+    setSavedMessage("");
+    setSearchTerm("");
+  }, [projectId, appTypeId, scope]);
   const scopeConfig = getPromptScopeConfig(scope);
   const query = useQuery({
     queryKey: ["ai-prompt-templates", projectId, appTypeId, scope],
@@ -248,45 +258,56 @@ export function AiPromptTemplatePicker({
     }),
     enabled: Boolean(isOpen && projectId)
   });
-  const createTemplate = useMutation({
-    mutationFn: async () => {
+  const saveTemplate = useMutation({
+    mutationFn: async ({ useAfterSave }: { useAfterSave: boolean }) => {
       if (!projectId) {
         throw new Error("Select a project before saving prompt templates.");
       }
 
-      return (await import("../lib/api")).api.aiPromptTemplates.create({
+      const payload = {
         project_id: projectId,
-        app_type_id: appTypeId || undefined,
+        app_type_id: editingTemplate && !editingTemplate.built_in ? editingTemplate.app_type_id || undefined : appTypeId || undefined,
         scope,
         name: draft.name,
-        description: draft.description || undefined,
-        domain: draft.domain || undefined,
-        role: draft.role || undefined,
-        test_type: draft.test_type || undefined,
-        test_format: draft.test_format || undefined,
+        description: draft.description,
+        domain: draft.domain,
+        role: draft.role,
+        test_type: draft.test_type,
+        test_format: draft.test_format,
         test_count: scopeConfig.showCount ? Number(draft.test_count) || undefined : undefined,
         prompt_text: draft.prompt_text,
         applies_to: scopeConfig.appliesTo,
         tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean)
-      });
+      };
+      const { aiPromptTemplates } = (await import("../lib/api")).api;
+      // Built-ins belong to every project. Editing one creates an editable
+      // project template; subsequent saves update that saved template.
+      const template = editingTemplate && !editingTemplate.built_in
+        ? await aiPromptTemplates.update(editingTemplate.id, payload)
+        : await aiPromptTemplates.create(payload);
+      return { template, useAfterSave };
     },
-    onSuccess: (template) => {
+    onSuccess: ({ template, useAfterSave }) => {
       queryClient.setQueryData<AiPromptTemplate[]>(["ai-prompt-templates", projectId, appTypeId, scope], (current) =>
-        current ? [template, ...current] : [template]
+        [template, ...(current || []).filter((item) => item.id !== template.id)]
       );
-      setDraft(emptyDraft);
-      onApply(renderAiPromptTemplate(template), template);
-      setIsOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["ai-prompt-templates", projectId] });
+      setEditingTemplate(template);
+      setSavedMessage(`Saved "${template.name}".`);
+      if (useAfterSave) {
+        onApply(renderAiPromptTemplate(template), template);
+        setIsOpen(false);
+      }
     }
   });
   const closePicker = () => {
-    if (!createTemplate.isPending) {
+    if (!saveTemplate.isPending) {
       setIsOpen(false);
     }
   };
   const dialogRef = useDialogFocus<HTMLDivElement>({
     active: isOpen,
-    closeDisabled: createTemplate.isPending,
+    closeDisabled: saveTemplate.isPending,
     onClose: closePicker
   });
 
@@ -310,7 +331,24 @@ export function AiPromptTemplatePicker({
       ].some((value) => String(value || "").toLowerCase().includes(term))
     );
   }, [searchTerm, templates]);
-  const saveDisabled = createTemplate.isPending || !draft.name.trim() || !draft.prompt_text.trim() || !projectId;
+  const selectTemplate = (template: AiPromptTemplate | null) => {
+    saveTemplate.reset();
+    setSavedMessage("");
+    setEditingTemplate(template);
+    setDraft(template ? {
+      name: template.name,
+      description: template.description || "",
+      domain: template.domain || "",
+      role: template.role || "",
+      test_type: template.test_type || "",
+      test_format: template.test_format || "",
+      test_count: String(template.test_count || 6),
+      prompt_text: template.prompt_text,
+      tags: (template.tags || []).join(", ")
+    } : emptyDraft);
+  };
+  const saveDisabled = saveTemplate.isPending || draft.name.trim().length < 2 || draft.prompt_text.trim().length < 2 || !projectId
+    || (scopeConfig.showCount && (!Number.isInteger(Number(draft.test_count)) || Number(draft.test_count) < 1 || Number(draft.test_count) > (scope === "requirement_creation" ? 6 : 10)));
 
   return (
     <>
@@ -355,7 +393,7 @@ export function AiPromptTemplatePicker({
                   />
                 </div>
               </div>
-              <DialogCloseButton disabled={createTemplate.isPending} label="Close prompt library" onClick={closePicker} />
+              <DialogCloseButton disabled={saveTemplate.isPending} label="Close prompt library" onClick={closePicker} />
             </div>
 
             <div className="ai-prompt-template-grid">
@@ -366,20 +404,24 @@ export function AiPromptTemplatePicker({
                 </label>
                 <div className="ai-prompt-template-results">
                   {query.isLoading ? <LoadingState label="Loading prompt templates" /> : null}
+                  {query.isError ? <div className="inline-message error-message">{query.error instanceof Error ? query.error.message : "Unable to load prompt templates."}</div> : null}
                   {filteredTemplates.map((template) => (
-                    <article className="ai-prompt-template-card" key={template.id}>
+                    <article className={`ai-prompt-template-card${editingTemplate?.id === template.id ? " is-editing" : ""}`} key={template.id}>
                       <div>
                         <strong>{template.name}</strong>
                         <span>{template.description || compactJoin([template.domain, template.role, template.test_type]) || "Reusable AI generation guidance"}</span>
                         <small>{compactJoin([template.domain, template.role, template.test_type, template.test_format, template.test_count && scopeConfig.showCount ? `${template.test_count} ${scopeConfig.countUnit}` : ""])}</small>
                       </div>
-                      <button className="primary-button compact" onClick={() => {
+                      <div className="ai-prompt-template-card-actions">
+                      <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(template)} type="button" aria-label={`Edit ${template.name}`}>Edit</button>
+                      <button className="primary-button compact" disabled={saveTemplate.isPending} onClick={() => {
                         onApply(renderAiPromptTemplate(template), template);
                         setIsOpen(false);
                       }} type="button">
                         <SparkIcon size={14} />
                         <span>Use</span>
                       </button>
+                      </div>
                     </article>
                   ))}
                   {!query.isLoading && !filteredTemplates.length ? <div className="empty-state compact">{scopeConfig.emptyMessage}</div> : null}
@@ -390,17 +432,22 @@ export function AiPromptTemplatePicker({
                 <div className="panel-head">
                   <div>
                     <div className="panel-title-row">
-                      <p className="eyebrow">{scopeConfig.createTitle}</p>
+                      <p className="eyebrow">{editingTemplate ? "Edit template" : scopeConfig.createTitle}</p>
                       <InfoTooltip
                         content={scopeConfig.createHelp}
                         label="Add prompt information"
                       />
                     </div>
                   </div>
+                  <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(null)} type="button"><AddIcon size={15} /><span>New template</span></button>
                 </div>
-                <div className="record-grid">
+                {editingTemplate?.built_in ? <p className="ai-prompt-template-edit-note">Saving these changes creates a template for this project.</p> : null}
+                <fieldset className="record-grid ai-prompt-template-fields" disabled={saveTemplate.isPending} onChange={() => setSavedMessage("")}>
                   <FormField label="Template name">
                     <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Checkout role-based regression" />
+                  </FormField>
+                  <FormField label="Description">
+                    <input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="When to use this template" />
                   </FormField>
                   <FormField label={scopeConfig.domainLabel}>
                     <input value={draft.domain} onChange={(event) => setDraft((current) => ({ ...current, domain: event.target.value }))} placeholder={scopeConfig.domainPlaceholder} />
@@ -425,14 +472,18 @@ export function AiPromptTemplatePicker({
                   <FormField label={scopeConfig.promptLabel}>
                     <textarea rows={6} value={draft.prompt_text} onChange={(event) => setDraft((current) => ({ ...current, prompt_text: event.target.value }))} placeholder={scopeConfig.promptPlaceholder} />
                   </FormField>
-                </div>
-                {createTemplate.isError ? (
-                  <div className="inline-message error-message">{createTemplate.error instanceof Error ? createTemplate.error.message : "Unable to save prompt template."}</div>
+                </fieldset>
+                {saveTemplate.isError ? (
+                  <div className="inline-message error-message">{saveTemplate.error instanceof Error ? saveTemplate.error.message : "Unable to save prompt template."}</div>
                 ) : null}
+                {savedMessage ? <div className="inline-message" role="status">{savedMessage}</div> : null}
                 <div className="testops-action-row">
-                  <button className="primary-button" disabled={saveDisabled} onClick={() => createTemplate.mutate()} type="button">
-                    <AddIcon size={15} />
-                    <span>{createTemplate.isPending ? "Saving..." : "Save and use"}</span>
+                  <button className="ghost-button" disabled={saveDisabled} onClick={() => saveTemplate.mutate({ useAfterSave: false })} type="button">
+                    <span>{saveTemplate.isPending && !saveTemplate.variables?.useAfterSave ? "Saving..." : "Save"}</span>
+                  </button>
+                  <button className="primary-button" disabled={saveDisabled} onClick={() => saveTemplate.mutate({ useAfterSave: true })} type="button">
+                    <SparkIcon size={15} />
+                    <span>{saveTemplate.isPending && saveTemplate.variables?.useAfterSave ? "Saving..." : "Save and Use"}</span>
                   </button>
                 </div>
               </section>

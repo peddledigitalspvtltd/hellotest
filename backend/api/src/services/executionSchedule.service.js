@@ -6,6 +6,8 @@ const executionService = require("./execution.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const { placeholdersFor } = require("../utils/batchHydration");
 
+const scheduleError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+
 const SCHEDULE_LEASE_MS = Math.max(60_000, Number(process.env.EXECUTION_SCHEDULE_LEASE_MS || 10 * 60 * 1000));
 const SCHEDULE_BATCH_LIMIT = Math.max(1, Math.min(100, Number(process.env.EXECUTION_SCHEDULE_BATCH_LIMIT || 25)));
 const SCHEDULE_WORKER_ID = `${hostname()}:${process.pid}:${uuid()}`;
@@ -298,19 +300,19 @@ async function validateSchedulePayload({
   created_by
 }) {
   if (!project_id || !created_by) {
-    throw new Error("project_id and created_by are required");
+    throw scheduleError("project_id and created_by are required");
   }
 
   const project = await selectProject.get(project_id);
 
   if (!project) {
-    throw new Error("Project not found");
+    throw scheduleError("Project not found");
   }
 
   const creator = await selectUser.get(created_by);
 
   if (!creator) {
-    throw new Error("Invalid user");
+    throw scheduleError("Invalid user");
   }
 
   const normalizedAssignedToIds = normalizeTextList(assigned_to_ids.length ? assigned_to_ids : assigned_to ? [assigned_to] : []);
@@ -319,13 +321,13 @@ async function validateSchedulePayload({
     const assignedUser = await selectUser.get(assignedUserId);
 
     if (!assignedUser) {
-      throw new Error("Assigned user not found");
+      throw scheduleError("Assigned user not found");
     }
 
     const membership = await selectProjectMember.get(project_id, assignedUserId);
 
     if (!membership) {
-      throw new Error("Assigned user must belong to the selected project");
+      throw scheduleError("Assigned user must belong to the selected project");
     }
   }
 
@@ -333,11 +335,11 @@ async function validateSchedulePayload({
     const appType = await selectAppType.get(app_type_id);
 
     if (!appType) {
-      throw new Error("App type not found");
+      throw scheduleError("App type not found");
     }
 
     if (appType.project_id !== project_id) {
-      throw new Error("App type must belong to the selected project");
+      throw scheduleError("App type must belong to the selected project");
     }
   }
 
@@ -345,15 +347,15 @@ async function validateSchedulePayload({
     const suite = await selectSuite.get(suiteId);
 
     if (!suite) {
-      throw new Error(`Suite not found: ${suiteId}`);
+      throw scheduleError(`Suite not found: ${suiteId}`);
     }
 
     if (suite.project_id !== project_id) {
-      throw new Error("All suites must belong to the selected project");
+      throw scheduleError("All suites must belong to the selected project");
     }
 
     if (app_type_id && suite.app_type_id !== app_type_id) {
-      throw new Error("All suites must belong to the selected app type");
+      throw scheduleError("All suites must belong to the selected app type");
     }
   }
 
@@ -361,15 +363,15 @@ async function validateSchedulePayload({
     const testCase = await selectTestCase.get(testCaseId);
 
     if (!testCase) {
-      throw new Error(`Test case not found: ${testCaseId}`);
+      throw scheduleError(`Test case not found: ${testCaseId}`);
     }
 
     if (testCase.project_id !== project_id) {
-      throw new Error("All test cases must belong to the selected project");
+      throw scheduleError("All test cases must belong to the selected project");
     }
 
     if (app_type_id && testCase.app_type_id !== app_type_id) {
-      throw new Error("All test cases must belong to the selected app type");
+      throw scheduleError("All test cases must belong to the selected app type");
     }
   }
 
@@ -381,10 +383,10 @@ async function validateSchedulePayload({
   ]) {
     if (!id) continue;
     const resource = await selector.get(id);
-    if (!resource) throw new Error(`${label} not found`);
-    if (resource.project_id !== project_id) throw new Error(`${label} must belong to the selected project`);
+    if (!resource) throw scheduleError(`${label} not found`);
+    if (resource.project_id !== project_id) throw scheduleError(`${label} must belong to the selected project`);
     if (app_type_id && resource.app_type_id && resource.app_type_id !== app_type_id) {
-      throw new Error(`${label} must apply to the selected app type`);
+      throw scheduleError(`${label} must apply to the selected app type`);
     }
   }
 }
@@ -520,7 +522,7 @@ exports.getExecutionSchedule = async (id) => {
   const schedule = await selectExecutionSchedule.get(id);
 
   if (!schedule) {
-    throw new Error("Execution schedule not found");
+    throw scheduleError("Execution schedule not found", 404);
   }
 
   return hydrateSchedule(schedule);
@@ -531,9 +533,18 @@ exports.runExecutionSchedule = async (id, created_by, { claimedSchedule, leaseOw
     ? await hydrateSchedule(claimedSchedule)
     : await exports.getExecutionSchedule(id);
 
-  if (!schedule.is_active) {
-    throw new Error("This execution schedule is inactive.");
+  // Pausing recurrence must not disable an explicit Run now action. Workers
+  // still require an active schedule and manual launches preserve paused state.
+  if (claimedSchedule && !schedule.is_active) {
+    throw scheduleError("This execution schedule is inactive.", 409);
   }
+  if (!schedule.app_type_id) {
+    throw scheduleError("Choose an app type in Edit schedule before launching this run.");
+  }
+  if (!schedule.suite_ids.length && !schedule.test_case_ids.length) {
+    throw scheduleError("Add a test suite or test case in Edit schedule before launching this run.");
+  }
+  await validateSchedulePayload({ ...schedule, created_by: created_by || schedule.created_by });
   await mobileFeatureService.assertExecutionMobileFeatureEnabled(schedule);
 
   const response = await executionService.createExecution({
@@ -559,8 +570,10 @@ exports.runExecutionSchedule = async (id, created_by, { claimedSchedule, leaseOw
     created_by: created_by || schedule.created_by
   });
 
-  const nextRunAt = addCadence(claimedSchedule?.next_run_at || schedule.next_run_at || new Date().toISOString(), schedule.cadence);
-  const remainsActive = schedule.cadence !== "once";
+  const nextRunAt = claimedSchedule
+    ? addCadence(claimedSchedule.next_run_at || new Date().toISOString(), schedule.cadence)
+    : schedule.cadence === "once" ? null : schedule.next_run_at;
+  const remainsActive = schedule.is_active && schedule.cadence !== "once";
 
   if (leaseOwner) {
     const result = await completeClaimedExecutionSchedule.run(nextRunAt, remainsActive, id, leaseOwner);

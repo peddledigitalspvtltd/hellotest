@@ -130,6 +130,38 @@ test("model connection failure returns authorized evidence with an actionable er
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/);
 }));
 
+test("claim-only text-block LLM output is saved, rendered, and replayed as one grounded answer", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://claim-only.invalid/v1", model: "test", config: {} }));
+  context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
+  let modelCalls = 0;
+  context.mock.method(global, "fetch", async () => {
+    modelCalls++;
+    return new Response(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: JSON.stringify({ status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] }) }] }, finish_reason: "stop" }] }));
+  });
+  const first = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(first.assistant_message.status, "answered");
+  assert.equal(first.answer_contract.claims.length, 1);
+  assert.equal(first.answer_contract.claims[0].classification, "SUPPORTED");
+  assert.match(first.assistant_message.content, /Release approval requires a passing checkout test/);
+  const calls = modelCalls;
+  const replay = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(modelCalls, calls);
+  assert.equal(messages.length, 2);
+}));
+
+test("rejected model citation contracts return useful authorized passages instead of an empty answer", async (context) => fixture(async ({ input }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://invalid-citation.invalid/v1", model: "test", config: {} }));
+  context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
+  context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ status: "answered", supported_claims: [{ statement: "Invented response", citation_ids: ["K-invented"] }] }) }, finish_reason: "stop" }] })));
+  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(result.retrieval.provider_error_code, "MODEL_INVALID_RESPONSE");
+  assert.equal(result.assistant_message.status, "provider_unavailable");
+  assert.match(result.assistant_message.content, /passing checkout test/);
+  assert.doesNotMatch(result.assistant_message.content, /Invented response/);
+  assert.equal(result.answer_contract.claims[0].classification, "SUPPORTED");
+}));
+
 test("a transient synthesis failure recovers into one saved answer and same-turn replay performs no new model calls", async (context) => fixture(async ({ input, messages }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://turn-retry.invalid/v1", model: "test", config: {} }));
   let synthesisCalls = 0, allCalls = 0;

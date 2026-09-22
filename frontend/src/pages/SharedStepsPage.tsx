@@ -1533,23 +1533,6 @@ export function SharedStepsPage() {
                               value={failedSteps ?? "Unavailable"}
                             />
                           </div>
-                          <div className="tile-card-footer">
-                            <div className="history-bars" aria-label="Observed shared-step run history in the last 90 days">
-                              {history.length ? history.map((result) => (
-                                <span
-                                  key={`${group.id}-${result.execution_id}`}
-                                  className={result.status === "passed"
-                                    ? "history-bar is-passed"
-                                    : result.status === "failed"
-                                      ? "history-bar is-failed"
-                                      : result.status === "blocked"
-                                        ? "history-bar is-blocked"
-                                        : "history-bar"}
-                                  title={`${result.status} · ${result.created_at || "recent"}`}
-                                />
-                              )) : <span className="history-bar" />}
-                            </div>
-                          </div>
                         </div>
                       </article>
                     );

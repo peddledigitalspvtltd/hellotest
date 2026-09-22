@@ -1,0 +1,24 @@
+.ai-prompt-template-card.is-editing {
+  border-color: var(--accent, #5964e8);
+}
+
+.ai-prompt-template-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ai-prompt-template-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ai-prompt-template-edit-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}

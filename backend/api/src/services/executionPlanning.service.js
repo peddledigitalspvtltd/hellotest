@@ -8,7 +8,9 @@ const { resolveSessionSecret } = require("../security/runtimeSecrets");
 
 const DIRECT_CASE_SUITE_ID = "direct-impact";
 const DIRECT_CASE_SUITE_NAME = "Direct impacted scope";
-const SMART_EXECUTION_MAX_OUTPUT_TOKENS = 900;
+// Each of the 30 cases needs an ID, a concise reason, and evidence citations.
+// 900 tokens truncated valid plans before even a small library could finish.
+const SMART_EXECUTION_MAX_OUTPUT_TOKENS = 8_192;
 const SMART_EXECUTION_CASE_SELECTION_ATTEMPTS = [
   { csvBudget: 12000, maxCases: 120 },
   { csvBudget: 8000, maxCases: 72 },
@@ -347,6 +349,18 @@ const resolveIntegration = async (integration_id, { userId, usageKey, projectId,
   return integration;
 };
 
+const readPlanningResponseContent = (payload) => {
+  const choice = payload?.choices?.[0];
+  if (choice?.finish_reason === "length") throw new Error("LLM planning response was truncated");
+  if (choice?.finish_reason === "content_filter" || choice?.message?.refusal) throw new Error("LLM declined the planning request");
+  const raw = choice?.message?.content;
+  const content = Array.isArray(raw)
+    ? raw.map((part) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").join("")
+    : raw && typeof raw === "object" ? JSON.stringify(raw) : raw;
+  if (typeof content !== "string" || !content.trim()) throw new Error("LLM response did not include generated content");
+  return content;
+};
+
 const requestChatCompletion = async ({ integration, content }) => {
   const baseUrl = (integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "");
   const response = await fetchLlmWithRetry(`${baseUrl}/chat/completions`, {
@@ -371,7 +385,14 @@ const requestChatCompletion = async ({ integration, content }) => {
         }
       ]
     })
-  }, { integration, operation: "execution-planning.generate" });
+  }, {
+    integration,
+    operation: "execution-planning.generate",
+    maxOutputTokens: SMART_EXECUTION_MAX_OUTPUT_TOKENS,
+    // Retry with whole case rows below; transport-level slicing would break
+    // the case/evidence contract and can remove the output schema.
+    contextFallback: false
+  });
 
   if (!response.ok) {
     const raw = await response.text();
@@ -379,13 +400,7 @@ const requestChatCompletion = async ({ integration, content }) => {
   }
 
   const payload = await response.json();
-  const messageContent = payload?.choices?.[0]?.message?.content;
-
-  if (!messageContent) {
-    throw new Error("LLM response did not include generated content");
-  }
-
-  return messageContent;
+  return readPlanningResponseContent(payload);
 };
 
 async function resolveExecutionContextResource({ id, label, projectId, appTypeId, lookup, describe }) {
@@ -850,7 +865,7 @@ const buildPrompt = ({
   prompt.push("Rules:");
   prompt.push("- Return at most one explanation for each exact test_case_id in the CSV.");
   prompt.push("- Do not select cases: membership, order, risk_score, and selection_basis are immutable server decisions.");
-  prompt.push("- Every reason must cite one or more exact allowed_evidence_refs from that case row.");
+  prompt.push("- Keep every reason within 360 characters and cite one or two exact allowed_evidence_refs from that case row.");
   prompt.push("- If the supplied evidence does not support an explanation, omit that case; the server will retain its deterministic explanation.");
   if (isPartialLibrary) {
     prompt.push("- The CSV is a relevance-ranked excerpt of the full library based on the release scope and selected execution context.");
@@ -907,7 +922,9 @@ const selectCasesForPrompt = ({
 };
 
 const isPromptTooLargeError = (error) =>
-  error?.statusCode === 413 || /request too large/i.test(String(error?.message || ""));
+  error?.statusCode === 413
+  || error?.code === "AI_INPUT_BUDGET_EXCEEDED"
+  || /request too large|context.{0,30}(?:limit|length|window)|maximum.{0,20}tokens/i.test(String(error?.message || ""));
 
 const requestSmartExecutionPlan = async ({
   integration,
@@ -1104,17 +1121,18 @@ const rankSmartExecutionCases = ({
 };
 
 const normalizeModelExplanations = (payload, caseMap) => {
-  const rawCases = Array.isArray(payload?.cases) ? payload.cases : [];
+  if (!payload || !Array.isArray(payload.cases)) throw new Error("LLM planning response must include a cases array");
+  const rawCases = payload.cases;
   const explanations = new Map();
 
   rawCases.forEach((item) => {
     const id = normalizeText(item?.test_case_id || item?.testCaseId || item?.id);
-    const reason = truncateText(item?.reason, 360);
+    const reason = normalizeText(item?.reason);
     const evidenceRefs = uniqueList((Array.isArray(item?.evidence_refs) ? item.evidence_refs : []).map(normalizeText));
     const testCase = id ? caseMap.get(id) : null;
     const allowedRefs = new Set(testCase?.evidence_refs || []);
 
-    if (testCase && reason && evidenceRefs.length && evidenceRefs.every((ref) => allowedRefs.has(ref))) {
+    if (testCase && reason && reason.length <= 360 && evidenceRefs.length && evidenceRefs.every((ref) => allowedRefs.has(ref)) && !explanations.has(id)) {
       explanations.set(id, { reason, evidence_refs: evidenceRefs });
     }
   });
@@ -1342,7 +1360,7 @@ exports.previewSmartExecution = async ({
 
   if (integration && deterministicCases.length) {
     try {
-      const { content } = await requestSmartExecutionPlan({
+      const { content, promptCaseIds } = await requestSmartExecutionPlan({
         integration,
         appType,
         deliveryScope,
@@ -1353,7 +1371,8 @@ exports.previewSmartExecution = async ({
         executionContext,
         scopedCases: deterministicCases
       });
-      modelExplanations = normalizeModelExplanations(extractJsonPayload(content), caseMap);
+      const suppliedCaseMap = new Map(promptCaseIds.map((id) => [id, caseMap.get(id)]));
+      modelExplanations = normalizeModelExplanations(extractJsonPayload(content), suppliedCaseMap);
     } catch {
       providerFailed = true;
     }
@@ -1668,6 +1687,9 @@ exports.__smartExecutionInternals = {
   fingerprintSnapshot,
   impactLevelForRisk,
   normalizeModelExplanations,
+  readPlanningResponseContent,
+  requestChatCompletion,
+  requestSmartExecutionPlan,
   rankSmartExecutionCases,
   verifySmartExecutionAcceptance
 };

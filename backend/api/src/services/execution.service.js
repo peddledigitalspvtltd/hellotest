@@ -1988,7 +1988,7 @@ exports.startExecution = async (id, options = {}) => {
         const canContinueManually = dispatchPlan.manual_case_count > 0 || dispatchPlan.unsupported_automated_case_count > 0;
 
         if (!canContinueManually) {
-          throw new Error("Configure an active Test Engine integration for this project before starting automated runs.");
+          throw Object.assign(new Error("Configure an active Test Engine integration for this project before starting automated runs."), { statusCode: 409 });
         }
 
         dispatchPlan.warnings = [
