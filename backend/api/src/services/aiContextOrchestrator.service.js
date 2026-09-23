@@ -447,6 +447,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   const counts = {};
   const appTypes = await safeRows("SELECT id, name, type, is_unified FROM app_types WHERE project_id = ? ORDER BY name", [projectId]);
   if (scopeSet.size) {
+    execution.emit("READING_PROJECT", "completed", { message: `Read the current project and ${appTypes.length} application record${appTypes.length === 1 ? "" : "s"}.` });
     hits.push(makeLiveHit({
       projectId,
       scope: "project-overview",
@@ -463,6 +464,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
   }
 
   if (scopeSet.has("stories") && kindAllowed("requirement") && await canView("requirement.view")) {
+    execution.emit("READING_STORIES", "started", { message: "Reading current Stories, delivery fields, and linked coverage." });
     const canViewCoverage = await canView("testcase.view");
     const appClause = "";
     const stories = await safeRows(`
@@ -510,10 +512,13 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "stories", 0.96)
     }));
+    execution.emit("READING_STORIES", "completed", { evidence_count: selected.length,
+      message: `Read ${counts.stories} Stor${counts.stories === 1 ? "y" : "ies"} and selected ${selected.length} relevant record${selected.length === 1 ? "" : "s"}.` });
   }
 
   const canViewCases = (scopeSet.has("test-cases") || scopeSet.has("automation")) && kindAllowed("test_case") && await canView("testcase.view");
   if (canViewCases) {
+    execution.emit("READING_TEST_CASES", "started", { message: "Reading Test Cases, steps, traceability, suites, and shared coverage." });
     const canViewStories = await canView("requirement.view");
     const params = appTypeId ? [projectId, appTypeId] : [projectId];
     const appClause = appTypeId ? "AND test_cases.app_type_id = ?" : "";
@@ -624,9 +629,12 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "test-cases", 0.96)
     }));
+    execution.emit("READING_TEST_CASES", "completed", { evidence_count: selected.length,
+      message: `Read ${counts.test_cases} Test Case${counts.test_cases === 1 ? "" : "s"} and selected ${selected.length} relevant record${selected.length === 1 ? "" : "s"}.` });
   }
 
   if (scopeSet.has("runs") && kindAllowed("execution") && await canView("run.view")) {
+    execution.emit("READING_RUNS", "started", { message: "Reading Test Runs and their permitted result outcomes." });
     const canViewResults = await canView("result.view");
     const params = appTypeId ? [projectId, appTypeId] : [projectId];
     const appClause = appTypeId ? "AND executions.app_type_id = ?" : "";
@@ -690,6 +698,8 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "runs", 0.96)
     }));
+    execution.emit("READING_RUNS", "completed", { evidence_count: selected.length,
+      message: `Read ${counts.runs} Test Run${counts.runs === 1 ? "" : "s"} and selected ${selected.length} relevant outcome${selected.length === 1 ? "" : "s"}.` });
 
     const executionContextParams = appTypeId ? [projectId, appTypeId] : [projectId];
     const executionContextAppClause = appTypeId ? "AND app_type_id = ?" : "";
@@ -718,6 +728,7 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       WHERE project_id = ? ${executionContextAppClause}
     `, executionContextParams) : null;
     if (environments.length || configurations.length) {
+      execution.emit("READING_EXECUTION_CONTEXT", "started", { message: "Reading permitted environments and execution configurations." });
       counts.environments = Number(environmentTotal?.total || environments.length);
       counts.configurations = Number(configurationTotal?.total || configurations.length);
       const compactConfiguration = (configuration) => ({
@@ -751,10 +762,14 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         }, null, 2),
         score: liveEvidenceScore(contextRoute, "execution-context", 0.945)
       }));
+      execution.emit("READING_EXECUTION_CONTEXT", "completed", {
+        message: `Read ${counts.environments || 0} environment${counts.environments === 1 ? "" : "s"} and ${counts.configurations || 0} configuration${counts.configurations === 1 ? "" : "s"}.`
+      });
     }
   }
 
   if (scopeSet.has("automation") && await canView("automation.view")) {
+    execution.emit("READING_AUTOMATION", "started", { message: "Reading automation and object repository evidence." });
     const params = appTypeId ? [projectId, appTypeId] : [projectId];
     const appClause = appTypeId ? "AND app_type_id = ?" : "";
     const repositoryRows = await safeObsRows(`
@@ -813,10 +828,13 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
         }, null, 2),
         score: liveEvidenceScore(contextRoute, "object-repository", 0.95)
       }));
+      execution.emit("READING_AUTOMATION", "completed", { evidence_count: counts.repository_objects,
+        message: `Read ${counts.repository_objects} automation repository record${counts.repository_objects === 1 ? "" : "s"}.` });
     }
   }
 
   if (scopeSet.has("bugs") && kindAllowed("bug") && await canView("feedback.view")) {
+    execution.emit("READING_BUGS", "started", { message: "Reading current Defects, severity, status, and linked evidence." });
     const bugs = await safeRows(`
       SELECT id, display_id, title, status, severity, priority, environment, build,
         release, fix_version, sprint, linked_test_run_id, linked_test_case_ids,
@@ -870,6 +888,8 @@ const buildLiveProjectEvidence = async ({ projectId, appTypeId, prompt, user, ro
       }, null, 2),
       score: liveEvidenceScore(contextRoute, "bugs", 0.96)
     }));
+    execution.emit("READING_BUGS", "completed", { evidence_count: selected.length,
+      message: `Read ${counts.bugs} Defect${counts.bugs === 1 ? "" : "s"} and selected ${selected.length} relevant record${selected.length === 1 ? "" : "s"}.` });
   }
 
   return { hits, route: contextRoute, counts };

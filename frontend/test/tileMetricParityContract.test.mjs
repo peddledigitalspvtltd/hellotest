@@ -77,9 +77,10 @@ test("Shared Step Group tiles show definition, recorded step health and compact 
   const page = await readSource("../src/pages/SharedStepsPage.tsx");
   const service = await readSource("../../backend/api/src/services/sharedStepMetrics.service.js");
   const card = sliceBetween(page, "const isActive = !isCreating && selectedGroupId", "catalogViewMode === \"list\"");
-  assertProgressFirstMetricCard(card, "Observed shared-step run history");
+  assertProgressFirstMetricCard(card, "");
   assert.doesNotMatch(card, /EvidenceFlipCard/);
-  for (const detail of ["RichTextContent", "Step completeness", "Shared Step Pass Rate", "Steps", "Case Reuse", "Executed Steps", "Failed Steps", "history-bars"]) assert.ok(card.includes(detail), detail);
+  for (const detail of ["RichTextContent", "Step completeness", "Shared Step Pass Rate", "Steps", "Case Reuse", "Executed Steps", "Failed Steps"]) assert.ok(card.includes(detail), detail);
+  assert.doesNotMatch(card, /history-bars|Observed shared-step run history/);
   assert.match(card, /const passRate = executedSteps \? Math\.round\(\(passedSteps \|\| 0\) \/ executedSteps \* 100\) : null/);
   assert.match(service, /execution_step_snapshots/);
   assert.match(service, /shared_step_statuses\(r\.logs\)/);
@@ -150,13 +151,14 @@ test("Scheduled Run tiles lead with launch and context readiness while retaining
   ]);
   const card = sliceBetween(page, "function ExecutionScheduleCard", "function WorkspaceTransactionCard");
 
-  assertProgressFirstMetricCard(card, "execution-card-facts");
+  assertProgressFirstMetricCard(card, "");
   for (const detail of [
     "Launch readiness", "Run context", "Suites", "Cases", "Assignees", "Context",
-    "assigneeLabel", "releaseLabel", "sprintLabel", "buildLabel", "nextRunLabel", "lastRunLabel", "Edit", "Run now", "Delete"
+    "assigneeLabel"
   ]) {
     assert.match(card, new RegExp(detail));
   }
+  assert.doesNotMatch(card, /execution-card-facts|Run now|Delete schedule/);
   assert.match(card, /launchSignals = \[[\s\S]*active schedule[\s\S]*test scope[\s\S]*upcoming run time/);
   assert.match(card, /contextAttachedCount[\s\S]*test_environment_id[\s\S]*test_configuration_id[\s\S]*test_data_set_id/);
   assert.match(card, /nextRunTimestamp !== null && nextRunTimestamp >= liveNow/);

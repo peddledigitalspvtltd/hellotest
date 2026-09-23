@@ -610,8 +610,18 @@ const buildKnowledgeObject = (input = {}) => validateContract({
 const progressMessages = Object.freeze({
   QUERY_RECEIVED: "Request received",
   QUERY_UNDERSTANDING: "Understanding the request",
+  INTENT_ANALYSIS: "Understanding the user's intent",
   AUTHORIZATION: "Checking authorized knowledge",
   RETRIEVAL_PLANNING: "Planning bounded retrieval",
+  READING_PROJECT: "Reading the current project",
+  READING_STORIES: "Reading authorized Stories",
+  READING_TEST_CASES: "Reading authorized Test Cases",
+  READING_RUNS: "Reading authorized Test Runs",
+  READING_BUGS: "Reading authorized Defects",
+  READING_AUTOMATION: "Reading authorized automation evidence",
+  READING_EXECUTION_CONTEXT: "Reading authorized execution context",
+  KNOWLEDGE_REPO_SEARCH: "Searching the authorized Knowledge Repository",
+  CONTEXT_SUFFICIENCY: "Checking evidence sufficiency",
   STRUCTURED_LOOKUP: "Looking up authorized records",
   LEXICAL_SEARCH: "Searching authorized text",
   SEMANTIC_SEARCH: "Searching related authorized evidence",
@@ -626,7 +636,7 @@ const progressMessages = Object.freeze({
   COMPLETED: "Answer ready",
   FAILED: "The request could not be completed"
 });
-const buildRetrievalEvent = ({ stage, status = "IN_PROGRESS", traceId, queryId, requestId, sequence = 0, metrics, contextPacketId, answerId, terminationReason, errorCode } = {}) => {
+const buildRetrievalEvent = ({ stage, status = "IN_PROGRESS", traceId, queryId, requestId, sequence = 0, metrics, trustedMessage, contextPacketId, answerId, terminationReason, errorCode } = {}) => {
   stage = String(stage || "").toUpperCase();
   const statusAliases = {
     RUNNING: "IN_PROGRESS",
@@ -661,7 +671,7 @@ const buildRetrievalEvent = ({ stage, status = "IN_PROGRESS", traceId, queryId, 
     sequence,
     stage,
     status,
-    message: progressMessages[stage] || "Knowledge retrieval progress",
+    message: compactText(trustedMessage, 300) || progressMessages[stage] || "Knowledge retrieval progress",
     metrics: safeMetrics,
     context_packet_id: contextPacketId || null,
     answer_id: answerId || null,

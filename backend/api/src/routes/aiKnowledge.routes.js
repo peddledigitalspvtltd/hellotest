@@ -399,7 +399,7 @@ module.exports = async function (fastify) {
   const prepareTurn = (req, reply) => prepareKnowledgeRequest(req, reply, async () => {
     await fastify.authenticate(req);
     execution.assertActive();
-    fastify.validate({ message: { required: true, type: "string", maxLength: 8000 }, integration_id: { required: false, type: "string", maxLength: 255 }, smart_context: { required: false, type: "object" }, retrieval_budgets: { required: false, type: "object" }, filters: { required: false, type: "object" } }, req.body || {});
+    fastify.validate({ message: { required: true, type: "string", maxLength: 8000 }, integration_id: { required: false, type: "string", maxLength: 255 }, retry_provider: { required: false, type: "boolean" }, smart_context: { required: false, type: "object" }, retrieval_budgets: { required: false, type: "object" }, filters: { required: false, type: "object" } }, req.body || {});
     if (req.body.response_mode && !["answer", "evidence"].includes(req.body.response_mode)) {
       throw Object.assign(new Error("response_mode must be answer or evidence."), { statusCode: 400 });
     }
@@ -409,7 +409,7 @@ module.exports = async function (fastify) {
     if (session.status !== "active") throw Object.assign(new Error("This knowledge conversation is archived."), { statusCode: 409 });
     const clientTurnId = String(req.body.client_turn_id || req.headers["idempotency-key"] || "").trim();
     if (clientTurnId && !/^[A-Za-z0-9._:-]{8,255}$/.test(clientTurnId)) throw Object.assign(new Error("client_turn_id must be 8-255 characters using letters, numbers, dot, underscore, colon, or hyphen."), { statusCode: 400 });
-    return { sessionId: req.params.id, message: req.body.message, filters: req.body.filters, smartContext: req.body.smart_context, integrationId: req.body.integration_id, retrievalBudgets: req.body.retrieval_budgets, responseMode: req.body.response_mode || "answer", clientTurnId: clientTurnId || null, user: req.user };
+    return { sessionId: req.params.id, message: req.body.message, filters: req.body.filters, smartContext: req.body.smart_context, integrationId: req.body.integration_id, retrievalBudgets: req.body.retrieval_budgets, responseMode: req.body.response_mode || "answer", clientTurnId: clientTurnId || null, retryProvider: req.body.retry_provider === true, user: req.user };
   });
 
   fastify.post("/knowledge/assistant/sessions/:id/messages/stream", async (req, reply) => {

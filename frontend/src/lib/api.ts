@@ -1473,9 +1473,9 @@ export const api = {
         }),
       getSession: (id: string) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`),
       updateSession: (id: string, input: { title?: string; status?: "archived" | "active" }) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
-      streamMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string; response_mode?: "answer" | "evidence"; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void }) =>
+      streamMessage: (id: string, input: { message: string; client_turn_id: string; retry_provider?: boolean; filters?: KnowledgeSearchFilters; integration_id?: string; response_mode?: "answer" | "evidence"; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void }) =>
         requestKnowledgeStream(`/knowledge/assistant/sessions/${id}/messages/stream`, input, options),
-      sendMessage: (id: string, input: { message: string; client_turn_id: string; filters?: KnowledgeSearchFilters; integration_id?: string; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal }) =>
+      sendMessage: (id: string, input: { message: string; client_turn_id: string; retry_provider?: boolean; filters?: KnowledgeSearchFilters; integration_id?: string; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal }) =>
         request<KnowledgeAssistantMessageResponse>(`/knowledge/assistant/sessions/${id}/messages`, {
           method: "POST",
           body: JSON.stringify(input),

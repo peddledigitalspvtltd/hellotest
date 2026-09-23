@@ -19,6 +19,7 @@ const emit = (stage, status = "completed", metrics = {}) => {
     stage, status, traceId: context.traceId, queryId: context.queryId || context.traceId,
     requestId: context.requestId || context.queryId || context.traceId, sequence: ++context.progress.sequence,
     errorCode: metrics.error_code,
+    trustedMessage: metrics.message,
     metrics: {
       elapsed_ms: Math.max(0, Date.now() - context.progress.startedAt),
       ...(Number.isFinite(metrics.candidate_count) ? { candidates_found: metrics.candidate_count } : {}),

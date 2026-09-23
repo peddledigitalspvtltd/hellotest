@@ -38,7 +38,9 @@ function loadService(name, dependencies) {
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../src/services", name), "utf8"), {
     module, exports: module.exports, Buffer, Date, setTimeout, clearTimeout, process,
-    require: key => Object.hasOwn(dependencies, key) ? dependencies[key] : require(key)
+    require: key => Object.hasOwn(dependencies, key)
+      ? dependencies[key]
+      : require(key.startsWith(".") ? path.resolve(__dirname, "../src/services", key) : key)
   }, { filename: name });
   return module.exports;
 }

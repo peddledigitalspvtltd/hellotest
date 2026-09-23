@@ -14,26 +14,34 @@ const fixture = async (task) => {
   const saved = { prepare: db.prepare, search: rag.searchMany, permissions: rag.resolveAllowedSourcePermissions, parents: rag.expandEvidence, relations: rag.expandRelationships, access: auth.getEvidenceAccess, live: orchestrator.buildLiveProjectEvidence, integrations: integrations.getIntegrations, hasPermission: permissions.hasPermission, project: projects.getProject };
   const session = { id: "session-1", project_id: "project-1", created_by: "user-1", status: "active", filters: {} };
   const messages = [];
-  const state = { revoked: false, searches: 0, models: 0 };
+  const state = { revoked: false, searches: 0, models: 0, liveRequests: [] };
   permissions.hasPermission = async () => !state.projectRevoked;
   projects.getProject = async () => ({ id: session.project_id });
   db.prepare = (sql) => ({
     get: async (...args) => {
       if (sql.includes("COUNT(*)")) return { message_count: messages.length };
       if (sql.includes("SELECT * FROM ai_knowledge_assistant_sessions")) return session;
+      if (sql.includes("WITH removed AS")) {
+        const assistantIndex = messages.findIndex((item) => item.id === args[0] && item.status === "provider_unavailable");
+        const userMessage = messages.find((item) => item.id === args[1] && item.role === "user");
+        if (assistantIndex < 0 || !userMessage) return null;
+        messages.splice(assistantIndex, 1);
+        userMessage.status = "pending";
+        return userMessage;
+      }
       if (sql.includes("INSERT INTO ai_knowledge_assistant_messages")) {
         const [id, session_id, project_id, role, content, status, citations, retrieval, safety, provider, model, client_turn_id, content_fingerprint] = args;
         if (messages.some((item) => item.role === role && item.client_turn_id === client_turn_id)) return null;
         const row = { id, session_id, project_id, role, content, status, citations, retrieval, safety, provider, model, client_turn_id, content_fingerprint };
         messages.push(row); return row;
       }
-      if (sql.includes("role = 'assistant'")) return messages.find((item) => item.role === "assistant" && item.client_turn_id === args[1]);
-      if (sql.includes("role = 'user'")) return messages.find((item) => item.role === "user" && item.client_turn_id === args[1]);
       if (sql.includes("RETURNING *") && sql.includes("UPDATE ai_knowledge_assistant_messages")) {
-        const row = messages.find((item) => item.id === args[0] && item.status === "error");
+        const row = messages.find((item) => item.id === args[0] && (sql.includes("AND role = 'user'") || item.status === "error"));
         if (row) row.status = "pending";
         return row;
       }
+      if (sql.includes("role = 'assistant'")) return messages.find((item) => item.role === "assistant" && item.client_turn_id === args[1]);
+      if (sql.includes("role = 'user'")) return messages.find((item) => item.role === "user" && item.client_turn_id === args[1]);
       throw new Error(`Unhandled fixture read: ${sql}`);
     },
     all: async (...args) => messages.filter((item) => !sql.includes("id <>") || (item.id !== args[1] && !["pending", "error"].includes(item.status))),
@@ -50,7 +58,7 @@ const fixture = async (task) => {
   rag.expandEvidence = async () => ({ results: [] });
   rag.expandRelationships = async () => ({ results: [], relationships: [] });
   auth.getEvidenceAccess = async ({ evidence }) => ({ allowed: state.revoked ? [] : evidence, denied_ids: state.revoked ? evidence.map((item) => item.chunk_id) : [], partial: state.revoked });
-  orchestrator.buildLiveProjectEvidence = async () => ({ hits: [], counts: {} });
+  orchestrator.buildLiveProjectEvidence = async (request) => { state.liveRequests.push(request); return { hits: [], counts: {} }; };
   integrations.getIntegrations = async () => { state.models++; throw new Error("Evidence-only mode must not select a model"); };
   const input = { sessionId: session.id, message: "What is the release approval requirement?", clientTurnId: "turn-123456", responseMode: "evidence", user: { id: "user-1" } };
   try { await task({ input, messages, state }); }
@@ -128,6 +136,59 @@ test("model connection failure returns authorized evidence with an actionable er
   assert.match(result.retrieval.provider_error_message, /connection credentials/);
   assert.ok(events.some((event) => event.stage === "GENERATION" && event.status === "FAILED" && event.error_code === "MODEL_AUTHENTICATION_FAILED"));
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/);
+}));
+
+test("intent planning runs once before scoped project reads and grounded synthesis", async (context) => fixture(async ({ input, state }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://intent.invalid/v1", model: "test", config: {} }));
+  context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
+  const modelPrompts = [];
+  context.mock.method(global, "fetch", async (_, init) => {
+    const systemPrompt = JSON.parse(init.body).messages[0].content;
+    modelPrompts.push(systemPrompt);
+    const candidate = systemPrompt.includes("You plan evidence retrieval")
+      ? { information_needs: ["Story readiness", "recent run outcomes", "open defects"], source_kinds: ["requirement", "execution", "bug"], search_queries: ["checkout release Story runs Defects"], stop_if_sufficient: false }
+      : { status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) }, finish_reason: "stop" }] }));
+  });
+  const events = [];
+  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => events.push(event) });
+  assert.equal(result.assistant_message.status, "answered");
+  assert.equal(modelPrompts.filter((prompt) => prompt.includes("You plan evidence retrieval")).length, 1);
+  assert.equal(modelPrompts.length, 2, "one intent call and one final synthesis call are made");
+  assert.ok(state.liveRequests.length >= 1);
+  assert.deepEqual(state.liveRequests[0].route.live_scopes.slice(0, 3), ["stories", "runs", "bugs"]);
+  assert.ok(state.liveRequests[0].sourceKinds.includes("requirement"));
+  assert.ok(state.liveRequests[0].sourceKinds.includes("execution"));
+  assert.ok(state.liveRequests[0].sourceKinds.includes("bug"));
+  const intentIndex = events.findIndex((event) => event.stage === "INTENT_ANALYSIS" && event.status === "COMPLETE");
+  const retrievalIndex = events.findIndex((event) => event.stage === "KNOWLEDGE_REPO_SEARCH" && event.status === "IN_PROGRESS");
+  const generationIndex = events.findIndex((event) => event.stage === "GENERATION" && event.status === "IN_PROGRESS");
+  assert.ok(intentIndex >= 0 && retrievalIndex > intentIndex && generationIndex > retrievalIndex);
+  assert.match(events[intentIndex].message, /Stories.*Test Runs.*Defects/);
+}));
+
+test("provider-unavailable answers can retry and replace the same persisted turn", async (context) => fixture(async ({ input, messages }) => {
+  context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://retry-provider.invalid/v1", model: "test", config: {} }));
+  context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
+  let available = false;
+  context.mock.method(global, "fetch", async (_, init) => {
+    if (!available) return new Response(JSON.stringify({ error: "not accepted" }), { status: 401 });
+    const systemPrompt = JSON.parse(init.body).messages[0].content;
+    const candidate = systemPrompt.includes("You plan evidence retrieval")
+      ? { information_needs: ["release approval"], source_kinds: ["text"], search_queries: [] }
+      : { status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) }, finish_reason: "stop" }] }));
+  });
+  const failed = await assistant.respond({ ...input, responseMode: "answer" });
+  assert.equal(failed.assistant_message.status, "provider_unavailable");
+  const originalUserId = failed.user_message.id;
+  assert.equal(messages.length, 2);
+  available = true;
+  const retried = await assistant.respond({ ...input, responseMode: "answer", retryProvider: true });
+  assert.equal(retried.assistant_message.status, "answered");
+  assert.equal(retried.user_message.id, originalUserId);
+  assert.equal(retried.idempotent_replay, false);
+  assert.equal(messages.length, 2, "retry replaces the failed assistant result without duplicating the user turn");
 }));
 
 test("claim-only text-block LLM output is saved, rendered, and replayed as one grounded answer", async (context) => fixture(async ({ input, messages }) => {

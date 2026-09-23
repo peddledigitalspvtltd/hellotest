@@ -10,7 +10,9 @@ import * as helpers from "../src/lib/knowledgeAnswer.ts";
 const require = createRequire(import.meta.url);
 const componentExports = {};
 const source = readFileSync(new URL("../src/components/KnowledgeAnswer.tsx", import.meta.url), "utf8");
-new Function("require", "exports", ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText)((path) => path === "../lib/knowledgeAnswer" ? helpers : require(path), componentExports);
+new Function("require", "exports", ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText)((path) => path === "../lib/knowledgeAnswer" ? helpers
+  : path === "./KnowledgeFormattedText" ? { KnowledgeFormattedText: ({ text, className = "" }) => createElement("div", { className: `knowledge-formatted-text ${className}`.trim() }, text) }
+    : require(path), componentExports);
 const message = (overrides = {}) => ({ id: "message", role: "assistant", content: "Legacy content", citations: [{ id: "e1", title: "Permission design", uri: "https://example.test/source" }], context_packet: { contract_version: "1.0", packet_id: "packet", evidence: [{ id: "e1", evidence_id: "e1", title: "Permission design", uri: "https://example.test/source", freshness: { current: true }, visibility: { state: "FULL" } }], retrieval: { status: "COMPLETE" } }, answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: "answered", summary: "The design changed.", claims: [{ claim_id: "c1", statement: "The source supports this statement.", classification: "SUPPORTED", evidence_ids: ["e1"] }], citation_ids: ["e1"], evidence_gaps: [], presentation: { recommended_type: "TEXT", structured_payload: {} }, limitations: { retrieval_status: "COMPLETE" }, ...overrides } });
 const html = (input) => renderToStaticMarkup(createElement(componentExports.KnowledgeAnswer, { message: input, onEvidenceOpen() {} }));
 

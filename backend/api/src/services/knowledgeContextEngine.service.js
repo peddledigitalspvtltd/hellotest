@@ -3,6 +3,19 @@ const execution = require("./knowledgeExecution.service");
 const { boundedRetrievalStage } = require("../utils/knowledgeRetrievalTiming");
 
 const array = (value) => Array.isArray(value) ? value : [];
+const PLAN_SCOPE_BY_SOURCE_KIND = Object.freeze({
+  requirement: "stories",
+  test_case: "test-cases",
+  execution: "runs",
+  bug: "bugs",
+  knowledge_item: "knowledge",
+  file: "knowledge",
+  text: "knowledge",
+  chat: "knowledge",
+  url: "knowledge",
+  product_help: "knowledge"
+});
+const unique = (values) => [...new Set(values.filter(Boolean))];
 const identity = (hit) => hit.chunk_id || hit.citation?.id;
 const packetHits = (hits, packet) => {
   const accepted = new Map(array(packet.evidence).map((item) => [item.evidence_id, item]));
@@ -21,7 +34,7 @@ const anchoredQueries = (queries, { question, hits, seen }) => {
 // Context retrieval is independent of answer generation and can be consumed by
 // chat, agents, or the public ContextPacket endpoint. Dependencies are injected
 // so the same budgets and authorization boundaries can be evaluated offline.
-const retrieve = async ({ request, user, history = [], smartContext = {}, integration, dependencies }) => {
+const retrieve = async ({ request, user, history = [], smartContext = {}, integration, intentPlan, dependencies }) => {
   const { search, liveEvidence, planContext, merge, assess, planQueries, authorize, expandParents, expandRelationships } = dependencies;
   const budget = new contracts.RetrievalBudget(request.budgets);
   // Retrieval/enrichment must leave time to recheck live ACLs. Previously each
@@ -36,10 +49,20 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       "AUTHORIZATION_TIMEOUT", final ? budget.remaining().deadline_ms : stageTime(1_500))
     : Promise.resolve({ allowed: [], denied_ids: [], partial: false });
   const filters = request.filters || {};
+  const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
   const requestedScopes = array(filters.source_kinds).map((kind) => ({ requirement: "stories", test_case: "test-cases", execution: "runs", bug: "bugs" }[kind])).filter(Boolean);
   const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes });
+  const plannedKinds = unique(array(intentPlan?.source_kinds).map((kind) => String(kind || "").trim().toLowerCase()).filter((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
+  const plannedScopes = unique(plannedKinds.map((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
+  if (!array(filters.source_kinds).length && !pinned && plannedScopes.length) {
+    route.effective_scopes = unique([...plannedScopes, ...array(route.effective_scopes), "knowledge"]);
+    route.priority_scopes = unique([...plannedScopes, ...array(route.priority_scopes)]).filter((scope) => route.effective_scopes.includes(scope));
+    route.live_scopes = route.effective_scopes.filter((scope) => scope !== "knowledge");
+    route.indexed_source_kinds = unique([...plannedKinds, ...array(route.indexed_source_kinds)]);
+  }
+  route.information_needs = unique([...array(intentPlan?.information_needs), ...array(route.information_needs)]).slice(0, 12);
+  route.intent_plan_applied = Boolean(plannedKinds.length || array(intentPlan?.queries).length);
   route.query_class = request.query_class;
-  const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
   const effectiveFilters = array(filters.source_kinds).length || pinned ? filters : { ...filters, source_kinds: route.indexed_source_kinds };
   const projectScope = { project_id: request.project_id, app_type_id: filters.app_type_id || null, filters: effectiveFilters, context_route: route };
   execution.emit("QUERY_UNDERSTANDING", "completed", { query_class: request.query_class });
@@ -58,8 +81,8 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
   let skippedQueryCount = 0;
   let accessChangedBeforeAssembly = false;
   const searchMode = execution.current()?.searchMode || "hybrid";
-  let initialQueries = [...new Set([request.query, smartContext.query, route.retrieval_query].filter(Boolean))]
-    .slice(0, Math.min(3, budget.remaining().queries));
+  let initialQueries = [...new Set([request.query, ...array(intentPlan?.queries), smartContext.query, route.retrieval_query].filter(Boolean))]
+    .slice(0, Math.min(5, budget.remaining().queries));
   let queries = initialQueries;
   execution.emit("RETRIEVAL_PLANNING", "completed", { query_count: queries.length });
   while (queries.length && budget.canContinue()) {
@@ -68,12 +91,14 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     queries.forEach((query) => seen.add(query.toLowerCase()));
     const before = new Set(hits.map(identity));
     execution.emit(searchMode === "keyword" ? "LEXICAL_SEARCH" : "HYBRID_SEARCH", "started", { round: rounds.length + 1 });
+    execution.emit("KNOWLEDGE_REPO_SEARCH", "started", { round: rounds.length + 1,
+      message: `Searching the Knowledge Repository${rounds.length ? " again" : ""} with ${queries.length} focused quer${queries.length === 1 ? "y" : "ies"}.` });
     if (liveEnabled) execution.emit("STRUCTURED_LOOKUP", "started");
     try {
       const searchTimeoutMs = stageTime(5_000, authorizationReserveMs * 2);
       const liveTimeoutMs = Math.min(2_500, searchTimeoutMs);
       const jobs = [stage((signal) => search({ queries, mode: searchMode, projectId: request.project_id, filters: effectiveFilters, integrationId: integration?.id, user, signal, timeoutMs: Math.max(1, searchTimeoutMs - Math.min(50, Math.floor(searchTimeoutMs / 10))), maxCandidates: Math.max(0, budget.limits.max_candidates - candidateCount) }), "INDEXED_SEARCH_TIMEOUT", searchTimeoutMs)];
-      if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: filters.source_kinds, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
+      if (liveEnabled) jobs.push(stage((signal) => liveEvidence({ projectId: request.project_id, appTypeId: filters.app_type_id, prompt: request.query, user, route, sourceKinds: effectiveFilters.source_kinds, signal, timeoutMs: liveTimeoutMs }), "LIVE_CONTEXT_TIMEOUT", liveTimeoutMs));
       const settled = await Promise.allSettled(jobs);
       execution.assertActive();
       for (const [index, entry] of settled.entries()) {
@@ -106,6 +131,8 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
       degraded ||= summaries.some((item) => item.degraded);
       partialAuthorization ||= summaries.some((item) => item.source_acl?.partial || item.partial_authorization);
       execution.emit(searchMode === "keyword" ? "LEXICAL_SEARCH" : "HYBRID_SEARCH", "completed", { candidate_count: candidateCount });
+      execution.emit("KNOWLEDGE_REPO_SEARCH", "completed", { candidate_count: candidateCount,
+        message: `Knowledge Repository search found ${candidateCount} authorized candidate${candidateCount === 1 ? "" : "s"}.` });
       if (liveEnabled) execution.emit("STRUCTURED_LOOKUP", "completed", { evidence_count: live.hits.length });
       if (summaries.some((item) => item.vector_mode && item.vector_mode !== "not_applicable" && item.vector_mode !== "disabled")) {
         execution.emit("SEMANTIC_SEARCH", "completed", { degraded });
@@ -152,6 +179,10 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
         partialAuthorization ||= Boolean(expandedAccess.partial);
       }
       const sufficiency = assess(hits, { contextRoute: route, question: request.query });
+      execution.emit("CONTEXT_SUFFICIENCY", "completed", { evidence_count: hits.length, round: rounds.length + 1,
+        message: sufficiency.requires_more_context
+          ? `Found ${hits.length} usable source${hits.length === 1 ? "" : "s"}; checking for more supporting context.`
+          : `Found sufficient context from ${hits.length} authorized source${hits.length === 1 ? "" : "s"}.` });
       const novelty = hits.filter((hit) => !before.has(identity(hit))).length;
       rounds.push({ round: rounds.length + 1, query_count: queries.length, evidence_after: hits.length, new_evidence_count: novelty });
       if (hits.length && !sufficiency.requires_more_context) { budget.terminate(contracts.TERMINATION_REASONS.CONTEXT_SUFFICIENT); break; }

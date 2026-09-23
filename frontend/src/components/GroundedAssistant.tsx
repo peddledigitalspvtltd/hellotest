@@ -52,7 +52,7 @@ import "./GroundedAssistant.css";
 const EMPTY_CITATIONS: KnowledgeCitation[] = [];
 const DEFAULT_ASSISTANT_SOURCE_KINDS = ["requirement", "test_case", "execution", "bug", "file", "text", "chat"];
 const RETRIEVAL_ONLY_INTEGRATION = "__retrieval_only__";
-type AssistantRetryTurn = { clientTurnId: string; integrationId: string; prompt: string; smartContext: SmartContextSelection | null; filters: KnowledgeSearchFilters; responseMode: "answer" | "evidence" };
+type AssistantRetryTurn = { clientTurnId: string; integrationId: string; prompt: string; smartContext: SmartContextSelection | null; filters: KnowledgeSearchFilters; responseMode: "answer" | "evidence"; retryProvider?: boolean };
 
 const starterPrompts = [
   "Summarize the current project and its main quality risks.",
@@ -224,10 +224,11 @@ export function GroundedAssistant() {
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
       api.knowledgeRepo.assistant.streamMessage(id, {
         message,
         client_turn_id: clientTurnId,
+        retry_provider: retryProvider,
         integration_id: integrationId,
         filters,
         response_mode: responseMode,
@@ -448,6 +449,7 @@ export function GroundedAssistant() {
         message: normalizedPrompt,
         filters: requestFilters,
         responseMode,
+        retryProvider: retry?.retryProvider,
         smartContext: requestSmartContext ? {
           query: requestSmartContext.query,
           source_ids: requestSmartContext.sourceIds,
@@ -468,7 +470,19 @@ export function GroundedAssistant() {
       });
       if (requestGeneration !== scopeGenerationRef.current) return;
       if (controller.signal.aborted) throw new DOMException("Answer stopped", "AbortError");
-      setMessages((current) => [...current, { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } }]);
+      const answer = { ...normalizeAnswer(response), scope: { project_id: requestProjectId, app_type_id: requestAppTypeId, filters: requestFilters } };
+      setMessages((current) => [...current, answer]);
+      if (answer.grounding_status === "provider_unavailable") {
+        setRetryTurns((current) => ({ ...current, [answer.id]: {
+          clientTurnId,
+          integrationId: requestIntegrationId,
+          prompt: normalizedPrompt,
+          smartContext: requestSmartContext,
+          filters: requestFilters,
+          responseMode,
+          retryProvider: true
+        } }));
+      }
       void queryClient.invalidateQueries({ queryKey: ["knowledge-assistant-sessions", requestProjectId] });
       void queryClient.invalidateQueries({ queryKey: ["settings", "workspace-preferences", "ai-prompts"] });
     } catch (error) {

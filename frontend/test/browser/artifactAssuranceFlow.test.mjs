@@ -72,7 +72,18 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
         if (await parameterPreview.count()) await parameterPreview.focus();
         await page.getByRole('combobox', { name: 'Behavior step 1', exact: true }).fill('an unsaved checkout retry is pending');
       }
-      await page.getByRole('tab', { name: /Assurance/ }).click();
+      const assuranceTab = page.getByRole('tab', { name: /Assurance/ });
+      await assuranceTab.scrollIntoViewIfNeeded();
+      const tabLayout = await assuranceTab.evaluate(node => {
+        const tab = node.getBoundingClientRect();
+        const command = document.querySelector('.test-case-workspace-shell > .panel-actions-inline')?.getBoundingClientRect();
+        return {
+          tab: tab.toJSON(), command: command?.toJSON(),
+          hit: document.elementFromPoint(tab.left + tab.width / 2, tab.top + tab.height / 2)?.className
+        };
+      });
+      assert.ok(kind !== 'case' || !tabLayout.command || tabLayout.command.bottom <= tabLayout.tab.top + 1, `Test Case command bar must not cover detail tabs: ${JSON.stringify(tabLayout)}`);
+      await assuranceTab.click();
       const workspace = page.locator('.artifact-assurance-workspace');
       await workspace.waitFor();
       const baseline = await workspace.locator('.artifact-assurance-overall-score').getAttribute('aria-valuenow');

@@ -1,1 +1,0 @@
-import{a as s,g as i}from"./domainOptions-1-S0VtBk.js";import{a3 as o}from"./index-B-QvRJKy.js";function m(a,t=[],n=[]){return i(o().data,a,t,n)}function r(a,t=[]){return s(o().data,a,t)}export{m as a,r as u};

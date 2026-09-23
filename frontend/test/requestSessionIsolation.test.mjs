@@ -16,7 +16,11 @@ function fixture(){
     options.signal?.addEventListener('abort',()=>reject(options.signal.reason),{once:true});
     requests.push({url,options,reply:(body,status=200)=>resolve(new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}}))});
   });
-  const require=name=>name==='./currentScope'?{appendCurrentProjectScope:path=>path,readCurrentProjectId:()=>''}:{consumeKnowledgeAssistantStream:async()=>({}),KnowledgeStreamError:class extends Error{}};
+  const require=name=>name==='./currentScope'
+    ? {appendCurrentProjectScope:path=>path,readCurrentProjectId:()=>''}
+    : name==='./requestTimeout'
+      ? {AI_REQUEST_TIMEOUT_MS:180000,getRequestTimeout:()=>30000}
+      : {consumeKnowledgeAssistantStream:async()=>({}),KnowledgeStreamError:class extends Error{}};
   new Function('require','exports','window','fetch','Headers','Response','AbortSignal',compiled)(require,exports,window,fetch,Headers,Response,AbortSignal);
   return {...exports,requests,redirects,localStorage};
 }
