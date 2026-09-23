@@ -1,0 +1,121 @@
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createRequire } = require('node:module');
+
+process.env.NODE_ENV = 'test';
+function load(name, overrides) {
+  const filename = path.resolve(__dirname, `../src/services/${name}.js`);
+  const localRequire = createRequire(filename);
+  const module = { exports: {} };
+  new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(
+    id => Object.hasOwn(overrides, id) ? overrides[id] : localRequire(id), module, module.exports);
+  return module.exports;
+}
+const integration = { id: 'provider', name: 'Review model', type: 'llm', is_active: true, model: 'model', base_url: 'https://provider.invalid/v1' };
+function fixture(content, finishReason = 'stop') {
+  const calls = [];
+  return {
+    calls,
+    overrides: {
+      './aiLlmSelection.service': { resolveLlmIntegrationForUsage: async () => integration },
+      '../utils/llmHttpClient': { fetchLlmWithRetry: async (url, init, policy) => {
+        calls.push({ url, body: JSON.parse(init.body), policy });
+        if (content instanceof Error) throw content;
+        return new Response(JSON.stringify({ choices: [{ finish_reason: finishReason, message: { content } }] }));
+      } }
+    }
+  };
+}
+const story = { id: 'story', project_id: 'project', title: 'Invoice approval', description: 'An approver verifies an invoice.', acceptance_criteria: ['Approval records the approver.'] };
+
+for (const artifactType of ['story', 'test-case']) {
+  test(`${artifactType} assurance reads content blocks and retains the first valid cited dimension`, async () => {
+    const id = artifactType === 'story' ? 'industry-standards' : 'scenario-coverage';
+    const content = JSON.stringify({ summary: 'Verify the approval outcome.', dimensions: [
+      { id, explanation: 'Unsupported duplicate', evidence: ['invented:source'] },
+      { id, explanation: 'Verify the recorded approver.', evidence: [`draft:${artifactType}:story`] }
+    ] });
+    const provider = fixture([{ type: 'text', text: content.slice(0, 60) }, { type: 'text', text: content.slice(60) }]);
+    const service = load('artifactAssurance.service', provider.overrides);
+    const result = await service.reviewArtifact({ artifactType, savedArtifact: story, projectId: 'project', user: { id: 'user' } });
+    assert.equal(result.fallback_used, false);
+    assert.equal(result.assurance_review.dimensions[0].explanation, 'Verify the recorded approver.');
+    assert.equal(provider.calls.length, 1);
+    assert.equal(provider.calls[0].policy.contextFallback, false, 'Serialized evidence must never be cut by generic transport trimming');
+  });
+}
+
+function groomingOverrides(provider) {
+  return { ...provider.overrides,
+    '../db': { prepare() { assert.fail('Optional records must not be fetched without access'); } },
+    './optionalEvidenceAccess.service': { getOptionalEvidenceAccess: async (_user, _project, codes) => Object.fromEntries(codes.map(code => [code, false])) }
+  };
+}
+test('Grooming accepts content blocks without losing grounded model output', async () => {
+  const provider = fixture([{ type: 'text', text: JSON.stringify({ layman: { explanation: 'An approver verifies the invoice before approval.', evidence_refs: ['requirement:story'] } }) }]);
+  const service = load('requirementWorkspace.service', groomingOverrides(provider));
+  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
+  assert.equal(result.grooming.layman.explanation, 'An approver verifies the invoice before approval.');
+  assert.equal(provider.calls[0].policy.contextFallback, false);
+  assert.equal(provider.calls.length, 1);
+});
+
+test('Grooming exposes actionable timeout fallback without leaking provider internals', async () => {
+  const provider = fixture(Object.assign(new Error('PRIVATE_PROVIDER_DETAIL'), { statusCode: 504 }));
+  const service = load('requirementWorkspace.service', groomingOverrides(provider));
+  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
+  assert.equal(result.fallback_used, true);
+  assert.match(result.fallback_reason, /timed out/);
+  assert.doesNotMatch(result.fallback_reason, /PRIVATE_PROVIDER_DETAIL/);
+  assert.equal(provider.calls.length, 1);
+});
+
+test('Smart Run reserves sufficient response space and reads structured content blocks', async () => {
+  const cases = Array.from({ length: 30 }, (_, index) => ({ test_case_id: `case-${index}`, reason: 'Review the changed approval behavior against its linked story evidence.', evidence_refs: [`test-case:case-${index}`] }));
+  const provider = fixture([{ type: 'text', text: JSON.stringify({ cases }) }]);
+  const service = load('executionPlanning.service', provider.overrides);
+  const internals = service.__smartExecutionInternals;
+  const response = await internals.requestChatCompletion({ integration, content: 'Review these existing cases.' });
+  assert.equal(JSON.parse(response).cases.length, 30);
+  assert.equal(provider.calls[0].body.max_tokens, 8192);
+  assert.equal(provider.calls[0].policy.maxOutputTokens, 8192);
+  assert.equal(provider.calls[0].policy.contextFallback, false);
+  assert.throws(() => internals.readPlanningResponseContent({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] }), /truncated/);
+  assert.throws(() => internals.normalizeModelExplanations({}, new Map()), /cases array/);
+  const allowed = new Map([['case-1', { evidence_refs: ['test-case:case-1'] }]]);
+  const normalized = internals.normalizeModelExplanations({ cases: [
+    { test_case_id: 'case-1', reason: 'x'.repeat(361), evidence_refs: ['test-case:case-1'] },
+    { test_case_id: 'case-1', reason: 'Grounded explanation.', evidence_refs: ['test-case:case-1'] },
+    { test_case_id: 'case-1', reason: 'Duplicate explanation.', evidence_refs: ['test-case:case-1'] },
+    { test_case_id: 'case-2', reason: 'Not supplied to model.', evidence_refs: ['test-case:case-2'] }
+  ] }, allowed);
+  assert.equal(normalized.size, 1);
+  assert.equal(normalized.get('case-1').reason, 'Grounded explanation.');
+});
+
+test('Grooming reviews unsaved draft content while preserving persisted scope and identity', async () => {
+  const provider = fixture('{}');
+  const service = load('requirementWorkspace.service', groomingOverrides(provider));
+  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' }, proposedChange: {
+    id: 'other-story', project_id: 'other-project', title: 'Current draft', description: 'UNSAVED_DRAFT_SENTINEL', acceptance_criteria: ['UNSAVED_ACCEPTANCE_SENTINEL'], specification_content: 'UNSAVED_SPEC_SENTINEL'
+  } });
+  assert.equal(result.requirement.id, 'story');
+  assert.equal(result.requirement.title, 'Current draft');
+  assert.equal(result.context.scope.project_id, 'project');
+  const prompt = provider.calls[0].body.messages[1].content;
+  assert.match(prompt, /UNSAVED_DRAFT_SENTINEL/);
+  assert.match(prompt, /UNSAVED_ACCEPTANCE_SENTINEL/);
+  assert.match(prompt, /UNSAVED_SPEC_SENTINEL/);
+  assert.doesNotMatch(prompt, /An approver verifies an invoice|other-story|other-project/);
+});
+
+test('An empty Grooming object stays a deterministic review instead of claiming model refinement', async () => {
+  const provider = fixture('{}');
+  const service = load('requirementWorkspace.service', groomingOverrides(provider));
+  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
+  assert.equal(result.generation_mode, 'deterministic');
+  assert.equal(result.fallback_used, true);
+  assert.equal(result.integration.direct_model_invocation, true);
+});

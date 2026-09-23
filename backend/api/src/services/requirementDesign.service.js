@@ -4,6 +4,8 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
+const { parseAiJson } = require("../utils/aiJsonResponse");
 const { isContextSizeRejection } = require("../utils/llmContextFallback");
 const { normalizeTestStepType } = require("../utils/testStepAutomation");
 const { storyAiSnapshot, text: boundedText, list: boundedList } = require("../utils/aiArtifactContext");
@@ -65,30 +67,7 @@ const buildRequirementReferenceMap = (requirements = []) =>
     ref: `R${index + 1}`
   }));
 
-const extractJsonPayload = (content) => {
-  const trimmed = String(content || "").trim();
-
-  if (!trimmed) {
-    throw new Error("LLM response was empty");
-  }
-
-  const withoutFence = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()
-    : trimmed;
-  const firstBrace = withoutFence.indexOf("{");
-  const lastBrace = withoutFence.lastIndexOf("}");
-
-  const jsonCandidate =
-    firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace
-      ? withoutFence.slice(firstBrace, lastBrace + 1)
-      : withoutFence;
-
-  try {
-    return JSON.parse(jsonCandidate);
-  } catch {
-    throw new Error("Unable to parse JSON from the LLM response");
-  }
-};
+const extractJsonPayload = parseAiJson;
 
 const normalizeSteps = (steps = []) => {
   if (!Array.isArray(steps)) {
@@ -188,6 +167,10 @@ const isValidGherkinDocument = (value) =>
   && /^\s*(?:Given|When)\b/im.test(String(value || ""))
   && /^\s*Then\b/im.test(String(value || ""));
 
+const countDraftSteps = (candidate) => candidate.authoring_mode === "gherkin"
+  ? (String(candidate.gherkin_document || "").match(/^\s*(?:Given|When|Then|And|But|\*)(?:[ \t]+|$)/gim) || []).length
+  : candidate.steps.length;
+
 const normalizeCaseDraft = (item, index, {
   requirements = [],
   requireRequirementMapping = false,
@@ -197,13 +180,14 @@ const normalizeCaseDraft = (item, index, {
   const title = normalizeText(item?.title);
 
   if (!title) {
-    throw new Error(`Generated test case ${index + 1} is missing a title`);
+    throw Object.assign(new Error(`Generated test case ${index + 1} is missing a title`), { statusCode: 502 });
   }
+  if (title.length > 255) throw Object.assign(new Error(`Generated test case ${index + 1} has a title longer than 255 characters`), { statusCode: 502 });
 
   const resolvedRequirements = resolveCaseRequirements(item, requirements);
 
   if (requireRequirementMapping && !resolvedRequirements.length) {
-    throw new Error(`Generated test case ${index + 1} must be linked to at least one requirement`);
+    throw Object.assign(new Error(`Generated test case ${index + 1} must be linked to at least one requirement`), { statusCode: 502 });
   }
 
   const steps = normalizeSteps(item?.steps);
@@ -213,7 +197,7 @@ const normalizeCaseDraft = (item, index, {
     : null;
 
   if (resolvedAuthoringMode === "gherkin" && !isValidGherkinDocument(gherkinDocument)) {
-    throw new Error(`Generated test case ${index + 1} must include a Feature and at least one Scenario`);
+    throw Object.assign(new Error(`Generated test case ${index + 1} must include a Feature and at least one executable Scenario with a Then outcome`), { statusCode: 502 });
   }
 
   if (resolvedAuthoringMode === "structured" && (!steps.length || steps.length > 30 || steps.some(step => !step.action || !step.expected_result))) {
@@ -426,7 +410,7 @@ const requestChatCompletion = async ({ integration, content, fallbackContent, co
   }
 
   const payload = await response.json();
-  const messageContent = payload?.choices?.[0]?.message?.content;
+  const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
     throw new Error("LLM response did not include generated content");
@@ -588,7 +572,7 @@ exports.previewRequirementsTestCases = async ({
     cases: generatedCases.map((candidate, index) => ({
       ...candidate,
       client_id: `draft-${index + 1}`,
-      step_count: candidate.steps.length,
+      step_count: countDraftSteps(candidate),
       parameter_count: Object.keys(candidate.parameter_values).length
     }))
   };
@@ -666,7 +650,7 @@ exports.acceptGeneratedTestCases = async ({
     created.push({
       id: response.id,
       title: candidate.title,
-      step_count: candidate.steps.length,
+      step_count: countDraftSteps(candidate),
       requirement_ids: candidate.requirement_ids
     });
   }

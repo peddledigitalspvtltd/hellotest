@@ -4,6 +4,7 @@ const db = require("../db");
 const analytics = require("./qualityAnalytics.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 const dashboardTemplates = require("./qualityDashboardTemplates");
 
@@ -259,7 +260,7 @@ const requestAiDashboard = async ({ integration, projectId, stakeholder, release
       })
     }, { integration, operation: "quality-dashboard.generate" });
     if (!response.ok) throw new Error("Dashboard designer provider request failed.");
-    return extractJsonObject((await response.json())?.choices?.[0]?.message?.content);
+    return extractJsonObject(getCompletionContent(await response.json()));
   } finally {
     clearTimeout(timeout);
   }

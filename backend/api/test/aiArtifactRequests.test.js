@@ -29,17 +29,79 @@ const appType = { id: "app", project_id: "project", type: "web", name: "Billing"
 const steps = [{ step_order: 1, step_type: "web", action: "Approve the invoice", expected_result: "The invoice is approved" }];
 const validCase = { title: "Approval", description: "Valid invoice approval", priority: 2, steps, requirement_refs: ["R1"] };
 const response = value => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }), { headers: { "content-type": "application/json" } });
-function providerFixture(result) {
+function providerFixture(result, { contentBlocks = false } = {}) {
   const calls = [];
   const selections = [];
   return {
     calls, selections,
     overrides: {
       "./aiLlmSelection.service": { async resolveLlmIntegrationForUsage(args) { selections.push(args); return integration; } },
-      "../utils/llmHttpClient": { async fetchLlmWithRetry(url, options, policy) { calls.push({ url, options, body: JSON.parse(options.body), policy }); if (result instanceof Error) throw result; return response(result); } }
+      "../utils/llmHttpClient": { async fetchLlmWithRetry(url, options, policy) { calls.push({ url, options, body: JSON.parse(options.body), policy }); if (result instanceof Error) throw result; return contentBlocks ? new Response(JSON.stringify({ choices: [{ message: { content: [{ type: "text", text: JSON.stringify(result) }] } }] }), { headers: { "content-type": "application/json" } }) : response(result); } }
     }
   };
 }
+
+test("authoring parses visible content blocks and preserves the input format when converting output", async () => {
+  const fixture = providerFixture(validCase, { contentBlocks: true });
+  const service = load("aiCaseAuthoring.service", fixture.overrides);
+  const result = await service.previewCaseAuthoring({ requirement: story, appType, authoring_mode: "structured", test_case: {
+    title: "Live case", authoring_mode: "gherkin", gherkin_document: "Feature: LIVE_INPUT\nScenario: Preserve me\nWhen I approve\nThen the invoice is approved", steps: [{ action: "STALE_CACHE" }]
+  } });
+  assert.equal(result.case.authoring_mode, "structured");
+  const prompt = fixture.calls[0].body.messages[1].content;
+  assert.match(prompt, /Current format: Gherkin/);
+  assert.match(prompt, /Requested output format: Structured steps/);
+  assert.match(prompt, /LIVE_INPUT/);
+  assert.doesNotMatch(prompt, /STALE_CACHE/);
+  assert.equal(fixture.calls[0].options.signal, undefined, "The shared provider deadline owns cancellation");
+});
+
+test("Story create and completion accept provider text blocks without falling back", async () => {
+  const createDraft = { title: "Approve an invoice", description: "Reviewers approve submitted invoices.", field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"] } };
+  const creation = providerFixture({ requirements: [createDraft] }, { contentBlocks: true });
+  const create = load("requirement.service", { ...creation.overrides, "../db": { prepare: () => ({}) }, "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) } });
+  const created = await create.previewRequirementCreation({ project_id: "project", additional_context: "Reviewers approve submitted invoices.", max_requirements: 1 });
+  assert.equal(created.fallback_used, false);
+  assert.equal(created.requirements[0].title, createDraft.title);
+  assert.equal(creation.calls[0].options.signal, undefined, "Story creation must not abort before the shared provider deadline");
+  const completion = providerFixture({ title: "Review invoice approval", field_evidence: { title: ["story:story"] } }, { contentBlocks: true });
+  const complete = load("requirement.service", { ...completion.overrides,
+    "../db": { prepare: () => ({ get: async () => story }) },
+    "./optionalEvidenceAccess.service": { getOptionalEvidenceAccess: async () => ({ "testcase.view": false }) },
+    "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) }
+  });
+  const completed = await complete.previewRequirementOptimization({ id: story.id, user });
+  assert.equal(completed.fallback_used, false);
+  assert.equal(completed.suggestion.title, "Review invoice approval");
+});
+
+test("Test Case generation handles text block output and rejects unsavable titles", async () => {
+  const fixture = providerFixture({ test_cases: [validCase] }, { contentBlocks: true });
+  const service = load("requirementDesign.service", { ...fixture.overrides, "./aiKnowledge.service": { buildKnowledgeContextPackage: async () => ({ knowledge: [] }) } });
+  assert.equal((await service.previewRequirementsTestCases({ requirements: [story], appType, max_cases: 1 })).cases[0].title, validCase.title);
+  const oversized = providerFixture({ ...validCase, title: "a".repeat(256) });
+  const improve = load("aiCaseAuthoring.service", oversized.overrides);
+  await assert.rejects(improve.previewCaseAuthoring({ requirement: story, appType, test_case: {} }), error => error.statusCode === 502 && /255/.test(error.message));
+});
+
+test("Defect drafting uses configured completion endpoints and dedicated Story acceptance evidence", async () => {
+  const fixture = providerFixture({ draft: { title: "Invoice approval fails" }, field_evidence: { title: ["reporter:intent"] } }, { contentBlocks: true });
+  const queries = [];
+  const service = load("aiBugDraft.service", { ...fixture.overrides,
+    "../db": { prepare(sql) { queries.push(sql); return { get: async () => /FROM requirements/.test(sql)
+      ? { ...story, description: "Finance workflow", acceptance_criteria: undefined, additional_fields: { acceptance_criteria: ["Approved invoices display a confirmation number"] } }
+      : { id: "project" } }; } }
+  });
+  const result = await service.preview({ user, project_id: "project", intent: "Invoice approval fails", linked_requirement_ids: [story.id] });
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.calls[0].url, "https://llm.invalid/v1/chat/completions");
+  assert.equal(fixture.calls[0].options.headers.Authorization, undefined);
+  assert.equal(result.draft.title, "Invoice approval fails");
+  assert.notEqual(result.provenance.generation_mode, "deterministic");
+  assert.equal(result.draft.expected_result, "Approved invoices display a confirmation number");
+  assert.match(fixture.calls[0].body.messages[1].content, /Approved invoices display a confirmation number/);
+  assert.ok(queries.some(sql => /SELECT .*additional_fields.*FROM requirements/.test(sql)));
+});
 
 test("bounded snapshots carry major Story schema fields without hydrated history, and disclose clipping", () => {
   const snapshot = storyAiSnapshot({ ...story, description: "x".repeat(6000), acceptance_criteria: Array.from({ length: 15 }, (_, i) => `criterion${i}`) });
@@ -142,7 +204,7 @@ test("Story completion sends selected bounded Story fields once and uses the exa
 });
 
 test("Story creation sends the brief once and suppresses duplicate drafts", async () => {
-  const draft = { title: "Review an invoice", description: "A reviewer approves an invoice", acceptance_criteria: ["Approval sets status to approved"], evidence_refs: ["user-guidance:story-create"], field_evidence: { title: ["user-guidance:story-create"], description: ["user-guidance:story-create"], acceptance_criteria: ["user-guidance:story-create"] } };
+  const draft = { title: "Review an invoice", description: "A reviewer approves an invoice", acceptance_criteria: ["Approval sets status to approved"], evidence_refs: ["user-guidance:story-brief"], field_evidence: { title: ["user-guidance:story-brief"], description: ["user-guidance:story-brief"], acceptance_criteria: ["user-guidance:story-brief"] } };
   const fixture = providerFixture({ requirements: [draft, draft] });
   const service = load("requirement.service", { ...fixture.overrides,
     "../db": { prepare() { return {}; } },

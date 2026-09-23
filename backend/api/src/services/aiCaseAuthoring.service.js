@@ -2,6 +2,8 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeRichText, normalizeTestStepType } = require("../utils/testStepAutomation");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
+const { parseAiJson } = require("../utils/aiJsonResponse");
 const { storyAiSnapshot, testCaseAiSnapshot } = require("../utils/aiArtifactContext");
 
 const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
@@ -12,10 +14,6 @@ const DEFAULT_STEP_TYPE_BY_APP_TYPE = {
   web: "web"
 };
 
-const AI_AUTHORING_TIMEOUT_MS = Math.max(
-  5000,
-  Number.parseInt(process.env.AI_AUTHORING_TIMEOUT_MS || "45000", 10) || 45000
-);
 const TEST_CASE_AI_REFERENCE_IMAGE_LIMIT = 6;
 const TEST_CASE_AI_REFERENCE_IMAGE_TOTAL_CHARS = 950_000;
 const TEST_CASE_AI_REFERENCE_IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\s]+$/i;
@@ -127,30 +125,7 @@ const normalizeSteps = (steps = [], fallbackStepType = "web") => {
     }));
 };
 
-const extractJsonPayload = (content) => {
-  const trimmed = String(content || "").trim();
-
-  if (!trimmed) {
-    throw new Error("LLM response was empty");
-  }
-
-  const withoutFence = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()
-    : trimmed;
-  const firstBrace = withoutFence.indexOf("{");
-  const lastBrace = withoutFence.lastIndexOf("}");
-
-  const jsonCandidate =
-    firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace
-      ? withoutFence.slice(firstBrace, lastBrace + 1)
-      : withoutFence;
-
-  try {
-    return JSON.parse(jsonCandidate);
-  } catch {
-    throw new Error("Unable to parse JSON from the LLM response");
-  }
-};
+const extractJsonPayload = parseAiJson;
 
 const resolveIntegration = async (integration_id, { userId, projectId, usageKey } = {}) => {
   const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
@@ -191,8 +166,6 @@ const resolveChatCompletionsUrl = (baseUrl) => {
 };
 
 const requestChatCompletion = async ({ integration, prompt, images = [], fallbackContent, contextState, operation = "case-authoring.generate" }) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), AI_AUTHORING_TIMEOUT_MS);
   const headers = {
     "Content-Type": "application/json"
   };
@@ -221,7 +194,6 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
     response = await fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
       method: "POST",
       headers,
-      signal: controller.signal,
       body: JSON.stringify({
         model: integration.model,
         temperature: 0.2,
@@ -237,7 +209,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
           }
         ]
       })
-    }, { integration, timeoutMs: AI_AUTHORING_TIMEOUT_MS, operation, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
+    }, { integration, operation, contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw Object.assign(new Error("AI authoring timed out while waiting for the LLM provider"), { statusCode: 504 });
@@ -245,8 +217,6 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
 
     if (error?.statusCode || error?.code) throw error;
     throw Object.assign(new Error("Unable to reach the AI authoring provider. Retry after checking the configured connection."), { statusCode: 502 });
-  } finally {
-    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -255,7 +225,7 @@ const requestChatCompletion = async ({ integration, prompt, images = [], fallbac
   }
 
   const payload = await response.json();
-  const messageContent = payload?.choices?.[0]?.message?.content;
+  const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
     throw new Error("LLM response did not include generated content");
@@ -441,8 +411,9 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
   const title = normalizeText(payload?.title) || currentCase.title || null;
 
   if (!title) {
-    throw new Error("AI authoring response is missing a title");
+    throw Object.assign(new Error("AI authoring response is missing a title"), { statusCode: 502 });
   }
+  if (title.length > 255) throw Object.assign(new Error("AI authoring returned a title longer than 255 characters. Generate a shorter title."), { statusCode: 502 });
 
   const parameter_values = normalizeParameterValues(
     payload?.parameter_values || payload?.parameterValues || payload?.test_data || payload?.testData
@@ -452,11 +423,12 @@ const normalizePreview = (payload, currentCase, fallbackStepType, authoringMode 
     const gherkin_document = normalizeText(payload?.gherkin_document || payload?.gherkinDocument);
 
     if (!gherkin_document || !/^\s*Feature\s*:/im.test(gherkin_document) || !/^\s*Scenario(?: Outline| Template)?\s*:/im.test(gherkin_document)) {
-      throw new Error("AI authoring response did not include a valid Gherkin Feature and Scenario");
+      throw Object.assign(new Error("AI authoring response did not include a valid Gherkin Feature and Scenario"), { statusCode: 502 });
     }
 
-    const stepCount = (gherkin_document.match(/^\s*(?:Given|When|Then|And|But|\*)\b/gim) || []).length;
+    const stepCount = (gherkin_document.match(/^\s*(?:Given|When|Then|And|But|\*)(?:[ \t]+|$)/gim) || []).length;
     if (!stepCount || !/^\s*(?:Given|When)\b/im.test(gherkin_document) || !/^\s*Then\b/im.test(gherkin_document)) throw Object.assign(new Error("AI authoring Gherkin must include executable steps and a Then outcome"), { statusCode: 502 });
+    if (stepCount > 30) throw Object.assign(new Error("AI authoring Gherkin must include at most thirty steps. Generate a smaller scenario."), { statusCode: 502 });
     return {
       summary: normalizeRichText(payload?.summary),
       title,

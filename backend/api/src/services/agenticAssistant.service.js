@@ -10,6 +10,7 @@ const appTypeService = require("./appType.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const aiContextOrchestrator = require("./aiContextOrchestrator.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent: completionContent } = require("../utils/llmResponse");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 const execution = require("./knowledgeExecution.service");
 
@@ -94,13 +95,6 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return /\/chat\/completions\/?$/i.test(normalized)
     ? normalized.replace(/\/+$/, "")
     : `${normalized.replace(/\/+$/, "")}/chat/completions`;
-};
-
-const completionContent = (payload) => {
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) return content.map((part) => typeof part === "string" ? part : part?.text || part?.content || "").filter(Boolean).join("").trim();
-  return content && typeof content === "object" ? JSON.stringify(content) : "";
 };
 
 const JSON_MODE_FIELD = /(?:response[_\s-]?format|json[_\s-]?object|json mode)/i;

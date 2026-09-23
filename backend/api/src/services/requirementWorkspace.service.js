@@ -1,3 +1,5 @@
+const { getCompletionContent } = require("../utils/llmResponse");
+const { isDeepStrictEqual } = require("node:util");
 const { createHash, randomUUID: uuid } = require("crypto");
 const db = require("../db");
 const requirementService = require("./requirement.service");
@@ -6,7 +8,7 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { getOptionalEvidenceAccess } = require("./optionalEvidenceAccess.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
-const { storyAiSnapshot } = require("../utils/aiArtifactContext");
+const { storyAiSnapshot, object } = require("../utils/aiArtifactContext");
 
 const normalizeList = (value) => Array.isArray(value) ? value : [];
 const excerpt = (value, length = 500) => String(value || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, length);
@@ -747,13 +749,13 @@ const requestGrooming = async ({ integration, prompt }) => {
         { role: "user", content: prompt }
       ]
     })
-  }, { integration, operation: "requirement.grooming" });
+  }, { integration, operation: "requirement.grooming", contextFallback: false });
   if (!response.ok) {
     const raw = await response.text();
     throw createLlmProviderError({ status: response.status, detail: raw });
   }
   const payload = await response.json();
-  const content = payload?.choices?.[0]?.message?.content;
+  const content = getCompletionContent(payload);
   if (!content) throw new Error("LLM response did not include generated grooming content");
   return extractJson(content);
 };
@@ -774,7 +776,16 @@ const assisted = ({ capability, input, evidence, confidence, payload, integratio
   return { ...payload, integration: providerBacked ? { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: generationMode, direct_model_invocation: true } : { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: generationMode, direct_model_invocation: Boolean(directModelInvocation) }, provenance, generation_mode: generationMode, generated_at: generatedAt, request_id: requestId, input_fingerprint: provenance.input_fingerprint, confidence, fallback_used: fallbackUsed, fallback_reason: fallbackReason, fallback_sections: normalizedFallbackSections, requires_human_review: true, preview_only: true };
 };
 
-exports.previewGrooming = async ({ requirement, project, userId, integrationId, user, integration_id, promptGuidance, prompt_guidance, additionalContext } = {}) => {
+exports.previewGrooming = async ({ requirement, project, userId, integrationId, user, integration_id, promptGuidance, prompt_guidance, additionalContext, proposedChange } = {}) => {
+  // Review the current editor draft without allowing proposed fields to move
+  // identity, project scope, permissions, or persisted evidence relationships.
+  const draftFields = object(proposedChange);
+  const editableFields = ["title", "description", "acceptance_criteria", "gherkin_scenarios", "specification_format", "specification_content", "priority", "status", "external_references", "labels", "sprint", "fix_version", "release", "iteration_id", "dev_completion_target_date", "qa_completion_target_date", "scrum_team"];
+  requirement = {
+    ...requirement,
+    ...Object.fromEntries(editableFields.filter((field) => Object.prototype.hasOwnProperty.call(draftFields, field)).map((field) => [field, draftFields[field]])),
+    additional_fields: { ...object(requirement.additional_fields), ...object(draftFields.additional_fields) }
+  };
   const rawPromptGuidance = promptGuidance ?? prompt_guidance;
   if (rawPromptGuidance != null && typeof rawPromptGuidance !== "string") {
     throw Object.assign(new Error("AI Grooming prompt guidance must be a string."), { statusCode: 400, code: "INVALID_PROMPT_GUIDANCE" });
@@ -861,7 +872,11 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
       const normalized = normalizeGroomingCandidate(candidate, fallback, sources);
       grooming = normalized.grooming;
       fallbackSections = normalized.fallback_sections;
-      if (fallbackSections.length) {
+      if (isDeepStrictEqual(grooming, fallback)) {
+        generationMode = "deterministic";
+        fallbackUsed = true;
+        fallbackReason = "The model returned no additional usable evidence-backed sections; a conservative evidence-only review is shown.";
+      } else if (fallbackSections.length) {
         generationMode = "hybrid";
         fallbackUsed = true;
         fallbackReason = `The configured AI response was only partially usable; conservative evidence-only results replaced these review sections: ${fallbackSections.join(", ")}.`;
@@ -874,7 +889,12 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     }
   } catch (error) {
     fallbackUsed = true;
-    fallbackReason = "The configured AI provider did not return a valid evidence-backed grooming response; a conservative evidence-only review is shown.";
+    const providerMessage = error?.publicMessage
+      || ([401, 403].includes(error?.upstreamStatusCode) ? "The provider rejected the configured credentials or model access." : null)
+      || (error?.upstreamStatusCode === 429 ? "The provider rate limit was reached. Retry after the limit resets." : null)
+      || ([502, 503, 504].includes(error?.statusCode) || error?.name === "AbortError" ? "The AI provider is unavailable or timed out. Check its connection and retry." : null)
+      || "The configured AI provider did not return a valid evidence-backed grooming response.";
+    fallbackReason = `${providerMessage} A conservative evidence-only review is shown.`;
     grooming = fallback;
   }
 

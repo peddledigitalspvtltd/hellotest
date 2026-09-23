@@ -5,11 +5,12 @@ const aiLlmSelectionService = require("./aiLlmSelection.service");
 const workspaceTransactionService = require("./workspaceTransaction.service");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 
-const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || 12_000);
+const configuredAiAnalysisTimeoutMs = Number(process.env.REPORT_AI_ANALYSIS_TIMEOUT_MS || process.env.LLM_REQUEST_TIMEOUT_MS || 90_000);
 const AI_ANALYSIS_TIMEOUT_MS = Number.isFinite(configuredAiAnalysisTimeoutMs)
   ? Math.max(3_000, configuredAiAnalysisTimeoutMs)
-  : 12_000;
+  : 90_000;
 const AI_ANALYSIS_FAILED_CASE_LIMIT = 20;
 
 const normalizeText = (value) => {
@@ -224,7 +225,7 @@ const requestAiAnalysisCompletion = async ({ integration, prompt }) => {
     }
 
     const payload = await response.json();
-    const messageContent = payload?.choices?.[0]?.message?.content;
+    const messageContent = getCompletionContent(payload);
 
     if (!messageContent) {
       throw new Error("LLM response did not include analysis content");

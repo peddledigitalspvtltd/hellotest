@@ -12640,7 +12640,6 @@ export function ExecutionCreateModal({
   const libraryCaseById = useMemo(() => new Map(libraryCases.map((testCase) => [testCase.id, testCase])), [libraryCases]);
   const isEngineSmartMode = isSmartMode && executionStartMode !== "manual";
   const automatedSmartPreviewCount = smartPreviewCases.filter((testCase) => libraryCaseById.get(testCase.test_case_id)?.automated === "yes").length;
-  const manualSmartPreviewCount = smartPreviewCases.length - automatedSmartPreviewCount;
   const normalizedRequirementSearch = smartExecutionRequirementSearch.trim().toLowerCase();
   const filteredSmartRequirementOptions = normalizedRequirementSearch
     ? smartExecutionRequirementOptions.filter((requirement) =>
@@ -12816,6 +12815,8 @@ export function ExecutionCreateModal({
                 {isSmartMode ? <>
                 <AiFeatureComposer
                   agentName="Smart Run Planner"
+                  briefCollapsible
+                  density="compact"
                   enableSmartContext
                   smartContextScopes={["stories", "test-cases", "runs", "bugs", "knowledge"]}
                   allowEmptyPrompt
@@ -13117,19 +13118,12 @@ export function ExecutionCreateModal({
                     </span>
                   </div>
 
-                  <div className="detail-summary execution-smart-plan-overview">
-                    <strong>{smartExecutionPreview ? `${selectedSmartExecutableCaseCount} impacted cases selected` : "AI Smart Run"}</strong>
-                    <span>{smartExecutionPreview ? smartExecutionPreview.summary : "Generate an evidence-backed plan from exact delivery scope, linked Stories, Defects, failed results, and project context."}</span>
-                    <span>
-                      {smartExecutionPreview
-                        ? isEngineSmartMode
-                          ? `${smartExecutionPreview.evidence_summary?.scanned_case_count ?? 0} of ${smartExecutionPreview.source_case_count} cases were read within the recorded boundary. ${automatedSmartPreviewCount} automated cases can run through Test Engine; ${manualSmartPreviewCount} non-automated cases stay out of engine execution.`
-                          : `${smartExecutionPreview.evidence_summary?.scanned_case_count ?? 0} of ${smartExecutionPreview.source_case_count} existing cases were read and ${smartExecutionPreview.matched_case_count} evidence-linked cases were proposed.`
-                        : selectedSmartRequirementIds.length
-                          ? `AI will use the selected project, app type, delivery evidence, and ${selectedSmartRequirementIds.length} explicitly selected ${selectedSmartRequirementIds.length === 1 ? "Story" : "Stories"}.`
-                          : "HelloTest queries the selected project and app type first, compresses only relevant evidence, then asks AI to review the bounded plan."}
-                    </span>
-                  </div>
+                  {!smartExecutionPreview ? (
+                    <div className="detail-summary execution-smart-plan-overview">
+                      <strong>Build a focused run plan</strong>
+                      <span>Choose delivery scope, impacted stories, or change notes in Context, then generate a plan to review the recommended cases and their evidence.</span>
+                    </div>
+                  ) : null}
 
                   {smartExecutionPreview?.evidence_summary ? (
                     <div aria-label="Smart Run evidence summary" className="metric-strip execution-smart-evidence-strip" role="group">
@@ -13168,13 +13162,15 @@ export function ExecutionCreateModal({
                     </p>
                   ) : null}
 
-                  {smartExecutionPreviewMessage ? (
+                  {smartExecutionPreviewMessage && (smartExecutionPreviewTone === "error" || !smartExecutionPreview) ? (
                     <p className={smartExecutionPreviewTone === "error" ? "inline-message error-message" : "inline-message success-message"}>
                       {smartExecutionPreviewMessage}
                     </p>
                   ) : null}
 
-                  {!integrations.length ? (
+                  {smartExecutionPreview?.fallback_reason ? <p className="inline-message warning-message">{smartExecutionPreview.fallback_reason}</p> : null}
+
+                  {!integrations.length && !smartExecutionPreview ? (
                     <div className="inline-message warning-message">
                       No direct LLM integration is configured. The evidence retrieval, deterministic risk ranking, and human-review flow remain available; model-refined explanations will be skipped.
                     </div>
@@ -13409,7 +13405,7 @@ export function ExecutionCreateModal({
               <span aria-hidden="true">•</span>
               <span>
                 <IconClock aria-hidden="true" size={15} stroke={1.8} />
-                Est. duration: {isSmartMode ? "Calculated from preview" : estimatedDurationLabel}
+                {isSmartMode ? "Review required before creation" : `Est. duration: ${estimatedDurationLabel}`}
               </span>
             </div>
             <div className="execution-run-builder-actions">
@@ -13418,7 +13414,7 @@ export function ExecutionCreateModal({
               </button>
               <button
                 className="primary-button"
-                disabled={!canCreateExecution || isSubmitting || !dataSetValid || (isSmartMode && isPreviewingSmartExecution)}
+                disabled={!canCreateExecution || isSubmitting || !dataSetValid || (isSmartMode && (isPreviewingSmartExecution || !smartExecutionPreview || !selectedSmartExecutableCaseCount))}
                 type="submit"
               >
                 {isSubmitting

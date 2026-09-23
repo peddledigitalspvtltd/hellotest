@@ -16,6 +16,8 @@ const normalizeReferenceList = value => Array.isArray(value)
 const normalizeStoredReferenceList = value => normalizeReferenceList(parseStoredJson(value, []));
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
+const { parseAiJson } = require("../utils/aiJsonResponse");
 const { assertExpectedRevision } = require("../utils/revision");
 const { storyAdditionalFields } = require("../utils/storyAcceptanceCriteria");
 const { normalizeStoryImportRow } = require("../utils/storyImportRow");
@@ -590,25 +592,7 @@ const mapJiraIssueToRequirementRow = (issue, integration) => {
   };
 };
 
-const extractJsonPayload = (content) => {
-  const trimmed = String(content || "").trim();
-
-  if (!trimmed) {
-    throw new Error("LLM response was empty");
-  }
-
-  const withoutFence = trimmed.startsWith("```")
-    ? trimmed.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()
-    : trimmed;
-  const firstBrace = withoutFence.indexOf("{");
-  const lastBrace = withoutFence.lastIndexOf("}");
-  const jsonCandidate =
-    firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace
-      ? withoutFence.slice(firstBrace, lastBrace + 1)
-      : withoutFence;
-
-  return JSON.parse(jsonCandidate);
-};
+const extractJsonPayload = parseAiJson;
 
 const resolveLlmIntegration = async (integrationId, projectId, { userId, usageKey } = {}) => {
   const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
@@ -673,7 +657,7 @@ const requestRequirementOptimization = async ({ integration, prompt, images = []
   }
 
   const payload = await response.json();
-  const messageContent = payload?.choices?.[0]?.message?.content;
+  const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
     throw new Error("LLM response did not include generated content");
@@ -874,43 +858,35 @@ const requestRequirementCreation = async ({ integration, prompt, images, fallbac
         ...safeImages.map((image) => ({ type: "image_url", image_url: { url: image.url, detail: "low" } }))
       ]
     : prompt;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12_000);
+  const response = await fetchLlmWithRetry(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(integration.api_key ? { Authorization: `Bearer ${integration.api_key}` } : {})
+    },
+    body: JSON.stringify({
+      model: integration.model,
+      temperature: 0.15,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: "You are a senior product owner and QA architect. Follow the JSON contract exactly and require human review."
+        },
+        { role: "user", content: userContent }
+      ]
+    })
+  }, { integration, operation: "requirement.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
 
-  try {
-    const response = await fetchLlmWithRetry(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(integration.api_key ? { Authorization: `Bearer ${integration.api_key}` } : {})
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: integration.model,
-        temperature: 0.15,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: "You are a senior product owner and QA architect. Follow the JSON contract exactly and require human review."
-          },
-          { role: "user", content: userContent }
-        ]
-      })
-    }, { integration, operation: "requirement.generate", contextFallbackContent: fallbackContent, onContextFallback: () => { if (contextState) contextState.reduced = true; } });
-
-    if (!response.ok) {
-      const raw = await response.text();
-      throw createLlmProviderError({ status: response.status, detail: raw });
-    }
-
-    const payload = await response.json();
-    const messageContent = payload?.choices?.[0]?.message?.content;
-    if (!messageContent) throw new Error("LLM response did not include generated content");
-    return extractJsonPayload(messageContent);
-  } finally {
-    clearTimeout(timeout);
+  if (!response.ok) {
+    const raw = await response.text();
+    throw createLlmProviderError({ status: response.status, detail: raw });
   }
+
+  const payload = await response.json();
+  const messageContent = getCompletionContent(payload);
+  if (!messageContent) throw new Error("LLM response did not include generated content");
+  return extractJsonPayload(messageContent);
 };
 
 const buildDeterministicRequirementCreation = ({ additionalContext, externalLinks, priority, status, evidenceRefs }) => {

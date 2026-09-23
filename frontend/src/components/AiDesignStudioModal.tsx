@@ -12,6 +12,7 @@ import { AiPromptContextPanel } from "./AiPromptContextPanel";
 import { AiLlmSelect } from "./AiLlmSelect";
 import { SelectionToggleIcon } from "./AppIcons";
 import { buildGherkinFromSteps, GherkinEditor } from "./GherkinEditor";
+import { parseSharedStepGherkin } from "../lib/gherkin";
 import { FormField } from "./FormField";
 import { InfoTooltip } from "./InfoTooltip";
 import { ToastMessage } from "./ToastMessage";
@@ -112,7 +113,7 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
     sourceCase, llmUsageKey = "ai.test_case.design", studioTitle = "AI Test Case Generator",
     studioDescription = "Generate structured or Gherkin Test Case drafts, review them, and accept selected drafts into the library."
   } = props;
-  const [authoringMode, setAuthoringMode] = useState<AuthoringMode>(() => previewCases[0]?.authoring_mode || "structured");
+  const [authoringMode, setAuthoringMode] = useState<AuthoringMode>(() => previewCases[0]?.authoring_mode || sourceCase?.authoringMode || "structured");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [draftSearch, setDraftSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -170,7 +171,13 @@ export function AiDesignStudioModal(props: AiDesignStudioModalProps) {
     + (completeCount / previewCases.length) * 22 + (additionalContext.trim() || linkCount || referenceImages.length ? 7 : 0) + (duplicateCount ? 0 : 4))) : 0;
   const confidenceLabel = confidence >= 85 ? "High Confidence" : confidence >= 70 ? "Ready for Review" : previewCases.length ? "Needs Review" : "Awaiting Drafts";
 
-  const updateDraft = (draft: AiDesignedTestCaseCandidate, changes: Partial<AiDesignedTestCaseCandidate>) => onPreviewCaseChange?.(draft.client_id, { ...draft, ...changes });
+  const updateDraft = (draft: AiDesignedTestCaseCandidate, changes: Partial<AiDesignedTestCaseCandidate>) => {
+    const updated = { ...draft, ...changes };
+    updated.step_count = updated.authoring_mode === "gherkin"
+      ? parseSharedStepGherkin(updated.gherkin_document || "").length
+      : updated.steps.length;
+    onPreviewCaseChange?.(draft.client_id, updated);
+  };
   const toggleFrom = (setter: Dispatch<SetStateAction<string[]>>, id: string) => setter((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   const changeMode = (mode: AuthoringMode) => {
     if (mode === authoringMode || busy) return;

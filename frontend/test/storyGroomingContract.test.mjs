@@ -72,7 +72,7 @@ test("Story grooming exposes an optional seven-section walkthrough without break
   assert.match(types, /readiness\?: StoryGroomingReadiness/);
   assert.match(types, /checks\?: StoryGroomingReadinessCheck\[\]/);
   assert.match(types, /external_references: number/);
-  assert.match(api, /previewGrooming: \(id: string, input: \{ project_id: string; integration_id\?: string; prompt_guidance\?: string; additional_context\?: string \}\)/);
+  assert.match(api, /previewGrooming: \(id: string, input: \{ project_id: string; integration_id\?: string; prompt_guidance\?: string; additional_context\?: string; proposed_change\?: Record<string, unknown> \}\)/);
 });
 
 test("Story grooming prompt requires an evidence-grounded end-to-end walkthrough and forbids invention", async () => {

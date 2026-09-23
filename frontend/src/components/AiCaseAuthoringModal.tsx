@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { AiAuthoredTestCasePreview, AiDesignImageInput, AiDesignedTestCaseCandidate, Integration, Requirement, TestStep } from "../types";
 import { AiDesignStudioModal, type AiDesignSourceCase } from "./AiDesignStudioModal";
+import { parseSharedStepGherkin } from "../lib/gherkin";
 
 type AuthoringMode = "structured" | "gherkin";
 
@@ -80,7 +81,9 @@ function fromCandidate(candidate: AiDesignedTestCaseCandidate, current: AiAuthor
     parameter_values: candidate.parameter_values || {},
     parameter_count: Object.keys(candidate.parameter_values || {}).length,
     steps: candidate.steps,
-    step_count: candidate.steps.length
+    step_count: candidate.authoring_mode === "gherkin"
+      ? parseSharedStepGherkin(candidate.gherkin_document || "").length
+      : candidate.steps.length
   };
 }
 

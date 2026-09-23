@@ -35,6 +35,7 @@ module.exports = async function (fastify) {
   fastify.post("/requirements/:id/ai-groom-preview", async (req) => {
     await fastify.authenticate(req);
     fastify.validate({
+      proposed_change: { required: false, type: "object" },
       project_id: { required: false, type: "string", maxLength: 255 },
       integration_id: { required: false, type: "string", maxLength: 255 },
       additional_context: { required: false, type: "string", maxLength: 12000 },
@@ -51,6 +52,7 @@ module.exports = async function (fastify) {
       user: req.user,
       integrationId: req.body?.integration_id,
       additionalContext: req.body?.additional_context,
+      proposedChange: req.body?.proposed_change,
       promptGuidance: req.body?.prompt_guidance
     });
   });

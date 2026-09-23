@@ -12,6 +12,7 @@ const testDataSetService = require("./testDataSet.service");
 const aiKnowledgeService = require("./aiKnowledge.service");
 const mobileFeatureService = require("./mobileFeature.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 const {
   normalizeApiRequest,
   normalizeRichText,
@@ -539,7 +540,7 @@ const requestChatCompletion = async ({ integration, prompt, content }) => {
   }
 
   const payload = await response.json();
-  const messageContent = payload?.choices?.[0]?.message?.content;
+  const messageContent = getCompletionContent(payload);
 
   if (!messageContent) {
     throw new Error("LLM response did not include generated content");

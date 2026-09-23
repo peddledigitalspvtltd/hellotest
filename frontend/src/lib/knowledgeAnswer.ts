@@ -95,7 +95,13 @@ export function validateKnowledgeAnswer(message: KnowledgeAssistantMessage) {
     if (!claim || typeof claim !== "object") return false;
     const ids = strings(claim.evidence_ids);
     return text(claim.text || claim.statement) && Array.isArray(claim.evidence_ids) && ids.length === claim.evidence_ids.length && ids.length > 0 && ids.every((id) => evidenceIds.has(id)) && ["SUPPORTED", "INTERPRETATION"].includes(claim.classification || "SUPPORTED");
-  }).map((claim, index) => ({ id: claim.claim_id || `claim-${index}`, text: text(claim.text || claim.statement), classification: claim.classification || "SUPPORTED", evidenceIds: strings(claim.evidence_ids) }));
+  }).map((claim, index) => {
+    const evidenceIds = strings(claim.evidence_ids);
+    // The numbered source controls carry these exact references. Avoid
+    // displaying a second, opaque citation token from older saved answers.
+    const displayText = text(claim.text || claim.statement).replace(/\[([A-Za-z0-9][A-Za-z0-9_.:-]*)\]/g, (token, id: string) => evidenceIds.includes(id) ? "" : token).trim();
+    return { id: claim.claim_id || `claim-${index}`, text: displayText, classification: claim.classification || "SUPPORTED", evidenceIds };
+  });
   const rejectedClaims = Math.max(0, (contract.claims?.length || 0) - claims.length);
   const limitations = record(contract.limitations);
   const gaps = strings(contract.evidence_gaps);

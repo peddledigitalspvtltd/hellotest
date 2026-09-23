@@ -10,6 +10,7 @@ const execution = require("./knowledgeExecution.service");
 const modelGateway = require("./knowledgeModelGateway.service");
 const knowledgeAuthorization = require("./knowledgeAuthorization.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent: completionContent } = require("../utils/llmResponse");
 const { modelHttpError, modelFailureCode, modelFailureMessage } = require("../utils/knowledgeAssistantErrors");
 const { readRetryAfterMs, validateModelEndpoint } = require("../utils/knowledgeModelRetry");
 const {
@@ -257,21 +258,6 @@ const resolveChatCompletionsUrl = (baseUrl) => {
   return /\/chat\/completions\/?$/i.test(normalized)
     ? normalized.replace(/\/+$/, "")
     : `${normalized.replace(/\/+$/, "")}/chat/completions`;
-};
-
-const completionContent = (payload) => {
-  const content = payload?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) {
-    return content.map((part) => {
-      if (typeof part === "string") return part;
-      if (typeof part?.text === "string") return part.text;
-      if (typeof part?.content === "string") return part.content;
-      return "";
-    }).filter(Boolean).join("").trim();
-  }
-  if (content && typeof content === "object") return JSON.stringify(content);
-  return "";
 };
 
 const JSON_MODE_FIELD = /(?:response[_\s-]?format|json[_\s-]?object|json mode)/i;

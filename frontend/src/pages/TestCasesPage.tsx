@@ -7642,7 +7642,7 @@ export function TestCasesPage() {
         additional_context: aiCaseAuthoringAdditionalContext || undefined,
         external_links: parseExternalLinks(aiCaseAuthoringExternalLinksText),
         images: aiCaseAuthoringReferenceImages,
-        test_case: { ...aiCaseAuthoringSourceDraft, authoring_mode: authoringMode }
+        test_case: aiCaseAuthoringSourceDraft
       });
 
       setAiCaseAuthoringPreview(response.case);

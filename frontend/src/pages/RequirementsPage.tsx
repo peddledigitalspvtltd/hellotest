@@ -5311,7 +5311,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     project_id: projectId,
     integration_id: storyGroomingIntegrationId || storyGroomingDefaultIntegrationId || undefined,
     prompt_guidance: storyGroomingPromptGuidance ?? getPrompt("ai.requirement.grooming"),
-    additional_context: storyGroomingContext
+    additional_context: storyGroomingContext,
+    proposed_change: selectedRequirementAssuranceProposedChange
   };
   const storyGroomingReviewContextChanged = Boolean(selectedRequirement && selectedStoryGrooming
     && storyGroomingReviewedInputsByRequirementId[selectedRequirement.id] !== JSON.stringify(storyGroomingInput));

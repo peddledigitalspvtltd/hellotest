@@ -1,0 +1,23 @@
+.knowledge-formatted-text {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  white-space: normal;
+}
+
+.knowledge-formatted-text > :first-child { margin-top: 0; }
+.knowledge-formatted-text > :last-child { margin-bottom: 0; }
+.knowledge-formatted-text p { margin: 0 0 .7em; }
+.knowledge-formatted-text h4 { margin: 1em 0 .5em; font-size: 1em; line-height: 1.5; }
+.knowledge-formatted-text :is(ul, ol) { margin: .4em 0 .8em; padding-left: 1.5em; }
+.knowledge-formatted-text li + li { margin-top: .35em; }
+.knowledge-formatted-text strong { font-weight: 650; }
+.knowledge-formatted-text code { padding: .1em .3em; border-radius: 4px; background: var(--ds-background-neutral, #eef1f6); color: inherit; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
+.knowledge-formatted-text pre { max-width: 100%; overflow-x: auto; padding: .8em 1em; border: 1px solid var(--border, #d8e1ed); border-radius: 8px; background: var(--ds-background-neutral, #eef1f6); white-space: pre-wrap; }
+.knowledge-formatted-text pre code { padding: 0; background: transparent; }
+.knowledge-formatted-text .knowledge-answer-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border, #d8e1ed); border-radius: 8px; }
+.knowledge-formatted-text table { width: 100%; border-collapse: collapse; font-size: inherit; }
+.knowledge-formatted-text :is(th, td) { min-width: 7rem; padding: .5em .7em; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border, #d8e1ed); }
+:root[data-theme="dark"] .knowledge-formatted-text :is(code, pre) { background: var(--ds-background-neutral, #23334a); }
+:root[data-theme="dark"] .knowledge-formatted-text pre code { background: transparent; }

@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = Math.max(5_000, Number.parseInt(process.env.LLM_REQUEST_TIMEOUT_MS || "45000", 10) || 45_000);
+const DEFAULT_TIMEOUT_MS = Math.min(150_000, Math.max(5_000, Number.parseInt(process.env.LLM_REQUEST_TIMEOUT_MS || "90000", 10) || 90_000));
 const DEFAULT_MAX_ATTEMPTS = Math.max(1, Math.min(4, Number.parseInt(process.env.LLM_MAX_ATTEMPTS || "3", 10) || 3));
 const { cloneWithBoundedBody } = require("./boundedResponse");
 const { isContextSizeRejection, buildContextFallbackBody } = require("./llmContextFallback");

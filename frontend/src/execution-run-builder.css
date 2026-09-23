@@ -1736,3 +1736,103 @@
     forced-color-adjust: auto;
   }
 }
+
+/* Match the Test Case generator's context rail and broad review canvas. */
+.modal-backdrop.execution-smart-studio-backdrop {
+  padding: 24px !important;
+  background: rgb(10 20 38 / .54);
+  backdrop-filter: blur(7px);
+}
+.modal-backdrop > .modal-card.execution-smart-studio-modal {
+  width: min(1480px, calc(100vw - 48px)) !important;
+  height: min(860px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 48px) !important;
+  border: 1px solid #c3c6d6;
+  border-radius: 18px;
+  box-shadow: 0 28px 90px rgb(3 14 35 / .32);
+}
+.execution-smart-studio-modal .execution-run-builder-body {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+.execution-smart-studio-modal .execution-run-config-rail {
+  background: #f1f3ff;
+  border-right-color: #c3c6d6;
+}
+.execution-smart-studio-modal .execution-run-config-heading {
+  background: #f1f3ff;
+  color: #172b4d;
+}
+.execution-smart-sidebar-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: #e4e8f5;
+  border-radius: 10px;
+}
+.execution-smart-sidebar-tabs > button {
+  flex: 1;
+  padding: 9px 10px;
+  color: #4f5b70;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.execution-smart-sidebar-tabs > button[aria-selected="true"] {
+  color: #003d9b;
+  background: #fff;
+  box-shadow: 0 1px 4px rgb(5 26 62 / .09);
+}
+.execution-run-builder-modal .execution-run-config-stack[hidden] { display: none !important; }
+.execution-smart-studio-modal .execution-smart-shell { grid-template-columns: minmax(0, 1fr); }
+.execution-smart-studio-modal .execution-smart-scope-pane {
+  overflow: visible !important;
+  background: transparent;
+  border: 0;
+}
+.execution-smart-studio-modal .execution-smart-scope-pane .ai-studio-panel {
+  padding: 12px 0 0;
+  background: transparent;
+}
+.execution-smart-studio-modal .execution-smart-scope-pane .execution-smart-pane-header { display: none; }
+.execution-smart-studio-modal .execution-smart-requirement-toolbar {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.execution-smart-studio-modal .execution-smart-requirement-toolbar > input { grid-column: 1 / -1; }
+.execution-smart-studio-modal .execution-run-config-stack > .ai-feature-composer { min-width: 0; padding: 12px; }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__footer { flex-direction: column; align-items: stretch; }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__controls { flex-wrap: wrap; }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__submit,
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__send { width: 100%; }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__send { justify-content: center; border-radius: 999px; background: #003d9b; }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__brief-grid { grid-template-columns: minmax(0, 1fr); }
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__identity em,
+.execution-smart-studio-modal .execution-run-config-stack .ai-feature-composer__shortcut { display: none; }
+.execution-smart-studio-modal .execution-run-selection-header h3 {
+  font-family: "Hanken Grotesk", "Inter", sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  color: #0c2043;
+}
+.execution-smart-studio-modal .execution-smart-plan-pane { background: #faf9ff; }
+.execution-smart-studio-modal .execution-smart-impact-card { border-color: #d1d7e6; border-radius: 14px; }
+.execution-smart-studio-modal .execution-smart-impact-card.is-selected { border-color: #729add; background: #fff; }
+.execution-smart-studio-modal .execution-run-builder-actions .primary-button { background: #003d9b; border-radius: 999px; }
+.execution-smart-studio-modal .execution-run-builder-footer { background: #faf9ff; }
+:root[data-theme="dark"] .execution-smart-studio-modal :is(.execution-run-config-rail, .execution-run-config-heading, .execution-smart-plan-pane, .execution-run-builder-footer) { background: var(--surface, #161b22); }
+:root[data-theme="dark"] .execution-smart-sidebar-tabs { background: #21262d; }
+:root[data-theme="dark"] .execution-smart-sidebar-tabs > button[aria-selected="true"] { background: #30363d; color: #8cb9f5; }
+@media (max-width: 980px) {
+  .execution-smart-studio-modal .execution-run-builder-body { grid-template-columns: 280px minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .modal-backdrop.execution-smart-studio-backdrop { padding: 0 !important; }
+  .modal-backdrop > .modal-card.execution-smart-studio-modal { width: 100vw !important; height: 100dvh; max-height: 100dvh !important; border: 0; border-radius: 0; }
+  .execution-smart-studio-modal .execution-run-builder-body { display: block !important; overflow: auto !important; }
+  .execution-smart-studio-modal .execution-smart-shell { display: block; }
+  .execution-smart-studio-modal .execution-smart-agent-workspace { overflow: visible; }
+  .execution-smart-studio-modal .execution-smart-plan-pane { overflow: visible !important; }
+}

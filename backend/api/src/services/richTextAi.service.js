@@ -1,13 +1,14 @@
 const crypto = require("crypto");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 
 const ALLOWED_TAGS = new Set(["p", "ul", "ol", "li", "strong", "em", "code", "blockquote", "br"]);
 const VOID_TAGS = new Set(["br"]);
 const AI_TIMEOUT_MS = Math.max(
   5_000,
-  Number.parseInt(process.env.AI_RICH_TEXT_TIMEOUT_MS || process.env.AI_AUTHORING_TIMEOUT_MS || "45000", 10) || 45_000
+  Number.parseInt(process.env.AI_RICH_TEXT_TIMEOUT_MS || process.env.AI_AUTHORING_TIMEOUT_MS || process.env.LLM_REQUEST_TIMEOUT_MS || "90000", 10) || 90_000
 );
 
 const normalizeText = (value, maxLength) => String(value || "").trim().slice(0, maxLength);
@@ -155,7 +156,7 @@ const requestRephrase = async ({ integration, input }) => {
     }
 
     const payload = await response.json();
-    const generated = payload?.choices?.[0]?.message?.content;
+    const generated = getCompletionContent(payload);
     if (!normalizeText(generated, 50_000)) {
       throw new Error("LLM provider returned an empty rephrase");
     }

@@ -1,3 +1,4 @@
+const { getCompletionContent } = require("../utils/llmResponse");
 const crypto = require("crypto");
 const db = require("../db");
 const { configurationTargetsForRead } = require("../utils/configurationTargets");
@@ -353,11 +354,8 @@ const readPlanningResponseContent = (payload) => {
   const choice = payload?.choices?.[0];
   if (choice?.finish_reason === "length") throw new Error("LLM planning response was truncated");
   if (choice?.finish_reason === "content_filter" || choice?.message?.refusal) throw new Error("LLM declined the planning request");
-  const raw = choice?.message?.content;
-  const content = Array.isArray(raw)
-    ? raw.map((part) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").join("")
-    : raw && typeof raw === "object" ? JSON.stringify(raw) : raw;
-  if (typeof content !== "string" || !content.trim()) throw new Error("LLM response did not include generated content");
+  const content = getCompletionContent(payload);
+  if (!content) throw new Error("LLM response did not include generated content");
   return content;
 };
 

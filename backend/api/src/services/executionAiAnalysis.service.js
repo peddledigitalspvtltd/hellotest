@@ -4,6 +4,7 @@ const executionStepRuntimeService = require("./executionStepRuntime.service");
 const { normalizeStoredReferenceList } = require("../utils/externalReferences");
 const { createLlmProviderError } = require("../utils/upstreamLlmError");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 const { boundedExecutionAiContext } = require("../utils/executionAiContext");
 
 const MAX_PROMPT_JSON_LENGTH = 18000;
@@ -11,7 +12,7 @@ const MAX_AI_RESPONSE_LENGTH = 12000;
 const MAX_TEXT_PREVIEW_LENGTH = 1200;
 const AI_ANALYSIS_TIMEOUT_MS = Math.max(
   5000,
-  Number.parseInt(process.env.AI_ANALYSIS_TIMEOUT_MS || "45000", 10) || 45000
+  Number.parseInt(process.env.AI_ANALYSIS_TIMEOUT_MS || process.env.LLM_REQUEST_TIMEOUT_MS || "90000", 10) || 90000
 );
 
 const normalizeText = (value) => {
@@ -236,7 +237,7 @@ const requestChatCompletion = async ({ integration, prompt }) => {
     }
 
     const payload = await response.json();
-    const messageContent = payload?.choices?.[0]?.message?.content;
+    const messageContent = getCompletionContent(payload);
 
     if (!messageContent) {
       throw new Error("LLM response did not include analysis content");

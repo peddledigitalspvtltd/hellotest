@@ -1,5 +1,6 @@
 import type { TestDataOptions } from "../types";
 import { requestAiWithShorterContext } from "./aiRequestContext";
+import { AI_REQUEST_TIMEOUT_MS, getRequestTimeout } from "./requestTimeout";
 import type { AnalyticsWindow, QualityOverview } from "./qualityAnalytics";
 import type { IntegrationConnectionInput, IntegrationConnectionResult } from "./integrationConnection";
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "../agents/types";
@@ -547,7 +548,7 @@ async function parseApiError(response: Response) {
   return new HelloTestApiError(`${message}${diagnosticSuffix}`, response.status, error, { requestId, traceId });
 }
 
-async function request<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, timeoutMs = getRequestTimeout(path, init?.method)): Promise<T> {
   init?.signal?.throwIfAborted();
   const method = String(init?.method || "GET").toUpperCase();
   const scopedPath = appendCurrentProjectScope(path);
@@ -1196,7 +1197,7 @@ export const api = {
       request<{ id: string; related_requirement_ids?: string[]; status_warning?: { code: string; message: string; requested_status?: string | null; current_status?: string | null; issue_key?: string | null } }>("/requirements", { method: "POST", body: JSON.stringify(input) }),
     get: (id: string, query?: { project_id?: string; include_execution?: boolean }) =>
       request<Requirement>(`/requirements/${id}${toQueryString(query)}`),
-    previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string; additional_context?: string }) =>
+    previewGrooming: (id: string, input: { project_id: string; integration_id?: string; prompt_guidance?: string; additional_context?: string; proposed_change?: Record<string, unknown> }) =>
       request<StoryGroomingPreviewResponse>(`/requirements/${id}/ai-groom-preview`, {
         method: "POST",
         body: JSON.stringify(input)
@@ -2251,7 +2252,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
       signal: options?.signal
-    }, 80_000),
+    }, AI_REQUEST_TIMEOUT_MS),
     list: (query?: { project_id?: string; app_type_id?: string; status?: string }, options?: { signal?: AbortSignal; fresh?: boolean }) =>
       request<AgenticWorkflow[]>(`/agentic-workflows${toQueryString(query)}`, { signal: options?.signal, cache: options?.fresh ? "no-store" : undefined }),
     get: (id: string) =>

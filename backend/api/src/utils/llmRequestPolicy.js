@@ -1,5 +1,6 @@
 // Application spending limits, not claims about a provider's context window.
 // Feature services assemble bounded evidence; never slice serialized JSON here.
+const { getCompletionContent } = require('./llmResponse');
 const OUTPUT_LIMITS = {
   'requirement.generate': 6144,
   'requirement.optimize': 6144,
@@ -92,9 +93,7 @@ const validateChatResponse = async (response, payload) => {
     throw policyError('The LLM declined this request. Revise the supplied content or choose another configured model.', 'AI_PROVIDER_REFUSAL');
   }
   if (choice?.message?.tool_calls?.length) return true;
-  const rawContent = choice?.message?.content;
-  const content = Array.isArray(rawContent) ? rawContent.map(part => typeof part === 'string' ? part : part?.text || part?.content || '').join('')
-    : rawContent && typeof rawContent === 'object' ? JSON.stringify(rawContent) : rawContent;
+  const content = getCompletionContent(result);
   if (typeof content !== 'string' || !content.trim()) {
     throw policyError('The LLM returned no usable content. Check the selected model and try again.', 'AI_EMPTY_RESPONSE');
   }

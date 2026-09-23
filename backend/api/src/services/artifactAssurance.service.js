@@ -1,3 +1,4 @@
+const { getCompletionContent } = require("../utils/llmResponse");
 const { storyAiSnapshot, testCaseAiSnapshot, object, text, list } = require("../utils/aiArtifactContext");
 const selection = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
@@ -25,6 +26,7 @@ const normalizeReview = (value, dimensionIds, allowedRefs) => {
   const seen = new Set();
   const dimensions = (Array.isArray(raw.dimensions) ? raw.dimensions : []).filter(item => {
     if (!dimensionIds.includes(item?.id) || seen.has(item.id)) return false;
+    if (!text(item.explanation, 1000) || !evidence(item.evidence).length) return false;
     seen.add(item.id);
     return true;
   }).map(item => ({ id: item.id, explanation: text(item.explanation, 1000), evidence: evidence(item.evidence), recommendation: text(item.recommendation, 800) }))
@@ -80,10 +82,10 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     const response = await fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
       model: integration.model, temperature: 0.1, response_format: { type: "json_object" },
       messages: [{ role: "system", content: "You are an evidence-bound quality reviewer. Return the exact JSON review contract; never change deterministic scores." }, { role: "user", content: prompt }]
-    }) }, { integration, operation: `quality-assurance.${artifactType}`, maxOutputTokens: 4096 });
+    }) }, { integration, operation: `quality-assurance.${artifactType}`, maxOutputTokens: 4096, contextFallback: false });
     if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
     const payload = await response.json();
-    const content = String(payload?.choices?.[0]?.message?.content || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+    const content = getCompletionContent(payload).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
     const review = normalizeReview(JSON.parse(content), dimensionIds, new Set(sources.map(item => item.ref)));
     return { assurance_review: review, generation_mode: "hybrid", fallback_used: false, fallback_reason: null,
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };

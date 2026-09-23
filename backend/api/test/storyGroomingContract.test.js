@@ -160,7 +160,7 @@ test("AI Grooming provenance fingerprints the bounded evidence snapshot, not onl
   assert.match(serviceSource, /type: item\.type,[\s\S]*title: item\.title,[\s\S]*excerpt: item\.excerpt/);
   assert.match(serviceSource, /input_fingerprint: hash\(input\)/);
   assert.match(serviceSource, /fallbackReason = "No active LLM integration is configured; a conservative evidence-only review is shown\."/);
-  assert.match(serviceSource, /fallbackReason = "The configured AI provider did not return a valid evidence-backed grooming response; a conservative evidence-only review is shown\."/);
+  assert.match(serviceSource, /fallbackReason = `\$\{providerMessage\} A conservative evidence-only review is shown\.`/);
 });
 
 test("AI Grooming successful provider responses expose hybrid provenance when review sections fall back", async () => {

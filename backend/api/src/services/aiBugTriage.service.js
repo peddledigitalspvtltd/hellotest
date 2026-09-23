@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const issueService = require("./issues.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 
 const MAX_TRIAGE_ITEMS = 10;
 const BUG_TRIAGE_USAGE_KEY = "ai.bug.triage";
@@ -306,7 +307,7 @@ const requestCategoryRefinements = async ({ integration, issueSnapshot, determin
   }, { integration, operation: "bug-triage.refine-category" });
   if (!response.ok) throw new Error(`LLM provider returned ${response.status}`);
   const payload = await response.json();
-  return extractJson(payload?.choices?.[0]?.message?.content);
+  return extractJson(getCompletionContent(payload));
 };
 
 const buildProcessing = ({ issueCount, sourceCount, recommendationCount, generationMode, fallbackSections, partialSources }) => ({

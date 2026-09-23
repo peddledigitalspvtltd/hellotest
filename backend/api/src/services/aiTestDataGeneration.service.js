@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { sanitizeKnowledgeText } = require("./knowledgeProcessing.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 
 const normalizeText = (value, max = 12_000) => String(value || "").trim().slice(0, max);
 
@@ -76,7 +77,7 @@ const requestValues = async ({ integration, prompt, fieldContext, count, promptI
     })
   }, { integration, operation: "test-data.synthetic" });
   if (!response.ok) throw new Error(`Synthetic data provider returned ${response.status}.`);
-  return extractJson((await response.json())?.choices?.[0]?.message?.content);
+  return extractJson(getCompletionContent(await response.json()));
 };
 
 const buildResponse = ({ prompt, fieldContext, values, summary, integration, fallbackReason, contextSafety }) => {

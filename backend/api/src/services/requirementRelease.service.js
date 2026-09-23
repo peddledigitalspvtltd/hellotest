@@ -3,6 +3,7 @@ const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("./displayId.service");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
 const { latestFinalizedCaseResultsCte } = require("../utils/finalizedCaseMetrics");
 const { mapWithConcurrency } = require("../utils/boundedConcurrency");
 const { releaseStoryMembershipSql, releaseExecutionMembershipSql } = require("../utils/deliveryScopeSql");
@@ -652,7 +653,7 @@ const requestReleaseNotesNarrative = async ({ integration, release, readiness, s
   }, { integration, operation: "requirement-release.notes", actorId: userId });
   if (!response.ok) throw new Error("Release-notes provider request failed");
   const payload = await response.json();
-  return parseReleaseNotesJson(payload?.choices?.[0]?.message?.content);
+  return parseReleaseNotesJson(getCompletionContent(payload));
 };
 
 exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) => {

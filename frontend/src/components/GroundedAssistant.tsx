@@ -41,6 +41,7 @@ import type {
 } from "../types";
 import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import { KnowledgeAnswer } from "./KnowledgeAnswer";
+import { KnowledgeFormattedText } from "./KnowledgeFormattedText";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
@@ -133,35 +134,17 @@ function StructuredAssistantAnswer({ content, structure }: { content: string; st
     ].filter((section) => section.items.length);
     return (
       <div aria-label="Structured grounded answer" className="grounded-assistant-structured-answer">
-        {structure.summary ? <section><h3>Summary</h3><p>{structure.summary}</p></section> : null}
+        {structure.summary ? <section><h3>Summary</h3><KnowledgeFormattedText text={structure.summary} /></section> : null}
         {sections.map((section) => (
           <section key={section.key}>
             <h3>{section.title}</h3>
-            <ul>{section.items.map((item, index) => <li key={`${section.key}-${index}`}>{item}</li>)}</ul>
+            <ul>{section.items.map((item, index) => <li key={`${section.key}-${index}`}><KnowledgeFormattedText text={item} /></li>)}</ul>
           </section>
         ))}
       </div>
     );
   }
-  const blocks = content.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
-  return (
-    <div className="grounded-assistant-structured-answer">
-      {blocks.map((block, blockIndex) => {
-        const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
-        const first = lines[0] || "";
-        const heading = first.match(/^(?:#{1,4}\s*)?([^:]{2,60}):$/);
-        if (heading) {
-          const body = lines.slice(1);
-          const isList = body.length > 0 && body.every((line) => /^[-*]\s+/.test(line));
-          return <section key={blockIndex}><h3>{heading[1]}</h3>{isList
-            ? <ul>{body.map((line, index) => <li key={index}>{line.replace(/^[-*]\s+/, "")}</li>)}</ul>
-            : body.map((line, index) => <p key={index}>{line}</p>)}</section>;
-        }
-        if (lines.every((line) => /^[-*]\s+/.test(line))) return <ul key={blockIndex}>{lines.map((line, index) => <li key={index}>{line.replace(/^[-*]\s+/, "")}</li>)}</ul>;
-        return <p key={blockIndex}>{lines.join("\n")}</p>;
-      })}
-    </div>
-  );
+  return <KnowledgeFormattedText className="grounded-assistant-structured-answer" text={content} />;
 }
 
 export function GroundedAssistant() {

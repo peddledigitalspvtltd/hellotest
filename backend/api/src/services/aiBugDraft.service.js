@@ -3,6 +3,9 @@ const db = require("../db");
 const aiLlmSelectionService = require("./aiLlmSelection.service");
 const { normalizeReferenceList } = require("../utils/externalReferences");
 const { fetchLlmWithRetry } = require("../utils/llmHttpClient");
+const { getCompletionContent } = require("../utils/llmResponse");
+const { parseAiJson } = require("../utils/aiJsonResponse");
+const { object: aiObject, list: aiList } = require("../utils/aiArtifactContext");
 
 const BUG_DRAFT_USAGE_KEY = "ai.bug.draft";
 const MAX_TEST_CASES = 10;
@@ -65,12 +68,7 @@ const normalizeImageAssets = (value) => (Array.isArray(value) ? value : [])
     url: item.url,
     content_hash: shortHash(item.url)
   }));
-const extractJson = (value) => {
-  const text = String(value || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  return JSON.parse(start >= 0 && end >= start ? text.slice(start, end + 1) : text);
-};
+const extractJson = parseAiJson;
 const allowedSeverity = new Set(["critical", "high", "medium", "low"]);
 const allowedPriority = new Set(["Highest", "High", "Medium", "Low", "Lowest"]);
 const normalizePriority = (value, fallback) => {
@@ -125,6 +123,10 @@ const extractHeadedSection = (value, labels) => {
   return normalizeText(content.join("\n"), 8_000);
 };
 
+const storyExpectedBehavior = (story) => aiList(
+  story.acceptance_criteria ?? aiObject(story.additional_fields).acceptance_criteria, 100, 4000
+).join("\n") || extractHeadedSection(story.description, ["expected result", "expected behavior", "acceptance criteria", "behavior"]);
+
 const buildPromptContextSnapshot = (context) => {
   const contentOmissions = [];
   const boundText = (sourceRef, field, value, limit) => {
@@ -160,7 +162,7 @@ const buildPromptContextSnapshot = (context) => {
     expected_section: boundText(
       evidenceRef("requirement", item.id),
       "expected_section",
-      extractHeadedSection(item.description, ["expected result", "expected behavior", "acceptance criteria", "behavior"]),
+      storyExpectedBehavior(item),
       BUG_DRAFT_CONTEXT_LIMITS.requirement_expected_section
     ),
     status: boundText(evidenceRef("requirement", item.id), "status", item.status, BUG_DRAFT_CONTEXT_LIMITS.status),
@@ -201,7 +203,7 @@ const loadEvidence = async ({ projectId, runId, testCaseIds, requirementIds }) =
   }
   const requirements = [];
   for (const id of boundedRequirementIds) {
-    const item = await db.prepare("SELECT id, display_id, title, description, status, priority, updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId);
+    const item = await db.prepare("SELECT id, display_id, title, description, additional_fields, status, priority, updated_at FROM requirements WHERE id = ? AND project_id = ?").get(id, projectId);
     if (item) requirements.push(item);
   }
 
@@ -262,7 +264,7 @@ const buildEvidenceSources = ({ input, context, imageAssets }) => {
   imageAssets.forEach((image) => add({ ref: `reference-image:${image.content_hash}`, type: "reference-image", id: image.content_hash, title: image.name, excerpt: "Reporter-provided image admitted to the bounded evidence pack.", trust: "user-provided" }));
   if (context.run) add({ ref: evidenceRef("run", context.run.id), type: "test-run", id: context.run.id, title: context.run.name || context.run.display_id || context.run.id, excerpt: stripMarkup([context.run.status, context.run.build, context.run.release].filter(Boolean).join(" · ")), status: context.run.status || null, trust: "workspace" });
   context.cases.forEach((item) => add({ ref: evidenceRef("test-case", item.id), type: "test-case", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(item.description), status: item.status || null, trust: "workspace" }));
-  context.requirements.forEach((item) => add({ ref: evidenceRef("requirement", item.id), type: "requirement", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(item.description), status: item.status || null, trust: "workspace" }));
+  context.requirements.forEach((item) => add({ ref: evidenceRef("requirement", item.id), type: "requirement", id: item.id, title: item.title || item.display_id || item.id, excerpt: stripMarkup(storyExpectedBehavior(item) || item.description), status: item.status || null, trust: "workspace" }));
   context.failures.forEach((item) => add({ ref: evidenceRef("execution-result", item.id), type: "execution-result", id: item.id, title: `${item.status || "failed"} result`, excerpt: stripMarkup(item.logs || item.defects), status: item.status || null, related_id: item.test_case_id || null, trust: "workspace" }));
   return sources;
 };
@@ -290,7 +292,7 @@ const deterministicDraft = ({ input, context, evidenceSources }) => {
   const explicitBuild = extractLabeledSection(input.evidence, ["build", "version"]);
   const hasStructuredReporterEvidence = Boolean(explicitSteps || explicitExpected || explicitActual || explicitEnvironment || explicitBuild);
   const requirementExpectationEntry = explicitExpected ? null : context.requirements
-    .map((item) => ({ item, expectation: item.expected_section || extractHeadedSection(item.description, ["expected result", "expected behavior", "acceptance criteria", "behavior"]) }))
+    .map((item) => ({ item, expectation: item.expected_section || storyExpectedBehavior(item) }))
     .find(({ expectation }) => expectation);
   const requirementExpectation = requirementExpectationEntry?.expectation || "";
   const expectationRequirement = requirementExpectationEntry?.item || null;
@@ -427,9 +429,11 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   const userContent = images.length
     ? [{ type: "text", text: prompt }, ...images.map((image) => ({ type: "image_url", image_url: { url: image.url, detail: "low" } }))]
     : prompt;
-  const response = await fetchLlmWithRetry(`${String(integration.base_url || "https://api.openai.com/v1").replace(/\/$/, "")}/chat/completions`, {
+  const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
+  const response = await fetchLlmWithRetry(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${integration.api_key}` },
+    headers: { "Content-Type": "application/json", ...(integration.api_key ? { Authorization: `Bearer ${integration.api_key}` } : {}) },
     body: JSON.stringify({
       model: integration.model,
       temperature: 0.1,
@@ -442,7 +446,7 @@ const requestLlmDraft = async (integration, input, context, evidenceSources, ima
   }, { integration, operation: "bug-draft.generate" });
   if (!response.ok) throw new Error(`LLM provider returned ${response.status}`);
   const payload = await response.json();
-  return extractJson(payload?.choices?.[0]?.message?.content);
+  return extractJson(getCompletionContent(payload));
 };
 
 const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallbackFields, partialSources }) => ({
