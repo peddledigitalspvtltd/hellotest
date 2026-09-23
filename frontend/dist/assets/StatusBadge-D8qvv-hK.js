@@ -1,0 +1,1 @@
+import{x as o,j as d}from"./index-vZIgF6Jy.js";function r({value:s,label:t}){const{t:n}=o(),e=`status-badge ${String(s||"default").toLowerCase()}`,a=t||(s==="pending"?"Unexecuted":s==="skipped"?"N/A":s==="paused"?"Paused":s||"unknown");return d.jsx("span",{className:e,children:n(`status.${s||"unknown"}`,a)})}export{r as S};
