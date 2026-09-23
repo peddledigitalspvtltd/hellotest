@@ -79,18 +79,22 @@ test("Story API types expose stable evidence, limitations, progress, and review 
   assert.match(api, /input_fingerprint\?: string/);
 });
 
-test("Story templates are editorial guidance and completion exposes only its regenerated proposal", async () => {
-  const [page, content, picker] = await Promise.all([
+test("Story templates populate Generation Context and completion exposes only its regenerated proposal", async () => {
+  const [page, content, picker, contextPanel] = await Promise.all([
     readSource("../src/pages/RequirementsPage.tsx"),
     readSource("../src/components/StoryAiStudioContent.tsx"),
-    readSource("../src/components/AiPromptTemplatePicker.tsx")
+    readSource("../src/components/AiPromptTemplatePicker.tsx"),
+    readSource("../src/components/AiPromptContextPanel.tsx")
   ]);
   assert.match(page, /getPrompt\(requirementAiMode === "create" \? "ai\.requirement\.creation" : "ai\.requirement\.optimization"\)/);
   assert.match(page, /prompt_guidance: promptGuidance \|\| undefined/);
   assert.match(page, /additional_context: optimizeContext \|\| undefined/);
   assert.match(page, /onTemplateApply=\{/);
+  assert.match(page, /replaceTemplateContextPack\(optimizeContext, prompt\)/);
+  assert.doesNotMatch(page, /Story template guidance|storyAiTemplateGuidance/);
   assert.match(page, /setRequirementAiDraftCount\(Math\.max\(1, Math\.min\(6, template\.test_count\)\)\)/);
   assert.match(picker, /template\.scope !== "requirement_creation"/);
+  assert.match(contextPanel, /Applied .*template\.name.* to Generation Context/);
   assert.match(page, /completedStoryStudioDraft \? \[completedStoryStudioDraft\] : \[\]/);
   assert.doesNotMatch(page, /existingStoryStudioDraft/);
   assert.match(content, /<h2>Title<\/h2>/);

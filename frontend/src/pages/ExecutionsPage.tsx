@@ -12813,54 +12813,12 @@ export function ExecutionCreateModal({
               </FormField>
 
                 {isSmartMode ? <>
-                <AiFeatureComposer
-                  agentName="Smart Run Planner"
-                  briefCollapsible
-                  density="compact"
-                  enableSmartContext
-                  smartContextScopes={["stories", "test-cases", "runs", "bugs", "knowledge"]}
-                  allowEmptyPrompt
-                  briefItems={[
-                    {
-                      id: "context",
-                      kind: "context",
-                      label: "Impact evidence",
-                      state: selectedSmartRequirementIds.length || executionRelease || executionSprint || executionBuild ? "ready" : "attention",
-                      value: `${selectedSmartRequirementIds.length} Stor${selectedSmartRequirementIds.length === 1 ? "y" : "ies"} · ${executionRelease || executionSprint || executionBuild || "delivery scope needed"}`
-                    },
-                    {
-                      id: "output",
-                      kind: "output",
-                      label: "Output contract",
-                      state: "ready",
-                      value: smartExecutionPreview ? `${smartExecutionPreview.cases.length} ranked cases · ${selectedSmartExecutionCaseIds.length} selected` : "Ranked, explainable Test Case plan"
-                    },
-                    { id: "approval", kind: "approval", label: "Human gate", state: "ready", value: "Review selections before creating the run" }
-                  ]}
-                  contextLabel={`${selectedSmartRequirementIds.length} Stor${selectedSmartRequirementIds.length === 1 ? "y" : "ies"} · ${executionRelease || executionSprint || executionBuild || "delivery scope"}`}
-                  disabled={!projectId || !appTypeId || isSubmitting}
-                  embedded
-                  integrationId={smartExecutionIntegrationId}
-                  integrations={integrations}
-                  mode="agent"
-                  onIntegrationChange={onSmartExecutionIntegrationChange}
-                  onPromptChange={onSmartExecutionReleaseScopeChange}
-                  onSubmit={onPreviewSmartExecution}
-                  placeholder="Describe changed workflows, integrations, rollout risks, customer impact, and the coverage outcome you want."
-                  prompt={smartExecutionReleaseScope}
-                  running={isPreviewingSmartExecution}
-                  showModeSwitcher={false}
-                  showProviderSelector={false}
-                  submitDisabled={!canGenerateSmartPlan}
-                  submitLabel={smartExecutionPreview ? "Regenerate impact plan" : "Generate impact plan"}
-                />
                 <div className="ai-studio-sidebar execution-smart-scope-pane" aria-label="Smart Run evidence scope">
                   <div className="execution-smart-pane-header">
                     <div>
-                      <span className="execution-smart-pane-step">01</span>
                       <div>
-                        <h3>Evidence Scope</h3>
-                        <p>Select the stories and changes to cover.</p>
+                        <h3>Context Setup</h3>
+                        <p>Define the delivery change and coverage scope.</p>
                       </div>
                     </div>
                     <IconDatabase aria-hidden="true" size={18} stroke={1.8} />
@@ -12872,6 +12830,16 @@ export function ExecutionCreateModal({
                         <p>Select impacted stories or add notes to focus the plan.</p>
                       </div>
                     </div>
+
+                    <FormField label="Change intent" hint="Describe what changed and the coverage outcome this run should prove.">
+                      <textarea
+                        placeholder="Changed workflows, integrations, rollout risks, customer impact, and desired coverage..."
+                        maxLength={4000}
+                        rows={4}
+                        value={smartExecutionReleaseScope}
+                        onChange={(event) => onSmartExecutionReleaseScopeChange(event.target.value)}
+                      />
+                    </FormField>
 
                     <FormField label="Additional context" hint="Rollout notes, known gaps, customer risk, or environment details.">
                       <textarea
@@ -12967,6 +12935,24 @@ export function ExecutionCreateModal({
                     <div className="detail-summary compact-summary">
                       <strong>{smartExecutionPreview?.default_suite.name || "Direct impacted scope"}</strong>
                       <span>Recommended cases are staged as direct run scope; no existing suite membership is invented or changed.</span>
+                    </div>
+
+                    <div className="execution-smart-generate-row">
+                      <button
+                        className="primary-button"
+                        disabled={!canGenerateSmartPlan}
+                        onClick={onPreviewSmartExecution}
+                        type="button"
+                      >
+                        <IconSparkles aria-hidden="true" size={17} stroke={1.9} />
+                        {isPreviewingSmartExecution
+                          ? "Generating plan…"
+                          : smartExecutionPreviewTone === "error" && smartExecutionPreviewMessage
+                            ? "Retry impact plan"
+                            : smartExecutionPreview
+                              ? "Regenerate impact plan"
+                              : "Generate impact plan"}
+                      </button>
                     </div>
                   </section>
                 </div>
@@ -13088,28 +13074,11 @@ export function ExecutionCreateModal({
 
             {isSmartMode ? (
               <div className="execution-smart-agent-workspace">
-                <AgenticProcessRail
-                  agentName="Smart Run Planner"
-                  compact
-                  presentation="focused"
-                  profile="smart-run"
-                  processing={smartExecutionPreview?.processing}
-                  stageEvidence={{
-                    context: smartExecutionPreview
-                      ? `${smartExecutionPreview.retrieved_context_count || 0} returned evidence records are available within the recorded source limits.`
-                      : `${selectedSmartRequirementIds.length} selected Stories and ${[executionRelease, executionSprint, executionBuild].filter(Boolean).length} exact delivery keys are configured.`,
-                    outcome: smartExecutionPreview ? `${smartExecutionPreview.cases.length} ranked cases are available for selection and editing.` : "The ranked case proposal will remain separate from the saved run.",
-                    review: "Selected cases are only committed when Create AI Smart Run is accepted."
-                  }}
-                  status={isPreviewingSmartExecution ? "running" : smartExecutionPreview ? "completed" : smartExecutionPreviewTone === "error" && smartExecutionPreviewMessage ? "failed" : "idle"}
-                />
-                <div className="ai-studio-shell execution-smart-shell">
                 <div className="ai-studio-main execution-smart-plan-pane" aria-label="Smart Run ranked coverage">
                   <div className="execution-smart-pane-header">
                     <div>
-                      <span className="execution-smart-pane-step">02</span>
                       <div>
-                        <h3>Ranked Coverage</h3>
+                        <h3>Smart Run Drafts</h3>
                         <p>Review why each case is included and adjust your selection.</p>
                       </div>
                     </div>
@@ -13320,7 +13289,6 @@ export function ExecutionCreateModal({
                     ) : null}
                   </div>
 
-                </div>
                 </div>
               </div>
             ) : (

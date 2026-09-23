@@ -1937,7 +1937,7 @@ export function IssuesPage() {
               integrations={aiBugIntegrations}
               outputLabel="Editable Defect draft with reproduction evidence"
               approvalLabel="Accept into form, then review before create"
-              primaryGenerateLabel={previewAiBugDraft.isPending ? "Generating draft…" : aiDraftPreview ? "Regenerate draft" : "Generate draft"}
+              primaryGenerateLabel={previewAiBugDraft.isPending ? "Generating draft…" : aiDraftMessageTone === "error" && aiDraftMessage ? "Retry draft generation" : aiDraftPreview ? "Regenerate draft" : "Generate draft"}
               primaryGenerateDisabled={!canUseAiBugDraft || !projectId || !aiIntent.trim() || previewAiBugDraft.isPending || isAiBugContextBusy || aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
               onPrimaryGenerate={() => void handlePreviewAiBugDraft()}
               onClose={closeAiBugReport}

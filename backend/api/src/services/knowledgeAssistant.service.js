@@ -42,6 +42,9 @@ const requestsSensitiveDisclosure = (value) => {
 const EXPLICITLY_OUTSIDE_DOMAIN = /\b(?:weather forecast|sports score|stock price|crypto price|investment advice|medical diagnosis|write malware|phishing email|celebrity gossip|recipe for|dating advice)\b/i;
 const ASSISTANT_TURN_TIMEOUT_MS = 90_000;
 const ANSWER_FINALIZATION_RESERVE_MS = 10_000;
+const MIN_MODEL_CALL_GAP_MS = 1_000;
+const scheduleAssistantDelay = setTimeout;
+const cancelAssistantDelay = clearTimeout;
 const answerModelTimeout = () => Math.max(0, Math.min(45_000,
   (execution.current()?.turn?.deadlineAt ?? (Date.now() + 55_000)) - Date.now() - ANSWER_FINALIZATION_RESERVE_MS));
 
@@ -59,6 +62,26 @@ const assistantRead = async (task, { timeoutMs = 5_000, code = "ASSISTANT_SETUP_
     if (/TIMEOUT|TIMED_OUT|DEADLINE_EXCEEDED/.test(error.code || "")) throw createError("The assistant read did not finish in time.", 503, code);
     throw error;
   }
+};
+
+const waitForModelCallGap = async (completedAt, minimumGapMs = MIN_MODEL_CALL_GAP_MS) => {
+  const remainingMs = Math.max(0, Number(completedAt || 0) + minimumGapMs - Date.now());
+  if (!remainingMs) return;
+  const signal = execution.current()?.signal;
+  await new Promise((resolve, reject) => {
+    let timer;
+    const stop = () => {
+      cancelAssistantDelay(timer);
+      signal?.removeEventListener("abort", stop);
+      reject(signal?.reason || Object.assign(new Error("The assistant request was cancelled."), { code: "REQUEST_ABORTED" }));
+    };
+    if (signal?.aborted) return stop();
+    timer = scheduleAssistantDelay(() => {
+      signal?.removeEventListener("abort", stop);
+      resolve();
+    }, remainingMs);
+    signal?.addEventListener("abort", stop, { once: true });
+  });
 };
 
 const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -1418,6 +1441,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     const integration = integrationResult.status === "fulfilled" ? integrationResult.value : null;
     const integrationError = integrationResult.status === "rejected" ? integrationResult.reason : null;
     let intentPlan = null;
+    let intentModelCompletedAt = 0;
     if (integration) {
       execution.emit("INTENT_ANALYSIS", "started", { message: "Understanding your intent and deciding which project information is needed." });
       try {
@@ -1442,6 +1466,8 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
         retrieval.intent_plan_error_code = modelFailureCode(error);
         execution.emit("INTENT_ANALYSIS", "failed", { error_code: retrieval.intent_plan_error_code,
           message: "The model could not refine the retrieval plan, so the assistant is using the bounded project intent rules." });
+      } finally {
+        intentModelCompletedAt = Date.now();
       }
     } else {
       execution.emit("INTENT_ANALYSIS", "completed", { message: "Understood the intent using the bounded project evidence rules." });
@@ -1472,6 +1498,8 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     } else {
       provider = integration.name || "Configured LLM";
       model = integration.model;
+      await waitForModelCallGap(intentModelCompletedAt);
+      execution.assertActive();
       execution.emit("GENERATION", "started", { message: `Working on the final answer from ${hits.length} authorized source${hits.length === 1 ? "" : "s"}.` });
       try {
         const candidate = await requestGroundedAnswer({ integration, question: sanitizedQuestion.text, hits, history,
@@ -1644,6 +1672,7 @@ module.exports = {
     requestGroundedVerification,
     requestJsonCompletion,
     requestRetrievalPlan,
+    waitForModelCallGap,
     resolveChatCompletionsUrl
   }
 };

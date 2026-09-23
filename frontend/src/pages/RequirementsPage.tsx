@@ -99,7 +99,7 @@ import { useFeatureFlags } from "../hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "../hooks/useAiPromptRegistry";
 import { api } from "../lib/api";
 import { isJiraCoreFieldRequired } from "../lib/jiraCreateMetadata";
-import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles } from "../lib/aiDesignStudio";
+import { mergeAiReferenceImagesWithinBudget, parseExternalLinks, readImageFiles, replaceTemplateContextPack } from "../lib/aiDesignStudio";
 import { buildStoryAssuranceAnalysis, mergeAssuranceReview } from "../lib/artifactAssurance";
 import { formatAuditTimestamp, resolveAuditUserLabel } from "../lib/auditDisplay";
 import { buildBugReportPath } from "../lib/bugReportNavigation";
@@ -844,8 +844,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const requirementAiSidebarResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [requirementAiMode, setRequirementAiMode] = useState<RequirementAiMode>("improve");
   const [storyAiStudioNav, setStoryAiStudioNav] = useState<StoryAiStudioNavKey>("drafts");
-  const [storyAiTemplateGuidance, setStoryAiTemplateGuidance] = useState("");
-  const [storyAiTemplateName, setStoryAiTemplateName] = useState("");
   const [requirementAiDraftCount, setRequirementAiDraftCount] = useState(3);
   const [isRequirementImpactPreviewOpen, setIsRequirementImpactPreviewOpen] = useState(false);
   const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
@@ -4479,8 +4477,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     setRequirementAiMode("improve");
     previewRequirementOptimization.reset();
     setStoryAiStudioNav("drafts");
-    setStoryAiTemplateGuidance("");
-    setStoryAiTemplateName("");
     setOptimizeRequirementIds(targetIds);
     setOptimizeContext("");
     setOptimizeExternalLinksText("");
@@ -4521,8 +4517,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     createRequirementGenerationJob.reset();
     previewRequirementCreation.reset();
     setStoryAiStudioNav("drafts");
-    setStoryAiTemplateGuidance("");
-    setStoryAiTemplateName("");
     setOptimizeRequirementIds([]);
     setOptimizeContext("");
     setOptimizeExternalLinksText("");
@@ -4645,8 +4639,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     try {
       const selectedIntegration = integrations.find((integration) => integration.id === integrationId);
       const selectedRequirementForAi = requirementAiMode === "improve" ? aiCompleteRequirementDetailQuery.data || null : null;
-      const promptGuidance = [getPrompt(requirementAiMode === "create" ? "ai.requirement.creation" : "ai.requirement.optimization"), storyAiTemplateGuidance].filter(Boolean).join("\n\n");
-      if (promptGuidance.length > 6000) throw new Error("Shorten the configured Story prompt or selected template to fit 6000 characters before generating.");
+      const promptGuidance = getPrompt(requirementAiMode === "create" ? "ai.requirement.creation" : "ai.requirement.optimization");
+      if (promptGuidance.length > 6000) throw new Error("Shorten the configured Story prompt to fit 6000 characters before generating.");
       const promptInput = {
         prompt_guidance: promptGuidance || undefined,
         integration_id: integrationId || undefined,
@@ -7544,7 +7538,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   ? "Generating…"
                   : previewRequirementOptimization.isPending || previewRequirementCreation.isPending
                     ? "Request in progress…"
-                    : requirementAiMode === "create" ? "Generate drafts" : "Complete Story"}
+                    : previewTone === "error" && previewMessage
+                      ? requirementAiMode === "create" ? "Retry Story generation" : "Retry Story completion"
+                      : requirementAiMode === "create" ? "Generate drafts" : "Complete Story"}
               integrationId={integrationId}
               integrations={integrations}
               stageEvidence={{
@@ -7619,8 +7615,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         invalidateRequirementAiDraft();
                       }}
                       onTemplateApply={(prompt, template) => {
-                        setStoryAiTemplateGuidance(prompt);
-                        setStoryAiTemplateName(template.name);
+                        setOptimizeContext(replaceTemplateContextPack(optimizeContext, prompt));
                         if (requirementAiMode === "create" && template.test_count) setRequirementAiDraftCount(Math.max(1, Math.min(6, template.test_count)));
                         invalidateRequirementAiDraft();
                       }}
@@ -7631,9 +7626,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       requirements={requirementAiMode === "improve" && activeOptimizeRequirement ? [activeOptimizeRequirement] : []}
                       showPromptEditor
                     />
-                    {storyAiTemplateName ? <FormField label={`Template: ${storyAiTemplateName}`}>
-                      <textarea aria-label="Story template guidance" disabled={isStoryAiGenerateBusy} maxLength={4000} rows={4} value={storyAiTemplateGuidance} onChange={event => { setStoryAiTemplateGuidance(event.target.value); invalidateRequirementAiDraft(); }} />
-                    </FormField> : null}
                   </StoryAiSettingsGroup>
                   <StoryAiSettingsGroup
                     description={`${requirementAiMode === "create" ? `${requirementAiDraftCount} draft${requirementAiDraftCount === 1 ? "" : "s"}` : "1 Story"} · governed provider`}

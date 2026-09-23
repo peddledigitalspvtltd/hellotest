@@ -201,7 +201,8 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.doesNotMatch(issues, /aiBugTriageSmartContext/);
   assert.match(storyStudio, /\{settingsPane\}/);
   assert.match(promptPanel, /<SmartContextWorkbench/);
-  assert.match(executions, /agentName="Smart Run Planner"[\s\S]*enableSmartContext/);
+  assert.match(executions, /label="Change intent"[\s\S]*Smart Run Drafts/);
+  assert.doesNotMatch(executions.slice(executions.indexOf("export function ExecutionCreateModal"), executions.indexOf("function CreateExecutionScheduleModal")), /agentName="Smart Run Planner"/);
   assert.doesNotMatch(sharedSteps, /<SmartContextWorkbench/);
   assert.doesNotMatch(richText, /<SmartContextWorkbench/);
   assert.doesNotMatch(testData, /<SmartContextWorkbench/);

@@ -49,6 +49,17 @@ test('applying a reviewed pack preserves exact edits and replaces old artifact/f
   assert.throws(() => design.replaceSmartContextPack('x'.repeat(18_000), edited), /Shorten/);
 });
 
+test('applying a prompt template updates visible Generation Context without discarding manual or Smart Context text', () => {
+  const smartPack = `${design.SMART_CONTEXT_START}\nReviewed Story evidence\n${design.SMART_CONTEXT_END}`;
+  const first = design.replaceTemplateContextPack(`Manual instructions\n\n${smartPack}`, 'Cover failed checkout recovery');
+  const replaced = design.replaceTemplateContextPack(first, 'Cover blocked payment retries');
+  assert.match(replaced, /Manual instructions/);
+  assert.match(replaced, /Reviewed Story evidence/);
+  assert.match(replaced, /Cover blocked payment retries/);
+  assert.doesNotMatch(replaced, /Cover failed checkout recovery/);
+  assert.equal((replaced.match(/HELLOTEST_TEMPLATE_CONTEXT_START/g) || []).length, 1);
+});
+
 test('last successful defaults ignore inactive and other-project providers while honoring overrides', () => {
   const integrations = [{ id: 'worked', name: 'Working' }, { id: 'override', name: 'Configured' }, { id: 'inactive', name: 'Retired', is_active: false }];
   const prefs = { ai_last_successful_llm: [

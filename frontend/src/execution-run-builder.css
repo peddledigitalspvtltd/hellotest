@@ -912,6 +912,18 @@
   border-radius: 6px;
 }
 
+.execution-smart-studio-modal .execution-smart-generate-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.execution-smart-studio-modal .execution-smart-generate-row .primary-button {
+  width: 100%;
+  justify-content: center;
+  border-radius: 999px;
+}
+
 .execution-smart-studio-modal .execution-smart-requirement-toolbar {
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 5px;

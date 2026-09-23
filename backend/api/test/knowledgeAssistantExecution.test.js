@@ -142,7 +142,9 @@ test("intent planning runs once before scoped project reads and grounded synthes
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://intent.invalid/v1", model: "test", config: {} }));
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
   const modelPrompts = [];
+  const modelCallTimes = [];
   context.mock.method(global, "fetch", async (_, init) => {
+    modelCallTimes.push(Date.now());
     const systemPrompt = JSON.parse(init.body).messages[0].content;
     modelPrompts.push(systemPrompt);
     const candidate = systemPrompt.includes("You plan evidence retrieval")
@@ -155,6 +157,7 @@ test("intent planning runs once before scoped project reads and grounded synthes
   assert.equal(result.assistant_message.status, "answered");
   assert.equal(modelPrompts.filter((prompt) => prompt.includes("You plan evidence retrieval")).length, 1);
   assert.equal(modelPrompts.length, 2, "one intent call and one final synthesis call are made");
+  assert.ok(modelCallTimes[1] - modelCallTimes[0] >= 950, `model calls must be paced by at least one second (${modelCallTimes[1] - modelCallTimes[0]}ms observed)`);
   assert.ok(state.liveRequests.length >= 1);
   assert.deepEqual(state.liveRequests[0].route.live_scopes.slice(0, 3), ["stories", "runs", "bugs"]);
   assert.ok(state.liveRequests[0].sourceKinds.includes("requirement"));

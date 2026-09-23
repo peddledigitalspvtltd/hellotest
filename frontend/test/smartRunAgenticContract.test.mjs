@@ -4,21 +4,21 @@ import test from "node:test";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
-test("Smart Run uses the feature-specific agentic rail and a truthful review snapshot", async () => {
+test("Smart Run uses one Test Case Generator-style context and review workspace", async () => {
   const page = await readSource("../src/pages/ExecutionsPage.tsx");
   const modalStart = page.indexOf("export function ExecutionCreateModal");
   const modalEnd = page.indexOf("function CreateExecutionScheduleModal", modalStart);
   const modal = page.slice(modalStart, modalEnd);
 
   assert.match(page, /AgenticProcessRail, AiEvidenceButton, AiEvidenceFlyout, AiFeatureComposer/);
-  assert.match(modal, /profile="smart-run"/);
-  assert.match(modal, /presentation="focused"/);
-  assert.match(modal, /processing=\{smartExecutionPreview\?\.processing\}/);
+  assert.match(modal, /Context Setup/);
+  assert.match(modal, /Smart Run Drafts/);
+  assert.match(modal, /label="Change intent"/);
+  assert.match(modal, /Retry impact plan/);
   assert.match(page, /if \(event\.target !== event\.currentTarget\) return;/);
-  assert.match(modal, /showModeSwitcher=\{false\}/);
-  assert.match(modal, /showProviderSelector=\{false\}/);
-  assert.match(modal, /<AiFeatureComposer[\s\S]*?\bembedded\b/);
-  assert.match(modal, /mode="agent"/);
+  assert.doesNotMatch(modal, /profile="smart-run"/);
+  assert.doesNotMatch(modal, /agentName="Smart Run Planner"/);
+  assert.doesNotMatch(modal, /<AiFeatureComposer/);
   assert.match(modal, /No run has been created|does not create a run/);
   assert.match(modal, /Human review required|Human selection required/);
 });

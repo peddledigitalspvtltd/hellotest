@@ -4,6 +4,8 @@ import type { Requirement } from "../types";
 export const AI_CONTEXT_PACK_LIMIT = 18_000;
 export const SMART_CONTEXT_START = "[HELLOTEST_SMART_CONTEXT_START]";
 export const SMART_CONTEXT_END = "[HELLOTEST_SMART_CONTEXT_END]";
+export const TEMPLATE_CONTEXT_START = "[HELLOTEST_TEMPLATE_CONTEXT_START]";
+export const TEMPLATE_CONTEXT_END = "[HELLOTEST_TEMPLATE_CONTEXT_END]";
 const REQUIREMENT_CONTEXT_LIMIT = 7_000;
 const KNOWLEDGE_CONTEXT_LIMIT = 6_000;
 const FILE_CONTEXT_LIMIT = 4_000;
@@ -230,6 +232,26 @@ export const replaceSmartContextPack = (current: string, smartContext: string) =
   if (result.length > AI_CONTEXT_PACK_LIMIT) {
     throw new Error("Shorten the additional instructions or reviewed context before applying Smart Context.");
   }
+  return result;
+};
+
+export const stripTemplateContextPack = (value: string) => value
+  .replace(/(?:\n\n---\n\n)?\[HELLOTEST_TEMPLATE_CONTEXT_START\][\s\S]*?\[HELLOTEST_TEMPLATE_CONTEXT_END\]/g, "")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
+
+export const replaceTemplateContextPack = (current: string, templatePrompt: string) => {
+  const base = stripTemplateContextPack(current);
+  const prompt = compactText(templatePrompt);
+  const templatePack = prompt
+    ? `${TEMPLATE_CONTEXT_START}\n${prompt}\n${TEMPLATE_CONTEXT_END}`
+    : "";
+  const result = [base, templatePack].filter(Boolean).join("\n\n---\n\n");
+
+  if (result.length > AI_CONTEXT_PACK_LIMIT) {
+    throw new Error("Shorten the Generation Context before applying this template.");
+  }
+
   return result;
 };
 

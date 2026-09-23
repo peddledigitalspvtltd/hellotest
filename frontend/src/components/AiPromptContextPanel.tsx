@@ -8,6 +8,7 @@ import {
   AI_CONTEXT_PACK_LIMIT,
   buildFileContextSection,
   buildRequirementContextSection,
+  replaceTemplateContextPack,
   replaceSmartContextPack,
   stripSmartContextPack
 } from "../lib/aiDesignStudio";
@@ -129,6 +130,23 @@ export function AiPromptContextPanel({
     }
   };
 
+  const applyTemplate = (prompt: string, template: AiPromptTemplate) => {
+    setContextMessageTone("info");
+
+    try {
+      if (onTemplateApply) {
+        onTemplateApply(prompt, template);
+      } else {
+        onAdditionalContextChange(replaceTemplateContextPack(additionalContext, prompt));
+      }
+      setActiveContextTab("text");
+      setContextMessage(`Applied “${template.name}” to Generation Context.`);
+    } catch (error) {
+      setContextMessageTone("warning");
+      setContextMessage(error instanceof Error ? error.message : "Unable to apply this template.");
+    }
+  };
+
   return (
     <section className="ai-studio-panel ai-prompt-context-panel">
       <div className="ai-prompt-context-toolbar">
@@ -166,7 +184,7 @@ export function AiPromptContextPanel({
         <AiPromptTemplatePicker
           appTypeId={appTypeId}
           disabled={disabled || isBuildingContext}
-          onApply={onTemplateApply || onAdditionalContextChange}
+          onApply={applyTemplate}
           projectId={projectId}
           scope={promptScope}
           triggerLabel="Templates"

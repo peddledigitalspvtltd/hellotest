@@ -52,6 +52,8 @@ test("Defect draft requests honor the prompt registry and preserve the bounded e
   assert.match(types, /fallback_fields: string\[\]/);
   assert.match(types, /content_omissions: Array/);
   assert.match(types, /processing: AiProcessingSnapshot/);
+  assert.match(issues, /title: candidate\.title,[\s\S]*message: candidate\.message,[\s\S]*steps_to_reproduce: candidate\.steps_to_reproduce,[\s\S]*expected_result: candidate\.expected_result,[\s\S]*actual_result: candidate\.actual_result,[\s\S]*severity: candidate\.severity,[\s\S]*priority: candidate\.priority,[\s\S]*environment: candidate\.environment,[\s\S]*build: candidate\.build,[\s\S]*labelsText: candidate\.labels\.join/);
+  assert.match(issues, /Retry draft generation/);
 });
 
 test("human edits invalidate generated Defect field evidence before acceptance", async () => {
