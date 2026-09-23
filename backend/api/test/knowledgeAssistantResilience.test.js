@@ -28,9 +28,9 @@ test("an exhausted deadline never starts another retrieval or model call", async
 test("synthesis leaves time for authorization and saving within the whole conversation deadline", async (context) => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   await execution.run({ turn: { deadlineAt: 91_000 } }, async () => {
-    assert.equal(assistant._internals.answerModelTimeout(), 45_000);
+    assert.equal(assistant._internals.answerModelTimeout(), 65_000);
     context.mock.timers.tick(60_000);
-    assert.equal(assistant._internals.answerModelTimeout(), 20_000);
+    assert.equal(assistant._internals.answerModelTimeout(), 18_000);
     context.mock.timers.tick(20_000);
     assert.equal(assistant._internals.answerModelTimeout(), 0);
   });

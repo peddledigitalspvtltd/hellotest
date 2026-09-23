@@ -252,7 +252,8 @@ test("assurance sends current draft and criteria but accepts only narratives wit
   assert.equal(prompt.split("REVIEWED_ASSURANCE_CONTEXT").length - 1, 1);
   assert.match(prompt, /"ref":"review:context"/);
   assert.equal(fixture.selections[0].usageKey, "ai.quality.story_assurance");
-  assert.equal(fixture.calls[0].policy.maxOutputTokens, 4096);
+  assert.equal(fixture.calls[0].policy.maxOutputTokens, 6144);
+  assert.equal(fixture.calls[0].policy.timeoutMs, 105000);
 });
 
 test("Test Case assurance includes linked Story acceptance and respects current Gherkin", async () => {

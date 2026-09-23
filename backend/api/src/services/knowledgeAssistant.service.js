@@ -40,13 +40,13 @@ const requestsSensitiveDisclosure = (value) => {
   return true;
 };
 const EXPLICITLY_OUTSIDE_DOMAIN = /\b(?:weather forecast|sports score|stock price|crypto price|investment advice|medical diagnosis|write malware|phishing email|celebrity gossip|recipe for|dating advice)\b/i;
-const ASSISTANT_TURN_TIMEOUT_MS = 90_000;
-const ANSWER_FINALIZATION_RESERVE_MS = 10_000;
+const ASSISTANT_TURN_TIMEOUT_MS = 120_000;
+const ANSWER_FINALIZATION_RESERVE_MS = 12_000;
 const MIN_MODEL_CALL_GAP_MS = 1_000;
 const scheduleAssistantDelay = setTimeout;
 const cancelAssistantDelay = clearTimeout;
-const answerModelTimeout = () => Math.max(0, Math.min(45_000,
-  (execution.current()?.turn?.deadlineAt ?? (Date.now() + 55_000)) - Date.now() - ANSWER_FINALIZATION_RESERVE_MS));
+const answerModelTimeout = () => Math.max(0, Math.min(65_000,
+  (execution.current()?.turn?.deadlineAt ?? (Date.now() + 77_000)) - Date.now() - ANSWER_FINALIZATION_RESERVE_MS));
 
 const createError = (message, statusCode = 400, code) => {
   const error = new Error(message);

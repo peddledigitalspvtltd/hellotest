@@ -129,7 +129,7 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await sourceDialog.getByRole("button", { name: "Close source evidence" }).click();
     await sourceDialog.waitFor({ state: "detached" });
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
-    await page.getByText("Partial retrieval · limited evidence", { exact: true }).waitFor();
+    await page.getByText("Partial evidence", { exact: true }).waitFor();
 
     await page.getByRole("button", { name: "Start a new assistant chat" }).click();
     await page.evaluate(() => { window.qa.mode = "timeout"; });

@@ -124,7 +124,7 @@ export function ArtifactAssuranceWorkspace({
           {onAnalyze ? (
             <button className="artifact-assurance-analyze-button" disabled={analysisDisabled || isAnalyzing} onClick={onAnalyze} type="button">
               <SparkIcon />
-              <span>{isAnalyzing ? "Analyzing…" : analysisSource === "local" ? "Analyze with AI" : "Refresh analysis"}</span>
+              <span>{isAnalyzing ? "Analyzing…" : analysisSource === "fallback" ? "Retry AI analysis" : analysisSource === "local" ? "Analyze with AI" : "Refresh analysis"}</span>
             </button>
           ) : null}
           {onInspectImpact ? (
@@ -135,7 +135,7 @@ export function ArtifactAssuranceWorkspace({
         </div>
       </header>
 
-      {analysisNotice ? <p className="artifact-assurance-baseline-note" role="status">AI refinement is unavailable. {analysisNotice} Live draft scores remain available.</p> : null}
+      {analysisNotice ? <p className="artifact-assurance-baseline-note" role="status"><strong>AI review was not applied.</strong> {analysisNotice}</p> : null}
       {analysisError ? <p className="artifact-assurance-error" role="alert">Analysis could not be refreshed. {analysisError}</p> : null}
       {isDraftChanged ? (
         <p className="artifact-assurance-stale" role="status">

@@ -124,7 +124,8 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
       assert.equal(await workspace.getByText('Review the unsaved checkout recovery path.', { exact: true }).count(), 0);
       await page.evaluate(() => { window.assuranceFallback = true; });
       await workspace.getByRole('button', { name: 'Analyze with AI', exact: true }).click();
-      await workspace.getByText(/AI refinement is unavailable\. Provider temporarily unavailable/).waitFor();
+      await workspace.getByText(/AI review was not applied\. Provider temporarily unavailable/).waitFor();
+      await workspace.getByRole('button', { name: 'Retry AI analysis', exact: true }).waitFor();
       assert.equal(await workspace.locator('.artifact-assurance-overall-score').getAttribute('aria-valuenow'), baseline);
       if (kind === 'story') {
         await page.getByRole('button', { name: 'AI Groom Story', exact: true }).click();

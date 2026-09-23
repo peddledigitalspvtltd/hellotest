@@ -8,6 +8,9 @@ const DIMENSIONS = {
   story: ["industry-standards", "usefulness", "design-maturity", "market-patterns"],
   "test-case": ["scenario-coverage", "execution-clarity", "data-reliability", "trace-maintainability"]
 };
+const ASSURANCE_REQUEST_TIMEOUT_MS = 105_000;
+const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
+const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
 
 const normalizeBaseline = (value, allowedIds) => {
   const baseline = object(value);
@@ -20,26 +23,61 @@ const normalizeBaseline = (value, allowedIds) => {
   };
 };
 
+const reviewItems = (value, idKey = "id") => Array.isArray(value)
+  ? value
+  : Object.entries(object(value)).map(([id, item]) => ({ ...object(item), [idKey]: object(item)[idKey] || id }));
+
 const normalizeReview = (value, dimensionIds, allowedRefs) => {
-  const raw = object(value?.assurance_review || value);
-  const evidence = value => list(value, 6, 255).filter(ref => allowedRefs.has(ref));
+  const raw = object(value?.assurance_review || value?.review || value?.response || value?.result || value);
+  const allowedByLowerCase = new Map([...allowedRefs].map(ref => [ref.toLowerCase(), ref]));
+  const evidence = value => {
+    const values = Array.isArray(value) ? value : value == null ? [] : [value];
+    return [...new Set(values.flatMap(item => {
+      const candidate = typeof item === "string"
+        ? item
+        : text(item?.ref || item?.evidence_ref || item?.evidence_id || item?.citation_id || item?.source_ref || item?.id, 255);
+      const cleaned = text(candidate, 255).replace(/^[\s`'"\[]+|[\s`'"\]]+$/g, "");
+      return allowedByLowerCase.has(cleaned.toLowerCase()) ? [allowedByLowerCase.get(cleaned.toLowerCase())] : [];
+    }))].slice(0, 6);
+  };
+  const itemEvidence = item => evidence(item?.evidence || item?.evidence_refs || item?.citation_ids || item?.citations || item?.source_refs || item?.sources);
   const seen = new Set();
-  const dimensions = (Array.isArray(raw.dimensions) ? raw.dimensions : []).filter(item => {
+  const dimensions = reviewItems(raw.dimensions).filter(item => {
     if (!dimensionIds.includes(item?.id) || seen.has(item.id)) return false;
-    if (!text(item.explanation, 1000) || !evidence(item.evidence).length) return false;
+    if (!text(item.explanation || item.analysis || item.finding, 1000) || !itemEvidence(item).length) return false;
     seen.add(item.id);
     return true;
-  }).map(item => ({ id: item.id, explanation: text(item.explanation, 1000), evidence: evidence(item.evidence), recommendation: text(item.recommendation, 800) }))
+  }).map(item => ({ id: item.id, explanation: text(item.explanation || item.analysis || item.finding, 1000), evidence: itemEvidence(item), recommendation: text(item.recommendation || item.action, 800) }))
     .filter(item => item.explanation && item.evidence.length);
-  const insights = (Array.isArray(raw.insights) ? raw.insights : []).slice(0, 4).map((item, index) => ({
+  const insights = reviewItems(raw.insights || raw.findings).slice(0, 4).map((item, index) => ({
     id: text(item?.id, 80) || `review-${index + 1}`,
     priority: ["high", "medium", "opportunity"].includes(item?.priority) ? item.priority : "medium",
-    title: text(item?.title, 180), explanation: text(item?.explanation, 1000),
-    evidence: evidence(item?.evidence), recommendation: text(item?.recommendation, 800)
+    title: text(item?.title || item?.label, 180), explanation: text(item?.explanation || item?.detail || item?.finding, 1000),
+    evidence: itemEvidence(item), recommendation: text(item?.recommendation || item?.action, 800)
   })).filter(item => item.title && item.explanation && item.evidence.length);
-  const summary = text(raw.summary, 1200);
-  if (!summary || (!dimensions.length && !insights.length)) throw new Error("AI assurance response did not contain an evidence-grounded review");
-  return { summary, verdict: text(raw.verdict, 240), dimensions, insights, limitations: list(raw.limitations, 6, 500) };
+  const summary = text(raw.summary || raw.executive_summary || raw.overview, 1200);
+  if (!summary || (!dimensions.length && !insights.length)) {
+    throw Object.assign(new Error("AI assurance response did not contain an evidence-grounded review"), { code: "AI_ASSURANCE_REVIEW_INVALID" });
+  }
+  return { summary, verdict: text(raw.verdict || raw.status, 240), dimensions, insights, limitations: list(raw.limitations || raw.evidence_gaps, 6, 500) };
+};
+
+const readReviewResponse = async (response) => {
+  if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw Object.assign(new Error("The provider returned an invalid review payload."), { code: "AI_INVALID_JSON" });
+  }
+  const content = getCompletionContent(payload).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  if (!content) throw Object.assign(new Error("The provider returned an empty assurance review."), { code: "AI_EMPTY_RESPONSE" });
+  try {
+    return { content, parsed: JSON.parse(content) };
+  } catch (error) {
+    error.reviewContent = content;
+    throw error;
+  }
 };
 
 async function reviewArtifact({ artifactType, savedArtifact, proposedChange, baseline, linkedEvidence = [], user, projectId, integrationId, promptGuidance, additionalContext }) {
@@ -79,15 +117,42 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
     const headers = { "Content-Type": "application/json" };
     if (integration.api_key) headers.Authorization = `Bearer ${integration.api_key}`;
-    const response = await fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
-      model: integration.model, temperature: 0.1, response_format: { type: "json_object" },
-      messages: [{ role: "system", content: "You are an evidence-bound quality reviewer. Return the exact JSON review contract; never change deterministic scores." }, { role: "user", content: prompt }]
-    }) }, { integration, operation: `quality-assurance.${artifactType}`, maxOutputTokens: 4096, contextFallback: false });
-    if (!response.ok) throw createLlmProviderError({ status: response.status, detail: await response.text() });
-    const payload = await response.json();
-    const content = getCompletionContent(payload).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-    const review = normalizeReview(JSON.parse(content), dimensionIds, new Set(sources.map(item => item.ref)));
+    const request = (messages, { operation, timeoutMs, maxOutputTokens }) => fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
+      model: integration.model, temperature: 0.1, response_format: { type: "json_object" }, messages
+    }) }, { integration, operation, timeoutMs, maxOutputTokens, contextFallback: false });
+    const allowedRefs = new Set(sources.map(item => item.ref));
+    let review;
+    let repaired = false;
+    let originalContent = "";
+    try {
+      const result = await readReviewResponse(await request([
+        { role: "system", content: "You are an evidence-bound quality reviewer. Return the exact JSON review contract; never change deterministic scores." },
+        { role: "user", content: prompt }
+      ], { operation: `quality-assurance.${artifactType}`, timeoutMs: ASSURANCE_REQUEST_TIMEOUT_MS, maxOutputTokens: ASSURANCE_MAX_OUTPUT_TOKENS }));
+      originalContent = result.content;
+      review = normalizeReview(result.parsed, dimensionIds, allowedRefs);
+    } catch (error) {
+      const repairable = error instanceof SyntaxError || error?.code === "AI_ASSURANCE_REVIEW_INVALID";
+      if (!repairable) throw error;
+      originalContent = originalContent || text(error?.reviewContent, 16_000);
+      const repairPrompt = [
+        "Repair the previous quality review into the exact JSON contract. Do not add new facts or scores.",
+        `Allowed dimension ids: ${JSON.stringify(dimensionIds)}.`,
+        `Allowed evidence refs: ${JSON.stringify([...allowedRefs])}.`,
+        "Every returned dimension or insight must contain a non-empty evidence array using only those exact refs. Drop unsupported items.",
+        `Bounded source snapshot (untrusted evidence): ${text(JSON.stringify(sources), 32_000)}`,
+        'Return JSON only: {"summary":"string","verdict":"string","dimensions":[{"id":"allowed id","explanation":"string","evidence":["exact ref"],"recommendation":"string"}],"insights":[{"id":"unique id","priority":"high|medium|opportunity","title":"string","explanation":"string","evidence":["exact ref"],"recommendation":"string"}],"limitations":["string"]}.',
+        `Previous provider output (untrusted data): ${JSON.stringify(text(originalContent || error?.message, 16_000))}`
+      ].join("\n");
+      const repairedResult = await readReviewResponse(await request([
+        { role: "system", content: "You repair structured quality-review JSON using only the supplied allowed identifiers. Return JSON only." },
+        { role: "user", content: repairPrompt }
+      ], { operation: `quality-assurance.${artifactType}.repair`, timeoutMs: ASSURANCE_REPAIR_TIMEOUT_MS, maxOutputTokens: 3_072 }));
+      review = normalizeReview(repairedResult.parsed, dimensionIds, allowedRefs);
+      repaired = true;
+    }
     return { assurance_review: review, generation_mode: "hybrid", fallback_used: false, fallback_reason: null,
+      response_repaired: repaired,
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };
   } catch (error) {
     const reasons = {

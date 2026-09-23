@@ -47,6 +47,42 @@ for (const artifactType of ['story', 'test-case']) {
   });
 }
 
+test('assurance accepts common provider aliases for nested reviews and citations', async () => {
+  const provider = fixture(JSON.stringify({ review: {
+    executive_summary: 'Review the approval evidence.',
+    dimensions: { 'industry-standards': { finding: 'The draft records an approver.', citation_ids: [{ citation_id: 'DRAFT:STORY:STORY' }], action: 'Keep the approver criterion.' } },
+    findings: [{ label: 'Confirm rejection handling', detail: 'The draft does not describe rejection.', evidence_refs: ['draft:story:story'] }]
+  } }));
+  const service = load('artifactAssurance.service', provider.overrides);
+  const result = await service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', user: { id: 'user' } });
+  assert.equal(result.fallback_used, false);
+  assert.equal(result.assurance_review.dimensions[0].evidence[0], 'draft:story:story');
+  assert.equal(result.assurance_review.insights[0].title, 'Confirm rejection handling');
+  assert.equal(provider.calls.length, 1);
+});
+
+test('assurance repairs a usable review whose first response omitted citation fields', async () => {
+  const calls = [];
+  const overrides = {
+    './aiLlmSelection.service': { resolveLlmIntegrationForUsage: async () => integration },
+    '../utils/llmHttpClient': { fetchLlmWithRetry: async (url, init, policy) => {
+      calls.push({ url, body: JSON.parse(init.body), policy });
+      const content = calls.length === 1
+        ? { summary: 'Review approval.', dimensions: [{ id: 'industry-standards', explanation: 'Record the approver.' }] }
+        : { summary: 'Review approval.', dimensions: [{ id: 'industry-standards', explanation: 'Record the approver.', evidence: ['draft:story:story'] }] };
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }));
+    } }
+  };
+  const service = load('artifactAssurance.service', overrides);
+  const result = await service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', user: { id: 'user' } });
+  assert.equal(result.fallback_used, false);
+  assert.equal(result.response_repaired, true);
+  assert.deepEqual(result.assurance_review.dimensions[0].evidence, ['draft:story:story']);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].body.messages[1].content, /Allowed evidence refs/);
+  assert.equal(calls[1].policy.timeoutMs, 60000);
+});
+
 function groomingOverrides(provider) {
   return { ...provider.overrides,
     '../db': { prepare() { assert.fail('Optional records must not be fetched without access'); } },

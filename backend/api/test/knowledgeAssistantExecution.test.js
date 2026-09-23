@@ -281,7 +281,7 @@ test("a late retrieval leaves a saved cited fallback instead of starting a model
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
   });
   const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => {
-    if (event.stage === "GENERATION" && event.status === "IN_PROGRESS") context.mock.timers.tick(81_000);
+    if (event.stage === "GENERATION" && event.status === "IN_PROGRESS") context.mock.timers.tick(109_000);
   } });
   assert.equal(synthesisCalls, 0);
   assert.equal(messages.length, 2);
@@ -298,7 +298,7 @@ test("the whole turn deadline bounds a stalled idempotency read and prevents lat
     ? { get: () => new Promise((resolve) => { release = resolve; }) } : prepare(sql);
   const pending = assert.rejects(assistant.respond(input), { code: "DEADLINE_EXCEEDED" });
   await new Promise((resolve) => setImmediate(resolve));
-  context.mock.timers.tick(90_000);
+  context.mock.timers.tick(120_000);
   await pending;
   release(null);
   await new Promise((resolve) => setImmediate(resolve));

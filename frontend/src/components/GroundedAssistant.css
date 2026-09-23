@@ -829,6 +829,8 @@
 .grounded-assistant-agent-status > .grounded-assistant-agent-status-icon { grid-column: 1; grid-row: 1 / span 2; }
 .grounded-assistant-stop { display: inline-flex; align-items: center; gap: 4px; grid-column: 3; grid-row: 1 / span 2; border: 1px solid var(--border-subtle); color: var(--text-primary); background: var(--surface, white); border-radius: 6px; padding: 6px 8px; cursor: pointer; font: inherit; }
 .knowledge-validated-answer { display: grid; gap: 12px; min-width: 0; }
+.knowledge-answer-response { display: grid; gap: 9px; min-width: 0; }
+.knowledge-answer-response > h3 { margin: 0; color: var(--text-primary); font-size: 13px; }
 .knowledge-answer-summary { margin: 0; line-height: 1.6; }
 .knowledge-answer-claims { display: grid; gap: 9px; margin: 0; padding-left: 18px; }
 .knowledge-answer-claims li { line-height: 1.6; }
@@ -836,9 +838,11 @@
 .knowledge-claim-citations { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 5px; }
 .knowledge-claim-citations a, .knowledge-claim-citations button { border: 0; padding: 0 2px; background: transparent; color: var(--accent, #4f46e5); font: inherit; font-size: 11px; font-weight: 600; text-decoration: none; cursor: pointer; }
 .knowledge-claim-citations a:hover, .knowledge-claim-citations button:hover { text-decoration: underline; }
-.knowledge-answer-limit, .knowledge-answer-limitations { border-left: 3px solid var(--warning, #b7791f); padding: 7px 10px; background: color-mix(in srgb, var(--warning, #b7791f) 7%, transparent); font-size: 12px; }
-.knowledge-answer-limit { display: grid; gap: 4px; }
-.knowledge-answer-limitations ul { padding-left: 17px; margin: 5px 0 0; }
+.knowledge-answer-limit { display: flex; flex-wrap: wrap; gap: 3px 6px; color: var(--text-secondary); font-size: 10px; line-height: 1.35; }
+.knowledge-answer-limit strong { color: var(--warning, #8a5a00); }
+.knowledge-answer-limitations { color: var(--text-secondary); font-size: 10px; }
+.knowledge-answer-limitations summary { width: max-content; cursor: pointer; font-weight: 650; }
+.knowledge-answer-limitations ul { padding-left: 16px; margin: 5px 0 0; }
 .knowledge-answer-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid var(--border-subtle); border-radius: 7px; }
 .knowledge-answer-table-scroll table { border-collapse: collapse; width: 100%; font-size: 12px; }
 .knowledge-answer-table-scroll th, .knowledge-answer-table-scroll td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }
