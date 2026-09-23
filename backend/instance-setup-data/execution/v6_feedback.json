@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-defect-health",
+      "display_id": "HT6-B1",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Release health hides QA Done denominator",
+      "message": "SYNTHETIC SAMPLE: Release health hides QA Done denominator. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT Core, run HT Core acceptance, and inspect Verify separate Dev Done and QA Done metrics.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored open example records the described traceability gap.",
+      "severity": "critical",
+      "priority": "Highest",
+      "environment": "Web QA",
+      "build": "6.0-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-core",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-delivery"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-core"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-core"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-delivery"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "health"
+      ],
+      "sprint": "Core S1",
+      "fix_version": "6.0",
+      "release": "HT Core",
+      "root_cause": "Implementation contract",
+      "qa_root_cause": "Regression coverage gap",
+      "bug_type": "regression",
+      "regression": true,
+      "retest_result": "pending",
+      "status": "open",
+      "created_at": "2026-09-21T11:00:00.000Z",
+      "updated_at": "2026-09-21T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-defect-scope",
+      "display_id": "HT6-B2",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Shared parameter preview shows the wrong scope",
+      "message": "SYNTHETIC SAMPLE: Shared parameter preview shows the wrong scope. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT Core, run HT Core acceptance, and inspect Verify parameter precedence across all scopes.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored deferred example records the described traceability gap.",
+      "severity": "low",
+      "priority": "Lowest",
+      "environment": "Web QA",
+      "build": "6.0-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-core",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-data"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-core"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-core"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-data"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "scope"
+      ],
+      "sprint": "Core S1",
+      "fix_version": "6.0",
+      "release": "HT Core",
+      "root_cause": "Test data or UI contract",
+      "qa_root_cause": "Scenario or traceability gap",
+      "bug_type": "functional",
+      "regression": false,
+      "retest_result": "deferred",
+      "status": "deferred",
+      "created_at": "2026-09-21T11:01:00.000Z",
+      "updated_at": "2026-09-21T12:01:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-defect-citation",
+      "display_id": "HT6-B3",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Assurance citation alias is rejected",
+      "message": "SYNTHETIC SAMPLE: Assurance citation alias is rejected. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT AI, run HT AI contract run, and inspect Verify Assurance accepts cited structured reviews.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored triaged example records the described traceability gap.",
+      "severity": "high",
+      "priority": "High",
+      "environment": "AI API QA",
+      "build": "6.1-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-ai",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-assurance"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-ai"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-ai"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-assurance"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "citation"
+      ],
+      "sprint": "AI S2",
+      "fix_version": "6.1",
+      "release": "HT AI",
+      "root_cause": "Implementation contract",
+      "qa_root_cause": "Scenario or traceability gap",
+      "bug_type": "regression",
+      "regression": true,
+      "retest_result": "pending",
+      "status": "triaged",
+      "created_at": "2026-09-21T11:02:00.000Z",
+      "updated_at": "2026-09-21T12:02:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-defect-answer",
+      "display_id": "HT6-B4",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Ask AI response panel omits readable findings",
+      "message": "SYNTHETIC SAMPLE: Ask AI response panel omits readable findings. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT AI, run HT AI contract run, and inspect Verify Ask AI renders a readable cited response.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored in_progress example records the described traceability gap.",
+      "severity": "medium",
+      "priority": "Medium",
+      "environment": "AI API QA",
+      "build": "6.1-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-ai",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-assistant"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-ai"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-ai"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-assistant"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "answer"
+      ],
+      "sprint": "AI S2",
+      "fix_version": "6.1",
+      "release": "HT AI",
+      "root_cause": "Test data or UI contract",
+      "qa_root_cause": "Regression coverage gap",
+      "bug_type": "functional",
+      "regression": false,
+      "retest_result": "pending",
+      "status": "in_progress",
+      "created_at": "2026-09-21T11:03:00.000Z",
+      "updated_at": "2026-09-21T12:03:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-defect-trace",
+      "display_id": "HT6-B5",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Failed run does not expose the linked Story",
+      "message": "SYNTHETIC SAMPLE: Failed run does not expose the linked Story. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT Ops, run HT Ops regression, and inspect Verify Defect traceability from failed run evidence.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored resolved example records the described traceability gap.",
+      "severity": "high",
+      "priority": "High",
+      "environment": "Mobile QA",
+      "build": "6.2-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-ops",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-traceability"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-ops"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-ops"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-traceability"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "trace"
+      ],
+      "sprint": "Ops S3",
+      "fix_version": "6.2",
+      "release": "HT Ops",
+      "root_cause": "Implementation contract",
+      "qa_root_cause": "Scenario or traceability gap",
+      "bug_type": "regression",
+      "regression": true,
+      "retest_result": "passed",
+      "status": "resolved",
+      "created_at": "2026-09-21T11:04:00.000Z",
+      "updated_at": "2026-09-21T12:04:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-defect-schedule",
+      "display_id": "HT6-B6",
+      "project_id": "sample-project",
+      "user_id": "__SETUP_ACTOR_ID__",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "title": "Scheduled retry retains an expired lease message",
+      "message": "SYNTHETIC SAMPLE: Scheduled retry retains an expired lease message. This record demonstrates linked run evidence and does not claim a production failure.",
+      "steps_to_reproduce": "Open HT Ops, run HT Ops regression, and inspect Verify a scheduled suite preserves its context.",
+      "expected_result": "The HelloTest result and all linked records are readable from the Defect.",
+      "actual_result": "The authored verified example records the described traceability gap.",
+      "severity": "low",
+      "priority": "Low",
+      "environment": "Mobile QA",
+      "build": "6.2-rc1",
+      "linked_test_run_id": "sample-v6-ht-run-ops",
+      "linked_test_case_ids": [
+        "sample-v6-ht-case-schedule"
+      ],
+      "linked_test_suite_ids": [
+        "sample-v6-ht-suite-ops"
+      ],
+      "linked_module_ids": [
+        "sample-v6-ht-module-ops"
+      ],
+      "linked_requirement_ids": [
+        "sample-v6-ht-story-schedule"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "schedule"
+      ],
+      "sprint": "Ops S3",
+      "fix_version": "6.2",
+      "release": "HT Ops",
+      "root_cause": "Test data or UI contract",
+      "qa_root_cause": "Scenario or traceability gap",
+      "bug_type": "functional",
+      "regression": false,
+      "retest_result": "passed",
+      "status": "verified",
+      "created_at": "2026-09-21T11:05:00.000Z",
+      "updated_at": "2026-09-21T12:05:00.000Z"
+    }
+  ]
+}

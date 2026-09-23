@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-release-core",
+      "display_id": "HT6-RL1",
+      "project_id": "sample-project",
+      "name": "HT Core",
+      "description": "Short HelloTest HT Core milestone with connected sample evidence.",
+      "fix_version": "6.0",
+      "target_date_label": "2026-09-14",
+      "plan_date": "2026-09-01T09:00:00.000Z",
+      "target_date": "2026-09-14T18:00:00.000Z",
+      "state": "released",
+      "sprint_ids": [
+        "sample-v6-ht-sprint-core"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-release-ai",
+      "display_id": "HT6-RL2",
+      "project_id": "sample-project",
+      "name": "HT AI",
+      "description": "Short HelloTest HT AI milestone with connected sample evidence.",
+      "fix_version": "6.1",
+      "target_date_label": "2026-09-28",
+      "plan_date": "2026-09-01T09:00:00.000Z",
+      "target_date": "2026-09-28T18:00:00.000Z",
+      "state": "in_progress",
+      "sprint_ids": [
+        "sample-v6-ht-sprint-ai"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-release-ops",
+      "display_id": "HT6-RL3",
+      "project_id": "sample-project",
+      "name": "HT Ops",
+      "description": "Short HelloTest HT Ops milestone with connected sample evidence.",
+      "fix_version": "6.2",
+      "target_date_label": "2026-10-12",
+      "plan_date": "2026-09-01T09:00:00.000Z",
+      "target_date": "2026-10-12T18:00:00.000Z",
+      "state": "planned",
+      "sprint_ids": [
+        "sample-v6-ht-sprint-ops"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Module sample data
 
-Administration → Instance setup provides 13 selectable groups. Version 5 reads 539 content records and seven conservatively managed role presets from 80 committed object files in [`backend/instance-setup-data`](../backend/instance-setup-data/README.md). It combines a source-reviewed HelloTest feature backlog with synthetic Commerce Launchpad examples across Customer Portal, Commerce API and Mobile Experience.
+Administration → Instance setup provides 13 selectable groups. Version 6 reads 715 content records and seven conservatively managed role presets from 105 committed object files in [`backend/instance-setup-data`](../backend/instance-setup-data/README.md). It combines a source-reviewed HelloTest feature backlog with connected HelloTest and synthetic Commerce Launchpad examples across Web, API and Mobile applications.
 
 Choose Full product, People & access, QA essentials or AI & automation, or search and select individual modules. The preview includes dependencies, missing-record counts, project description, application scopes and membership behavior. Installation requires a workspace administrator. Disabled feature flags remain disabled.
 
@@ -28,11 +28,11 @@ The reviewed setup role definitions and permission codes live in `backend/instan
 | --- | ---: | --- |
 | Workspace roles | 7 presets | Product Owner, QA Lead, QA Member, Automation Engineer, AI Engineer, Reporter, Viewer |
 | Projects & applications | 4 | Project scope, Application selection, Administrator access |
-| Stories, sprints & releases | 176 | HelloTest acceptance backlog, active and future sprints, release scope, dependencies, acceptance criteria, connected commerce examples |
-| Test design & shared steps | 144 | Modules, Suites, Gherkin steps, Preconditions, Parameters, Shared groups, Story traceability, Version history |
-| Environments, data & configuration | 17 | Environments, Configuration profiles, Data rows, Case data links, Parameter overrides |
+| Stories, sprints & releases | 198 | HelloTest acceptance backlog, short Sprint and Release plans, Dev Done and QA Done milestones, dependencies and acceptance criteria |
+| Test design & shared steps | 220 | Modules, Suites, Gherkin steps, Preconditions, Parameters, Shared groups, Story traceability, Version history |
+| Environments, data & configuration | 31 | Environments, Configuration profiles, matching Data rows, Case data links, Parameter overrides |
 | Defects & collaboration | 31 | Root causes, Defect history, Comments, Case and story links, Convert to test case |
-| Runs & case execution | 96 | Suite runs, Case results, Step snapshots, Run context, Data iterations, Duration, Defect evidence, Lifecycle history |
+| Runs & case execution | 160 | Multiple Suite runs, mixed Case results, Step snapshots, frozen context, Data iterations, Defect evidence and Lifecycle history |
 | Knowledge repository | 34 | Collections, sources, documents, lexical retrieval, case links, authored HelloTest feature reference and Ask AI context |
 | Object repository & API tests | 7 | Object screens, Field locators, API requests, Assertions, Automation links, Mobile selectors |
 | Agents & prompt templates | 6 | Workflow canvas, Specialist selection, Manual triggers, Review outputs, Prompt templates |
@@ -71,7 +71,7 @@ Restarting the API preserves the job and checkpoints; the next worker resumes th
 ## Installation guarantees
 
 - Modules form an explicit dependency graph. Empty, malformed and unknown selections are rejected. An omitted selection installs all modules.
-- Inserts use authored, deterministic versioned identities and preserve existing content. Version 5 retains existing project/application anchors and earlier commerce/feature examples, including the separately identified relational metric examples. It never appends new outcomes to a legacy demo run.
+- Inserts use authored, deterministic versioned identities and preserve existing content. Version 6 retains existing project/application anchors and earlier commerce/feature examples, including the separately identified relational metric examples. It never appends new outcomes to a legacy demo run.
 - Workspace creation uses the canonical detailed project description and application definitions. All active workspace administrators receive missing Admin memberships, including the installing administrator. Workspace administrator status follows the same account flag used by authentication; suspended accounts and users who only hold an Admin role within another project are excluded. Existing project descriptions, application edits, member roles and custom grants remain unchanged. Repeat setup adds newly eligible administrators without replacing existing memberships. Roles-only installation remains project-free.
 - Files use bounded inserts in separate transactions, with durable progress and final verification/audit before success. One failed file does not erase earlier committed files; its own partial inserts roll back.
 - Counts come from exact sample keys in the database. Deleting a sample makes the module partial; reinstalling restores missing records without resetting edits. Conflicting record ownership fails setup without overwriting the conflicting row.
@@ -93,6 +93,8 @@ The browser test frontend/test/browser/adminSampleData.test.mjs runs against ADM
 The retained metric walkthrough is separate from the source-reviewed feature backlog. It includes six synthetic Stories (including distinct Dev Done/QA Done and covered/uncovered backlog examples), six Test Cases, a native Sprint/Release-linked run with passed/failed/blocked/skipped outcomes, two linked Defects, and explicit synthetic readiness reviews. Traceability, Delivery and Defect Triage dashboards each contain eight joined widgets. Every sample entity that supports display IDs supplies a stable short ID; repeated setup leaves existing IDs and edits untouched. No historical backlog completion is invented: the normal database history records setup additions from installation time.
 
 Version 5 also includes a separate data-inheritance walkthrough with four datasets, a shared group linked to one row, a suite, two cases and a two-row frozen run. One case is pending review. Explicit case/suite/run override policies illustrate protected shared defaults and permitted higher-level overrides. A failed shared step links directly to an open Defect through saved step evidence. These records have distinct versioned IDs and do not change earlier examples.
+
+Version 6 adds a connected HelloTest delivery walkthrough. `Core S1`, `AI S2` and `Ops S3` map to `HT Core`, `HT AI` and `HT Ops`, using short versions `6.0`, `6.1` and `6.2`. Eight Stories cover priorities P1–P5 and include Dev Done and QA Done outcomes with ownership, estimates, targets, labels and acceptance metadata. Three modules and suites reuse shared precondition groups across eight parameterized cases. Their environments, configurations and datasets use matching parameter names and are frozen into three runs. Passed, failed, blocked and skipped results feed six Defects with varied severity, priority and status. Each Defect links to its Story, module, suite, case and run, while native Story/case and Defect relation tables preserve traceability.
 
 A new unassigned user receives the HelloTest setup project on verified signup or first login using the existing member role. Existing project assignments and customized role permissions are retained. First-login assignment and the login timestamp commit together, so a transient failure remains retryable. Suspended users and projects being deleted are excluded. An unrelated private project is never selected as a fallback.
 

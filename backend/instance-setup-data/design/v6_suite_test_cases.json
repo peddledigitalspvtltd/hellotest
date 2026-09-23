@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "suite_id": "sample-v6-ht-suite-core",
+      "test_case_id": "sample-v6-ht-case-access",
+      "sort_order": 1
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-core",
+      "test_case_id": "sample-v6-ht-case-delivery",
+      "sort_order": 2
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-core",
+      "test_case_id": "sample-v6-ht-case-data",
+      "sort_order": 3
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-ai",
+      "test_case_id": "sample-v6-ht-case-assurance",
+      "sort_order": 4
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-ai",
+      "test_case_id": "sample-v6-ht-case-assistant",
+      "sort_order": 5
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-ops",
+      "test_case_id": "sample-v6-ht-case-smart-run",
+      "sort_order": 6
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-ops",
+      "test_case_id": "sample-v6-ht-case-traceability",
+      "sort_order": 7
+    },
+    {
+      "suite_id": "sample-v6-ht-suite-ops",
+      "test_case_id": "sample-v6-ht-case-schedule",
+      "sort_order": 8
+    }
+  ]
+}

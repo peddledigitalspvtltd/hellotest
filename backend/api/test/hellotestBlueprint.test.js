@@ -104,7 +104,7 @@ test('new acceptance stories do not claim completion or fabricated execution cov
   assert.equal(rows('requirement_test_cases').filter(item => ids.has(item.requirement_id)).length, 0);
   assert.equal(rows('test_cases').filter(item => ids.has(item.requirement_id)).length, 0);
   assert.equal(rows('requirements').filter(item => item.id.startsWith('sample-v2-')).length, 6, 'Retain the independent legacy commerce story set');
-  assert.ok(rows('executions').every(item => item.id.startsWith('sample-v2-') || item.id.startsWith('sample-v4-metrics-') || item.id.startsWith('sample-v5-data-')), 'Only explicitly labeled synthetic examples create sample runs; feature blueprint authoring remains unexecuted');
+  assert.ok(rows('executions').every(item => item.id.startsWith('sample-v2-') || item.id.startsWith('sample-v4-metrics-') || item.id.startsWith('sample-v5-data-') || item.id.startsWith('sample-v6-ht-')), 'Only explicitly labeled synthetic examples create sample runs; source blueprint authoring remains unexecuted');
 });
 
 test('portable artifacts match installed content and lexical knowledge keeps exact document offsets and ACL', () => {

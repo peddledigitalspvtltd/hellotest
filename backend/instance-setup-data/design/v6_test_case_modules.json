@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-module-core",
+      "display_id": "HT6-M1",
+      "app_type_id": "sample-app-web",
+      "name": "Core delivery",
+      "description": "HelloTest core delivery cases with connected Story, suite, run and Defect evidence.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-module-ai",
+      "display_id": "HT6-M2",
+      "app_type_id": "sample-app-api",
+      "name": "AI contracts",
+      "description": "HelloTest ai contracts cases with connected Story, suite, run and Defect evidence.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-module-ops",
+      "display_id": "HT6-M3",
+      "app_type_id": "sample-app-mobile",
+      "name": "Run operations",
+      "description": "HelloTest run operations cases with connected Story, suite, run and Defect evidence.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "requirement_id": "sample-v6-ht-story-access",
+      "test_case_id": "sample-v6-ht-case-access"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-delivery",
+      "test_case_id": "sample-v6-ht-case-delivery"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-data",
+      "test_case_id": "sample-v6-ht-case-data"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-assurance",
+      "test_case_id": "sample-v6-ht-case-assurance"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-assistant",
+      "test_case_id": "sample-v6-ht-case-assistant"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-smart-run",
+      "test_case_id": "sample-v6-ht-case-smart-run"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-traceability",
+      "test_case_id": "sample-v6-ht-case-traceability"
+    },
+    {
+      "requirement_id": "sample-v6-ht-story-schedule",
+      "test_case_id": "sample-v6-ht-case-schedule"
+    }
+  ]
+}

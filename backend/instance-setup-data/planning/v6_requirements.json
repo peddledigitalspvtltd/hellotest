@@ -1,0 +1,405 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-story-access",
+      "display_id": "HT6-ST1",
+      "project_id": "sample-project",
+      "title": "Provision project access for active workspace administrators",
+      "description": "As a Workspace user, I want to provision project access for active workspace administrators so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "qa_done",
+      "priority": 1,
+      "iteration_id": "sample-v6-ht-sprint-core",
+      "sprint": "Core S1",
+      "release": "HT Core",
+      "fix_version": "6.0",
+      "dev_completion_target_date": "2026-09-12T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Workspace",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "access"
+      ],
+      "external_references": [
+        "HT-FEATURE-01"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Provision project access for active workspace administrators\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Workspace user When provision project access for active workspace administrators Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Workspace user When provision project access for active workspace administrators Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "access",
+        "effort_story_points": 3,
+        "acceptance_criteria": [
+          "Given an authorized Workspace user When provision project access for active workspace administrators Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Workspace",
+        "risk": "high"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-delivery",
+      "display_id": "HT6-ST2",
+      "project_id": "sample-project",
+      "title": "Show Dev Done and QA Done delivery health",
+      "description": "As a Planning user, I want to show dev done and qa done delivery health so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "dev_done",
+      "priority": 2,
+      "iteration_id": "sample-v6-ht-sprint-core",
+      "sprint": "Core S1",
+      "release": "HT Core",
+      "fix_version": "6.0",
+      "dev_completion_target_date": "2026-09-12T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Planning",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "delivery"
+      ],
+      "external_references": [
+        "HT-FEATURE-02"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Show Dev Done and QA Done delivery health\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Planning user When show dev done and qa done delivery health Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Planning user When show dev done and qa done delivery health Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "delivery",
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given an authorized Planning user When show dev done and qa done delivery health Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Planning",
+        "risk": "high"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:01:00.000Z",
+      "updated_at": "2026-09-21T09:01:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-data",
+      "display_id": "HT6-ST3",
+      "project_id": "sample-project",
+      "title": "Resolve shared, case, suite and run parameters predictably",
+      "description": "As a Test Design user, I want to resolve shared, case, suite and run parameters predictably so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "dev_in_progress",
+      "priority": 4,
+      "iteration_id": "sample-v6-ht-sprint-core",
+      "sprint": "Core S1",
+      "release": "HT Core",
+      "fix_version": "6.0",
+      "dev_completion_target_date": "2026-09-12T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Test Design",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "data"
+      ],
+      "external_references": [
+        "HT-FEATURE-03"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Resolve shared, case, suite and run parameters predictably\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Test Design user When resolve shared, case, suite and run parameters predictably Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Test Design user When resolve shared, case, suite and run parameters predictably Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "data",
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given an authorized Test Design user When resolve shared, case, suite and run parameters predictably Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Test Design",
+        "risk": "medium"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:02:00.000Z",
+      "updated_at": "2026-09-21T09:02:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-assurance",
+      "display_id": "HT6-ST4",
+      "project_id": "sample-project",
+      "title": "Return cited Story and Test Case Assurance reviews",
+      "description": "As a AI Quality user, I want to return cited story and test case assurance reviews so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "qa_in_progress",
+      "priority": 1,
+      "iteration_id": "sample-v6-ht-sprint-ai",
+      "sprint": "AI S2",
+      "release": "HT AI",
+      "fix_version": "6.1",
+      "dev_completion_target_date": "2026-09-26T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-28T18:00:00.000Z",
+      "scrum_team": "HelloTest AI Quality",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "assurance"
+      ],
+      "external_references": [
+        "HT-FEATURE-04"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Return cited Story and Test Case Assurance reviews\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized AI Quality user When return cited story and test case assurance reviews Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized AI Quality user When return cited story and test case assurance reviews Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "assurance",
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given an authorized AI Quality user When return cited story and test case assurance reviews Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "AI Quality",
+        "risk": "medium"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:03:00.000Z",
+      "updated_at": "2026-09-21T09:03:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-assistant",
+      "display_id": "HT6-ST5",
+      "project_id": "sample-project",
+      "title": "Answer project questions with readable cited evidence",
+      "description": "As a AI Quality user, I want to answer project questions with readable cited evidence so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "qa_blocked",
+      "priority": 2,
+      "iteration_id": "sample-v6-ht-sprint-ai",
+      "sprint": "AI S2",
+      "release": "HT AI",
+      "fix_version": "6.1",
+      "dev_completion_target_date": "2026-09-26T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-28T18:00:00.000Z",
+      "scrum_team": "HelloTest AI Quality",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "assistant"
+      ],
+      "external_references": [
+        "HT-FEATURE-05"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Answer project questions with readable cited evidence\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized AI Quality user When answer project questions with readable cited evidence Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized AI Quality user When answer project questions with readable cited evidence Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "assistant",
+        "effort_story_points": 8,
+        "acceptance_criteria": [
+          "Given an authorized AI Quality user When answer project questions with readable cited evidence Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "AI Quality",
+        "risk": "medium"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:04:00.000Z",
+      "updated_at": "2026-09-21T09:04:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-smart-run",
+      "display_id": "HT6-ST6",
+      "project_id": "sample-project",
+      "title": "Select risk-based Smart Run coverage with evidence",
+      "description": "As a Test Operations user, I want to select risk-based smart run coverage with evidence so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "dev_done",
+      "priority": 3,
+      "iteration_id": "sample-v6-ht-sprint-ops",
+      "sprint": "Ops S3",
+      "release": "HT Ops",
+      "fix_version": "6.2",
+      "dev_completion_target_date": "2026-10-10T18:00:00.000Z",
+      "qa_completion_target_date": "2026-10-12T18:00:00.000Z",
+      "scrum_team": "HelloTest Test Operations",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "smart-run"
+      ],
+      "external_references": [
+        "HT-FEATURE-06"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Select risk-based Smart Run coverage with evidence\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Test Operations user When select risk-based smart run coverage with evidence Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Test Operations user When select risk-based smart run coverage with evidence Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "smart-run",
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given an authorized Test Operations user When select risk-based smart run coverage with evidence Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Test Operations",
+        "risk": "medium"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:05:00.000Z",
+      "updated_at": "2026-09-21T09:05:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-traceability",
+      "display_id": "HT6-ST7",
+      "project_id": "sample-project",
+      "title": "Trace Defects across Stories, modules, suites, cases and runs",
+      "description": "As a Test Operations user, I want to trace defects across stories, modules, suites, cases and runs so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "qa_done",
+      "priority": 1,
+      "iteration_id": "sample-v6-ht-sprint-ops",
+      "sprint": "Ops S3",
+      "release": "HT Ops",
+      "fix_version": "6.2",
+      "dev_completion_target_date": "2026-10-10T18:00:00.000Z",
+      "qa_completion_target_date": "2026-10-12T18:00:00.000Z",
+      "scrum_team": "HelloTest Test Operations",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "traceability"
+      ],
+      "external_references": [
+        "HT-FEATURE-07"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Trace Defects across Stories, modules, suites, cases and runs\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Test Operations user When trace defects across stories, modules, suites, cases and runs Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Test Operations user When trace defects across stories, modules, suites, cases and runs Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "traceability",
+        "effort_story_points": 5,
+        "acceptance_criteria": [
+          "Given an authorized Test Operations user When trace defects across stories, modules, suites, cases and runs Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Test Operations",
+        "risk": "low"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:06:00.000Z",
+      "updated_at": "2026-09-21T09:06:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-story-schedule",
+      "display_id": "HT6-ST8",
+      "project_id": "sample-project",
+      "title": "Run scheduled suites with frozen execution context",
+      "description": "As a Test Operations user, I want to run scheduled suites with frozen execution context so that delivery decisions use connected HelloTest evidence.\n\nThis reviewed synthetic Story includes explicit ownership, delivery targets, acceptance criteria, labels, priority and traceability metadata.",
+      "status": "dev_ready",
+      "priority": 5,
+      "iteration_id": "sample-v6-ht-sprint-ops",
+      "sprint": "Ops S3",
+      "release": "HT Ops",
+      "fix_version": "6.2",
+      "dev_completion_target_date": "2026-10-10T18:00:00.000Z",
+      "qa_completion_target_date": "2026-10-12T18:00:00.000Z",
+      "scrum_team": "HelloTest Test Operations",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "schedule"
+      ],
+      "external_references": [
+        "HT-FEATURE-08"
+      ],
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Run scheduled suites with frozen execution context\n  Background:\n    Given an active HelloTest project membership\n  Scenario: Connected acceptance path\n    Given an authorized Test Operations user When run scheduled suites with frozen execution context Then the saved HelloTest scope and outcome remain traceable.\n  Scenario: Scope boundary\n    Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included.",
+      "gherkin_scenarios": [
+        "Given an authorized Test Operations user When run scheduled suites with frozen execution context Then the saved HelloTest scope and outcome remain traceable.",
+        "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+      ],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "feature_key": "schedule",
+        "effort_story_points": 3,
+        "acceptance_criteria": [
+          "Given an authorized Test Operations user When run scheduled suites with frozen execution context Then the saved HelloTest scope and outcome remain traceable.",
+          "Given project-scoped data When the workflow completes Then unrelated projects and credentials are never included."
+        ],
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__",
+        "product_area": "Test Operations",
+        "risk": "low"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:07:00.000Z",
+      "updated_at": "2026-09-21T09:07:00.000Z"
+    }
+  ]
+}

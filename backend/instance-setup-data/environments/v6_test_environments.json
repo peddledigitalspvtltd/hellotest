@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-env-core",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Web QA",
+      "description": "Synthetic Web QA target for connected HelloTest setup data.",
+      "base_url": "https://web.qa.example.test",
+      "browser": "Chrome",
+      "notes": "Synthetic endpoint only; replace before real execution.",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://web.qa.example.test"
+        },
+        {
+          "key": "region",
+          "value": "us-east"
+        },
+        {
+          "key": "tenant",
+          "value": "hellotest-demo"
+        }
+      ],
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-env-ai",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-api",
+      "name": "AI API QA",
+      "description": "Synthetic AI API QA target for connected HelloTest setup data.",
+      "base_url": "https://api.qa.example.test",
+      "browser": null,
+      "notes": "Synthetic endpoint only; replace before real execution.",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://api.qa.example.test"
+        },
+        {
+          "key": "region",
+          "value": "us-east"
+        },
+        {
+          "key": "contract",
+          "value": "json-citations-v1"
+        }
+      ],
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-env-ops",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-mobile",
+      "name": "Mobile QA",
+      "description": "Synthetic Mobile QA target for connected HelloTest setup data.",
+      "base_url": "https://mobile.qa.example.test",
+      "browser": null,
+      "notes": "Synthetic endpoint only; replace before real execution.",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://mobile.qa.example.test"
+        },
+        {
+          "key": "region",
+          "value": "eu-west"
+        },
+        {
+          "key": "network_profile",
+          "value": "controlled"
+        }
+      ],
+      "created_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

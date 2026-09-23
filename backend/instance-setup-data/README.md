@@ -4,9 +4,9 @@ This directory is the reviewed, repository-owned source for the Admin **Instance
 setup → Module sample data** installer. Installation reads these files; it does
 not generate Stories, shift dates, call an LLM, or invent replacement content.
 
-`manifest.json` identifies dataset `hellotest-instance-v1`, version 5. It lists
+`manifest.json` identifies dataset `hellotest-instance-v1`, version 6. It lists
 the selectable modules and each object file in dependency order. The dataset
-contains 539 relational records and 7 workspace role presets across 80 files.
+contains 715 relational records and 7 workspace role presets across 105 files.
 The authored calendar starts at **2026-09-20T09:00:00.000Z**. Fixed dates are
 intentional: time-window metrics reflect the saved dates as these examples age.
 
@@ -45,6 +45,16 @@ has a synthetic failed shared step linked directly to an open Defect through
 `execution_results.step_defects`, and its second row passes. The four dataset
 parents live in the design module so selecting test design never introduces
 a circular dependency with the environments module.
+
+The `v6_*.json` files add a cohesive HelloTest walkthrough with short Sprint
+names (`Core S1`, `AI S2`, `Ops S3`), short Release names (`HT Core`, `HT AI`,
+`HT Ops`) and short versions (`6.0`, `6.1`, `6.2`). Eight Stories cover every
+priority from P1 through P5 and include Dev Done, QA Done, active and blocked
+delivery states. Three application-scoped modules, suites, shared precondition
+groups, environments, configurations, matching datasets and runs retain their
+links through frozen snapshots. The eight results deliberately include passed,
+failed, blocked and skipped outcomes. Six Defects span severity, priority and
+workflow states and link to their Story, module, suite, case and exact run.
 
 Execution results, readiness reviews and activity records are clearly marked
 as **synthetic examples**. Installation does not claim real code reviews,

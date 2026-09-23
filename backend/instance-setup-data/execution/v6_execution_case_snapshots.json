@@ -1,0 +1,573 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-access",
+      "test_case_title": "Verify active administrators become project members",
+      "test_case_description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-1"
+      ],
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "module_id": "sample-v6-ht-module-core",
+      "module_name": "Core delivery",
+      "priority": 1,
+      "status": "ready",
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "parameter_template_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "suite_parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "suite_parameter_template_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-core",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Core member inputs",
+        "description": "Synthetic core member inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "admin_email",
+          "member_email",
+          "project_name",
+          "browser"
+        ],
+        "rows": [
+          {
+            "admin_email": "admin@example.test",
+            "member_email": "qa.member@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Chrome"
+          },
+          {
+            "admin_email": "owner@example.test",
+            "member_email": "developer@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Firefox"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 1,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-delivery",
+      "test_case_title": "Verify separate Dev Done and QA Done metrics",
+      "test_case_description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-2"
+      ],
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "module_id": "sample-v6-ht-module-core",
+      "module_name": "Core delivery",
+      "priority": 2,
+      "status": "ready",
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "parameter_template_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "suite_parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "suite_parameter_template_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-core",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Core member inputs",
+        "description": "Synthetic core member inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "admin_email",
+          "member_email",
+          "project_name",
+          "browser"
+        ],
+        "rows": [
+          {
+            "admin_email": "admin@example.test",
+            "member_email": "qa.member@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Chrome"
+          },
+          {
+            "admin_email": "owner@example.test",
+            "member_email": "developer@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Firefox"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 2,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-data",
+      "test_case_title": "Verify parameter precedence across all scopes",
+      "test_case_description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-3"
+      ],
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "module_id": "sample-v6-ht-module-core",
+      "module_name": "Core delivery",
+      "priority": 4,
+      "status": "ready",
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "parameter_template_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "suite_parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "suite_parameter_template_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-core",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Core member inputs",
+        "description": "Synthetic core member inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "admin_email",
+          "member_email",
+          "project_name",
+          "browser"
+        ],
+        "rows": [
+          {
+            "admin_email": "admin@example.test",
+            "member_email": "qa.member@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Chrome"
+          },
+          {
+            "admin_email": "owner@example.test",
+            "member_email": "developer@example.test",
+            "project_name": "HelloTest Launchpad",
+            "browser": "Firefox"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 3,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ai",
+      "test_case_id": "sample-v6-ht-case-assurance",
+      "test_case_title": "Verify Assurance accepts cited structured reviews",
+      "test_case_description": "Preconditions: an active HelloTest project, the AI contract inputs dataset, Configured AI request shared steps, and the linked ai environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-4"
+      ],
+      "suite_id": "sample-v6-ht-suite-ai",
+      "suite_name": "AI acceptance",
+      "module_id": "sample-v6-ht-module-ai",
+      "module_name": "AI contracts",
+      "priority": 1,
+      "status": "ready",
+      "parameter_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "parameter_template_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "suite_parameter_values": {
+        "model_profile": "configured-json-model"
+      },
+      "suite_parameter_template_values": {
+        "model_profile": "configured-json-model"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_set_name": "AI contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-ai",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "AI contract inputs",
+        "description": "Synthetic ai contract inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "api_token_alias",
+          "model_profile",
+          "question",
+          "evidence_limit"
+        ],
+        "rows": [
+          {
+            "api_token_alias": "sample-token-alias",
+            "model_profile": "configured-json-model",
+            "question": "Which stories are QA blocked?",
+            "evidence_limit": "8"
+          },
+          {
+            "api_token_alias": "sample-token-alias",
+            "model_profile": "configured-json-model",
+            "question": "Summarize failed runs and linked defects",
+            "evidence_limit": "12"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 1,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ai",
+      "test_case_id": "sample-v6-ht-case-assistant",
+      "test_case_title": "Verify Ask AI renders a readable cited response",
+      "test_case_description": "Preconditions: an active HelloTest project, the AI contract inputs dataset, Configured AI request shared steps, and the linked ai environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-5"
+      ],
+      "suite_id": "sample-v6-ht-suite-ai",
+      "suite_name": "AI acceptance",
+      "module_id": "sample-v6-ht-module-ai",
+      "module_name": "AI contracts",
+      "priority": 2,
+      "status": "ready",
+      "parameter_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "parameter_template_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "suite_parameter_values": {
+        "model_profile": "configured-json-model"
+      },
+      "suite_parameter_template_values": {
+        "model_profile": "configured-json-model"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_set_name": "AI contract inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-ai",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-api",
+        "name": "AI contract inputs",
+        "description": "Synthetic ai contract inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "api_token_alias",
+          "model_profile",
+          "question",
+          "evidence_limit"
+        ],
+        "rows": [
+          {
+            "api_token_alias": "sample-token-alias",
+            "model_profile": "configured-json-model",
+            "question": "Which stories are QA blocked?",
+            "evidence_limit": "8"
+          },
+          {
+            "api_token_alias": "sample-token-alias",
+            "model_profile": "configured-json-model",
+            "question": "Summarize failed runs and linked defects",
+            "evidence_limit": "12"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 2,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-smart-run",
+      "test_case_title": "Verify Smart Run selects risk-based coverage",
+      "test_case_description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-6"
+      ],
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "module_id": "sample-v6-ht-module-ops",
+      "module_name": "Run operations",
+      "priority": 3,
+      "status": "ready",
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "parameter_template_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_values": {
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_template_values": {
+        "build": "6.2-rc1"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-ops",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "Operations device inputs",
+        "description": "Synthetic operations device inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "device_name",
+          "os_version",
+          "network_mode",
+          "build"
+        ],
+        "rows": [
+          {
+            "device_name": "Pixel Sample",
+            "os_version": "14",
+            "network_mode": "wifi",
+            "build": "6.2-rc1"
+          },
+          {
+            "device_name": "iPhone Sample",
+            "os_version": "18",
+            "network_mode": "offline",
+            "build": "6.2-rc1"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 1,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-traceability",
+      "test_case_title": "Verify Defect traceability from failed run evidence",
+      "test_case_description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-7"
+      ],
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "module_id": "sample-v6-ht-module-ops",
+      "module_name": "Run operations",
+      "priority": 1,
+      "status": "ready",
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "parameter_template_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_values": {
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_template_values": {
+        "build": "6.2-rc1"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-ops",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "Operations device inputs",
+        "description": "Synthetic operations device inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "device_name",
+          "os_version",
+          "network_mode",
+          "build"
+        ],
+        "rows": [
+          {
+            "device_name": "Pixel Sample",
+            "os_version": "14",
+            "network_mode": "wifi",
+            "build": "6.2-rc1"
+          },
+          {
+            "device_name": "iPhone Sample",
+            "os_version": "18",
+            "network_mode": "offline",
+            "build": "6.2-rc1"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 2,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-schedule",
+      "test_case_title": "Verify a scheduled suite preserves its context",
+      "test_case_description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-8"
+      ],
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "module_id": "sample-v6-ht-module-ops",
+      "module_name": "Run operations",
+      "priority": 5,
+      "status": "draft",
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "parameter_template_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_values": {
+        "build": "6.2-rc1"
+      },
+      "suite_parameter_template_values": {
+        "build": "6.2-rc1"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "test_data_set_snapshot": {
+        "id": "sample-v6-ht-data-ops",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-mobile",
+        "name": "Operations device inputs",
+        "description": "Synthetic operations device inputs aligned with the linked cases, shared steps, suite and run snapshots.",
+        "mode": "table",
+        "columns": [
+          "device_name",
+          "os_version",
+          "network_mode",
+          "build"
+        ],
+        "rows": [
+          {
+            "device_name": "Pixel Sample",
+            "os_version": "14",
+            "network_mode": "wifi",
+            "build": "6.2-rc1"
+          },
+          {
+            "device_name": "iPhone Sample",
+            "os_version": "18",
+            "network_mode": "offline",
+            "build": "6.2-rc1"
+          }
+        ],
+        "created_at": "2026-09-21T09:00:00.000Z"
+      },
+      "data_set_source": "run",
+      "sort_order": 3,
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "assignment_source": "run"
+    }
+  ]
+}

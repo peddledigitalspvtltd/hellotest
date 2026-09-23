@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v6-ht-run-core",
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ai",
+      "suite_id": "sample-v6-ht-suite-ai",
+      "suite_name": "AI acceptance"
+    },
+    {
+      "execution_id": "sample-v6-ht-run-ops",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance"
+    }
+  ]
+}

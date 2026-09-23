@@ -100,7 +100,7 @@ const scalarTargets = {
   project_id: 'projects', app_type_id: 'app_types', iteration_id: 'requirement_iterations', release_id: 'requirement_releases',
   requirement_id: 'requirements', related_requirement_id: 'requirements', test_case_id: 'test_cases', manual_test_case_id: 'test_cases',
   automation_test_case_id: 'test_cases', suite_id: 'test_suites', module_id: 'test_case_modules', issue_id: 'feedback', source_issue_id: 'feedback',
-  execution_id: 'executions', test_environment_id: 'test_environments', test_configuration_id: 'test_configurations', test_data_set_id: 'test_data_sets',
+  execution_id: 'executions', linked_test_run_id: 'executions', test_environment_id: 'test_environments', test_configuration_id: 'test_configurations', test_data_set_id: 'test_data_sets',
   collection_id: 'ai_knowledge_collections', source_id: 'ai_knowledge_sources', document_id: 'ai_knowledge_documents', transaction_id: 'workspace_transactions',
   reusable_group_id: 'shared_step_groups'
 };
@@ -220,5 +220,58 @@ const failedResult = byId.get('sample-v5-data-result-1').record;
 assert.equal(failedResult.status, 'failed');
 assert.deepEqual(failedResult.step_defects[sharedStep.snapshot_step_id], ['sample-v5-data-defect']);
 assert.equal(byId.get('sample-v5-data-defect').record.status, 'open');
+
+const v6 = prefix => (byTable.get(prefix) || []).map(item => item.record).filter(record => Object.values(record).some(value => typeof value === 'string' && value.startsWith('sample-v6-ht-')));
+const v6Sprints = v6('requirement_iterations');
+const v6Releases = v6('requirement_releases');
+const v6Stories = v6('requirements');
+const v6Suites = v6('test_suites');
+const v6Cases = v6('test_cases');
+const v6Groups = v6('shared_step_groups');
+const v6Runs = v6('executions');
+const v6Results = v6('execution_results');
+const v6Defects = v6('feedback');
+assert.equal(v6Sprints.length, 3);
+assert(v6Sprints.every(sprint => sprint.name.length <= 7), 'Version 6 Sprint names stay concise');
+assert.equal(v6Releases.length, 3);
+assert(v6Releases.every(release => release.name.length <= 7 && /^6\.\d$/.test(release.fix_version)), 'Version 6 Release names and versions stay concise');
+assert.equal(v6Stories.length, 8);
+assert.deepEqual(new Set(v6Stories.map(story => story.priority)), new Set([1, 2, 3, 4, 5]));
+assert(v6Stories.some(story => story.status === 'dev_done'));
+assert(v6Stories.some(story => story.status === 'qa_done'));
+assert(v6Stories.every(story => story.iteration_id && story.release && story.fix_version && story.additional_fields?.assignee_id === ACTOR));
+assert.equal(v6('requirement_release_items').length, v6Stories.length);
+assert.equal(v6Suites.length, 3);
+assert.equal(v6Groups.length, 3);
+assert.equal(v6Cases.length, 8);
+assert.equal(v6('requirement_test_cases').length, v6Cases.length);
+assert.equal(v6('test_case_module_cases').length, v6Cases.length);
+assert.equal(v6('test_case_module_requirements').length, v6Cases.length);
+assert.equal(v6('suite_test_cases').length, v6Cases.length);
+assert.equal(v6('test_case_data_sets').length, v6Cases.length);
+for (const testCase of v6Cases) {
+  const linkedData = byTable.get('test_case_data_sets').find(item => item.record.test_case_id === testCase.id)?.record;
+  const data = byId.get(linkedData?.test_data_set_id)?.record;
+  assert(data, `${testCase.id} has a linked data set`);
+  assert(Object.keys(testCase.parameter_values).every(key => data.columns.includes(key)), `${testCase.id} parameters match its linked data columns`);
+  const caseSteps = byTable.get('test_steps').filter(item => item.record.test_case_id === testCase.id).map(item => item.record);
+  assert.equal(caseSteps.length, 3);
+  assert(caseSteps.some(step => step.group_kind === 'local' && step.group_name === 'Preconditions'));
+  assert(caseSteps.some(step => step.group_kind === 'reusable' && step.reusable_group_id));
+}
+for (const group of v6Groups) {
+  const data = byId.get(group.test_data_set_id)?.record;
+  assert(data && Object.keys(group.parameter_values).every(key => data.columns.includes(key)), `${group.id} parameters match shared data`);
+}
+assert.equal(v6Runs.length, 3);
+assert(v6Runs.every(run => run.test_environment_id && run.test_configuration_id && run.test_data_set_id && run.release_id && run.iteration_id));
+assert.deepEqual(new Set(v6Results.map(result => result.status)), new Set(['passed', 'failed', 'blocked', 'skipped']));
+for (const run of v6Runs) assert.equal(run.duration_ms, v6Results.filter(result => result.execution_id === run.id).reduce((sum, result) => sum + result.duration_ms, 0));
+assert.equal(v6Defects.length, 6);
+assert.deepEqual(new Set(v6Defects.map(defect => defect.severity)), new Set(['critical', 'high', 'medium', 'low']));
+assert(new Set(v6Defects.map(defect => defect.status)).size >= 6);
+assert(v6Defects.every(defect => defect.linked_test_run_id && defect.linked_test_case_ids.length && defect.linked_test_suite_ids.length && defect.linked_module_ids.length && defect.linked_requirement_ids.length));
+assert.equal(v6('requirement_defects').length, v6Defects.length);
+assert.equal(v6('test_case_defects').length, v6Defects.length);
 
 console.log(JSON.stringify({ dataset: manifest.dataset_id, version: manifest.version, files: manifest.files.length, records: all.length, role_presets: presets, relational_links: relationalLinks, object_links: softLinks, scoped_links: scopedLinks, status: 'passed' }, null, 2));

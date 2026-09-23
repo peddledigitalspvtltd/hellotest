@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-sprint-core",
+      "display_id": "HT6-S1",
+      "project_id": "sample-project",
+      "name": "Core S1",
+      "description": "HelloTest Core S1 delivery scope.",
+      "goal": "Deliver secure workspace access, planning health and reusable data.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "closed",
+      "start_date": "2026-09-01T09:00:00.000Z",
+      "end_date": "2026-09-14T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-sprint-ai",
+      "display_id": "HT6-S2",
+      "project_id": "sample-project",
+      "name": "AI S2",
+      "description": "HelloTest AI S2 delivery scope.",
+      "goal": "Validate evidence-grounded Assurance and Ask AI response contracts.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "active",
+      "start_date": "2026-09-15T09:00:00.000Z",
+      "end_date": "2026-09-28T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-sprint-ops",
+      "display_id": "HT6-S3",
+      "project_id": "sample-project",
+      "name": "Ops S3",
+      "description": "HelloTest Ops S3 delivery scope.",
+      "goal": "Exercise Smart Run, scheduling and end-to-end Defect traceability.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "future",
+      "start_date": "2026-09-29T09:00:00.000Z",
+      "end_date": "2026-10-12T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

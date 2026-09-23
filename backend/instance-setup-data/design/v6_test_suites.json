@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-suite-core",
+      "display_id": "HT6-TS1",
+      "app_type_id": "sample-app-web",
+      "name": "Core acceptance",
+      "description": "Connected core acceptance coverage.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "core"
+      ],
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_options": {
+        "override_test_case_data": true,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": true,
+      "parallel_count": 2,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-suite-ai",
+      "display_id": "HT6-TS2",
+      "app_type_id": "sample-app-api",
+      "name": "AI acceptance",
+      "description": "Connected ai acceptance coverage.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "ai"
+      ],
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_options": {
+        "override_test_case_data": true,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "model_profile": "configured-json-model"
+      },
+      "parallel_enabled": true,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-suite-ops",
+      "display_id": "HT6-TS3",
+      "app_type_id": "sample-app-mobile",
+      "name": "Operations acceptance",
+      "description": "Connected operations acceptance coverage.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "ops"
+      ],
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_options": {
+        "override_test_case_data": true,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "build": "6.2-rc1"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

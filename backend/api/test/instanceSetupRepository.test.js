@@ -7,7 +7,7 @@ const { createHash } = require('node:crypto');
 const repository = require('../src/services/sampleData/repository');
 
 const envKey = 'HELLOTEST_INSTANCE_SETUP_DATA_DIR';
-const authoredAt = '2026-09-20T09:00:00.000Z';
+const authoredAt = '2026-09-21T09:00:00.000Z';
 const staticRoot = path.resolve(__dirname, '../../instance-setup-data');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const moduleSpec = (key, depends_on = []) => ({ key, label: key, group: 'Fixture', description: key, depends_on, features: [], routes: [], feature_keys: [] });
@@ -120,6 +120,44 @@ test('every actual module selection includes the full file and module dependency
   const runResult = records.execution.find(record => record.values.id === 'sample-v5-data-result-1').values;
   assert.equal(runResult.lifecycle_history[0].actor_id, 'static-reviewer');
   assert.equal(runResult.started_at, '2026-09-20T08:30:00.000Z');
+}));
+
+test('version 6 sample data provides a connected HelloTest delivery and execution walkthrough', () => withRoot(staticRoot, () => {
+  const records = Object.values(repository.buildRecords('setup-admin')).flat();
+  const values = table => records.filter(record => record.table === table).map(record => record.values);
+  const selected = table => values(table).filter(record => Object.values(record).some(value => typeof value === 'string' && value.startsWith('sample-v6-ht-')));
+  const sprints = selected('requirement_iterations');
+  const releases = selected('requirement_releases');
+  const stories = selected('requirements');
+  const suites = selected('test_suites');
+  const cases = selected('test_cases');
+  const groups = selected('shared_step_groups');
+  const runs = selected('executions');
+  const results = selected('execution_results');
+  const defects = selected('feedback');
+  assert.equal(repository.loadManifest().manifest.version, 6);
+  assert.equal(sprints.length, 3);
+  assert(sprints.every(sprint => sprint.name.length <= 7));
+  assert.equal(releases.length, 3);
+  assert(releases.every(release => release.name.length <= 7 && /^6\.\d$/.test(release.fix_version)));
+  assert.equal(stories.length, 8);
+  assert.deepEqual(new Set(stories.map(story => story.priority)), new Set([1, 2, 3, 4, 5]));
+  assert(stories.some(story => story.status === 'dev_done'));
+  assert(stories.some(story => story.status === 'qa_done'));
+  assert(stories.every(story => story.iteration_id && story.release && story.additional_fields.assignee_id === 'setup-admin'));
+  assert.equal(selected('requirement_release_items').length, stories.length);
+  assert.equal(suites.length, 3);
+  assert.equal(groups.length, 3);
+  assert.equal(cases.length, 8);
+  for (const table of ['requirement_test_cases', 'test_case_module_cases', 'test_case_module_requirements', 'suite_test_cases', 'test_case_data_sets']) assert.equal(selected(table).length, cases.length);
+  assert.equal(runs.length, 3);
+  assert(runs.every(run => run.test_environment_id && run.test_configuration_id && run.test_data_set_id));
+  assert.deepEqual(new Set(results.map(result => result.status)), new Set(['passed', 'failed', 'blocked', 'skipped']));
+  assert.equal(defects.length, 6);
+  assert.deepEqual(new Set(defects.map(defect => defect.severity)), new Set(['critical', 'high', 'medium', 'low']));
+  assert(defects.every(defect => defect.linked_test_run_id && defect.linked_test_case_ids.length && defect.linked_test_suite_ids.length && defect.linked_module_ids.length && defect.linked_requirement_ids.length));
+  assert.equal(selected('requirement_defects').length, defects.length);
+  assert.equal(selected('test_case_defects').length, defects.length);
 }));
 
 test('module selection deduplicates requests and rejects empty or unknown selections', () => fixture(() => {

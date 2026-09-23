@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-group-core",
+      "display_id": "HT6-SG1",
+      "app_type_id": "sample-app-web",
+      "name": "Authorized project session",
+      "description": "Reusable HelloTest core precondition shared by every case in the core suite.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Background: Authorized project session\n  Given Open an authorized project session for <admin_email> in <project_name>",
+      "steps": [
+        {
+          "id": "sample-v6-ht-group-core-step",
+          "step_order": 1,
+          "action": "Open an authorized project session for <admin_email> in <project_name>.",
+          "expected_result": "The selected user is a current project member.",
+          "step_type": "web"
+        }
+      ],
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "project_name": "HelloTest Launchpad"
+      },
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_row_index": 0,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-group-ai",
+      "display_id": "HT6-SG2",
+      "app_type_id": "sample-app-api",
+      "name": "Configured AI request",
+      "description": "Reusable HelloTest ai precondition shared by every case in the ai suite.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Background: Configured AI request\n  Given Prepare the <model_profile> request using <api_token_alias>",
+      "steps": [
+        {
+          "id": "sample-v6-ht-group-ai-step",
+          "step_order": 1,
+          "action": "Prepare the <model_profile> request using <api_token_alias>.",
+          "expected_result": "The configured provider contract is ready without exposing credentials.",
+          "step_type": "api"
+        }
+      ],
+      "parameter_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_row_index": 0,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-group-ops",
+      "display_id": "HT6-SG3",
+      "app_type_id": "sample-app-mobile",
+      "name": "Frozen device context",
+      "description": "Reusable HelloTest ops precondition shared by every case in the ops suite.",
+      "authoring_mode": "gherkin",
+      "gherkin_document": "Background: Frozen device context\n  Given Load <build> on <device_name> with OS <os_version>",
+      "steps": [
+        {
+          "id": "sample-v6-ht-group-ops-step",
+          "step_order": 1,
+          "action": "Load <build> on <device_name> with OS <os_version>.",
+          "expected_result": "The device and build context is frozen for the run.",
+          "step_type": "android"
+        }
+      ],
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "build": "6.2-rc1"
+      },
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_row_index": 0,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

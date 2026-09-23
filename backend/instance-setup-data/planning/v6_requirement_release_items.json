@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "release_id": "sample-v6-ht-release-core",
+      "requirement_id": "sample-v6-ht-story-access",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-core",
+      "requirement_id": "sample-v6-ht-story-delivery",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-core",
+      "requirement_id": "sample-v6-ht-story-data",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-ai",
+      "requirement_id": "sample-v6-ht-story-assurance",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-ai",
+      "requirement_id": "sample-v6-ht-story-assistant",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-ops",
+      "requirement_id": "sample-v6-ht-story-smart-run",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-ops",
+      "requirement_id": "sample-v6-ht-story-traceability",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "release_id": "sample-v6-ht-release-ops",
+      "requirement_id": "sample-v6-ht-story-schedule",
+      "source": "sprint",
+      "created_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}

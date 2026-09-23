@@ -1,0 +1,389 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-result-access",
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-access",
+      "test_case_title": "Verify active administrators become project members",
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "app_type_id": "sample-app-web",
+      "status": "passed",
+      "duration_ms": 90000,
+      "started_at": "2026-09-21T11:00:00.000Z",
+      "ended_at": "2026-09-21T11:01:30.000Z",
+      "created_at": "2026-09-21T11:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v6-ht-data-core:1",
+      "data_set_row_snapshot": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-access-pre\":\"passed\",\"sample-v6-ht-step-access-shared\":\"passed\",\"sample-v6-ht-step-access-assert\":\"passed\"},\"stepNotes\":{\"sample-v6-ht-step-access-assert\":\"Expected HelloTest behavior observed.\"},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T11:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-21T11:01:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-delivery",
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-delivery",
+      "test_case_title": "Verify separate Dev Done and QA Done metrics",
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "app_type_id": "sample-app-web",
+      "status": "failed",
+      "duration_ms": 120000,
+      "started_at": "2026-09-21T11:01:30.000Z",
+      "ended_at": "2026-09-21T11:03:30.000Z",
+      "created_at": "2026-09-21T11:01:30.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v6-ht-data-core:2",
+      "data_set_row_snapshot": {
+        "admin_email": "owner@example.test",
+        "member_email": "developer@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Firefox"
+      },
+      "defects": [
+        "sample-v6-ht-defect-health"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-health"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-delivery-assert": [
+          "sample-v6-ht-defect-health"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-delivery-pre\":\"passed\",\"sample-v6-ht-step-delivery-shared\":\"passed\",\"sample-v6-ht-step-delivery-assert\":\"failed\"},\"stepNotes\":{\"sample-v6-ht-step-delivery-assert\":\"Illustrative failed outcome for traceability.\"},\"stepDefects\":{\"sample-v6-ht-step-delivery-assert\":[\"sample-v6-ht-defect-health\"]}}",
+      "error": "SYNTHETIC SAMPLE: failed outcome.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T11:01:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-21T11:03:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-data",
+      "execution_id": "sample-v6-ht-run-core",
+      "test_case_id": "sample-v6-ht-case-data",
+      "test_case_title": "Verify parameter precedence across all scopes",
+      "suite_id": "sample-v6-ht-suite-core",
+      "suite_name": "Core acceptance",
+      "app_type_id": "sample-app-web",
+      "status": "skipped",
+      "duration_ms": 30000,
+      "started_at": "2026-09-21T11:03:30.000Z",
+      "ended_at": "2026-09-21T11:04:00.000Z",
+      "created_at": "2026-09-21T11:03:30.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-core",
+      "test_data_set_name": "Core member inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v6-ht-data-core:1",
+      "data_set_row_snapshot": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "defects": [
+        "sample-v6-ht-defect-scope"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-scope"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-data-assert": [
+          "sample-v6-ht-defect-scope"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-data-pre\":\"skipped\",\"sample-v6-ht-step-data-shared\":\"skipped\",\"sample-v6-ht-step-data-assert\":\"skipped\"},\"stepNotes\":{\"sample-v6-ht-step-data-assert\":\"Illustrative skipped outcome for traceability.\"},\"stepDefects\":{\"sample-v6-ht-step-data-assert\":[\"sample-v6-ht-defect-scope\"]}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T11:03:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "skipped",
+          "at": "2026-09-21T11:04:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-assurance",
+      "execution_id": "sample-v6-ht-run-ai",
+      "test_case_id": "sample-v6-ht-case-assurance",
+      "test_case_title": "Verify Assurance accepts cited structured reviews",
+      "suite_id": "sample-v6-ht-suite-ai",
+      "suite_name": "AI acceptance",
+      "app_type_id": "sample-app-api",
+      "status": "blocked",
+      "duration_ms": 80000,
+      "started_at": "2026-09-21T12:00:00.000Z",
+      "ended_at": "2026-09-21T12:01:20.000Z",
+      "created_at": "2026-09-21T12:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_set_name": "AI contract inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v6-ht-data-ai:1",
+      "data_set_row_snapshot": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "defects": [
+        "sample-v6-ht-defect-citation"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-citation"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-assurance-assert": [
+          "sample-v6-ht-defect-citation"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-assurance-pre\":\"passed\",\"sample-v6-ht-step-assurance-shared\":\"passed\",\"sample-v6-ht-step-assurance-assert\":\"blocked\"},\"stepNotes\":{\"sample-v6-ht-step-assurance-assert\":\"Illustrative blocked outcome for traceability.\"},\"stepDefects\":{\"sample-v6-ht-step-assurance-assert\":[\"sample-v6-ht-defect-citation\"]}}",
+      "error": "SYNTHETIC SAMPLE: blocked outcome.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T12:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "blocked",
+          "at": "2026-09-21T12:01:20.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-assistant",
+      "execution_id": "sample-v6-ht-run-ai",
+      "test_case_id": "sample-v6-ht-case-assistant",
+      "test_case_title": "Verify Ask AI renders a readable cited response",
+      "suite_id": "sample-v6-ht-suite-ai",
+      "suite_name": "AI acceptance",
+      "app_type_id": "sample-app-api",
+      "status": "failed",
+      "duration_ms": 120000,
+      "started_at": "2026-09-21T12:01:20.000Z",
+      "ended_at": "2026-09-21T12:03:20.000Z",
+      "created_at": "2026-09-21T12:01:20.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-ai",
+      "test_data_set_name": "AI contract inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v6-ht-data-ai:2",
+      "data_set_row_snapshot": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Summarize failed runs and linked defects",
+        "evidence_limit": "12"
+      },
+      "defects": [
+        "sample-v6-ht-defect-answer"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-answer"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-assistant-assert": [
+          "sample-v6-ht-defect-answer"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-assistant-pre\":\"passed\",\"sample-v6-ht-step-assistant-shared\":\"passed\",\"sample-v6-ht-step-assistant-assert\":\"failed\"},\"stepNotes\":{\"sample-v6-ht-step-assistant-assert\":\"Illustrative failed outcome for traceability.\"},\"stepDefects\":{\"sample-v6-ht-step-assistant-assert\":[\"sample-v6-ht-defect-answer\"]}}",
+      "error": "SYNTHETIC SAMPLE: failed outcome.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T12:01:20.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-21T12:03:20.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-smart-run",
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-smart-run",
+      "test_case_title": "Verify Smart Run selects risk-based coverage",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "app_type_id": "sample-app-mobile",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-21T13:00:00.000Z",
+      "ended_at": "2026-09-21T13:01:00.000Z",
+      "created_at": "2026-09-21T13:00:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v6-ht-data-ops:1",
+      "data_set_row_snapshot": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "defects": [],
+      "case_defects": [],
+      "step_defects": {},
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-smart-run-pre\":\"passed\",\"sample-v6-ht-step-smart-run-shared\":\"passed\",\"sample-v6-ht-step-smart-run-assert\":\"passed\"},\"stepNotes\":{\"sample-v6-ht-step-smart-run-assert\":\"Expected HelloTest behavior observed.\"},\"stepDefects\":{}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T13:00:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-21T13:01:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-traceability",
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-traceability",
+      "test_case_title": "Verify Defect traceability from failed run evidence",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "app_type_id": "sample-app-mobile",
+      "status": "failed",
+      "duration_ms": 90000,
+      "started_at": "2026-09-21T13:01:00.000Z",
+      "ended_at": "2026-09-21T13:02:30.000Z",
+      "created_at": "2026-09-21T13:01:00.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "data_set_iteration_index": 1,
+      "data_set_iteration_key": "sample-v6-ht-data-ops:2",
+      "data_set_row_snapshot": {
+        "device_name": "iPhone Sample",
+        "os_version": "18",
+        "network_mode": "offline",
+        "build": "6.2-rc1"
+      },
+      "defects": [
+        "sample-v6-ht-defect-trace"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-trace"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-traceability-assert": [
+          "sample-v6-ht-defect-trace"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-traceability-pre\":\"passed\",\"sample-v6-ht-step-traceability-shared\":\"passed\",\"sample-v6-ht-step-traceability-assert\":\"failed\"},\"stepNotes\":{\"sample-v6-ht-step-traceability-assert\":\"Illustrative failed outcome for traceability.\"},\"stepDefects\":{\"sample-v6-ht-step-traceability-assert\":[\"sample-v6-ht-defect-trace\"]}}",
+      "error": "SYNTHETIC SAMPLE: failed outcome.",
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T13:01:00.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "failed",
+          "at": "2026-09-21T13:02:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    },
+    {
+      "id": "sample-v6-ht-result-schedule",
+      "execution_id": "sample-v6-ht-run-ops",
+      "test_case_id": "sample-v6-ht-case-schedule",
+      "test_case_title": "Verify a scheduled suite preserves its context",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "suite_name": "Operations acceptance",
+      "app_type_id": "sample-app-mobile",
+      "status": "passed",
+      "duration_ms": 60000,
+      "started_at": "2026-09-21T13:02:30.000Z",
+      "ended_at": "2026-09-21T13:03:30.000Z",
+      "created_at": "2026-09-21T13:02:30.000Z",
+      "executed_by": "__SETUP_ACTOR_ID__",
+      "test_data_set_id": "sample-v6-ht-data-ops",
+      "test_data_set_name": "Operations device inputs",
+      "data_set_iteration_index": 0,
+      "data_set_iteration_key": "sample-v6-ht-data-ops:1",
+      "data_set_row_snapshot": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "defects": [
+        "sample-v6-ht-defect-schedule"
+      ],
+      "case_defects": [
+        "sample-v6-ht-defect-schedule"
+      ],
+      "step_defects": {
+        "sample-v6-ht-step-schedule-assert": [
+          "sample-v6-ht-defect-schedule"
+        ]
+      },
+      "logs": "{\"sample\":true,\"synthetic\":true,\"provenance\":\"instance_setup_data_v6\",\"message\":\"SYNTHETIC SAMPLE: authored run evidence only.\",\"stepStatuses\":{\"sample-v6-ht-step-schedule-pre\":\"passed\",\"sample-v6-ht-step-schedule-shared\":\"passed\",\"sample-v6-ht-step-schedule-assert\":\"passed\"},\"stepNotes\":{\"sample-v6-ht-step-schedule-assert\":\"Expected HelloTest behavior observed.\"},\"stepDefects\":{\"sample-v6-ht-step-schedule-assert\":[\"sample-v6-ht-defect-schedule\"]}}",
+      "error": null,
+      "lifecycle_history": [
+        {
+          "status": "running",
+          "at": "2026-09-21T13:02:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        },
+        {
+          "status": "passed",
+          "at": "2026-09-21T13:03:30.000Z",
+          "actor_id": "__SETUP_ACTOR_ID__"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,398 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v6-ht-case-access",
+      "display_id": "HT6-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v6-ht-suite-core",
+      "requirement_id": "sample-v6-ht-story-access",
+      "title": "Verify active administrators become project members",
+      "description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-1"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "access"
+      ],
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify active administrators become project members\n  Background:\n    Given Authorized project session\n  Scenario: Verify active administrators become project members\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 85,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-delivery",
+      "display_id": "HT6-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v6-ht-suite-core",
+      "requirement_id": "sample-v6-ht-story-delivery",
+      "title": "Verify separate Dev Done and QA Done metrics",
+      "description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-2"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "delivery"
+      ],
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify separate Dev Done and QA Done metrics\n  Background:\n    Given Authorized project session\n  Scenario: Verify separate Dev Done and QA Done metrics\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 84,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-data",
+      "display_id": "HT6-T3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v6-ht-suite-core",
+      "requirement_id": "sample-v6-ht-story-data",
+      "title": "Verify parameter precedence across all scopes",
+      "description": "Preconditions: an active HelloTest project, the Core member inputs dataset, Authorized project session shared steps, and the linked core environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-3"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "data"
+      ],
+      "parameter_values": {
+        "admin_email": "admin@example.test",
+        "member_email": "qa.member@example.test",
+        "project_name": "HelloTest Launchpad",
+        "browser": "Chrome"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify parameter precedence across all scopes\n  Background:\n    Given Authorized project session\n  Scenario: Verify parameter precedence across all scopes\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 4,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 83,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-assurance",
+      "display_id": "HT6-T4",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v6-ht-suite-ai",
+      "requirement_id": "sample-v6-ht-story-assurance",
+      "title": "Verify Assurance accepts cited structured reviews",
+      "description": "Preconditions: an active HelloTest project, the AI contract inputs dataset, Configured AI request shared steps, and the linked ai environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-4"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "assurance"
+      ],
+      "parameter_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "gherkin",
+      "test_case_type": "api",
+      "gherkin_document": "Feature: Verify Assurance accepts cited structured reviews\n  Background:\n    Given Configured AI request\n  Scenario: Verify Assurance accepts cited structured reviews\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 82,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-assistant",
+      "display_id": "HT6-T5",
+      "app_type_id": "sample-app-api",
+      "suite_id": "sample-v6-ht-suite-ai",
+      "requirement_id": "sample-v6-ht-story-assistant",
+      "title": "Verify Ask AI renders a readable cited response",
+      "description": "Preconditions: an active HelloTest project, the AI contract inputs dataset, Configured AI request shared steps, and the linked ai environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-5"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "assistant"
+      ],
+      "parameter_values": {
+        "api_token_alias": "sample-token-alias",
+        "model_profile": "configured-json-model",
+        "question": "Which stories are QA blocked?",
+        "evidence_limit": "8"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "api",
+      "gherkin_document": "Feature: Verify Ask AI renders a readable cited response\n  Background:\n    Given Configured AI request\n  Scenario: Verify Ask AI renders a readable cited response\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 81,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-smart-run",
+      "display_id": "HT6-T6",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "requirement_id": "sample-v6-ht-story-smart-run",
+      "title": "Verify Smart Run selects risk-based coverage",
+      "description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-6"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "smart-run"
+      ],
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify Smart Run selects risk-based coverage\n  Background:\n    Given Frozen device context\n  Scenario: Verify Smart Run selects risk-based coverage\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 3,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 80,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-traceability",
+      "display_id": "HT6-T7",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "requirement_id": "sample-v6-ht-story-traceability",
+      "title": "Verify Defect traceability from failed run evidence",
+      "description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-7"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "traceability"
+      ],
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "yes",
+      "automation_status": "ready",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify Defect traceability from failed run evidence\n  Background:\n    Given Frozen device context\n  Scenario: Verify Defect traceability from failed run evidence\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": null,
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "Synthetic reviewed sample."
+        }
+      ],
+      "ai_quality_score": 79,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    },
+    {
+      "id": "sample-v6-ht-case-schedule",
+      "display_id": "HT6-T8",
+      "app_type_id": "sample-app-mobile",
+      "suite_id": "sample-v6-ht-suite-ops",
+      "requirement_id": "sample-v6-ht-story-schedule",
+      "title": "Verify a scheduled suite preserves its context",
+      "description": "Preconditions: an active HelloTest project, the Operations device inputs dataset, Frozen device context shared steps, and the linked ops environment/configuration are available.",
+      "external_references": [
+        "HT6-CASE-8"
+      ],
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo",
+        "schedule"
+      ],
+      "parameter_values": {
+        "device_name": "Pixel Sample",
+        "os_version": "14",
+        "network_mode": "wifi",
+        "build": "6.2-rc1"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "gherkin",
+      "test_case_type": "functional",
+      "gherkin_document": "Feature: Verify a scheduled suite preserves its context\n  Background:\n    Given Frozen device context\n  Scenario: Verify a scheduled suite preserves its context\n    When the connected HelloTest workflow is exercised\n    Then saved evidence matches the selected parameters",
+      "priority": 5,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": 78,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-21T09:00:00.000Z"
+    }
+  ]
+}
