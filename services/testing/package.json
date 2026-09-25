@@ -1,0 +1,92 @@
+{
+  "name": "@hellotest/testing",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest testing capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/batchProcess.service": "./backend/services/batchProcess.service.js",
+    "./backend/services/execution.service": "./backend/services/execution.service.js",
+    "./backend/services/executionResult.service": "./backend/services/executionResult.service.js",
+    "./backend/services/issues.service": "./backend/services/issues.service.js",
+    "./backend/services/testCase.service": "./backend/services/testCase.service.js",
+    "./backend/services/testCaseModule.service": "./backend/services/testCaseModule.service.js",
+    "./backend/services/testCaseScope.service": "./backend/services/testCaseScope.service.js",
+    "./backend/services/testConfiguration.service": "./backend/services/testConfiguration.service.js",
+    "./backend/services/testDataSet.service": "./backend/services/testDataSet.service.js",
+    "./backend/services/testEnvironment.service": "./backend/services/testEnvironment.service.js",
+    "./backend/services/testStep.service": "./backend/services/testStep.service.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/ExecutionContextSelector": "./frontend/components/ExecutionContextSelector.tsx",
+    "./frontend/components/GherkinEditor": "./frontend/components/GherkinEditor.tsx",
+    "./frontend/components/GherkinStepTextField": "./frontend/components/GherkinStepTextField.tsx",
+    "./frontend/components/HierarchyLoadMoreButton": "./frontend/components/HierarchyLoadMoreButton.tsx",
+    "./frontend/components/HierarchyQuickInsights": "./frontend/components/HierarchyQuickInsights.tsx",
+    "./frontend/components/LinkedDefectsPanel": "./frontend/components/LinkedDefectsPanel.tsx",
+    "./frontend/components/LinkedTestCaseModal": "./frontend/components/LinkedTestCaseModal.tsx",
+    "./frontend/components/RunHooksBuilder": "./frontend/components/RunHooksBuilder.tsx",
+    "./frontend/components/SharedStepsIcon": "./frontend/components/SharedStepsIcon.tsx",
+    "./frontend/components/StepParameterDialog": "./frontend/components/StepParameterDialog.tsx",
+    "./frontend/components/StepParameterizedText": "./frontend/components/StepParameterizedText.tsx",
+    "./frontend/components/TestCaseVersionHistory": "./frontend/components/TestCaseVersionHistory.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/bugReportNavigation": "./frontend/lib/bugReportNavigation.ts",
+    "./frontend/lib/defectTerminology": "./frontend/lib/defectTerminology.ts",
+    "./frontend/lib/gherkin": "./frontend/lib/gherkin.ts",
+    "./frontend/lib/hierarchyDrag": "./frontend/lib/hierarchyDrag.ts",
+    "./frontend/lib/hierarchyPagination": "./frontend/lib/hierarchyPagination.ts",
+    "./frontend/lib/runHooks": "./frontend/lib/runHooks.ts",
+    "./frontend/lib/testCaseImport": "./frontend/lib/testCaseImport.ts",
+    "./frontend/pages/DesignPage": "./frontend/pages/DesignPage.tsx",
+    "./frontend/pages/ExecutionsPage": "./frontend/pages/ExecutionsPage.tsx",
+    "./frontend/pages/IssuesPage": "./frontend/pages/IssuesPage.tsx",
+    "./frontend/pages/SharedStepsPage": "./frontend/pages/SharedStepsPage.tsx",
+    "./frontend/pages/TestCasesPage": "./frontend/pages/TestCasesPage.tsx",
+    "./frontend/pages/TestEnvironmentPage": "./frontend/pages/TestEnvironmentPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs testing",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs testing",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "testing",
+    "requires": [
+      "platform"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.automation.batch_process",
+      "hellotest.manual.bugs",
+      "hellotest.manual.environments",
+      "hellotest.manual.run_gherkin",
+      "hellotest.manual.runs",
+      "hellotest.manual.suites",
+      "hellotest.manual.test_cases",
+      "hellotest.manual.test_data"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/agentic": "^1.0.0",
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/automation": "^1.0.0",
+    "@hellotest/dashboard": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/manual": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/trace": "^1.0.0"
+  }
+}

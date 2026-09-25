@@ -1,0 +1,46 @@
+{
+  "name": "hellotest-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest platform workspace and service orchestration commands",
+  "scripts": {
+    "setup": "npm run setup:backend && npm run setup:frontend && npm run setup:testengine && npm run setup:mobile && npm run setup:capabilities",
+    "setup:backend": "npm ci --prefix services/platform/backend",
+    "setup:frontend": "npm ci --prefix services/platform/frontend",
+    "setup:testengine": "npm ci --prefix testengine/backend",
+    "setup:mobile": "npm install --prefix local-run/mobile-engine --ignore-scripts",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:testengine && npm run test:architecture && npm run audit:source-layout && npm run audit:modules && npm run validate:architecture && npm run check:boundaries",
+    "test:backend": "npm --prefix services/platform/backend test",
+    "test:frontend": "npm --prefix services/platform/frontend test",
+    "test:testengine": "npm --prefix testengine/backend test",
+    "build": "npm run build:frontend && npm run build:testengine",
+    "build:frontend": "npm --prefix services/platform/frontend run build:all",
+    "build:testengine": "npm --prefix testengine/backend run build",
+    "audit:source-layout": "node scripts/checks/audit-source-layout.mjs --strict",
+    "test:service-gateway": "node scripts/checks/test-service-gateway.mjs",
+    "validate:architecture": "node scripts/checks/validate-service-architecture.mjs",
+    "microservices:up": "node scripts/deploy/capabilities.mjs --build",
+    "microservices:down": "node scripts/deploy/capabilities.mjs --down",
+    "ops:up": "node scripts/ops/stack.mjs up",
+    "ops:status": "node scripts/ops/stack.mjs status",
+    "ops:verify": "node scripts/ops/verify.mjs",
+    "audit:modules": "node scripts/checks/audit-module-graph.mjs",
+    "test:architecture": "node scripts/checks/sync-capability-metadata.mjs --check && node --test scripts/checks/*.test.mjs",
+    "audit:clones": "node scripts/checks/report-function-clones.mjs",
+    "services:up": "node scripts/deploy/capabilities.mjs",
+    "check:boundaries": "node scripts/checks/check-service-boundaries.mjs",
+    "build:capabilities": "npm run build --workspaces",
+    "setup:capabilities": "npm ci --ignore-scripts --no-audit --no-fund",
+    "generate:capabilities": "node scripts/checks/sync-capability-metadata.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "services/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "fastify": "^5.11.2"
+  }
+}

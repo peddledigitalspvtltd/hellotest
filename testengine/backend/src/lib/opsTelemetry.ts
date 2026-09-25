@@ -1459,7 +1459,33 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
     return storedEvent;
   };
 
-  const listEvents = (query: Record<string, unknown>) => {
+  // Workers share the durable store, not process memory. Cache only an unchanged
+  // file and coalesce concurrent event/service reads to avoid repeated parsing.
+  let readFingerprint: string | null = null;
+  let readEvents: StoredTelemetryEvent[] = [];
+  let pendingRead: Promise<StoredTelemetryEvent[]> | null = null;
+  const readSharedEvents = (): Promise<StoredTelemetryEvent[]> => {
+    if (pendingRead) return pendingRead;
+    pendingRead = writeQueue.then(() => withStoreLock(config.storePath, async () => {
+      const metadata = await stat(config.storePath);
+      if (!metadata.isFile()) throw new Error("Telemetry store is not a file");
+      const fingerprint = `${metadata.ino}:${metadata.size}:${metadata.mtimeMs}:${metadata.ctimeMs}`;
+      if (fingerprint !== readFingerprint) {
+        readEvents = (await loadStoredEvents(config)).events;
+        readFingerprint = fingerprint;
+      } else {
+        // Retention also applies when no worker has written since the last read.
+        pruneEvents(readEvents, config);
+      }
+      return readEvents;
+    })).catch((error) => {
+      logger.error({ error }, "Unable to read shared OPS telemetry store");
+      throw Object.assign(new Error("Execution telemetry storage is temporarily unavailable. Retry shortly."), { statusCode: 503 });
+    }).finally(() => { pendingRead = null; });
+    return pendingRead;
+  };
+
+  const listEvents = async (query: Record<string, unknown>) => {
     const projectId = readProjectFilter(query);
     const filters = {
       project_id: projectId,
@@ -1472,8 +1498,9 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
       search: normalizeText(query.search)
     };
     const limit = Math.min(500, Math.max(1, normalizeInteger(query.limit, 50)));
-    const filtered = [...events]
-      .reverse()
+    const sharedEvents = [...await readSharedEvents()].reverse();
+    const workerEvents = query.include_workers === "true" ? sharedEvents.filter(event => !event.project_id && event.event_type?.startsWith("testengine.queue.")) : null;
+    const filtered = sharedEvents
       .filter((event) => matchesFilter(event, filters));
 
     return {
@@ -1481,15 +1508,16 @@ export const createOpsTelemetry = async (logger: FastifyBaseLogger) => {
       ...(projectId ? { project_id: projectId } : {}),
       total: filtered.length,
       limit,
-      items: filtered.slice(0, limit)
+      items: filtered.slice(0, limit),
+      ...(workerEvents ? { workers: { scope: "workers", total: workerEvents.length, items: workerEvents.slice(0, 50) } } : {})
     };
   };
 
-  const listServices = (query: Record<string, unknown>) => {
+  const listServices = async (query: Record<string, unknown>) => {
     const projectId = readProjectFilter(query);
     const summary = new Map<string, { service_name: string; count: number; last_received_at: string }>();
 
-    [...events].reverse().forEach((event) => {
+    [...await readSharedEvents()].reverse().forEach((event) => {
       if (projectId && event.project_id !== projectId) return;
       const serviceName = event.service_name || "unlabeled";
       const current = summary.get(serviceName);

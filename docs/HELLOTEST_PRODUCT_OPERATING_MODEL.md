@@ -17,7 +17,7 @@ HelloTest remains the only frontend.
 
 Test Engine is a backend-only worker plane that executes Playwright workloads and reports back to HelloTest.
 
-See also: [HelloTest background operations strategy](./HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
+See also: [HelloTest background operations strategy](HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
 
 ## What The Current Repo Already Has
 

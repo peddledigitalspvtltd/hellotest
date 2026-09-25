@@ -1,0 +1,181 @@
+name: hellotest-ops
+services:
+  haproxy:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: &id001
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '3'
+    security_opt: &id002
+    - no-new-privileges:true
+    image: haproxy:3.0-alpine
+    container_name: hellotest-ops-haproxy
+    mem_limit: 64m
+    ports:
+    - 127.0.0.1:${OPS_HTTP_PORT:-18080}:80
+    - 127.0.0.1:${OPS_PROXY_STATS_PORT:-18404}:8404
+    volumes:
+    - ./ops/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+  prometheus:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: prom/prometheus:v2.54.1
+    container_name: hellotest-ops-prometheus
+    mem_limit: 256m
+    ports:
+    - 127.0.0.1:${OPS_PROMETHEUS_PORT:-9090}:9090
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=2d
+    - --storage.tsdb.retention.size=256MB
+    - --query.max-concurrency=2
+    - --query.max-samples=500000
+    - --query.timeout=10s
+    volumes:
+    - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    - ops-prometheus:/prometheus
+  loki:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: grafana/loki:3.1.1
+    container_name: hellotest-ops-loki
+    mem_limit: 384m
+    ports:
+    - 127.0.0.1:${OPS_LOKI_PORT:-3100}:3100
+    command:
+    - -config.file=/etc/loki/local-config.yaml
+    environment:
+      GOMEMLIMIT: 256MiB
+    volumes:
+    - ./ops/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+    - ops-loki:/loki
+  alloy:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: grafana/alloy:v1.14.0
+    container_name: hellotest-ops-alloy
+    mem_limit: 192m
+    ports:
+    - 127.0.0.1:${OPS_ALLOY_PORT:-12345}:12345
+    command:
+    - run
+    - --server.http.listen-addr=0.0.0.0:12345
+    - --storage.path=/var/lib/alloy/data
+    - --disable-reporting
+    - /etc/alloy/config.alloy
+    environment:
+      GOMEMLIMIT: 128MiB
+      GOMAXPROCS: '2'
+    volumes:
+    - ./ops/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ops-alloy:/var/lib/alloy/data
+  grafana:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: grafana/grafana:11.1.0
+    container_name: hellotest-ops-grafana
+    mem_limit: 256m
+    ports:
+    - 127.0.0.1:${OPS_GRAFANA_PORT:-3001}:3000
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run npm run ops:up to
+        create local ops credentials}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+      GF_SERVER_ROOT_URL: ${OPS_GRAFANA_PUBLIC_URL:-http://localhost:3001}/api/ops-telemetry/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: 'true'
+      GF_LIVE_MAX_CONNECTIONS: '0'
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_SECURITY_COOKIE_SAMESITE: lax
+    volumes:
+    - ops-grafana:/var/lib/grafana
+    - ./ops/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    - ./ops/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+  jaeger:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
+    container_name: hellotest-ops-jaeger
+    mem_limit: 256m
+    ports:
+    - 127.0.0.1:${OPS_JAEGER_PORT:-16687}:16686
+    command:
+    - --config=/etc/jaeger/config.yaml
+    environment:
+      GOMEMLIMIT: 180MiB
+    volumes:
+    - ./ops/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
+  otel-collector:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    container_name: hellotest-ops-otel-collector
+    mem_limit: 256m
+    ports:
+    - 127.0.0.1:${OPS_OTLP_HTTP_PORT:-4319}:4318
+    - 127.0.0.1:${OPS_OTLP_GRPC_PORT:-4320}:4317
+    - 127.0.0.1:${OPS_COLLECTOR_HEALTH_PORT:-13133}:13133
+    command:
+    - --config=/etc/otel-collector/config.yaml
+    environment:
+      GOMEMLIMIT: 160MiB
+      GOMAXPROCS: '2'
+    volumes:
+    - ./ops/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
+  alertmanager:
+    restart: unless-stopped
+    cpus: '0.50'
+    pids_limit: 128
+    logging: *id001
+    security_opt: *id002
+    image: prom/alertmanager:v0.28.1
+    container_name: hellotest-ops-alertmanager
+    mem_limit: 64m
+    ports:
+    - 127.0.0.1:${OPS_ALERTMANAGER_PORT:-9093}:9093
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    - --storage.path=/alertmanager
+    - --data.retention=24h
+    - --alerts.gc-interval=5m
+    - --cluster.listen-address=
+    volumes:
+    - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    - ops-alertmanager:/alertmanager
+networks:
+  default:
+    name: hellotest-ops
+volumes:
+  ops-prometheus: {}
+  ops-loki: {}
+  ops-alloy: {}
+  ops-grafana: {}
+  ops-alertmanager: {}

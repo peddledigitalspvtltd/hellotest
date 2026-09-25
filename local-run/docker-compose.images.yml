@@ -18,8 +18,7 @@ services:
       - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - hellotest-local-postgres-data:/var/lib/postgresql/data
-      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ../backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ../services/platform/backend/instance-setup-data/schema-setup/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./db/03-local-integrations.sql:/docker-entrypoint-initdb.d/03-local-integrations.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hellotest}
@@ -89,7 +88,14 @@ services:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     environment:
       APP_MODE: ${APP_MODE:-local}
+      ENABLE_OBSERVABILITY: ${ENABLE_OBSERVABILITY:-true}
+      OPS_MONITORING_ENABLED: ${OPS_MONITORING_ENABLED:-true}
+      OPS_GRAFANA_USER: ${OPS_GRAFANA_USER:-admin}
+      OPS_GRAFANA_PASSWORD: ${OPS_GRAFANA_PASSWORD:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://hellotest-ops-otel-collector:4318}
       API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+      HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
+      HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}

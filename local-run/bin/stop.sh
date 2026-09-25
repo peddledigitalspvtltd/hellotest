@@ -2,10 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-LOCAL_RUN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-COMPOSE_FILE=${HELLOTEST_LOCAL_COMPOSE_FILE:-docker-compose.yml}
+. "$SCRIPT_DIR/../lib/compose.sh"
 
-cd "$LOCAL_RUN_DIR"
-[ -f .env ] || cp .env.example .env
 "$SCRIPT_DIR/autoscale-testengine.sh" stop || true
-docker compose --env-file .env -f "$COMPOSE_FILE" down
+local_compose down

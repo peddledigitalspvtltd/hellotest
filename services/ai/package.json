@@ -1,0 +1,86 @@
+{
+  "name": "@hellotest/ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest ai capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/aiBugDraft.service": "./backend/services/aiBugDraft.service.js",
+    "./backend/services/aiBugTriage.service": "./backend/services/aiBugTriage.service.js",
+    "./backend/services/aiCaseAuthoring.service": "./backend/services/aiCaseAuthoring.service.js",
+    "./backend/services/aiContextOrchestrator.service": "./backend/services/aiContextOrchestrator.service.js",
+    "./backend/services/aiTestCaseGeneration.service": "./backend/services/aiTestCaseGeneration.service.js",
+    "./backend/services/aiTestDataGeneration.service": "./backend/services/aiTestDataGeneration.service.js",
+    "./backend/services/richTextAi.service": "./backend/services/richTextAi.service.js",
+    "./backend/services/storyReadiness.service": "./backend/services/storyReadiness.service.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/AiAssurancePanel": "./frontend/components/AiAssurancePanel.tsx",
+    "./frontend/components/AiAuthoringDialogHeader": "./frontend/components/AiAuthoringDialogHeader.tsx",
+    "./frontend/components/AiCaseAuthoringModal": "./frontend/components/AiCaseAuthoringModal.tsx",
+    "./frontend/components/AiDesignStudioModal": "./frontend/components/AiDesignStudioModal.tsx",
+    "./frontend/components/AiInsightPreviewDialog": "./frontend/components/AiInsightPreviewDialog.tsx",
+    "./frontend/components/AiLlmSelect": "./frontend/components/AiLlmSelect.tsx",
+    "./frontend/components/AiPromptContextPanel": "./frontend/components/AiPromptContextPanel.tsx",
+    "./frontend/components/AiReviewControls": "./frontend/components/AiReviewControls.tsx",
+    "./frontend/components/ArtifactAssuranceWorkspace": "./frontend/components/ArtifactAssuranceWorkspace.tsx",
+    "./frontend/components/DefectAiDraftWorkspace": "./frontend/components/DefectAiDraftWorkspace.tsx",
+    "./frontend/components/DefectTriageDialog": "./frontend/components/DefectTriageDialog.tsx",
+    "./frontend/components/MetricMethodologyInfo": "./frontend/components/MetricMethodologyInfo.tsx",
+    "./frontend/components/SmartContextWorkbench": "./frontend/components/SmartContextWorkbench.tsx",
+    "./frontend/components/StoryAiStudioContent": "./frontend/components/StoryAiStudioContent.tsx",
+    "./frontend/components/StoryAiStudioShell": "./frontend/components/StoryAiStudioShell.tsx",
+    "./frontend/components/StoryChangeImpactDialog": "./frontend/components/StoryChangeImpactDialog.tsx",
+    "./frontend/components/StoryGroomingWorkspace": "./frontend/components/StoryGroomingWorkspace.tsx",
+    "./frontend/components/TestCaseChangeImpactDialog": "./frontend/components/TestCaseChangeImpactDialog.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/aiAssurance": "./frontend/lib/aiAssurance.ts",
+    "./frontend/lib/aiDesignStudio": "./frontend/lib/aiDesignStudio.ts",
+    "./frontend/lib/artifactAssurance": "./frontend/lib/artifactAssurance.ts",
+    "./frontend/lib/smartContext": "./frontend/lib/smartContext.ts",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs ai",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs ai",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "ai",
+    "requires": [
+      "manual",
+      "knowledge",
+      "integration"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ai.automation",
+      "hellotest.ai.bug_triage",
+      "hellotest.ai.content_rephrase",
+      "hellotest.ai.execution_analysis",
+      "hellotest.ai.quality_insights",
+      "hellotest.ai.requirement_design",
+      "hellotest.ai.test_authoring",
+      "hellotest.ai.test_data_generation"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/agentic": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/manual": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

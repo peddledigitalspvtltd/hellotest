@@ -98,3 +98,33 @@ test("disabled direct-dispatch mode is ready, but a required unconfigured queue 
   assert.equal(required.getHealthSnapshot().ready, false);
   await required.stop();
 });
+
+
+test("idle polling emits bounded summaries and immediate recovery", async () => {
+  let timestamp = Date.now();
+  let fail = false;
+  const captured = [];
+  const worker = startQueueWorker(logger, { captureLocalEvent: event => captured.push(event) }, {
+    isConfigured: () => true, queueRequired: true, pollIntervalMs: 60_000,
+    now: () => new Date(timestamp),
+    leaseNextJob: async () => { if (fail) throw new Error("offline"); return null; },
+    executeJob: async () => undefined
+  });
+  try {
+    await worker.pollNow();
+    const summaries = () => captured.filter(event => event.event_type === "testengine.queue.poll.summary");
+    assert.equal(summaries().length, 1);
+    for (let index = 0; index < 20; index++) { timestamp += 1000; await worker.pollNow(); }
+    assert.equal(summaries().length, 1, "do not store every poll");
+    timestamp += 300_000;
+    await worker.pollNow();
+    assert.equal(summaries().length, 2);
+    assert.equal(summaries()[1].metadata.successful_polls, 21);
+    assert.equal(summaries()[1].metadata.jobs_leased, 0);
+    fail = true;
+    await worker.pollNow();
+    fail = false;
+    await worker.pollNow();
+    assert.equal(captured.filter(event => event.event_type === "testengine.queue.poll.recovered").length, 1);
+  } finally { await worker.stop(); }
+});

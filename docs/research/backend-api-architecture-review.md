@@ -44,7 +44,7 @@ Permission checks are deduplicated only within one AI relation read. No cross-re
 
 ## Validation performed
 
-- Main API: `cd backend/api && npm test` — **940 passed, 0 failed, 2 existing opt-in PostgreSQL tests skipped** (942 total). The pre-change suite passed 883 with the same two opt-in skips. OpenAPI/runtime route parity, permission contracts and lifecycle regressions pass.
+- Main API: `cd services/platform/backend && npm test` — **940 passed, 0 failed, 2 existing opt-in PostgreSQL tests skipped** (942 total). The pre-change suite passed 883 with the same two opt-in skips. OpenAPI/runtime route parity, permission contracts and lifecycle regressions pass.
 - Web execution backend: `cd testengine/backend && npm test` — **45 passed**, including the TypeScript build.
 - Mobile execution engine: `cd local-run/mobile-engine && npm test` — **19 passed**.
 - Explicitly enabled PostgreSQL integration fixtures: `catalogApiPerformance.postgres.test.js`, `adminApiArchitecture.postgres.test.js`, `executionArchitecture.postgres.test.js` and `performanceIndexing.postgres.test.js` all passed against separately named disposable local databases. Tests cover actual SQL, rollback, row ownership, races, paging and concurrent index creation/reuse. Their source files declare the required opt-in variables and safe database-name constraints.

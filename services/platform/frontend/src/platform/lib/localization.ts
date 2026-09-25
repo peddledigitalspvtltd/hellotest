@@ -1,0 +1,240 @@
+import { WORKSPACE_SHELL_MESSAGES } from "./workspaceShellMessages";
+import { SWITCHER_MESSAGES } from "./switcherMessages";
+import { READINESS_MESSAGES } from "@hellotest/dashboard/frontend/lib/releaseReadinessMessages";
+import { ANALYTICS_MESSAGES } from "@hellotest/dashboard/frontend/lib/qualityAnalyticsMessages";
+export type LocalizationStrings = Record<string, string>;
+
+export const DEFAULT_LOCALIZATION_STRINGS: LocalizationStrings = {
+  "nav.section.main": "Main",
+  "nav.section.testManagement": "Product Management",
+  "nav.section.administration": "Administration",
+  "nav.section.settings": "Settings",
+  "nav.dashboard": "Dashboard",
+  "nav.projects": "Projects",
+  "nav.adminSpace": "Admin Space",
+  "nav.testAuthoring": "Test Authoring",
+  "nav.testRuns": "Test Runs",
+  "nav.agenticWorkflows": "Agentic Workflows",
+  "nav.testEnvironment": "Test Environment",
+  "nav.knowledge": "Knowledge Repo",
+  "nav.users": "Users",
+  "nav.integrations": "Integrations",
+  "nav.support": "Support",
+  "nav.notifications": "Notifications",
+  "nav.settings": "Settings",
+  "nav.reportIssue": "Defects",
+  "nav.feedback": "Defects",
+  "workspace.requirements": "Stories",
+  "workspace.backlog": "Backlog",
+  "workspace.stories": "Stories",
+  "workspace.sprints": "Sprints",
+  "workspace.releases": "Releases",
+  "workspace.testCases": "Test Cases",
+  "workspace.sharedSteps": "Shared Step Groups",
+  "workspace.testSuites": "Test Suites",
+  "workspace.executions": "Test Runs",
+  "workspace.automationCases": "Automation Cases",
+  "workspace.objectRepository": "Object Repository",
+  "workspace.batchProcess": "Batch Process",
+  "workspace.opsTelemetry": "OPS Telemetry",
+  "workspace.traces": "Distributed Traces",
+  "workspace.environments": "Environments",
+  "workspace.testData": "Test Data",
+  "workspace.configurations": "Configurations",
+  "page.overview": "Overview",
+  "page.projects": "Projects",
+  "page.adminSpace": "Admin Space",
+  "page.requirements": "Stories",
+  "page.testCases": "Test Cases",
+  "page.sharedSteps": "Shared Step Groups",
+  "page.design": "Test Suites",
+  "page.executions": "Test Runs",
+  "page.agenticWorkflows": "Agentic Workflows",
+  "page.testEnvironments": "Test Environments",
+  "page.testData": "Test Data",
+  "page.testConfigurations": "Test Configurations",
+  "page.people": "Users",
+  "page.integrations": "Integrations",
+  "page.knowledgeRepo": "Knowledge Repo",
+  "page.support": "Support",
+  "page.notifications": "Notifications",
+  "page.settings": "Settings",
+  "page.issues": "Defects",
+  "page.feedback": "Defects",
+  "settings.localization.title": "Localization",
+  "settings.localization.subtitle": "Download the current runtime strings, edit the JSON, then upload it to relabel menus and supported interface text.",
+  "settings.localization.download": "Download current strings",
+  "settings.localization.upload": "Upload JSON",
+  "settings.localization.reset": "Reset uploaded strings",
+  "settings.localization.helper": "Only admins can publish updated localization strings for the workspace.",
+  "settings.general.themeLight": "Light theme",
+  "settings.general.themeDark": "Dark theme",
+  "settings.general.sidebarExpanded": "Expanded sidebar by default",
+  "settings.general.sidebarCollapsed": "Collapsed sidebar by default",
+  "settings.general.catalogGrid": "Open catalogs in grid view by default",
+  "settings.general.catalogList": "Open catalogs in list view by default",
+  "settings.export.autoPrompt": "Offer execution export prompts after completed runs",
+  "settings.export.historyTitle": "Historical evidence is preserved",
+  "settings.export.historyCopy": "Deleting live suites or test cases does not remove execution snapshots already captured.",
+  "common.savePreferences": "Save preferences",
+  "common.download": "Download",
+  "common.upload": "Upload",
+  "common.import": "Import",
+  "common.export": "Export",
+  "common.save": "Save",
+  "common.reset": "Reset",
+  "catalog.view.tile": "Tile view",
+  "catalog.view.list": "List view",
+  "catalog.copyId": "Copy ID"
+};
+
+// Shared experience strings are included in downloadable workspace packs.
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, {
+  "shell.skip": "Skip to content",
+  "shell.signOut": "Sign out",
+  "shell.navigation": "Navigation",
+  "shell.find": "Find a capability",
+  "shell.preferences": "Language & region",
+  "access.refreshHelp": "Availability couldn’t be refreshed. Your current work is still here.",
+  "access.errorTitle": "We couldn’t verify availability",
+  "access.errorHelp": "Workspace capabilities couldn’t be loaded. Retry the connection to continue.",
+  "common.retry": "Retry",
+  "access.disabledTitle": "This capability is turned off",
+  "access.deniedTitle": "You need access to this area",
+  "access.disabledHelp": "An administrator can enable this capability. You can continue in another available area.",
+  "access.deniedHelp": "Ask an administrator to review your project permissions, or choose another capability.",
+  "regional.title": "Language & region",
+  "regional.description": "Personal preferences for this browser. Changes apply when you save.",
+  "common.close": "Close",
+  "regional.language": "Interface language",
+  "regional.workspace": "Workspace labels",
+  "regional.locale": "Regional format",
+  "regional.browser": "Use browser setting",
+  "regional.zone": "Time zone",
+  "regional.clock": "Time format",
+  "regional.preview": "Preview",
+  "regional.date": "Date & time",
+  "regional.number": "Number",
+  "regional.scope": "Language applies to navigation and shared controls. Specialized editors and record content retain their original language. Regional formats apply to workflow history and supported date and number displays.",
+  "common.cancel": "Cancel",
+  "common.savePreferences": "Save preferences",
+  "navigator.restricted": "Permission required",
+  "navigator.disabled": "Feature disabled",
+  "navigator.project": "Select a project",
+  "navigator.unavailable": "Availability unverified",
+  "navigator.title": "What would you like to do?",
+  "navigator.description": "Find a capability and continue in your current project.",
+  "navigator.search": "Search tests, agents, evidence…",
+  "navigator.filter": "Filter by activity",
+  "navigator.capabilities": "capabilities",
+  "navigator.availableOnly": "Available only",
+  "navigator.empty": "No matching capabilities",
+  "navigator.emptyHelp": "Try another term or clear the filters.",
+  "common.reset": "Reset",
+  "navigator.keyboard": "Tab to a destination · Enter to open · Esc to close",
+  "navigator.all": "All",
+  "navigator.plan": "Plan",
+  "navigator.design": "Design",
+  "navigator.automate": "Automate",
+  "navigator.execute": "Execute",
+  "navigator.investigate": "Investigate",
+  "navigator.manage": "Manage",
+  "capability.analytics.name": "Quality analytics",
+  "capability.analytics.description": "Track coverage, execution trends and quality signals.",
+  "capability.readiness.name": "Release readiness",
+  "capability.readiness.description": "Assess release evidence and unresolved risk.",
+  "capability.dashboards.name": "Custom dashboards",
+  "capability.dashboards.description": "Build executive, product and QA views with reusable widgets.",
+  "capability.stories.name": "Stories",
+  "capability.stories.description": "Connect acceptance criteria to test coverage.",
+  "capability.backlog.name": "Backlog",
+  "capability.backlog.description": "Prioritize upcoming product work.",
+  "capability.sprints.name": "Sprints",
+  "capability.sprints.description": "Organize delivery and track iteration progress.",
+  "capability.releases.name": "Releases",
+  "capability.releases.description": "Plan delivery milestones and linked stories.",
+  "capability.cases.name": "Test cases",
+  "capability.cases.description": "Author structured or Gherkin scenarios and parameters.",
+  "capability.groups.name": "Shared step groups",
+  "capability.groups.description": "Reuse common actions across test cases.",
+  "capability.suites.name": "Test suites",
+  "capability.suites.description": "Assemble cases into reusable execution plans.",
+  "capability.automation.name": "Automation cases",
+  "capability.automation.description": "Build and maintain executable test steps.",
+  "capability.objects.name": "Object repository",
+  "capability.objects.description": "Review and reuse locators across automated tests.",
+  "capability.agents.name": "AI agents",
+  "capability.agents.description": "Generate objects, API tests and knowledge from source; review project evidence.",
+  "capability.workflows.name": "Agent workflows",
+  "capability.workflows.description": "Connect specialists and run bounded reviews with recorded results.",
+  "capability.workflow-history.name": "Workflow history",
+  "capability.workflow-history.description": "Review each workflow attempt and its step outcomes.",
+  "capability.runs.name": "Suite runs",
+  "capability.runs.description": "Execute test cases, capture evidence and investigate defects.",
+  "capability.local-runs.name": "Local runs",
+  "capability.local-runs.description": "Review locally recorded Playwright executions.",
+  "capability.scheduled-runs.name": "Scheduled runs",
+  "capability.scheduled-runs.description": "Plan recurring and future test execution.",
+  "capability.jobs.name": "Background jobs",
+  "capability.jobs.description": "Monitor imports, builds and asynchronous processing.",
+  "capability.environments.name": "Environments",
+  "capability.environments.description": "Define application targets and environment variables.",
+  "capability.data.name": "Test data",
+  "capability.data.description": "Prepare parameter values and data rows for execution.",
+  "capability.configurations.name": "Configurations",
+  "capability.configurations.description": "Choose browsers, platforms and execution variables.",
+  "capability.bugs.name": "Defects",
+  "capability.bugs.description": "Triage defects, review history and convert gaps into tests.",
+  "capability.knowledge.name": "Knowledge repository",
+  "capability.knowledge.description": "Curate the sources used by Ask AI and quality specialists.",
+  "capability.telemetry.name": "Telemetry",
+  "capability.telemetry.description": "Inspect operational health and processing signals.",
+  "capability.traces.name": "Distributed traces",
+  "capability.traces.description": "Follow operations across services.",
+  "capability.projects.name": "Projects",
+  "capability.projects.description": "Create a project, configure applications and membership.",
+  "capability.integrations.name": "Integrations",
+  "capability.integrations.description": "Connect providers and verify their connection.",
+  "capability.people.name": "People and roles",
+  "capability.people.description": "Manage workspace membership and access.",
+  "capability.settings.name": "Workspace settings",
+  "capability.settings.description": "Adjust preferences, automation defaults and language packs.",
+  "capability.notifications.name": "Notifications",
+  "capability.notifications.description": "Review activity and updates relevant to your work.",
+  "capability.support.name": "Support",
+  "capability.support.description": "Get help with the workspace."
+});
+
+export const LOCALIZATION_STORAGE_KEY = "hellotest.localization";
+
+const migrateLegacyEntityLabels = (overrides?: LocalizationStrings | null): LocalizationStrings => {
+  const migrated = Object.fromEntries(Object.entries(overrides || {}).filter(([key, value]) => key.length <= 160 && typeof value === "string" && value.length <= 10000 && !["__proto__", "constructor", "prototype"].includes(key)));
+
+  (["workspace.requirements", "page.requirements"] as const).forEach((key) => {
+    if (migrated[key] === "Requirement") migrated[key] = "Story";
+    if (migrated[key] === "Requirements") migrated[key] = "Stories";
+  });
+
+  // Older workspace packs and browser caches can still contain the original
+  // English module names. Keep their keys and custom translations compatible.
+  (["nav.reportIssue", "nav.feedback", "page.issues", "page.feedback", "capability.bugs.name"] as const).forEach((key) => {
+    if (/^(?:report\s+(?:an?\s+)?)?(?:issues?|bugs?)$/i.test(migrated[key]?.trim() || "")) {
+      migrated[key] = "Defects";
+    }
+  });
+
+  return migrated;
+};
+
+export const mergeLocalizationStrings = (overrides?: LocalizationStrings | null): LocalizationStrings => ({
+  ...DEFAULT_LOCALIZATION_STRINGS,
+  ...migrateLegacyEntityLabels(overrides)
+});
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, ANALYTICS_MESSAGES);
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, READINESS_MESSAGES);
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, SWITCHER_MESSAGES);
+
+Object.assign(DEFAULT_LOCALIZATION_STRINGS, WORKSPACE_SHELL_MESSAGES);

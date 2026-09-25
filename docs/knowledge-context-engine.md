@@ -106,9 +106,9 @@ available ingestion surface. No generated image evidence is invented.
 Run focused checks with:
 
 ```sh
-node --test backend/api/test/knowledge*.test.js
-KNOWLEDGE_POSTGRES_TEST=1 node --test backend/api/test/knowledgeRepositoryLifecycle.test.js
-node backend/api/eval/knowledge/run.js /tmp/knowledge-evaluation.json
+node --test services/platform/backend/test/knowledge*.test.js
+KNOWLEDGE_POSTGRES_TEST=1 node --test services/platform/backend/test/knowledgeRepositoryLifecycle.test.js
+node services/platform/backend/eval/knowledge/run.js /tmp/knowledge-evaluation.json
 ```
 
 The PostgreSQL integration uses temporary tables and covers failed index

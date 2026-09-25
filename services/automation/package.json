@@ -1,0 +1,73 @@
+{
+  "name": "@hellotest/automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest automation capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/aiAutomationBuilder.service": "./backend/services/aiAutomationBuilder.service.js",
+    "./backend/services/apiRequestExecution.service": "./backend/services/apiRequestExecution.service.js",
+    "./backend/services/automationGenerator.service": "./backend/services/automationGenerator.service.js",
+    "./backend/services/testEngineDispatch.service": "./backend/services/testEngineDispatch.service.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/RecorderSessionInsights": "./frontend/components/RecorderSessionInsights.tsx",
+    "./frontend/components/RecorderStartControls": "./frontend/components/RecorderStartControls.tsx",
+    "./frontend/components/StepAutomationEditor": "./frontend/components/StepAutomationEditor.tsx",
+    "./frontend/components/VisualTestBuilder": "./frontend/components/VisualTestBuilder.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/automationAccess": "./frontend/lib/automationAccess.ts",
+    "./frontend/lib/junitImport": "./frontend/lib/junitImport.ts",
+    "./frontend/lib/postmanImport": "./frontend/lib/postmanImport.ts",
+    "./frontend/lib/stepAutomation": "./frontend/lib/stepAutomation.ts",
+    "./frontend/lib/testNgImport": "./frontend/lib/testNgImport.ts",
+    "./frontend/pages/AutomationPage": "./frontend/pages/AutomationPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs automation",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs automation",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "automation",
+    "requires": [
+      "testing",
+      "integration"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.automation.assets",
+      "hellotest.automation.builder",
+      "hellotest.automation.local_execution",
+      "hellotest.automation.object_repository",
+      "hellotest.automation.parallel_execution",
+      "hellotest.automation.preview",
+      "hellotest.automation.remote_execution",
+      "hellotest.automation.step_code",
+      "hellotest.automation.step_recording",
+      "hellotest.automation.workspace",
+      "hellotest.mobile.appium"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/agentic": "^1.0.0",
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0",
+    "@hellotest/trace": "^1.0.0"
+  }
+}

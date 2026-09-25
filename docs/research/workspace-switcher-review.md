@@ -7,7 +7,7 @@ and application are now separate controls rather than an expandable project tree
 
 ## Findings and changes
 
-The previous inline selector in `frontend/src/components/AppShell.tsx` fetched
+The previous inline selector in `services/platform/frontend/src/platform/components/AppShell.tsx` fetched
 applications for each expanded project. Its effects selected the first returned
 application and could clear a remembered value after a failed fetch. The new
 `WorkspaceProjectSwitcher.tsx` requests only the selected project's catalog,

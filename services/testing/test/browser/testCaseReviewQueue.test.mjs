@@ -1,0 +1,218 @@
+// Real TestCasesPage against isolated API responses; no backend writes.
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const root = new URL('../../../platform/frontend/', import.meta.url);
+const fixture = `
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider, useAuth } from '/src/auth/AuthContext';
+import { LocalizationProvider } from '/src/context/LocalizationContext';
+import { TestCasesPage } from '/services/testing/frontend/pages/TestCasesPage';
+import { api, sessionStorage } from '/src/lib/api';
+import { setCurrentScope } from '/src/platform/hooks/useCurrentProject';
+import '/src/styles.css';
+import '/src/dark-theme.css';
+import '/src/modal-system.css';
+import '/src/workspace-layout.css';
+import '/src/catalog-list.css';
+import '/src/execution-run-builder.css';
+import '/src/platform/components/workspace-surfaces.css';
+let session={token:'review-browser',user:{id:'reviewer',name:'Reviewer',email:'reviewer@example.test',role:'admin'}};
+sessionStorage.write(session);setCurrentScope('case-project','case-app');
+localStorage.setItem('hellotest.default_catalog_view_mode','tile');
+window.calls={catalog:[],summary:[],review:[],metrics:[],headers:[],children:[],legacy:[]};window.failReview=false;window.pauseReview=false;window.pauseSummary=false;
+function stub(object){for(const [key,value] of Object.entries(object)){if(typeof value==='function')object[key]=async()=>[];else if(value&&typeof value==='object')stub(value)}}
+stub(api);
+api.auth.session=async()=>session;
+api.settings.getLocalization=async()=>({strings:{}});
+api.settings.getWorkspacePreferences=async()=>({preferences:{}});
+const flags={flags:new Proxy({},{get:(_target,key)=>!['hellotest.ai.test_authoring','hellotest.automation.workspace'].includes(key)})};
+api.featureFlags.snapshot=async()=>flags;
+api.metadata.domain=async()=>({test_cases:{default_status:'active',default_automated:'no',statuses:[{value:'active',label:'Active'}]},jira:{sprints:[],versions:[]}});
+api.projects.list=async()=>[{id:'case-project',name:'Catalog project'},{id:'other-project',name:'Other project'}];
+api.appTypes.list=async input=>input.project_id==='other-project'?[{id:'other-app',project_id:'other-project',name:'Other app',type:'web'}]:[{id:'case-app',project_id:'case-project',name:'Web app',type:'web'},{id:'empty-app',project_id:'case-project',name:'Empty app',type:'web'}];
+const base={app_type_id:'case-app',project_id:'case-project',description:'Review coverage',suite_ids:[],requirement_ids:[],module_ids:['module-one'],defect_ids:[],labels:[],external_references:[],automated:'no',automation_status:'not_automated',authoring_mode:'structured',test_case_type:'functional',priority:3,status:'active',review_status:'pending',reviewer_id:'reviewer',created_by:'author',step_count:3,run_count:0,recent_results:[],detail_complete:false,summary_complete:true,revision:7,created_at:'2026-09-15T10:00:00Z',updated_at:'2026-09-15T11:00:00Z'};
+window.cases=Array.from({length:36},(_,i)=>({...base,id:'case-'+(i+1),display_id:'TC-'+(i+1),title:(i%2?'AI':'Manual')+' review '+String(i+1).padStart(2,'0'),...(i%2?{ai_generation_source:i%3?'interactive':'repository',ai_generation_review_status:'pending'}:{})}));
+window.cases.push({...base,id:'legacy',display_id:'TC-LEGACY',title:'Legacy AI review',reviewer_id:null,review_status:'not_requested',created_by:'reviewer',ai_generation_source:'scheduler',ai_generation_review_status:'pending'});
+window.cases.push({...base,id:'other-user',display_id:'TC-OTHER',title:'Other reviewer private pending',reviewer_id:'other',created_by:'reviewer'});
+window.cases.push({...base,id:'unassigned',display_id:'TC-NONE',title:'Unassigned manual case',reviewer_id:null});
+window.cases.push({...base,id:'other-project-case',display_id:'TC-PROJECT',title:'Other project pending',project_id:'other-project',app_type_id:'other-app'});
+window.cases.push({...base,id:'ordinary',display_id:'TC-ORDINARY',title:'Ordinary catalog case',review_status:'not_requested',reviewer_id:null,module_ids:[]});
+const pending=item=>item.review_status==='pending'||(item.ai_generation_source&&item.ai_generation_review_status==='pending'&&!['accepted','changes_requested'].includes(item.review_status));
+const owned=(item,userId)=>item.reviewer_id?item.reviewer_id===userId:item.ai_generation_source&&item.ai_generation_review_status==='pending'&&item.created_by===userId;
+function matching(input,userId=session.user.id){return window.cases.filter(item=>(!input.project_id||item.project_id===input.project_id)&&(!input.app_type_id||item.app_type_id===input.app_type_id)&&(!input.unassigned_module||!item.module_ids.length)&&(!input.review_queue||(pending(item)&&owned(item,userId)))&&(!input.search||item.title.toLowerCase().includes(input.search.toLowerCase())))}
+function paginate(items,input){const offset=input.cursor?items.findIndex(item=>item.id===input.cursor)+1:0;const page=items.slice(offset,offset+Math.min(10,input.page_size||10));return {items:structuredClone(page),next_cursor:offset+page.length<items.length?page.at(-1).id:null,is_last:offset+page.length>=items.length}}
+api.testCases.listPage=async(input)=>{window.calls.catalog.push(structuredClone(input));return paginate(matching(input),input)};
+api.testCases.reviewSummary=async input=>{const user=session.user.id;window.calls.summary.push({user,...input});if(window.pauseSummary)await new Promise(resolve=>{window.releaseSummary=resolve});return {pending:matching({...input,review_queue:'mine'},user).length,overall_pending:matching(input,user).filter(pending).length}};
+api.testCases.get=async id=>({...structuredClone(window.cases.find(item=>item.id===id)),detail_complete:true});
+const health=count=>({count,traceabilityPercent:0,executablePercent:100,automationPercent:0,summaryComplete:true,unknownSummaryCount:0,executionPercent:0,passRatePercent:null,latestPassRatePercent:null,stabilityPercent:null,averageExecutionMs:null,executionDurationSampleCount:0,pendingReviewCount:count,defectCount:0,defectDensity:0,riskCount:0});
+api.testCases.metrics=async input=>{window.calls.metrics.push(structuredClone(input));const total=matching(input).length;return {coverage:{total,covered:0,automated:0,automationKnown:total,withHistory:0,withSuites:0},catalog:{total,automationPercent:0,blocked:0,failed:0,critical:0,averageExecutionMs:null,executionDurationSampleCount:0,finalizedResults:0,passedResults:0,recentPassRate:null},modules:{'module-one':health(total-1)},unassigned:health(1)}};
+api.testCaseModules.list=async input=>{window.calls.headers.push(input);return [{id:'module-one',app_type_id:'case-app',name:'Hidden module',test_case_count:38,test_case_ids:[],requirement_ids:[]}]};
+api.testCaseModules.listCases=async(id,input)=>{window.calls.children.push({id,input});return paginate(matching({...input,project_id:'case-project',app_type_id:'case-app'}).filter(item=>item.module_ids.includes(id)),input)};
+api.testCases.review=async(id,input)=>{
+ window.calls.review.push({id,input:structuredClone(input)});
+ if(window.pauseReview)await new Promise(resolve=>{window.releaseReview=resolve});
+ if(window.failReview || window.failCase===id)throw Object.assign(new Error('Review temporarily unavailable'),{status:503});
+ const item=window.cases.find(item=>item.id===id);if(!owned(item,session.user.id))throw Object.assign(new Error('Reviewer changed'),{status:403});
+ if(item.updated_at!==input.expected_updated_at||item.revision!==input.expected_revision)throw Object.assign(new Error('Test case changed; refresh before reviewing'),{status:409});
+ item.review_status=input.review_status;if(item.ai_generation_source)item.ai_generation_review_status=input.review_status==='accepted'?'accepted':'rejected';
+ return {updated:true,review:{id:'decision-'+id,status:input.review_status,user_id:session.user.id,comment:input.comment,created_at:'2026-09-16T11:00:00Z'}};
+};
+api.testCases.acceptGeneratedCase=async id=>{window.calls.legacy.push(id);throw new Error('Legacy review forbidden')};
+api.testCases.rejectGeneratedCase=api.testCases.acceptGeneratedCase;
+const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(['feature-flags'],flags);window.client=client;
+const router=createMemoryRouter([{path:'/test-cases',element:<TestCasesPage/>}],{initialEntries:['/test-cases']});
+function Controls(){const auth=useAuth();window.changeUser=async(id,readOnly=false)=>{session={token:'token-'+id,user:{id,name:id,email:id+'@example.test',role:readOnly?'member':'admin',project_permissions:{'case-project':['testcase.view','project.view','app_type.view']}}};sessionStorage.write(session);await auth.refreshSession()};window.changeScope=(p,a)=>setCurrentScope(p,a);return null}
+createRoot(document.getElementById('root')).render(<QueryClientProvider client={client}><AuthProvider><Controls/><LocalizationProvider userId='reviewer'><div className='workspace-experience-v2'><main className='workspace-main' style={{height:'100vh',overflowY:'auto',padding:24,boxSizing:'border-box'}}><RouterProvider router={router}/></main></div></LocalizationProvider></AuthProvider></QueryClientProvider>);
+`;
+
+test('Review Cases owns complete pending queue across filters, modules, pagination, decisions and identities', {timeout:120000}, async()=>{
+ const name='review-queue-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+ const artifacts='/tmp/qaira-review-queue';
+ try{
+  await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx,fixture);await mkdir(artifacts,{recursive:true});
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+  const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'}),errors=[];page.on('pageerror',error=>errors.push(error.stack));page.setDefaultTimeout(15000);
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5173'}/${name}.html`);
+  const review=page.getByRole('button',{name:/^Review Cases/});
+  await review.waitFor();await page.waitForFunction(()=>document.querySelector('.test-case-review-count')?.textContent==='37');
+  const overall=page.getByRole('group',{name:'Test case library quality metrics'}).getByRole('button',{name:'View evidence for Pending Review',exact:true}).locator('strong');
+  assert.equal(await overall.innerText(),'39','Overall card includes every reviewer, personal action remains 37');
+  await page.getByRole('textbox',{name:'Search test cases'}).fill('Ordinary catalog');
+  await page.waitForFunction(()=>window.calls.catalog.some(item=>item.search==='Ordinary catalog'));
+  assert.equal(await review.isEnabled(),true,'count and entry are independent of search, selection and AI feature flag');
+  await review.click();
+  await page.getByText('My pending reviews',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Approve review for Manual review 01',exact:true}).waitFor();
+  assert.equal(await page.locator('.test-case-module-header').count(),0,'queue is flat even for module-owned cases');
+  for (const theme of ['light','dark']) {
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    await page.waitForTimeout(300);
+    const colors=await page.locator('.test-case-review-actions').first().evaluate(element=>Array.from(element.querySelectorAll('button')).map(button=>getComputedStyle(button).backgroundColor));
+    assert.deepEqual(colors,theme==='dark'?['rgb(18, 58, 42)','rgb(74, 32, 44)']:['rgb(233, 248, 238)','rgb(255, 240, 241)'],'individual review colors '+theme);
+  }
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
+  assert.equal(await page.getByRole('textbox',{name:'Search test cases'}).count(),0);
+  const first=await page.evaluate(()=>window.calls.catalog.find(item=>item.review_queue==='mine'));
+  assert.equal(first.search,undefined);assert.equal(first.unassigned_module,false);assert.equal(first.exclude_automated,undefined);
+  assert.equal(await page.getByRole('button',{name:'Approve review for Other reviewer private pending'}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Approve review for Unassigned manual case'}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'Approve review for Other project pending'}).count(),0);
+  assert.equal(await page.locator('.test-case-review-actions.is-icon-only').first().innerText(),'','tile decisions are compact icons');
+  await page.screenshot({path:artifacts+'/tiles.png'});
+  for(let i=0;i<12;i++){
+    if(await page.getByRole('button',{name:'Approve review for Legacy AI review',exact:true}).count())break;
+    await page.locator('main').evaluate(node=>node.scrollTop=node.scrollHeight);await page.waitForTimeout(250);
+  }
+  await page.getByRole('button',{name:'Approve review for Legacy AI review',exact:true}).waitFor();
+  assert.ok((await page.evaluate(()=>window.calls.catalog)).filter(item=>item.review_queue&&item.cursor).length>=3,'all owned cases are reachable beyond the first page');
+  await page.evaluate(()=>window.pauseReview=true);
+  const approve=page.getByRole('button',{name:'Approve review for Manual review 01',exact:true});
+  await approve.scrollIntoViewIfNeeded();await approve.click();
+  await page.waitForFunction(()=>typeof window.releaseReview==='function');
+  assert.equal(await approve.isDisabled(),true);assert.equal((await page.evaluate(()=>window.calls.review)).length,1);
+  await page.evaluate(()=>{window.pauseReview=false;window.releaseReview()});
+  await approve.waitFor({state:'detached'});
+  await page.waitForFunction(()=>document.querySelector('.test-case-review-count')?.textContent==='36');
+  const approved=await page.evaluate(()=>window.calls.review[0]);assert.equal(approved.input.expected_revision,7);assert.equal(approved.input.expected_updated_at,'2026-09-15T11:00:00Z');
+  await page.evaluate(()=>{window.failReview=true;window.pauseReview=true;window.releaseReview=null});
+  await page.getByRole('button',{name:'Request changes for AI review 02',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Suggest test case review changes'});
+  await dialog.getByPlaceholder('Add the changes needed before approval.').fill('Cover invalid payment details');
+  await dialog.getByRole('button',{name:'Send feedback',exact:true}).click();
+  await page.waitForFunction(()=>typeof window.releaseReview==='function');
+  assert.equal(await dialog.getByRole('button',{name:'Close',exact:true}).isDisabled(),true);
+  assert.equal(await dialog.getByRole('button',{name:'Cancel',exact:true}).isDisabled(),true);
+  await page.evaluate(()=>{window.pauseReview=false;window.releaseReview()});
+  await dialog.getByRole('alert').getByText('Review temporarily unavailable',{exact:true}).waitFor();
+  assert.equal(await dialog.isVisible(),true,'failed review keeps feedback and case');
+  assert.equal(await dialog.getByPlaceholder('Add the changes needed before approval.').inputValue(),'Cover invalid payment details');
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-2').review_status),'pending');
+  await page.evaluate(()=>window.failReview=false);
+  await dialog.getByRole('button',{name:'Send feedback',exact:true}).click();await dialog.waitFor({state:'detached'});
+  await page.getByRole('button',{name:'Request changes for AI review 02',exact:true}).waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-2').review_status),'changes_requested');
+  assert.equal(await page.evaluate(()=>window.cases.length),41,'No retains the case');
+  assert.equal((await page.evaluate(()=>window.calls.legacy)).length,0);
+  await page.getByRole('button',{name:'List view',exact:true}).click();
+  await page.locator('.test-case-review-actions:not(.is-icon-only)').first().waitFor();
+  await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).innerText(),'Approve');
+  assert.equal(await page.getByRole('button',{name:'Request changes for Manual review 03',exact:true}).innerText(),'Reject');
+  await page.screenshot({path:artifacts+'/list.png'});
+  // A changed case is never silently approved from an older tile/list snapshot.
+  await page.evaluate(()=>{const item=window.cases.find(item=>item.id==='case-3');item.revision=8;item.title='Updated manual review 03'});
+  await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).click();
+  await page.getByText('Test case changed; refresh before reviewing',{exact:false}).waitFor();
+  await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-3').review_status),'pending');
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).evaluate(node=>node.scrollIntoView({block:'center'}));
+  await page.screenshot({path:artifacts+'/mobile.png'});
+  await page.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
+  await page.screenshot({path:artifacts+'/mobile-dark.png'});
+  assert.equal(await page.getByRole('button',{name:'Approve review for Updated manual review 03',exact:true}).isVisible(),true);
+  await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
+  await page.setViewportSize({width:1440,height:1000});
+  // Bulk decisions retain each revision and leave failed selections available.
+  await page.getByRole('button',{name:'Tile view',exact:true}).click();
+  await page.getByRole('checkbox',{name:'Select Test Case Updated manual review 03',exact:true}).check();
+  await page.getByRole('checkbox',{name:'Select Test Case AI review 04',exact:true}).check();
+  assert.equal(await review.count(),0,'Review Cases is replaced while eligible cases are selected');
+  for(const theme of ['light','dark']) {
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);await page.waitForTimeout(300);
+    const colors=await page.locator('.test-case-review-approve,.test-case-review-reject').evaluateAll(buttons=>buttons.map(button=>getComputedStyle(button).backgroundColor));
+    assert.deepEqual(colors,theme==='dark'?['rgb(18, 58, 42)','rgb(74, 32, 44)']:['rgb(233, 248, 238)','rgb(255, 240, 241)'],'bulk review colors '+theme);
+  }
+  await page.evaluate(()=>document.documentElement.dataset.theme='light');
+  await page.evaluate(()=>window.failCase='case-4');
+  await page.getByRole('button',{name:'Approve (2)',exact:true}).click();
+  await page.getByText(/1 Test Case approved.*1 could not be reviewed/).waitFor();
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-3').review_status),'accepted');
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-4').review_status),'pending');
+  await page.getByRole('button',{name:'Reject (1)',exact:true}).click();
+  const bulkDialog=page.getByRole('dialog',{name:'Reject selected Test Cases'});
+  await bulkDialog.getByPlaceholder('Add the changes needed before approval.').fill('Add the invalid input boundary');
+  await page.evaluate(()=>window.failCase=null);
+  await bulkDialog.getByRole('button',{name:'Reject Selected',exact:true}).click();
+  await bulkDialog.waitFor({state:'detached'});
+  assert.equal(await page.evaluate(()=>window.cases.find(item=>item.id==='case-4').review_status),'changes_requested');
+  assert.equal(await page.evaluate(()=>window.calls.review.filter(item=>item.id==='case-4').at(-1).input.comment),'Add the invalid input boundary');
+  await review.waitFor();
+  await page.screenshot({path:artifacts+'/bulk-reviewed.png'});
+  // Identity switch cannot reuse another user's pending summary or cached queue.
+  await page.evaluate(async()=>{window.pauseSummary=true;await window.changeUser('other')});
+  await page.waitForFunction(()=>window.calls.summary.some(item=>item.user==='other'));
+  assert.equal(await review.isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).count(),0);
+  await page.evaluate(()=>{window.pauseSummary=false;window.releaseSummary()});
+  await page.waitForFunction(()=>document.querySelector('.test-case-review-count')?.textContent==='1');await review.click();
+  await page.getByRole('button',{name:'Approve review for Other reviewer private pending',exact:true}).click();
+  await page.getByText('No pending reviews assigned to you in this application.',{exact:true}).waitFor();
+  assert.equal(await review.isDisabled(),true);await page.getByRole('button',{name:'Back to all cases',exact:true}).click();
+  await page.getByRole('textbox',{name:'Search test cases'}).waitFor();
+  await page.evaluate(()=>window.changeScope('case-project','empty-app'));
+  await page.waitForFunction(()=>window.calls.summary.some(item=>item.app_type_id==='empty-app'));
+  assert.equal(await review.isDisabled(),true);
+  await page.evaluate(async()=>{await window.changeUser('reviewer');window.changeScope('other-project','other-app')});
+  await page.waitForFunction(()=>window.calls.summary.some(item=>item.project_id==='other-project'&&item.user==='reviewer'));
+  await review.click();await page.getByRole('button',{name:'Approve review for Other project pending',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Approve review for Manual review 03',exact:true}).count(),0);
+  await page.evaluate(async()=>{window.changeScope('case-project','case-app');await window.changeUser('reviewer',true)});
+  await page.waitForFunction(()=>window.calls.catalog.at(-1)?.app_type_id==='case-app');
+  assert.equal(await review.isDisabled(),true,'view-only users cannot decide reviews');
+  await page.evaluate(()=>window.client.invalidateQueries({queryKey:['test-case-review-summary']}));
+  await page.waitForFunction(()=>document.querySelector('[aria-label="View evidence for Pending Review"] strong')?.textContent===String(window.cases.filter(item=>item.project_id==='case-project'&&item.app_type_id==='case-app'&&(item.review_status==='pending'||(item.ai_generation_source&&item.ai_generation_review_status==='pending'&&!['accepted','changes_requested'].includes(item.review_status)))).length));
+  assert.notEqual(await overall.innerText(),'—','View-only users can see overall pending count');
+  assert.equal(await page.locator('.test-case-review-actions button').count(),0);
+  assert.deepEqual(errors,[]);
+ }finally{await browser?.close();await Promise.all([unlink(html).catch(()=>{}),unlink(tsx).catch(()=>{})])}
+});

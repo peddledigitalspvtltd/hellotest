@@ -7,9 +7,9 @@
     "verified_on": "2026-09-20",
     "execution_evidence": false,
     "inventory_sources": [
-      "frontend/src/lib/workspaceCapabilities.ts",
-      "backend/api/src/services/featureFlag.service.js",
-      "backend/api/src/routes/manifest.js"
+      "services/platform/frontend/src/platform/lib/workspaceCapabilities.ts",
+      "services/platform/backend/services/featureFlag.service.js",
+      "services/platform/backend/src/routes/manifest.js"
     ]
   },
   "purpose": "Reusable acceptance backlog for the current implemented product. Demo releases and sprint dates are illustrative planning metadata, not production commitments or executed test results.",
@@ -41,9 +41,9 @@
       "release": "foundation",
       "team": "HelloTest Platform",
       "source": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js"
       ]
     },
     {
@@ -53,10 +53,10 @@
       "release": "foundation",
       "team": "HelloTest Product",
       "source": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ]
     },
     {
@@ -66,10 +66,10 @@
       "release": "quality",
       "team": "HelloTest Quality",
       "source": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ]
     },
     {
@@ -79,10 +79,10 @@
       "release": "quality",
       "team": "HelloTest Quality",
       "source": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ]
     },
     {
@@ -92,10 +92,10 @@
       "release": "quality",
       "team": "HelloTest Automation",
       "source": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ]
     },
     {
@@ -105,10 +105,10 @@
       "release": "intelligence",
       "team": "HelloTest Intelligence",
       "source": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ]
     },
     {
@@ -118,10 +118,10 @@
       "release": "intelligence",
       "team": "HelloTest Platform",
       "source": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ]
     }
   ],
@@ -249,9 +249,9 @@
         "/projects"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js"
       ],
       "labels": [
         "sample",
@@ -290,9 +290,9 @@
         "/admin-space"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js"
       ],
       "labels": [
         "sample",
@@ -327,9 +327,9 @@
         "/stories"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js"
       ],
       "labels": [
         "sample",
@@ -363,10 +363,10 @@
         "/auth"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js",
-        "backend/api/src/routes/auth.routes.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js",
+        "services/platform/backend/routes/auth.routes.js"
       ],
       "labels": [
         "sample",
@@ -402,10 +402,10 @@
         "/projects"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js",
-        "backend/api/src/services/projectDeletion.service.js"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js",
+        "services/platform/backend/services/projectDeletion.service.js"
       ],
       "labels": [
         "sample",
@@ -443,10 +443,10 @@
         "/settings"
       ],
       "source_files": [
-        "frontend/src/components/AppShell.tsx",
-        "backend/api/src/routes/projects.routes.js",
-        "backend/api/src/security/permissions.catalog.js",
-        "frontend/src/components/RegionalPreferencesDialog.tsx"
+        "services/platform/frontend/src/platform/components/AppShell.tsx",
+        "services/platform/backend/routes/projects.routes.js",
+        "services/platform/backend/src/security/permissions.catalog.js",
+        "services/platform/frontend/src/platform/components/RegionalPreferencesDialog.tsx"
       ],
       "labels": [
         "sample",
@@ -484,10 +484,10 @@
         "/stories"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -526,10 +526,10 @@
         "/sprints"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -569,10 +569,10 @@
         "/sprints"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -610,10 +610,10 @@
         "/releases"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -653,10 +653,10 @@
         "/sprints"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -695,10 +695,10 @@
         "/stories"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -736,12 +736,12 @@
         "/stories"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js",
-        "frontend/src/lib/requirementImport.ts",
-        "backend/api/src/routes/projectSync.routes.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js",
+        "services/manual/frontend/lib/requirementImport.ts",
+        "services/integration/backend/routes/projectSync.routes.js"
       ],
       "labels": [
         "sample",
@@ -777,10 +777,10 @@
         "/stories"
       ],
       "source_files": [
-        "frontend/src/pages/RequirementsPage.tsx",
-        "frontend/src/pages/ReleasesPage.tsx",
-        "backend/api/src/services/requirement.service.js",
-        "backend/api/src/services/requirementRelease.service.js"
+        "services/manual/frontend/pages/RequirementsPage.tsx",
+        "services/manual/frontend/pages/ReleasesPage.tsx",
+        "services/manual/backend/services/requirement.service.js",
+        "services/manual/backend/services/requirementRelease.service.js"
       ],
       "labels": [
         "sample",
@@ -818,10 +818,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -859,10 +859,10 @@
         "/executions"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -903,10 +903,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -944,10 +944,10 @@
         "/design"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -985,10 +985,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1024,10 +1024,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1065,10 +1065,10 @@
         "/test-environments"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1106,10 +1106,10 @@
         "/test-configurations"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1148,10 +1148,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1190,10 +1190,10 @@
         "/test-data"
       ],
       "source_files": [
-        "frontend/src/pages/TestCasesPage.tsx",
-        "frontend/src/pages/DesignPage.tsx",
-        "frontend/src/pages/SharedStepsPage.tsx",
-        "frontend/src/pages/TestEnvironmentPage.tsx"
+        "services/testing/frontend/pages/TestCasesPage.tsx",
+        "services/testing/frontend/pages/DesignPage.tsx",
+        "services/testing/frontend/pages/SharedStepsPage.tsx",
+        "services/testing/frontend/pages/TestEnvironmentPage.tsx"
       ],
       "labels": [
         "sample",
@@ -1231,10 +1231,10 @@
         "/executions?view=suite-runs"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1274,10 +1274,10 @@
         "/executions"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1313,10 +1313,10 @@
         "/executions"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1356,10 +1356,10 @@
         "/executions?view=scheduled-runs"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1398,10 +1398,10 @@
         "/executions"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1439,10 +1439,10 @@
         "/issues"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1478,10 +1478,10 @@
         "/issues"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1521,10 +1521,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/ExecutionsPage.tsx",
-        "frontend/src/pages/IssuesPage.tsx",
-        "backend/api/src/services/executionSchedule.service.js",
-        "backend/api/src/utils/finalizedCaseMetrics.js"
+        "services/testing/frontend/pages/ExecutionsPage.tsx",
+        "services/testing/frontend/pages/IssuesPage.tsx",
+        "services/testing/backend/services/executionSchedule.service.js",
+        "services/platform/backend/src/utils/finalizedCaseMetrics.js"
       ],
       "labels": [
         "sample",
@@ -1564,10 +1564,10 @@
         "/automation"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1608,10 +1608,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1648,10 +1648,10 @@
         "/automation"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1689,10 +1689,10 @@
         "/object-repository"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1729,10 +1729,10 @@
         "/test-cases"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1771,10 +1771,10 @@
         "/automation"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1812,10 +1812,10 @@
         "/executions"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1852,10 +1852,10 @@
         "/test-configurations"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1893,10 +1893,10 @@
         "/agentic-workflows?view=agents"
       ],
       "source_files": [
-        "frontend/src/pages/AutomationPage.tsx",
-        "backend/api/src/routes/engine.routes.js",
-        "backend/api/src/routes/localAgent.routes.js",
-        "backend/api/src/routes/repositoryAgents.routes.js"
+        "services/automation/frontend/pages/AutomationPage.tsx",
+        "services/automation/backend/routes/engine.routes.js",
+        "services/automation/backend/routes/localAgent.routes.js",
+        "services/agentic/backend/routes/repositoryAgents.routes.js"
       ],
       "labels": [
         "sample",
@@ -1934,10 +1934,10 @@
         "/knowledge-repo"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -1973,10 +1973,10 @@
         "/knowledge-repo"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -2008,16 +2008,17 @@
       "boundary": "Missing or conflicting evidence must not become an invented project fact or unsupported completion claim.",
       "capabilities": [],
       "feature_keys": [
-        "hellotest.ai.knowledge"
+        "hellotest.ai.knowledge",
+        "hellotest.ai.chatbot"
       ],
       "routes": [
         "/knowledge-repo"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -2055,10 +2056,10 @@
         "/agentic-workflows?view=workflows"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -2096,10 +2097,10 @@
         "/agentic-workflows?view=runs"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -2138,10 +2139,10 @@
         "/settings?tab=ai"
       ],
       "source_files": [
-        "frontend/src/pages/KnowledgeRepoPage.tsx",
-        "frontend/src/pages/AgenticWorkflowsPage.tsx",
-        "backend/api/src/services/knowledgeProductCatalog.service.js",
-        "backend/api/src/routes/aiPromptTemplates.routes.js"
+        "services/knowledge/frontend/pages/KnowledgeRepoPage.tsx",
+        "services/agentic/frontend/pages/AgenticWorkflowsPage.tsx",
+        "services/knowledge/backend/services/knowledgeProductCatalog.service.js",
+        "services/integration/backend/routes/aiPromptTemplates.routes.js"
       ],
       "labels": [
         "sample",
@@ -2180,10 +2181,10 @@
         "/?view=analytics"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2221,10 +2222,10 @@
         "/?view=custom"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2263,10 +2264,10 @@
         "/?view=readiness"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2307,10 +2308,10 @@
         "/releases"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2349,10 +2350,10 @@
         "/testops"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2373,7 +2374,7 @@
       "title": "Investigate operational health and distributed request traces",
       "persona": "operations engineer",
       "user_story": "As a operations engineer, I want to follow a failing request across available service diagnostics.",
-      "behavior": "Operational pages expose configured telemetry and trace information. Missing collectors or unavailable evidence must be presented accurately.",
+      "behavior": "OPS telemetry groups dashboards, TestGrid worker and project execution telemetry, infrastructure logs, distributed traces, alerts, and service health in tabs. Missing collectors or unavailable evidence must be presented accurately.",
       "acceptance_criteria": [
         "Inspect supported operational metrics and their selected time/scope filters.",
         "Open an available trace and relate its service spans and errors.",
@@ -2381,21 +2382,19 @@
       ],
       "boundary": "Never fabricate trace spans or healthy metrics when the collector is unavailable.",
       "capabilities": [
-        "telemetry",
-        "traces"
+        "telemetry"
       ],
       "feature_keys": [
         "hellotest.ops.telemetry"
       ],
       "routes": [
-        "/ops-telemetry",
-        "/traces"
+        "/ops-telemetry"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2433,10 +2432,10 @@
         "/notifications"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2472,12 +2471,12 @@
         "/admin/?section=setup"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx",
-        "frontend/src/admin/SampleDataSetup.tsx",
-        "backend/api/src/services/sampleData/index.js"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx",
+        "services/platform/frontend/admin/SampleDataSetup.tsx",
+        "services/platform/backend/services/sampleData/index.js"
       ],
       "labels": [
         "sample",
@@ -2514,12 +2513,12 @@
         "/admin/?section=dropdowns"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx",
-        "backend/api/src/services/featureFlag.service.js",
-        "backend/api/src/routes/domainMetadata.routes.js"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx",
+        "services/platform/backend/services/featureFlag.service.js",
+        "services/platform/backend/routes/domainMetadata.routes.js"
       ],
       "labels": [
         "sample",
@@ -2559,10 +2558,10 @@
         "/admin-space"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2599,10 +2598,10 @@
         "/admin/?section=security"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx"
       ],
       "labels": [
         "sample",
@@ -2638,11 +2637,11 @@
         "/support"
       ],
       "source_files": [
-        "frontend/src/pages/OverviewPage.tsx",
-        "frontend/src/pages/TestOpsPage.tsx",
-        "frontend/src/admin/AdminApp.tsx",
-        "frontend/src/pages/AdminSpacePage.tsx",
-        "frontend/src/pages/SupportPage.tsx"
+        "services/dashboard/frontend/pages/OverviewPage.tsx",
+        "services/platform/frontend/src/platform/pages/TestOpsPage.tsx",
+        "services/platform/frontend/admin/AdminApp.tsx",
+        "services/platform/frontend/pages/AdminSpacePage.tsx",
+        "services/platform/frontend/src/platform/pages/SupportPage.tsx"
       ],
       "labels": [
         "sample",

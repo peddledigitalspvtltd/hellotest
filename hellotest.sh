@@ -4,7 +4,7 @@ set -eu
 umask 077
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-. "$ROOT_DIR/scripts/docker-common.sh"
+. "$ROOT_DIR/scripts/lib/docker.sh"
 
 ENV_DIR="${HELLOTEST_ENV_DIR:-$ROOT_DIR/.hellotest}"
 
@@ -28,7 +28,7 @@ Commands:
 
 Options:
   --stack <local|full|platform|testengine>
-                  local=source-build local-run stack
+                  local=source-build local-run stack + independent ops stack
                   full=image app stack
                   platform=image app+observability+haproxy stack
                   testengine=standalone worker stack
@@ -68,6 +68,8 @@ High-value overrides:
   HELLOTEST_MOBILE_ENGINE_IMAGE  Mobile Engine image ref.
   MINIO_IMAGE                   MinIO image ref.
   API_STARTUP_TIMEOUT_MS        API initialization deadline. Default: 180000.
+  HELLOTEST_INSTANCE_SETUP_MODULES Optional sample modules: all or comma-separated keys.
+  HELLOTEST_OPS_ENABLED         Start local monitoring automatically. Default: true.
 
 Examples:
   ./hellotest.sh config --stack local
@@ -291,6 +293,20 @@ resolve_defaults() {
   REDIS_URL="${REDIS_URL:-redis://redis:6379}"
 
   ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-}"
+  HELLOTEST_OPS_ENABLED="${HELLOTEST_OPS_ENABLED:-true}"
+  OPS_MONITORING_ENABLED="${OPS_MONITORING_ENABLED:-$HELLOTEST_OPS_ENABLED}"
+  OPS_GRAFANA_USER="${OPS_GRAFANA_USER:-admin}"
+  OPS_GRAFANA_PASSWORD="${OPS_GRAFANA_PASSWORD:-}"
+  if [ "$STACK" = "local" ] && [ "$HELLOTEST_OPS_ENABLED" = "true" ]; then
+    if [ ! -f "$ENV_DIR/ops.env" ]; then
+      HELLOTEST_ENV_DIR="$ENV_DIR" node "$ROOT_DIR/scripts/ops/stack.mjs" prepare || info "Warning: Grafana credentials could not be prepared."
+    fi
+    if [ -f "$ENV_DIR/ops.env" ]; then
+      OPS_GRAFANA_PASSWORD=$(awk -F= 'index($0,"GRAFANA_ADMIN_PASSWORD=")==1 { print substr($0,24); exit }' "$ENV_DIR/ops.env")
+      configured_grafana_user=$(awk -F= 'index($0,"GRAFANA_ADMIN_USER=")==1 { print substr($0,20); exit }' "$ENV_DIR/ops.env")
+      OPS_GRAFANA_USER="${configured_grafana_user:-admin}"
+    fi
+  fi
   if [ -z "$ENABLE_OBSERVABILITY" ]; then
     case "$STACK" in
       local|full|platform) ENABLE_OBSERVABILITY=true ;;
@@ -337,6 +353,12 @@ write_env_file() {
     printf 'TESTENGINE_SHARED_SECRET=%s\n' "$TESTENGINE_SHARED_SECRET"
     printf 'MOBILE_ENGINE_SHARED_SECRET=%s\n' "$MOBILE_ENGINE_SHARED_SECRET"
     printf 'ENABLE_OBSERVABILITY=%s\n' "$ENABLE_OBSERVABILITY"
+    printf 'OPS_MONITORING_ENABLED=%s\n' "$OPS_MONITORING_ENABLED"
+    printf 'OPS_GRAFANA_USER=%s\n' "$OPS_GRAFANA_USER"
+    printf 'OPS_GRAFANA_PASSWORD=%s\n' "$OPS_GRAFANA_PASSWORD"
+    if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+      printf 'OTEL_EXPORTER_OTLP_ENDPOINT=%s\n' "$OTEL_EXPORTER_OTLP_ENDPOINT"
+    fi
     printf 'HELLOTEST_BACKEND_IMAGE=%s\n' "$HELLOTEST_BACKEND_IMAGE"
     printf 'HELLOTEST_FRONTEND_IMAGE=%s\n' "$HELLOTEST_FRONTEND_IMAGE"
     printf 'HELLOTEST_TESTENGINE_IMAGE=%s\n' "$HELLOTEST_TESTENGINE_IMAGE"
@@ -346,6 +368,7 @@ write_env_file() {
     printf 'ADMIN_PORTAL_PORT=%s\n' "$HELLOTEST_ADMIN_PORT"
     printf 'API_PORT=%s\n' "$API_PORT"
     printf 'API_STARTUP_TIMEOUT_MS=%s\n' "$API_STARTUP_TIMEOUT_MS"
+    printf 'HELLOTEST_INSTANCE_SETUP_MODULES=%s\n' "${HELLOTEST_INSTANCE_SETUP_MODULES:-}"
     printf 'TESTENGINE_PORT=%s\n' "$TESTENGINE_PORT"
     printf 'MOBILE_ENGINE_PORT=%s\n' "$MOBILE_ENGINE_PORT"
     printf 'REDIS_PORT=%s\n' "$REDIS_PORT"
@@ -432,8 +455,8 @@ build_images() {
   info "Test Engine: $HELLOTEST_TESTENGINE_IMAGE"
   info "Mobile Engine: $HELLOTEST_MOBILE_ENGINE_IMAGE"
 
-  docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_BACKEND_IMAGE" "$ROOT_DIR/backend"
-  docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_FRONTEND_IMAGE" "$ROOT_DIR/frontend"
+  docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_BACKEND_IMAGE" -f "$ROOT_DIR/services/platform/backend/Dockerfile" "$ROOT_DIR"
+  docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_FRONTEND_IMAGE" -f "$ROOT_DIR/services/platform/frontend/Dockerfile" "$ROOT_DIR"
   docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_TESTENGINE_IMAGE" -f "$ROOT_DIR/testengine/backend/Dockerfile" "$ROOT_DIR/testengine/backend"
   docker build $NO_CACHE_FLAG --platform "$PLATFORM" -t "$HELLOTEST_MOBILE_ENGINE_IMAGE" "$ROOT_DIR/local-run/mobile-engine"
 }
@@ -484,6 +507,13 @@ confirm_deploy() {
   esac
 }
 
+run_local_ops() {
+  [ "$STACK" = "local" ] && [ "$HELLOTEST_OPS_ENABLED" = "true" ] || return 0
+  if ! HELLOTEST_ENV_DIR="$ENV_DIR" HELLOTEST_OPS_SKIP_IMAGE_PULL="$SKIP_IMAGE_PULL" node "$ROOT_DIR/scripts/ops/stack.mjs" "$1"; then
+    info "Warning: monitoring could not complete '$1'. Application services remain independent. Retry with npm run ops:up."
+  fi
+}
+
 run_up() {
   ensure_docker
   if [ "$BUILD_COMPOSE" = "1" ]; then
@@ -503,6 +533,7 @@ run_up() {
   fi
 
   info
+  run_local_ops up
   info "HelloTest is starting"
   info "Workspace: $HELLOTEST_PUBLIC_URL"
   info "API: $HELLOTEST_API_PUBLIC_URL"
@@ -529,6 +560,7 @@ run_deploy() {
     compose up -d --force-recreate "$@"
   fi
 
+  run_local_ops up
   compose ps
 }
 
@@ -665,6 +697,7 @@ case "$COMMAND" in
   down)
     ensure_docker
     compose down
+    run_local_ops down
     ;;
   restart)
     ensure_docker
@@ -674,6 +707,7 @@ case "$COMMAND" in
   status|ps)
     ensure_docker
     compose ps
+    run_local_ops status
     ;;
   logs)
     ensure_docker

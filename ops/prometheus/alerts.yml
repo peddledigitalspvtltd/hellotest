@@ -40,7 +40,7 @@ groups:
         annotations:
           summary: HelloTest API is unavailable
           description: Prometheus has been unable to scrape the API for one minute.
-          runbook: PLATFORM_STACK.md#incident-response
+          runbook: docs/PLATFORM_STACK.md#incident-response
 
       - alert: HelloTestHighErrorRate
         expr: hellotest:http_error_ratio5m > 0.05 and hellotest:http_request_rate5m > 0.1
@@ -51,7 +51,7 @@ groups:
         annotations:
           summary: HelloTest API 5xx ratio is above 5%
           description: The API has meaningful traffic and more than 5% of requests have failed for ten minutes.
-          runbook: PLATFORM_STACK.md#incident-response
+          runbook: docs/PLATFORM_STACK.md#incident-response
 
       - alert: HelloTestCriticalErrorRate
         expr: hellotest:http_error_ratio5m > 0.20 and hellotest:http_request_rate5m > 0.1
@@ -62,7 +62,7 @@ groups:
         annotations:
           summary: HelloTest API 5xx ratio is above 20%
           description: At least one in five API requests has failed for five minutes.
-          runbook: PLATFORM_STACK.md#incident-response
+          runbook: docs/PLATFORM_STACK.md#incident-response
 
       - alert: HelloTestHighRequestLatency
         expr: hellotest:http_request_p95_seconds5m > 2 and hellotest:http_request_rate5m > 0.1
@@ -73,7 +73,7 @@ groups:
         annotations:
           summary: HelloTest API p95 latency exceeds two seconds
           description: User-facing request latency has remained elevated under meaningful traffic.
-          runbook: PLATFORM_STACK.md#incident-response
+          runbook: docs/PLATFORM_STACK.md#incident-response
 
       - alert: HelloTestAbortedRequestRatio
         expr: |
@@ -89,7 +89,7 @@ groups:
         annotations:
           summary: Client connections are aborting unusually often
           description: More than 2% of requests disconnect before response completion.
-          runbook: PLATFORM_STACK.md#incident-response
+          runbook: docs/PLATFORM_STACK.md#incident-response
 
   - name: hellotest-saturation
     rules:
@@ -102,7 +102,7 @@ groups:
         annotations:
           summary: API request capacity is above 85%
           description: Scale the API or reduce expensive concurrent work before load shedding begins.
-          runbook: PLATFORM_STACK.md#scaling-and-capacity
+          runbook: docs/PLATFORM_STACK.md#scaling-and-capacity
 
       - alert: HelloTestCapacityRejectingRequests
         expr: increase(hellotest_capacity_rejections_total{class="all"}[5m]) > 0
@@ -113,7 +113,7 @@ groups:
         annotations:
           summary: API overload protection is rejecting requests
           description: The API is returning retryable 503 responses to preserve process health.
-          runbook: PLATFORM_STACK.md#scaling-and-capacity
+          runbook: docs/PLATFORM_STACK.md#scaling-and-capacity
 
       - alert: HelloTestDatabasePoolWaiting
         expr: max(hellotest_database_pool_waiting) > 0
@@ -124,7 +124,7 @@ groups:
         annotations:
           summary: Requests are waiting for PostgreSQL connections
           description: A database pool has sustained waiters for five minutes.
-          runbook: PLATFORM_STACK.md#database-recovery
+          runbook: docs/PLATFORM_STACK.md#database-recovery
 
       - alert: HelloTestDatabasePoolSaturated
         expr: max(hellotest_database_pool_saturated) > 0
@@ -135,7 +135,7 @@ groups:
         annotations:
           summary: A PostgreSQL pool is saturated
           description: No immediately usable connection capacity remains in at least one API pool.
-          runbook: PLATFORM_STACK.md#database-recovery
+          runbook: docs/PLATFORM_STACK.md#database-recovery
 
       - alert: HelloTestDatabasePoolBackgroundError
         expr: increase(hellotest_database_pool_background_errors_total[10m]) > 0
@@ -145,7 +145,7 @@ groups:
         annotations:
           summary: PostgreSQL pool observed an idle-client error
           description: Investigate database failover, network resets, and connection churn.
-          runbook: PLATFORM_STACK.md#database-recovery
+          runbook: docs/PLATFORM_STACK.md#database-recovery
 
       - alert: HelloTestEventLoopDelay
         expr: hellotest_nodejs_event_loop_delay_seconds{quantile="0.99"} > 0.25
@@ -156,7 +156,7 @@ groups:
         annotations:
           summary: Node.js event-loop delay is elevated
           description: The API event loop p99 delay has exceeded 250 ms for ten minutes.
-          runbook: PLATFORM_STACK.md#scaling-and-capacity
+          runbook: docs/PLATFORM_STACK.md#scaling-and-capacity
 
       - alert: HelloTestEventLoopSaturated
         expr: hellotest_nodejs_event_loop_utilization_ratio > 0.90
@@ -167,7 +167,7 @@ groups:
         annotations:
           summary: Node.js event loop is saturated
           description: Event-loop utilization has remained above 90%.
-          runbook: PLATFORM_STACK.md#scaling-and-capacity
+          runbook: docs/PLATFORM_STACK.md#scaling-and-capacity
 
       - alert: HelloTestProcessMemoryHigh
         expr: hellotest_process_memory_bytes{type="rss"} > 1.5e+09
@@ -178,7 +178,7 @@ groups:
         annotations:
           summary: API resident memory is above 1.5 GB
           description: Investigate heap growth, oversized workloads, or insufficient memory limits.
-          runbook: PLATFORM_STACK.md#scaling-and-capacity
+          runbook: docs/PLATFORM_STACK.md#scaling-and-capacity
 
       - alert: HelloTestMetricCardinalityBudgetExceeded
         expr: increase(hellotest_observability_series_overflow_total[10m]) > 0
@@ -188,7 +188,7 @@ groups:
         annotations:
           summary: HTTP metric cardinality budget was reached
           description: New route label sets were aggregated to protect Prometheus memory.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
   - name: hellotest-execution-queue
     rules:
@@ -201,7 +201,7 @@ groups:
         annotations:
           summary: Oldest execution job has waited more than five minutes
           description: Worker capacity or worker-to-API connectivity is insufficient.
-          runbook: PLATFORM_STACK.md#execution-queue-recovery
+          runbook: docs/PLATFORM_STACK.md#execution-queue-recovery
 
       - alert: HelloTestExecutionQueueCriticallyDelayed
         expr: hellotest_run_queue_oldest_age_seconds > 1800 and hellotest_runs_queued > 0
@@ -212,7 +212,7 @@ groups:
         annotations:
           summary: Oldest execution job has waited more than thirty minutes
           description: Execution delivery is severely delayed and requires operator intervention.
-          runbook: PLATFORM_STACK.md#execution-queue-recovery
+          runbook: docs/PLATFORM_STACK.md#execution-queue-recovery
 
       - alert: HelloTestExpiredExecutionLeases
         expr: hellotest_run_expired_leases > 0
@@ -223,7 +223,7 @@ groups:
         annotations:
           summary: Test Engine leases have expired
           description: One or more workers stopped heartbeating before completing leased work.
-          runbook: PLATFORM_STACK.md#execution-queue-recovery
+          runbook: docs/PLATFORM_STACK.md#execution-queue-recovery
 
       - alert: HelloTestExecutionHeartbeatStale
         expr: hellotest_runs_running > 0 and on() (time() - hellotest_run_heartbeat_timestamp > 90)
@@ -234,7 +234,7 @@ groups:
         annotations:
           summary: Running execution jobs have no recent heartbeat
           description: The most recent worker heartbeat is older than ninety seconds.
-          runbook: PLATFORM_STACK.md#execution-queue-recovery
+          runbook: docs/PLATFORM_STACK.md#execution-queue-recovery
 
       - alert: HelloTestExecutionFailureBurst
         expr: hellotest_run_recent_failures > 10
@@ -245,7 +245,7 @@ groups:
         annotations:
           summary: Test Engine failure volume is elevated
           description: More than ten execution jobs failed during the rolling fifteen-minute window.
-          runbook: PLATFORM_STACK.md#execution-queue-recovery
+          runbook: docs/PLATFORM_STACK.md#execution-queue-recovery
 
   - name: hellotest-observability-pipeline
     rules:
@@ -258,7 +258,7 @@ groups:
         annotations:
           summary: An observability component is unavailable
           description: Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }}.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
       - alert: HelloTestTelemetryQueueNearCapacity
         expr: hellotest:otel_exporter_queue_max_utilization > 0.80
@@ -268,8 +268,8 @@ groups:
           service: otel-collector
         annotations:
           summary: OpenTelemetry exporter queue is above 80%
-          description: A downstream telemetry backend is slow or unavailable; the persistent WAL is filling.
-          runbook: PLATFORM_STACK.md#observability-safety
+          description: A downstream telemetry backend is slow or unavailable; the bounded in-memory queue is filling.
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
       - alert: HelloTestTelemetryExportFailures
         expr: |
@@ -281,7 +281,7 @@ groups:
         annotations:
           summary: OpenTelemetry exports are failing
           description: The Collector could not deliver one or more telemetry batches.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
       - alert: HelloTestTelemetryRefusedData
         expr: |
@@ -293,7 +293,7 @@ groups:
         annotations:
           summary: OpenTelemetry Collector refused incoming data
           description: Memory pressure or pipeline backpressure caused telemetry refusal.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
       - alert: HelloTestLogDeliveryDrops
         expr: increase(loki_write_dropped_entries_total[5m]) > 0
@@ -303,7 +303,7 @@ groups:
         annotations:
           summary: Grafana Alloy dropped log entries
           description: Inspect Loki availability, Alloy retry metrics, and filesystem capacity.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety
 
       - alert: HelloTestPrometheusConfigReloadFailed
         expr: prometheus_config_last_reload_successful == 0
@@ -314,4 +314,4 @@ groups:
         annotations:
           summary: Prometheus rejected its latest configuration
           description: Metrics continue with an older configuration; validate rules and scrape configuration.
-          runbook: PLATFORM_STACK.md#observability-safety
+          runbook: docs/PLATFORM_STACK.md#observability-safety

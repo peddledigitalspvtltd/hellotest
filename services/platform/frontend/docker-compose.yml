@@ -1,0 +1,10 @@
+services:
+  frontend:
+    build:
+      context: ../../..
+      dockerfile: services/platform/frontend/Dockerfile
+    container_name: hellotest-frontend
+    ports:
+      - "8080:80"
+    environment:
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}

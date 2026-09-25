@@ -112,9 +112,9 @@ Historical runs still identify Releases with text, so renaming a Release fix ver
 
 - TypeScript, the production frontend build and the automation-engine build passed.
 - Final repository regression suites: API **717 passed, zero failed, one PostgreSQL-only skip**; frontend **413 passed**; automation engine **37 passed**. The skipped knowledge lifecycle suite passed separately against PostgreSQL (3 tests).
-- `backend/api/test/integration/runDataJourney.postgres.test.js`: real schema/runtime migration, suite inheritance, application isolation, frozen rows/steps, per-row lifecycle clocks, run overrides, reruns, legacy scope compatibility and finished-run rejection. Runs only with `RUN_DATA_POSTGRES=1` against a fresh `agent_verify_run_data_*` database, dropped after validation.
-- `frontend/test/browser/runDataSetup.test.mjs`: real components/providers with isolated API fixtures; downloads, parsing, save/retry, stale file/save races, disabled feature, unavailable queries and responsive layouts.
-- `backend/api/test/browser/executionHtmlReport.test.mjs`: standalone offline report filtering, details, print and responsive layout.
+- `services/platform/backend/test/integration/runDataJourney.postgres.test.js`: real schema/runtime migration, suite inheritance, application isolation, frozen rows/steps, per-row lifecycle clocks, run overrides, reruns, legacy scope compatibility and finished-run rejection. Runs only with `RUN_DATA_POSTGRES=1` against a fresh `agent_verify_run_data_*` database, dropped after validation.
+- `services/testing/test/browser/runDataSetup.test.mjs`: real components/providers with isolated API fixtures; downloads, parsing, save/retry, stale file/save races, disabled feature, unavailable queries and responsive layouts.
+- `services/platform/backend/test/browser/executionHtmlReport.test.mjs`: standalone offline report filtering, details, print and responsive layout.
 - Separate PostgreSQL dataset-scope suite: **10 passed**, covering compatible sharing, rejected cross-scope moves, historical foreign links, and secret redaction. Knowledge lifecycle and Release permission/cohort/browser tests are recorded in the related reviews.
 
 ## Verified local deployment

@@ -12,7 +12,7 @@ The new shared surface layer carries the admin system into the main workspace wi
 
 ## Implementation
 
-`frontend/src/components/workspace-surfaces.css` is imported after the main shell stylesheet. Every rule is scoped under `.workspace-experience-v2`; the separate admin application is unaffected. Ordinary pages use a 38px horizontal inset on wide screens, 24px at intermediate widths and 16px on narrow screens. Dedicated agent and analytics roots receive equivalent insets even though they do not use the shared `page-content` class.
+`services/platform/frontend/src/platform/components/workspace-surfaces.css` is imported after the main shell stylesheet. Every rule is scoped under `.workspace-experience-v2`; the separate admin application is unaffected. Ordinary pages use a 38px horizontal inset on wide screens, 24px at intermediate widths and 16px on narrow screens. Dedicated agent and analytics roots receive equivalent insets even though they do not use the shared `page-content` class.
 
 The surface layer does not set editor height, outer shell grid, scrolling or virtual row sizes. Focused test authoring and case execution retain their existing full viewport behavior. Their own canvas/input tokens now use warm neutrals, existing selected tabs use green, and rich-text toolbars are neutral. The Gherkin source textarea and syntax overlay rules are untouched.
 
@@ -34,14 +34,14 @@ Final shared browser test: **1 passed**. Related existing catalog, management an
 PLAYWRIGHT_MODULE="$PWD/testengine/backend/node_modules/playwright" \
 CHROME_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
 VITE_TEST_URL=http://127.0.0.1:5179 \
-node --test frontend/test/browser/workspaceSurfaces.test.mjs
+node --test services/platform/frontend/test/browser/workspaceSurfaces.test.mjs
 
-node --test frontend/test/runScopeSelection.test.mjs \
-  frontend/test/sharedStepGroupSuiteRunAuthoringContract.test.mjs \
-  frontend/test/managementCrudContract.test.mjs
+node --test services/testing/test/frontend/runScopeSelection.test.mjs \
+  services/platform/frontend/test/sharedStepGroupSuiteRunAuthoringContract.test.mjs \
+  services/platform/frontend/test/managementCrudContract.test.mjs
 ```
 
-Shared-component screenshots are in `/tmp/qaira-workspace-surfaces/`, including `dark.png`, `catalog-table.png` and `long-title-320.png`. These fixtures test reusable surfaces; they are not substitutes for full route captures. The separate real-shell browser suite `frontend/test/browser/workspaceShell.test.mjs` captures actual Analytics, Cases, Runs, Stories, Agents and Settings pages, plus focused case editing/execution, mobile and dark views in `/tmp/qaira-workspace-design/after-*.png`.
+Shared-component screenshots are in `/tmp/qaira-workspace-surfaces/`, including `dark.png`, `catalog-table.png` and `long-title-320.png`. These fixtures test reusable surfaces; they are not substitutes for full route captures. The separate real-shell browser suite `services/platform/frontend/test/browser/workspaceShell.test.mjs` captures actual Analytics, Cases, Runs, Stories, Agents and Settings pages, plus focused case editing/execution, mobile and dark views in `/tmp/qaira-workspace-design/after-*.png`.
 
 Actual route review found and corrected two additional cascade problems during integration: Analytics is a dedicated root and previously received no top inset on mobile, and the legacy mobile header rules overrode the intended header height. The surface layer fixes the analytics inset; the shell implementation owns the header correction. Computed mobile geometry after both fixes is a 62px context header followed by 20px content padding.
 

@@ -1,0 +1,44 @@
+{
+  "name": "@hellotest/trace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest trace capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/opsTelemetry.service": "./backend/services/opsTelemetry.service.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/OpsMonitoringWorkspace": "./frontend/components/OpsMonitoringWorkspace.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs trace",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs trace",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "trace",
+    "requires": [
+      "platform"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ops.telemetry"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/platform": "^1.0.0"
+  }
+}

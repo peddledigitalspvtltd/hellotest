@@ -1,0 +1,278 @@
+name: hellotest-microservices
+
+x-api-common: &api-common
+  build:
+    context: .
+    dockerfile: services/platform/backend/Dockerfile
+  restart: unless-stopped
+  mem_limit: ${API_PROFILE_MEMORY_LIMIT:-512m}
+  cpus: ${API_PROFILE_CPUS:-1.0}
+  pids_limit: 128
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  environment: &api-environment
+    NODE_ENV: ${NODE_ENV:-development}
+    APP_MODE: docker
+    HELLOTEST_SCHEMA_MODE: verify
+    HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
+    API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+    HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
+    SESSION_SECRET: ${SESSION_SECRET:-hellotest-dev-secret}
+    MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
+    DB_POOL_MAX: ${API_PROFILE_DB_POOL_MAX:-4}
+    OBS_DB_POOL_MAX: ${API_PROFILE_OBS_POOL_MAX:-2}
+    PORT: 3000
+    DATABASE_URL: ${DATABASE_URL:-postgres://hellotest:hellotest@postgres:5432/hellotest}
+    OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgres://hellotest:hellotest@postgres:5432/hellotest}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+    MINIO_PORT: ${MINIO_PORT:-9000}
+    MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-hellotest}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
+    KNOWLEDGE_TIKA_URL: ${KNOWLEDGE_TIKA_URL:-http://tika:9998}
+    TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
+  depends_on:
+    schema-migrate:
+      condition: service_completed_successfully
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/health/ready >/dev/null 2>&1 || exit 1"]
+    interval: 15s
+    timeout: 5s
+    start_period: ${API_STARTUP_TIMEOUT_MS:-180000}ms
+    retries: 5
+
+services:
+  schema-migrate:
+    <<: *api-common
+    command: ["node", "src/migrate.js"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: all
+      HELLOTEST_SCHEMA_MODE: migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
+    environment:
+      POSTGRES_DB: hellotest
+      POSTGRES_USER: hellotest
+      POSTGRES_PASSWORD: hellotest
+    volumes:
+      - microservices-postgres:/var/lib/postgresql/data
+      - ./services/platform/backend/instance-setup-data/schema-setup/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hellotest -d hellotest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-hellotest}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-hellotest-minio-dev-secret}
+    volumes:
+      - microservices-minio:/data
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  tika:
+    image: apache/tika:3.3.0.0
+    ports: ["127.0.0.1:9998:9998"]
+
+  platform-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: platform
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: platform
+    ports: ["127.0.0.1:3010:3000"]
+
+  testing-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: testing
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: testing
+    ports: ["127.0.0.1:3011:3000"]
+
+  knowledge-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: knowledge
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: knowledge
+    ports: ["127.0.0.1:3012:3000"]
+
+  manual-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: manual
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: manual
+    ports: ["127.0.0.1:3002:3000"]
+
+  dashboard-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: dashboard
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: dashboard
+    ports: ["127.0.0.1:3003:3000"]
+
+  automation-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: automation
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: automation
+    ports: ["127.0.0.1:3004:3000"]
+
+  agentic-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: agentic
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: agentic
+    ports: ["127.0.0.1:3005:3000"]
+
+  chatbot-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: chatbot
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: chatbot
+    ports: ["127.0.0.1:3006:3000"]
+
+  ai-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: ai
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: ai
+    ports: ["127.0.0.1:3007:3000"]
+
+  trace-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: trace
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: trace
+    ports: ["127.0.0.1:3008:3000"]
+
+  integration-api:
+    <<: *api-common
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_CAPABILITY: integration
+    environment:
+      <<: *api-environment
+      HELLOTEST_SERVICE_PROFILE: integration
+    ports: ["127.0.0.1:3009:3000"]
+
+  testengine-backend:
+    build:
+      context: ./testengine/backend
+      dockerfile: Dockerfile
+    environment:
+      PORT: 4301
+      NODE_ENV: ${NODE_ENV:-development}
+      HELLOTEST_API_BASE_URL: ${TESTENGINE_API_BASE_URL:-http://automation-api:3000}
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
+      MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
+    ports: ["127.0.0.1:4301:4301"]
+    networks:
+      default:
+        aliases: [testengine]
+    depends_on:
+      automation-api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: services/platform/frontend/Dockerfile
+    environment:
+      HELLOTEST_API_BASE_URL: ${HELLOTEST_API_BASE_URL:-/api}
+      HELLOTEST_CAPABILITY_UI_URLS: '${HELLOTEST_CAPABILITY_UI_URLS:-{"platform":"/services/platform/capability-ui/platform/manifest.json","testing":"/services/testing/capability-ui/testing/manifest.json","knowledge":"/services/knowledge/capability-ui/knowledge/manifest.json","manual":"/services/manual/capability-ui/manual/manifest.json","dashboard":"/services/dashboard/capability-ui/dashboard/manifest.json","automation":"/services/automation/capability-ui/automation/manifest.json","agentic":"/services/agentic/capability-ui/agentic/manifest.json","chatbot":"/services/chatbot/capability-ui/chatbot/manifest.json","ai":"/services/ai/capability-ui/ai/manifest.json","trace":"/services/trace/capability-ui/trace/manifest.json","integration":"/services/integration/capability-ui/integration/manifest.json"}}'
+      HELLOTEST_SERVICE_URLS: '${HELLOTEST_SERVICE_URLS:-{"platform":"/services/platform","testing":"/services/testing","knowledge":"/services/knowledge","manual":"/services/manual","dashboard":"/services/dashboard","automation":"/services/automation","agentic":"/services/agentic","chatbot":"/services/chatbot","ai":"/services/ai","trace":"/services/trace","integration":"/services/integration"}}'
+    volumes:
+      - ./frontend/nginx.microservices.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/nginx.service-locations.conf:/etc/nginx/hellotest-service-locations.conf:ro
+    ports: ["127.0.0.1:8080:80", "127.0.0.1:8081:81"]
+
+volumes:
+  microservices-postgres:
+  microservices-minio:

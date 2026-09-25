@@ -106,4 +106,4 @@ deployment. Vite continues to report the existing large-bundle warning.
 Screenshots captured during review are available locally in
 `/tmp/qaira-dashboard-design`, `/tmp/qaira-knowledge-retry-browser` and
 `/tmp/case-design-*.png`. Browser commands and fixture setup are documented in
-[the browser test README](../frontend/test/browser/README.md).
+[the browser test README](../services/platform/frontend/test/browser/README.md).

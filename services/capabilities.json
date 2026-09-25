@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "generated_from": "services/*/package.json#hellotest",
+  "dependencies": {
+    "platform": [],
+    "testing": [
+      "platform"
+    ],
+    "knowledge": [
+      "platform",
+      "integration"
+    ],
+    "manual": [
+      "testing"
+    ],
+    "dashboard": [
+      "testing"
+    ],
+    "automation": [
+      "testing",
+      "integration"
+    ],
+    "agentic": [
+      "automation",
+      "knowledge",
+      "integration"
+    ],
+    "chatbot": [
+      "knowledge",
+      "integration"
+    ],
+    "ai": [
+      "manual",
+      "knowledge",
+      "integration"
+    ],
+    "trace": [
+      "platform"
+    ],
+    "integration": [
+      "platform"
+    ]
+  },
+  "feature_owners": {
+    "hellotest.ai.agentic_workflows": "agentic",
+    "hellotest.ai.automation": "ai",
+    "hellotest.ai.bug_triage": "ai",
+    "hellotest.ai.chatbot": "chatbot",
+    "hellotest.ai.content_rephrase": "ai",
+    "hellotest.ai.execution_analysis": "ai",
+    "hellotest.ai.knowledge": "knowledge",
+    "hellotest.ai.prompt_mapping": "integration",
+    "hellotest.ai.quality_insights": "ai",
+    "hellotest.ai.requirement_design": "ai",
+    "hellotest.ai.test_authoring": "ai",
+    "hellotest.ai.test_data_generation": "ai",
+    "hellotest.analytics.dashboards": "dashboard",
+    "hellotest.api.integrations": "integration",
+    "hellotest.api.keys": "platform",
+    "hellotest.automation.analytics": "dashboard",
+    "hellotest.automation.assets": "automation",
+    "hellotest.automation.batch_process": "testing",
+    "hellotest.automation.builder": "automation",
+    "hellotest.automation.local_execution": "automation",
+    "hellotest.automation.object_repository": "automation",
+    "hellotest.automation.parallel_execution": "automation",
+    "hellotest.automation.preview": "automation",
+    "hellotest.automation.remote_execution": "automation",
+    "hellotest.automation.step_code": "automation",
+    "hellotest.automation.step_recording": "automation",
+    "hellotest.automation.workspace": "automation",
+    "hellotest.manual.bugs": "testing",
+    "hellotest.manual.environments": "testing",
+    "hellotest.manual.plans": "manual",
+    "hellotest.manual.quality_gates": "manual",
+    "hellotest.manual.requirements": "manual",
+    "hellotest.manual.run_gherkin": "testing",
+    "hellotest.manual.runs": "testing",
+    "hellotest.manual.suites": "testing",
+    "hellotest.manual.test_cases": "testing",
+    "hellotest.manual.test_data": "testing",
+    "hellotest.mobile.appium": "automation",
+    "hellotest.ops.admin": "platform",
+    "hellotest.ops.background_jobs": "platform",
+    "hellotest.ops.notifications": "platform",
+    "hellotest.ops.projects": "platform",
+    "hellotest.ops.settings": "platform",
+    "hellotest.ops.telemetry": "trace"
+  }
+}

@@ -6,8 +6,8 @@ Validated 10 September 2026 against the implementation described in [the researc
 
 | Check | Result and scope |
 | --- | --- |
-| Frontend unit/contract suite | **362 passed**, zero failed. `npm --prefix frontend test`. Includes regional preferences, capability availability/search, language-pack validation, permissions, feature-policy publication and inherited domain contracts. |
-| Backend suite | **596 passed, 1 skipped**, zero failed or cancelled, using `node --test test/*.test.js` from `backend/api`. The skipped check requires its explicit integration environment. A prior run under concurrent build/test activity cancelled four resilience checks when its event loop ended; the full rerun passed without cancellations. |
+| Frontend unit/contract suite | **362 passed**, zero failed. `npm --prefix services/platform/frontend test`. Includes regional preferences, capability availability/search, language-pack validation, permissions, feature-policy publication and inherited domain contracts. |
+| Backend suite | **596 passed, 1 skipped**, zero failed or cancelled, using `node --test test/*.test.js` from `services/platform/backend`. The skipped check requires its explicit integration environment. A prior run under concurrent build/test activity cancelled four resilience checks when its event loop ended; the full rerun passed without cancellations. |
 | Main application and administration production builds | **Passed** TypeScript and both Vite builds via `npm run build:all`. Existing large-business-chunk warnings remain; this is not a claim of an application-wide bundle reduction. |
 | Shared workspace browser | **Passed** actual shell/dialog components with isolated API fixtures. Verified search, no matches, disabled/restricted links, keyboard focus and Escape, mobile and dark layouts, per-user settings and reload persistence, initial failure/retry, preservation of an unsaved editor on failed background refresh, first-project access, RTL layout, and language-pack review before publication. |
 | Agent execution browser | **Passed** actual workflow UI: readiness, unsupported configurations, idempotent start retry, progress, saved results, cancellation, deep links and narrow layout. |
@@ -23,7 +23,7 @@ Validated 10 September 2026 against the implementation described in [the researc
 The updated application is available at **http://localhost:8080** and the administration UI at **http://localhost:8081**.
 
 - The running API's configuration was compared privately with Compose before recreation; no configured values differed.
-- Database and frontend/admin files were backed up before deployment. Backup directory: `/tmp/qaira-product-maturity-backup-20260910` (database file restricted to the local user).
+- Database and services/platform/frontend/admin files were backed up before deployment. Backup directory: `/tmp/qaira-product-maturity-backup-20260910` (database file restricted to the local user).
 - API image: `local-run-api:product-maturity-20260910`. Rollback snapshot: `local-run-api:before-product-maturity-20260910`.
 - Frontend assets were installed before atomically replacing each HTML entrypoint. Existing hashed assets were retained for open sessions. The updated runtime was saved as `local-run-frontend:product-maturity-20260910` and tagged for the local Compose service.
 - Both served HTML entrypoints and their referenced JavaScript/CSS bytes match the production build outputs.
@@ -55,4 +55,4 @@ No external LLM latency, model accuracy, sustained-load improvement, complete WC
 
 ## Retained evidence
 
-Reviewed screenshots are in [research/product-maturity](research/product-maturity/). They show actual components/styles with explicit representative fixtures. Logs for this run are under `/tmp/qaira-product-*`; workflow and policy logs are referenced in their supporting research reports. The temporary browser fixture files were removed after validation. Exact verified production outputs are retained at `/tmp/qaira-product-maturity-verified-build/main` and `/tmp/qaira-product-maturity-verified-build/admin`; generated changes to tracked build artifacts were restored so the source review remains focused. The deployed containers and tagged images retain the new build.
+Reviewed screenshots are in [research/product-maturity](research/product-maturity). They show actual components/styles with explicit representative fixtures. Logs for this run are under `/tmp/qaira-product-*`; workflow and policy logs are referenced in their supporting research reports. The temporary browser fixture files were removed after validation. Exact verified production outputs are retained at `/tmp/qaira-product-maturity-verified-build/main` and `/tmp/qaira-product-maturity-verified-build/admin`; generated changes to tracked build artifacts were restored so the source review remains focused. The deployed containers and tagged images retain the new build.

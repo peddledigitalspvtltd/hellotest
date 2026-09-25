@@ -19,8 +19,7 @@ services:
       - "5432:5432"
     volumes:
       - hellotest-postgres-data:/var/lib/postgresql/data
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./services/platform/backend/instance-setup-data/schema-setup/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hellotest}
       POSTGRES_USER: ${POSTGRES_USER:-hellotest}
@@ -86,7 +85,9 @@ services:
     restart: always
 
   api:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
     image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
     container_name: hellotest-api
     ports:
@@ -94,6 +95,8 @@ services:
     environment:
       APP_MODE: ${APP_MODE:-docker}
       API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+      HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
+      HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -147,7 +150,9 @@ services:
     restart: always
 
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: services/platform/frontend/Dockerfile
     image: ${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}
     container_name: hellotest-frontend
     ports:
@@ -168,6 +173,17 @@ services:
   jaeger:
     image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
     container_name: hellotest-jaeger
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    command: ["--config=/etc/jaeger/config.yaml"]
+    volumes:
+      - ./ops/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
     ports:
       - "${JAEGER_BIND:-127.0.0.1}:16686:16686"
       - "${JAEGER_OTLP_BIND:-127.0.0.1}:4318:4318"
@@ -208,8 +224,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      jaeger:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4301/health/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));\""]
       interval: 15s

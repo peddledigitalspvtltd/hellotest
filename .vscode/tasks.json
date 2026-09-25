@@ -8,7 +8,7 @@
       "args": [
         "compose",
         "-f",
-        "backend/docker-compose.yml",
+        "services/platform/backend/docker-compose.yml",
         "up",
         "-d",
         "postgres"
@@ -32,7 +32,7 @@
         "dev"
       ],
       "options": {
-        "cwd": "${workspaceFolder}/frontend"
+        "cwd": "${workspaceFolder}/services/platform/frontend"
       },
       "isBackground": true,
       "problemMatcher": {

@@ -1,0 +1,59 @@
+{
+  "name": "@hellotest/integration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest integration capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/aiLlmSelection.service": "./backend/services/aiLlmSelection.service.js",
+    "./backend/services/integration.service": "./backend/services/integration.service.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/JiraAttachmentPanel": "./frontend/components/JiraAttachmentPanel.tsx",
+    "./frontend/components/JiraCommentsPanel": "./frontend/components/JiraCommentsPanel.tsx",
+    "./frontend/components/JiraRequiredFields": "./frontend/components/JiraRequiredFields.tsx",
+    "./frontend/components/RovoProviderStatus": "./frontend/components/RovoProviderStatus.tsx",
+    "./frontend/hooks/useAiLlmDefault": "./frontend/hooks/useAiLlmDefault.ts",
+    "./frontend/hooks/useAiPromptRegistry": "./frontend/hooks/useAiPromptRegistry.ts",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/aiLlmDefault": "./frontend/lib/aiLlmDefault.ts",
+    "./frontend/lib/aiPromptRegistry": "./frontend/lib/aiPromptRegistry.ts",
+    "./frontend/lib/integrationUrls": "./frontend/lib/integrationUrls.ts",
+    "./frontend/lib/jiraBrowseUrl": "./frontend/lib/jiraBrowseUrl.ts",
+    "./frontend/lib/jiraCreateMetadata": "./frontend/lib/jiraCreateMetadata.ts",
+    "./frontend/lib/jiraIssueContracts": "./frontend/lib/jiraIssueContracts.ts",
+    "./frontend/lib/rovo": "./frontend/lib/rovo.ts",
+    "./frontend/pages/IntegrationsPage": "./frontend/pages/IntegrationsPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs integration",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs integration",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "integration",
+    "requires": [
+      "platform"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ai.prompt_mapping",
+      "hellotest.api.integrations"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/platform": "^1.0.0"
+  }
+}

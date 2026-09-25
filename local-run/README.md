@@ -57,6 +57,10 @@ Seed login:
 - `admin@hellotest.ai` / `admin123`
 - `member@hellotest.ai` / `member123`
 
+## Optional monitoring
+
+The root command `./hellotest.sh up --build --stack local --no-cache` starts all eight monitoring services automatically. Use `HELLOTEST_OPS_ENABLED=false` to opt out. When using `bin/start.sh` or Docker Compose directly, run `npm run ops:up` from the repository root after starting or recreating the application. This attaches the API and frontend to the independently managed monitoring network. Use `npm run ops:verify` to check data flow. See [the ops runbook](../docs/ops-operations.md) for resource limits and recovery. The source-build bundle's previous standalone Jaeger is opt-in through `--profile legacy-tracing`; use the consolidated stack for Test Ops monitoring.
+
 ## Source Build vs Image Run
 
 From the repository root, build and start with:

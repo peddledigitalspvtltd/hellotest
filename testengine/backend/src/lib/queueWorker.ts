@@ -806,6 +806,9 @@ export function startQueueWorker(
   let lastErrorAt: string | null = null;
   let lastError: string | null = null;
   let consecutiveFailures = 0;
+  let lastPollSummaryAt: number | null = null;
+  let successfulPollsSinceSummary = 0;
+  let leasedJobsSinceSummary = 0;
 
   const boundedErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || "");
@@ -873,20 +876,41 @@ export function startQueueWorker(
       lastPollStartedAt = now().toISOString();
 
       try {
+        let checkedQueue = false;
         while (!stopping && activeJobs.size < pollConcurrency) {
           const workerId = `${process.env.ENGINE_NAME || "hellotest-testengine"}:${workerEngineClass || "any"}:${process.pid}:${activeJobs.size + 1}`;
           const job = await leaseJob(workerId, workerEngineClass);
+          checkedQueue = true;
 
           if (!job || activeJobs.has(job.id)) {
             break;
           }
 
           trackExecution(job, workerId);
+          leasedJobsSinceSummary += 1;
         }
 
+        const recovered = consecutiveFailures > 0;
         consecutiveFailures = 0;
         lastError = null;
         lastSuccessfulPollAt = now().toISOString();
+        if (checkedQueue) {
+          successfulPollsSinceSummary += 1;
+          const timestamp = now().getTime();
+          // A bounded heartbeat makes idle workers visible without storing every
+          // one-second lease attempt. Recovery is reported immediately.
+          if (lastPollSummaryAt === null || recovered || timestamp - lastPollSummaryAt >= 300_000) {
+            emitTelemetry(telemetry, {
+              event_type: recovered ? "testengine.queue.poll.recovered" : "testengine.queue.poll.summary",
+              status: "ready",
+              summary: `${workerEngineClass || "General"} worker ${recovered ? "polling recovered" : "polling successfully"}: ${successfulPollsSinceSummary} successful queue checks, ${leasedJobsSinceSummary} jobs leased, ${activeJobs.size} active jobs.`,
+              metadata: { successful_polls: successfulPollsSinceSummary, jobs_leased: leasedJobsSinceSummary, active_jobs: activeJobs.size, poll_interval_ms: pollIntervalMs, last_successful_poll_at: lastSuccessfulPollAt }
+            });
+            lastPollSummaryAt = timestamp;
+            successfulPollsSinceSummary = 0;
+            leasedJobsSinceSummary = 0;
+          }
+        }
       } catch (error) {
         consecutiveFailures += 1;
         lastErrorAt = now().toISOString();

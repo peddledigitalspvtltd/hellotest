@@ -5,13 +5,13 @@
       "name": "Backend API",
       "type": "pwa-node",
       "request": "launch",
-      "cwd": "${workspaceFolder}/backend/api",
+      "cwd": "${workspaceFolder}/services/platform/backend",
       "runtimeExecutable": "node",
       "runtimeArgs": [
         "--watch",
         "--inspect=9230"
       ],
-      "program": "${workspaceFolder}/backend/api/src/server.js",
+      "program": "${workspaceFolder}/services/platform/backend/src/server.js",
       "console": "integratedTerminal",
       "outputCapture": "std",
       "autoAttachChildProcesses": true,
@@ -37,7 +37,7 @@
       "type": "pwa-node",
       "request": "attach",
       "port": 9230,
-      "cwd": "${workspaceFolder}/backend/api",
+      "cwd": "${workspaceFolder}/services/platform/backend",
       "restart": true,
       "skipFiles": [
         "<node_internals>/**"
@@ -89,7 +89,7 @@
       "type": "pwa-chrome",
       "request": "launch",
       "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}/frontend",
+      "webRoot": "${workspaceFolder}/services/platform/frontend",
       "sourceMaps": true,
       "preLaunchTask": "frontend:dev"
     }

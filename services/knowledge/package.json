@@ -1,0 +1,59 @@
+{
+  "name": "@hellotest/knowledge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest knowledge capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/http/requestScope": "./backend/http/requestScope.js",
+    "./backend/services/aiKnowledge.service": "./backend/services/aiKnowledge.service.js",
+    "./backend/services/knowledgeAuthorization.service": "./backend/services/knowledgeAuthorization.service.js",
+    "./backend/services/knowledgeContracts.service": "./backend/services/knowledgeContracts.service.js",
+    "./backend/services/knowledgeEvaluation.service": "./backend/services/knowledgeEvaluation.service.js",
+    "./backend/services/knowledgeExecution.service": "./backend/services/knowledgeExecution.service.js",
+    "./backend/services/knowledgeModelGateway.service": "./backend/services/knowledgeModelGateway.service.js",
+    "./backend/services/knowledgeRag.service": "./backend/services/knowledgeRag.service.js",
+    "./backend/services/knowledgeRetrieval.service": "./backend/services/knowledgeRetrieval.service.js",
+    "./backend/services/knowledgeVectorStore.service": "./backend/services/knowledgeVectorStore.service.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/KnowledgeSourceDetail": "./frontend/components/KnowledgeSourceDetail.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/pages/KnowledgeRepoPage": "./frontend/pages/KnowledgeRepoPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs knowledge",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs knowledge",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "knowledge",
+    "requires": [
+      "platform",
+      "integration"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ai.knowledge"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/chatbot": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

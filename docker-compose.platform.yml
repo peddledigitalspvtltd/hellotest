@@ -19,7 +19,7 @@ services:
       - "${HELLOTEST_POSTGRES_BIND:-127.0.0.1}:${HELLOTEST_POSTGRES_PORT:-5432}:5432"
     volumes:
       - hellotest-postgres-data:/var/lib/postgresql/data
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./services/platform/backend/instance-setup-data/schema-setup/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hellotest}
       POSTGRES_USER: ${POSTGRES_USER:-hellotest}
@@ -86,8 +86,8 @@ services:
 
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/platform/backend/Dockerfile
     image: ${HELLOTEST_BACKEND_IMAGE:-jayarajumetta/hellotest-backend:latest}
     container_name: hellotest-api
     ports:
@@ -96,6 +96,8 @@ services:
       NODE_ENV: production
       APP_MODE: ${APP_MODE:-aws}
       API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+      HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
+      HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
       DATABASE_URL: ${DATABASE_URL:-}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-}
       POSTGRES_HOST: postgres
@@ -121,6 +123,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
       OTEL_SERVICE_NAME: hellotest-api
       ENABLE_OBSERVABILITY: ${ENABLE_OBSERVABILITY:-true}
+      OPS_MONITORING_ENABLED: ${OPS_MONITORING_ENABLED:-true}
+      OPS_GRAFANA_USER: ${GRAFANA_ADMIN_USER:-admin}
+      OPS_GRAFANA_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Grafana password is required}
       STORAGE_PROVIDER: ${STORAGE_PROVIDER:-minio}
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
       MINIO_PORT: ${MINIO_PORT:-9000}
@@ -151,8 +156,6 @@ services:
         condition: service_healthy
       tika:
         condition: service_healthy
-      otel-collector:
-        condition: service_started
     networks:
       - default
       - knowledge-parser
@@ -166,8 +169,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/platform/frontend/Dockerfile
     image: ${HELLOTEST_FRONTEND_IMAGE:-jayarajumetta/hellotest-frontend:latest}
     container_name: hellotest-frontend
     environment:
@@ -183,108 +186,47 @@ services:
     restart: always
 
   haproxy:
-    image: haproxy:3.0-alpine
-    container_name: hellotest-haproxy
-    depends_on:
-      api:
-        condition: service_healthy
-      frontend:
-        condition: service_healthy
+    extends:
+      file: docker-compose.ops.yml
+      service: haproxy
     ports:
       - "${HELLOTEST_HTTP_BIND:-0.0.0.0}:${HELLOTEST_HTTP_PORT:-80}:80"
-      - "${HELLOTEST_HAPROXY_STATS_BIND:-127.0.0.1}:${HELLOTEST_HAPROXY_STATS_PORT:-8404}:8404"
-    volumes:
-      - ./ops/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-    restart: always
 
   prometheus:
-    image: prom/prometheus:v2.54.1
-    container_name: hellotest-prometheus
-    depends_on:
-      api:
-        condition: service_healthy
-      otel-collector:
-        condition: service_started
-    ports:
-      - "${HELLOTEST_PROMETHEUS_BIND:-127.0.0.1}:${HELLOTEST_PROMETHEUS_PORT:-9090}:9090"
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}
-    volumes:
-      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
-      - prometheus-data:/prometheus
-    restart: always
+    extends:
+      file: docker-compose.ops.yml
+      service: prometheus
 
   loki:
-    image: grafana/loki:3.1.1
-    container_name: hellotest-loki
-    command: ["-config.file=/etc/loki/local-config.yaml"]
-    ports:
-      - "${HELLOTEST_LOKI_BIND:-127.0.0.1}:${HELLOTEST_LOKI_PORT:-3100}:3100"
-    volumes:
-      - ./ops/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
-      - loki-data:/loki
-    restart: always
+    extends:
+      file: docker-compose.ops.yml
+      service: loki
 
-  promtail:
-    image: grafana/promtail:3.1.1
-    container_name: hellotest-promtail
-    depends_on:
-      - loki
-    command: ["-config.file=/etc/promtail/config.yml"]
-    volumes:
-      - ./ops/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-    restart: always
+  alloy:
+    extends:
+      file: docker-compose.ops.yml
+      service: alloy
 
   grafana:
-    image: grafana/grafana:11.1.0
-    container_name: hellotest-grafana
-    depends_on:
-      - prometheus
-      - loki
-      - jaeger
-    ports:
-      - "${HELLOTEST_GRAFANA_BIND:-127.0.0.1}:${HELLOTEST_GRAFANA_PORT:-3001}:3000"
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./ops/grafana/provisioning/datasources/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
-      - ./ops/grafana/provisioning/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
-      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    restart: always
+    extends:
+      file: docker-compose.ops.yml
+      service: grafana
 
   jaeger:
-    image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
-    container_name: hellotest-jaeger
-    ports:
-      - "${HELLOTEST_JAEGER_BIND:-127.0.0.1}:${HELLOTEST_JAEGER_PORT:-16686}:16686"
-    restart: always
+    extends:
+      file: docker-compose.ops.yml
+      service: jaeger
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.157.0
-    container_name: hellotest-otel-collector
-    command: ["--config=/etc/otel-collector/config.yaml"]
-    ports:
-      - "${HELLOTEST_OTEL_GRPC_BIND:-127.0.0.1}:${HELLOTEST_OTEL_GRPC_PORT:-4317}:4317"
-      - "${HELLOTEST_OTEL_HTTP_BIND:-127.0.0.1}:${HELLOTEST_OTEL_HTTP_PORT:-4318}:4318"
-      - "${HELLOTEST_OTEL_METRICS_BIND:-127.0.0.1}:${HELLOTEST_OTEL_METRICS_PORT:-9464}:9464"
-    expose:
-      - "13133"
-    volumes:
-      - ./ops/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
-    depends_on:
-      - jaeger
-      - loki
-    mem_limit: 512m
-    restart: always
+    extends:
+      file: docker-compose.ops.yml
+      service: otel-collector
+
+  alertmanager:
+    extends:
+      file: docker-compose.ops.yml
+      service: alertmanager
+
 
 networks:
   knowledge-parser:
@@ -295,6 +237,8 @@ volumes:
   hellotest-postgres-data:
   hellotest-minio-data:
   hellotest-qdrant-data:
-  prometheus-data:
-  loki-data:
-  grafana-data:
+  ops-prometheus:
+  ops-loki:
+  ops-alloy:
+  ops-grafana:
+  ops-alertmanager:

@@ -12,7 +12,7 @@ for (const [key, name] of Object.entries(names)) {
   modules[key] = source;
   hashes[key] = createHash("sha256").update(source).digest("hex");
 }
-const directory = new URL("../../../backend/api/src/assets/", import.meta.url);
+const directory = new URL("../../../services/platform/backend/src/assets/", import.meta.url);
 await mkdir(directory, { recursive: true });
 await writeFile(new URL("inspection-agent-runtime.json", directory), JSON.stringify({
   format: 1,

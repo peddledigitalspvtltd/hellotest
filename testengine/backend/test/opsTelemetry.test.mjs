@@ -363,6 +363,38 @@ test("explicitly invalid project scopes cannot become global reads or clears and
   }
 });
 
+test("workers observe shared execution events, services, and scoped clears without restarting", async () => {
+  const first = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "local" });
+  const second = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "local", OPS_TELEMETRY_STORE_PATH: first.storePath });
+  const list = (fixture, project = "project-a") => fixture.app.inject({ method: "GET", url: `/api/v1/events?project_id=${project}` });
+  try {
+    assert.equal((await list(second)).json().total, 0, "prime the empty reader cache");
+    for (const [fixture, project_id, service_name] of [
+      [first, "project-a", "api-worker"],
+      [second, "project-a", "web-worker"],
+      [first, "project-b", "android-worker"]
+    ]) {
+      assert.equal((await fixture.app.inject({ method: "POST", url: "/api/v1/events", payload: { project_id, service_name, event_type: "run.finished" } })).statusCode, 202);
+      await list(fixture, project_id); // Wait for this writer's durable queue.
+    }
+    const [events, services] = await Promise.all([
+      list(second),
+      second.app.inject({ method: "GET", url: "/api/v1/ops-telemetry/services?project_id=project-a" })
+    ]);
+    assert.equal(events.statusCode, 200);
+    assert.equal(events.json().total, 2);
+    assert.deepEqual(events.json().items.map((event) => event.service_name).sort(), ["api-worker", "web-worker"]);
+    assert.deepEqual(services.json().items.map((service) => service.service_name).sort(), ["api-worker", "web-worker"]);
+    assert.equal((await first.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" })).statusCode, 200);
+    assert.equal((await list(second)).json().total, 0, "another worker's clear invalidates the cached snapshot");
+    assert.equal((await list(second, "project-b")).json().total, 1, "other projects remain isolated");
+    assert.equal((await list(first, "project-b")).json().total, 1);
+  } finally {
+    await second.cleanup();
+    await first.cleanup();
+  }
+});
+
 test("scoped clear preserves another writer's records and does not report success when the store cannot be replaced", async () => {
   const received_at = new Date().toISOString();
   const record = (id, project_id) => ({ id, project_id, received_at, payload: { project_id, event_type: "run.finished" } });
@@ -375,10 +407,11 @@ test("scoped clear preserves another writer's records and does not report succes
     await mkdir(fixture.storePath);
     const failed = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" });
     assert.equal(failed.statusCode, 500);
-    const unchanged = (await fixture.app.inject({ method: "GET", url: "/api/v1/events?project_id=project-a" })).json();
-    assert.equal(unchanged.total, 1, "failed durable clear leaves the in-memory record intact");
+    const unavailable = await fixture.app.inject({ method: "GET", url: "/api/v1/events?project_id=project-a" });
+    assert.equal(unavailable.statusCode, 503, "unreadable shared storage must not return a misleading cached success");
     await rm(fixture.storePath, { recursive: true });
     await rename(savedPath, fixture.storePath);
+    assert.equal((await fixture.app.inject({ method: "GET", url: "/api/v1/events?project_id=project-a" })).json().total, 1, "failed durable clear preserves the record after storage recovers");
 
     const cleared = await fixture.app.inject({ method: "DELETE", url: "/api/v1/events/projects/project-a" });
     assert.deepEqual(cleared.json(), { ok: true, project_id: "project-a", deleted: 1 });
@@ -388,4 +421,24 @@ test("scoped clear preserves another writer's records and does not report succes
   } finally {
     await fixture.cleanup();
   }
+});
+
+
+test("worker activity is opt-in, bounded, and separate from project execution events", async () => {
+  const fixture = await createFixture({ OPS_TELEMETRY_ENVIRONMENT: "local" });
+  try {
+    for (let index = 0; index < 55; index++) fixture.telemetry.captureLocalEvent({ event_type: "testengine.queue.poll.summary", status: "ready" });
+    fixture.telemetry.captureLocalEvent({ event_type: "unrelated.host.event" });
+    fixture.telemetry.captureLocalEvent({ project_id: "project-b", event_type: "testengine.queue.poll.summary" });
+    fixture.telemetry.captureLocalEvent({ project_id: "project-a", event_type: "run.finished" });
+    const plain = (await fixture.app.inject({ url: "/api/v1/events?project_id=project-a" })).json();
+    assert.equal(plain.workers, undefined);
+    const data = (await fixture.app.inject({ url: "/api/v1/events?project_id=project-a&include_workers=true" })).json();
+    assert.equal(data.total, 1);
+    assert.equal(data.items[0].project_id, "project-a");
+    assert.equal(data.workers.scope, "workers");
+    assert.equal(data.workers.total, 55);
+    assert.equal(data.workers.items.length, 50);
+    assert.ok(data.workers.items.every(event => !event.project_id && event.event_type === "testengine.queue.poll.summary"));
+  } finally { await fixture.cleanup(); }
 });

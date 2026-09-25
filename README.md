@@ -4,6 +4,8 @@ HelloTest is a QA management workspace with a Fastify backend, a React frontend,
 
 This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, which avoids the read-only database file issues that were happening with mounted `.db` files.
 
+For source ownership, architecture diagrams, development setup and contribution checks, read [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Stack
 
 - Backend: Fastify on Node.js
@@ -17,18 +19,26 @@ This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, whic
 
 ## Repo layout
 
-- `backend/api`: Fastify API
-- `backend/db/schema.sql`: PostgreSQL schema loaded on first database boot
-- `backend/db/seed.sql`: sample data loaded on first database boot
-- `backend/docker-compose.yml`: backend + PostgreSQL + MinIO
+- `services/platform/backend`: shared Fastify runtime and composition shell
+- `services/<profile>/backend`: backend routes, feature services and route manifests
+- `services/<profile>/frontend`: frontend feature pages, components, hooks, helpers and endpoint ownership
+- `services/catalog.json`: canonical bounded-service and deployment registry
+- `docker-compose.microservices.yml`: selectable API profiles for Platform, Testing, Manual, Dashboard, Automation, Agentic, Knowledge, Chatbot, AI, Integration and Trace
+- `services/platform/backend/instance-setup-data/schema-setup/schema.sql`: PostgreSQL schema loaded on first database boot
+- `services/platform/backend/instance-setup-data/manifest.json`: versioned sample content installed through Administration or opt-in startup setup
+- `services/platform/backend/docker-compose.yml`: backend + PostgreSQL + MinIO
 - `docker-compose.full.yml`: full stack with PostgreSQL, MinIO, API, and frontend
-- `docker-compose.platform.yml`: full stack plus HAProxy, Prometheus, Grafana, Loki, Promtail, and OpenTelemetry Collector
-- `frontend`: React app
+- `docker-compose.platform.yml`: full stack plus HAProxy, Prometheus, Grafana, Loki, Alloy, and OpenTelemetry Collector
+- `frontend`: React workspace/admin composition and build shell
 - `testengine/backend`: the sole supported API, Web, and Android execution worker plane
-- `apps/hellotest-execution-engine`: archived source-only prototype; never deploy or release it
+- `testengine/docker-compose.yml`: independent TestEngine workers, Selenium Grid hub/node, and mobile execution plane
 - `openapi.yaml`: API contract
-- [`backend/ARCHITECTURE.md`](backend/ARCHITECTURE.md): module boundaries, provider contracts, health, queues, and change rules
-- [`PLATFORM_STACK.md`](PLATFORM_STACK.md): deployment topology and operator endpoints
+- [`docs/architecture/backend.md`](docs/architecture/backend.md): module boundaries, provider contracts, health, queues, and change rules
+- [`docs/PLATFORM_STACK.md`](docs/PLATFORM_STACK.md): deployment topology and operator endpoints
+- [`services/README.md`](services/README.md): service ownership, setup, and migration rules
+- [`docs/source-layout-audit.md`](docs/source-layout-audit.md): source ownership, naming rules, duplicate detection, and safe cleanup history
+- [`docs/repository-file-map.md`](docs/repository-file-map.md): repository-wide Markdown, YAML, shell, generated-file, and cleanup policy
+- [`docs/platform-acceptance-status.md`](docs/platform-acceptance-status.md): verified architecture behavior and remaining work toward full service independence
 
 ## Quick Start
 
@@ -50,8 +60,38 @@ Open the apps:
 
 On the first boot, the Postgres container creates the `hellotest` database and automatically runs:
 
-- `backend/db/schema.sql`
-- `backend/db/seed.sql`
+- `services/platform/backend/instance-setup-data/schema-setup/schema.sql`
+
+The API then initializes runtime schema and the bootstrap administrator. Sample content is optional: use Administration → Instance setup, or set `HELLOTEST_INSTANCE_SETUP_MODULES=all` (or comma-separated module keys) before startup. Progress and retry use the same durable jobs in Administration.
+
+## Install all deployable workspaces
+
+The repository root now owns the setup command. It installs the lockfile-backed API, frontend, and TestEngine workspaces, then installs the mobile worker (which currently has no lockfile). Dependency directories and generated build output are ignored by Git.
+
+```bash
+npm run setup
+npm run audit:source-layout
+npm run validate:architecture
+```
+
+The redundant execution prototype has been removed. All engine development and tests use `testengine/backend`; see [the consolidation review](docs/testengine-consolidation.md).
+
+## Independently deploy bounded services
+
+The API route manifest assigns every route to one service profile. Run the profiles with the dedicated Compose contract:
+
+```bash
+npm run services:up -- --capabilities automation --print
+npm run services:up -- --capabilities automation --build
+npm run services:up -- --capabilities knowledge --build
+docker compose -f docker-compose.microservices.yml up --build ai-api
+```
+
+Set `HELLOTEST_SERVICE_PROFILE` when deploying the API image directly. `all` remains the default for compatibility. The current transition shares PostgreSQL, Redis, MinIO, and Tika; service-specific databases are a later migration after cross-domain joins become versioned projections.
+
+## Monitoring stack
+
+`./hellotest.sh up --stack local` starts the compact monitoring stack automatically, including when used with `--build --no-cache`. In Test Ops → Telemetry, the workspace provides Dashboard, Grafana dashboard (automatic read-only sign-in for administrators), TestGrid telemetry, Infrastructure logs, Distributed traces (Jaeger), Alertmanager, and consolidated Service health. All consoles load within their tabs. Use `HELLOTEST_OPS_ENABLED=false` to omit monitoring, `npm run ops:up` to start/repair it independently, and `npm run ops:verify` to check data flow. See [operations and resource budgets](docs/ops-operations.md).
 
 ## Operator Script
 
@@ -88,13 +128,13 @@ HELLOTEST_API_BASE_URL=https://hellotest.example.com/api \
 
 The deploy command prints the target stack, compose file, frontend URL, API URLs, and Test Engine URL before it changes containers. Use `--yes` only from automation.
 
-For AWS EC2 hosts, prefer the scripts in [deploymentscripts](./deploymentscripts):
+For AWS EC2 hosts, prefer the scripts in [AWS deployment scripts](scripts/deploy/aws/README.md):
 
 ```bash
-deploymentscripts/aws-app-deploy.sh
-HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api deploymentscripts/aws-testengine-deploy.sh
-deploymentscripts/aws-status.sh
-deploymentscripts/aws-logs.sh --stack app
+scripts/deploy/aws/deploy-app.sh
+HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api scripts/deploy/aws/deploy-testengine.sh
+scripts/deploy/aws/status.sh
+scripts/deploy/aws/logs.sh --stack app
 ```
 
 ## Quick start: backend only
@@ -151,7 +191,7 @@ If port `80` is already used on the host, publish HAProxy on another host port:
 HELLOTEST_HTTP_PORT=8081 docker compose -f docker-compose.platform.yml up -d
 ```
 
-More detail is in [PLATFORM_STACK.md](./PLATFORM_STACK.md).
+More detail is in [docs/PLATFORM_STACK.md](docs/PLATFORM_STACK.md).
 
 ## Manual PostgreSQL setup
 
@@ -177,19 +217,21 @@ docker run --name hellotest-postgres \
 3. Load the schema:
 
 ```bash
-PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f backend/db/schema.sql
+PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f services/platform/backend/instance-setup-data/schema-setup/schema.sql
 ```
 
-4. Load the sample data:
+4. Optionally enable the current instance dataset after API initialization:
 
 ```bash
-PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f backend/db/seed.sql
+export HELLOTEST_INSTANCE_SETUP_MODULES=all
 ```
+
+Leave it unset for an empty customer instance. Administration → Instance setup can install selected modules later.
 
 5. Run the API locally:
 
 ```bash
-cd backend/api
+cd services/platform/backend
 npm install
 DATABASE_URL=postgresql://hellotest:hellotest@localhost:5432/hellotest npm start
 ```
@@ -199,7 +241,7 @@ Execution and operational records use a separately owned adapter but the same Po
 6. Run the frontend locally in another terminal:
 
 ```bash
-cd frontend
+cd services/platform/frontend
 npm install
 VITE_API_BASE_URL=http://localhost:3000 npm run dev
 ```
@@ -207,7 +249,7 @@ VITE_API_BASE_URL=http://localhost:3000 npm run dev
 Run the administration portal as a separate Vite process only when developing its UI. It uses the same API and PostgreSQL database as the product workspace:
 
 ```bash
-cd frontend
+cd services/platform/frontend
 VITE_API_BASE_URL=http://localhost:3000 npm run dev:admin
 ```
 
@@ -267,8 +309,8 @@ Standard attachment uploads are streamed through the authenticated API. Knowledg
 
 - The bundled stacks use the pinned official `pgvector/pgvector` PostgreSQL 16 image and create the database defined by `POSTGRES_DB`.
 - Apache Tika runs on a separate internal-only network with a read-only filesystem and bounded temporary storage; its port is not published to the host.
-- The mounted SQL files in `backend/db` are executed only when the Postgres data directory is empty.
-- Sample data is inserted from `backend/db/seed.sql`, so the backend and frontend have working starter content immediately.
+- The mounted SQL files in `services/platform/backend/instance-setup-data/schema-setup` are executed only when the Postgres data directory is empty.
+- Optional sample content comes from the versioned instance dataset. Set `HELLOTEST_INSTANCE_SETUP_MODULES=all` before startup to queue it after schema and administrator initialization.
 
 ## Reset the database
 
@@ -295,4 +337,4 @@ docker compose up --build
 - Backend: `jayarajumetta/hellotest-backend:latest`
 - Frontend: `jayarajumetta/hellotest-frontend:latest`
 - The frontend is configured to talk to `http://localhost:3000` by default in local Docker workflows.
-- The schema in `backend/db/schema.sql` is ordered for PostgreSQL foreign key creation, and `seed.sql` uses PostgreSQL boolean values.
+- The schema in `services/platform/backend/instance-setup-data/schema-setup/schema.sql` is ordered for PostgreSQL foreign key creation. Sample data installation validates JSON relationships and saves resumable receipts.

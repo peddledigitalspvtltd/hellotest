@@ -21,7 +21,7 @@ The September 2026 audit found that Story and Test Case **Analyse with AI** call
 | Rich-text rewrite | Current field, entity context and reviewed terminology | Allowed semantic HTML preserving facts and uncertainty |
 | Knowledge / specialist assistants | Authorized, scoped retrieval, bounded history and current objective | Existing cited answer or specialist contract, with explicit evidence gaps |
 
-Default editorial guidance is maintained in `frontend/src/lib/aiPromptRegistry.ts`, with a 4,000-character limit per configurable template. The backend retains the feature's authoritative schema and grounding rules. Regression, access-control and mobile generation packs live in `aiPromptTemplate.service.js`. Custom guidance does not replace the response contract.
+Default editorial guidance is maintained in `services/integration/frontend/lib/aiPromptRegistry.ts`, with a 4,000-character limit per configurable template. The backend retains the feature's authoritative schema and grounding rules. Regression, access-control and mobile generation packs live in `aiPromptTemplate.service.js`. Custom guidance does not replace the response contract.
 
 ## Context and provider selection
 

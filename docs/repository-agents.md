@@ -77,7 +77,7 @@ compression. Exclusion counts and preview truncation appear in run warnings.
 
 Common credential patterns are redacted before evidence or knowledge is
 generated. The supported-file allowlist and exclusion rules are defined in
-[`safe_source.py`](../backend/api/agents/semantic_compiler/safe_source.py).
+[`safe_source.py`](../services/agentic/backend/runtime/semantic_compiler/safe_source.py).
 
 ## Understand and review findings
 
@@ -245,9 +245,9 @@ to address evidence gaps.
 
 ## Runtime installation and deployment
 
-The Node control plane is in [`backend/api/src/agents`](../backend/api/src/agents).
+The Node control plane is in [`services/agentic/backend/agents`](../services/agentic/backend/agents).
 The isolated compiler and its preserved attachment source are in
-[`backend/api/agents/semantic_compiler`](../backend/api/agents/semantic_compiler).
+[`services/agentic/backend/runtime/semantic_compiler`](../services/agentic/backend/runtime/semantic_compiler).
 The provenance manifest contains SHA-256 hashes of the supplied archive and
 vendored Python files. The original Git, LLM, repair and execution orchestrator
 is not used by the application adapters.
@@ -274,7 +274,7 @@ are cached for one minute.
 
 ## Validation commands
 
-From `backend/api`, run the deterministic compiler and Node control-plane tests:
+From `services/platform/backend`, run the deterministic compiler and Node control-plane tests:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s agents/semantic_compiler/tests -v
@@ -282,10 +282,10 @@ node --test test/repositoryAgentSources.test.js test/repositoryAgentLifecycle.te
 ```
 
 The opt-in PostgreSQL integration test is
-`backend/api/test/integration/repositoryAgents.postgres.test.js`. It requires an
+`services/platform/backend/test/integration/repositoryAgents.postgres.test.js`. It requires an
 empty disposable database named `agent_verify_*`, `REPOSITORY_AGENTS_POSTGRES=1`,
 `DATABASE_URL`, `REPOSITORY_AGENT_SCHEMA_PATH` pointing to
-`backend/db/schema.sql`, `REPOSITORY_AGENT_FIXTURE` pointing to a small source ZIP,
+`services/platform/backend/instance-setup-data/schema-setup/schema.sql`, `REPOSITORY_AGENT_FIXTURE` pointing to a small source ZIP,
 `KNOWLEDGE_VECTOR_STORE=postgresql` to isolate vector records in that disposable
 database, and the normal object-storage test configuration. It initializes
 fixtures and verifies persistence, real publication, replay and cache reuse.
@@ -293,7 +293,7 @@ It also publishes four knowledge documents, consumes their indexing outbox and
 checks retrieval of two source hits. Do not point it at an application database.
 
 The responsive frontend test is
-`frontend/test/browser/repositoryAgents.test.mjs`. Run it with the frontend Vite
+`services/platform/frontend/test/browser/repositoryAgents.test.mjs`. Run it with the frontend Vite
 server available at `VITE_TEST_URL` (default `http://127.0.0.1:5178`), an installed
 Playwright module and a Chromium executable. `PLAYWRIGHT_MODULE` and
 `CHROME_EXECUTABLE` can point to existing local installations.
@@ -302,7 +302,7 @@ For direct compiler diagnosis, its CLI accepts a server-controlled input JSON
 with `agent_type` and either `archive_path` or `files: [{path, content}]`:
 
 ```sh
-python3 backend/api/agents/semantic_compiler/compile.py --input /tmp/agent-input.json --output /tmp/agent-result.json
+python3 services/agentic/backend/runtime/semantic_compiler/compile.py --input /tmp/agent-input.json --output /tmp/agent-result.json
 ```
 
 Standard output contains bounded JSON stage events; failures return a nonzero

@@ -35,7 +35,7 @@ After editing the recorder or inspection security modules, regenerate the API's 
 Checks:
 
 ```sh
-node --test backend/api/test/repositoryInspection.test.js
+node --test services/platform/backend/test/repositoryInspection.test.js
 npm --prefix testengine/backend test
 node --test testengine/backend/test/browser/repositoryInspectionFlow.test.mjs
 ```

@@ -1,0 +1,57 @@
+{
+  "name": "@hellotest/agentic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest agentic capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/agents/schema": "./backend/agents/schema.js",
+    "./backend/workers": "./backend/workers.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/AgenticExperience": "./frontend/components/AgenticExperience.tsx",
+    "./frontend/components/RepositoryInspectBrowser": "./frontend/components/RepositoryInspectBrowser.tsx",
+    "./frontend/components/RepositoryInspectControls": "./frontend/components/RepositoryInspectControls.tsx",
+    "./frontend/hooks/useRepositoryInspectAgent": "./frontend/hooks/useRepositoryInspectAgent.ts",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/repositoryInspectSession": "./frontend/lib/repositoryInspectSession.ts",
+    "./frontend/lib/repositoryWorkspace": "./frontend/lib/repositoryWorkspace.ts",
+    "./frontend/pages/AgenticWorkflowsPage": "./frontend/pages/AgenticWorkflowsPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs agentic",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs agentic",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "agentic",
+    "requires": [
+      "automation",
+      "knowledge",
+      "integration"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ai.agentic_workflows"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/automation": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

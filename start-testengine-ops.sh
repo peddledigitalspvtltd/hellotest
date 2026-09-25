@@ -3,7 +3,7 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-. "$SCRIPT_DIR/scripts/docker-common.sh"
+. "$SCRIPT_DIR/scripts/lib/docker.sh"
 
 usage() {
   cat <<EOF
@@ -119,7 +119,7 @@ resolve_from_integrations() {
     return 0
   fi
 
-  eval "$(node "$SCRIPT_DIR/scripts/resolve-testengine-ops-config.mjs")"
+  eval "$(node "$SCRIPT_DIR/scripts/ops/resolve-testengine-config.mjs")"
 
   print_block "Integration: " "${RESOLVED_INFO_TEXT:-}"
   print_block "Warning: " "${RESOLVED_WARNING_TEXT:-}"

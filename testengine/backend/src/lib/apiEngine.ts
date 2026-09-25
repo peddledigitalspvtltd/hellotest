@@ -6,6 +6,8 @@ import type {
   HelloTestExecutionApiAssertion,
   HelloTestExecutionStepApiDetail
 } from "../contracts/hellotest.js";
+import { readJsonPathValue } from "./apiJsonPath.js";
+import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
 import {
   buildInitialContext,
   interpolateHeaders,
@@ -81,6 +83,7 @@ const normalizeApiRequest = (request: EngineApiRequest | null | undefined): Engi
   const bodyMode = String(request.body_mode || "none").trim().toLowerCase();
 
   return {
+    timeout_ms: apiRequestTimeoutMs(request.timeout_ms),
     method: API_METHODS.has(method) ? request.method : "GET",
     url: normalizeText(request.url) || "",
     headers: Array.isArray(request.headers)
@@ -181,129 +184,6 @@ const serializeApiBody = (request: EngineApiRequest, headers: Headers) => {
   }
 
   return body;
-};
-
-const parseJsonPath = (path: string | null | undefined) => {
-  const normalized = normalizeText(path);
-
-  if (!normalized || normalized === "$") {
-    return [];
-  }
-
-  if (!normalized.startsWith("$")) {
-    throw new Error("JPath must start with $");
-  }
-
-  const tokens: Array<string | number> = [];
-  let index = 1;
-
-  while (index < normalized.length) {
-    const current = normalized[index];
-
-    if (current === ".") {
-      index += 1;
-      const nextIndex = index;
-
-      while (index < normalized.length && normalized[index] !== "." && normalized[index] !== "[") {
-        index += 1;
-      }
-
-      const token = normalized.slice(nextIndex, index).trim();
-      if (!token) {
-        throw new Error("JPath contains an empty property segment");
-      }
-      tokens.push(token);
-      continue;
-    }
-
-    if (current === "[") {
-      index += 1;
-      const quote = normalized[index];
-
-      if (quote === "\"" || quote === "'") {
-        index += 1;
-        const nextIndex = index;
-
-        while (index < normalized.length && normalized[index] !== quote) {
-          index += 1;
-        }
-
-        if (index >= normalized.length) {
-          throw new Error("JPath has an unterminated quoted property");
-        }
-
-        const token = normalized.slice(nextIndex, index);
-        index += 1;
-
-        if (normalized[index] !== "]") {
-          throw new Error("JPath has an invalid quoted property segment");
-        }
-
-        index += 1;
-        tokens.push(token);
-        continue;
-      }
-
-      const nextIndex = index;
-
-      while (index < normalized.length && normalized[index] !== "]") {
-        index += 1;
-      }
-
-      if (index >= normalized.length) {
-        throw new Error("JPath is missing a closing bracket");
-      }
-
-      const rawToken = normalized.slice(nextIndex, index).trim();
-      index += 1;
-
-      if (!/^\d+$/.test(rawToken)) {
-        throw new Error("Only numeric array indexes are supported in bracket notation");
-      }
-
-      tokens.push(Number(rawToken));
-      continue;
-    }
-
-    throw new Error(`Unexpected token "${current}" in JPath`);
-  }
-
-  return tokens;
-};
-
-const readJsonPathValue = (source: unknown, path: string | null | undefined): { found: boolean; value?: unknown; error?: string } => {
-  try {
-    const tokens = parseJsonPath(path);
-    let current = source;
-
-    for (const token of tokens) {
-      if (typeof token === "number") {
-        if (!Array.isArray(current)) {
-          return { found: false, error: `Path ${path} does not point to an array before [${token}]` };
-        }
-
-        if (token < 0 || token >= current.length) {
-          return { found: false, error: `Path ${path} is missing array index [${token}]` };
-        }
-
-        current = current[token];
-        continue;
-      }
-
-      if (!current || typeof current !== "object" || !(token in current)) {
-        return { found: false, error: `Path ${path} is missing property "${token}"` };
-      }
-
-      current = (current as Record<string, unknown>)[token];
-    }
-
-    return { found: true, value: current };
-  } catch (error) {
-    return {
-      found: false,
-      error: error instanceof Error ? error.message : "Invalid JPath"
-    };
-  }
 };
 
 const parseAssertionExpectedValue = (value: string | null | undefined) => {
@@ -552,11 +432,11 @@ const runResolvedApiRequest = async (request: EngineApiRequest): Promise<ApiResp
       method,
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : serializeApiBody(request, headers),
-      signal: AbortSignal.timeout(20_000)
+      signal: AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
     });
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("API request timed out after 20 seconds");
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new Error(`API request timed out after ${apiRequestTimeoutMs(request.timeout_ms)} ms`);
     }
 
     throw new Error(error instanceof Error ? error.message : "Unable to run API request");

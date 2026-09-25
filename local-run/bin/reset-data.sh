@@ -2,12 +2,8 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-LOCAL_RUN_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-COMPOSE_FILE=${HELLOTEST_LOCAL_COMPOSE_FILE:-docker-compose.yml}
+. "$SCRIPT_DIR/../lib/compose.sh"
 
-cd "$LOCAL_RUN_DIR"
-[ -f .env ] || cp .env.example .env
-
-echo "This removes only the local-run Postgres and Test Engine artifact volumes."
-docker compose --env-file .env -f "$COMPOSE_FILE" down -v
-docker compose --env-file .env -f "$COMPOSE_FILE" up -d --build
+echo "This removes ALL volumes declared by the selected local stack, including database, cache, object storage, vector data and engine artifacts."
+local_compose down -v
+local_compose up -d --build

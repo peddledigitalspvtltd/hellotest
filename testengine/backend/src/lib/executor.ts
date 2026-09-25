@@ -17,6 +17,8 @@ import type {
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { buildInitialContext, interpolateText, registerContextValue } from "./runtimeContext.js";
+import { readJsonPath, readJsonPathValue } from "./apiJsonPath.js";
+import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -212,53 +214,6 @@ const buildResponsePreview = (bodyText: string, json: unknown) => {
   }
 
   return truncateText(bodyText);
-};
-
-const readJsonPath = (source: unknown, rawPath?: string | null) => {
-  if (source === null || source === undefined) {
-    return undefined;
-  }
-
-  const normalizedPath = normalizeText(rawPath || "$");
-
-  if (!normalizedPath || normalizedPath === "$") {
-    return source;
-  }
-
-  const pathWithoutRoot = normalizedPath.replace(/^\$\.?/, "");
-
-  if (!pathWithoutRoot) {
-    return source;
-  }
-
-  const segments = pathWithoutRoot
-    .replace(/\[(\d+)\]/g, ".$1")
-    .split(".")
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-
-  let cursor: unknown = source;
-
-  for (const segment of segments) {
-    if (cursor === null || cursor === undefined) {
-      return undefined;
-    }
-
-    if (Array.isArray(cursor)) {
-      const index = Number(segment);
-      cursor = Number.isInteger(index) ? cursor[index] : undefined;
-      continue;
-    }
-
-    if (typeof cursor === "object") {
-      cursor = (cursor as Record<string, unknown>)[segment];
-      continue;
-    }
-
-    return undefined;
-  }
-
-  return cursor;
 };
 
 const buildApiEvidenceDataUrl = ({
@@ -552,10 +507,14 @@ const buildApiAssertionResult = (
   if (kind === "json_path") {
     const target = normalizeText(validation.target || "$");
     const expected = parseExpectedLiteral(validation.expected);
-    const actualValue = readJsonPath(response.json, target);
+    const resolved = readJsonPathValue(response.json, target);
+    const actualValue = resolved.value;
     return {
       kind,
-      passed: actualValue === expected,
+      passed: resolved.found && (actualValue === expected || (
+        typeof actualValue === "object" && actualValue !== null && typeof expected === "object" && expected !== null
+        && JSON.stringify(actualValue) === JSON.stringify(expected)
+      )),
       target,
       expected: stringifyValue(expected),
       actual: stringifyValue(actualValue)
@@ -597,7 +556,8 @@ const executeApiStep = async ({
   const response = await fetch(interpolatedUrl, {
     method: request.method || "GET",
     headers,
-    body: request.body_mode && request.body_mode !== "none" ? interpolatedBody || undefined : undefined
+    body: request.body_mode && request.body_mode !== "none" ? interpolatedBody || undefined : undefined,
+    signal: AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
   });
 
   const responseBody = await response.text();

@@ -26,6 +26,7 @@ export type EngineApiCapture = {
 };
 
 export type EngineApiRequest = {
+  timeout_ms?: number;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
   url?: string | null;
   headers?: Array<{ key: string; value: string }>;

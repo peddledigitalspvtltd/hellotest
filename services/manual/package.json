@@ -1,0 +1,63 @@
+{
+  "name": "@hellotest/manual",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest manual capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/requirement.service": "./backend/services/requirement.service.js",
+    "./backend/services/requirementDefect.service": "./backend/services/requirementDefect.service.js",
+    "./backend/services/requirementDesign.service": "./backend/services/requirementDesign.service.js",
+    "./backend/services/requirementWorkspace.service": "./backend/services/requirementWorkspace.service.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/EntityHealthDialog": "./frontend/components/EntityHealthDialog.tsx",
+    "./frontend/components/ExternalReferencesField": "./frontend/components/ExternalReferencesField.tsx",
+    "./frontend/components/ProjectMetricBreakdown": "./frontend/components/ProjectMetricBreakdown.tsx",
+    "./frontend/components/ProjectTraceabilityMap": "./frontend/components/ProjectTraceabilityMap.tsx",
+    "./frontend/components/RelatedWorkItemsPanel": "./frontend/components/RelatedWorkItemsPanel.tsx",
+    "./frontend/components/TraceabilityRunHistory": "./frontend/components/TraceabilityRunHistory.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/deliveryScopeOptions": "./frontend/lib/deliveryScopeOptions.ts",
+    "./frontend/lib/requirementCatalog": "./frontend/lib/requirementCatalog.ts",
+    "./frontend/lib/transactionTileProgress": "./frontend/lib/transactionTileProgress.ts",
+    "./frontend/pages/ReleasesPage": "./frontend/pages/ReleasesPage.tsx",
+    "./frontend/pages/RequirementsPage": "./frontend/pages/RequirementsPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs manual",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs manual",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "manual",
+    "requires": [
+      "testing"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.manual.plans",
+      "hellotest.manual.quality_gates",
+      "hellotest.manual.requirements"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/dashboard": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

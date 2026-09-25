@@ -52,7 +52,7 @@ Project visibility, description and application platform define the workspace co
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 01 · Workspace foundations. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`.
 
 Acceptance criteria:
 
@@ -71,7 +71,7 @@ Membership determines project access; workspace role presets provide Product Own
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 01 · Workspace foundations. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`.
 
 Acceptance criteria:
 
@@ -90,7 +90,7 @@ The workspace navigator combines capabilities, feature availability and project 
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 01 · Workspace foundations. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`.
 
 Acceptance criteria:
 
@@ -109,7 +109,7 @@ Authentication controls protected workspace APIs and pages. Session expiry must 
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 01 · Workspace foundations. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`, `backend/api/src/routes/auth.routes.js`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`, `services/platform/backend/routes/auth.routes.js`.
 
 Acceptance criteria:
 
@@ -128,7 +128,7 @@ Deletion uses a durable job receipt, bounded SQL batches and post-commit storage
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 01 · Workspace foundations. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`, `backend/api/src/services/projectDeletion.service.js`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`, `services/platform/backend/services/projectDeletion.service.js`.
 
 Acceptance criteria:
 
@@ -147,7 +147,7 @@ Settings and regional controls influence labels and formatting without rewriting
 - Status: draft; priority: P2; effort: 3 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, workspace.
-- Sources: `frontend/src/components/AppShell.tsx`, `backend/api/src/routes/projects.routes.js`, `backend/api/src/security/permissions.catalog.js`, `frontend/src/components/RegionalPreferencesDialog.tsx`.
+- Sources: `services/platform/frontend/src/platform/components/AppShell.tsx`, `services/platform/backend/routes/projects.routes.js`, `services/platform/backend/src/security/permissions.catalog.js`, `services/platform/frontend/src/platform/components/RegionalPreferencesDialog.tsx`.
 
 Acceptance criteria:
 
@@ -168,7 +168,7 @@ Stories support Gherkin or Spec Kit specifications alongside title, description,
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -187,7 +187,7 @@ Backlog is the unscheduled view of the same story records. Moving work changes c
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -206,7 +206,7 @@ Sprints have description, goal, labels, owner, effort and start/end dates with f
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -225,7 +225,7 @@ Releases contain a unique project milestone, fix version, description, target in
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -244,7 +244,7 @@ Local project sprints and releases are the canonical options. Imported metadata 
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -263,7 +263,7 @@ Story links connect acceptance intent to test cases, Defects and related stories
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -282,7 +282,7 @@ Story import and configured tracker synchronization retain source references and
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`, `frontend/src/lib/requirementImport.ts`, `backend/api/src/routes/projectSync.routes.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`, `services/manual/frontend/lib/requirementImport.ts`, `services/integration/backend/routes/projectSync.routes.js`.
 
 Acceptance criteria:
 
@@ -301,7 +301,7 @@ The story AI workspace helps refine requirements and generate reviewable design 
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 02 · Product planning. Release: HelloTest Foundation · sample; fix version: demo-foundation-1.0.
 - Team: HelloTest Product. Labels: sample, hellotest-core, planning.
-- Sources: `frontend/src/pages/RequirementsPage.tsx`, `frontend/src/pages/ReleasesPage.tsx`, `backend/api/src/services/requirement.service.js`, `backend/api/src/services/requirementRelease.service.js`.
+- Sources: `services/manual/frontend/pages/RequirementsPage.tsx`, `services/manual/frontend/pages/ReleasesPage.tsx`, `services/manual/backend/services/requirement.service.js`, `services/manual/backend/services/requirementRelease.service.js`.
 
 Acceptance criteria:
 
@@ -322,7 +322,7 @@ A case records title, description, type, priority, lifecycle, author and ordered
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -341,7 +341,7 @@ Gherkin authoring preserves feature-level context and behavior steps. Dataset ex
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -360,7 +360,7 @@ Shared groups support structured and Gherkin content plus parameters. References
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -379,7 +379,7 @@ Modules organize test design; suites select execution membership. Stored members
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -398,7 +398,7 @@ Case history preserves prior snapshots and change summaries. Review and author m
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -417,7 +417,7 @@ Import/export covers supported case fields and step structures. Users must be ab
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -436,7 +436,7 @@ Environment configuration stores a base URL and variables within project/applica
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -455,7 +455,7 @@ Profiles describe supported browser, platform, mobile OS/version and configurati
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -474,7 +474,7 @@ Datasets contain named columns and rows and can be linked to cases or runs. Exec
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 03 · Reusable test design. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -493,7 +493,7 @@ Configured AI can help map cases, rephrase steps or rich text and propose synthe
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, design.
-- Sources: `frontend/src/pages/TestCasesPage.tsx`, `frontend/src/pages/DesignPage.tsx`, `frontend/src/pages/SharedStepsPage.tsx`, `frontend/src/pages/TestEnvironmentPage.tsx`.
+- Sources: `services/testing/frontend/pages/TestCasesPage.tsx`, `services/testing/frontend/pages/DesignPage.tsx`, `services/testing/frontend/pages/SharedStepsPage.tsx`, `services/testing/frontend/pages/TestEnvironmentPage.tsx`.
 
 Acceptance criteria:
 
@@ -514,7 +514,7 @@ Run setup combines suite/case selection, assignments, environment, configuration
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -533,7 +533,7 @@ Runs snapshot selected cases, steps and input context. Manual outcomes, notes, a
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -552,7 +552,7 @@ A case may have multiple data-row attempts. Case and run metrics must use the su
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -571,7 +571,7 @@ Schedules retain project/application, suite selection, execution context, assign
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -590,7 +590,7 @@ Reports and analysis use the permitted run scope, saved result evidence and conf
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -609,7 +609,7 @@ Defects capture description, type, severity, priority, status, root cause, regre
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -628,7 +628,7 @@ Duplicate review uses selected case/module context. Story, case, suite and run r
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 04 · Execution and triage. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -647,7 +647,7 @@ Defect-to-case conversion maps supported defect details into an editable test dr
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Quality. Labels: sample, hellotest-core, execution.
-- Sources: `frontend/src/pages/ExecutionsPage.tsx`, `frontend/src/pages/IssuesPage.tsx`, `backend/api/src/services/executionSchedule.service.js`, `backend/api/src/utils/finalizedCaseMetrics.js`.
+- Sources: `services/testing/frontend/pages/ExecutionsPage.tsx`, `services/testing/frontend/pages/IssuesPage.tsx`, `services/testing/backend/services/executionSchedule.service.js`, `services/platform/backend/src/utils/finalizedCaseMetrics.js`.
 
 Acceptance criteria:
 
@@ -668,7 +668,7 @@ Automation status and manual-to-automation links describe coverage readiness. An
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -687,7 +687,7 @@ The automation workspace exposes supported assets, builder operations and step-l
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -706,7 +706,7 @@ API steps store method, URL, headers, body mode, validations and captures. Previ
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -725,7 +725,7 @@ Objects retain screen/page intent, names, locators, platform metadata, source an
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -744,7 +744,7 @@ Step-level recording connects a configured recording environment to case authori
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -763,7 +763,7 @@ Local execution connects the selected case and context to the configured desktop
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -782,7 +782,7 @@ Remote dispatch and parallel execution use configured engine capabilities. Worke
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -801,7 +801,7 @@ Mobile execution depends on the configured mobile engine, Appium and device avai
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -820,7 +820,7 @@ Repository agents accept supported source inputs and generate bounded review art
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 05 · Automation delivery. Release: HelloTest Quality Delivery · sample; fix version: demo-quality-1.0.
 - Team: HelloTest Automation. Labels: sample, hellotest-core, automation.
-- Sources: `frontend/src/pages/AutomationPage.tsx`, `backend/api/src/routes/engine.routes.js`, `backend/api/src/routes/localAgent.routes.js`, `backend/api/src/routes/repositoryAgents.routes.js`.
+- Sources: `services/automation/frontend/pages/AutomationPage.tsx`, `services/automation/backend/routes/engine.routes.js`, `services/automation/backend/routes/localAgent.routes.js`, `services/agentic/backend/routes/repositoryAgents.routes.js`.
 
 Acceptance criteria:
 
@@ -841,7 +841,7 @@ Knowledge supports selected project records, supplied text, supported files and 
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -860,7 +860,7 @@ Retrieval uses available lexical and semantic indexing, source versions and acce
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -879,7 +879,7 @@ The assistant combines permitted live project facts with relevant knowledge and 
 - Status: ready; priority: P2; effort: 8 story points.
 - Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -898,7 +898,7 @@ Workflow definitions contain triggers, agent steps, context scopes, edges and ou
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -917,7 +917,7 @@ Workflow history retains attempts, step outcomes and generated review artifacts.
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -936,7 +936,7 @@ Prompt templates retain scope, tags and applicable entities. Provider mappings s
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence.
-- Sources: `frontend/src/pages/KnowledgeRepoPage.tsx`, `frontend/src/pages/AgenticWorkflowsPage.tsx`, `backend/api/src/services/knowledgeProductCatalog.service.js`, `backend/api/src/routes/aiPromptTemplates.routes.js`.
+- Sources: `services/knowledge/frontend/pages/KnowledgeRepoPage.tsx`, `services/agentic/frontend/pages/AgenticWorkflowsPage.tsx`, `services/knowledge/backend/services/knowledgeProductCatalog.service.js`, `services/integration/backend/routes/aiPromptTemplates.routes.js`.
 
 Acceptance criteria:
 
@@ -957,7 +957,7 @@ Quality analytics aggregates authorized project records. Unique traceability, fi
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -976,7 +976,7 @@ Custom dashboards preserve layouts, widget configuration and supported data sour
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -995,7 +995,7 @@ Readiness relates release scope to linked cases, execution results and unresolve
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1014,7 +1014,7 @@ Product metrics use the same status normalization, unique story scope and tracea
 - Status: ready; priority: P1; effort: 8 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1033,7 +1033,7 @@ TestOps exposes permitted background transactions, progress, events and artifact
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1052,7 +1052,7 @@ Operational pages expose configured telemetry and trace information. Missing col
 - Status: draft; priority: P2; effort: 5 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1071,7 +1071,7 @@ Notifications provide user-scoped activity with read state and destination links
 - Status: ready; priority: P2; effort: 3 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1090,7 +1090,7 @@ Instance setup offers module previews and explicit dependency selection. Project
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`, `frontend/src/admin/SampleDataSetup.tsx`, `backend/api/src/services/sampleData/index.js`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`, `services/platform/frontend/admin/SampleDataSetup.tsx`, `services/platform/backend/services/sampleData/index.js`.
 
 Acceptance criteria:
 
@@ -1109,7 +1109,7 @@ Feature flags and domain metadata shape available actions and permitted choices.
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`, `backend/api/src/services/featureFlag.service.js`, `backend/api/src/routes/domainMetadata.routes.js`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`, `services/platform/backend/services/featureFlag.service.js`, `services/platform/backend/routes/domainMetadata.routes.js`.
 
 Acceptance criteria:
 
@@ -1128,7 +1128,7 @@ Integration setup supports configured providers and connection checks. API keys 
 - Status: ready; priority: P1; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1147,7 +1147,7 @@ The admin portal governs administrator access, setup, feature availability and a
 - Status: ready; priority: P2; effort: 5 story points.
 - Sprint: HT 07 · Quality and operations. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`.
 
 Acceptance criteria:
 
@@ -1166,7 +1166,7 @@ The Support page provides the available help surface. Guidance should identify t
 - Status: draft; priority: P2; effort: 3 story points.
 - Sprint: Backlog (not scheduled). Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
 - Team: HelloTest Platform. Labels: sample, hellotest-core, operations.
-- Sources: `frontend/src/pages/OverviewPage.tsx`, `frontend/src/pages/TestOpsPage.tsx`, `frontend/src/admin/AdminApp.tsx`, `frontend/src/pages/AdminSpacePage.tsx`, `frontend/src/pages/SupportPage.tsx`.
+- Sources: `services/dashboard/frontend/pages/OverviewPage.tsx`, `services/platform/frontend/src/platform/pages/TestOpsPage.tsx`, `services/platform/frontend/admin/AdminApp.tsx`, `services/platform/frontend/pages/AdminSpacePage.tsx`, `services/platform/frontend/src/platform/pages/SupportPage.tsx`.
 
 Acceptance criteria:
 

@@ -31,13 +31,13 @@ Frontend browser regression tests use intercepted API responses and disposable f
 
 Relevant tests:
 
-- `backend/api/test/integration/projectDeletion.postgres.test.js`
-- `backend/api/test/integration/projectDeletionLarge.postgres.test.js`
-- `backend/api/test/integration/projectDeletionQueue.postgres.test.js`
-- `backend/api/test/projectDeletionAccess.test.js`
-- `backend/api/test/projectDeletionCleanup.test.js`
-- `backend/api/test/projectDeletionIndexes.test.js`
-- `frontend/test/browser/projectDeletion.test.mjs`
+- `services/platform/backend/test/integration/projectDeletion.postgres.test.js`
+- `services/platform/backend/test/integration/projectDeletionLarge.postgres.test.js`
+- `services/platform/backend/test/integration/projectDeletionQueue.postgres.test.js`
+- `services/platform/test/backend/projectDeletionAccess.test.js`
+- `services/knowledge/test/backend/projectDeletionCleanup.test.js`
+- `services/platform/test/backend/projectDeletionIndexes.test.js`
+- `services/platform/test/browser/projectDeletion.test.mjs`
 
 The PostgreSQL tests require their explicit opt-in variables and enforce disposable database names. Test databases are removed after verification. The two user projects were only inspected read-only.
 

@@ -1,0 +1,49 @@
+{
+  "name": "@hellotest/chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest chatbot capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/GroundedAssistant": "./frontend/components/GroundedAssistant.tsx",
+    "./frontend/components/KnowledgeFormattedText": "./frontend/components/KnowledgeFormattedText.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/knowledgeAnswer": "./frontend/lib/knowledgeAnswer.ts",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs chatbot",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs chatbot",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "chatbot",
+    "requires": [
+      "knowledge",
+      "integration"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.ai.chatbot"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

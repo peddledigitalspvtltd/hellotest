@@ -6,8 +6,7 @@ services:
       - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - hellotest-local-postgres-data:/var/lib/postgresql/data
-      - ../backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ../backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ../services/platform/backend/instance-setup-data/schema-setup/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./db/03-local-integrations.sql:/docker-entrypoint-initdb.d/03-local-integrations.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hellotest}
@@ -84,26 +83,37 @@ services:
   jaeger:
     image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
     container_name: hellotest-local-jaeger
+    profiles: [legacy-tracing]
+    mem_limit: 256m
+    cpus: 0.5
+    command: ["--config=/etc/jaeger/config.yaml"]
+    volumes:
+      - ../ops/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
     ports:
       - "${JAEGER_BIND:-127.0.0.1}:16686:16686"
       - "${JAEGER_OTLP_BIND:-127.0.0.1}:4318:4318"
 
   api:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/platform/backend/Dockerfile
     container_name: hellotest-local-api
     ports:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     environment:
       APP_MODE: ${APP_MODE:-local}
       API_STARTUP_TIMEOUT_MS: ${API_STARTUP_TIMEOUT_MS:-180000}
+      HELLOTEST_INSTANCE_SETUP_MODULES: ${HELLOTEST_INSTANCE_SETUP_MODULES:-}
+      HELLOTEST_ENABLED_CAPABILITIES: ${HELLOTEST_ENABLED_CAPABILITIES:-all}
       DATABASE_URL: ${DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       OBS_DATABASE_URL: ${OBS_DATABASE_URL:-postgresql://hellotest:hellotest@postgres:5432/hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://hellotest-ops-otel-collector:4318}
       OTEL_SERVICE_NAME: "hellotest-api"
       ENABLE_OBSERVABILITY: ${ENABLE_OBSERVABILITY:-true}
+      OPS_MONITORING_ENABLED: ${OPS_MONITORING_ENABLED:-true}
+      OPS_GRAFANA_USER: ${OPS_GRAFANA_USER:-admin}
+      OPS_GRAFANA_PASSWORD: ${OPS_GRAFANA_PASSWORD:-}
       SESSION_SECRET: ${SESSION_SECRET:-hellotest-local-dev-secret}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
@@ -152,8 +162,8 @@ services:
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/platform/frontend/Dockerfile
     container_name: hellotest-local-frontend
     ports:
       - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"

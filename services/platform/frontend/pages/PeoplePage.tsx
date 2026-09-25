@@ -1,0 +1,1495 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
+import { AddIcon, CollapseExpandIcon, ExportIcon, SelectionToggleIcon, TrashIcon } from "../src/platform/components/AppIcons";
+import { platformApi } from "../api.client";
+import { asArray } from "../src/shared/lib/collectionGuards";
+import { CatalogSearchFilter } from "../src/shared/components/CatalogSearchFilter";
+import { CatalogSelectionControls } from "../src/shared/components/CatalogSelectionControls";
+import { CatalogViewToggle } from "../src/shared/components/CatalogViewToggle";
+import { DataTable, type DataTableColumn } from "../src/shared/components/DataTable";
+import { DialogCloseButton } from "../src/shared/components/DialogCloseButton";
+import { FormField } from "../src/shared/components/FormField";
+import { InfoTooltip } from "../src/shared/components/InfoTooltip";
+import { PageHeader } from "../src/shared/components/PageHeader";
+import { Panel } from "../src/shared/components/Panel";
+import { SubnavTabs } from "../src/shared/components/SubnavTabs";
+import { TileCardSkeletonGrid } from "../src/shared/components/TileCardSkeletonGrid";
+import { TileCardFact, TileCardIconFrame, TileCardStatusIndicator, TileCardUsersIcon } from "../src/shared/components/TileCardPrimitives";
+import { ToastMessage } from "../src/shared/components/ToastMessage";
+import { WorkspaceBackButton, WorkspaceMasterDetail } from "../src/platform/components/WorkspaceMasterDetail";
+import { useDeleteConfirmation } from "../src/shared/components/DeleteConfirmationDialog";
+import { useAuth } from "../src/auth/AuthContext";
+import { useDialogFocus } from "../src/shared/hooks/useDialogFocus";
+import { useWorkspaceData } from "../src/platform/hooks/useWorkspaceData";
+import { hasPermission } from "../src/platform/lib/permissions";
+import { resolveVisibleEmail } from "../src/platform/lib/userDisplay";
+import { readDefaultCatalogViewMode } from "../src/shared/lib/viewPreferences";
+import type { Permission, PermissionGroup, Role, User } from "../src/types";
+
+type PeopleView = "users" | "roles";
+type FeedbackTone = "success" | "error";
+
+type UserDraft = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role_id: string;
+};
+
+const createEmptyUserDraft = (roleId = ""): UserDraft => ({
+  name: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+  role_id: roleId
+});
+const EMPTY_ROLE_DRAFT = { name: "" };
+const displayUserRoleName = (user: User) => user.role_name || (user.role === "admin" ? "Administrator" : "Member");
+const formatPermissionLabel = (code: string) =>
+  code
+    .split(".")
+    .map((part) => part.replace(/_/g, " "))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" / ");
+
+const formatPermissionAvailability = (permission: Permission) => {
+  const enabled = (permission.features || []).filter((feature) => feature.enabled !== false);
+  const disabled = (permission.features || []).filter((feature) => feature.enabled === false);
+  return [
+    enabled.length ? `Available in: ${enabled.map((feature) => feature.label).join(", ")}` : "",
+    disabled.length ? `Unavailable while disabled: ${disabled.map((feature) => feature.label).join(", ")}. Saved grants take effect when enabled.` : ""
+  ].filter(Boolean).join(" · ");
+};
+
+export function PeoplePage({
+  forcedView,
+  embedded = false
+}: {
+  forcedView?: PeopleView;
+  embedded?: boolean;
+} = {}) {
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { session } = useAuth();
+  const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
+  const { users, roles } = useWorkspaceData({
+    projects: false,
+    projectMembers: false,
+    appTypes: false,
+    requirements: false,
+    issues: false,
+    testSuites: false,
+    testCases: false,
+    executions: false,
+    executionResults: false
+  });
+  const permissions = useQuery({
+    queryKey: ["permissions"],
+    queryFn: platformApi.roles.permissions,
+    enabled: Boolean(session)
+  });
+  const [feedback, setFeedback] = useState<{ message: string; tone: FeedbackTone } | null>(null);
+  const [view, setView] = useState<PeopleView>(forcedView || (searchParams.get("view") === "roles" ? "roles" : "users"));
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedRoleId, setSelectedRoleId] = useState("");
+  const [userDraft, setUserDraft] = useState<UserDraft>(() => createEmptyUserDraft());
+  const [createUserDraft, setCreateUserDraft] = useState<UserDraft>(() => createEmptyUserDraft());
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [roleDraft, setRoleDraft] = useState(EMPTY_ROLE_DRAFT);
+  const [rolePermissionDraft, setRolePermissionDraft] = useState<string[]>([]);
+  const [createRolePermissionDraft, setCreateRolePermissionDraft] = useState<string[]>([]);
+  const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
+  const [isCreateRolePermissionExpanded, setIsCreateRolePermissionExpanded] = useState(false);
+  const [activeCreateRolePermissionGroup, setActiveCreateRolePermissionGroup] = useState("");
+  const [activeEditRolePermissionGroup, setActiveEditRolePermissionGroup] = useState("");
+  const [userCatalogViewMode, setUserCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [roleCatalogViewMode, setRoleCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
+  const [selectedActionRoleIds, setSelectedActionRoleIds] = useState<string[]>([]);
+  const [isExportingRoles, setIsExportingRoles] = useState(false);
+  const [userSearch, setUserSearch] = useState("");
+  const [roleSearch, setRoleSearch] = useState("");
+  const [createRoleDraft, setCreateRoleDraft] = useState(EMPTY_ROLE_DRAFT);
+  const selectedRolePermissions = useQuery({
+    queryKey: ["roles", selectedRoleId, "permissions"],
+    queryFn: () => platformApi.roles.rolePermissions(selectedRoleId),
+    enabled: Boolean(session && selectedRoleId)
+  });
+
+  const userItems = asArray(users.data);
+  const roleItems = asArray(roles.data);
+  const isUserCatalogLoading = users.isPending;
+  const isRoleCatalogLoading = roles.isPending || users.isPending;
+  const selectedUser = useMemo(
+    () => userItems.find((item) => item.id === selectedUserId) || null,
+    [selectedUserId, userItems]
+  );
+  const selectedRole = useMemo(
+    () => roleItems.find((item) => item.id === selectedRoleId) || null,
+    [selectedRoleId, roleItems]
+  );
+  const isAdmin = session?.user.role === "admin";
+  const canManageUsers = hasPermission(session, "user.manage");
+  const canManageRoles = hasPermission(session, "role.manage");
+  const canViewUsers = hasPermission(session, "user.view");
+  const visibleUserEmail = (email?: string | null) => resolveVisibleEmail(email, canViewUsers);
+  const defaultMemberRoleId = useMemo(
+    () => roleItems.find((role) => role.name.toLowerCase() === "member")?.id || roleItems[0]?.id || "",
+    [roleItems]
+  );
+  const permissionGroups = asArray(permissions.data);
+  const allPermissionCodes = useMemo(
+    () => permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)),
+    [permissionGroups]
+  );
+  const memberDefaultPermissionCodes = useMemo(
+    () => allPermissionCodes.filter((code) => ![
+      "project.delete",
+      "settings.manage",
+      "workspace_preferences.manage",
+      "api_key.manage",
+      "localization.manage",
+      "prompt_template.manage",
+      "feature_flag.manage",
+      "user.manage",
+      "user.import",
+      "role.manage",
+      "project_member.manage",
+      "requirement.delete",
+      "testcase.delete",
+      "suite.delete",
+      "run.delete",
+      "schedule.delete",
+      "integration.manage",
+      "integration.import_export",
+      "transaction.manage",
+      "ops.manage"
+    ].includes(code)),
+    [allPermissionCodes]
+  );
+  const userCountByRoleName = useMemo(
+    () =>
+      userItems.reduce<Record<string, number>>((counts, user) => {
+        const roleName = displayUserRoleName(user);
+        counts[roleName] = (counts[roleName] || 0) + 1;
+        return counts;
+      }, {}),
+    [userItems]
+  );
+  const filteredUserItems = useMemo(() => {
+    const normalizedSearch = userSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return userItems;
+    }
+
+    return userItems.filter((user) =>
+      [user.id, user.name, visibleUserEmail(user.email), user.role_name, user.role_id, user.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [userItems, userSearch, visibleUserEmail]);
+  const filteredRoleItems = useMemo(() => {
+    const normalizedSearch = roleSearch.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return roleItems;
+    }
+
+    return roleItems.filter((role) =>
+      [role.id, role.name, `${userCountByRoleName[role.name] || 0} assigned`]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch)
+    );
+  }, [roleItems, roleSearch, userCountByRoleName]);
+  const visibleRoleIds = useMemo(() => filteredRoleItems.map((role) => role.id), [filteredRoleItems]);
+  const areAllFilteredRolesSelected = visibleRoleIds.length > 0 && visibleRoleIds.every((id) => selectedActionRoleIds.includes(id));
+  const userListColumns = useMemo<Array<DataTableColumn<User>>>(() => [
+    {
+      key: "name",
+      label: "User",
+      canToggle: false,
+      width: 260,
+      minWidth: 180,
+      sortValue: (user) => user.name || visibleUserEmail(user.email),
+      render: (user) => (
+        <div className="data-table-multiline">
+          <strong>{user.name || "Unnamed user"}</strong>
+          <span className="data-table-multiline-line">{visibleUserEmail(user.email)}</span>
+        </div>
+      )
+    },
+    {
+      key: "role",
+      label: "Role",
+      width: 140,
+      minWidth: 110,
+      sortValue: displayUserRoleName,
+      render: displayUserRoleName
+    },
+    {
+      key: "email",
+      label: "Email",
+      defaultVisible: false,
+      width: 260,
+      minWidth: 160,
+      render: (user) => visibleUserEmail(user.email)
+    }
+  ], [visibleUserEmail]);
+  const roleListColumns = useMemo<Array<DataTableColumn<Role>>>(() => [
+    {
+      key: "role",
+      label: "Role",
+      canToggle: false,
+      width: 240,
+      minWidth: 160,
+      sortValue: (role) => role.name,
+      render: (role) => <strong>{role.name}</strong>
+    },
+    {
+      key: "assigned",
+      label: "Assigned users",
+      width: 150,
+      minWidth: 120,
+      sortValue: (role) => userCountByRoleName[role.name] || 0,
+      render: (role) => userCountByRoleName[role.name] || 0
+    }
+  ], [userCountByRoleName]);
+  useEffect(() => {
+    if (!selectedUser) {
+      setUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+      return;
+    }
+
+    setUserDraft({
+      name: selectedUser.name || "",
+      email: selectedUser.email,
+      password: "",
+      confirmPassword: "",
+      role_id: selectedUser.role_id || roleItems.find((role) => role.name === selectedUser.role_name)?.id || defaultMemberRoleId
+    });
+  }, [defaultMemberRoleId, roleItems, selectedUser]);
+  useEffect(() => {
+    if (selectedRole) {
+      setRoleDraft({ name: selectedRole.name });
+      return;
+    }
+
+    setRoleDraft(EMPTY_ROLE_DRAFT);
+  }, [selectedRole]);
+
+  useEffect(() => {
+    setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code));
+  }, [selectedRolePermissions.data]);
+
+  useEffect(() => {
+    setActiveEditRolePermissionGroup("");
+  }, [selectedRoleId]);
+
+  useEffect(() => {
+    if (forcedView) {
+      if (view !== forcedView) {
+        setView(forcedView);
+      }
+      return;
+    }
+
+    const requestedView = searchParams.get("view");
+    if ((requestedView === "users" || requestedView === "roles") && requestedView !== view) {
+      setView(requestedView);
+    }
+  }, [forcedView, searchParams, view]);
+
+  useEffect(() => {
+    if (view !== "users") {
+      return;
+    }
+
+    const requestedUserId = searchParams.get("userId") || "";
+
+    if (!requestedUserId) {
+      if (selectedUserId) {
+        setSelectedUserId("");
+      }
+      return;
+    }
+
+    if (requestedUserId === selectedUserId) {
+      return;
+    }
+
+    if (userItems.some((item) => item.id === requestedUserId)) {
+      setSelectedUserId(requestedUserId);
+    }
+  }, [searchParams, selectedUserId, userItems, view]);
+
+  useEffect(() => {
+    if (view !== "roles") {
+      return;
+    }
+
+    const requestedRoleId = searchParams.get("roleId") || "";
+
+    if (!requestedRoleId) {
+      if (selectedRoleId) {
+        setSelectedRoleId("");
+      }
+      return;
+    }
+
+    if (requestedRoleId === selectedRoleId) {
+      return;
+    }
+
+    if (roleItems.some((item) => item.id === requestedRoleId)) {
+      setSelectedRoleId(requestedRoleId);
+    }
+  }, [roleItems, searchParams, selectedRoleId, view]);
+
+  const invalidate = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["users"] }),
+      queryClient.invalidateQueries({ queryKey: ["roles"] }),
+      queryClient.invalidateQueries({ queryKey: ["permissions"] })
+    ]);
+  };
+
+  const showFeedback = (message: string, tone: FeedbackTone) => {
+    setFeedback({ message, tone });
+  };
+
+  const syncPeopleSearchParams = (nextView: PeopleView, nextUserId?: string | null, nextRoleId?: string | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("view", nextView);
+
+    if (nextView === "users") {
+      if (nextUserId) {
+        nextParams.set("userId", nextUserId);
+      } else {
+        nextParams.delete("userId");
+      }
+      nextParams.delete("roleId");
+    } else {
+      if (nextRoleId) {
+        nextParams.set("roleId", nextRoleId);
+      } else {
+        nextParams.delete("roleId");
+      }
+      nextParams.delete("userId");
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
+
+  const openUserWorkspace = (userId: string) => {
+    setView("users");
+    setSelectedRoleId("");
+    setSelectedUserId(userId);
+    syncPeopleSearchParams("users", userId, null);
+  };
+
+  const openRoleWorkspace = (roleId: string) => {
+    setView("roles");
+    setSelectedUserId("");
+    setSelectedRoleId(roleId);
+    setActiveEditRolePermissionGroup("");
+    syncPeopleSearchParams("roles", null, roleId);
+  };
+
+  const handleViewChange = (nextView: PeopleView) => {
+    setView(nextView);
+
+    if (nextView === "users") {
+      setSelectedRoleId("");
+      syncPeopleSearchParams("users", selectedUserId || null, null);
+      return;
+    }
+
+    setSelectedUserId("");
+    syncPeopleSearchParams("roles", null, selectedRoleId || null);
+  };
+
+  const openCreateUserModal = () => {
+    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+    setIsCreateUserModalOpen(true);
+  };
+
+  const closeCreateUserModal = () => {
+    if (createUser.isPending) return;
+    setIsCreateUserModalOpen(false);
+    setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+  };
+
+  const createUser = useMutation({
+    mutationFn: platformApi.users.create,
+    onSuccess: async (response) => {
+      showFeedback("User created and ready to sign in.", "success");
+      setIsCreateUserModalOpen(false);
+      setCreateUserDraft(createEmptyUserDraft(defaultMemberRoleId));
+      await invalidate();
+      openUserWorkspace(response.id);
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to create user", "error")
+  });
+
+  const updateUser = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof platformApi.users.update>[1] }) => platformApi.users.update(id, input),
+    onSuccess: async () => {
+      showFeedback("User updated.", "success");
+      setUserDraft((current) => ({ ...current, password: "", confirmPassword: "" }));
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update user", "error")
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: platformApi.users.delete,
+    onSuccess: async () => {
+      showFeedback("User removed.", "success");
+      closeUserWorkspace();
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete user", "error")
+  });
+
+  const validatePasswordPair = (draft: Pick<UserDraft, "password" | "confirmPassword">, required: boolean) => {
+    if (required && draft.password.length < 6) return "Password must be at least 6 characters.";
+    if (!required && draft.password && draft.password.length < 6) return "New password must be at least 6 characters.";
+    if (draft.password !== draft.confirmPassword) return "Passwords do not match.";
+    return "";
+  };
+
+  const handleUserCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const passwordError = validatePasswordPair(createUserDraft, true);
+    if (passwordError) {
+      showFeedback(passwordError, "error");
+      return;
+    }
+    createUser.mutate({
+      name: createUserDraft.name.trim() || undefined,
+      email: createUserDraft.email.trim(),
+      password: createUserDraft.password,
+      role_id: createUserDraft.role_id || defaultMemberRoleId
+    });
+  };
+
+  const handleUserUpdate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedUser) return;
+    const passwordError = validatePasswordPair(userDraft, false);
+    if (passwordError) {
+      showFeedback(passwordError, "error");
+      return;
+    }
+    updateUser.mutate({
+      id: selectedUser.id,
+      input: {
+        name: userDraft.name.trim(),
+        email: userDraft.email.trim(),
+        role_id: userDraft.role_id,
+        ...(userDraft.password ? { password: userDraft.password } : {})
+      }
+    });
+  };
+
+  const openCreateRoleModal = () => {
+    setCreateRoleDraft(EMPTY_ROLE_DRAFT);
+    setCreateRolePermissionDraft(memberDefaultPermissionCodes);
+    setIsCreateRolePermissionExpanded(false);
+    setActiveCreateRolePermissionGroup("");
+    setIsCreateRoleModalOpen(true);
+  };
+
+  const closeCreateRoleModal = () => {
+    if (createRole.isPending) {
+      return;
+    }
+
+    setIsCreateRoleModalOpen(false);
+    setIsCreateRolePermissionExpanded(false);
+    setActiveCreateRolePermissionGroup("");
+    setCreateRoleDraft(EMPTY_ROLE_DRAFT);
+    setCreateRolePermissionDraft(memberDefaultPermissionCodes);
+  };
+  const createRole = useMutation({
+    mutationFn: platformApi.roles.create,
+    onSuccess: async (response) => {
+      showFeedback("Role created.", "success");
+      openRoleWorkspace(response.id);
+      setIsCreateRoleModalOpen(false);
+      setIsCreateRolePermissionExpanded(false);
+      setActiveCreateRolePermissionGroup("");
+      setCreateRoleDraft(EMPTY_ROLE_DRAFT);
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to create role", "error")
+  });
+  const createRoleDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isCreateRoleModalOpen,
+    closeDisabled: createRole.isPending,
+    onClose: closeCreateRoleModal
+  });
+  const createUserDialogRef = useDialogFocus<HTMLDivElement>({
+    active: isCreateUserModalOpen,
+    closeDisabled: createUser.isPending,
+    onClose: closeCreateUserModal
+  });
+
+  const updateRole = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: { name: string; permission_codes?: string[] } }) => platformApi.roles.update(id, input),
+    onSuccess: async () => {
+      showFeedback("Role updated.", "success");
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update role", "error")
+  });
+
+  const deleteRole = useMutation({
+    mutationFn: platformApi.roles.delete,
+    onSuccess: async () => {
+      showFeedback("Role removed.", "success");
+      setSelectedRoleId("");
+      syncPeopleSearchParams("roles", null, null);
+      await invalidate();
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to delete role", "error")
+  });
+
+  const replaceRolePermissions = useMutation({
+    mutationFn: ({ id, permissionCodes }: { id: string; permissionCodes: string[] }) =>
+      platformApi.roles.replacePermissions(id, permissionCodes),
+    onSuccess: async () => {
+      showFeedback("Role permissions updated.", "success");
+      await queryClient.invalidateQueries({ queryKey: ["roles", selectedRoleId, "permissions"] });
+    },
+    onError: (error) => showFeedback(error instanceof Error ? error.message : "Unable to update role permissions", "error")
+  });
+
+  const handleRoleCreate = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    createRole.mutate({ name: createRoleDraft.name, permission_codes: createRolePermissionDraft });
+  };
+
+  const togglePermission = (code: string, target: "create" | "edit") => {
+    const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+    setter((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code].sort());
+  };
+
+  const setPermissionGroup = (group: PermissionGroup, checked: boolean, target: "create" | "edit") => {
+    const groupCodes = group.permissions.map((permission) => permission.code);
+    const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+
+    setter((current) => {
+      const next = new Set(current);
+      for (const code of groupCodes) {
+        if (checked) {
+          next.add(code);
+        } else {
+          next.delete(code);
+        }
+      }
+      return [...next].sort();
+    });
+  };
+
+  const renderPermissionMatrix = (selectedCodes: string[], target: "create" | "edit") => {
+    const matrixPermissionGroups = permissionGroups;
+    const selectedSet = new Set(selectedCodes);
+    const selectedPermissions = matrixPermissionGroups.flatMap((group) =>
+      group.permissions
+        .filter((permission) => selectedSet.has(permission.code))
+        .map((permission) => ({ ...permission, groupLabel: group.label }))
+    );
+    const availablePermissions = matrixPermissionGroups.flatMap((group) =>
+      group.permissions
+        .filter((permission) => !selectedSet.has(permission.code))
+        .map((permission) => ({ ...permission, groupLabel: group.label }))
+    );
+
+    const setAllPermissions = (checked: boolean) => {
+      const setter = target === "create" ? setCreateRolePermissionDraft : setRolePermissionDraft;
+      const assignableCodes = matrixPermissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code));
+      setter(checked ? assignableCodes : []);
+    };
+
+    const totalPermissionCount = matrixPermissionGroups.reduce((total, group) => total + group.permissions.length, 0);
+    const selectedPercent = totalPermissionCount ? Math.round((selectedPermissions.length / totalPermissionCount) * 100) : 0;
+    const activeGroupKey = target === "create"
+      ? activeCreateRolePermissionGroup
+      : activeEditRolePermissionGroup;
+    const setActiveGroupKey = target === "create" ? setActiveCreateRolePermissionGroup : setActiveEditRolePermissionGroup;
+
+    return (
+      <div className="permission-designer">
+        <div className={target === "create" ? "permission-designer-summary permission-designer-summary--create-role" : "permission-designer-summary"}>
+          {target === "create" ? (
+            <div className="permission-create-role-inline">
+              <FormField label="Role name" required>
+                <input
+                  autoFocus
+                  name="name"
+                  placeholder="qa-manager"
+                  required
+                  value={createRoleDraft.name}
+                  onChange={(event) => setCreateRoleDraft({ name: event.target.value })}
+                />
+              </FormField>
+              <div className="detail-summary permission-create-role-default-copy">
+                <strong>Default permissions</strong>
+                <span>Member-safe permissions are selected by default. Adjust the list below before creating the role.</span>
+              </div>
+            </div>
+          ) : null}
+          <div className="permission-designer-counts">
+            <strong>{selectedPermissions.length} selected</strong>
+            <span>{availablePermissions.length} available to add</span>
+          </div>
+          <div className="permission-designer-actions">
+            <button className="ghost-button compact-button" onClick={() => setAllPermissions(true)} type="button">
+              <SelectionToggleIcon checked />
+              Select all
+            </button>
+            <button className="ghost-button compact-button danger" onClick={() => setAllPermissions(false)} type="button">
+              <SelectionToggleIcon checked={false} />
+              Clear
+            </button>
+          </div>
+        </div>
+        <div className="permission-designer-progress">
+          <strong>{selectedPermissions.length} of {totalPermissionCount} permissions selected</strong>
+          <span aria-hidden="true"><i style={{ width: `${selectedPercent}%` }} /></span>
+        </div>
+
+        <div className="permission-group-strip permission-group-strip--accordion">
+          {matrixPermissionGroups.map((group) => {
+            const groupCodes = group.permissions.map((permission) => permission.code);
+            const selectedCount = groupCodes.filter((code) => selectedCodes.includes(code)).length;
+            const isAllSelected = selectedCount === groupCodes.length && groupCodes.length > 0;
+            const isExpanded = group.key === activeGroupKey;
+
+            return (
+              <section className={isExpanded ? "permission-group-card is-expanded" : "permission-group-card is-collapsed"} key={group.key}>
+                <div className="permission-group-head">
+                  <button
+                    aria-expanded={isExpanded}
+                    className="permission-group-expand-button"
+                    onClick={() => setActiveGroupKey((current) => current === group.key ? "" : group.key)}
+                    type="button"
+                  >
+                    <span aria-hidden="true" className="permission-group-chevron"><CollapseExpandIcon isExpanded={isExpanded} /></span>
+                    <span className="permission-group-copy">
+                      <strong>{group.label}</strong>
+                      <span>{selectedCount} of {groupCodes.length} selected</span>
+                    </span>
+                  </button>
+                  <label className="permission-toggle-all">
+                    <input
+                      checked={isAllSelected}
+                      onChange={(event) => setPermissionGroup(group, event.target.checked, target)}
+                      type="checkbox"
+                    />
+                    <span>All</span>
+                  </label>
+                </div>
+                {isExpanded ? (
+                  <div className="permission-option-list">
+                    {group.permissions.map((permission) => (
+                      <label className="permission-option" key={permission.code}>
+                        <input
+                          checked={selectedCodes.includes(permission.code)}
+                          onChange={() => togglePermission(permission.code, target)}
+                          type="checkbox"
+                        />
+                        <span className="permission-option-copy">
+                          <strong className="permission-option-title">{formatPermissionLabel(permission.code)}</strong>
+                          <code className="permission-option-code">{permission.code}</code>
+                          {permission.description ? <small className="permission-option-description">{permission.description}</small> : null}
+                          {permission.features?.length ? (
+                            <small className="permission-option-availability">
+                              {formatPermissionAvailability(permission)}
+                            </small>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const confirmDeleteRole = async (role: Role) => {
+    if (!(await confirmDelete({ message: `Delete role "${role.name}"? Users currently assigned to this role may need reassignment first.` }))) {
+      return;
+    }
+
+    deleteRole.mutate(role.id);
+  };
+
+  const confirmDeleteUser = async (user: User) => {
+    if (user.id === session?.user.id) {
+      showFeedback("You cannot delete your own signed-in account.", "error");
+      return;
+    }
+    if (!(await confirmDelete({ message: `Delete user "${user.name || user.email}"? Their project access and active assignments will be removed.` }))) {
+      return;
+    }
+    deleteUser.mutate(user.id);
+  };
+
+  const closeUserWorkspace = () => {
+    setSelectedUserId("");
+    syncPeopleSearchParams("users", null, null);
+  };
+
+  const closeRoleWorkspace = () => {
+    setSelectedRoleId("");
+    setRoleDraft(EMPTY_ROLE_DRAFT);
+    syncPeopleSearchParams("roles", null, null);
+  };
+  const roleDrawerRef = useDialogFocus<HTMLElement>({
+    active: Boolean(selectedRole),
+    onClose: closeRoleWorkspace
+  });
+
+  const downloadJsonFile = (filename: string, value: unknown) => {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleExportUsers = () => {
+    downloadJsonFile(`hellotest-users-${new Date().toISOString().slice(0, 10)}.json`, {
+      exported_at: new Date().toISOString(),
+      users: userItems.map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        visible_email: visibleUserEmail(user.email),
+        access_level: user.role,
+        role_id: user.role_id,
+        role_name: displayUserRoleName(user)
+      }))
+    });
+  };
+
+  const groupRolePermissionsForExport = (rolePermissions: Permission[]) => {
+    const permissionByCode = new Map(rolePermissions.map((permission) => [permission.code, permission]));
+    const groupedCodes = new Set<string>();
+    const groupedPermissions = permissionGroups
+      .map((group) => {
+        const permissionsForGroup = group.permissions
+          .filter((permission) => permissionByCode.has(permission.code))
+          .map((permission) => {
+            groupedCodes.add(permission.code);
+            return {
+              code: permission.code,
+              description: permission.description
+            };
+          });
+
+        return {
+          key: group.key,
+          label: group.label,
+          permissions: permissionsForGroup
+        };
+      })
+      .filter((group) => group.permissions.length > 0);
+
+    const ungroupedPermissions = rolePermissions
+      .filter((permission) => !groupedCodes.has(permission.code))
+      .map((permission) => ({
+        code: permission.code,
+        description: permission.description
+      }));
+
+    if (ungroupedPermissions.length) {
+      groupedPermissions.push({
+        key: "ungrouped",
+        label: "Ungrouped permissions",
+        permissions: ungroupedPermissions
+      });
+    }
+
+    return groupedPermissions;
+  };
+
+  const handleExportRoles = async () => {
+    if (isExportingRoles) {
+      return;
+    }
+
+    setIsExportingRoles(true);
+
+    try {
+      const rolesWithPermissions = await Promise.all(roleItems.map(async (role) => {
+        const rolePermissions = await platformApi.roles.rolePermissions(role.id);
+        const permissionCodes = rolePermissions.map((permission) => permission.code).sort();
+
+        return {
+          id: role.id,
+          name: role.name,
+          assigned_users: userCountByRoleName[role.name] || 0,
+          permission_codes: permissionCodes,
+          permission_groups: groupRolePermissionsForExport(rolePermissions)
+        };
+      }));
+
+      downloadJsonFile(`hellotest-roles-${new Date().toISOString().slice(0, 10)}.json`, {
+        exported_at: new Date().toISOString(),
+        permission_catalog: permissionGroups.map((group) => ({
+          key: group.key,
+          label: group.label,
+          permission_codes: group.permissions.map((permission) => permission.code)
+        })),
+        roles: rolesWithPermissions
+      });
+      showFeedback(`${rolesWithPermissions.length} role${rolesWithPermissions.length === 1 ? "" : "s"} exported with permissions.`, "success");
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Unable to export roles", "error");
+    } finally {
+      setIsExportingRoles(false);
+    }
+  };
+
+  const handleDeleteSelectedRoles = async () => {
+    const selectedIds = selectedActionRoleIds.filter((id) => roleItems.some((role) => role.id === id));
+
+    if (!selectedIds.length || !(await confirmDelete({ message: `Delete ${selectedIds.length} selected role${selectedIds.length === 1 ? "" : "s"}? Assigned users may need reassignment.` }))) {
+      return;
+    }
+
+    try {
+      await Promise.all(selectedIds.map((id) => platformApi.roles.delete(id)));
+      setSelectedActionRoleIds([]);
+      if (selectedIds.includes(selectedRoleId)) {
+        setSelectedRoleId("");
+        syncPeopleSearchParams("roles", null, null);
+      }
+      showFeedback(`${selectedIds.length} role${selectedIds.length === 1 ? "" : "s"} removed.`, "success");
+      await invalidate();
+    } catch (error) {
+      showFeedback(error instanceof Error ? error.message : "Unable to delete selected roles", "error");
+    }
+  };
+
+  const accessActions = view === "users" ? (
+    <>
+      <button className="ghost-button" disabled={!userItems.length} onClick={handleExportUsers} type="button"><ExportIcon />Export user directory</button>
+      {canManageUsers ? <button className="primary-button" onClick={openCreateUserModal} type="button"><AddIcon />Create user</button> : null}
+    </>
+  ) : canManageRoles ? (
+      <>
+        <button className="ghost-button" disabled={!roleItems.length || isExportingRoles} onClick={() => void handleExportRoles()} type="button">
+          <ExportIcon />{isExportingRoles ? "Exporting roles..." : "Export roles"}
+        </button>
+        <button className="primary-button" onClick={openCreateRoleModal} type="button"><AddIcon />Create role</button>
+      </>
+  ) : null;
+
+  return (
+    <div className={embedded ? "admin-embedded-page people-access-page" : "page-content people-access-page"}>
+      {confirmationDialog}
+      {!embedded ? (
+        <PageHeader
+          eyebrow="People & Access"
+          title={forcedView === "roles" ? "Roles" : forcedView === "users" ? "Users" : "User Management"}
+          description={forcedView === "roles" ? "Review role definitions, selected permissions, and reusable access labels." : "Review the active HelloTest directory and the workspace role assigned to each account."}
+          meta={[
+            { label: "Users", value: userItems.length },
+            { label: "Roles", value: roleItems.length },
+            { label: "Your access", value: canManageRoles ? "Role manager" : isAdmin ? "Admin" : "Member" }
+          ]}
+        />
+      ) : null}
+
+      {feedback ? (
+        <ToastMessage message={feedback.message} onDismiss={() => setFeedback(null)} tone={feedback.tone} />
+      ) : null}
+
+      {!forcedView ? (
+        <SubnavTabs
+          value={view}
+          onChange={handleViewChange}
+          items={[
+            { value: "users", label: "Users", meta: `${userItems.length} records` },
+            { value: "roles", label: "Roles", meta: `${roleItems.length} records` }
+          ]}
+        />
+      ) : null}
+
+      {view === "users" ? (
+        <WorkspaceMasterDetail
+          className="people-roles-workspace"
+          browseView={(
+            <Panel
+              title="Users"
+              titleVariant="eyebrow"
+              subtitle="HelloTest provides the workspace identity directory and applies project-scoped roles and permissions."
+            >
+              <div className="design-list-toolbar catalog-command-toolbar people-catalog-toolbar">
+                <div className="catalog-toolbar-discovery" aria-label="User views and search">
+                  <CatalogViewToggle onChange={setUserCatalogViewMode} value={userCatalogViewMode} />
+                  <CatalogSearchFilter
+                    activeFilterCount={userSearch.trim() ? 1 : 0}
+                    ariaLabel="Search users"
+                    onChange={setUserSearch}
+                    placeholder="Search users"
+                    subtitle="Search by name, email, or role."
+                    title="User search"
+                    type="search"
+                    value={userSearch}
+                  >
+                    <div className="catalog-filter-grid">
+                      <div className="catalog-filter-actions">
+                        <button className="ghost-button" disabled={!userSearch.trim()} onClick={() => setUserSearch("")} type="button">
+                          Clear search
+                        </button>
+                      </div>
+                    </div>
+                  </CatalogSearchFilter>
+                </div>
+                {accessActions ? <div className="catalog-toolbar-actions">{accessActions}</div> : null}
+              </div>
+              {isUserCatalogLoading ? <TileCardSkeletonGrid /> : null}
+              {!isUserCatalogLoading && filteredUserItems.length && userCatalogViewMode === "tile" ? (
+                <div className="tile-browser-grid">
+                  {filteredUserItems.map((user) => (
+                    <button
+                      className={selectedUser?.id === user.id ? "record-card tile-card is-active" : "record-card tile-card"}
+                      key={user.id}
+                      onClick={() => openUserWorkspace(user.id)}
+                      type="button"
+                    >
+                      <div className="tile-card-main">
+                        <div className="tile-card-header">
+                          <TileCardIconFrame tone={user.role === "admin" ? "info" : "success"}>
+                            <TileCardUsersIcon />
+                          </TileCardIconFrame>
+                          <div className="tile-card-title-group">
+                            <strong>{user.name || "Unnamed user"}</strong>
+                            <span className="tile-card-kicker">{visibleUserEmail(user.email)}</span>
+                          </div>
+                          <TileCardStatusIndicator title={`${displayUserRoleName(user)} access`} tone={user.role === "admin" ? "info" : "success"} />
+                        </div>
+                        <p className="tile-card-description">{user.role === "admin" ? "Workspace administration is granted by the HelloTest role catalog." : "HelloTest access is scoped to assigned projects."}</p>
+                        <div className="people-card-footer">
+                          <span className="count-pill">{displayUserRoleName(user)}</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {!isUserCatalogLoading && filteredUserItems.length && userCatalogViewMode === "list" ? (
+                <DataTable
+                  columns={userListColumns}
+                  enableColumnResize
+                  enableHeaderColumnReorder
+                  emptyMessage="No users match the current search."
+                  getRowClassName={(user) => (selectedUser?.id === user.id ? "is-active-row" : "")}
+                  getRowKey={(user) => user.id}
+                  hideToolbarCopy
+                  onRowClick={(user) => openUserWorkspace(user.id)}
+                  rows={filteredUserItems}
+                  storageKey="hellotest:users:list-columns"
+                />
+              ) : null}
+              {!isUserCatalogLoading && !userItems.length ? <div className="empty-state compact">No users found yet.</div> : null}
+              {!isUserCatalogLoading && userItems.length > 0 && !filteredUserItems.length ? <div className="empty-state compact">No users match the current search.</div> : null}
+            </Panel>
+          )}
+          detailView={(
+            <Panel
+              actions={<WorkspaceBackButton label="Back to user tiles" onClick={closeUserWorkspace} />}
+              title="Selected user"
+              subtitle={selectedUser ? "Identity details and project roles are governed by the HelloTest workspace." : "Select a user to review project access."}
+            >
+              {selectedUser ? (
+                <div className="detail-stack">
+                  <div className="detail-summary">
+                    <strong>{selectedUser.name || "Unnamed user"}</strong>
+                    <span>{visibleUserEmail(selectedUser.email)}</span>
+                    <span>{displayUserRoleName(selectedUser)} · {selectedUser.auth_provider === "google" ? "Google Sign-In" : "Password sign-in"}</span>
+                  </div>
+                  {canManageUsers ? (
+                    <form className="form-grid people-user-details-form" onSubmit={handleUserUpdate}>
+                      <div className="record-grid">
+                        <FormField label="Name">
+                          <input
+                            autoComplete="name"
+                            name="name"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="Full name"
+                            value={userDraft.name}
+                          />
+                        </FormField>
+                        <FormField label="Email" required>
+                          <input
+                            autoComplete="email"
+                            name="email"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, email: event.target.value }))}
+                            required
+                            type="email"
+                            value={userDraft.email}
+                          />
+                        </FormField>
+                        <FormField label="Role" required>
+                          <select
+                            name="role_id"
+                            onChange={(event) => setUserDraft((current) => ({ ...current, role_id: event.target.value }))}
+                            required
+                            value={userDraft.role_id}
+                          >
+                            <option value="">Select a role</option>
+                            {roleItems.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                          </select>
+                        </FormField>
+                      </div>
+                      {selectedUser.auth_provider !== "google" ? (
+                        <section className="people-password-section" aria-labelledby="user-password-reset-title">
+                          <div className="detail-summary">
+                            <strong id="user-password-reset-title">Set a new password</strong>
+                            <span>Leave both fields blank to keep the current password.</span>
+                          </div>
+                          <div className="record-grid">
+                            <FormField label="New password">
+                              <input
+                                autoComplete="new-password"
+                                maxLength={128}
+                                minLength={6}
+                                name="password"
+                                onChange={(event) => setUserDraft((current) => ({ ...current, password: event.target.value }))}
+                                placeholder="At least 6 characters"
+                                type="password"
+                                value={userDraft.password}
+                              />
+                            </FormField>
+                            <FormField label="Confirm new password">
+                              <input
+                                autoComplete="new-password"
+                                maxLength={128}
+                                minLength={6}
+                                name="confirm_password"
+                                onChange={(event) => setUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
+                                type="password"
+                                value={userDraft.confirmPassword}
+                              />
+                            </FormField>
+                          </div>
+                        </section>
+                      ) : null}
+                      <div className="action-row">
+                        <button className="primary-button" disabled={updateUser.isPending || !userDraft.email.trim() || !userDraft.role_id} type="submit">
+                          {updateUser.isPending ? "Saving…" : "Save user"}
+                        </button>
+                        <button
+                          className="ghost-button danger"
+                          disabled={deleteUser.isPending || selectedUser.id === session?.user.id}
+                          onClick={() => void confirmDeleteUser(selectedUser)}
+                          type="button"
+                        >
+                          <TrashIcon />{deleteUser.isPending ? "Deleting…" : "Delete user"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="empty-state compact">Read-only access. Ask an administrator to update this account.</div>
+                  )}
+                </div>
+              ) : (
+                <div className="empty-state compact">No user selected.</div>
+              )}
+            </Panel>
+          )}
+          isDetailOpen={Boolean(selectedUser)}
+        />
+      ) : (
+        <>
+          <div aria-hidden={selectedRole ? "true" : undefined} className="people-role-catalog">
+            <Panel
+              title="Roles"
+              titleVariant="eyebrow"
+              subtitle="Keep role definitions scannable, then open one label into a focused editor when needed."
+            >
+              <div className="design-list-toolbar catalog-command-toolbar people-catalog-toolbar">
+                <div className="catalog-toolbar-discovery" aria-label="Role views, search, and selection">
+                  <CatalogViewToggle onChange={setRoleCatalogViewMode} value={roleCatalogViewMode} />
+                  <CatalogSearchFilter
+                    activeFilterCount={roleSearch.trim() ? 1 : 0}
+                    ariaLabel="Search roles"
+                    onChange={setRoleSearch}
+                    placeholder="Search roles"
+                    subtitle="Search by role name or assigned-user count."
+                    title="Role search"
+                    type="search"
+                    value={roleSearch}
+                  >
+                    <div className="catalog-filter-grid">
+                      <div className="catalog-filter-actions">
+                        <button className="ghost-button" disabled={!roleSearch.trim()} onClick={() => setRoleSearch("")} type="button">
+                          Clear search
+                        </button>
+                      </div>
+                    </div>
+                  </CatalogSearchFilter>
+                  <CatalogSelectionControls
+                    allSelected={areAllFilteredRolesSelected}
+                    canSelectAll={Boolean(visibleRoleIds.length)}
+                    onClear={() => setSelectedActionRoleIds([])}
+                    onSelectAll={() => setSelectedActionRoleIds((current) => Array.from(new Set([...current, ...visibleRoleIds])))}
+                    selectedCount={selectedActionRoleIds.length}
+                  />
+                </div>
+                <div className="catalog-toolbar-actions" aria-label="Role actions">
+                  {accessActions}
+                  {canManageRoles ? (<button
+                    className="ghost-button danger catalog-selection-button"
+                    disabled={!canManageRoles || !selectedActionRoleIds.length}
+                    onClick={() => void handleDeleteSelectedRoles()}
+                    type="button"
+                  >
+                    <TrashIcon />
+                    <span>Delete roles</span>
+                  </button>) : null}
+                </div>
+              </div>
+              {isRoleCatalogLoading ? <TileCardSkeletonGrid /> : null}
+              {!isRoleCatalogLoading && filteredRoleItems.length && roleCatalogViewMode === "tile" ? (
+                <div className="tile-browser-grid">
+                  {filteredRoleItems.map((role) => (
+                    <button
+                      key={role.id}
+                      className={selectedRole?.id === role.id ? "record-card tile-card is-active" : "record-card tile-card"}
+                      onClick={() => openRoleWorkspace(role.id)}
+                      type="button"
+                    >
+                      <div className="tile-card-main">
+                        <div className="tile-card-select-row" onClick={(event) => event.stopPropagation()}>
+                          <label className="checkbox-field">
+                            <input
+                              aria-label={`Select ${role.name}`}
+                              checked={selectedActionRoleIds.includes(role.id)}
+                              onChange={() =>
+                                setSelectedActionRoleIds((current) =>
+                                  current.includes(role.id) ? current.filter((id) => id !== role.id) : [...current, role.id]
+                                )
+                              }
+                              type="checkbox"
+                            />
+                            <span className="sr-only">Select role</span>
+                          </label>
+                        </div>
+                        <div className="tile-card-header">
+                          <TileCardIconFrame tone={role.name === "admin" ? "info" : "success"}>
+                            <TileCardUsersIcon />
+                          </TileCardIconFrame>
+                          <div className="tile-card-title-group">
+                            <strong>{role.name}</strong>
+                            <span className="tile-card-kicker">{userCountByRoleName[role.name] || 0} assigned</span>
+                          </div>
+                          <TileCardStatusIndicator title="Reusable role" tone={role.name === "admin" ? "info" : "success"} />
+                        </div>
+                        <p className="tile-card-description">Project membership label used across assignments and access views.</p>
+                        <div className="tile-card-facts" aria-label={`${role.name} facts`}>
+                          <TileCardFact label={String(userCountByRoleName[role.name] || 0)} title={`${userCountByRoleName[role.name] || 0} user${(userCountByRoleName[role.name] || 0) === 1 ? "" : "s"} assigned`} tone={(userCountByRoleName[role.name] || 0) ? "success" : "neutral"}>
+                            <TileCardUsersIcon />
+                          </TileCardFact>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {!isRoleCatalogLoading && filteredRoleItems.length && roleCatalogViewMode === "list" ? (
+                <DataTable
+                  columns={roleListColumns}
+                  enableColumnResize
+                  enableHeaderColumnReorder
+                  emptyMessage="No roles match the current search."
+                  getRowClassName={(role) => (selectedRole?.id === role.id ? "is-active-row" : "")}
+                  getRowKey={(role) => role.id}
+                  hideToolbarCopy
+                  onRowClick={(role) => openRoleWorkspace(role.id)}
+                  rows={filteredRoleItems}
+                  storageKey="hellotest:roles:list-columns"
+                />
+              ) : null}
+              {!isRoleCatalogLoading && !roleItems.length ? <div className="empty-state compact">No roles defined yet.</div> : null}
+              {!isRoleCatalogLoading && roleItems.length > 0 && !filteredRoleItems.length ? <div className="empty-state compact">No roles match the current search.</div> : null}
+            </Panel>
+          </div>
+
+          {selectedRole ? (
+            <div className="people-role-drawer-backdrop" onClick={closeRoleWorkspace} role="presentation">
+              <aside
+                aria-describedby="role-details-description"
+                aria-labelledby="role-details-title"
+                aria-modal="true"
+                className="people-role-drawer"
+                onClick={(event) => event.stopPropagation()}
+                ref={roleDrawerRef}
+                role="dialog"
+                tabIndex={-1}
+              >
+                <header className="people-role-drawer-header">
+                  <div className="people-role-drawer-heading">
+                    <p className="dialog-context-label">Role details</p>
+                    <h2 className="dialog-title" id="role-details-title">{selectedRole.name}</h2>
+                    <p id="role-details-description">Review assignments, rename the role, and tune its project permissions.</p>
+                  </div>
+                  <DialogCloseButton label={`Close ${selectedRole.name} role details`} onClick={closeRoleWorkspace} />
+                </header>
+
+                <div className="people-role-drawer-body">
+                  <div className="people-role-drawer-summary" aria-label="Role summary">
+                    <div>
+                      <span>Assigned users</span>
+                      <strong>{userCountByRoleName[selectedRole.name] || 0}</strong>
+                    </div>
+                    <div>
+                      <span>Permissions</span>
+                      <strong>{selectedRolePermissions.isLoading ? "…" : rolePermissionDraft.length}</strong>
+                    </div>
+                    <div>
+                      <span>Management</span>
+                      <strong>{selectedRole.system ? "System" : canManageRoles ? "Editable" : "Read only"}</strong>
+                    </div>
+                  </div>
+
+                  {canManageRoles ? (
+                    <div className="detail-stack people-role-drawer-content">
+                      <section className="people-role-drawer-section" aria-labelledby="role-identity-title">
+                        <div className="detail-summary">
+                          <strong id="role-identity-title">Role identity</strong>
+                          <span>Use a concise name that is meaningful wherever project access is assigned.</span>
+                        </div>
+                        <form
+                          className="form-grid"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            updateRole.mutate({ id: selectedRole.id, input: { name: roleDraft.name, permission_codes: rolePermissionDraft } });
+                          }}
+                        >
+                          <FormField label="Role name">
+                            <input
+                              name="name"
+                              required
+                              value={roleDraft.name}
+                              onChange={(event) => setRoleDraft({ name: event.target.value })}
+                            />
+                          </FormField>
+                          <div className="action-row">
+                            <button className="primary-button" disabled={updateRole.isPending || roleDraft.name.trim().length < 2} type="submit">
+                              {updateRole.isPending ? "Saving…" : "Save role"}
+                            </button>
+                            <button className="ghost-button danger" disabled={Boolean(selectedRole.system) || deleteRole.isPending || updateRole.isPending} onClick={() => void confirmDeleteRole(selectedRole)} type="button">
+                              Delete role
+                            </button>
+                          </div>
+                        </form>
+                      </section>
+
+                      <section className="people-role-drawer-section people-role-drawer-permissions" aria-labelledby="role-permissions-title">
+                        <div className="role-permission-editor role-permission-editor--edit people-role-existing-permissions">
+                          <div className="detail-summary">
+                            <strong id="role-permissions-title">Permissions</strong>
+                            <span>Bind feature access and CRUD actions to this role. Changes apply anywhere this role is assigned.</span>
+                          </div>
+                          {permissions.isLoading || selectedRolePermissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(rolePermissionDraft, "edit")}
+                          <div className="action-row people-role-drawer-save-row">
+                            <button
+                              className="primary-button"
+                              disabled={replaceRolePermissions.isPending || updateRole.isPending || selectedRolePermissions.isLoading}
+                              onClick={() => replaceRolePermissions.mutate({ id: selectedRole.id, permissionCodes: rolePermissionDraft })}
+                              type="button"
+                            >
+                              {replaceRolePermissions.isPending ? "Saving permissions…" : "Save permissions"}
+                            </button>
+                            <button
+                              className="ghost-button"
+                              disabled={replaceRolePermissions.isPending || selectedRolePermissions.isLoading}
+                              onClick={() => setRolePermissionDraft((selectedRolePermissions.data || []).map((permission) => permission.code))}
+                              type="button"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    </div>
+                  ) : (
+                    <div className="empty-state compact">Read-only access. Ask an admin to change role definitions.</div>
+                  )}
+                </div>
+              </aside>
+            </div>
+          ) : null}
+        </>
+      )}
+
+      {isCreateUserModalOpen ? (
+        <div className="modal-backdrop" onClick={closeCreateUserModal} role="presentation">
+          <div
+            aria-labelledby="create-user-title"
+            aria-modal="true"
+            className="modal-card people-modal-card people-create-user-card"
+            onClick={(event) => event.stopPropagation()}
+            ref={createUserDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <div className="people-modal-header">
+              <div className="people-modal-title">
+                <p className="dialog-context-label">People &amp; access</p>
+                <h2 className="dialog-title" id="create-user-title">Create user</h2>
+                <p>Create a sign-in, choose its workspace role, and set the initial password.</p>
+              </div>
+              <DialogCloseButton disabled={createUser.isPending} label="Close create user dialog" onClick={closeCreateUserModal} />
+            </div>
+            <form className="people-modal-form" onSubmit={handleUserCreate}>
+              <div className="people-modal-body">
+                <div className="record-grid">
+                  <FormField label="Name">
+                    <input
+                      autoComplete="name"
+                      autoFocus
+                      name="name"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Quality lead"
+                      value={createUserDraft.name}
+                    />
+                  </FormField>
+                  <FormField label="Email" required>
+                    <input
+                      autoComplete="email"
+                      name="email"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, email: event.target.value }))}
+                      placeholder="name@company.com"
+                      required
+                      type="email"
+                      value={createUserDraft.email}
+                    />
+                  </FormField>
+                  <FormField label="Role" required>
+                    <select
+                      name="role_id"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, role_id: event.target.value }))}
+                      required
+                      value={createUserDraft.role_id}
+                    >
+                      <option value="">Select a role</option>
+                      {roleItems.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Initial password" required>
+                    <input
+                      autoComplete="new-password"
+                      maxLength={128}
+                      minLength={6}
+                      name="password"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, password: event.target.value }))}
+                      placeholder="At least 6 characters"
+                      required
+                      type="password"
+                      value={createUserDraft.password}
+                    />
+                  </FormField>
+                  <FormField label="Confirm password" required>
+                    <input
+                      autoComplete="new-password"
+                      maxLength={128}
+                      minLength={6}
+                      name="confirm_password"
+                      onChange={(event) => setCreateUserDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
+                      required
+                      type="password"
+                      value={createUserDraft.confirmPassword}
+                    />
+                  </FormField>
+                </div>
+              </div>
+              <div className="action-row people-modal-actions">
+                <button className="ghost-button" disabled={createUser.isPending} onClick={closeCreateUserModal} type="button">Cancel</button>
+                <button
+                  className="primary-button"
+                  disabled={createUser.isPending || !createUserDraft.email.trim() || !createUserDraft.role_id || createUserDraft.password.length < 6 || createUserDraft.password !== createUserDraft.confirmPassword}
+                  type="submit"
+                >
+                  {createUser.isPending ? "Creating…" : "Create user"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {isCreateRoleModalOpen ? (
+        <div className="modal-backdrop" onClick={closeCreateRoleModal} role="presentation">
+          <div
+            aria-labelledby="create-role-title"
+            aria-modal="true"
+            className={`modal-card people-modal-card people-role-modal-card people-role-create-card${isCreateRolePermissionExpanded ? " is-permission-expanded" : ""}`}
+            onClick={(event) => event.stopPropagation()}
+            ref={createRoleDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <div className="people-modal-header">
+              <div className="people-modal-title">
+                <p className="dialog-context-label">People &amp; access</p>
+                <div className="modal-title-info-row">
+                  <h2 className="dialog-title" id="create-role-title">Create role</h2>
+                  <InfoTooltip content="Keep the role library concise and reusable across assignments." label="Create role information" />
+                </div>
+              </div>
+              <DialogCloseButton
+                disabled={createRole.isPending}
+                label="Close create role dialog"
+                onClick={closeCreateRoleModal}
+              />
+            </div>
+
+            <form className="people-modal-form" onSubmit={handleRoleCreate}>
+              <div className="people-modal-body people-role-modal-body people-role-create-body">
+                <section className="people-role-permissions-panel people-role-create-permissions">
+                  <div className="role-permission-editor role-permission-editor--create">
+                    {permissions.isLoading ? <TileCardSkeletonGrid /> : renderPermissionMatrix(createRolePermissionDraft, "create")}
+                  </div>
+                </section>
+              </div>
+
+              <div className="action-row people-modal-actions">
+                <button className="primary-button" disabled={createRole.isPending || createRoleDraft.name.trim().length < 2} type="submit">
+                  {createRole.isPending ? "Creating…" : "Create role"}
+                </button>
+                <button className="ghost-button" disabled={createRole.isPending} onClick={closeCreateRoleModal} type="button">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}

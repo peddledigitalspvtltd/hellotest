@@ -68,8 +68,8 @@ Interface copy is registered in the downloadable localization catalog in English
 Reproduction from the repository root:
 
 ```sh
-node --experimental-strip-types --test frontend/test/releaseReadiness.test.mjs frontend/test/managementCrudContract.test.mjs
-PLAYWRIGHT_MODULE="$PWD/testengine/backend/node_modules/playwright" CHROME_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' VITE_TEST_URL=http://127.0.0.1:5179 node --test frontend/test/browser/releaseReadiness.test.mjs
+node --experimental-strip-types --test services/dashboard/test/frontend/releaseReadiness.test.mjs services/platform/frontend/test/managementCrudContract.test.mjs
+PLAYWRIGHT_MODULE="$PWD/testengine/backend/node_modules/playwright" CHROME_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' VITE_TEST_URL=http://127.0.0.1:5179 node --test services/platform/frontend/test/browser/releaseReadiness.test.mjs
 ```
 
 Runtime captures for empty, restricted, recovery, run and localization views are in `/tmp/qaira-readiness-design`. They are fixture evidence, not production screenshots or field-research observations.

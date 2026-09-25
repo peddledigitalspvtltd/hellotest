@@ -1,0 +1,359 @@
+{
+  "version": 1,
+  "principles": {
+    "route_ownership": "Every API route belongs to exactly one profile.",
+    "source_ownership": "Capability routes, use cases and workers live under services/<profile>/backend; UI and API clients live under services/<profile>/frontend. services/platform/backend and frontend compose shared runtime adapters and UI foundations.",
+    "shared_runtime": "API profiles share the backend package and Platform foundation. Profiles isolate route and worker ownership; separate processes do not imply independent data ownership.",
+    "database": "The current deployment uses shared PostgreSQL. A database split requires an explicit data-ownership and compatibility design; network wrappers alone do not provide isolation."
+  },
+  "services": [
+    {
+      "id": "api-platform",
+      "kind": "api",
+      "profile": "platform",
+      "port": 3010,
+      "source": "services/platform/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/platform/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "identity",
+        "projects",
+        "access-control",
+        "workspace-administration",
+        "instance-setup"
+      ],
+      "requires": []
+    },
+    {
+      "id": "api-testing",
+      "kind": "api",
+      "profile": "testing",
+      "port": 3011,
+      "source": "services/testing/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/testing/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "test-cases",
+        "test-suites",
+        "shared-steps",
+        "environments",
+        "test-data",
+        "configurations",
+        "executions",
+        "bugs"
+      ],
+      "requires": [
+        "platform"
+      ]
+    },
+    {
+      "id": "api-knowledge",
+      "kind": "api",
+      "profile": "knowledge",
+      "port": 3012,
+      "source": "services/knowledge/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/knowledge/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "knowledge-ingestion",
+        "knowledge-search",
+        "context-retrieval"
+      ],
+      "requires": [
+        "platform",
+        "integration"
+      ]
+    },
+    {
+      "id": "api-manual",
+      "kind": "api",
+      "profile": "manual",
+      "port": 3002,
+      "source": "services/manual/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/manual/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "requirements",
+        "planning",
+        "work-item-relationships"
+      ],
+      "requires": [
+        "testing"
+      ]
+    },
+    {
+      "id": "api-dashboard",
+      "kind": "api",
+      "profile": "dashboard",
+      "port": 3003,
+      "source": "services/dashboard/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/dashboard/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "quality-analytics"
+      ],
+      "requires": [
+        "testing"
+      ]
+    },
+    {
+      "id": "api-automation",
+      "kind": "api",
+      "profile": "automation",
+      "port": 3004,
+      "source": "services/automation/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/automation/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "test-engine-callbacks",
+        "test-engine-control",
+        "automation-generator",
+        "local-agent"
+      ],
+      "requires": [
+        "testing",
+        "integration"
+      ]
+    },
+    {
+      "id": "api-agentic",
+      "kind": "api",
+      "profile": "agentic",
+      "port": 3005,
+      "source": "services/agentic/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/agentic/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "agentic-workflows",
+        "repository-agents",
+        "repository-inspection"
+      ],
+      "requires": [
+        "automation",
+        "knowledge",
+        "integration"
+      ]
+    },
+    {
+      "id": "api-chatbot",
+      "kind": "api",
+      "profile": "chatbot",
+      "port": 3006,
+      "source": "services/chatbot/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/chatbot/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "knowledge-assistant",
+        "conversation-planning",
+        "answer-synthesis"
+      ],
+      "requires": [
+        "knowledge",
+        "integration"
+      ]
+    },
+    {
+      "id": "api-ai",
+      "kind": "api",
+      "profile": "ai",
+      "port": 3007,
+      "source": "services/ai/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/ai/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "quality-assistance",
+        "ai-review"
+      ],
+      "requires": [
+        "manual",
+        "knowledge",
+        "integration"
+      ]
+    },
+    {
+      "id": "api-trace",
+      "kind": "api",
+      "profile": "trace",
+      "port": 3008,
+      "source": "services/trace/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/trace/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "telemetry",
+        "trace-correlation",
+        "metrics"
+      ],
+      "requires": [
+        "platform"
+      ]
+    },
+    {
+      "id": "api-integration",
+      "kind": "api",
+      "profile": "integration",
+      "port": 3009,
+      "source": "services/integration/backend",
+      "runtime_source": "services/platform/backend",
+      "frontend_source": "services/integration/frontend",
+      "health": "/health/ready",
+      "owns": [
+        "LLM providers",
+        "Jira and repository integrations",
+        "TestEngine connections",
+        "prompt-templates"
+      ],
+      "requires": [
+        "platform"
+      ]
+    },
+    {
+      "id": "testengine-backend",
+      "kind": "worker-api",
+      "profile": null,
+      "port": 4301,
+      "source": "testengine/backend",
+      "health": "/health/ready",
+      "owns": [
+        "api-execution",
+        "web-execution",
+        "android-execution",
+        "artifacts"
+      ]
+    },
+    {
+      "id": "mobile-engine",
+      "kind": "worker",
+      "profile": null,
+      "port": 4312,
+      "source": "local-run/mobile-engine",
+      "health": "/status",
+      "owns": [
+        "mobile-execution"
+      ]
+    },
+    {
+      "id": "selenium-grid",
+      "kind": "infrastructure",
+      "profile": null,
+      "port": 4444,
+      "source": "testengine/docker-compose.yml",
+      "health": "/status",
+      "owns": [
+        "browser-session-routing"
+      ]
+    },
+    {
+      "id": "selenium-node-chrome",
+      "kind": "infrastructure",
+      "profile": null,
+      "port": 7900,
+      "source": "testengine/docker-compose.yml",
+      "health": "/",
+      "owns": [
+        "browser-session-vnc"
+      ]
+    },
+    {
+      "id": "frontend",
+      "kind": "web",
+      "profile": null,
+      "port": 8080,
+      "source": "services/platform/frontend",
+      "health": "/",
+      "owns": [
+        "manual-ui",
+        "dashboard-ui",
+        "automation-ui",
+        "ai-ui",
+        "chatbot-ui",
+        "agentic-ui",
+        "trace-ui"
+      ]
+    }
+  ],
+  "operations": [
+    {
+      "id": "haproxy",
+      "kind": "operations",
+      "source": "ops/haproxy",
+      "port": 18404,
+      "health": "/health",
+      "memory_limit_mib": 64,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "prometheus",
+      "kind": "operations",
+      "source": "ops/prometheus",
+      "port": 9090,
+      "health": "/-/ready",
+      "memory_limit_mib": 256,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "grafana",
+      "kind": "operations",
+      "source": "ops/grafana",
+      "port": 3001,
+      "health": "/api/ops-telemetry/grafana/api/health",
+      "memory_limit_mib": 256,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "loki",
+      "kind": "operations",
+      "source": "ops/loki",
+      "port": 3100,
+      "health": "/ready",
+      "memory_limit_mib": 384,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "jaeger",
+      "kind": "operations",
+      "source": "ops/jaeger",
+      "port": 16687,
+      "health": "/status",
+      "memory_limit_mib": 256,
+      "required_for_application_readiness": false,
+      "health_port": 13133
+    },
+    {
+      "id": "alloy",
+      "kind": "operations",
+      "source": "ops/alloy",
+      "port": 12345,
+      "health": "/-/ready",
+      "memory_limit_mib": 192,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "otel-collector",
+      "kind": "operations",
+      "source": "ops/otel-collector",
+      "port": 13133,
+      "health": "/",
+      "memory_limit_mib": 256,
+      "required_for_application_readiness": false
+    },
+    {
+      "id": "alertmanager",
+      "kind": "operations",
+      "source": "ops/alertmanager",
+      "port": 9093,
+      "health": "/-/ready",
+      "memory_limit_mib": 64,
+      "required_for_application_readiness": false
+    }
+  ]
+}

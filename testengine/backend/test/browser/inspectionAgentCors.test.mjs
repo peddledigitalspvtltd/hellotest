@@ -13,7 +13,7 @@ const pairToken = "test-pairing-token-for-isolated-browser-fixture";
 
 async function agentFixture(t, pairedToHostedApp) {
   // Exercise the runtime shipped by the API installer, not a mocked status.
-  const bundle = JSON.parse(await readFile(new URL("../../../../backend/api/src/assets/inspection-agent-runtime.json", import.meta.url), "utf8"));
+  const bundle = JSON.parse(await readFile(new URL("../../../../services/platform/backend/src/assets/inspection-agent-runtime.json", import.meta.url), "utf8"));
   const modules = JSON.parse(gunzipSync(Buffer.from(bundle.gzip_base64, "base64")).toString("utf8"));
   const directory = await mkdtemp(fileURLToPath(new URL("../../.inspection-cors-", import.meta.url)));
   t.after(() => rm(directory, { recursive: true, force: true }));

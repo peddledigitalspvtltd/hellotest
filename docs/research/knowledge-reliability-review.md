@@ -35,13 +35,13 @@ Existing bounded semantic retrieval, transient retry classifications, model call
 
 ## Verification
 
-`node --test backend/api/test/knowledge*.test.js backend/api/test/agenticAssistantContract.test.js`
+`node --test services/platform/backend/test/knowledge*.test.js services/platform/backend/test/agenticAssistantContract.test.js`
 
 Result: 150 tests, 149 passed, zero failed, one PostgreSQL-only test skipped in the unit-suite invocation.
 
 New executable coverage verifies canonical publication before model configuration/provider calls, preservation during vector outages, rejection of stale enrichment, one budget across multiple embedding batches, configuration timeout fallback, explicit scope errors, cancellation during cold vector setup, shortened synthesis budgets, saved cited fallback without a late model call, and no late message writes after an overall timeout. Existing tests continue to verify retry exhaustion, billing/authentication failures without retries, safe provider diagnostics, model usage budgets, access revocation and same-turn replay.
 
-The PostgreSQL lifecycle test was updated to retrieve the new revision during a simulated Qdrant outage and continues to cover active-version uniqueness, historical evidence, ACL prefilters, fragment restrictions and archive behavior. It passed separately: 3 tests, 3 passed. The fixture now creates its required settings/permission tables and runs against a fresh isolated `agent_verify_knowledge_<epoch>` database, which was dropped after validation. No public database records were changed. Reproduce with `KNOWLEDGE_POSTGRES_TEST=1 node --test backend/api/test/knowledgeRepositoryLifecycle.test.js` against an isolated database.
+The PostgreSQL lifecycle test was updated to retrieve the new revision during a simulated Qdrant outage and continues to cover active-version uniqueness, historical evidence, ACL prefilters, fragment restrictions and archive behavior. It passed separately: 3 tests, 3 passed. The fixture now creates its required settings/permission tables and runs against a fresh isolated `agent_verify_knowledge_<epoch>` database, which was dropped after validation. No public database records were changed. Reproduce with `KNOWLEDGE_POSTGRES_TEST=1 node --test services/platform/backend/test/knowledgeRepositoryLifecycle.test.js` against an isolated database.
 
 ## Read-only live configuration check
 

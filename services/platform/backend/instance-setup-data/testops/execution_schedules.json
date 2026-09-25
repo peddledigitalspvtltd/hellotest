@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v2-schedule-nightly",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Nightly commerce smoke · sample (disabled)",
+      "cadence": "daily",
+      "suite_ids": [
+        "sample-v2-suite-smoke"
+      ],
+      "test_environment_id": "sample-v2-env-staging",
+      "test_configuration_id": "sample-v2-config-chrome",
+      "test_data_set_id": "sample-v2-data-customers",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "is_active": false,
+      "release": "Commerce 1.0",
+      "sprint": "Launch sprint"
+    }
+  ]
+}

@@ -101,7 +101,7 @@ test("API-bundled local agent matches the compiled inspection runtime", async ()
   const { readFile } = await import("node:fs/promises");
   const { createHash } = await import("node:crypto");
   const { gunzipSync } = await import("node:zlib");
-  const bundle = JSON.parse(await readFile(new URL("../../../backend/api/src/assets/inspection-agent-runtime.json", import.meta.url), "utf8"));
+  const bundle = JSON.parse(await readFile(new URL("../../../services/platform/backend/src/assets/inspection-agent-runtime.json", import.meta.url), "utf8"));
   const modules = JSON.parse(gunzipSync(Buffer.from(bundle.gzip_base64, "base64")).toString("utf8"));
   for (const [key, name] of Object.entries({ recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy" })) {
     const current = await readFile(new URL(`../dist/lib/${name}.js`, import.meta.url), "utf8");

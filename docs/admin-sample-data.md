@@ -1,6 +1,6 @@
 # Module sample data
 
-Administration → Instance setup provides 13 selectable groups. Version 6 reads 715 content records and seven conservatively managed role presets from 105 committed object files in [`backend/instance-setup-data`](../backend/instance-setup-data/README.md). It combines a source-reviewed HelloTest feature backlog with connected HelloTest and synthetic Commerce Launchpad examples across Web, API and Mobile applications.
+Administration → Instance setup provides 13 selectable groups. Version 6 reads 715 content records and seven conservatively managed role presets from 105 committed object files in [`services/platform/backend/instance-setup-data`](../services/platform/backend/instance-setup-data/README.md). It combines a source-reviewed HelloTest feature backlog with connected HelloTest and synthetic Commerce Launchpad examples across Web, API and Mobile applications.
 
 Choose Full product, People & access, QA essentials or AI & automation, or search and select individual modules. The preview includes dependencies, missing-record counts, project description, application scopes and membership behavior. Installation requires a workspace administrator. Disabled feature flags remain disabled.
 
@@ -22,7 +22,7 @@ The module expands to show permissions and marks existing customized roles. Repe
 
 These presets grant no workspace administration or access-management permissions. Feature availability continues to apply to every grant. Reporter uses `feedback.create`; it cannot edit or delete existing Defects. Existing roles with `feedback.manage` retain their reporting capability.
 
-The reviewed setup role definitions and permission codes live in `backend/instance-setup-data/workspace_roles`. Runtime role creation and schema setup continue to use `backend/api/src/security/rolePresets.catalog.js`; dataset validation checks that the authored presets agree with that foundation.
+The reviewed setup role definitions and permission codes live in `services/platform/backend/instance-setup-data/workspace_roles`. Runtime role creation and schema setup continue to use `services/platform/backend/src/security/rolePresets.catalog.js`; dataset validation checks that the authored presets agree with that foundation.
 
 | Module | Records | Feature coverage |
 | --- | ---: | --- |
@@ -44,7 +44,7 @@ The reviewed setup role definitions and permission codes live in `backend/instan
 
 The [portable feature blueprint](product/hellotest-feature-blueprint.json) and [detailed story catalog](product/hellotest-feature-stories.md) contain **59 stories, seven sprints and three illustrative releases**. Ten stories deliberately remain unscheduled in Backlog. Every story includes a specific title, user outcome, behavior description, acceptance criteria, failure/scope boundary, labels, priority, effort, team and source references. Scheduled stories have native iteration IDs, matching sprint/release stamps, and ordered Dev/QA target dates. Backlog stories retain explicit release scope without invented sprint dates.
 
-The inventory maps every entry in `frontend/src/lib/workspaceCapabilities.ts` and accounts for every feature flag. Test Plans and Quality Gates are explicitly identified as catalog-only flags because their standalone pages are not routed; the blueprint does not invent these screens. AI-authored content was reviewed against local implementation, including recorder behavior, and does not claim that a live model or test run executed.
+The inventory maps every entry in `services/platform/frontend/src/platform/lib/workspaceCapabilities.ts` and accounts for every feature flag. Test Plans and Quality Gates are explicitly identified as catalog-only flags because their standalone pages are not routed; the blueprint does not invent these screens. AI-authored content was reviewed against local implementation, including recorder behavior, and does not claim that a live model or test run executed.
 
 Installation creates parent Sprint and Release records before Stories, then connects release scope and story dependencies. Assignee fields bind the `__SETUP_ACTOR_ID__` token to the installing administrator. Original Dev/QA assignments remain unset instead of inventing team members. Sprint effort equals the sum of its sample story estimates. Dates are fixed in the versioned files, with an authored calendar starting on September 20, 2026; installation never shifts them to the current day. This calendar is illustrative and does not represent announced HelloTest release commitments. Time-window metrics reflect those stored dates as the examples age.
 
@@ -52,11 +52,11 @@ The installation source is the reviewed JSON dataset and its `reference/` artifa
 
 ## Repository file contract
 
-`backend/instance-setup-data/manifest.json` identifies the dataset and version, selectable module metadata, module dependencies and an ordered list of object files. Each file entry includes its stable key, relative path, module, database table and identity columns (or the role-preset kind), prerequisite file keys, record count and SHA-256 checksum. JSON object files retain native arrays, nested metadata, explicit short IDs, relation rows and stable sample identities.
+`services/platform/backend/instance-setup-data/manifest.json` identifies the dataset and version, selectable module metadata, module dependencies and an ordered list of object files. Each file entry includes its stable key, relative path, module, database table and identity columns (or the role-preset kind), prerequisite file keys, record count and SHA-256 checksum. JSON object files retain native arrays, nested metadata, explicit short IDs, relation rows and stable sample identities.
 
 The installer validates the manifest and selected files before inserting content. It rejects unknown modules, dependency cycles, invalid paths, malformed JSON, checksum/count mismatches, duplicate identities and broken relationships. Files are processed in dependency order rather than grouped solely by table: a table can have records in more than one module with different parents.
 
-Treat a published dataset as immutable. Review edits as a new dataset version, retain stable IDs for existing examples, update affected checksums and counts, and publish the manifest and files together. Run `node backend/instance-setup-data/verify.cjs` before packaging. A missing or corrupt file is an actionable setup failure; the application never substitutes newly generated Stories, dates or fallback content.
+Treat a published dataset as immutable. Review edits as a new dataset version, retain stable IDs for existing examples, update affected checksums and counts, and publish the manifest and files together. Run `node services/platform/backend/instance-setup-data/verify.cjs` before packaging. A missing or corrupt file is an actionable setup failure; the application never substitutes newly generated Stories, dates or fallback content.
 
 ## Progress, retries and recovery
 
@@ -82,13 +82,13 @@ Restarting the API preserves the job and checkpoints; the next worker resumes th
 
 ## Implementation and validation
 
-Committed records and their manifest live in `backend/instance-setup-data`. The file loader, catalog and transactional installer live in `backend/api/src/services/sampleData`; `backend/api/src/services/instanceSetup.service.js` owns the durable job lifecycle. The admin UI is `frontend/src/admin/SampleDataSetup.tsx`. Dataset and blueprint validation check capability/flag coverage, source provenance, checksums, acyclic dependencies, exact metadata relationships, date/effort consistency, portable exports and knowledge passage offsets.
+Committed records and their manifest live in `services/platform/backend/instance-setup-data`. The file loader, catalog and transactional installer live in `services/platform/backend/services/sampleData`; `services/platform/backend/services/instanceSetup.service.js` owns the durable job lifecycle. The admin UI is `services/platform/frontend/admin/SampleDataSetup.tsx`. Dataset and blueprint validation check capability/flag coverage, source provenance, checksums, acyclic dependencies, exact metadata relationships, date/effort consistency, portable exports and knowledge passage offsets.
 
-The opt-in PostgreSQL integration test `backend/api/test/integration/adminSamples.postgres.test.js` requires `ADMIN_SAMPLES_POSTGRES=1` and an empty `DATABASE_URL` whose database name starts with `agent_verify_admin_samples_`. It initializes the application schema and verifies installation, preservation of legacy and edited records, role creation and customization, deletion/reinstallation, case/run associations, timing, step logs, native knowledge retrieval, feature flags and inactive services. Membership checks cover all active workspace administrators, suspended and project-only exclusions, newly promoted administrators, and exact preservation of existing project/application rows and membership roles. Never point it at an existing workspace database.
+The opt-in PostgreSQL integration test `services/platform/backend/test/integration/adminSamples.postgres.test.js` requires `ADMIN_SAMPLES_POSTGRES=1` and an empty `DATABASE_URL` whose database name starts with `agent_verify_admin_samples_`. It initializes the application schema and verifies installation, preservation of legacy and edited records, role creation and customization, deletion/reinstallation, case/run associations, timing, step logs, native knowledge retrieval, feature flags and inactive services. Membership checks cover all active workspace administrators, suspended and project-only exclusions, newly promoted administrators, and exact preservation of existing project/application rows and membership roles. Never point it at an existing workspace database.
 
-The separate `backend/api/test/integration/instanceSetupJobs.postgres.test.js` uses `INSTANCE_SETUP_JOBS_POSTGRES=1` and a disposable database named `agent_verify_instance_setup_*`. It verifies concurrent admission, cross-process ownership, checkpoint recovery, bounded retries, incomplete-file/audit failure handling, shutdown and active-receipt restoration. Route tests verify administrator protection, accepted responses and uncached status polling. `instanceSetupInstaller.postgres.test.js` additionally runs the actual installer and job together against a disposable `agent_verify_instance_installer_*` database (`INSTANCE_SETUP_INSTALLER_POSTGRES=1`), checking corrupt-file preflight, smaller-batch retry, receipt counts, audit recovery, indirect ownership, JSON references and final verification failures.
+The separate `services/platform/backend/test/integration/instanceSetupJobs.postgres.test.js` uses `INSTANCE_SETUP_JOBS_POSTGRES=1` and a disposable database named `agent_verify_instance_setup_*`. It verifies concurrent admission, cross-process ownership, checkpoint recovery, bounded retries, incomplete-file/audit failure handling, shutdown and active-receipt restoration. Route tests verify administrator protection, accepted responses and uncached status polling. `instanceSetupInstaller.postgres.test.js` additionally runs the actual installer and job together against a disposable `agent_verify_instance_installer_*` database (`INSTANCE_SETUP_INSTALLER_POSTGRES=1`), checking corrupt-file preflight, smaller-batch retry, receipt counts, audit recovery, indirect ownership, JSON references and final verification failures.
 
-The browser test frontend/test/browser/adminSampleData.test.mjs runs against ADMIN_TEST_URL (default http://127.0.0.1:5180), using isolated API fixtures. It covers load/install retries, dependency selection, search, keyboard controls and responsive layouts from 320px to 1440px.
+The browser test services/platform/test/browser/adminSampleData.test.mjs runs against ADMIN_TEST_URL (default http://127.0.0.1:5180), using isolated API fixtures. It covers load/install retries, dependency selection, search, keyboard controls and responsive layouts from 320px to 1440px.
 
 The retained metric walkthrough is separate from the source-reviewed feature backlog. It includes six synthetic Stories (including distinct Dev Done/QA Done and covered/uncovered backlog examples), six Test Cases, a native Sprint/Release-linked run with passed/failed/blocked/skipped outcomes, two linked Defects, and explicit synthetic readiness reviews. Traceability, Delivery and Defect Triage dashboards each contain eight joined widgets. Every sample entity that supports display IDs supplies a stable short ID; repeated setup leaves existing IDs and edits untouched. No historical backlog completion is invented: the normal database history records setup additions from installation time.
 
@@ -100,7 +100,7 @@ A new unassigned user receives the HelloTest setup project on verified signup or
 
 ## Docker packaging
 
-All API builds use `backend/` as their build context so the canonical dataset ships with the API at `/app/instance-setup-data`. The local, full-stack and backend-only Compose files use `backend/Dockerfile`; the root `hellotest.sh` image build already uses that context.
+All API builds use `backend/` as their build context so the canonical dataset ships with the API at `/app/instance-setup-data` and bounded service manifests ship at `/app/services`. The local, full-stack and backend-only Compose files use `services/platform/backend/Dockerfile`; the root `hellotest.sh` image build already uses that context.
 
 For a direct image build from the repository root:
 
@@ -108,10 +108,4 @@ For a direct image build from the repository root:
 docker build -t hellotest-backend:local backend
 ```
 
-The compatibility Dockerfile under `backend/api/` uses the same parent context:
-
-```sh
-docker build -f backend/api/Dockerfile -t hellotest-backend:local backend
-```
-
-Do not build with `backend/api/` as the context: Docker cannot include its sibling dataset directory. Native Node development resolves the repository's `backend/instance-setup-data` automatically. An explicitly configured `HELLOTEST_INSTANCE_SETUP_DATA_DIR` must contain the complete versioned manifest and files, and is subject to the same integrity checks.
+Do not build with `services/platform/backend/` as the context: Docker cannot include its sibling dataset directory. Native Node development resolves the repository's `services/platform/backend/instance-setup-data` automatically. An explicitly configured `HELLOTEST_INSTANCE_SETUP_DATA_DIR` must contain the complete versioned manifest and files, and is subject to the same integrity checks.

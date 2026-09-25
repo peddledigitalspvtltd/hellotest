@@ -4262,6 +4262,176 @@ paths:
       responses:
         "200":
           description: Updated security policy
+  /ops-telemetry/console-session/{provider}:
+    post:
+      tags: [Operations]
+      summary: Start an embedded Jaeger or Alertmanager browser session
+      security:
+        - bearerAuth: []
+      description: Requires a workspace administrator with project access. Issues a provider-scoped encrypted HttpOnly cookie for read-only inspection. Traces default to the API service in the last hour.
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema: { type: string, enum: [traces, alerts] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string, maxLength: 128 }
+      responses:
+        '200':
+          description: Same-origin console URL and session expiry
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string }
+                  expires_at: { type: string, format: date-time }
+        '403': { description: Administrator browser session required }
+        '503': { description: Console unavailable or disabled }
+  /ops-telemetry/console/{provider}/*:
+    get:
+      tags: [Operations]
+      summary: Read an embedded monitoring console resource
+      security:
+        - traceConsoleSession: []
+        - alertConsoleSession: []
+      description: Accepts only the matching provider cookie. Revalidates the administrator and project for every request; forwards only allowlisted reads. Silence creation, deletion, archives, and arbitrary proxy destinations are not supported.
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema: { type: string, enum: [traces, alerts] }
+      responses:
+        '200': { description: Console HTML, assets, or read API data }
+        '401': { description: Missing or expired session }
+        '403': { description: Permission denied or disallowed resource }
+        '502': { description: Upstream unavailable }
+  /ops-telemetry/grafana-session:
+    post:
+      tags: [Operations]
+      summary: Start a protected read-only Grafana browser session
+      security:
+        - bearerAuth: []
+      description: Requires a signed-in workspace administrator and project access. Sets a short-lived HttpOnly cookie. Grafana credentials never leave the backend.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+      responses:
+        '200':
+          description: Same-origin dashboard URL and session expiration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: { type: string }
+                  expires_at: { type: string, format: date-time }
+        '403': { description: Administrator browser session required }
+        '503': { description: Grafana is unavailable or not configured }
+    delete:
+      tags: [Operations]
+      summary: Clear the embedded Grafana browser session
+      responses:
+        '200': { description: Browser session cookie expired }
+  /ops-telemetry/grafana/*:
+    get:
+      tags: [Operations]
+      summary: Read a protected Grafana dashboard resource
+      security:
+        - grafanaBrowserSession: []
+      description: Requires the encrypted HttpOnly session cookie. Revalidates the administrator and project on every request. Only allowlisted dashboard, static asset and read API paths are forwarded using a dedicated Viewer account.
+      responses:
+        '200': { description: Dashboard HTML, assets or read-only API data }
+        '401': { description: Missing or expired dashboard session }
+        '403': { description: Permission denied or path not allowed }
+        '502': { description: Grafana unavailable }
+    post:
+      tags: [Operations]
+      summary: Run a read-only embedded dashboard query
+      security:
+        - grafanaBrowserSession: []
+      description: Requires the dashboard session cookie and matching Origin. Restricted to provisioned Prometheus, Loki and Jaeger datasource queries; writes and arbitrary proxy destinations are rejected.
+      responses:
+        '200': { description: Datasource query results }
+        '204': { description: Frontend instrumentation acknowledged locally }
+        '401': { description: Missing or expired dashboard session }
+        '403': { description: Permission or origin denied }
+        '502': { description: Grafana unavailable }
+  /ops-telemetry/platform:
+    get:
+      tags: [OPS telemetry]
+      summary: Read bounded monitoring component health
+      description: Requires project access and ops.view. Returns partial component availability without exposing provider addresses or credentials.
+      parameters:
+        - in: query
+          name: project_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Cached monitoring snapshot; unavailable components do not fail the response.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [checked_at, enabled, state, components, policy]
+                properties:
+                  checked_at: { type: string, format: date-time }
+                  enabled: { type: boolean }
+                  state: { type: string, enum: [available, degraded, not_configured] }
+                  components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        purpose: { type: string }
+                        state: { type: string }
+                        memory_limit_mib: { type: integer }
+                        latency_ms: { type: integer }
+                  policy: { type: object, additionalProperties: { type: string } }
+  /ops-telemetry/monitoring/{section}:
+    get:
+      tags: [Operations]
+      summary: Read the infrastructure dashboard, recent container logs, or Alertmanager alerts
+      description: Requires workspace administrator access, project access, and ops.view. Fixed bounded queries are cached for 15 seconds. A failed data source returns unavailable without affecting other views.
+      parameters:
+        - { in: path, name: section, required: true, schema: { type: string, enum: [dashboard, logs, alerts] } }
+        - { in: query, name: project_id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Monitoring data or an explicit unavailable/not_configured state. Logs cover the last 15 minutes, capped at 100 lines; alerts are capped at 100.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [section, checked_at, state]
+                properties:
+                  section: { type: string, enum: [dashboard, logs, alerts] }
+                  checked_at: { type: string, format: date-time }
+                  state: { type: string, enum: [available, unavailable, not_configured] }
+                  metrics: { type: array, items: { type: object } }
+                  services: { type: array, items: { type: object } }
+                  logs: { type: array, maxItems: 100, items: { type: object } }
+                  alerts: { type: array, maxItems: 100, items: { type: object } }
+                  limit: { type: integer }
+                  window: { type: string }
+        '400': { description: Missing project or unsupported monitoring section }
+        '401': { description: Authentication required }
+        '403': { description: Workspace administrator and project access required }
   /ops-telemetry/snapshot:
     get:
       tags: [Operations]
@@ -4269,6 +4439,7 @@ paths:
       description: The API injects the configured OPS credential server-side so browser clients never receive provider secrets. The provider must acknowledge the selected project scope for both events and service aggregates.
       parameters:
         - { in: query, name: project_id, required: true, schema: { type: string } }
+        - { in: query, name: include_workers, description: Include a separate bounded list of shared TestEngine queue events. Requires workspace administrator access., schema: { type: boolean, default: false } }
         - { in: query, name: service_name, schema: { type: string, maxLength: 200 } }
         - { in: query, name: event_type, schema: { type: string, maxLength: 200 } }
         - { in: query, name: status, schema: { type: string, maxLength: 200 } }
@@ -6155,6 +6326,19 @@ paths:
         "200": { description: Successful response }
 components:
   securitySchemes:
+    traceConsoleSession:
+      type: apiKey
+      in: cookie
+      name: hellotest_ops_traces
+    alertConsoleSession:
+      type: apiKey
+      in: cookie
+      name: hellotest_ops_alerts
+    grafanaBrowserSession:
+      type: apiKey
+      in: cookie
+      name: hellotest_grafana
+      description: Encrypted HttpOnly browser capability issued to a signed-in administrator. Current user and project permissions are rechecked on every request.
     inspectionCapability:
       type: apiKey
       in: query
@@ -7262,6 +7446,17 @@ components:
       properties:
         checked_at: { type: string, format: date-time }
         project_id: { type: string }
+        workers:
+          type: object
+          description: Shared queue activity, returned only when requested by an administrator. Older engines may report unavailable without affecting project events.
+          required: [state, total, items]
+          properties:
+            state: { type: string, enum: [available, unavailable] }
+            total: { type: integer, minimum: 0 }
+            items:
+              type: array
+              maxItems: 50
+              items: { type: object, additionalProperties: true }
         events:
           type: object
           required: [items, total]

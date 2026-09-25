@@ -24,8 +24,8 @@ Stored previews allow 60 files, 2 MB per raster image, 128 KB per text attachmen
 
 ## Validation
 
-- `node --test backend/api/test/executionReport.test.js`: 20 tests cover row/retry counts, pending/key-value/legacy cases, active timers, saved suite context, HTML injection and redaction, CSP, stored attachment binding, permission denials, oversized/cancelled streams, no-LLM generation, route scope boundaries and single-case PDF regression.
-- `node --test backend/api/test/browser/executionHtmlReport.test.mjs`: isolated Chrome verifies the actual rendered artifact offline, filters and clear/focus behavior, suite filtering, expand/collapse, print state restoration, no external HTTP requests, no browser errors and zero page-level horizontal overflow at 1440 and 390 pixels.
+- `node --test services/platform/backend/test/executionReport.test.js`: 20 tests cover row/retry counts, pending/key-value/legacy cases, active timers, saved suite context, HTML injection and redaction, CSP, stored attachment binding, permission denials, oversized/cancelled streams, no-LLM generation, route scope boundaries and single-case PDF regression.
+- `node --test services/platform/backend/test/browser/executionHtmlReport.test.mjs`: isolated Chrome verifies the actual rendered artifact offline, filters and clear/focus behavior, suite filtering, expand/collapse, print state restoration, no external HTTP requests, no browser errors and zero page-level horizontal overflow at 1440 and 390 pixels.
 - Representative screenshots were visually reviewed at desktop/mobile widths and in the expanded detail view. Artifacts: `/tmp/qaira-execution-report.html`, `/tmp/qaira-execution-report-desktop.png`, `/tmp/qaira-execution-report-details.png`, `/tmp/qaira-execution-report-mobile.png`.
 - Synthetic local generation with 1,000 distinct cases / 3,000 row instances / 15,000 saved steps took approximately 38 ms for the model and 55 ms for HTML rendering (6.6 MB document). This is a local smoke measurement, not a production latency guarantee; storage reads and browser rendering are excluded.
 

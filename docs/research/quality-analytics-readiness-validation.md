@@ -7,7 +7,7 @@ Validated on 10 September 2026. The application is served at [Quality Analytics]
 | Check | Result |
 | --- | --- |
 | Frontend unit and contract suite (`npm test` in `frontend`) | 378 passed, zero failures/cancellations |
-| Backend unit and contract suite (`npm test` in `backend/api`) | 609 passed, zero failures/cancellations, one existing conditional test skipped |
+| Backend unit and contract suite (`npm test` in `services/platform/backend`) | 609 passed, zero failures/cancellations, one existing conditional test skipped |
 | Analytics browser regression | Passed; one scenario covers metric names/denominators, chart/table, period scope, CSV, personalization, empty/restricted/error/disabled/no-project states, project switching, admin demotion, Explain findings/actions and hidden heuristic score, desktop/mobile/dark/Spanish |
 | Readiness browser regressions | Four passed, including linked release membership, source pagination, pause/data-row evidence, keyboard tabs, error recovery, cross-project context rejection and admin demotion with a late Explain response |
 | Readiness focused model/contracts | 31 passed |

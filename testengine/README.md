@@ -2,10 +2,9 @@
 
 `testengine/` is a backend-only Playwright execution plane for HelloTest. HelloTest remains the only frontend, the only operator surface, and the system of record for authoring, runs, evidence history, and review.
 
-This is the sole supported HelloTest execution runtime. The older
-`apps/hellotest-execution-engine` package is an archived source-only prototype;
-its deployment manifests have been retired and it must not be published or
-restored as a second worker plane.
+This is the sole HelloTest execution runtime. The redundant prototype has been
+removed after a [capability comparison](../docs/testengine-consolidation.md).
+Develop, build, test, and deploy execution features from this directory.
 
 There should not be a second UI here. The right split is:
 
@@ -149,12 +148,12 @@ testengine/
 
 ## Running In Docker
 
-The Playwright engine already has a separate Docker image definition at `testengine/backend/Dockerfile`.
+The Playwright engine already has a separate Docker image definition at `testengine/services/platform/backend/Dockerfile`.
 
 Build and run it directly:
 
 ```bash
-docker build -f testengine/backend/Dockerfile -t hellotest-testengine ./testengine/backend
+docker build -f testengine/services/platform/backend/Dockerfile -t hellotest-testengine ./testengine/backend
 docker run --rm -p 4301:4301 -e PORT=4301 -e ARTIFACT_ROOT=/artifacts hellotest-testengine
 ```
 
@@ -240,6 +239,24 @@ responses echo that exact `project_id`; event totals and service counts include
 only matching project records, excluding host events with no project. An
 explicitly empty or invalid project scope returns `400`.
 
+HelloTest's **OPS telemetry → TestGrid telemetry** tab reads these
+project-scoped events and a separate administrator-only list of shared worker
+activity. The engine's `include_workers=true` event query adds up to 50 unscoped
+`testengine.queue.*` events without changing project totals. The HelloTest API
+requires administrator access for this option. A successful integration connection checks reachability;
+deploying an idle engine does not create project execution history. Execute an
+automated test through TestEngine for the selected project to produce events.
+Use **Infrastructure logs** for container startup and worker diagnostics. Events
+without a project ID are deliberately excluded from project execution events, and old
+events expire according to the configured retention and size limits.
+
+Workers sharing `OPS_TELEMETRY_STORE_PATH` refresh event and service reads from
+that store, so a web gateway can display API or Android worker events. Reads
+reuse a bounded snapshot only while the file is unchanged; concurrent reads are
+coalesced. Unreadable storage returns `503` instead of a misleading empty result.
+Separately deployed workers must share the store or publish to a common telemetry
+endpoint to make their events available through one gateway.
+
 The HelloTest API uses `DELETE /api/v1/events/projects/:projectId` to clear one
 project's events. The same suffix is registered on a configured custom event
 path, without a trailing slash before `/projects`. A successful scoped clear
@@ -257,6 +274,10 @@ minutes by default. Configure `queue_poll_interval_minutes` on the active
 Test Engine integration in HelloTest; `start-testengine-ops.sh` resolves that value
 into `TESTENGINE_POLL_INTERVAL_MINUTES` / `TESTENGINE_POLL_INTERVAL_MS` for the
 standalone worker. When the queue is empty, the worker does not emit job events.
+The first successful queue check and subsequent five-minute summaries produce
+polling activity, including counts of successful checks and leased jobs. Recovery
+after a failed poll is reported immediately. Summaries use the existing bounded
+event store instead of retaining every lease attempt.
 Worker startup, poll failures, execution crashes, and failure-reporting issues
 are captured on the local OPS telemetry board.
 `TESTENGINE_SHUTDOWN_TIMEOUT_MS` controls the bounded drain window (30 seconds
@@ -285,7 +306,7 @@ debugging behind restrictive network rules.
 
 ## See Also
 
-- [HelloTest background operations strategy](../HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
-- [HelloTest product operating model](../HELLOTEST_PRODUCT_OPERATING_MODEL.md)
-- [Architecture](./ARCHITECTURE.md)
-- [HelloTest handoff contract](./backend/src/contracts/hellotest.ts)
+- [HelloTest background operations strategy](../docs/HELLOTEST_BACKGROUND_OPERATIONS_STRATEGY.md)
+- [HelloTest product operating model](../docs/HELLOTEST_PRODUCT_OPERATING_MODEL.md)
+- [Architecture](ARCHITECTURE.md)
+- [HelloTest handoff contract](backend/src/contracts/hellotest.ts)

@@ -1,0 +1,134 @@
+import type { SessionPayload } from "../../types";
+
+const ADMIN_ROLE = "admin";
+export type PageAccessMap = Record<string, string[]>;
+
+// A session normally includes the backend-computed permission list. Older or
+// incomplete payloads fail closed to workspace access instead of recreating a
+// second, drift-prone role catalog in the browser.
+const MEMBER_DEFAULT_PERMISSIONS = new Set(["workspace.view"]);
+
+// Keep workspace-global capabilities out of per-project role evaluation. The
+// backend applies the same boundary, so a custom role in one project cannot
+// accidentally unlock global administration controls in the browser.
+const WORKSPACE_ONLY_PERMISSIONS = new Set([
+  "workspace.view",
+  "settings.view",
+  "settings.manage",
+  "workspace_preferences.manage",
+  "api_key.manage",
+  "localization.manage",
+  "ai_prompt.manage",
+  "feature_flag.manage",
+  "integration.view",
+  "integration.manage",
+  "integration.import_export",
+  "notification.view",
+  "notification.manage",
+  "user.view",
+  "user.manage",
+  "user.import",
+  "role.view",
+  "role.manage",
+  "project.create"
+]);
+
+const PATH_PERMISSIONS: PageAccessMap = {
+  "/": ["dashboard.view"],
+  "/projects": ["project.view"],
+  "/admin-space": ["user.view", "role.view", "integration.view", "settings.manage"],
+  "/people": ["user.view", "role.view"],
+  "/integrations": ["integration.view"],
+  "/requirements": ["requirement.view"],
+  "/backlog": ["requirement.view"],
+  "/stories": ["requirement.view"],
+  "/sprints": ["requirement.view", "requirement_iteration.view"],
+  "/releases": ["requirement.view", "requirement_iteration.view"],
+  "/test-cases": ["testcase.view"],
+  "/shared-steps": ["shared_step.view"],
+  "/design": ["suite.view"],
+  "/test-plans": ["plan.view"],
+  "/quality-gates": ["quality_gate.view"],
+  "/automation": ["automation.view"],
+  "/local-playwright": ["automation.view"],
+  "/automation-assets": ["automation.view"],
+  "/object-repository": ["automation.view"],
+  "/agentic-workflows": ["agentic_workflow.view"],
+  "/executions": ["run.view"],
+  "/testops": ["transaction.view", "ops.view"],
+  "/ops-telemetry": ["ops.view"],
+  "/traces": ["ops.view"],
+  "/test-environments": ["environment.view"],
+  "/test-configurations": ["configuration.view"],
+  "/test-data": ["data.view"],
+  "/knowledge-repo": ["knowledge.view"],
+  "/ai/quality-insights": ["quality_insight.view"],
+  "/issues": ["feedback.view"],
+  "/feedback": ["feedback.view"],
+  "/settings": ["settings.view", "workspace.view"],
+  "/support": ["workspace.view"],
+  "/notifications": ["notification.view"]
+};
+
+export function hasPermission(session: SessionPayload | null, permission: string, projectId?: string | null) {
+  if (!session?.user || session.user.status === "suspended") {
+    return false;
+  }
+
+  if (session.user.role === ADMIN_ROLE) {
+    return true;
+  }
+
+  if (permission === "feedback.create" && hasPermission(session, "feedback.manage", projectId)) {
+    return true;
+  }
+
+  const isWorkspaceOnly = WORKSPACE_ONLY_PERMISSIONS.has(permission);
+
+  if (projectId && session.user.project_permissions && !isWorkspaceOnly) {
+    const projectPermissions = session.user.project_permissions[projectId];
+    return Array.isArray(projectPermissions) && projectPermissions.includes(permission);
+  }
+
+  // An aggregate permission list cannot prove access in a particular project.
+  if (projectId && !isWorkspaceOnly) return false;
+
+  if (isWorkspaceOnly && Array.isArray(session.user.workspace_permissions)) {
+    return session.user.workspace_permissions.includes(permission);
+  }
+
+  if (isWorkspaceOnly) return MEMBER_DEFAULT_PERMISSIONS.has(permission);
+
+  if (Array.isArray(session.user.permissions)) {
+    return session.user.permissions.includes(permission);
+  }
+
+  return MEMBER_DEFAULT_PERMISSIONS.has(permission);
+}
+
+export function hasAnyPermission(
+  session: SessionPayload | null,
+  permissions: readonly string[],
+  projectId?: string | null
+) {
+  return permissions.some((permission) => hasPermission(session, permission, projectId));
+}
+
+export function normalizeAccessPath(pathname: string) {
+  return pathname.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+}
+
+export function requiredPermissionsForPath(pathname: string, pageAccess?: PageAccessMap | null) {
+  const path = normalizeAccessPath(pathname);
+  const permissions = pageAccess && Object.prototype.hasOwnProperty.call(pageAccess, path) ? pageAccess[path] : PATH_PERMISSIONS[path];
+  return Array.isArray(permissions) && permissions.every((permission) => typeof permission === "string") ? permissions : [];
+}
+
+export function canAccessPath(
+  session: SessionPayload | null,
+  pathname: string,
+  pageAccess?: PageAccessMap | null,
+  projectId?: string | null
+) {
+  return hasAnyPermission(session, requiredPermissionsForPath(pathname, pageAccess), projectId);
+}

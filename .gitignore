@@ -1,6 +1,24 @@
-node_modules/
+**/node_modules/
+**/dist/
+**/coverage/
+**/.cache/
+*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/*.pid
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+.qaira/
+local-run/artifacts/
 .DS_Store
 local-run/.playwright-browsers/*
 .hellotest/
 .firecrawl/
-frontend/dist-admin/
+services/platform/frontend/dist-admin/
+
+# TypeScript is the authoritative Vite config; config checks never emit source copies.
+services/platform/frontend/vite*.js
+services/platform/frontend/vite*.d.ts

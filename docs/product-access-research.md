@@ -31,13 +31,13 @@ Authorization remains a server decision on each request. Navigation and action v
 
 Implementation entry points:
 
-- [Backend feature evaluation and persistence](../backend/api/src/services/featureFlag.service.js)
-- [Shared request authorization](../backend/api/src/plugins/accessControl.js)
-- [API permission catalog](../backend/api/src/security/permissions.catalog.js)
-- [Browser permission boundaries](../frontend/src/lib/permissions.ts)
-- [Browser feature policy helpers](../frontend/src/lib/featureFlags.ts)
-- [Feature loading](../frontend/src/hooks/useFeatureFlags.ts)
-- [Administration feature policy](../frontend/src/admin/AdminApp.tsx)
+- [Backend feature evaluation and persistence](../services/platform/backend/services/featureFlag.service.js)
+- [Shared request authorization](../services/platform/backend/src/plugins/accessControl.js)
+- [API permission catalog](../services/platform/backend/src/security/permissions.catalog.js)
+- [Browser permission boundaries](../services/platform/frontend/src/platform/lib/permissions.ts)
+- [Browser feature policy helpers](../services/platform/frontend/src/platform/lib/featureFlags.ts)
+- [Feature loading](../services/platform/frontend/src/platform/hooks/useFeatureFlags.ts)
+- [Administration feature policy](../services/platform/frontend/admin/AdminApp.tsx)
 
 ## Product and API behavior
 
@@ -53,10 +53,10 @@ The normal runtime permission service remains a grant evaluator. Background agen
 
 ## Verification
 
-- `backend/api/test/productAccess.test.js`: 18 checks, including real Fastify injection for viewer denial, direct disabled-feature calls, HEAD parity, unscoped snapshots, invalid application scope and asynchronous persisted-scope authorization; also checks catalog coverage for ordinary product routes.
-- `frontend/test/productAccess.test.mjs`: 5 behavioral checks for scope isolation, legacy/incomplete sessions, normalized deep links, malformed snapshots, dirty patches, dependencies and first-project loading/cancellation.
-- `backend/api/test/integration/productAccess.postgres.test.js`: passed against an empty disposable PostgreSQL database. Tested parallel writes to different flags, omitted disabled flags, parent/child behavior, legacy flat storage, invalid update immutability and transactional rollback. The database and private temporary environment file were removed afterward.
-- `frontend/test/browser/featureAvailability.test.mjs`: passed using the actual administration components/styles with isolated representative API fixtures. Tests read failure/retry, search/empty state, dependencies, failed-save draft recovery, independent concurrent edits, keyboard toggling, discard and 390px layout. It does not modify live flags, roles, users or integrations.
+- `services/platform/test/backend/productAccess.test.js`: 18 checks, including real Fastify injection for viewer denial, direct disabled-feature calls, HEAD parity, unscoped snapshots, invalid application scope and asynchronous persisted-scope authorization; also checks catalog coverage for ordinary product routes.
+- `services/platform/frontend/test/productAccess.test.mjs`: 5 behavioral checks for scope isolation, legacy/incomplete sessions, normalized deep links, malformed snapshots, dirty patches, dependencies and first-project loading/cancellation.
+- `services/platform/backend/test/integration/productAccess.postgres.test.js`: passed against an empty disposable PostgreSQL database. Tested parallel writes to different flags, omitted disabled flags, parent/child behavior, legacy flat storage, invalid update immutability and transactional rollback. The database and private temporary environment file were removed afterward.
+- `services/platform/test/browser/featureAvailability.test.mjs`: passed using the actual administration components/styles with isolated representative API fixtures. Tests read failure/retry, search/empty state, dependencies, failed-save draft recovery, independent concurrent edits, keyboard toggling, discard and 390px layout. It does not modify live flags, roles, users or integrations.
 - Visual evidence is at `/tmp/qaira-product-access-before/` and `/tmp/qaira-product-access-after/` (`feature-availability-desktop.png`, `feature-availability-mobile.png`). These compare the typography/control refinement with the same fixture; the behavioral baseline was established by code inspection. The in-app browser was unavailable, so the existing isolated Chrome/Playwright setup was used. Both desktop and mobile after images were visually inspected.
 
 ## Boundaries and remaining work

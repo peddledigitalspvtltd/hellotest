@@ -73,7 +73,7 @@ and isolated API/authentication fixtures. It checks all ten saved editors, all
 nine available creation forms, catalog selection, unsaved overrides, retries,
 stale-result cancellation, project changes and responsive layouts at 320, 390,
 768 and 1440 pixels. Fixtures assert that no integration is saved by a check.
-See [browser test instructions](../frontend/test/browser/README.md).
+See [browser test instructions](../services/platform/frontend/test/browser/README.md).
 
 Final verification passed 348 frontend tests and 458 API tests, with one existing
 API skip. TypeScript and the production frontend build passed; Vite retains its

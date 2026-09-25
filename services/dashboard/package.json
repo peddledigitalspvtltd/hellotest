@@ -1,0 +1,52 @@
+{
+  "name": "@hellotest/dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest dashboard capability: UI, API and workers",
+  "files": [
+    "backend",
+    "frontend",
+    "dist/ui",
+    "package.json",
+    "README.md"
+  ],
+  "exports": {
+    "./backend": "./backend/service.manifest.js",
+    "./backend/services/portfolioAnalytics.service": "./backend/services/portfolioAnalytics.service.js",
+    "./backend/services/qualityDashboardReport.service": "./backend/services/qualityDashboardReport.service.js",
+    "./backend/services/qualityOverview.service": "./backend/services/qualityOverview.service.js",
+    "./client": "./frontend/api.client.ts",
+    "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/QualityMetricStrip": "./frontend/components/QualityMetricStrip.tsx",
+    "./frontend/index": "./frontend/index.ts",
+    "./frontend/lib/qualityAnalyticsMessages": "./frontend/lib/qualityAnalyticsMessages.ts",
+    "./frontend/lib/releaseReadinessMessages": "./frontend/lib/releaseReadinessMessages.ts",
+    "./frontend/pages/OverviewPage": "./frontend/pages/OverviewPage.tsx",
+    "./package.json": "./package.json",
+    "./ui": "./frontend/entry.ts"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build/capability-ui.mjs dashboard",
+    "start": "node backend/server.cjs",
+    "test": "node ../../scripts/checks/test-capability.mjs dashboard",
+    "dev": "npm --prefix ../platform/frontend run dev",
+    "dev:api": "node backend/server.cjs"
+  },
+  "hellotest": {
+    "id": "dashboard",
+    "requires": [
+      "testing"
+    ],
+    "uiProtocol": 1,
+    "features": [
+      "hellotest.analytics.dashboards",
+      "hellotest.automation.analytics"
+    ]
+  },
+  "dependencies": {
+    "@hellotest/ai": "^1.0.0",
+    "@hellotest/integration": "^1.0.0",
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/testing": "^1.0.0"
+  }
+}

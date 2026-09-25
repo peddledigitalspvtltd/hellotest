@@ -46,9 +46,7 @@ services:
       OPS_TELEMETRY_SERVICE_NAME: ${OPS_TELEMETRY_SERVICE_NAME_API:-hellotest-testengine-api}
 
   testengine-web:
-    image: ${HELLOTEST_TESTENGINE_IMAGE:-hellotest-testengine:latest}
-    build:
-      context: ./backend
+    <<: *testengine-worker
     environment:
       PORT: 4301
       NODE_ENV: ${TESTENGINE_NODE_ENV:-development}
@@ -82,15 +80,6 @@ services:
       OPS_TELEMETRY_API_KEY_PREFIX: ${OPS_TELEMETRY_API_KEY_PREFIX:-Bearer}
     ports:
       - "${TESTENGINE_BIND:-127.0.0.1}:${TESTENGINE_PORT:-4301}:4301"
-    volumes:
-      - testengine-artifacts:/artifacts
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4301/health/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));\""]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-    stop_grace_period: 35s
-    restart: always
     depends_on:
       - selenium-hub
       - selenium-node-chrome

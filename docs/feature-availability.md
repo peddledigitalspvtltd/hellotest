@@ -36,7 +36,7 @@ The administrative feature detail distinguishes required capabilities from optio
 
 The feature snapshot refreshes every minute and on focus when stale. Session grants refresh on visible focus and every minute while visible. Refresh does not set the form back to an initial loading state, and transient session refresh failures preserve the current session. API authorization remains authoritative on every request, including during the refresh interval.
 
-The generated frontend fallback in `frontend/src/lib/featurePolicy.generated.json` supports rolling updates with older snapshots. Backend/frontend parity tests must pass whenever the permission or feature catalog changes.
+The generated frontend fallback in `services/platform/frontend/src/platform/lib/featurePolicy.generated.json` supports rolling updates with older snapshots. Backend/frontend parity tests must pass whenever the permission or feature catalog changes.
 
 ## Verification
 

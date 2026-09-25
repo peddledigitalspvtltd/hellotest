@@ -9,12 +9,19 @@ discovery.docker "hellotest" {
 
   filter {
     name   = "name"
-    values = ["hellotest"]
+    values = ["hellotest", "local-run-testengine"]
   }
 }
 
 discovery.relabel "docker_logs" {
   targets = []
+
+  // Never feed the collector's own delivery errors back into its log stream.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex = "/hellotest-ops-alloy"
+    action = "drop"
+  }
 
   rule {
     source_labels = ["__meta_docker_container_name"]
@@ -46,6 +53,12 @@ loki.source.docker "hellotest" {
 loki.process "safety" {
   forward_to = [loki.write.local.receiver]
 
+  stage.limit {
+    rate = 5
+    burst = 10
+    drop = true
+  }
+
   // Defense in depth for logs emitted outside the structured application
   // logger. Source-side Pino redaction remains the primary control.
   stage.replace {
@@ -62,5 +75,10 @@ loki.process "safety" {
 loki.write "local" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+    batch_size = "64KiB"
+    remote_timeout = "3s"
+    min_backoff_period = "500ms"
+    max_backoff_period = "5s"
+    max_backoff_retries = 3
   }
 }

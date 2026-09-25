@@ -43,8 +43,8 @@ The editor matches the admin sidebar/workspace design. It includes field search,
 - `GET /admin-portal/dropdowns` returns the catalog and revision.
 - `PUT /admin-portal/dropdowns/:key` accepts `expected_revision`, an ordered `options` array, and `default_value` for fields that support it.
 - `409 DROPDOWN_REVISION_CONFLICT` means another editor published first. System-managed mutations return `400 DROPDOWN_SYSTEM_MANAGED`; unknown keys return `404 DROPDOWN_FIELD_NOT_FOUND`.
-- Definitions live in `backend/api/src/domain/dropdownCatalog.js`; persistence/validation lives in `backend/api/src/services/dropdownCatalog.service.js`.
-- Frontend option resolution lives in `frontend/src/lib/domainOptions.ts` and `frontend/src/hooks/useDomainOptions.ts`; the admin editor lives in `frontend/src/admin/DropdownValues.tsx`.
+- Definitions live in `services/platform/backend/src/domain/dropdownCatalog.js`; persistence/validation lives in `services/platform/backend/services/dropdownCatalog.service.js`.
+- Frontend option resolution lives in `services/platform/frontend/src/platform/lib/domainOptions.ts` and `services/platform/frontend/src/platform/hooks/useDomainOptions.ts`; the admin editor lives in `services/platform/frontend/admin/DropdownValues.tsx`.
 - Only the test case type database constraint expands to accept stable classification codes. Existing status, result, automation and other engine contracts remain unchanged.
 
 ## Validation

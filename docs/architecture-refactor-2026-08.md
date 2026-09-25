@@ -2,6 +2,8 @@
 
 ## Scope and invariants
 
+The current follow-on boundary is the profiled service catalog in [`services/catalog.json`](../services/catalog.json). Manual, Dashboard, Automation, Agentic, Chatbot, AI, Trace, and Integration API profiles have composition roots under `services/<profile>/backend` and `services/<profile>/frontend`. They share the reviewed API image and PostgreSQL contract during the strangler migration. `HELLOTEST_SERVICE_PROFILE` controls lazy route registration, while [`docker-compose.microservices.yml`](../docker-compose.microservices.yml) provides an independently deployable local contract. This keeps the existing transactional invariants intact while making ownership and scaling boundaries explicit.
+
 This pass preserves the attached HelloTest/Jira reference UI as the visual contract. It changes navigation lifecycle, shared selection behavior, persistence boundaries, and database access without redesigning screens or changing native HelloTest ownership of backend data.
 
 The principal invariant is that every sidebar destination remains reachable in any order, including routes that render the same page component with different modes.
@@ -10,7 +12,7 @@ The principal invariant is that every sidebar destination remains reachable in a
 
 ### Route registry
 
-`frontend/src/lib/workspaceRoutes.ts` is the canonical path registry. Router declarations, primary navigation, section navigation, and route prefetching consume this registry rather than maintaining independent path literals.
+`services/platform/frontend/src/platform/lib/workspaceRoutes.ts` is the canonical path registry. Router declarations, primary navigation, section navigation, and route prefetching consume this registry rather than maintaining independent path literals.
 
 The shell now owns:
 

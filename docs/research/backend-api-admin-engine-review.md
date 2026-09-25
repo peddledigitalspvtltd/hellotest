@@ -265,14 +265,14 @@ Reviewed `local-run/mobile-engine/src/server.js`, `security.js`, `operational.js
 
 ### Archived execution package
 
-`apps/hellotest-execution-engine/package.json` marks the package archived, non-deployable and replaced by `testengine/backend`. Its `src/index.ts` starts a queue worker, not an HTTP server; there are no active registered HTTP API routes in this package. It was excluded from supported deployment changes.
+At the time of this review, `apps/hellotest-execution-engine/package.json` marked the package archived, non-deployable and replaced by `testengine/backend`. The prototype has since been removed; see [the consolidation review](../testengine-consolidation.md). Its `src/index.ts` starts a queue worker, not an HTTP server; there are no active registered HTTP API routes in this package. It was excluded from supported deployment changes.
 
 ## Validation
 
 - Final complete main API suite coordinated by the root review: 940 passed, zero failed, two existing opt-in skips. Earlier focused suites passed 66/66; final proxy/admin route checks passed 13/13 (including the added tenth architecture test).
-- `backend/api/test/adminApiArchitecture.test.js`: permission-key canonicalization, profile field boundaries, grant-query count/rollback, scoped bounded notifications, global transaction restriction, session 401 and asset URL escape checks.
-- `backend/api/test/authVerificationTransactions.test.js`: signup/reset failure counters and expired-code cleanup persist despite rejected responses.
-- `backend/api/test/integration/adminApiArchitecture.postgres.test.js`: real row locks, single-use code concurrency, rollback, grant bulk SQL, password race, notification ownership/cursors and 30,000-row measurement; passed in a disposable database.
+- `services/platform/test/backend/adminApiArchitecture.test.js`: permission-key canonicalization, profile field boundaries, grant-query count/rollback, scoped bounded notifications, global transaction restriction, session 401 and asset URL escape checks.
+- `services/platform/test/backend/authVerificationTransactions.test.js`: signup/reset failure counters and expired-code cleanup persist despite rejected responses.
+- `services/platform/backend/test/integration/adminApiArchitecture.postgres.test.js`: real row locks, single-use code concurrency, rollback, grant bulk SQL, password race, notification ownership/cursors and 30,000-row measurement; passed in a disposable database.
 - Test Engine: `npm test` compiled TypeScript and passed 45/45 existing tests.
 - Mobile Engine: `LOG_LEVEL=error npm test` passed 19/19, including the new 20-viewer screenshot regression.
 - The root review added the unfiltered notification index to the existing concurrent performance-indexing catalog and verified actual build/reuse plus a 30,000-row PostgreSQL EXPLAIN plan in another disposable database. It was removed after verification.
@@ -283,7 +283,7 @@ The changes retain endpoint paths and successful response fields. Intentional er
 
 These checks do not establish production capacity or eliminate every possible bottleneck. Remaining review observations:
 
-- Legacy Test Engine ordinary recorder create/list/status/inspect/stop/pause/resume and execution live-session endpoints do not uniformly require the service secret; repository-inspection and live-view token paths have stronger protection. CORS alone is not server-to-server authorization. Keep this existing surface behind a trusted gateway/network. A full credential-contract migration requires coordinated frontend/API/engine changes and was not silently imposed here.
+- Legacy Test Engine ordinary recorder create/list/status/inspect/stop/pause/resume and execution live-session endpoints do not uniformly require the service secret; repository-inspection and live-view token paths have stronger protection. CORS alone is not server-to-server authorization. Keep this existing surface behind a trusted gateway/network. A full credential-contract migration requires coordinated services/platform/frontend/API/engine changes and was not silently imposed here.
 - Test Engine in-memory run/envelope history and mobile stopped-session history lack a general bounded retention contract. A retention/pagination design should preserve existing history/retry consumers before imposing truncation.
 - Notification exact counts and offset cursors still perform work proportional to user history/deep offset; the retained contract now bounds returned rows and application memory. A keyset API would further improve deep pagination.
 - Personal workspace preferences still read/merge/write a complete preference object; simultaneous independent profile settings edits can conflict. Feature-flag writes already use an atomic PostgreSQL merge.

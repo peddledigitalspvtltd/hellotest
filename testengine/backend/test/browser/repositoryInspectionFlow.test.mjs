@@ -5,9 +5,9 @@ import { chromium } from "playwright";
 import Fastify from "fastify";
 import { registerRecorderRoutes } from "../../dist/lib/recorder.js";
 const require = createRequire(import.meta.url);
-const integrations = require("../../../../backend/api/src/services/integration.service.js");
-const projects = require("../../../../backend/api/src/services/project.service.js");
-const inspectionRoutes = require("../../../../backend/api/src/routes/repositoryInspection.routes.js");
+const integrations = require("../../../../services/integration/backend/services/integration.service.js");
+const projects = require("../../../../services/platform/backend/services/project.service.js");
+const inspectionRoutes = require("../../../../services/agentic/backend/routes/repositoryInspection.routes.js");
 
 test("real remote Chromium inspection streams through app proxy and closes its isolated context", { timeout: 60000 }, async t => {
   const previous = process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;

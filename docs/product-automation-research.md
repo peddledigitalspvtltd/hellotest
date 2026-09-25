@@ -60,12 +60,12 @@ The worker executes in the API process. A process failure therefore stops active
 
 ## Verification evidence
 
-- `backend/api/test/agentWorkflowExecution.test.js`: registered-node execution, immutable snapshots, exact scope, idempotent concurrent starts, invalid definition/input rejection, grants and feature denial, actual citations and ancestor results, missing-evidence stop, cancellation after feature disablement, cancellation from another worker, bounded retry counts, permission revocation and expired-run recovery.
-- `backend/api/test/agentWorkspaceReliability.test.js`: specialist retrieval and model recovery plus disabled knowledge/source feature boundaries.
-- `backend/api/test/automationBuildPersistence.test.js`: recorder ownership, reordered exact matches and rejection of unrelated positional targets.
-- `backend/api/test/integration/agentWorkspace.postgres.test.js`: all ten real specialists, saved evidence reviews, original graph previews, real review execution and lifecycle persistence in a fresh `agent_verify_*` PostgreSQL database. No provider model is configured; results must identify deterministic evidence summaries. The test deletes its disposable database afterward.
-- `frontend/test/browser/agentWorkflowExecution.test.mjs`: readiness invalidation, unsupported-node blockers, start recovery with the same request ID, actual progress, stored review cards, cancellation and mobile layout.
-- Existing `frontend/test/browser/agentWorkspace.test.mjs` preserves coverage of all fourteen agents and the original specialist/preview workflows.
+- `services/platform/backend/test/agentWorkflowExecution.test.js`: registered-node execution, immutable snapshots, exact scope, idempotent concurrent starts, invalid definition/input rejection, grants and feature denial, actual citations and ancestor results, missing-evidence stop, cancellation after feature disablement, cancellation from another worker, bounded retry counts, permission revocation and expired-run recovery.
+- `services/platform/backend/test/agentWorkspaceReliability.test.js`: specialist retrieval and model recovery plus disabled knowledge/source feature boundaries.
+- `services/platform/backend/test/automationBuildPersistence.test.js`: recorder ownership, reordered exact matches and rejection of unrelated positional targets.
+- `services/platform/backend/test/integration/agentWorkspace.postgres.test.js`: all ten real specialists, saved evidence reviews, original graph previews, real review execution and lifecycle persistence in a fresh `agent_verify_*` PostgreSQL database. No provider model is configured; results must identify deterministic evidence summaries. The test deletes its disposable database afterward.
+- `services/platform/frontend/test/browser/agentWorkflowExecution.test.mjs`: readiness invalidation, unsupported-node blockers, start recovery with the same request ID, actual progress, stored review cards, cancellation and mobile layout.
+- Existing `services/agentic/test/browser/agentWorkspace.test.mjs` preserves coverage of all fourteen agents and the original specialist/preview workflows.
 
 Browser artifacts are isolated renders of the production components and styles with explicit API fixtures; they are not screenshots of customer data:
 
