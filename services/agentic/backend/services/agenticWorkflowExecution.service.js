@@ -11,7 +11,7 @@ const MODE = "review";
 const MAX_DURATION_MS = 180_000;
 const MAX_INPUT_BYTES = 16_384;
 const MAX_PARALLEL_RUNS = 2;
-const SUPPORTED_KINDS = new Set(["trigger", "agent", "llmAgent", "aggregator", "output"]);
+const SUPPORTED_KINDS = new Set(["trigger", "agent", "llmAgent", "repositoryAgent", "aggregator", "output"]);
 const active = new Map();
 const starting = new Map();
 const diagnostics = { onFailure: () => {} };
@@ -37,26 +37,37 @@ const store = {
     WHERE id = ? AND status = 'running' RETURNING id`).get(status, nodes, output, status, id)
 };
 
-function readiness(workflow) {
+function readiness(workflow, targetNodeId = "") {
   const blockers = [];
   const warnings = [];
   const add = (node, message) => blockers.push({ node_id: node?.id || null, node_name: node ? nodeName(node) : null, message });
   let ordered = [];
   try { ordered = require("@hellotest/platform/backend/src/utils/agenticWorkflowGraph").validateWorkflowGraph(workflow.nodes, workflow.edges, { requireNodes: true }); }
   catch (failure) { add(null, failure.publicMessage || failure.message); }
-  const nodes = array(workflow.nodes);
-  const edges = array(workflow.edges);
+  let nodes = array(workflow.nodes);
+  let edges = array(workflow.edges);
+  if (targetNodeId) {
+    if (typeof targetNodeId !== "string" || !nodes.some(node => node.id === targetNodeId)) add(null, "Select an existing node to execute.");
+    const required = new Set([targetNodeId]);
+    const visit = id => edges.filter(edge => edge.target === id).forEach(edge => {
+      if (!required.has(edge.source)) { required.add(edge.source); visit(edge.source); }
+    });
+    visit(targetNodeId);
+    nodes = nodes.filter(node => required.has(node.id));
+    edges = edges.filter(edge => required.has(edge.source) && required.has(edge.target));
+    ordered = ordered.filter(node => required.has(node.id));
+  }
   const settings = object(workflow.settings);
   if (settings.requiresApproval || settings.approvalRequired || settings.human_approval_required) add(null, "Approval gates are preview-only. Remove the execution approval gate; results will still require human review before any artifact change.");
   if (settings.execution_mode && !["review", "sequential", "preview"].includes(settings.execution_mode)) add(null, "Only sequential review execution is supported. Parallel or custom execution modes are preview-only.");
-  const specialists = nodes.filter(node => ["agent", "llmAgent"].includes(kindOf(node)));
+  const specialists = nodes.filter(node => ["agent", "llmAgent", "repositoryAgent"].includes(kindOf(node)));
   if (["paused", "archived"].includes(workflow.status)) add(null, "Move this workflow to Draft or Active before executing a review.");
   if (workflow.trigger_kind && workflow.trigger_kind !== "manual") add(null, "Review execution supports manual starts. Change the trigger to Manual; schedules and webhooks are preview-only.");
   if (nodes.length > 8) add(null, "A review workflow supports at most 8 steps.");
-  if (!specialists.length || specialists.length > 4) add(null, "Include between 1 and 4 registered specialist steps.");
+  if ((!targetNodeId && !specialists.length) || specialists.length > 4) add(null, "Include between 1 and 4 registered specialist steps.");
   const triggers = nodes.filter(node => kindOf(node) === "trigger");
   if (triggers.length !== 1) add(null, "Include exactly one request trigger.");
-  if (!nodes.some(node => kindOf(node) === "output")) add(null, "Add an Output step for the review packet.");
+  if (!targetNodeId && !nodes.some(node => kindOf(node) === "output")) add(null, "Add an Output step for the review packet.");
   for (const node of nodes) {
     const data = object(node.data);
     const kind = kindOf(node);
@@ -73,7 +84,9 @@ function readiness(workflow) {
     if (kind === "trigger" && incoming.length) add(node, "The request trigger cannot have incoming connections.");
     if (kind !== "trigger" && !incoming.length) add(node, "Connect this step to the request trigger or an earlier step.");
     if (kind === "output" && outgoing.length) add(node, "Output steps must finish a branch.");
-    if (kind !== "output" && !outgoing.length) add(node, "Connect this branch to an Output step.");
+    if (kind !== "output" && node.id !== targetNodeId && !outgoing.length) add(node, "Connect this branch to an Output step.");
+    if (kind === "repositoryAgent" && !require("../agents/catalog").AGENTS.some(agent => agent.id === data.repositoryAgentType)) add(node, "Choose a source analysis agent.");
+    if (kind === "repositoryAgent" && Number(data.retryCount) > 0) add(node, "Source analysis uses its existing worker. Set retries to zero; review a failed analysis before starting a new execution.");
     if (["agent", "llmAgent"].includes(kind)) {
       if (!assistant.AGENT_CATALOG[data.agentId]) add(node, "Choose a registered workspace specialist in the step inspector.");
       const prompt = text(data.prompt) || text(data.intent);
@@ -85,14 +98,15 @@ function readiness(workflow) {
     if (text(data.apiUrl) || text(data.toolName) || text(data.testOpsAction)) add(node, "External tools and write actions are preview-only. Remove the tool binding to execute an evidence review.");
     if (data.onError && data.onError !== "stop") add(node, "Review execution stops on failure. Set the error policy to Stop workflow.");
     if (data.mergeMode && data.mergeMode !== "waitAllAppend") add(node, "Review execution collects every connected result. Choose Wait for all, append items.");
-    if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > 70_000)) add(node, "Choose a step timeout between 1,000 and 70,000 milliseconds.");
+    const maxTimeout = kind === "repositoryAgent" ? MAX_DURATION_MS : 70_000;
+    if (data.timeoutMs != null && (!Number.isFinite(Number(data.timeoutMs)) || Number(data.timeoutMs) < 1_000 || Number(data.timeoutMs) > maxTimeout)) add(node, `Choose a step timeout between 1,000 and ${maxTimeout.toLocaleString("en-US")} milliseconds.`);
     if (data.retryCount != null && (!Number.isInteger(Number(data.retryCount)) || Number(data.retryCount) < 0 || Number(data.retryCount) > 2)) add(node, "Review steps support zero, one or two retries within their timeout.");
     if (data.retryDelayMs != null && (!Number.isFinite(Number(data.retryDelayMs)) || Number(data.retryDelayMs) < 0 || Number(data.retryDelayMs) > 10_000)) add(node, "Choose a retry delay between 0 and 10,000 milliseconds.");
   }
   if (nodes.some(node => node.data?.sampleOutput != null)) warnings.push("Execution uses actual connected results. Declared sample outputs are used only in previews.");
   warnings.push("Results remain review briefs. No test cases, runs, defects, repository files or external systems are changed.");
   warnings.push("Connected branches execute in dependency order on this worker. Output labels do not evaluate expressions; each specialist retrieves fresh evidence with its own bounded context policy.");
-  return { ready: blockers.length === 0, execution_mode: MODE, blockers, warnings,
+  return { ready: blockers.length === 0, execution_mode: MODE, target_node_id: targetNodeId || null, blockers, warnings,
     limits: { max_steps: 8, max_specialists: 4, timeout_ms: MAX_DURATION_MS, input_limit_bytes: MAX_INPUT_BYTES },
     steps: ordered.map(node => ({ node_id: node.id, name: nodeName(node), kind: kindOf(node), specialist_id: node.data?.agentId || null })) };
 }
@@ -143,11 +157,11 @@ function specialistPrompt(run, node, sources) {
 
 const collectReviews = (sources) => sources.flatMap(source => {
   const out = source.output || {};
-  return out.response ? [{ node_id: source.node_id, session_id: out.session_id, response: out.response, readiness: out.readiness, citation_ids: out.citation_ids }]
+  return out.response ? [{ node_id: source.node_id, session_id: out.session_id, repository_run_id: out.repository_run_id, repository_agent_type: out.repository_agent_type, response: out.response, readiness: out.readiness, citation_ids: out.citation_ids }]
     : array(out.reviews);
 }).filter((review, index, all) => all.findIndex(other => other.node_id === review.node_id) === index).slice(0, 4);
 
-async function executeNode(run, node, user, signal, onAttempt) {
+async function executeNode(run, node, user, signal, onAttempt, onProgress = async () => {}) {
   const sources = compactUpstream(run, node);
   const kind = kindOf(node);
   if (kind === "trigger") return { request: run.input_payload };
@@ -162,6 +176,39 @@ async function executeNode(run, node, user, signal, onAttempt) {
     return { reviews: collectReviews(run.node_results.filter(item => ancestors.has(item.node_id))), requires_human_review: true };
   }
   const data = object(node.data);
+  if (kind === "repositoryAgent") {
+    const repositoryAgents = require("../agents/repositoryAgents.service");
+    const source = object(run.input_payload.source);
+    if (source.type !== "github" || !text(source.repository_url)) throw error("Supply source.type = github and source.repository_url in the workflow input. ZIP uploads are available in the source agent workspace.");
+    await onAttempt(1);
+    const job = await repositoryAgents.createRun({ project_id: run.project_id, app_type_id: run.app_type_id,
+      agent_type: data.repositoryAgentType, source }, user, { requestKey: `workflow-${run.id}-${node.id}` });
+    let lastProgress = "";
+    try {
+      return await execution.bounded(async childSignal => {
+        while (!childSignal.aborted) {
+          await requireRunAccess(user, run.project_id);
+          const current = await repositoryAgents.getRun(job.id, user, "agentic_workflow.run");
+          const progress = { repository_run_id: job.id, repository_agent_type: data.repositoryAgentType, status: current.status, percent: current.progress || 0, stages: current.stages || [] };
+          const signature = JSON.stringify(progress);
+          if (signature !== lastProgress) { await onProgress(progress); lastProgress = signature; }
+          if (["failed", "cancelled"].includes(current.status)) throw error("Source analysis did not complete. Inspect the source agent execution for details.", 502);
+          if (["completed", "partial"].includes(current.status)) return {
+            repository_run_id: job.id, repository_agent_type: data.repositoryAgentType,
+            response: typeof current.summary === "string" ? current.summary : `Source analysis completed. ${JSON.stringify(current.summary || current.result?.summary || {})}`,
+            source: current.source, stages: current.stages, warnings: current.warnings,
+            readiness: { status: current.status === "partial" ? "limited_evidence" : "ready_for_review" },
+            requires_human_review: true
+          };
+          await execution.bounded(() => new Promise(resolve => setTimeout(resolve, 1_000)), { signal: childSignal, timeoutMs: 2_000 });
+        }
+        throw execution.abortError();
+      }, { signal, timeoutMs: Number(data.timeoutMs) || MAX_DURATION_MS });
+    } finally {
+      const current = await repositoryAgents.getRun(job.id, user, "agentic_workflow.run").catch(() => null);
+      if (current && ["queued", "running"].includes(current.status)) await repositoryAgents.cancelRun(job.id, user).catch(() => {});
+    }
+  }
   const deadline = Date.now() + (Number(data.timeoutMs) || 70_000);
   const retries = Number(data.retryCount) || 0;
   const scopeAliases = { requirements: "stories", "test-runs": "runs", "object-repository": "automation" };
@@ -214,10 +261,18 @@ async function perform(run, user, controller) {
         const result = run.node_results.find(item => item.node_id === node.id);
         result.status = "running";
         result.started_at = new Date().toISOString();
-        result.input = { source_node_ids: compactUpstream(run, node).map(source => source.node_id), input_mode: "connected_results" };
+        const upstream = compactUpstream(run, node);
+        result.input = {
+          input_mode: "connected_results", request: run.input_payload,
+          source_node_ids: upstream.map(source => source.node_id),
+          // Keep inspectable data bounded. Full upstream output is stored on its own node.
+          upstream: upstream.map(source => ({ node_id: source.node_id, status: source.status,
+            preview: JSON.stringify(source.output).slice(0, 2_000), truncated: JSON.stringify(source.output).length > 2_000 })),
+          ...(["agent", "llmAgent"].includes(kindOf(node)) ? { prompt: specialistPrompt(run, node, upstream) } : {})
+        };
         result.logs.push({ at: result.started_at, level: "info", message: "Started the registered review step." });
         await persist();
-        result.output = await executeNode(run, node, user, signal, async attempts => { result.attempts = attempts; await persist(); });
+        result.output = await executeNode(run, node, user, signal, async attempts => { result.attempts = attempts; await persist(); }, async progress => { result.progress = progress; await persist(); });
         if (signal.aborted) throw execution.abortError();
         result.status = "completed";
         result.completed_at = new Date().toISOString();
@@ -232,12 +287,12 @@ async function perform(run, user, controller) {
           return;
         }
       }
-      const reviews = run.node_results.filter(item => item.output?.session_id).map(item => ({ node_id: item.node_id, session_id: item.output.session_id, readiness: item.output.readiness }));
+      const reviews = run.node_results.filter(item => item.output?.session_id || item.output?.repository_run_id).map(item => ({ node_id: item.node_id, session_id: item.output.session_id, repository_run_id: item.output.repository_run_id, readiness: item.output.readiness }));
       const limited = reviews.some(review => review.readiness?.status !== "ready_for_review");
       if (signal.aborted) throw execution.abortError();
       await store.save(run.id, limited ? "needs_review" : "completed", run.node_results, { ...run.output_payload, status: limited ? "needs_review" : "completed",
-        summary: limited ? "Review workflow finished with evidence limitations. Inspect each specialist review before acting." : "Review workflow completed. Evidence and proposed next actions are ready for human review.",
-        reviews, review_session_ids: reviews.map(review => review.session_id),
+        summary: limited ? "Review workflow finished with evidence limitations. Inspect each review before acting." : run.workflow_snapshot.runtime_contract.target_node_id ? "Selected step and its preceding steps completed. Downstream steps were not executed." : "Review workflow completed. Evidence and proposed next actions are ready for human review.",
+        reviews, review_session_ids: reviews.map(review => review.session_id).filter(Boolean),
         results: run.node_results.filter(item => item.node_type === "output").map(item => ({ node_id: item.node_id, output: item.output })) });
     }, { timeoutMs: Math.max(1, Date.parse(run.workflow_snapshot.runtime_contract.deadline_at) - Date.now()), signal: controller.signal });
   } catch (failure) {
@@ -257,13 +312,17 @@ async function perform(run, user, controller) {
 
 async function start(workflow, input = {}, user) {
   await requireRunAccess(user, workflow.project_id);
-  const report = readiness(workflow);
+  const targetNodeId = input.target_node_id || "";
+  const report = readiness(workflow, targetNodeId);
   if (!report.ready) throw Object.assign(error(report.blockers.map(item => item.message).join(" "), 422), { readiness: report });
   const payload = object(input.input_payload);
   if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) throw error("Review input is limited to 16 KB.");
+  if (report.steps.some(step => step.kind === "repositoryAgent") && (object(payload.source).type !== "github" || !text(object(payload.source).repository_url))) throw error("Add source.type = github and source.repository_url to Workflow input before starting source analysis.");
   const requestKey = text(input.request_id);
   if (requestKey && !/^[a-zA-Z0-9_-]{8,128}$/.test(requestKey)) throw error("Use a request ID of 8–128 letters, digits, underscores or hyphens.");
-  const requestFingerprint = hash({ workflow: { ...workflow, run_count: undefined, latest_run_at: undefined, latest_run_status: undefined }, payload });
+  // A transport retry may save the same definition again. Audit timestamps are
+  // not execution input; changing them must not invalidate the idempotency key.
+  const requestFingerprint = hash({ workflow: { ...workflow, updated_at: undefined, updated_by: undefined, run_count: undefined, latest_run_at: undefined, latest_run_status: undefined }, payload, targetNodeId });
   const id = requestKey ? `review-${hash([workflow.id, user.id, requestKey]).slice(0, 40)}` : randomUUID();
   const existing = await store.get(id);
   if (existing) {
@@ -272,7 +331,7 @@ async function start(workflow, input = {}, user) {
   }
   if (active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
   const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false, project_changes_applied: false,
-    external_write_tools: false, requires_human_review: true, max_duration_ms: MAX_DURATION_MS,
+    external_write_tools: false, requires_human_review: true, max_duration_ms: MAX_DURATION_MS, target_node_id: targetNodeId || null,
     deadline_at: new Date(Date.now() + MAX_DURATION_MS).toISOString(), request_fingerprint: requestFingerprint,
     recovery: "Interrupted work is preserved; it is never automatically replayed." };
   const run = { id, workflow_id: workflow.id, project_id: workflow.project_id, app_type_id: workflow.app_type_id || null, workflow_name: workflow.name,

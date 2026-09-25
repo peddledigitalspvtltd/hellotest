@@ -64,7 +64,7 @@ The worker executes in the API process. A process failure therefore stops active
 - `services/platform/backend/test/agentWorkspaceReliability.test.js`: specialist retrieval and model recovery plus disabled knowledge/source feature boundaries.
 - `services/platform/backend/test/automationBuildPersistence.test.js`: recorder ownership, reordered exact matches and rejection of unrelated positional targets.
 - `services/platform/backend/test/integration/agentWorkspace.postgres.test.js`: all ten real specialists, saved evidence reviews, original graph previews, real review execution and lifecycle persistence in a fresh `agent_verify_*` PostgreSQL database. No provider model is configured; results must identify deterministic evidence summaries. The test deletes its disposable database afterward.
-- `services/platform/frontend/test/browser/agentWorkflowExecution.test.mjs`: readiness invalidation, unsupported-node blockers, start recovery with the same request ID, actual progress, stored review cards, cancellation and mobile layout.
+- `services/agentic/test/browser/agentWorkflowExecution.test.mjs`: readiness invalidation, unsupported-node blockers, start recovery with the same request ID, actual progress, stored review cards, cancellation and mobile layout.
 - Existing `services/agentic/test/browser/agentWorkspace.test.mjs` preserves coverage of all fourteen agents and the original specialist/preview workflows.
 
 Browser artifacts are isolated renders of the production components and styles with explicit API fixtures; they are not screenshots of customer data:

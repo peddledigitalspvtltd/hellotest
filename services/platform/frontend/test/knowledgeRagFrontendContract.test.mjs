@@ -211,7 +211,7 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.match(workflows, /smart_context: canUseKnowledge && assistantSmartContext \?/);
   assert.match(workflows, /source_ids: assistantSmartContext\.sourceIds/);
   assert.match(workflows, /reviewed_context: assistantSmartContext\.contextText/);
-  assert.match(workflows, /knowledgeQuery: selection\.query/);
+  assert.match(await readSource("../../../agentic/frontend/workflows/WorkflowNodeInspector.tsx"), /knowledgeQuery: selection\.query/);
   assert.match(api, /smart_context\?: \{[\s\S]*source_ids\?: string\[\][\s\S]*reviewed_context\?: string/);
   assert.match(api, /sendMessage:[\s\S]*smart_context\?:/);
   assert.match(designStudio, /export const replaceSmartContextPack/);

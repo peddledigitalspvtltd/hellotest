@@ -2856,6 +2856,7 @@ export type AgenticWorkflowRun = {
 };
 
 export type AgenticWorkflowReadiness = {
+  target_node_id?: string | null;
   ready: boolean;
   execution_mode: "review";
   blockers: Array<{ node_id: string | null; node_name: string | null; message: string }>;

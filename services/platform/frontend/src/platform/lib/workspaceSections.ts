@@ -80,7 +80,7 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/": "Home",
   "/projects": "Projects",
   "/stories": "Stories",
-  "/agentic-workflows": "Agentic Workflows",
+  "/agentic-workflows": "Agentic Studio",
   "/knowledge-repo": "Knowledge Repo",
   "/requirements": "Backlog",
   "/backlog": "Backlog",

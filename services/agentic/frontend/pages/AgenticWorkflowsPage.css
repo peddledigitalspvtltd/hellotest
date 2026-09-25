@@ -1,27 +1,3 @@
-.agentic-rovo-config {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding-top: 2px;
-}
-
-.agentic-rovo-config .rovo-provider-status {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-.agentic-rovo-config .rovo-provider-status > .count-pill,
-.agentic-rovo-config .rovo-provider-status > button {
-  grid-column: 2;
-  justify-self: start;
-}
-
-.agentic-rovo-config > p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.72rem;
-  line-height: 1.42;
-}
-
 .ai-agent-catalog-page,
 .ai-agent-specialist-catalog {
   display: grid;

@@ -1,0 +1,578 @@
+import { useEffect, useState } from "react";
+import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
+import {
+  IconX,
+  IconArrowsMaximize,
+  IconPlayerPlay,
+  IconTrash,
+} from "@tabler/icons-react";
+import type {
+  AgenticWorkflowNode,
+  AgenticWorkflowNodeData,
+  AgenticWorkflowRun,
+} from "@hellotest/platform/frontend/src/types";
+import { HELLOTEST_AGENT_CATALOG } from "../components/AgenticExperience";
+import { REPOSITORY_AGENTS } from "../agents/RepositoryAgents";
+import { SmartContextWorkbench } from "@hellotest/ai/frontend/components/SmartContextWorkbench";
+import { WorkflowDataView } from "./WorkflowDataView";
+import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
+import { nodeKindLabels, type WorkflowNodeKind } from "./workflowGraph";
+import type { AgenticCredential } from "./workflowGraph";
+
+export type WorkflowNodeInspectorProps = {
+  node: AgenticWorkflowNode;
+  incoming: AgenticWorkflowNode[];
+  result?: Record<string, unknown>;
+  run?: AgenticWorkflowRun | null;
+  editable: boolean;
+  canRun: boolean;
+  busy: boolean;
+  expanded: boolean;
+  stale?: boolean;
+  projectId: string;
+  appTypeId: string;
+  canKnowledge: boolean;
+  providers: Array<{ value: string; label: string; modelLabel: string }>;
+  onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
+  onExecute: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+  onExpand: () => void;
+  onOpenReview?: (agent: string, session: string) => void;
+  onOpenSource?: (agent: string, run: string) => void;
+  onTestApi?: () => void;
+  testingApi?: boolean;
+  credentials?: AgenticCredential[];
+};
+export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
+  const { node, result, run, editable, expanded, incoming } = props;
+  const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs">(
+    "parameters",
+  );
+  const [advanced, setAdvanced] = useState("");
+  const [error, setError] = useState("");
+  const root = useDialogFocus<HTMLElement>({
+    active: expanded,
+    onClose: props.onExpand,
+  });
+  useEffect(() => {
+    setTab(run ? "output" : "parameters");
+    setError("");
+    setAdvanced(JSON.stringify(node.data, null, 2));
+  }, [node.id, run?.id]);
+  const kind = String(node.data.kind || "agent");
+  const specialist = ["agent", "llmAgent"].includes(kind);
+  const progress = result?.progress as
+    | {
+        repository_run_id?: string;
+        repository_agent_type?: string;
+        percent?: number;
+        stages?: Array<{
+          id: string;
+          label: string;
+          status: string;
+          detail?: string;
+        }>;
+      }
+    | undefined;
+  const output = result?.output as Record<string, unknown> | undefined;
+  const field = (name: string, label: string, multiline = false) => (
+    <label>
+      <span>{label}</span>
+      {multiline ? (
+        <textarea
+          aria-label={label}
+          value={String(node.data[name] || "")}
+          onChange={(event) => props.onChange({ [name]: event.target.value })}
+          rows={4}
+        />
+      ) : (
+        <input
+          aria-label={label}
+          value={String(node.data[name] || "")}
+          onChange={(event) => props.onChange({ [name]: event.target.value })}
+        />
+      )}
+    </label>
+  );
+  const input = (
+    <section className="studio-inspector-pane" aria-label="Node input">
+      <h3>Input</h3>
+      <p className="studio-caption">
+        {incoming.length
+          ? `Connected from ${incoming.map((item) => item.data.label || item.id).join(", ")}`
+          : "Workflow request"}
+      </p>
+      <WorkflowDataView
+        value={result?.input}
+        empty={
+          incoming.length
+            ? "Execute this step to receive upstream data. Required preceding steps will run first."
+            : "The manual trigger receives your workflow input."
+        }
+      />
+    </section>
+  );
+  const outputPane = (
+    <section className="studio-inspector-pane" aria-label="Node output">
+      <h3>Output</h3>
+      {props.stale && (
+        <p className="studio-notice">
+          The definition has changed. Run again to refresh this result.
+        </p>
+      )}
+      {run && run.execution_mode !== "review" && (
+        <p className="studio-notice">
+          Preview data. No model or workflow tool was executed.
+        </p>
+      )}
+      {result && (
+        <p className="studio-caption" role="status">
+          {String(result.status).replace(/_/g, " ")} ·{" "}
+          {String(result.attempts || 0)}{" "}
+          {Number(result.attempts) === 1 ? "attempt" : "attempts"}
+        </p>
+      )}
+      {progress && (
+        <div className="studio-source-progress">
+          <progress
+            max={100}
+            value={Number(progress.percent) || 0}
+            aria-label="Source analysis progress"
+          />
+          <ol>
+            {progress.stages?.map((stage) => (
+              <li key={stage.id}>
+                <strong>{stage.label}</strong>
+                <span>{stage.status.replace(/_/g, " ")}</span>
+                {stage.detail && <small>{stage.detail}</small>}
+              </li>
+            ))}
+          </ol>
+          {!output && progress.repository_run_id && props.onOpenSource && (
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() =>
+                props.onOpenSource?.(
+                  String(progress.repository_agent_type),
+                  String(progress.repository_run_id),
+                )
+              }
+            >
+              Open source analysis
+            </button>
+          )}
+        </div>
+      )}
+      <WorkflowDataView
+        value={output}
+        empty={
+          result?.status === "running"
+            ? "This step is running. Output appears here when it completes."
+            : result?.status === "skipped"
+              ? "This step was not reached."
+              : undefined
+        }
+      />
+      {output?.session_id && props.onOpenReview ? (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() =>
+            props.onOpenReview?.(
+              String(output.specialist_id || node.data.agentId),
+              String(output.session_id),
+            )
+          }
+        >
+          Open saved review and sources
+        </button>
+      ) : null}
+      {output?.repository_run_id && props.onOpenSource ? (
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() =>
+            props.onOpenSource?.(
+              String(output.repository_agent_type),
+              String(output.repository_run_id),
+            )
+          }
+        >
+          Review source analysis
+        </button>
+      ) : null}
+      {result?.error ? (
+        <p role="alert" className="studio-notice">
+          {typeof result.error === "string"
+            ? result.error
+            : JSON.stringify(result.error)}
+        </p>
+      ) : null}
+    </section>
+  );
+  const parameters = (
+    <section className="studio-inspector-pane">
+      <h3>Parameters</h3>
+      {!EXECUTABLE_NODE_KINDS.has(kind) && (
+        <p className="studio-notice">
+          This node is available for graph previews. It cannot execute in a
+          review workflow.
+        </p>
+      )}
+      <fieldset disabled={!editable || props.busy}>
+        {field("label", "Node name")}
+        <label>
+          <span>Step kind</span>
+          <select
+            aria-label="Step kind"
+            value={kind}
+            onChange={(event) => props.onChange({ kind: event.target.value })}
+          >
+            {Object.entries(nodeKindLabels).map(([value, label]) => (
+              <option value={value} key={value}>
+                {label}
+                {EXECUTABLE_NODE_KINDS.has(value) ? "" : " · preview only"}
+              </option>
+            ))}
+          </select>
+        </label>
+        {specialist && (
+          <>
+            <label>
+              <span>Specialist</span>
+              <select
+                value={String(node.data.agentId || "")}
+                onChange={(event) =>
+                  props.onChange({ agentId: event.target.value })
+                }
+              >
+                <option value="">Choose a specialist</option>
+                {HELLOTEST_AGENT_CATALOG.map((agent) => (
+                  <option value={agent.id} key={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {field("prompt", "Task", true)}
+            {field("instructions", "Instructions", true)}
+            <label>
+              <span>Model connection</span>
+              <select
+                value={String(node.data.llmIntegrationId || "")}
+                onChange={(event) =>
+                  props.onChange({
+                    llmIntegrationId: event.target.value,
+                    model:
+                      props.providers.find(
+                        (item) => item.value === event.target.value,
+                      )?.modelLabel || "",
+                  })
+                }
+              >
+                {props.providers.map((item) => (
+                  <option value={item.value} key={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <details>
+              <summary>Grounding and context</summary>
+              {field("knowledgeScope", "Evidence scopes")}
+              {field("knowledgeQuery", "Retrieval query")}
+              {props.canKnowledge && (
+                <SmartContextWorkbench
+                  projectId={props.projectId}
+                  appTypeId={props.appTypeId}
+                  initialQuery={String(
+                    node.data.knowledgeQuery || node.data.prompt || "",
+                  )}
+                  disabled={!editable || props.busy}
+                  onApply={(selection) =>
+                    props.onChange({
+                      knowledgeSourceIds: selection.sourceIds,
+                      knowledgeQuery: selection.query,
+                      knowledgeSourceKinds: selection.sourceKinds,
+                    })
+                  }
+                />
+              )}
+            </details>
+          </>
+        )}
+        {kind === "repositoryAgent" && (
+          <>
+            <label>
+              <span>Source agent</span>
+              <select
+                value={String(node.data.repositoryAgentType || "")}
+                onChange={(event) =>
+                  props.onChange({ repositoryAgentType: event.target.value })
+                }
+              >
+                <option value="">Choose a source agent</option>
+                {REPOSITORY_AGENTS.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="studio-caption">
+              Uses the existing source analysis pipeline: fetch, inspect, derive
+              and validate. Set the GitHub URL and optional saved integration in
+              Workflow input. Findings remain drafts for human review.
+            </p>
+          </>
+        )}
+        {["apiTool", "apiAgent"].includes(kind) && (
+          <>
+            <label>
+              <span>Method</span>
+              <select
+                value={String(node.data.apiMethod || "GET")}
+                onChange={(event) =>
+                  props.onChange({ apiMethod: event.target.value })
+                }
+              >
+                {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => (
+                  <option key={method}>{method}</option>
+                ))}
+              </select>
+            </label>
+            {field("apiUrl", "Endpoint URL")}
+            {field("apiBody", "Request body", true)}
+            {field("apiAuth", "Auth expression")}
+            <label>
+              <span>Credential reference</span>
+              <select
+                value={String(node.data.credentialId || "")}
+                onChange={(event) =>
+                  props.onChange({ credentialId: event.target.value })
+                }
+              >
+                <option value="">No credential</option>
+                {props.credentials?.map((credential) => (
+                  <option value={credential.id} key={credential.id}>
+                    {credential.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+        {kind === "trigger" && (
+          <p className="studio-caption">
+            Starts manually with the JSON object in Workflow input. Connect its
+            output to your first step.
+          </p>
+        )}
+        {["aggregator", "output"].includes(kind) && (
+          <p className="studio-caption">
+            Collects every connected review. Results and source analyses remain
+            available for inspection; publishing is a separate action.
+          </p>
+        )}
+        {field("summary", "Description", true)}
+        <details>
+          <summary>Execution settings</summary>
+          {field("timeoutMs", "Timeout (ms)")}
+          {field("retryCount", "Retries")}
+          {field("retryDelayMs", "Retry delay (ms)")}
+          {field("outputKey", "Output label")}
+          <p className="studio-caption">
+            Review execution stops on failure. Source analysis runs once through
+            its existing worker.
+          </p>
+        </details>
+        <details
+          onToggle={(event) => {
+            if (event.currentTarget.open)
+              setAdvanced(JSON.stringify(node.data, null, 2));
+          }}
+        >
+          <summary>Advanced configuration</summary>
+          <p className="studio-caption">
+            Existing preview and tool settings are preserved here. Readiness
+            validates all settings before execution.
+          </p>
+          <label>
+            <span>Node configuration JSON</span>
+            <textarea
+              rows={10}
+              value={advanced}
+              onChange={(event) => setAdvanced(event.target.value)}
+            />
+          </label>
+          {editable && (
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => {
+                try {
+                  const parsed = JSON.parse(advanced);
+                  if (
+                    !parsed ||
+                    Array.isArray(parsed) ||
+                    typeof parsed !== "object"
+                  )
+                    throw Error("Enter a JSON object.");
+                  props.onChange({
+                    ...Object.fromEntries(
+                      Object.keys(node.data).map((key) => [key, undefined]),
+                    ),
+                    ...parsed,
+                  });
+                  setError("");
+                } catch (failure) {
+                  setError(
+                    failure instanceof Error
+                      ? failure.message
+                      : "Invalid configuration",
+                  );
+                }
+              }}
+            >
+              Apply configuration
+            </button>
+          )}
+          {error && <p role="alert">{error}</p>}
+        </details>
+      </fieldset>
+      {["apiTool", "apiAgent"].includes(kind) &&
+        props.onTestApi &&
+        props.canRun && (
+          <>
+            <p className="studio-caption">
+              Testing sends a real HTTP request. Workflow graph previews do not
+              call this endpoint.
+            </p>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={props.busy || props.testingApi}
+              onClick={props.onTestApi}
+            >
+              {props.testingApi ? "Testing API…" : "Test API output"}
+            </button>
+            {node.data.apiTestOutput ? (
+              <WorkflowDataView value={String(node.data.apiTestOutput)} />
+            ) : null}
+          </>
+        )}
+    </section>
+  );
+  return (
+    <>
+      {expanded && (
+        <div
+          className="studio-inspector-backdrop"
+          aria-hidden="true"
+          onClick={props.onExpand}
+        />
+      )}
+      <aside
+        ref={root}
+        tabIndex={-1}
+        className={`studio-inspector ${expanded ? "is-expanded" : ""}`}
+        role={expanded ? "dialog" : undefined}
+        aria-modal={expanded || undefined}
+        aria-label={`Inspect ${node.data.label || node.id}`}
+      >
+        <header>
+          <div>
+            <small>{nodeKindLabels[kind as WorkflowNodeKind] || kind}</small>
+            <strong>{String(node.data.label || "Node details")}</strong>
+          </div>
+          <button
+            type="button"
+            className="studio-icon-button"
+            aria-label={
+              expanded ? "Collapse node details" : "Expand node details"
+            }
+            onClick={props.onExpand}
+          >
+            <IconArrowsMaximize size={17} />
+          </button>
+          {(editable || !run || expanded) && (
+            <button
+              type="button"
+              className="studio-icon-button"
+              aria-label="Close node details"
+              onClick={props.onClose}
+            >
+              <IconX size={18} />
+            </button>
+          )}
+        </header>
+        <nav aria-label="Node details">
+          {(["parameters", "input", "output", "logs"] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              aria-pressed={tab === item}
+              onClick={() => setTab(item)}
+            >
+              {item[0].toUpperCase() + item.slice(1)}
+            </button>
+          ))}
+        </nav>
+        <div
+          className={`studio-inspector-content ${expanded && tab !== "logs" ? "is-three-pane" : ""}`}
+        >
+          {expanded && tab !== "logs" ? (
+            <>
+              {input}
+              {parameters}
+              {outputPane}
+            </>
+          ) : tab === "input" ? (
+            input
+          ) : tab === "output" ? (
+            outputPane
+          ) : tab === "logs" ? (
+            <section className="studio-inspector-pane">
+              <h3>Execution log</h3>
+              <WorkflowDataView
+                value={result?.logs}
+                empty="No execution has been recorded for this step."
+              />
+            </section>
+          ) : (
+            parameters
+          )}
+        </div>
+        {(editable || props.canRun) && (
+          <footer>
+            {editable && (
+              <button
+                type="button"
+                className="studio-icon-button"
+                disabled={props.busy}
+                aria-label="Delete selected node"
+                onClick={props.onDelete}
+              >
+                <IconTrash size={17} />
+              </button>
+            )}
+            {props.canRun && EXECUTABLE_NODE_KINDS.has(kind) && (
+              <button
+                type="button"
+                className="primary-button"
+                disabled={props.busy}
+                onClick={props.onExecute}
+              >
+                <IconPlayerPlay size={16} />
+                Execute step
+              </button>
+            )}
+            {props.canRun && <small>Preceding steps run first.</small>}
+          </footer>
+        )}
+      </aside>
+    </>
+  );
+}

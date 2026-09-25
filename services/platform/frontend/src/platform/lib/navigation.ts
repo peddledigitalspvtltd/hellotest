@@ -32,7 +32,7 @@ export function isNavigationDestinationActive(to: string, pathname: string, sear
   const [targetPath, targetSearch = ""] = to.split("?");
   if (targetPath !== pathname) return false;
   const actual = new URLSearchParams(search);
-  const defaults: Record<string, string> = { "/": "analytics", "/agentic-workflows": "agents", "/executions": "suite-runs" };
+  const defaults: Record<string, string> = { "/": "analytics", "/agentic-workflows": "workflows", "/executions": "suite-runs" };
   if (!actual.has("view") && defaults[pathname]) actual.set("view", defaults[pathname]);
   for (const [key, value] of new URLSearchParams(targetSearch)) {
     if (actual.get(key) !== value) return false;

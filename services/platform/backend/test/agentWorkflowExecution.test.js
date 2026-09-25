@@ -200,3 +200,86 @@ test("execution routes have exact project permission mappings", () => {
   assert.equal(ROUTE_PERMISSIONS.get("POST /agentic-workflows/:id/executions"), "agentic_workflow.run");
   assert.equal(ROUTE_PERMISSIONS.get("POST /agentic-workflow-runs/:id/cancel"), "agentic_workflow.run");
 });
+
+test("step execution runs only its ancestors and records the actual bounded input", async t => {
+  const { requests } = setup(t);
+  const graph = workflow();
+  graph.nodes.splice(2, 0, node("later", "agent", { agentId: "quality-evaluator", prompt: "Later task" }));
+  graph.edges = [{ source: "request", target: "story" }, { source: "story", target: "later" }, { source: "later", target: "finish" }];
+  const report = runtime.readiness(graph, "story");
+  assert.equal(report.ready, true);
+  assert.deepEqual(report.steps.map(step => step.node_id), ["request", "story"]);
+  const run = await runtime.start(graph, { target_node_id: "story", request_id: "step-request", input_payload: { release: "Checkout" } }, user);
+  const saved = await finished(run.id);
+  assert.equal(requests.length, 1);
+  assert.equal(saved.workflow_snapshot.nodes.length, 4, "Full definition remains available for inspection");
+  assert.equal(saved.workflow_snapshot.runtime_contract.target_node_id, "story");
+  assert.equal(saved.node_results[1].input.prompt, requests[0].prompt);
+  assert.deepEqual(saved.node_results[1].input.request, { release: "Checkout" });
+  await assert.rejects(runtime.start(graph, { target_node_id: "later", request_id: "step-request", input_payload: { release: "Checkout" } }, user), { statusCode: 409 });
+});
+
+test("step readiness rejects unknown targets and cannot bypass a cycle", () => {
+  assert.equal(runtime.readiness(workflow(), "missing").ready, false);
+  const graph = workflow(); graph.edges.push({ source: "story", target: "request" });
+  assert.equal(runtime.readiness(graph, "story").ready, false);
+  assert.equal(runtime.readiness(workflow(), "request").ready, true, "The trigger can be tested without running a model");
+});
+
+test("source templates reuse repository analysis and preserve a link to its reviewable findings", async t => {
+  const { requests } = setup(t);
+  const sourceAgents = require("../../../agentic/backend/agents/repositoryAgents.service");
+  const jobs = [];
+  t.mock.method(sourceAgents, "createRun", async (input, actor, options) => { jobs.push({ input, actor, options }); return { id: "source-job" }; });
+  t.mock.method(sourceAgents, "getRun", async () => ({ id: "source-job", status: "completed", summary: "Found 12 API test drafts", source: { repository_url: "https://github.com/example/project" }, stages: [] }));
+  const graph = workflow(); graph.nodes[1].data = { label: "API source analysis", kind: "repositoryAgent", repositoryAgentType: "api_tests", timeoutMs: "180000" };
+  const source = { type: "github", repository_url: "https://github.com/example/project", ref: "main" };
+  assert.equal(runtime.readiness(graph).ready, true);
+  const run = await runtime.start(graph, { input_payload: { source } }, user);
+  const saved = await finished(run.id);
+  assert.equal(saved.status, "completed"); assert.equal(requests.length, 0);
+  assert.equal(jobs.length, 1); assert.equal(jobs[0].input.project_id, "project-a");
+  assert.deepEqual(jobs[0].input.source, source); assert.match(jobs[0].options.requestKey, /^workflow-/);
+  assert.equal(saved.node_results[1].output.repository_run_id, "source-job");
+  assert.equal(saved.node_results[1].output.requires_human_review, true);
+});
+
+test("source nodes reject missing source input without inventing successful results", async t => {
+  setup(t); const sourceAgents = require("../../../agentic/backend/agents/repositoryAgents.service");
+  const create = t.mock.method(sourceAgents, "createRun", async () => { throw Error("Should not be called"); });
+  const graph = workflow(); graph.nodes[1].data = { kind: "repositoryAgent", repositoryAgentType: "api_tests" };
+  await assert.rejects(runtime.start(graph, {}, user), { statusCode: 400 });
+  assert.equal(create.mock.callCount(), 0);
+});
+
+test("saving an unchanged definition after a lost response preserves execution idempotency", async t => {
+  const { requests } = setup(t);
+  const graph = workflow(); graph.updated_at = "2026-09-20T01:00:00Z";
+  const input = { request_id: "transport-retry", input_payload: { task: "Checkout" } };
+  const first = await runtime.start(graph, input, user); await finished(first.id);
+  graph.updated_at = "2026-09-20T01:00:10Z";
+  const retried = await runtime.start(graph, input, user);
+  assert.equal(retried.id, first.id); assert.equal(requests.length, 1);
+  graph.nodes[1].data.prompt = "A different task";
+  await assert.rejects(runtime.start(graph, input, user), { statusCode: 409 });
+});
+
+test("partial source analysis completes as needs-review and parent cancellation stops its child job", async t => {
+  setup(t);
+  const sourceAgents = require("../../../agentic/backend/agents/repositoryAgents.service");
+  const graph = workflow(); graph.nodes[1].data = { kind: "repositoryAgent", repositoryAgentType: "api_tests" };
+  const input = { input_payload: { source: { type: "github", repository_url: "https://github.com/example/project" } } };
+  t.mock.method(sourceAgents, "createRun", async () => ({ id: "child-job" }));
+  t.mock.method(sourceAgents, "getRun", async () => ({ status: "partial", summary: { files_scanned: 3 }, stages: [], warnings: [] }));
+  const partial = await runtime.start(graph, input, user); const saved = await finished(partial.id);
+  assert.equal(saved.status, "needs_review"); assert.equal(typeof saved.node_results[1].output.response, "string");
+  let started; const waiting = new Promise(resolve => { started = resolve; });
+  t.mock.method(sourceAgents, "getRun", async () => { started(); return { status: "running" }; });
+  const cancelChild = t.mock.method(sourceAgents, "cancelRun", async () => ({ status: "cancelled" }));
+  const running = await runtime.start(graph, input, user); await waiting;
+  await runtime.cancel(await runtime._internals.store.get(running.id), user); await finished(running.id);
+  // The bounded callback unwinds and cancels its own source analysis.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(cancelChild.mock.callCount(), 1);
+  assert.equal(cancelChild.mock.calls[0].arguments[0], "child-job");
+});

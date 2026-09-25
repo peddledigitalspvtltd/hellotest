@@ -4,9 +4,9 @@ import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 
-const require = createRequire(import.meta.url);
+const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const root = new URL('../../', import.meta.url);
+const root = new URL('../../../platform/frontend/', import.meta.url);
 const baseSource = await readFile(new URL('agentWorkspace.test.mjs', import.meta.url), 'utf8');
 const baseFixture = baseSource.match(/const fixture = `([\s\S]*?)`;\nconst specialists/)[1];
 const executionFixture = `
@@ -53,6 +53,7 @@ test('review workflows expose readiness, actual progress, stop and evidence revi
     page.setDefaultTimeout(12000);
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const requests = []; let failFirstStart = true;
+    await page.route('**/api/**', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({message:'Unexpected API request in isolated fixture'}) }));
     await page.route('**/agentic-workflows/*/executions**', async route => {
       const input = route.request().postDataJSON(); requests.push(input);
       if (failFirstStart) { failFirstStart = false; return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Temporary worker outage. Try again.' }) }); }
@@ -67,28 +68,30 @@ test('review workflows expose readiness, actual progress, stop and evidence revi
     const baseUrl = `${process.env.VITE_TEST_URL || 'http://127.0.0.1:5179'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`;
     await page.goto(baseUrl);
     await page.getByRole('button', { name: 'Create Agentic Workflow', exact: true }).click();
-    await page.getByRole('button', { name: 'Execute review', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Execute review', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: 'Execute workflow', exact: true }).waitFor();
+    assert.equal(requests.length, 0, 'readiness checks do not execute models');
+    await page.getByRole('button', { name: 'Readiness', exact: true }).click();
     await page.getByRole('button', { name: 'Save and check readiness', exact: true }).click();
     await page.getByText('Ready to execute a review', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Execute review', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Execute workflow', exact: true }).isEnabled(), true);
     await page.screenshot({ path: screenshots + '/01-workflow-readiness-desktop.png', fullPage: true });
     await page.getByLabel('Step kind', { exact: true }).selectOption('condition');
-    assert.equal(await page.getByRole('button', { name: 'Execute review', exact: true }).isDisabled(), true);
+    assert.equal(requests.length, 0, 'invalid definitions do not execute models');
     await page.getByRole('button', { name: 'Save and check readiness', exact: true }).click();
     await page.getByText('Resolve these steps before execution', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Execute review', exact: true }).isDisabled(), true);
+    assert.equal(requests.length, 0, 'invalid definitions do not execute models');
     await page.getByLabel('Step kind', { exact: true }).selectOption('trigger');
     await page.getByRole('button', { name: 'Save and check readiness', exact: true }).click();
     await page.getByText('Ready to execute a review', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Execute review', exact: true }).click();
+    await page.getByRole('button', { name: 'Execute workflow', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Temporary worker outage' }).waitFor();
-    await page.getByRole('button', { name: 'Execute review', exact: true }).click();
+    await page.getByRole('button', { name: 'Execute workflow', exact: true }).click();
+    await page.getByRole('button', { name: 'Review summary', exact: true }).click();
     await page.getByRole('heading', { name: 'In progress', exact: true }).waitFor();
     assert.equal(requests.length, 2); assert.equal(requests[0].request_id, requests[1].request_id, 'transport retry preserves the same idempotency key');
     assert.equal(await page.getByRole('button', { name: 'Stop review', exact: true }).isEnabled(), true);
     assert.equal(await page.locator('.workflow-review-steps li').count(), 4);
-    assert.equal(await page.locator('.workflow-execution-details').getAttribute('open'), null);
+    assert.equal(await page.getByRole('button', { name: 'Steps & data', exact: true }).count(), 1);
     await page.screenshot({ path: screenshots + '/02-executing-desktop.png', fullPage: true });
     await page.evaluate(() => window.completeReviewRun());
     await page.getByRole('heading', { name: 'Review required', exact: true }).waitFor();
@@ -101,6 +104,7 @@ test('review workflows expose readiness, actual progress, stop and evidence revi
     await page.screenshot({ path: screenshots + '/04-review-results-dark-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.evaluate(() => { window.makeReviewRun('execution-cancel', { input_payload: {} }); window.navigateWorkspace('/agentic-workflows?view=runs&workflow_run=execution-cancel'); });
+    await page.getByRole('button', { name: 'Review summary', exact: true }).click();
     await page.getByRole('heading', { name: 'In progress', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Stop review', exact: true }).click();
     await page.getByRole('heading', { name: 'Stopped', exact: true }).waitFor();

@@ -2,6 +2,8 @@
 
 Agent workflows, repository inspection, specialist agents and their runtime assets.
 
+The [Agentic Studio guide](../../docs/product/agentic-studio.md) covers the editor, source templates, node execution, saved results and runtime boundaries. Workflow UI components live together in `frontend/workflows/`.
+
 - `frontend/`: screens, components, hooks and the owning API client. `entry.ts` exposes lazy release views.
 - `backend/`: API routes, use cases and owning workers. `server.cjs` starts this profile through the shared runtime.
 - `test/`: focused backend, frontend and browser checks where available.

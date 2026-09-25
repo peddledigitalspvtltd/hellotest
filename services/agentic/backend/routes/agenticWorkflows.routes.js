@@ -174,7 +174,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
     await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
-    return workflowExecution.readiness(workflow);
+    return workflowExecution.readiness(workflow, req.query.target_node_id || "");
   });
 
   fastify.post("/agentic-workflows/:id/executions", async (req, reply) => {
@@ -183,6 +183,7 @@ module.exports = async function (fastify) {
     await requireProjectPermission(req, workflow.project_id, "agentic_workflow.run");
     fastify.validate({
       request_id: { required: false, type: "string", minLength: 8, maxLength: 128 },
+      target_node_id: { required: false, type: "string", minLength: 1, maxLength: 160 },
       input_payload: { required: false, type: "object" }
     }, req.body || {});
     const run = await workflowExecution.start(workflow, req.body || {}, req.user);

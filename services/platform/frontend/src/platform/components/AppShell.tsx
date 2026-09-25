@@ -111,7 +111,7 @@ const navigation = [
       {
         id: "agentic-workflows",
         to: WORKSPACE_ROUTES.agenticWorkflows,
-        label: "Agentic Workflows",
+        label: "Agentic Studio",
         shortLabel: "Agents",
         icon: AiAgentsIcon,
         featureKeys: ["hellotest.ai.agentic_workflows"],

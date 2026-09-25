@@ -128,9 +128,9 @@ agenticWorkflows: {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    readiness: (id: string) =>
-      request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness`, { cache: "no-store" }),
-    execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown> }) =>
+    readiness: (id: string, targetNodeId?: string) =>
+      request<AgenticWorkflowReadiness>(`/agentic-workflows/${encodeURIComponent(id)}/readiness${toQueryString({ target_node_id: targetNodeId })}`, { cache: "no-store" }),
+    execute: (id: string, input: { request_id: string; input_payload: Record<string, unknown>; target_node_id?: string }) =>
       request<AgenticWorkflowRun>(`/agentic-workflows/${encodeURIComponent(id)}/executions`, { method: "POST", body: JSON.stringify(input) }),
     cancelRun: (id: string) =>
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
@@ -140,4 +140,3 @@ agenticWorkflows: {
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" })
   }
 };
-

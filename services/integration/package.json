@@ -21,7 +21,6 @@
     "./frontend/components/JiraAttachmentPanel": "./frontend/components/JiraAttachmentPanel.tsx",
     "./frontend/components/JiraCommentsPanel": "./frontend/components/JiraCommentsPanel.tsx",
     "./frontend/components/JiraRequiredFields": "./frontend/components/JiraRequiredFields.tsx",
-    "./frontend/components/RovoProviderStatus": "./frontend/components/RovoProviderStatus.tsx",
     "./frontend/hooks/useAiLlmDefault": "./frontend/hooks/useAiLlmDefault.ts",
     "./frontend/hooks/useAiPromptRegistry": "./frontend/hooks/useAiPromptRegistry.ts",
     "./frontend/index": "./frontend/index.ts",
