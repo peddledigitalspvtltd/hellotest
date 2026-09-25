@@ -13,6 +13,22 @@ const { parseJsonField, validateAppTypeScope, getIdempotencyKey, prepareKnowledg
 
 module.exports = async function (fastify) {
   const ensureProjectAccess = createProjectAccess(fastify);
+  const refresh = require("../services/knowledgeRefresh.service");
+  fastify.get("/projects/:project_id/knowledge/refresh", async req => {
+    await fastify.authenticate(req);
+    await ensureProjectAccess(req, req.params.project_id, "knowledge.view");
+    return refresh.get(req.params.project_id);
+  });
+  fastify.put("/projects/:project_id/knowledge/refresh", async req => {
+    await fastify.authenticate(req);
+    await ensureProjectAccess(req, req.params.project_id, "knowledge.manage");
+    return refresh.configure(req.params.project_id, req.body || {}, req.user);
+  });
+  fastify.post("/projects/:project_id/knowledge/refresh", async (req, reply) => {
+    await fastify.authenticate(req);
+    await ensureProjectAccess(req, req.params.project_id, "knowledge.manage");
+    return reply.code(202).send(await refresh.request(req.params.project_id, req.user));
+  });
   fastify.get("/projects/:project_id/knowledge", async (req) => {
     await fastify.authenticate(req);
     await ensureProjectAccess(req, req.params.project_id, "knowledge.view");

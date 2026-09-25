@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { verifySchema, schemaMode } = require('../src/db/schemaReadiness');
 
 test('schema verification uses only reads and requires a committed compatible receipt', async () => {
-  for (const [present, version, valid] of [[false, null, false], [true, null, false], [true, 0, false], [true, "invalid", false], [true, 1, true], [true, 2, true]]) {
+  for (const [present, version, valid] of [[false, null, false], [true, null, false], [true, 0, false], [true, "invalid", false], [true, 1, false], [true, 2, true]]) {
     const db = { prepare: sql => {
       assert.match(sql, /^SELECT /);
       return { get: async () => sql.includes('to_regclass') ? { name: present ? 'runtime_schema_receipts' : null } : version === null ? undefined : { version } };

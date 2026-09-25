@@ -3432,6 +3432,7 @@ export type KnowledgeAssistantMessage = {
     reason?: string | null;
     outside_scope?: boolean;
     pii_redacted?: boolean;
+    extractive_grounded_fallback?: boolean;
   };
   provider?: string | null;
   model?: string | null;

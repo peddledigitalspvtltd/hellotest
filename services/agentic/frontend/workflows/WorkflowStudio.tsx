@@ -28,8 +28,8 @@ import {
   type WorkflowNodeKind,
 } from "./workflowGraph";
 import "./WorkflowStudio.css";
-import { WorkflowCredentials } from "./WorkflowCredentials";
-import type { AgenticCredential } from "./workflowGraph";
+import { WorkflowConnections } from "./WorkflowConnections";
+import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 
 type Props = {
   draft: WorkflowDraft;
@@ -305,7 +305,12 @@ export function WorkflowStudio(props: Props) {
                             setLibrary(false);
                           }}
                         >
-                          <IconPlus size={16} />
+                          <span
+                            className="studio-library-icon"
+                            data-kind={kind}
+                          >
+                            <WorkflowNodeIcon kind={kind} />
+                          </span>
                           <span>
                             <strong>{nodeKindLabels[kind]}</strong>
                             <small>{nodeKindDescriptions[kind]}</small>
@@ -404,8 +409,8 @@ export function WorkflowStudio(props: Props) {
               <div className="studio-canvas-empty">
                 <h3>Your workflow starts here</h3>
                 <p>
-                  Add a manual trigger, then connect a specialist or source
-                  agent.
+                  Add a trigger, connect your nodes, then inspect their input
+                  and output.
                 </p>
               </div>
             )}
@@ -554,26 +559,11 @@ export function WorkflowStudio(props: Props) {
               </select>
             </label>
           </fieldset>
-          <WorkflowCredentials
-            value={
-              (Array.isArray(props.draft.settings.agenticCredentials)
-                ? props.draft.settings.agenticCredentials
-                : []) as AgenticCredential[]
-            }
-            disabled={!props.editable || props.busy}
-            onChange={(value) =>
-              props.onDraft({
-                settings: {
-                  ...props.draft.settings,
-                  agenticCredentials: value,
-                },
-              })
-            }
-          />
+          <WorkflowConnections projectId={props.inspector.projectId} />
           <p className="studio-caption">
-            Credentials and advanced workflow settings are retained in saved
-            definitions. Real reviews use project-scoped model connections;
-            source agents use the saved integration supplied in Workflow input.
+            Models use your saved integrations. HTTP and MCP nodes select
+            project connections managed by your administrator; secrets stay on
+            the server.
           </p>
         </section>
       )}

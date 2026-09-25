@@ -143,10 +143,12 @@ test("intent planning runs once before scoped project reads and grounded synthes
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
   const modelPrompts = [];
   const modelCallTimes = [];
+  const modelInputs = [];
   context.mock.method(global, "fetch", async (_, init) => {
     modelCallTimes.push(Date.now());
     const systemPrompt = JSON.parse(init.body).messages[0].content;
     modelPrompts.push(systemPrompt);
+    modelInputs.push(JSON.parse(JSON.parse(init.body).messages[1].content));
     const candidate = systemPrompt.includes("You plan evidence retrieval")
       ? { information_needs: ["Story readiness", "recent run outcomes", "open defects"], source_kinds: ["requirement", "execution", "bug"], search_queries: ["checkout release Story runs Defects"], stop_if_sufficient: false }
       : { status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] };
@@ -157,7 +159,10 @@ test("intent planning runs once before scoped project reads and grounded synthes
   assert.equal(result.assistant_message.status, "answered");
   assert.equal(modelPrompts.filter((prompt) => prompt.includes("You plan evidence retrieval")).length, 1);
   assert.equal(modelPrompts.length, 2, "one intent call and one final synthesis call are made");
-  assert.ok(modelCallTimes[1] - modelCallTimes[0] >= 950, `model calls must be paced by at least one second (${modelCallTimes[1] - modelCallTimes[0]}ms observed)`);
+  assert.equal(modelInputs[1].retrieval_outcome.evidence_count, modelInputs[1].context_packet.evidence.length);
+  assert.match(modelPrompts[1], /ONE coherent answer/);
+  assert.ok(modelInputs[1].retrieval_outcome.information_needs.includes("Story readiness"));
+  assert.ok(modelCallTimes[1] - modelCallTimes[0] >= 280, `model calls must retain the 300ms pacing window (${modelCallTimes[1] - modelCallTimes[0]}ms observed)`);
   assert.ok(state.liveRequests.length >= 1);
   assert.deepEqual(state.liveRequests[0].route.live_scopes.slice(0, 3), ["stories", "runs", "bugs"]);
   assert.ok(state.liveRequests[0].sourceKinds.includes("requirement"));

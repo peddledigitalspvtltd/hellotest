@@ -1,16 +1,34 @@
 import type { WorkflowDraft } from "./workflowGraph";
-import { createWorkflowDraft, createFlowEdge } from "./workflowGraph";
+import {
+  createWorkflowDraft,
+  createFlowEdge,
+  buildNodeDefaults,
+} from "./workflowGraph";
 
 export type WorkflowTemplate = {
   id: string;
   name: string;
   description: string;
-  category: "Reviews" | "Source agents";
+  category: "Reviews" | "Source agents" | "Data flow";
   agent?: string;
   source?: string;
   task?: string;
 };
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: "foreach",
+    name: "Process a list of items",
+    category: "Data flow",
+    description:
+      "Map each item into a consistent result and inspect the collected output.",
+  },
+  {
+    id: "custom",
+    name: "Your own AI review",
+    category: "Reviews",
+    description:
+      "Write your task, select a model and review the answer with its project sources.",
+  },
   {
     id: "release",
     name: "Release readiness",
@@ -78,6 +96,42 @@ export function draftFromTemplate(template: WorkflowTemplate): {
   draft.name = template.name;
   draft.description = template.description;
   if (template.id === "release") return { draft };
+  if (["foreach", "custom"].includes(template.id)) {
+    const task = {
+      id: `task-${template.id}`,
+      type: "agenticStep",
+      position: { x: 390, y: 140 },
+      data: buildNodeDefaults(
+        template.id === "foreach" ? "loop" : "customAI",
+        1,
+      ),
+    };
+    draft.nodes = [
+      draft.nodes[0],
+      task,
+      { ...draft.nodes[3], position: { x: 710, y: 140 } },
+    ];
+    draft.edges = [
+      createFlowEdge(draft.nodes[0].id, task.id),
+      createFlowEdge(task.id, draft.nodes[2].id),
+    ];
+    return {
+      draft,
+      input:
+        template.id === "foreach"
+          ? JSON.stringify(
+              {
+                items: [
+                  { title: "Review acceptance criteria", priority: "High" },
+                  { title: "Check regression coverage", priority: "Medium" },
+                ],
+              },
+              null,
+              2,
+            )
+          : undefined,
+    };
+  }
   const task = {
     id: `task-${template.id}`,
     type: "agenticStep",

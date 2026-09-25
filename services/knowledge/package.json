@@ -29,7 +29,8 @@
     "./frontend/index": "./frontend/index.ts",
     "./frontend/pages/KnowledgeRepoPage": "./frontend/pages/KnowledgeRepoPage.tsx",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./backend/refreshSchema": "./backend/refreshSchema.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs knowledge",

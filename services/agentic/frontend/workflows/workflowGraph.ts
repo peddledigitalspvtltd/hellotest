@@ -10,6 +10,8 @@ import type {
   AgenticWorkflowTriggerKind,
 } from "@hellotest/platform/frontend/src/types";
 export type WorkflowNodeKind =
+  | "customAI"
+  | "mcpTool"
   | "repositoryAgent"
   | "trigger"
   | "agent"
@@ -57,47 +59,31 @@ export const DEFAULT_RUN_INPUT = `{
   "source": "release-planning"
 }`;
 
-export const AGENT_AUTH_TYPES: Array<{
-  value: AgenticCredential["authType"];
-  label: string;
-}> = [
-  { value: "apiKey", label: "API key" },
-  { value: "bearer", label: "Bearer token" },
-  { value: "basic", label: "Basic auth" },
-  { value: "oauth2", label: "OAuth 2" },
-  { value: "custom", label: "Custom" },
-];
-
-export const AGENT_CREDENTIAL_LOCATIONS: Array<{
-  value: AgenticCredential["location"];
-  label: string;
-}> = [
-  { value: "header", label: "Header" },
-  { value: "query", label: "Query" },
-  { value: "body", label: "Body" },
-];
-
 export const nodeKindLabels: Record<WorkflowNodeKind, string> = {
+  customAI: "Custom AI",
+  mcpTool: "MCP server tool",
   repositoryAgent: "Source analysis",
   trigger: "Manual trigger",
   agent: "Workspace specialist",
   llmAgent: "Specialist review",
   webAgent: "Web Evidence Agent",
   apiAgent: "API Agent",
-  apiTool: "API Tool",
-  knowledgeTool: "Knowledge Tool",
-  repositoryTool: "Repository Tool",
-  testOpsTool: "TestOps Tool",
+  apiTool: "HTTP Request",
+  knowledgeTool: "Knowledge search",
+  repositoryTool: "Repository evidence",
+  testOpsTool: "Run evidence",
   condition: "Condition",
-  loop: "Loop",
+  loop: "For each",
   aggregator: "Aggregator",
-  transform: "Transform",
-  errorHandler: "Error Handler",
+  transform: "Edit fields",
+  errorHandler: "Error handler",
   log: "Log",
   output: "Output",
 };
 
 export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
+  customAI: "Review connected input with your own prompt and model",
+  mcpTool: "Call an enabled tool on a configured MCP server",
   repositoryAgent: "Analyze GitHub source with a repository agent",
   trigger: "Accept workflow input",
   agent: "Coordinate bounded agents and handoffs",
@@ -108,9 +94,9 @@ export const nodeKindDescriptions: Record<WorkflowNodeKind, string> = {
   apiTool: "Call an approved HTTP API",
   knowledgeTool: "Query HelloTest knowledge context",
   repositoryTool: "Read repository or object metadata",
-  testOpsTool: "Queue or inspect TestOps activity",
-  condition: "Branch on criteria",
-  loop: "Iterate items in controlled batches",
+  testOpsTool: "Read permitted run and execution evidence",
+  condition: "Route data through true and false branches",
+  loop: "Map fields or run an AI review for each input item",
   aggregator: "Merge parallel outputs",
   transform: "Shape JSON output",
   errorHandler: "Handle failed node output",
@@ -124,15 +110,19 @@ export const nodePaletteGroups: Array<{
 }> = [
   { label: "Start", kinds: ["trigger"] },
   {
-    label: "Agents",
-    kinds: ["agent", "llmAgent", "repositoryAgent", "webAgent", "apiAgent"],
+    label: "AI and source analysis",
+    kinds: ["customAI", "agent", "repositoryAgent"],
+  },
+  { label: "Connections and servers", kinds: ["apiTool", "mcpTool"] },
+  {
+    label: "Project capabilities",
+    kinds: ["knowledgeTool", "repositoryTool", "testOpsTool"],
   },
   {
-    label: "Tools",
-    kinds: ["apiTool", "knowledgeTool", "repositoryTool", "testOpsTool"],
+    label: "Data and flow",
+    kinds: ["condition", "loop", "transform", "aggregator"],
   },
-  { label: "Control", kinds: ["condition", "loop", "aggregator", "transform"] },
-  { label: "Recovery", kinds: ["errorHandler", "log", "output"] },
+  { label: "Results and recovery", kinds: ["output", "log", "errorHandler"] },
 ];
 
 export const compactCount = (
@@ -179,11 +169,44 @@ export const buildNodeDefaults = (
     retryCount: kind === "apiTool" || isAgentKind ? "2" : "0",
     retryDelayMs: "1000",
     timeoutMs: isAgentKind ? "60000" : "30000",
-    onError: kind === "errorHandler" ? "continue" : "stop",
+    onError: "stop",
     logLevel: "standard",
     redactSecrets: "true",
   };
 
+  if (kind === "customAI")
+    return {
+      ...base,
+      label: "Custom AI review",
+      prompt:
+        "Review the connected input and project evidence. Return a clear answer with supporting sources.",
+      instructions: "",
+      knowledgeScope: "requirements,test-cases,test-runs,knowledge",
+      timeoutMs: "60000",
+    };
+  if (kind === "mcpTool")
+    return {
+      ...base,
+      label: "MCP tool",
+      connectionId: "",
+      mcpTool: "",
+      mcpArguments: "{}",
+      retryCount: "0",
+    };
+  if (kind === "transform")
+    return {
+      ...base,
+      label: "Edit fields",
+      transformMapping: '{\n  "result": "$input"\n}',
+    };
+  if (kind === "condition")
+    return {
+      ...base,
+      label: "Check condition",
+      conditionPath: "input.status",
+      conditionOperator: "equals",
+      conditionValue: '"passed"',
+    };
   if (isAgentKind) {
     return {
       ...base,
@@ -252,7 +275,7 @@ export const buildNodeDefaults = (
       ...base,
       label: "TestOps tool",
       toolName: "TestOps",
-      testOpsAction: "queue-batch",
+      testOpsAction: "read-runs",
       summary:
         "Use HelloTest TestOps adapters for controlled background activity.",
     };
@@ -261,11 +284,12 @@ export const buildNodeDefaults = (
   if (kind === "loop") {
     return {
       ...base,
-      label: "Loop items",
-      loopSourceKey: "items",
+      label: "For each item",
+      loopSourceKey: "input.items",
       loopBatchSize: "1",
-      loopMaxIterations: "25",
-      onError: "errorOutput",
+      loopMaxIterations: "10",
+      loopAction: "transform",
+      transformMapping: '{\n  "item": "$item"\n}',
       summary:
         "Iterate over a selected item array with clear batch and iteration limits.",
     };
@@ -481,6 +505,8 @@ export const reviewDefinitionKey = (
     edges: workflowEdges.map((edge) => ({
       source: edge.source,
       target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      targetHandle: edge.targetHandle,
     })),
     status,
     trigger,

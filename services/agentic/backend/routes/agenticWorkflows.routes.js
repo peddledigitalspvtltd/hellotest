@@ -118,6 +118,25 @@ module.exports = async function (fastify) {
     return withConnection(req, reply, (signal) => agenticWorkflowService.testApiAgent({ ...(req.body || {}), signal }));
   });
 
+  fastify.get("/agentic-workflows/connections", async req => {
+    await fastify.authenticate(req);
+    if (!req.query.project_id) throw Object.assign(new Error("Choose a project."), { statusCode: 400 });
+    await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");
+    return require("../workflows/connections").list(req.query.project_id);
+  });
+  fastify.post("/agentic-workflows/connections/mcp-tools", async (req, reply) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, connection_id: { required: true, type: "string" } }, req.body || {});
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
+    return withConnection(req, reply, signal => require("../workflows/mcpClient").discover({ projectId: req.body.project_id, connectionId: req.body.connection_id, signal }));
+  });
+  fastify.post("/agentic-workflows/connections/http-test", async (req, reply) => {
+    await fastify.authenticate(req);
+    fastify.validate({ project_id: { required: true, type: "string" }, data: { required: true, type: "object" } }, req.body || {});
+    await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
+    return withConnection(req, reply, signal => require("../workflows/connections").callHttp({ projectId: req.body.project_id, data: req.body.data, signal }));
+  });
+
   fastify.get("/agentic-workflows/:id", async (req) => {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);

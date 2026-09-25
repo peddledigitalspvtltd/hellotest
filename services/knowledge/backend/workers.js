@@ -4,6 +4,12 @@ module.exports = () => {
     return {
         tasks: [
             {
+                intervalMs: 5000,
+                label: "Unable to refresh project knowledge",
+                run: () => require("./services/knowledgeRefresh.service").processDue(),
+                runImmediately: false
+            },
+            {
                 intervalMs: 5 * 1000,
                 label: "Unable to process queued Knowledge Repo ingestion jobs",
                 run: async () => {

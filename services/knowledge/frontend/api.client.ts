@@ -3,8 +3,19 @@ import { request, requestBlob, requestForm, toQueryString } from "@hellotest/pla
 
 
 
+export type KnowledgeRefresh = {
+  project_id: string; enabled: boolean; interval_ms: number; status: string; requested: boolean;
+  last_completed_at?: string; last_error?: string | null;
+  last_result: { scanned?: number; queued?: number; unchanged?: number; inaccessible?: number };
+};
 export const knowledgeApi = {
-knowledgeRepo: { list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
+knowledgeRepo: {
+refresh: {
+  get: (projectId: string) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`),
+  run: (projectId: string) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`, { method: "POST" }),
+  configure: (projectId: string, input: { enabled: boolean; interval_ms: number }) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`, { method: "PUT", body: JSON.stringify(input) })
+},
+list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
 overview: (projectId: string) =>
       request<KnowledgeOverview>(`/projects/${projectId}/knowledge/overview`),
 search: (input: {

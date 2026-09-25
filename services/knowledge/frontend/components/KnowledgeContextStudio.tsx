@@ -1,3 +1,4 @@
+import { KnowledgeRefreshControl } from "./KnowledgeRefreshControl";
 import { formatRecordKindLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { DragEvent, FormEvent, useMemo, useRef, useState } from "react";
@@ -251,7 +252,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const buildAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
-  const [requestedTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "build");
+  const [requestedTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "search");
   const activeTab = requestedTab === "build" && !canManage ? "search" : requestedTab;
   const { session } = useAuth();
   const featureFlags = useFeatureFlags(Boolean(session));
@@ -580,9 +581,9 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         <div className="knowledge-studio-hero-copy">
           <div className="knowledge-studio-hero-icon"><IconDatabase size={26} /></div>
           <div>
-            <span className="eyebrow">Retrieval knowledge plane</span>
-            <h2>Turn project evidence into trusted, searchable context</h2>
-            <p>Ingest selected HelloTest records and uploaded material through extraction, redaction, structure-aware chunking, governed embeddings, and hybrid retrieval. Every answer stays traceable to its sources.</p>
+            <span className="eyebrow">Project context</span>
+            <h2>Your project knowledge, connected</h2>
+            <p>Search evidence, organize sources and keep AI answers connected to current project data.</p>
           </div>
         </div>
         <div className="knowledge-studio-health" aria-label="Source indexing status">
@@ -607,7 +608,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         </div>
       </div>
 
-      <div className={`knowledge-indexing-notice${overviewQuery.isError || embeddingFallbackJobs || vectorSearchUnavailable ? " is-warning" : ""}`} role="status">
+      <div hidden={!overviewQuery.isError && !embeddingFallbackJobs && !vectorSearchUnavailable} className={`knowledge-indexing-notice${overviewQuery.isError || embeddingFallbackJobs || vectorSearchUnavailable ? " is-warning" : ""}`} role="status">
         <IconInfoCircle size={18} aria-hidden="true" />
         <div>
           {overviewQuery.isError ? <strong>Could not refresh source indexing status.</strong> : embeddingFallbackJobs ? <strong>{embeddingFallbackJobs} recent processing job{embeddingFallbackJobs === 1 ? "" : "s"} used local search fallback.</strong> : null}
@@ -632,13 +633,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         ))}
       </div>
 
-      <div className="knowledge-studio-guardrail">
-        <IconShieldCheck size={20} />
-        <div>
-          <strong>Project boundary enforced</strong>
-          <span>Only authorized sources from this project and application are retrieved. Source text is evidence—not instructions. Supported sensitive identifiers are redacted, and system prompts or private model reasoning are never exposed.</span>
-        </div>
-      </div>
+      <KnowledgeRefreshControl key={projectId} projectId={projectId} canManage={canManage} />
 
       <div className="knowledge-studio-tabs" role="tablist" aria-label="Knowledge workflows">
         {([

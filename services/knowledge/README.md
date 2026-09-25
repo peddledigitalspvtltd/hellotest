@@ -20,3 +20,5 @@ npm run build --workspace @hellotest/knowledge
 Run `npm run setup` first. Development uses the shared shell; the API requires configured foundation infrastructure. Cross-owner imports use declared `@hellotest/...` exports. This private workspace still depends on repository runtime adapters and the shared schema.
 
 Read [CONTRIBUTING](../../CONTRIBUTING.md) for setup/debugging and [capability packaging](../../docs/architecture/capability-packaging.md) for selection, flags, permissions and release compatibility.
+
+See [incremental refresh and chatbot response flow](../../docs/product/knowledge-refresh.md) for worker behavior, permissions, deployment migration and verification.

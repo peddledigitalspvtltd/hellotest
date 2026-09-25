@@ -2582,7 +2582,8 @@ const statements = [
   ...require('./requirementBacklogHistorySchema'),
   ...require('./releaseRelationsSchema'),
   ...require('./sharedStepMetricsSchema'),
-  ...require('./sharedStepDataSchema')
+  ...require('./sharedStepDataSchema'),
+  ...require('@hellotest/knowledge/backend/refreshSchema')
 ];
 
 const executeStatements = () => db.transaction(async () => {

@@ -937,3 +937,8 @@
   .grounded-assistant-progress-actions { flex-wrap: wrap; }
   .grounded-assistant-turn-progress { padding: .75rem; }
 }
+
+.knowledge-answer-paragraphs { display: grid; gap: 14px; line-height: 1.7; }
+.knowledge-answer-paragraphs > div { min-width: 0; overflow-wrap: anywhere; }
+.knowledge-answer-paragraphs .knowledge-claim-citations { margin-top: 4px; }
+.knowledge-answer-limitations blockquote { margin: 12px 0; padding: 8px 14px; border-left: 3px solid var(--border-color, #cbd5e1); }

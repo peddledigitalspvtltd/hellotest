@@ -118,6 +118,9 @@ agenticWorkflows: {
       }),
     delete: (id: string) =>
       request<{ deleted: boolean }>(`/agentic-workflows/${id}`, { method: "DELETE" }),
+    connections: (projectId: string) => request<WorkflowConnection[]>(`/agentic-workflows/connections${toQueryString({ project_id: projectId })}`),
+    mcpTools: (projectId: string, connectionId: string, signal?: AbortSignal) => request<McpToolDefinition[]>("/agentic-workflows/connections/mcp-tools", { method: "POST", body: JSON.stringify({ project_id: projectId, connection_id: connectionId }), signal }),
+    testHttpNode: (projectId: string, data: Record<string, unknown>) => request<Record<string, unknown>>("/agentic-workflows/connections/http-test", { method: "POST", body: JSON.stringify({ project_id: projectId, data }) }),
     testApiAgent: (input: AgenticApiAgentTestInput) =>
       request<Record<string, unknown>>("/agentic-workflows/api-agent-test", {
         method: "POST",
@@ -140,3 +143,6 @@ agenticWorkflows: {
       request<AgenticWorkflowRun>(`/agentic-workflow-runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" })
   }
 };
+
+export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; methods: string[]; tools: string[] };
+export type McpToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };

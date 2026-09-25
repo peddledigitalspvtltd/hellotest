@@ -1,3 +1,5 @@
+import { WorkflowOperationFields } from "./WorkflowOperationFields";
+import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import { useEffect, useState } from "react";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import {
@@ -16,8 +18,11 @@ import { REPOSITORY_AGENTS } from "../agents/RepositoryAgents";
 import { SmartContextWorkbench } from "@hellotest/ai/frontend/components/SmartContextWorkbench";
 import { WorkflowDataView } from "./WorkflowDataView";
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
-import { nodeKindLabels, type WorkflowNodeKind } from "./workflowGraph";
-import type { AgenticCredential } from "./workflowGraph";
+import {
+  nodeKindLabels,
+  buildNodeDefaults,
+  type WorkflowNodeKind,
+} from "./workflowGraph";
 
 export type WorkflowNodeInspectorProps = {
   node: AgenticWorkflowNode;
@@ -42,7 +47,6 @@ export type WorkflowNodeInspectorProps = {
   onOpenSource?: (agent: string, run: string) => void;
   onTestApi?: () => void;
   testingApi?: boolean;
-  credentials?: AgenticCredential[];
 };
 export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const { node, result, run, editable, expanded, incoming } = props;
@@ -61,7 +65,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
     setAdvanced(JSON.stringify(node.data, null, 2));
   }, [node.id, run?.id]);
   const kind = String(node.data.kind || "agent");
-  const specialist = ["agent", "llmAgent"].includes(kind);
+  const specialist = ["agent", "llmAgent", "customAI"].includes(kind);
   const progress = result?.progress as
     | {
         repository_run_id?: string;
@@ -214,7 +218,10 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   );
   const parameters = (
     <section className="studio-inspector-pane">
-      <h3>Parameters</h3>
+      <h3 className="studio-parameter-title">
+        <WorkflowNodeIcon kind={kind} size={19} />
+        Parameters
+      </h3>
       {!EXECUTABLE_NODE_KINDS.has(kind) && (
         <p className="studio-notice">
           This node is available for graph previews. It cannot execute in a
@@ -228,7 +235,15 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           <select
             aria-label="Step kind"
             value={kind}
-            onChange={(event) => props.onChange({ kind: event.target.value })}
+            onChange={(event) =>
+              props.onChange({
+                ...Object.fromEntries(
+                  Object.keys(node.data).map((key) => [key, undefined]),
+                ),
+                ...buildNodeDefaults(event.target.value as WorkflowNodeKind, 0),
+                label: node.data.label,
+              })
+            }
           >
             {Object.entries(nodeKindLabels).map(([value, label]) => (
               <option value={value} key={value}>
@@ -240,23 +255,29 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         </label>
         {specialist && (
           <>
-            <label>
-              <span>Specialist</span>
-              <select
-                value={String(node.data.agentId || "")}
-                onChange={(event) =>
-                  props.onChange({ agentId: event.target.value })
-                }
-              >
-                <option value="">Choose a specialist</option>
-                {HELLOTEST_AGENT_CATALOG.map((agent) => (
-                  <option value={agent.id} key={agent.id}>
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {field("prompt", "Task", true)}
+            {kind !== "customAI" && (
+              <label>
+                <span>Specialist</span>
+                <select
+                  value={String(node.data.agentId || "")}
+                  onChange={(event) =>
+                    props.onChange({ agentId: event.target.value })
+                  }
+                >
+                  <option value="">Choose a specialist</option>
+                  {HELLOTEST_AGENT_CATALOG.map((agent) => (
+                    <option value={agent.id} key={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {field(
+              "prompt",
+              kind === "customAI" ? "Your AI task" : "Task",
+              true,
+            )}
             {field("instructions", "Instructions", true)}
             <label>
               <span>Model connection</span>
@@ -328,42 +349,12 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             </p>
           </>
         )}
-        {["apiTool", "apiAgent"].includes(kind) && (
-          <>
-            <label>
-              <span>Method</span>
-              <select
-                value={String(node.data.apiMethod || "GET")}
-                onChange={(event) =>
-                  props.onChange({ apiMethod: event.target.value })
-                }
-              >
-                {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => (
-                  <option key={method}>{method}</option>
-                ))}
-              </select>
-            </label>
-            {field("apiUrl", "Endpoint URL")}
-            {field("apiBody", "Request body", true)}
-            {field("apiAuth", "Auth expression")}
-            <label>
-              <span>Credential reference</span>
-              <select
-                value={String(node.data.credentialId || "")}
-                onChange={(event) =>
-                  props.onChange({ credentialId: event.target.value })
-                }
-              >
-                <option value="">No credential</option>
-                {props.credentials?.map((credential) => (
-                  <option value={credential.id} key={credential.id}>
-                    {credential.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
+        <WorkflowOperationFields
+          data={node.data}
+          projectId={props.projectId}
+          canRun={props.canRun}
+          onChange={props.onChange}
+        />
         {kind === "trigger" && (
           <p className="studio-caption">
             Starts manually with the JSON object in Workflow input. Connect its
@@ -380,12 +371,25 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         <details>
           <summary>Execution settings</summary>
           {field("timeoutMs", "Timeout (ms)")}
+          <label>
+            <span>On error</span>
+            <select
+              aria-label="On error"
+              value={String(node.data.onError || "stop")}
+              onChange={(event) =>
+                props.onChange({ onError: event.target.value })
+              }
+            >
+              <option value="stop">Stop workflow</option>
+              <option value="errorOutput">Route to error handler</option>
+            </select>
+          </label>
           {field("retryCount", "Retries")}
           {field("retryDelayMs", "Retry delay (ms)")}
           {field("outputKey", "Output label")}
           <p className="studio-caption">
-            Review execution stops on failure. Source analysis runs once through
-            its existing worker.
+            Failed steps stop by default. Connect an Error handler to recover.
+            Source analysis and MCP calls run once.
           </p>
         </details>
         <details

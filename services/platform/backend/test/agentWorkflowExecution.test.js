@@ -43,11 +43,15 @@ async function finished(id) {
   return runtime._internals.store.get(id);
 }
 
-test("review readiness distinguishes registered execution from arbitrary canvas nodes", () => {
+test("readiness accepts implemented data nodes and rejects unconfigured or unknown operations", () => {
   assert.equal(runtime.readiness(workflow()).ready, true);
-  for (const kind of ["condition", "loop", "transform", "apiTool", "repositoryTool", "webAgent", "testOpsTool"]) {
+  for (const kind of ["condition", "transform", "repositoryTool", "knowledgeTool", "log"]) {
     const graph = workflow(); graph.nodes[1].data.kind = kind;
-    assert.ok(runtime.readiness(graph).blockers.some(item => item.message.includes("preview-only")));
+    assert.equal(runtime.readiness(graph).ready, true, kind);
+  }
+  for (const kind of ["loop", "apiTool", "mcpTool", "webAgent", "invented"]) {
+    const graph = workflow(); graph.nodes[1].data.kind = kind;
+    assert.equal(runtime.readiness(graph).ready, false, kind);
   }
   for (const update of [{ agentId: "invented" }, { prompt: "" }, { inputExpression: "{{secret}}" }, { onError: "continue" }, { toolName: "HTTP Request" }, { mergeMode: "firstAvailable" }, { timeoutMs: "500000" }, { retryCount: "10" }, { requiresApproval: true }, { toolPolicy: "approval-required" }, { outputSchema: "{}" }, { maxContextChars: "2000" }, { redactSecrets: "false" }, { parallel: true }, { credentialId: "external" }]) {
     const graph = workflow(); Object.assign(graph.nodes[1].data, update);
@@ -282,4 +286,106 @@ test("partial source analysis completes as needs-review and parent cancellation 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(cancelChild.mock.callCount(), 1);
   assert.equal(cancelChild.mock.calls[0].arguments[0], "child-job");
+});
+
+test('condition selects a branch, skips the other and preserves mapped output', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes = [node('request','trigger'), node('check','condition',{conditionPath:'input.approved',conditionOperator:'equals',conditionValue:'true'}),
+    node('yes','transform',{transformMapping:'{"answer":"approved"}'}), node('no','transform',{transformMapping:'{"answer":"rejected"}'}), node('finish','output')];
+  graph.edges = [{source:'request',target:'check'},{source:'check',target:'yes',sourceHandle:'true'},{source:'check',target:'no',sourceHandle:'false'}, {source:'yes',target:'finish'},{source:'no',target:'finish'}];
+  const run = await runtime.start(graph,{request_id:'conditional-run',input_payload:{approved:false}},user);
+  const done = await finished(run.id);
+  assert.equal(done.status,'completed');
+  assert.equal(done.node_results.find(n=>n.node_id==='yes').status,'skipped');
+  assert.equal(done.node_results.find(n=>n.node_id==='no').output.data.answer,'rejected');
+  assert.deepEqual(done.node_results.at(-1).output.data.map(n=>n.node_id),['no']);
+});
+
+test('For each maps every item and rejects oversized iterations without silently truncating', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes[1] = node('story','loop',{loopSourceKey:'input.items',loopAction:'transform',loopMaxIterations:'2',transformMapping:'{"title":"$item.title","project":"$request.project"}'});
+  const run = await runtime.start(graph,{request_id:'iteration-good',input_payload:{project:'checkout',items:[{title:'One'},{title:'Two'}]}},user);
+  const done = await finished(run.id);
+  assert.equal(done.status,'completed');
+  assert.deepEqual(done.node_results[1].output.data.map(item=>item.data),[{title:'One',project:'checkout'},{title:'Two',project:'checkout'}]);
+  assert.equal(done.node_results[1].progress.percent,100);
+  const tooMany = await runtime.start(graph,{request_id:'iteration-limit',input_payload:{items:[1,2,3]}},user);
+  const failed = await finished(tooMany.id);
+  assert.equal(failed.status,'failed');
+  assert.match(failed.output_payload.summary,/received 3 items/);
+});
+
+test('custom AI and iterative AI pass connected input to the bounded review adapter', async t => {
+  const {requests} = setup(t);
+  const graph = workflow(); graph.nodes[1] = node('story','customAI',{prompt:'Compare release risks',instructions:'Give a direct answer'});
+  const run = await runtime.start(graph,{request_id:'custom-ai-call',input_payload:{release:'2.3'}},user);
+  assert.equal((await finished(run.id)).status,'completed');
+  assert.equal(requests[0].agent_id,'quality-evaluator');
+  assert.match(requests[0].prompt,/Compare release risks/);
+  assert.match(requests[0].prompt,/2\.3/);
+  graph.nodes[1] = node('story','loop',{loopSourceKey:'input.items',loopAction:'customAI',loopMaxIterations:'2',prompt:'Review the current item'});
+  const loopRun = await runtime.start(graph,{request_id:'custom-ai-loop',input_payload:{items:[{id:'A'},{id:'B'}]}},user);
+  assert.equal((await finished(loopRun.id)).node_results[1].output.processed,2);
+  assert.match(requests[1].prompt,/"item":\{"id":"A"\}/);
+  assert.match(requests[2].prompt,/"item":\{"id":"B"\}/);
+});
+
+test('explicit error routing preserves failures and skips success paths', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes = [node('request','trigger'),node('bad','loop',{loopSourceKey:'input.absent',loopAction:'transform',loopMaxIterations:'2',onError:'errorOutput'}),node('recover','errorHandler'),node('success','transform',{transformMapping:'{"success":true}'}),node('finish','output')];
+  graph.edges = [{source:'request',target:'bad'},{source:'bad',target:'recover'},{source:'bad',target:'success'},{source:'recover',target:'finish'},{source:'success',target:'finish'}];
+  const run = await runtime.start(graph,{request_id:'error-routing',input_payload:{}},user);
+  const done = await finished(run.id);
+  assert.equal(done.status,'needs_review');
+  assert.equal(done.node_results.find(n=>n.node_id==='success').status,'skipped');
+  assert.equal(done.node_results.find(n=>n.node_id==='recover').output.recovered,true);
+  assert.match(done.node_results.find(n=>n.node_id==='recover').output.data[0].error,/array/);
+});
+
+
+test('oversized mapped output is rejected before persistence and supports explicit error routing', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes = [node('request','trigger'), node('expand','transform',{transformMapping:JSON.stringify(Object.fromEntries(Array.from({length:20},(_,i)=>[String(i),'$input.text']))),onError:'errorOutput'}), node('recover','errorHandler'), node('finish','output')];
+  graph.edges = [{source:'request',target:'expand'},{source:'expand',target:'recover'},{source:'recover',target:'finish'}];
+  const run = await runtime.start(graph,{input_payload:{text:'x'.repeat(10000)}},user);
+  const done = await finished(run.id);
+  assert.equal(done.status,'needs_review');
+  const expanded = done.node_results.find(n=>n.node_id==='expand');
+  assert.equal(expanded.status,'failed');
+  assert.equal(expanded.output, undefined);
+  assert.match(expanded.error,/128 KB/);
+  assert.equal(done.node_results.find(n=>n.node_id==='recover').output.recovered,true);
+  assert.ok(Buffer.byteLength(JSON.stringify(done.node_results))<128*1024);
+});
+
+
+test('evidence nodes use the project retrieval contract and preserve results through log and aggregator nodes', async t => {
+  setup(t);
+  const retrieval = require('../../../knowledge/backend/services/knowledgeRetrieval.service');
+  const calls=[];
+  t.mock.method(retrieval,'retrieve',async input=>{calls.push(input);return {context_packet_id:'packet-1',evidence:[{evidence_id:'e1',content:'Release ready'}],limitations:[]};});
+  for (const [kind,sourceKinds] of [['knowledgeTool',undefined],['repositoryTool',['knowledge_item','file','text']],['testOpsTool',['execution']]]) {
+    const graph=workflow();
+    graph.nodes=[node('request','trigger'),node('evidence',kind,{knowledgeQuery:'Release progress',testOpsAction:kind==='testOpsTool'?'read-runs':undefined}),node('log','log'),node('merge','aggregator'),node('finish','output')];
+    graph.edges=[{source:'request',target:'evidence'},{source:'evidence',target:'log'},{source:'log',target:'merge'},{source:'merge',target:'finish'}];
+    const run=await runtime.start(graph,{},user);
+    const done=await finished(run.id);
+    assert.equal(done.status,'completed');
+    assert.equal(calls.at(-1).projectId,'project-a');
+    assert.equal(calls.at(-1).appTypeId,'app-a');
+    assert.deepEqual(calls.at(-1).filters.source_kinds,sourceKinds);
+    assert.equal(done.node_results.find(n=>n.node_id==='evidence').output.context_packet_id,'packet-1');
+    assert.equal(done.node_results.find(n=>n.node_id==='log').output.data[0].content,'Release ready');
+    assert.equal(done.node_results.find(n=>n.node_id==='merge').output.data[0].output.data[0].evidence_id,'e1');
+  }
+  t.mock.method(permissions,'hasPermission',async (_user,permission)=>permission!=='knowledge.view');
+  const graph=workflow(); graph.nodes[1]=node('story','knowledgeTool');
+  const denied=await runtime.start(graph,{},user);
+  const done=await finished(denied.id);
+  assert.equal(done.status,'failed');
+  assert.equal(calls.length,3,'revoked knowledge access never reaches retrieval');
 });

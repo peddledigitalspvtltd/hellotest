@@ -10,14 +10,8 @@ import {
   type ReactFlowProps,
 } from "@xyflow/react";
 import { useEffect, useRef, type RefObject } from "react";
-import {
-  IconPlayerPlay,
-  IconRobot,
-  IconGitBranch,
-  IconPackage,
-  IconCheck,
-  IconFileCheck,
-} from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
+import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 import type {
   AgenticWorkflowNode,
   AgenticWorkflowEdge,
@@ -25,14 +19,7 @@ import type {
 } from "@hellotest/platform/frontend/src/types";
 import { nodeKindLabels, type WorkflowNodeKind } from "./workflowGraph";
 
-export const EXECUTABLE_NODE_KINDS = new Set([
-  "trigger",
-  "agent",
-  "llmAgent",
-  "repositoryAgent",
-  "aggregator",
-  "output",
-]);
+export const EXECUTABLE_NODE_KINDS = new Set(Object.keys(nodeKindLabels));
 function WorkflowNode({
   data,
   selected,
@@ -41,16 +28,6 @@ function WorkflowNode({
   selected?: boolean;
 }) {
   const kind = String(data.kind || "agent") as WorkflowNodeKind;
-  const Icon =
-    kind === "trigger"
-      ? IconPlayerPlay
-      : kind === "output"
-        ? IconFileCheck
-        : kind === "repositoryAgent"
-          ? IconPackage
-          : kind === "aggregator"
-            ? IconGitBranch
-            : IconRobot;
   const status = String(data.runStatus || "");
   return (
     <div
@@ -60,7 +37,7 @@ function WorkflowNode({
     >
       {kind !== "trigger" && <Handle type="target" position={Position.Left} />}
       <span className="studio-node-icon">
-        <Icon size={23} />
+        <WorkflowNodeIcon kind={kind} size={23} />
       </span>
       <div>
         <small>{nodeKindLabels[kind] || kind}</small>
@@ -80,7 +57,26 @@ function WorkflowNode({
       {status === "completed" && (
         <IconCheck className="studio-node-check" size={15} />
       )}
-      {kind !== "output" && <Handle type="source" position={Position.Right} />}
+      {kind === "condition" ? (
+        <>
+          <Handle
+            type="source"
+            id="true"
+            position={Position.Right}
+            style={{ top: "32%" }}
+          />
+          <span className="studio-port-label is-true">true</span>
+          <Handle
+            type="source"
+            id="false"
+            position={Position.Right}
+            style={{ top: "76%" }}
+          />
+          <span className="studio-port-label is-false">false</span>
+        </>
+      ) : (
+        kind !== "output" && <Handle type="source" position={Position.Right} />
+      )}
     </div>
   );
 }

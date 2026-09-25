@@ -35,7 +35,7 @@ api.knowledgeRepo.assistant.createSession = async () => ({ id: "qa-session", pro
 api.knowledgeRepo.sourceDetail = knowledgeApi.knowledgeRepo.sourceDetail = async () => ({ source: { id: "knowledge-source", title: "Checkout release review", source_kind: "file", file_name: "checkout.md", extraction_status: "ready", chunk_count: 1, updated_at: "2026-09-22T10:00:00Z" }, revision: { id: "revision-1", is_current: true, effective_from: "2026-09-22T10:00:00Z", index_state: { required_indexes_ready: true, lexical_state: "ready", dense_state: "ready", indexed_chunk_count: 1 } }, fragments: [{ id: "fragment-1", heading: "Refund coverage", chunk_index: 0, content: "## Refund boundary\\n\\n**Risk:** the refund scenario lacks coverage.\\n\\n- Verify declined refunds\\n- Verify retry behavior", metadata: { page: 3 } }], authorization: { partial: false }, historical: false });
 api.knowledgeRepo.sourceRevisions = knowledgeApi.knowledgeRepo.sourceRevisions = async () => ({ source_id: "knowledge-source", revisions: [] });
 const citation = { id: "e1", evidence_id: "e1", source_id: "knowledge-source", title: "Checkout release review", source_kind: "document", freshness: { current: true }, visibility: { state: "FULL" } };
-const answer = (provider = false) => ({ assistant_message: { id: "answer-" + Date.now(), role: "assistant", content: "The checkout review identifies an untested refund scenario.", grounding_status: provider ? "provider_unavailable" : "partially_grounded", citations: [citation], context_packet: { contract_version: "1.0", packet_id: "qa", evidence: [citation], retrieval: { status: "PARTIAL" } }, answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: provider ? "provider_unavailable" : "answered", summary: "The checkout review identifies an untested refund scenario.", claims: [{ statement: "**Checkout risk:** the refund scenario is untested.\\n- Verify declined refunds\\n- Verify retry behavior", classification: "SUPPORTED", evidence_ids: ["e1"] }], citation_ids: ["e1"], evidence_gaps: ["The latest test execution was unavailable."], limitations: { retrieval_status: "PARTIAL", unavailable_sources: 1 }, presentation: { recommended_type: "TEXT", structured_payload: {} } }, retrieval: { provider_error_code: provider ? "MODEL_AUTHENTICATION_FAILED" : undefined, processing_trace: [{ stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review." }, { stage: "GENERATION", status: provider ? "FAILED" : "COMPLETE", message: provider ? "Model connection not accepted." : "Answer completed." }] } } });
+const answer = (provider = false) => ({ assistant_message: { id: "answer-" + Date.now(), role: "assistant", content: "The checkout review identifies an untested refund scenario.", grounding_status: provider ? "provider_unavailable" : "partially_grounded", safety: { extractive_grounded_fallback: provider }, citations: [citation], context_packet: { contract_version: "1.0", packet_id: "qa", evidence: [citation], retrieval: { status: "PARTIAL" } }, answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: provider ? "provider_unavailable" : "answered", summary: "The checkout review identifies an untested refund scenario.", claims: [{ statement: "**Checkout risk:** the refund scenario is untested.\\n- Verify declined refunds\\n- Verify retry behavior", classification: "SUPPORTED", evidence_ids: ["e1"] }], citation_ids: ["e1"], evidence_gaps: ["The latest test execution was unavailable."], limitations: { retrieval_status: "PARTIAL", unavailable_sources: 1 }, presentation: { recommended_type: "TEXT", structured_payload: {} } }, retrieval: { provider_error_code: provider ? "MODEL_AUTHENTICATION_FAILED" : undefined, processing_trace: [{ stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review." }, { stage: "GENERATION", status: provider ? "FAILED" : "COMPLETE", message: provider ? "Model connection not accepted." : "Answer completed." }] } } });
 window.qa = { mode: "stream", calls: [], finish: null, progress: null, cancelled: 0 };
 api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
   window.qa.calls.push({ id, ...input });
@@ -77,6 +77,7 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     page.on("console", message => { if (message.type() === "error") browserErrors.push(message.text()); });
+    await page.route("**/api/**", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Unexpected fixture API request" }) }));
     await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
     await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
     const input = page.getByRole("textbox", { name: "Ask about this HelloTest project" });
@@ -113,8 +114,8 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     assert.equal(await page.evaluate(() => window.qa.calls.length), 1);
     const sourceButton = page.getByRole("button", { name: /Show source 1: Checkout release review/ });
     assert.equal(await sourceButton.count(), 1);
-    assert.equal(await page.locator(".knowledge-answer-claims strong").getByText("Checkout risk:", { exact: true }).count(), 1, "Markdown emphasis is presented as readable content");
-    assert.equal(await page.locator(".knowledge-answer-claims li li").count(), 2, "Markdown findings render as a list");
+    assert.equal(await page.locator(".knowledge-answer-paragraphs strong").getByText("Checkout risk:", { exact: true }).count(), 1, "Markdown emphasis is presented as readable content");
+    assert.equal(await page.locator(".knowledge-answer-paragraphs li").count(), 2, "Markdown findings render as a list");
     await sourceButton.click();
     const sourceDialog = page.getByRole("dialog", { name: "Checkout release review" });
     await sourceDialog.waitFor();
@@ -163,6 +164,11 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await page.getByRole("button", { name: "Resume this turn", exact: true }).click();
     await page.getByText("Sources found; answer model unavailable", { exact: true }).waitFor();
     await page.getByText(/Check its credentials in Integrations/).waitFor();
+    await page.getByText(/The model could not complete an answer/).waitFor();
+    assert.equal(await page.locator(".knowledge-answer-paragraphs").count(), 0);
+    const excerpts = page.locator("details").filter({ has: page.locator("summary", { hasText: "Retrieved excerpts" }) });
+    assert.equal(await excerpts.getAttribute("open"), null, "excerpts are separate from the model response");
+    await excerpts.locator("summary").click();
     assert.equal(await page.evaluate(() => window.qa.calls.at(-1).client_turn_id), stoppedTurn);
     assert.equal(await input.inputValue(), "Do not lose this draft");
     assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);

@@ -52,6 +52,7 @@
     "@hellotest/integration": "^1.0.0",
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
-    "@hellotest/testing": "^1.0.0"
+    "@hellotest/testing": "^1.0.0",
+    "ajv": "^8.20.0"
   }
 }

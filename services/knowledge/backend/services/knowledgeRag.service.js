@@ -3388,7 +3388,19 @@ const syncLegacyKnowledgeItem = async (projectId, item, userId, { signal, activa
   });
 };
 
+// Fingerprint complete evidence, including linked child records, before deciding
+// whether incremental refresh needs extraction/embedding. Respect archived sources.
+const isApplicationRecordIndexed = async (projectId, kind, id) => {
+  const source = await db.prepare(`SELECT s.extraction_status, d.metadata FROM ai_knowledge_sources s
+    LEFT JOIN ai_knowledge_documents d ON d.source_id = s.id AND d.is_active = TRUE
+    WHERE s.project_id = ? AND s.source_kind = ? AND s.source_ref_id = ? LIMIT 1`).get(projectId, kind, id);
+  if (source?.extraction_status === "archived") return true;
+  if (!source?.metadata?.snapshot_fingerprint) return false;
+  const record = await loadApplicationRecord(projectId, kind, id);
+  return source.metadata.snapshot_fingerprint === applicationSnapshotFingerprint(record);
+};
 module.exports = {
+  isApplicationRecordIndexed,
   ASSISTANT_GUARDRAILS,
   assertLlmIntegrationProjectScope,
   createCollection,

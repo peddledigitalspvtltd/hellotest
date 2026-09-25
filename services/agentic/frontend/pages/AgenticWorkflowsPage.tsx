@@ -784,14 +784,25 @@ export function AgenticWorkflowsPage() {
   const addWorkflowNode = (kind: WorkflowNodeKind) => {
     const id = createNodeId(kind);
     const source = selectedNode?.data.kind !== "output" ? selectedNode : null;
+    const addsBranch = kind === "output" || kind === "errorHandler";
     const nextNode: AgenticWorkflowNode = { id, type: "agenticStep",
-      position: { x: source ? source.position.x + 300 : 80 + nodes.length * 300, y: source?.position.y || 140 },
+      position: { x: source ? source.position.x + 300 : 80 + nodes.length * 300,
+        y: (source?.position.y ?? 140) + (source && addsBranch && edges.some(edge => edge.source === source.id) ? 180 : 0) },
       data: buildNodeDefaults(kind, nodes.length) };
-    setNodes(current => [...current, nextNode]);
+    const shifted = new Set<string>();
+    if (source && source.data.kind !== "condition" && kind !== "trigger" && !addsBranch) {
+      const visit = (parent: string) => edges.filter(edge => edge.source === parent).forEach(edge => {
+        if (!shifted.has(edge.target)) { shifted.add(edge.target); visit(edge.target); }
+      });
+      visit(source.id);
+    }
+    setNodes(current => [...current.map(node => shifted.has(node.id) ? { ...node, position: { ...node.position, x: node.position.x + 300 } } : node), nextNode]);
     if (source && kind !== "trigger") setEdges(current => {
       const downstream = current.filter(edge => edge.source === source.id);
+      // Inserting after a branch point must not collapse its true/false paths.
+      if (source.data.kind === "condition") return current;
       return [...current.filter(edge => edge.source !== source.id), createFlowEdge(source.id, id),
-        ...(kind === "output" ? downstream : downstream.map(edge => ({ ...edge, source: id })))];
+        ...(addsBranch ? downstream : downstream.map(edge => ({ ...edge, source: id })))];
     });
     setSelectedNodeId(id);
   };
@@ -808,7 +819,7 @@ export function AgenticWorkflowsPage() {
       const incoming = current.filter(edge => edge.target === deletedNodeId), outgoing = current.filter(edge => edge.source === deletedNodeId);
       const retained = current.filter(edge => edge.source !== deletedNodeId && edge.target !== deletedNodeId);
       return incoming.length === 1 && outgoing.length === 1 && !retained.some(edge => edge.source === incoming[0].source && edge.target === outgoing[0].target)
-        ? [...retained, createFlowEdge(incoming[0].source, outgoing[0].target)] : retained;
+        ? [...retained, { ...createFlowEdge(incoming[0].source, outgoing[0].target), sourceHandle: incoming[0].sourceHandle, targetHandle: outgoing[0].targetHandle }] : retained;
     });
     updateDraftSetting(
       "agenticCredentials",
@@ -862,12 +873,8 @@ export function AgenticWorkflowsPage() {
     const method = String(selectedNode.data.apiMethod || "GET");
     const url = String(selectedNode.data.apiUrl || "");
     const responseStyle = String(selectedNode.data.apiResponseStyle || "json") as AgenticApiResponseStyle;
-    const credential =
-      workflowCredentials.find((item) => item.id === selectedNode.data.credentialId) ||
-      workflowCredentials.find((item) => item.agentId === selectedNode.id) ||
-      null;
 
-    if (!url.trim()) {
+    if (!url.trim() && !selectedNode.data.connectionId) {
       updateSelectedNode("apiTestOutput", prettyJson({ ok: false, status: 422, message: "Configure an endpoint URL before testing." }));
       return;
     }
@@ -876,15 +883,7 @@ export function AgenticWorkflowsPage() {
     updateSelectedNode("apiTestOutput", prettyJson({ status: "running", method, url, responseStyle }));
 
     try {
-      const result = await api.agenticWorkflows.testApiAgent({
-        project_id: projectId,
-        method,
-        url,
-        auth: String(selectedNode.data.apiAuth || ""),
-        responseStyle,
-        body: String(selectedNode.data.apiBody || ""),
-        credential: credential ? { ...credential } : null
-      });
+      const result = await api.agenticWorkflows.testHttpNode(projectId, selectedNode.data);
 
       if (requestScope !== currentWorkspaceScope.current) return;
       updateSelectedNode("apiTestOutput", prettyJson(result));
@@ -1291,7 +1290,7 @@ export function AgenticWorkflowsPage() {
           onOpenReview: (agent, session) => { closeDraft(); openAssistantSession(agent, session); },
           onOpenSource: (agent, run) => { if (isRepositoryAgentType(agent)) { closeDraft(); openRepositoryAgent(agent, run); } },
           canKnowledge: canUseKnowledge, providers: llmProviderOptions,
-          onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: testSelectedApiAgent, testingApi: Boolean(testingApiNodeId), credentials: workflowCredentials }}
+          onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: testSelectedApiAgent, testingApi: Boolean(testingApiNodeId) }}
       />}
       {selectedRunId && !selectedRun && <section className="studio-notice" role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? <><p>{selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : "Unable to load execution."}</p><button type="button" onClick={() => void selectedRunQuery.refetch()}>Retry execution details</button><button type="button" onClick={closeRun}>Back</button></> : "Loading execution…"}</section>}
       {selectedRun && <WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows}

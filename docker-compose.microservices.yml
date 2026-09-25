@@ -192,6 +192,9 @@ services:
     environment:
       <<: *api-environment
       HELLOTEST_SERVICE_PROFILE: agentic
+      AGENTIC_HTTP_CONNECTIONS: ${AGENTIC_HTTP_CONNECTIONS:-[]}
+      AGENTIC_SECRET_API: ${AGENTIC_SECRET_API:-}
+      AGENTIC_SECRET_MCP: ${AGENTIC_SECRET_MCP:-}
     ports: ["127.0.0.1:3005:3000"]
 
   chatbot-api:

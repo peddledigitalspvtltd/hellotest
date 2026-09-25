@@ -6,6 +6,7 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
   const answer = validateKnowledgeAnswer(message);
   if (!answer) return null;
   const sources = Array.from(answer.citations.values());
+  const excerptsOnly = message.safety?.extractive_grounded_fallback === true;
   const evidenceLinks = (ids: string[]) => <span className="knowledge-claim-citations">{ids.map((id) => {
     const citation = answer.citations.get(id);
     if (!citation) return null;
@@ -34,9 +35,10 @@ export function KnowledgeAnswer({ message, onEvidenceOpen }: { message: Knowledg
   return <div className="knowledge-validated-answer" aria-label="Evidence-linked answer">
     <section aria-label="Response" className="knowledge-answer-response">
       <h3>Response</h3>
+      {excerptsOnly ? <p className="knowledge-answer-summary">The model could not complete an answer. Retry the response; the retrieved source excerpts are available below.</p> : null}
       {!answer.claims.length && answer.summary ? <KnowledgeFormattedText className="knowledge-answer-summary" text={answer.summary} /> : null}
-      {answer.claims.length ? <div className="knowledge-answer-overview"><strong>What the evidence shows</strong><span>{answer.claims.length} finding{answer.claims.length === 1 ? "" : "s"} · {sources.length} cited source{sources.length === 1 ? "" : "s"}</span></div> : null}
-      {answer.claims.length ? <ul className="knowledge-answer-claims">{answer.claims.map((claim) => <li key={claim.id}>{claim.classification === "INTERPRETATION" ? <span className="knowledge-interpretation-label">Interpretation</span> : null}<KnowledgeFormattedText text={claim.text} />{evidenceLinks(claim.evidenceIds)}</li>)}</ul> : null}
+      {answer.claims.length && !excerptsOnly ? <div className="knowledge-answer-overview"><strong>What the evidence shows</strong><span>{answer.claims.length} finding{answer.claims.length === 1 ? "" : "s"} · {sources.length} cited source{sources.length === 1 ? "" : "s"}</span></div> : null}
+      {answer.claims.length ? excerptsOnly ? <details className="knowledge-answer-limitations"><summary>Retrieved excerpts · {answer.claims.length}</summary>{answer.claims.map(claim => <blockquote key={claim.id}><KnowledgeFormattedText text={claim.text} />{evidenceLinks(claim.evidenceIds)}</blockquote>)}</details> : <div className="knowledge-answer-paragraphs">{answer.claims.map((claim) => <div key={claim.id}>{claim.classification === "INTERPRETATION" ? <span className="knowledge-interpretation-label">Interpretation</span> : null}<KnowledgeFormattedText text={claim.text} />{evidenceLinks(claim.evidenceIds)}</div>)}</div> : null}
       {["TABLE", "COMPARISON"].includes(answer.presentation.type) ? <div className="knowledge-answer-table-scroll" tabIndex={0} role="region" aria-label={answer.presentation.type === "COMPARISON" ? "Evidence comparison" : "Evidence table"}><table><thead><tr>{tableColumns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}<th scope="col">Evidence</th></tr></thead><tbody>{tableRows.map((row, index) => <tr key={index}>{tableColumns.map((column) => <td key={column.key}>{row.cells[column.key]}</td>)}<td>{evidenceLinks(row.evidence_ids)}</td></tr>)}</tbody></table></div> : null}
       {answer.presentation.type === "TIMELINE" ? <ol className="knowledge-answer-timeline">{items.map((item, index) => <li key={index}><time>{item.date}</time><div><strong>{item.title}</strong>{item.description ? <p>{item.description}</p> : null}{evidenceLinks(item.evidence_ids)}</div></li>)}</ol> : null}
       {answer.presentation.type === "METRIC" ? <div className="knowledge-answer-metrics">{items.map((item, index) => <div key={index}><span>{item.label}</span><strong>{item.value} {item.unit}</strong>{evidenceLinks(item.evidence_ids)}</div>)}</div> : null}

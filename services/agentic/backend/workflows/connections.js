@@ -1,0 +1,311 @@
+const dns = require("node:dns").promises;
+const http = require("node:http");
+const https = require("node:https");
+const net = require("node:net");
+const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
+const {
+  sanitizeAiText,
+} = require("@hellotest/platform/backend/src/security/aiTextPolicy");
+const fail = (message, statusCode = 400) =>
+  Object.assign(new Error(message), { statusCode, publicMessage: message });
+function configured() {
+  let rows;
+  try {
+    rows = JSON.parse(process.env.AGENTIC_HTTP_CONNECTIONS || "[]");
+  } catch {
+    throw fail(
+      "Workflow connections are misconfigured. Contact your administrator.",
+      503,
+    );
+  }
+  if (!Array.isArray(rows))
+    throw fail("Workflow connections must be a configured list.", 503);
+  return rows.filter(
+    (row) => row && typeof row.id === "string" && typeof row.url === "string",
+  );
+}
+const scoped = (connection, projectId) =>
+  Array.isArray(connection.projectIds) &&
+  connection.projectIds.includes(projectId);
+const list = (projectId) =>
+  configured()
+    .filter((row) => scoped(row, projectId))
+    .map((row) => ({
+      id: row.id,
+      name: row.name || row.id,
+      kind: row.kind === "mcp" ? "mcp" : "http",
+      url: cleanUrl(row.url).toString(),
+      authenticated: Boolean(row.secretEnv),
+      methods: row.methods || ["GET", "HEAD"],
+      tools: row.tools || [],
+    }));
+function cleanUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw fail("Enter a valid HTTP or HTTPS endpoint.");
+  }
+  if (
+    !["https:", "http:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  )
+    throw fail("Use an HTTP endpoint without embedded credentials.");
+  url.hash = "";
+  return url;
+}
+function resolve(id, projectId, endpoint, kind = "http") {
+  const connection = id
+    ? configured().find((row) => row.id === id && scoped(row, projectId))
+    : null;
+  if (id && !connection)
+    throw fail("This connection is unavailable in the selected project.", 403);
+  if (kind === "mcp" && (!connection || connection.kind !== "mcp"))
+    throw fail("Select a configured MCP server.");
+  if (kind === "http" && connection?.kind === "mcp")
+    throw fail("Select an HTTP connection.");
+  const url = cleanUrl(endpoint || connection?.url || "");
+  if (connection) {
+    const base = cleanUrl(connection.url);
+    const path = decodeURIComponent(url.pathname),
+      basePath = decodeURIComponent(base.pathname);
+    if (
+      url.origin !== base.origin ||
+      (path !== basePath &&
+        !path.startsWith(basePath.endsWith("/") ? basePath : `${basePath}/`)) ||
+      /(?:^|\/)\.\.(?:\/|$)/.test(path)
+    )
+      throw fail("The endpoint must stay within the selected connection.", 403);
+  }
+  return { connection, url };
+}
+function publicAddress(address) {
+  if (net.isIP(address) === 4) {
+    const [a, b] = address.split(".").map(Number);
+    return !(
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && [0, 168].includes(b)) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && [18, 19].includes(b))
+    );
+  }
+  // IPv4-mapped, link-local, loopback and unique-local IPv6 are not public.
+  return (
+    net.isIP(address) === 6 &&
+    (parseInt(address.split(":")[0], 16) & 0xe000) === 0x2000
+  );
+}
+function metadataAddress(address) {
+  if (address.startsWith("169.254.")) return true;
+  // URL canonicalization also handles expanded IPv4-mapped IPv6 literals.
+  if (net.isIP(address) !== 6) return false;
+  const canonical = new URL(`http://[${address}]`).hostname;
+  return canonical.startsWith("[::ffff:a9fe:");
+}
+function authHeaders(connection) {
+  if (!connection?.secretEnv) return {};
+  if (!/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(connection.secretEnv))
+    throw fail("The connection secret reference is invalid.", 503);
+  const secret = process.env[connection.secretEnv];
+  if (!secret)
+    throw fail("The selected connection has no configured credential.", 503);
+  const name = connection.header || "Authorization";
+  if (
+    !/^[A-Za-z0-9-]+$/.test(name) ||
+    /^(host|connection|content-length|transfer-encoding)$/i.test(name)
+  )
+    throw fail("The connection credential header is invalid.", 503);
+  return {
+    [name]:
+      connection.authType === "basic"
+        ? `Basic ${Buffer.from(secret).toString("base64")}`
+        : connection.authType === "header"
+          ? secret
+          : `Bearer ${secret}`,
+  };
+}
+function redact(value, connection) {
+  const secret = connection?.secretEnv ? process.env[connection.secretEnv] : "";
+  return JSON.parse(JSON.stringify(value, (key, item) => {
+    if (/^(authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token)$/i.test(key)) return "[REDACTED]";
+    if (typeof item !== "string") return item;
+    // Redact before JSON escaping so credentials containing quotes/backslashes
+    // cannot reappear in an endpoint's echo or diagnostic response.
+    if (secret) for (const token of [secret, Buffer.from(secret).toString("base64")]) item = item.split(token).join("[REDACTED]");
+    return sanitizeAiText(item).text;
+  }));
+}
+async function request({
+  url,
+  connection,
+  method = "GET",
+  headers = {},
+  body,
+  signal,
+  timeoutMs = 30000,
+  onChunk,
+}) {
+  if (signal?.aborted) throw fail("The node was cancelled.", 499);
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = net.isIP(hostname)
+    ? [{ address: hostname, family: net.isIP(hostname) }]
+    : await execution.bounded(() => dns.lookup(hostname, { all: true }), {
+        timeoutMs: Math.min(5000, timeoutMs),
+        signal,
+      });
+  if (signal?.aborted) throw fail("The node was cancelled.", 499);
+  if (
+    !addresses.length ||
+    addresses.some(
+      ({ address }) =>
+        metadataAddress(address) ||
+        (!connection?.allowPrivateNetwork && !publicAddress(address)),
+    )
+  )
+    throw fail(
+      "Private network endpoints require an administrator-configured connection.",
+      403,
+    );
+  const pinned = addresses[0];
+  if (body && Buffer.byteLength(body) > 128 * 1024)
+    throw fail("Node request bodies are limited to 128 KB.");
+  return new Promise((resolve, reject) => {
+    let completed = false;
+    let timer;
+    const finish = (error, result) => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timer);
+      error ? reject(error) : resolve(result);
+    };
+    const req = (url.protocol === "https:" ? https : http).request(
+      url,
+      {
+        method,
+        signal,
+        headers: {
+          Accept: "application/json",
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...headers,
+          ...authHeaders(connection),
+        },
+        // Pin the checked address so DNS rebinding cannot redirect credentials.
+        lookup: (_host, options, cb) =>
+          options?.all
+            ? cb(null, [pinned])
+            : cb(null, pinned.address, pinned.family),
+      },
+      (res) => {
+        const chunks = [];
+        let bytes = 0;
+        const finishBody = () =>
+          finish(null, {
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
+        res.on("data", (chunk) => {
+          bytes += chunk.length;
+          if (bytes > 128 * 1024) {
+            finish(fail("The node response exceeded 128 KB.", 502));
+            res.destroy();
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+          if (onChunk?.(Buffer.concat(chunks).toString("utf8"), res.headers)) {
+            finishBody();
+            res.destroy();
+            req.destroy();
+          }
+        });
+        res.on("end", finishBody);
+        res.on("error", () =>
+          finish(fail("The server response was interrupted.", 502)),
+        );
+      },
+    );
+    timer = setTimeout(
+      () => {
+        finish(fail("The external node timed out.", 504));
+        req.destroy();
+      },
+      Math.min(70000, Math.max(1000, timeoutMs)),
+    );
+    req.on("error", () =>
+      finish(
+        fail(
+          signal?.aborted
+            ? "The node was cancelled."
+            : "Unable to reach the configured endpoint.",
+          signal?.aborted ? 499 : 502,
+        ),
+      ),
+    );
+    req.end(body);
+  });
+}
+async function callHttp({ projectId, data, signal }) {
+  const { connection, url } = resolve(
+    data.connectionId,
+    projectId,
+    data.apiUrl,
+  );
+  const method = String(data.apiMethod || "GET").toUpperCase();
+  const allowed = connection?.methods || ["GET", "HEAD"];
+  if (
+    !allowed.includes(method) ||
+    !["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(
+      method,
+    )
+  )
+    throw fail("This HTTP method is not enabled for the connection.", 403);
+  if (data.apiAuth || data.credentialId)
+    throw fail(
+      "Select a server-managed connection instead of an inline credential.",
+    );
+  const response = await request({
+    url,
+    connection,
+    method,
+    body: ["GET", "HEAD"].includes(method)
+      ? undefined
+      : String(data.apiBody || ""),
+    signal,
+    timeoutMs: Number(data.timeoutMs) || 30000,
+  });
+  if (response.status < 200 || response.status >= 300)
+    throw fail(
+      `The endpoint returned HTTP ${response.status}. Redirects are not followed.`,
+      502,
+    );
+  let content;
+  try {
+    content = JSON.parse(response.body);
+  } catch {
+    content = response.body;
+  }
+  return redact(
+    {
+      status: response.status,
+      data: content,
+      content_type: response.headers["content-type"] || "",
+    },
+    connection,
+  );
+}
+module.exports = {
+  list,
+  resolve,
+  request,
+  callHttp,
+  redact,
+  fail,
+  _internals: { publicAddress, metadataAddress, scoped, cleanUrl, authHeaders },
+};
