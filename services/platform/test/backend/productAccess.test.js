@@ -62,7 +62,7 @@ test('Run view metadata links Gherkin and Coded to their separate permissions', 
   assert.match(gherkin.description, /default Structured view/);
   assert.ok(coded.permissions.includes('automation.code.view'));
   assert.match(coded.description, /Coded view/);
-  assert.equal(PERMISSIONS.find(permission => permission.code === 'run.gherkin.view').group, 'execution');
+  assert.equal(PERMISSIONS.find(permission => permission.code === 'run.gherkin.view').group, 'testing');
   for (const role of ['admin', 'member']) assert.ok(DEFAULT_ROLE_PERMISSIONS[role].includes('run.gherkin.view'));
 });
 
@@ -252,4 +252,19 @@ test('the cancellation exception grants neither anonymous nor read-only API-key 
   const readOnly = await app.inject({ method: 'POST', url: '/agentic-workflow-runs/run-a/cancel', headers: { authorization: 'Bearer fixture' }, payload: { project_id: 'project-a' } });
   assert.equal(readOnly.statusCode, 403);
   assert.equal(reached(), 0);
+});
+
+test('feature groups cover each published capability once and the shared template library is independent of case AI', async t => {
+  stored(t, { 'hellotest.ai.test_authoring': false });
+  const snapshot = await flags.getSnapshot();
+  const capabilities = require('../../../capabilities.json');
+  assert.deepEqual(snapshot.groups.map(group => group.key).sort(), Object.keys(capabilities.dependencies).sort());
+  const features = snapshot.groups.flatMap(group => group.features.map(feature => feature.key));
+  assert.equal(new Set(features).size, features.length);
+  for (const group of snapshot.groups) {
+    for (const feature of group.features) assert.equal(capabilities.feature_owners[feature.key], group.key, `${feature.key} is grouped under its package owner`);
+  }
+  assert.equal(snapshot.flags['hellotest.ai.prompt_templates'], true);
+  assert.deepEqual(await flags.getDisabledPermissionCodes(['testcase.ai', 'prompt_template.view', 'prompt_template.manage']), ['testcase.ai']);
+  assert.ok(Object.keys(snapshot.capability_availability).length === features.length);
 });

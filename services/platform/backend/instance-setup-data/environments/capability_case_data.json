@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v7-ht-case-project-applications",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-membership-roles",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-navigation-scope",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-authentication",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-project-deletion",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-regional-settings",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-story-authoring",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-backlog-planning",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-sprint-lifecycle",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-release-scope",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-delivery-selectors",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-story-traceability",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-story-import-sync",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-story-ai-design",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-structured-cases",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-gherkin-authoring",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-shared-steps",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-suite-modules",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-case-review-versioning",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-case-import-export",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-environment-targets",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-configuration-profiles",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-datasets-parameters",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-ai-authoring-data",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-run-planning",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-frozen-evidence",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-dataset-outcomes",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-scheduled-runs",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-execution-analysis-reports",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-bug-lifecycle",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-bug-collaboration",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-bug-regression-ai",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-automation-coverage",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-builder-step-code",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-api-requests",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-object-repository",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-step-recorder",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-local-execution",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-remote-parallel",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-android-appium",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-repository-specialists",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-knowledge-ingestion",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-knowledge-search",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-ask-hellotest",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-workflow-canvas",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-workflow-history",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-prompt-governance",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-quality-analytics",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-custom-dashboards",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-release-readiness",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-product-metrics",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-background-jobs",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-telemetry-traces",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-notifications",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-instance-setup",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-feature-dropdown-governance",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-integrations-api-keys",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-admin-audit-security",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-support-guidance",
+      "test_data_set_id": "sample-v7-ht-data-access"
+    }
+  ]
+}

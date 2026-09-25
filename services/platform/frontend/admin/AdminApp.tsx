@@ -185,11 +185,14 @@ function FeaturesPage({ notify, selectedFeatureKey, onSelectFeature }: {
 
   const patch = snapshot ? createFeatureFlagPatch(snapshot.local_flags || snapshot.flags, draft) : {};
   const changes = Object.keys(patch).length;
-  const effective = effectiveFeatureFlags(draft, snapshot?.dependencies);
+  const availableFlags = (flags: Record<string, boolean>) => Object.fromEntries(
+    Object.entries(flags).map(([key, value]) => [key, value && snapshot?.capability_availability?.[key] !== false])
+  );
+  const effective = effectiveFeatureFlags(availableFlags(draft), snapshot?.dependencies);
   const selectedFeature = snapshot?.groups.flatMap((group) => group.features).find((feature) => feature.key === selectedFeatureKey);
   const labels = new Map(snapshot?.groups.flatMap((group) => group.features.map((feature) => [feature.key, feature.label] as const)) || []);
   const filteredGroups = snapshot?.groups.map((group) => ({ ...group, features: group.features.filter((feature) =>
-    `${feature.label} ${feature.description || ""} ${feature.key} ${(feature.permissions || []).join(" ")} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase())
+    `${group.label} ${feature.label} ${feature.description || ""} ${feature.key} ${(feature.permissions || []).join(" ")} ${(feature.routes || []).join(" ")}`.toLowerCase().includes(search.trim().toLowerCase())
   ) })).filter((group) => group.features.length) || [];
 
   const save = async () => {
@@ -197,7 +200,7 @@ function FeaturesPage({ notify, selectedFeatureKey, onSelectFeature }: {
     setBusy(true);
     try {
       const result = await adminApi.updateFlags(patch);
-      setSnapshot({ ...snapshot, local_flags: result.flags, flags: effectiveFeatureFlags(result.flags, snapshot.dependencies) });
+      setSnapshot({ ...snapshot, local_flags: result.flags, flags: effectiveFeatureFlags(availableFlags(result.flags), snapshot.dependencies) });
       setDraft(result.flags);
       notify(`${changes} feature change${changes === 1 ? "" : "s"} published.`);
     } catch (reason) {
@@ -222,6 +225,7 @@ function FeaturesPage({ notify, selectedFeatureKey, onSelectFeature }: {
       <header className="feature-detail-header"><div><p className="kicker">Feature details</p><h3 id="feature-detail-heading" tabIndex={-1}>{selectedFeature?.label || "Feature not found"}</h3></div><button aria-label="Close feature details" className="icon-button" onClick={() => onSelectFeature("")} type="button"><X size={18} /></button></header>
       {selectedFeature ? <>
         <p className="feature-detail-description">{selectedFeature.description || "Review this capability's availability, access permissions and workspace pages."}</p>
+        {snapshot?.capability_availability?.[selectedFeature.key] === false ? <p className="flag-dependency">This capability is not included in this deployment. Your feature preference is retained for when it becomes available.</p> : null}
         <code className="feature-detail-key">{selectedFeature.key}</code>
         <div className="feature-detail-availability"><dl><div><dt>Published availability</dt><dd>{snapshot?.flags[selectedFeature.key] ? "Available" : "Unavailable"}</dd></div><div><dt>Availability after publishing</dt><dd>{effective[selectedFeature.key] ? "Available" : "Unavailable"}</dd></div></dl>
           <button aria-pressed={Boolean(draft[selectedFeature.key])} className="secondary-button" disabled={busy} onClick={() => setDraft((current) => ({ ...current, [selectedFeature.key]: !current[selectedFeature.key] }))} type="button">{draft[selectedFeature.key] ? "Disable this feature" : "Enable this feature"}</button>
@@ -240,6 +244,7 @@ function FeaturesPage({ notify, selectedFeatureKey, onSelectFeature }: {
           <div><strong>{feature.label}</strong>{feature.description ? <span>{feature.description}</span> : null}
             {draft[feature.key] && missingDependencies.length ? <span className="flag-dependency">Unavailable until {missingDependencies.map((key) => labels.get(key) || key).join(", ")} is enabled.</span> : null}
             <small>{feature.key}</small>
+            {snapshot?.capability_availability?.[feature.key] === false ? <span className="flag-dependency">Not included in this deployment.</span> : null}
           </div><span aria-hidden="true" className={`toggle ${draft[feature.key] ? "on" : ""}`}>{draft[feature.key] ? <ToggleRight /> : <ToggleLeft />}</span>
         </button><button aria-controls="feature-detail" aria-expanded={selectedFeatureKey === feature.key} aria-label={`View details for ${feature.label}`} className="flag-details-button" onClick={() => onSelectFeature(selectedFeatureKey === feature.key ? "" : feature.key)} type="button">Details<ChevronRight aria-hidden="true" size={16} /></button></div>;
       })}</div>

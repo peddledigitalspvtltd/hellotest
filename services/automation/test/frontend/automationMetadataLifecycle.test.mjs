@@ -62,7 +62,7 @@ test("module or suite failure after metadata save returns success and refreshes 
   const invalidated = [];
   const warnings = [];
   const context = {
-    canUseAutomationBuilder: true, isAutomationCaseDetailReady: true,
+    canUseAutomationBuilder: true, canUpdateAutomationCase: true, isAutomationCaseDetailReady: true,
     activeCase: { id: "case", revision: 4, module_ids: [] },
     caseDraft: { title: "Saved title", description: "", status: "active", priority: "3", parameterText: "" },
     testCaseParameterValues: {}, suiteLinkDraftIds: ["suite"], caseRequirementIds: [], caseModuleIds: ["module"], caseDataSetId: "", automationManualLinkDraftIds: [],
@@ -82,4 +82,14 @@ test("module or suite failure after metadata save returns success and refreshes 
   assert.ok(invalidated.some((key) => key[0] === "test-case-detail" && key[2] === "case"));
   assert.ok(invalidated.some((key) => key[0] === "test-case-modules"));
   assert.match(warnings[0], /Case details were saved/);
+});
+
+
+test("revoked case-update access stops an automation metadata write before any API call", async () => {
+  const start = page.indexOf("  const updateAutomationCase = useMutation({");
+  const fnStart = page.indexOf("mutationFn:", start) + "mutationFn:".length;
+  const fnEnd = page.indexOf("\n    onSuccess:", fnStart);
+  const script = transpile(`const mutation = ${page.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`);
+  const mutation = new Function("canUpdateAutomationCase", `${script}\nreturn mutation;`)(false);
+  await assert.rejects(mutation(), /Test Case update permissions are required/);
 });

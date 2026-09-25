@@ -131,7 +131,7 @@ test('repository installer validates before writes, retries a file atomically an
       await jobs.processNext();
       const completed = await jobs.getStatus({ jobId: id });
       assert.equal(completed.job.status, 'completed', JSON.stringify(completed.job.error));
-      assert.equal(completed.job.completed_files, 105);
+      assert.equal(completed.job.completed_files, repository.loadManifest().manifest.files.length);
       assert.equal((await jobs.startConfigured('all')).job.id, id, 'Restart must reuse the receipt');
       assert.equal((await jobs.startConfigured('workspace')).job.id, id, 'An installed superset covers smaller selections');
       await db.prepare("UPDATE instance_setup_jobs SET status='failed', attempts=3 WHERE id=?").run(id);

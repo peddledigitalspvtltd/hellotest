@@ -198,3 +198,18 @@ test("creating a named persona through role management uses its preset instead o
   assert.deepEqual(assigned.sort(), findDefaultRolePreset("Reporter").permission_codes);
   assert.ok(!assigned.includes("feedback.manage"));
 });
+
+
+test("foundation roles receive complete grants on first setup and preserve customized grants on retry", async t => {
+  const state = installDatabase(t);
+  const first = await service.ensureFoundationRoles();
+  assert.deepEqual(first.created.map(role => role.id).sort(), ["role-admin", "role-member"]);
+  for (const role of state.roles) assert.deepEqual(role.permission_codes, [...DEFAULT_ROLE_PERMISSIONS[role.name]].sort());
+  state.roles.find(role => role.name === "member").permission_codes = [];
+  const before = structuredClone(state.roles), grants = state.grants;
+  const repeat = await service.ensureFoundationRoles();
+  assert.deepEqual(repeat.created, []);
+  assert.equal(repeat.retained.length, 2);
+  assert.deepEqual(state.roles, before);
+  assert.equal(state.grants, grants);
+});

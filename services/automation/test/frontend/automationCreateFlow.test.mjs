@@ -20,7 +20,7 @@ function fixture({ queueFails = false } = {}) {
     { testCase: { id: "manual-2", title: "Profile" }, steps: [{ id: "profile", action: "open profile", expected_result: "profile displayed", step_type: "web" }] }
   ];
   const context = {
-    canUseAutomationBuilder: true, canUseAutomationAi: true, canUseRecorder: true, appTypeId: "app", projectId: "project",
+    canUseAutomationBuilder: true, canCreateAutomationCase: true, canUseAutomationAi: true, canUseRecorder: true, appTypeId: "app", projectId: "project",
     automationCreateMetadata: { title: "Customer journey", description: "Selected metadata", priority: "1", status: "draft", requirementIds: ["story"], suiteIds: ["suite"], moduleIds: ["module"], dataSetId: "data" },
     automationCreateManualCaseIds: sources.map((item) => item.testCase.id),
     automationCreationMode: "ai",

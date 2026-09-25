@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-project-applications"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-membership-roles"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-navigation-scope"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-authentication"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-project-deletion"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-regional-settings"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-story-authoring"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-backlog-planning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-sprint-lifecycle"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-release-scope"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-delivery-selectors"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-story-traceability"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-story-import-sync"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v7-ht-case-story-ai-design"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-structured-cases"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-gherkin-authoring"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-shared-steps"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-suite-modules"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-case-review-versioning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-case-import-export"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-environment-targets"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-configuration-profiles"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-datasets-parameters"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v7-ht-case-ai-authoring-data"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-run-planning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-frozen-evidence"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-dataset-outcomes"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-scheduled-runs"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-execution-analysis-reports"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-bug-lifecycle"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-bug-collaboration"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "test_case_id": "sample-v7-ht-case-bug-regression-ai"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-automation-coverage"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-builder-step-code"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-api-requests"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-object-repository"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-step-recorder"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-local-execution"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-remote-parallel"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "test_case_id": "sample-v7-ht-case-android-appium"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "test_case_id": "sample-v7-ht-case-repository-specialists"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v7-ht-case-knowledge-ingestion"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v7-ht-case-knowledge-search"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "test_case_id": "sample-v7-ht-case-ask-hellotest"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v7-ht-case-workflow-canvas"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v7-ht-case-workflow-history"
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "test_case_id": "sample-v7-ht-case-prompt-governance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v7-ht-case-quality-analytics"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v7-ht-case-custom-dashboards"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "test_case_id": "sample-v7-ht-case-release-readiness"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "test_case_id": "sample-v7-ht-case-product-metrics"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-background-jobs"
+    },
+    {
+      "module_id": "sample-v7-ht-module-trace",
+      "test_case_id": "sample-v7-ht-case-telemetry-traces"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-notifications"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-instance-setup"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-feature-dropdown-governance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "test_case_id": "sample-v7-ht-case-integrations-api-keys"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-admin-audit-security"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "test_case_id": "sample-v7-ht-case-support-guidance"
+    }
+  ]
+}

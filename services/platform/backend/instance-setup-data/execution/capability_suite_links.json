@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "execution_id": "sample-v7-ht-run-baseline",
+      "suite_id": "sample-v7-ht-suite-platform"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-baseline",
+      "suite_id": "sample-v7-ht-suite-manual"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-regression",
+      "suite_id": "sample-v7-ht-suite-platform"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-regression",
+      "suite_id": "sample-v7-ht-suite-manual"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-regression",
+      "suite_id": "sample-v7-ht-suite-ai"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-regression",
+      "suite_id": "sample-v7-ht-suite-testing"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-platform"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-manual"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-ai"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-testing"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-automation"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-knowledge"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-agentic"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-integration"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-dashboard"
+    },
+    {
+      "execution_id": "sample-v7-ht-run-acceptance",
+      "suite_id": "sample-v7-ht-suite-trace"
+    }
+  ]
+}

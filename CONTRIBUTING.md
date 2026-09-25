@@ -136,7 +136,7 @@ Do not group files merely by extension. A Grafana provisioning YAML belongs unde
 
 Administration lives in `services/platform/frontend/admin/`, beside the Platform backend administration and setup use cases. `services/platform/frontend/admin.html`, Vite configuration and the runtime web server remain composition entry points; the public `/admin` URL is unchanged.
 
-**Trace a request through its owner.** Start with `services/<owner>/frontend/api.client.ts`, its endpoint matcher (`services/<owner>/frontend/index.ts`), its route manifest and route handler, then the use case. The old `services/platform/frontend/src/lib/api.ts` API shape remains a small compatibility facade. Durable task declarations live in the owner's `backend/workers.js`; the runtime scheduler supplies overlap protection, error reporting and shutdown. Knowledge owns ingestion/search/retrieval; Chatbot owns conversations/planning/synthesis. Integration owns reusable prompt templates. Some authoring handlers still invoke AI use cases directly, and some services still query common tables; these remain explicit migration boundaries.
+**Trace a request through its owner.** Start with `services/<owner>/frontend/api.client.ts`, its endpoint matcher (`services/<owner>/frontend/index.ts`), its route manifest and route handler, then the use case. The old `services/platform/frontend/src/lib/api.ts` API shape remains a small compatibility facade. Durable task declarations live in the owner's `backend/workers.js`; the runtime scheduler supplies overlap protection, error reporting and shutdown. Knowledge owns ingestion/search/retrieval; Chatbot owns conversations/planning/synthesis. Integration owns reusable prompt templates, including the shared template picker used by AI authoring. Its `hellotest.ai.prompt_templates` flag and `prompt_template.view/manage` grants are independent of any single authoring feature. Some authoring handlers still invoke AI use cases directly, and some services still query common tables; these remain explicit migration boundaries.
 
 ### Frontend conventions
 
@@ -335,6 +335,26 @@ node --test services/platform/test/backend/instanceSetupRepository.test.js
 ```
 
 The exporter copies the canonical reference documents into `docs/product`; it does not recalculate all persisted setup records or their checksums.
+
+Dataset v7 connects all 59 HelloTest feature Stories to test cases, suites, shared
+preconditions, parameter rows, environments and configurations. Its fixed historical
+runs and defects exercise failure clusters, overdue delivery, coverage gaps and
+execution trends. See the [dataset contract and coverage](services/platform/backend/instance-setup-data/README.md#capability-coverage-v7).
+
+Validate setup changes against a **new disposable database**, including first-start
+role grants, complete installation, native metric readers and preservation of edits:
+
+```bash
+node services/platform/backend/instance-setup-data/verify.cjs
+# Supply DATABASE_URL and OBS_DATABASE_URL pointing to your disposable PostgreSQL.
+# The test requires a database named agent_verify_capability_<suffix>.
+CAPABILITY_SAMPLES_POSTGRES=1 node --test services/platform/backend/test/integration/capabilitySamples.postgres.test.js
+```
+
+Base-role and persona defaults apply only when creating a role. Never restore grants
+removed by an administrator during routine startup or sample installation. Schema
+bootstrap stays separate from optional sample records and never activates providers,
+schedules or execution workers using sample credentials.
 
 ## 7. Verification matrix
 
@@ -535,5 +555,19 @@ Packages remain private monorepo workspaces. They are not yet standalone install
 An action appears only when its capability is deployed, its feature dependencies are enabled and the user has the necessary project/workspace permission. Empty navigation groups disappear. Restricted and disabled destinations are omitted from navigation search. A temporarily unavailable service keeps its permitted entry and shows a retryable error when opened.
 
 Use `useCapabilityAccess`/`hasCapability` for feature-aware grants, and do not replace them with role-name comparisons. Keep denied or disabled routes protected even when opened directly. The backend must still validate feature availability, session/API-key scope and project permissions for every protected operation. Enabling a feature never grants permission. Dashboard editing requires manage permission separately from viewing. Permission-denied actions are not rendered; loading, selection and record-state constraints still disable permitted actions. A split menu evaluates each option independently and promotes an allowed option when its usual primary action is denied. Read-only fields remain visible when the user can view their record.
+
+The Admin feature page groups flags by their 11 package owners. Its snapshot keeps
+configured preferences separate from deployment availability: publishing a preference
+cannot enable an absent package. Source pickers must independently check each record
+type's read grant and enabled feature before querying or showing that source. Remove
+revoked sources from pending submissions, including cached selections.
+
+The cross-capability permission browser check is
+`services/platform/test/browser/capabilitySettingsPermissions.test.mjs`. It covers
+Admin grouping/deployment limits, shared-template read/write grants and Save versus
+Save and Use, read-only Dashboard/data controls, live permission revocation, and
+Knowledge source access. Start Vite and supply `VITE_TEST_URL` and optionally
+`CHROME_EXECUTABLE`. Run browser fixture suites sequentially (`--test-concurrency=1`)
+because creating/removing fixture HTML files can trigger Vite reloads in other tabs.
 
 The release browser check is `services/dashboard/test/browser/capabilityRelease.test.mjs`. Build Dashboard first, start Vite, then run it with `VITE_TEST_URL` and `CHROME_EXECUTABLE`. It loads built assets, exercises all three views, retries a failed manifest, retains host draft state and checks feature disable/re-enable behavior.

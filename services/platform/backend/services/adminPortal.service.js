@@ -91,15 +91,8 @@ const getSchemaState = async () => {
 };
 
 exports.ensureAdminFoundation = async () => {
-  await db.prepare("INSERT INTO roles (id, name) VALUES ('role-admin', 'admin') ON CONFLICT (name) DO NOTHING").run();
-  await db.prepare("INSERT INTO roles (id, name) VALUES ('role-member', 'member') ON CONFLICT (name) DO NOTHING").run();
-
+  await require("./rolePreset.service").ensureFoundationRoles();
   const adminRole = await db.prepare("SELECT id FROM roles WHERE LOWER(name) = 'admin' LIMIT 1").get();
-  await db.prepare(`
-    INSERT INTO role_permissions (role_id, permission_id)
-    SELECT ?, permissions.id FROM permissions
-    ON CONFLICT (role_id, permission_id) DO NOTHING
-  `).run(adminRole.id);
 
   await retireLegacySampleCredentials();
 

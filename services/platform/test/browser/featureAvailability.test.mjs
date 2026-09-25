@@ -28,7 +28,7 @@ try {
   await mkdir(output, { recursive: true });
   await writeFile(path.join(root, 'access-verification.tsx'), fixture);
   await writeFile(path.join(root, 'access-verification.html'), '<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body><div id="root"></div><script type="module" src="/access-verification.tsx"></script></body></html>');
-  browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+  browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE || undefined, headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));

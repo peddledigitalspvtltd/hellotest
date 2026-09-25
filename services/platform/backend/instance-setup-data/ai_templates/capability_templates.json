@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-template-requirement_creation",
+      "project_id": "sample-project",
+      "name": "HelloTest capability acceptance",
+      "description": "Reusable HelloTest guidance. Saving a template does not invoke a model.",
+      "scope": "requirement_creation",
+      "prompt_text": "Write a HelloTest Story with persona, behavior, permission boundaries, acceptance criteria and delivery context. Use only supplied feature facts.",
+      "applies_to": [
+        "requirements"
+      ],
+      "tags": [
+        "hellotest",
+        "sample",
+        "requirement_creation"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "domain": "HelloTest quality operations",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-template-requirement_completion",
+      "project_id": "sample-project",
+      "name": "Complete a HelloTest Story",
+      "description": "Reusable HelloTest guidance. Saving a template does not invoke a model.",
+      "scope": "requirement_completion",
+      "prompt_text": "Complete missing criteria, permissions, error recovery and traceability. Preserve existing scope and flag unsupported assumptions.",
+      "applies_to": [
+        "requirements"
+      ],
+      "tags": [
+        "hellotest",
+        "sample",
+        "requirement_completion"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "domain": "HelloTest quality operations",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-template-test_case_generation",
+      "project_id": "sample-project",
+      "name": "HelloTest access and feature coverage",
+      "description": "Reusable HelloTest guidance. Saving a template does not invoke a model.",
+      "scope": "test_case_generation",
+      "prompt_text": "Create positive, negative, permission-revocation and disabled-feature cases. Include preconditions, parameters, explicit steps and expected results.",
+      "applies_to": [
+        "test_cases"
+      ],
+      "tags": [
+        "hellotest",
+        "sample",
+        "test_case_generation"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "domain": "HelloTest quality operations",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-template-test_case_steps",
+      "project_id": "sample-project",
+      "name": "Improve HelloTest execution steps",
+      "description": "Reusable HelloTest guidance. Saving a template does not invoke a model.",
+      "scope": "test_case_steps",
+      "prompt_text": "Clarify each action and expected result, preserve IDs and parameter tokens, and keep shared preconditions reusable.",
+      "applies_to": [
+        "test_cases"
+      ],
+      "tags": [
+        "hellotest",
+        "sample",
+        "test_case_steps"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "domain": "HelloTest quality operations",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-template-bug_creation",
+      "project_id": "sample-project",
+      "name": "HelloTest evidence-backed Defect",
+      "description": "Reusable HelloTest guidance. Saving a template does not invoke a model.",
+      "scope": "bug_creation",
+      "prompt_text": "Draft a concise title, description, environment, reproducible steps, expected and actual result, severity rationale and related records from supplied evidence. Mark missing evidence.",
+      "applies_to": [
+        "bugs"
+      ],
+      "tags": [
+        "hellotest",
+        "sample",
+        "bug_creation"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "domain": "HelloTest quality operations",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

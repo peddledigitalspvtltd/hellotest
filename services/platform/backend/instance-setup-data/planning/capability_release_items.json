@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "release_id": "sample-v7-ht-release-overdue",
+      "requirement_id": "sample-v7-ht-story-permission-revocation"
+    },
+    {
+      "release_id": "sample-v7-ht-release-shipped",
+      "requirement_id": "sample-v7-ht-story-role-setup"
+    },
+    {
+      "release_id": "sample-v7-ht-release-overdue",
+      "requirement_id": "sample-v7-ht-story-remote-recovery"
+    },
+    {
+      "release_id": "sample-v7-ht-release-future",
+      "requirement_id": "sample-v7-ht-story-release-planning"
+    }
+  ]
+}

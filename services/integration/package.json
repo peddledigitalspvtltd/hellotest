@@ -17,6 +17,7 @@
     "./backend/workers": "./backend/workers.js",
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
+    "./frontend/components/AiPromptTemplatePicker": "./frontend/components/AiPromptTemplatePicker.tsx",
     "./frontend/components/JiraAttachmentPanel": "./frontend/components/JiraAttachmentPanel.tsx",
     "./frontend/components/JiraCommentsPanel": "./frontend/components/JiraCommentsPanel.tsx",
     "./frontend/components/JiraRequiredFields": "./frontend/components/JiraRequiredFields.tsx",
@@ -50,7 +51,8 @@
     "uiProtocol": 1,
     "features": [
       "hellotest.ai.prompt_mapping",
-      "hellotest.api.integrations"
+      "hellotest.api.integrations",
+      "hellotest.ai.prompt_templates"
     ]
   },
   "dependencies": {

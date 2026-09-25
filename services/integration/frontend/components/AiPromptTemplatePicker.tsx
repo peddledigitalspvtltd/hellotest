@@ -9,6 +9,9 @@ import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/compo
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
+import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
+import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
+import { hasCapability } from "@hellotest/platform/frontend/src/platform/lib/capabilityAccess";
 import "./AiPromptTemplatePicker.css";
 
 export type AiPromptScope =
@@ -237,6 +240,10 @@ export function AiPromptTemplatePicker({
   triggerLabel?: string;
 }) {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
+  const featureFlags = useFeatureFlags(Boolean(session));
+  const canViewTemplates = hasCapability(session, featureFlags.data, "prompt_template.view", projectId);
+  const canManageTemplates = hasCapability(session, featureFlags.data, "prompt_template.manage", projectId);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -257,10 +264,11 @@ export function AiPromptTemplatePicker({
       app_type_id: appTypeId,
       scope
     }),
-    enabled: Boolean(isOpen && projectId)
+    enabled: Boolean(isOpen && projectId && canViewTemplates)
   });
   const saveTemplate = useMutation({
     mutationFn: async ({ useAfterSave }: { useAfterSave: boolean }) => {
+      if (!canViewTemplates || !canManageTemplates) throw new Error("Prompt template management access is required.");
       if (!projectId) {
         throw new Error("Select a project before saving prompt templates.");
       }
@@ -307,7 +315,7 @@ export function AiPromptTemplatePicker({
     }
   };
   const dialogRef = useDialogFocus<HTMLDivElement>({
-    active: isOpen,
+    active: isOpen && canViewTemplates,
     closeDisabled: saveTemplate.isPending,
     onClose: closePicker
   });
@@ -333,6 +341,7 @@ export function AiPromptTemplatePicker({
     );
   }, [searchTerm, templates]);
   const selectTemplate = (template: AiPromptTemplate | null) => {
+    if (!canManageTemplates) return;
     saveTemplate.reset();
     setSavedMessage("");
     setEditingTemplate(template);
@@ -350,6 +359,8 @@ export function AiPromptTemplatePicker({
   };
   const saveDisabled = saveTemplate.isPending || draft.name.trim().length < 2 || draft.prompt_text.trim().length < 2 || !projectId
     || (scopeConfig.showCount && (!Number.isInteger(Number(draft.test_count)) || Number(draft.test_count) < 1 || Number(draft.test_count) > (scope === "requirement_creation" ? 6 : 10)));
+
+  if (!canViewTemplates) return null;
 
   return (
     <>
@@ -397,7 +408,7 @@ export function AiPromptTemplatePicker({
               <DialogCloseButton disabled={saveTemplate.isPending} label="Close prompt library" onClick={closePicker} />
             </div>
 
-            <div className="ai-prompt-template-grid">
+            <div className="ai-prompt-template-grid" style={!canManageTemplates ? { gridTemplateColumns: "1fr" } : undefined}>
               <section className="ai-prompt-template-list">
                 <label className="form-field">
                   <span>Search templates</span>
@@ -414,7 +425,7 @@ export function AiPromptTemplatePicker({
                         <small>{compactJoin([template.domain, template.role, template.test_type, template.test_format, template.test_count && scopeConfig.showCount ? `${template.test_count} ${scopeConfig.countUnit}` : ""])}</small>
                       </div>
                       <div className="ai-prompt-template-card-actions">
-                      <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(template)} type="button" aria-label={`Edit ${template.name}`}>Edit</button>
+                      {canManageTemplates ? <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(template)} type="button" aria-label={`Edit ${template.name}`}>Edit</button> : null}
                       <button className="primary-button compact" disabled={saveTemplate.isPending} onClick={() => {
                         onApply(renderAiPromptTemplate(template), template);
                         setIsOpen(false);
@@ -429,7 +440,7 @@ export function AiPromptTemplatePicker({
                 </div>
               </section>
 
-              <section className="ai-prompt-template-create">
+              {canManageTemplates ? <section className="ai-prompt-template-create">
                 <div className="panel-head">
                   <div>
                     <div className="panel-title-row">
@@ -487,7 +498,7 @@ export function AiPromptTemplatePicker({
                     <span>{saveTemplate.isPending && saveTemplate.variables?.useAfterSave ? "Saving..." : "Save and Use"}</span>
                   </button>
                 </div>
-              </section>
+              </section> : null}
             </div>
           </div>
         </div>,

@@ -2132,7 +2132,8 @@
       "boundary": "Do not embed real provider credentials in reusable sample prompts or claim a live model response when none ran.",
       "capabilities": [],
       "feature_keys": [
-        "hellotest.ai.prompt_mapping"
+        "hellotest.ai.prompt_mapping",
+        "hellotest.ai.prompt_templates"
       ],
       "routes": [
         "/admin-space",

@@ -29,7 +29,7 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/object-repository": ["hellotest.automation.workspace", "hellotest.automation.object_repository"],
   "/agentic-workflows": ["hellotest.ai.agentic_workflows"],
   "/executions": ["hellotest.manual.runs"],
-  "/testops": ["hellotest.automation.batch_process", "hellotest.ops.background_jobs"],
+  "/testops": ["hellotest.ops.background_jobs"],
   "/ops-telemetry": ["hellotest.ops.telemetry"],
   "/traces": ["hellotest.ops.telemetry"],
   "/knowledge-repo": ["hellotest.ai.knowledge"],

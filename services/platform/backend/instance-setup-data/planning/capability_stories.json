@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-story-permission-revocation",
+      "display_id": "HT7-ST1",
+      "project_id": "sample-project",
+      "title": "Revoke project grants while an authoring dialog is open",
+      "description": "As a HelloTest contributor, I want to revoke project grants while an authoring dialog is open so that capability delivery remains reliable.\n\nSynthetic planning example; it is not a production commitment.",
+      "status": "dev_in_progress",
+      "priority": 1,
+      "iteration_id": "sample-v7-ht-sprint-overdue",
+      "sprint": "Access S5",
+      "release": "HT Access",
+      "fix_version": "7.1",
+      "dev_completion_target_date": "2026-09-08T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "hellotest",
+        "capability-review"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "Hide forbidden actions immediately when a project permission is revoked.\nRetain existing records and drafts; reject forbidden writes through the API.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Hide forbidden actions immediately when a project permission is revoked.",
+          "Retain existing records and drafts; reject forbidden writes through the API."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-story-role-setup",
+      "display_id": "HT7-ST2",
+      "project_id": "sample-project",
+      "title": "Preserve customized role grants during repeat setup",
+      "description": "As a HelloTest contributor, I want to preserve customized role grants during repeat setup so that capability delivery remains reliable.\n\nSynthetic planning example; it is not a production commitment.",
+      "status": "qa_done",
+      "priority": 2,
+      "iteration_id": "sample-v7-ht-sprint-shipped",
+      "sprint": "Core S4",
+      "release": "HT Core",
+      "fix_version": "7.0",
+      "dev_completion_target_date": "2026-08-25T18:00:00.000Z",
+      "qa_completion_target_date": "2026-08-28T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "hellotest",
+        "capability-review"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "Retain project scope and existing customized records.\nExpose the relevant state with a readable explanation and a safe next action.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Retain project scope and existing customized records.",
+          "Expose the relevant state with a readable explanation and a safe next action."
+        ],
+        "effort_story_points": 3,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-story-remote-recovery",
+      "display_id": "HT7-ST3",
+      "project_id": "sample-project",
+      "title": "Recover an unavailable capability without losing the host draft",
+      "description": "As a HelloTest contributor, I want to recover an unavailable capability without losing the host draft so that capability delivery remains reliable.\n\nSynthetic planning example; it is not a production commitment.",
+      "status": "dev_done",
+      "priority": 1,
+      "iteration_id": "sample-v7-ht-sprint-overdue",
+      "sprint": "Access S5",
+      "release": "HT Access",
+      "fix_version": "7.1",
+      "dev_completion_target_date": "2026-09-08T18:00:00.000Z",
+      "qa_completion_target_date": "2026-09-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "hellotest",
+        "capability-review"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "Retain project scope and existing customized records.\nExpose the relevant state with a readable explanation and a safe next action.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Retain project scope and existing customized records.",
+          "Expose the relevant state with a readable explanation and a safe next action."
+        ],
+        "effort_story_points": 8,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-story-assistant-feedback",
+      "display_id": "HT7-ST4",
+      "project_id": "sample-project",
+      "title": "Explore feedback for cited Ask HelloTest responses",
+      "description": "",
+      "status": "new",
+      "priority": 4,
+      "iteration_id": null,
+      "sprint": null,
+      "release": null,
+      "fix_version": null,
+      "dev_completion_target_date": null,
+      "qa_completion_target_date": null,
+      "scrum_team": "",
+      "labels": [
+        "sample",
+        "hellotest",
+        "capability-review"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [],
+        "effort_story_points": 2,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-story-release-planning",
+      "display_id": "HT7-ST5",
+      "project_id": "sample-project",
+      "title": "Plan independently released capability compatibility checks",
+      "description": "As a HelloTest contributor, I want to plan independently released capability compatibility checks so that capability delivery remains reliable.\n\nSynthetic planning example; it is not a production commitment.",
+      "status": "ready",
+      "priority": 3,
+      "iteration_id": "sample-v7-ht-sprint-future",
+      "sprint": "AI S6",
+      "release": "HT AI",
+      "fix_version": "7.2",
+      "dev_completion_target_date": "2026-10-07T18:00:00.000Z",
+      "qa_completion_target_date": "2026-10-14T18:00:00.000Z",
+      "scrum_team": "HelloTest Platform",
+      "labels": [
+        "sample",
+        "hellotest",
+        "capability-review"
+      ],
+      "external_references": [],
+      "specification_format": "speckit",
+      "specification_content": "Retain project scope and existing customized records.\nExpose the relevant state with a readable explanation and a safe next action.",
+      "gherkin_scenarios": [],
+      "additional_fields": {
+        "sample": true,
+        "synthetic_evidence": true,
+        "acceptance_criteria": [
+          "Retain project scope and existing customized records.",
+          "Expose the relevant state with a readable explanation and a safe next action."
+        ],
+        "effort_story_points": 5,
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": "__SETUP_ACTOR_ID__",
+        "original_qa_id": "__SETUP_ACTOR_ID__"
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

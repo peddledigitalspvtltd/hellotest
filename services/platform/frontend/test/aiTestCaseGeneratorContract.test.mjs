@@ -52,7 +52,7 @@ test("Gherkin mode is propagated through generation, editing, scheduling, and ac
 test("nested template overlays cannot close the Test Case Generator", async () => {
   const [modal, picker] = await Promise.all([
     readSource("../../../ai/frontend/components/AiDesignStudioModal.tsx"),
-    readSource("../../../ai/frontend/components/AiPromptTemplatePicker.tsx")
+    readSource("../../../integration/frontend/components/AiPromptTemplatePicker.tsx")
   ]);
 
   assert.match(modal, /event\.target === event\.currentTarget && !closeIsDisabled/);

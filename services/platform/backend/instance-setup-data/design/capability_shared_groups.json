@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-shared-session",
+      "display_id": "HT7-SG1",
+      "app_type_id": "sample-app-web",
+      "name": "Authorized HelloTest session",
+      "description": "Shared precondition: verify project and role before exercising a capability.",
+      "authoring_mode": "structured",
+      "gherkin_document": "",
+      "steps": [
+        {
+          "id": "sample-v7-ht-shared-session-step",
+          "step_order": 1,
+          "action": "Open HelloTest as @s.actor_email and select @s.project_name.",
+          "expected_result": "The intended project is selected and its saved role grants apply.",
+          "step_type": "web"
+        }
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "project_name": "HelloTest Launchpad"
+      },
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_row_index": 0,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

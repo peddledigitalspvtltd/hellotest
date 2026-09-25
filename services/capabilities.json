@@ -50,6 +50,7 @@
     "hellotest.ai.execution_analysis": "ai",
     "hellotest.ai.knowledge": "knowledge",
     "hellotest.ai.prompt_mapping": "integration",
+    "hellotest.ai.prompt_templates": "integration",
     "hellotest.ai.quality_insights": "ai",
     "hellotest.ai.requirement_design": "ai",
     "hellotest.ai.test_authoring": "ai",

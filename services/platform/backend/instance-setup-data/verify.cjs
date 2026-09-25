@@ -274,4 +274,35 @@ assert(v6Defects.every(defect => defect.linked_test_run_id && defect.linked_test
 assert.equal(v6('requirement_defects').length, v6Defects.length);
 assert.equal(v6('test_case_defects').length, v6Defects.length);
 
-console.log(JSON.stringify({ dataset: manifest.dataset_id, version: manifest.version, files: manifest.files.length, records: all.length, role_presets: presets, relational_links: relationalLinks, object_links: softLinks, scoped_links: scopedLinks, status: 'passed' }, null, 2));
+// Coverage is checked against the actual published capability keys, not a
+// separate list of expected feature counts that silently becomes stale.
+const coverage = JSON.parse(fs.readFileSync(path.join(root, 'reference/coverage.json'), 'utf8'));
+const capabilityKeys = Object.keys(require('../../../capabilities.json').feature_owners);
+assert.equal(coverage.dataset_version, manifest.version);
+const coveredFlags = new Set(coverage.features.flatMap(feature => feature.feature_keys));
+const reservedFlags = new Set(coverage.reserved_features.map(feature => feature.key));
+assert.deepEqual(capabilityKeys.filter(key => !coveredFlags.has(key) && !reservedFlags.has(key)), [], 'Every implemented feature needs Story and case coverage');
+assert.equal(coverage.features.length, blueprint.features.length);
+for (const feature of coverage.features) {
+  assert.equal(byId.get(feature.story_id)?.table, 'requirements');
+  const testCase = byId.get(feature.case_id)?.record;
+  assert.equal(testCase?.requirement_id, feature.story_id);
+  const caseSteps = all.filter(item => item.table === 'test_steps' && item.record.test_case_id === feature.case_id);
+  assert(caseSteps.length >= 4, `${feature.key}: preconditions and acceptance steps`);
+  assert(caseSteps.some(item => item.record.reusable_group_id), `${feature.key}: reusable precondition`);
+  assert(all.some(item => item.table === 'requirement_test_cases' && item.record.requirement_id === feature.story_id && item.record.test_case_id === feature.case_id));
+}
+const acceptanceResults = all.filter(item => item.table === 'execution_results' && item.record.id.startsWith('sample-v7-ht-')).map(item => item.record);
+const rowCoverage = new Map();
+for (const result of acceptanceResults) {
+  assert.equal(JSON.parse(result.logs).synthetic, true);
+  assert(Date.parse(result.started_at) >= Date.parse(byId.get(result.test_case_id).record.created_at));
+  const key = `${result.execution_id}:${result.test_case_id}`;
+  if (!rowCoverage.has(key)) rowCoverage.set(key, new Set());
+  rowCoverage.get(key).add(result.data_set_iteration_index);
+}
+for (const indices of rowCoverage.values()) assert.deepEqual([...indices].sort(), [0, 1, 2], 'Attempted cases cover every frozen data row');
+assert.deepEqual(new Set(acceptanceResults.map(result => result.status)), new Set(['passed', 'failed', 'blocked', 'skipped']));
+assert(coverage.live_only.length, 'Live service metrics must be distinguished from authored examples');
+
+console.log(JSON.stringify({ dataset: manifest.dataset_id, version: manifest.version, files: manifest.files.length, records: all.length, role_presets: presets, feature_stories_with_cases: coverage.features.length, relational_links: relationalLinks, object_links: softLinks, scoped_links: scopedLinks, status: 'passed' }, null, 2));

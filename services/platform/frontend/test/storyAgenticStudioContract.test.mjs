@@ -84,7 +84,7 @@ test("Story templates populate Generation Context and completion exposes only it
   const [page, content, picker, contextPanel] = await Promise.all([
     readSource("../../../manual/frontend/pages/RequirementsPage.tsx"),
     readSource("../../../ai/frontend/components/StoryAiStudioContent.tsx"),
-    readSource("../../../ai/frontend/components/AiPromptTemplatePicker.tsx"),
+    readSource("../../../integration/frontend/components/AiPromptTemplatePicker.tsx"),
     readSource("../../../ai/frontend/components/AiPromptContextPanel.tsx")
   ]);
   assert.match(page, /getPrompt\(requirementAiMode === "create" \? "ai\.requirement\.creation" : "ai\.requirement\.optimization"\)/);

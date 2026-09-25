@@ -321,7 +321,7 @@ export function ReleaseReadinessLayout(props: Props) {
             <option value="">{text("allSprints")}</option>
             {scopeOptions.sprints.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <button
+          {canStories && canCases ? (<button
             className="rr-button"
             type="button"
             onClick={() => onEvidence("stories", "uncovered")}
@@ -329,8 +329,8 @@ export function ReleaseReadinessLayout(props: Props) {
           >
             <IconGitBranch size={15} />
             {text("reviewGaps")}
-          </button>
-          <button
+          </button>) : null}
+          {canRuns ? (<button
             className="rr-button"
             type="button"
             onClick={() => {
@@ -341,8 +341,8 @@ export function ReleaseReadinessLayout(props: Props) {
           >
             <IconTestPipe size={15} />
             {text("tab.runs")}
-          </button>
-          <button
+          </button>) : null}
+          {canBugs ? (<button
             className="rr-button"
             type="button"
             onClick={() => onEvidence("bugs")}
@@ -350,7 +350,7 @@ export function ReleaseReadinessLayout(props: Props) {
           >
             <IconBug size={15} />
             {text("metric.defects")}
-          </button>
+          </button>) : null}
         </div>
       </header>
       <section className="rr-layout-hero" aria-labelledby={`${id}-overall`}>

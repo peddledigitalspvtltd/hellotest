@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "requirement_id": "sample-v3-feature-project-applications",
+      "test_case_id": "sample-v7-ht-case-project-applications"
+    },
+    {
+      "requirement_id": "sample-v3-feature-membership-roles",
+      "test_case_id": "sample-v7-ht-case-membership-roles"
+    },
+    {
+      "requirement_id": "sample-v3-feature-navigation-scope",
+      "test_case_id": "sample-v7-ht-case-navigation-scope"
+    },
+    {
+      "requirement_id": "sample-v3-feature-authentication",
+      "test_case_id": "sample-v7-ht-case-authentication"
+    },
+    {
+      "requirement_id": "sample-v3-feature-project-deletion",
+      "test_case_id": "sample-v7-ht-case-project-deletion"
+    },
+    {
+      "requirement_id": "sample-v3-feature-regional-settings",
+      "test_case_id": "sample-v7-ht-case-regional-settings"
+    },
+    {
+      "requirement_id": "sample-v3-feature-story-authoring",
+      "test_case_id": "sample-v7-ht-case-story-authoring"
+    },
+    {
+      "requirement_id": "sample-v3-feature-backlog-planning",
+      "test_case_id": "sample-v7-ht-case-backlog-planning"
+    },
+    {
+      "requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "test_case_id": "sample-v7-ht-case-sprint-lifecycle"
+    },
+    {
+      "requirement_id": "sample-v3-feature-release-scope",
+      "test_case_id": "sample-v7-ht-case-release-scope"
+    },
+    {
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "test_case_id": "sample-v7-ht-case-delivery-selectors"
+    },
+    {
+      "requirement_id": "sample-v3-feature-story-traceability",
+      "test_case_id": "sample-v7-ht-case-story-traceability"
+    },
+    {
+      "requirement_id": "sample-v3-feature-story-import-sync",
+      "test_case_id": "sample-v7-ht-case-story-import-sync"
+    },
+    {
+      "requirement_id": "sample-v3-feature-story-ai-design",
+      "test_case_id": "sample-v7-ht-case-story-ai-design"
+    },
+    {
+      "requirement_id": "sample-v3-feature-structured-cases",
+      "test_case_id": "sample-v7-ht-case-structured-cases"
+    },
+    {
+      "requirement_id": "sample-v3-feature-gherkin-authoring",
+      "test_case_id": "sample-v7-ht-case-gherkin-authoring"
+    },
+    {
+      "requirement_id": "sample-v3-feature-shared-steps",
+      "test_case_id": "sample-v7-ht-case-shared-steps"
+    },
+    {
+      "requirement_id": "sample-v3-feature-suite-modules",
+      "test_case_id": "sample-v7-ht-case-suite-modules"
+    },
+    {
+      "requirement_id": "sample-v3-feature-case-review-versioning",
+      "test_case_id": "sample-v7-ht-case-case-review-versioning"
+    },
+    {
+      "requirement_id": "sample-v3-feature-case-import-export",
+      "test_case_id": "sample-v7-ht-case-case-import-export"
+    },
+    {
+      "requirement_id": "sample-v3-feature-environment-targets",
+      "test_case_id": "sample-v7-ht-case-environment-targets"
+    },
+    {
+      "requirement_id": "sample-v3-feature-configuration-profiles",
+      "test_case_id": "sample-v7-ht-case-configuration-profiles"
+    },
+    {
+      "requirement_id": "sample-v3-feature-datasets-parameters",
+      "test_case_id": "sample-v7-ht-case-datasets-parameters"
+    },
+    {
+      "requirement_id": "sample-v3-feature-ai-authoring-data",
+      "test_case_id": "sample-v7-ht-case-ai-authoring-data"
+    },
+    {
+      "requirement_id": "sample-v3-feature-run-planning",
+      "test_case_id": "sample-v7-ht-case-run-planning"
+    },
+    {
+      "requirement_id": "sample-v3-feature-frozen-evidence",
+      "test_case_id": "sample-v7-ht-case-frozen-evidence"
+    },
+    {
+      "requirement_id": "sample-v3-feature-dataset-outcomes",
+      "test_case_id": "sample-v7-ht-case-dataset-outcomes"
+    },
+    {
+      "requirement_id": "sample-v3-feature-scheduled-runs",
+      "test_case_id": "sample-v7-ht-case-scheduled-runs"
+    },
+    {
+      "requirement_id": "sample-v3-feature-execution-analysis-reports",
+      "test_case_id": "sample-v7-ht-case-execution-analysis-reports"
+    },
+    {
+      "requirement_id": "sample-v3-feature-bug-lifecycle",
+      "test_case_id": "sample-v7-ht-case-bug-lifecycle"
+    },
+    {
+      "requirement_id": "sample-v3-feature-bug-collaboration",
+      "test_case_id": "sample-v7-ht-case-bug-collaboration"
+    },
+    {
+      "requirement_id": "sample-v3-feature-bug-regression-ai",
+      "test_case_id": "sample-v7-ht-case-bug-regression-ai"
+    },
+    {
+      "requirement_id": "sample-v3-feature-automation-coverage",
+      "test_case_id": "sample-v7-ht-case-automation-coverage"
+    },
+    {
+      "requirement_id": "sample-v3-feature-builder-step-code",
+      "test_case_id": "sample-v7-ht-case-builder-step-code"
+    },
+    {
+      "requirement_id": "sample-v3-feature-api-requests",
+      "test_case_id": "sample-v7-ht-case-api-requests"
+    },
+    {
+      "requirement_id": "sample-v3-feature-object-repository",
+      "test_case_id": "sample-v7-ht-case-object-repository"
+    },
+    {
+      "requirement_id": "sample-v3-feature-step-recorder",
+      "test_case_id": "sample-v7-ht-case-step-recorder"
+    },
+    {
+      "requirement_id": "sample-v3-feature-local-execution",
+      "test_case_id": "sample-v7-ht-case-local-execution"
+    },
+    {
+      "requirement_id": "sample-v3-feature-remote-parallel",
+      "test_case_id": "sample-v7-ht-case-remote-parallel"
+    },
+    {
+      "requirement_id": "sample-v3-feature-android-appium",
+      "test_case_id": "sample-v7-ht-case-android-appium"
+    },
+    {
+      "requirement_id": "sample-v3-feature-repository-specialists",
+      "test_case_id": "sample-v7-ht-case-repository-specialists"
+    },
+    {
+      "requirement_id": "sample-v3-feature-knowledge-ingestion",
+      "test_case_id": "sample-v7-ht-case-knowledge-ingestion"
+    },
+    {
+      "requirement_id": "sample-v3-feature-knowledge-search",
+      "test_case_id": "sample-v7-ht-case-knowledge-search"
+    },
+    {
+      "requirement_id": "sample-v3-feature-ask-hellotest",
+      "test_case_id": "sample-v7-ht-case-ask-hellotest"
+    },
+    {
+      "requirement_id": "sample-v3-feature-workflow-canvas",
+      "test_case_id": "sample-v7-ht-case-workflow-canvas"
+    },
+    {
+      "requirement_id": "sample-v3-feature-workflow-history",
+      "test_case_id": "sample-v7-ht-case-workflow-history"
+    },
+    {
+      "requirement_id": "sample-v3-feature-prompt-governance",
+      "test_case_id": "sample-v7-ht-case-prompt-governance"
+    },
+    {
+      "requirement_id": "sample-v3-feature-quality-analytics",
+      "test_case_id": "sample-v7-ht-case-quality-analytics"
+    },
+    {
+      "requirement_id": "sample-v3-feature-custom-dashboards",
+      "test_case_id": "sample-v7-ht-case-custom-dashboards"
+    },
+    {
+      "requirement_id": "sample-v3-feature-release-readiness",
+      "test_case_id": "sample-v7-ht-case-release-readiness"
+    },
+    {
+      "requirement_id": "sample-v3-feature-product-metrics",
+      "test_case_id": "sample-v7-ht-case-product-metrics"
+    },
+    {
+      "requirement_id": "sample-v3-feature-background-jobs",
+      "test_case_id": "sample-v7-ht-case-background-jobs"
+    },
+    {
+      "requirement_id": "sample-v3-feature-telemetry-traces",
+      "test_case_id": "sample-v7-ht-case-telemetry-traces"
+    },
+    {
+      "requirement_id": "sample-v3-feature-notifications",
+      "test_case_id": "sample-v7-ht-case-notifications"
+    },
+    {
+      "requirement_id": "sample-v3-feature-instance-setup",
+      "test_case_id": "sample-v7-ht-case-instance-setup"
+    },
+    {
+      "requirement_id": "sample-v3-feature-feature-dropdown-governance",
+      "test_case_id": "sample-v7-ht-case-feature-dropdown-governance"
+    },
+    {
+      "requirement_id": "sample-v3-feature-integrations-api-keys",
+      "test_case_id": "sample-v7-ht-case-integrations-api-keys"
+    },
+    {
+      "requirement_id": "sample-v3-feature-admin-audit-security",
+      "test_case_id": "sample-v7-ht-case-admin-audit-security"
+    },
+    {
+      "requirement_id": "sample-v3-feature-support-guidance",
+      "test_case_id": "sample-v7-ht-case-support-guidance"
+    }
+  ]
+}

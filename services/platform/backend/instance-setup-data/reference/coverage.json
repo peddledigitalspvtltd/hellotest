@@ -1,0 +1,794 @@
+{
+  "version": 1,
+  "dataset_version": 7,
+  "as_of": "2026-09-25",
+  "features": [
+    {
+      "key": "project-applications",
+      "feature_keys": [
+        "hellotest.ops.projects"
+      ],
+      "story_id": "sample-v3-feature-project-applications",
+      "case_id": "sample-v7-ht-case-project-applications",
+      "routes": [
+        "/projects"
+      ]
+    },
+    {
+      "key": "membership-roles",
+      "feature_keys": [
+        "hellotest.ops.admin"
+      ],
+      "story_id": "sample-v3-feature-membership-roles",
+      "case_id": "sample-v7-ht-case-membership-roles",
+      "routes": [
+        "/people",
+        "/admin-space"
+      ]
+    },
+    {
+      "key": "navigation-scope",
+      "feature_keys": [],
+      "story_id": "sample-v3-feature-navigation-scope",
+      "case_id": "sample-v7-ht-case-navigation-scope",
+      "routes": [
+        "/projects",
+        "/stories"
+      ]
+    },
+    {
+      "key": "authentication",
+      "feature_keys": [],
+      "story_id": "sample-v3-feature-authentication",
+      "case_id": "sample-v7-ht-case-authentication",
+      "routes": [
+        "/auth"
+      ]
+    },
+    {
+      "key": "project-deletion",
+      "feature_keys": [
+        "hellotest.ops.projects"
+      ],
+      "story_id": "sample-v3-feature-project-deletion",
+      "case_id": "sample-v7-ht-case-project-deletion",
+      "routes": [
+        "/projects"
+      ]
+    },
+    {
+      "key": "regional-settings",
+      "feature_keys": [
+        "hellotest.ops.settings"
+      ],
+      "story_id": "sample-v3-feature-regional-settings",
+      "case_id": "sample-v7-ht-case-regional-settings",
+      "routes": [
+        "/settings"
+      ]
+    },
+    {
+      "key": "story-authoring",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-story-authoring",
+      "case_id": "sample-v7-ht-case-story-authoring",
+      "routes": [
+        "/stories"
+      ]
+    },
+    {
+      "key": "backlog-planning",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-backlog-planning",
+      "case_id": "sample-v7-ht-case-backlog-planning",
+      "routes": [
+        "/backlog",
+        "/sprints"
+      ]
+    },
+    {
+      "key": "sprint-lifecycle",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-sprint-lifecycle",
+      "case_id": "sample-v7-ht-case-sprint-lifecycle",
+      "routes": [
+        "/sprints"
+      ]
+    },
+    {
+      "key": "release-scope",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-release-scope",
+      "case_id": "sample-v7-ht-case-release-scope",
+      "routes": [
+        "/releases"
+      ]
+    },
+    {
+      "key": "delivery-selectors",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-delivery-selectors",
+      "case_id": "sample-v7-ht-case-delivery-selectors",
+      "routes": [
+        "/stories",
+        "/backlog",
+        "/sprints"
+      ]
+    },
+    {
+      "key": "story-traceability",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-story-traceability",
+      "case_id": "sample-v7-ht-case-story-traceability",
+      "routes": [
+        "/stories"
+      ]
+    },
+    {
+      "key": "story-import-sync",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-story-import-sync",
+      "case_id": "sample-v7-ht-case-story-import-sync",
+      "routes": [
+        "/stories"
+      ]
+    },
+    {
+      "key": "story-ai-design",
+      "feature_keys": [
+        "hellotest.ai.requirement_design"
+      ],
+      "story_id": "sample-v3-feature-story-ai-design",
+      "case_id": "sample-v7-ht-case-story-ai-design",
+      "routes": [
+        "/stories"
+      ]
+    },
+    {
+      "key": "structured-cases",
+      "feature_keys": [
+        "hellotest.manual.test_cases"
+      ],
+      "story_id": "sample-v3-feature-structured-cases",
+      "case_id": "sample-v7-ht-case-structured-cases",
+      "routes": [
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "gherkin-authoring",
+      "feature_keys": [
+        "hellotest.manual.test_cases",
+        "hellotest.manual.run_gherkin"
+      ],
+      "story_id": "sample-v3-feature-gherkin-authoring",
+      "case_id": "sample-v7-ht-case-gherkin-authoring",
+      "routes": [
+        "/test-cases",
+        "/executions"
+      ]
+    },
+    {
+      "key": "shared-steps",
+      "feature_keys": [
+        "hellotest.manual.suites"
+      ],
+      "story_id": "sample-v3-feature-shared-steps",
+      "case_id": "sample-v7-ht-case-shared-steps",
+      "routes": [
+        "/shared-steps",
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "suite-modules",
+      "feature_keys": [
+        "hellotest.manual.suites"
+      ],
+      "story_id": "sample-v3-feature-suite-modules",
+      "case_id": "sample-v7-ht-case-suite-modules",
+      "routes": [
+        "/design"
+      ]
+    },
+    {
+      "key": "case-review-versioning",
+      "feature_keys": [
+        "hellotest.manual.test_cases"
+      ],
+      "story_id": "sample-v3-feature-case-review-versioning",
+      "case_id": "sample-v7-ht-case-case-review-versioning",
+      "routes": [
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "case-import-export",
+      "feature_keys": [
+        "hellotest.manual.test_cases"
+      ],
+      "story_id": "sample-v3-feature-case-import-export",
+      "case_id": "sample-v7-ht-case-case-import-export",
+      "routes": [
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "environment-targets",
+      "feature_keys": [
+        "hellotest.manual.environments"
+      ],
+      "story_id": "sample-v3-feature-environment-targets",
+      "case_id": "sample-v7-ht-case-environment-targets",
+      "routes": [
+        "/test-environments"
+      ]
+    },
+    {
+      "key": "configuration-profiles",
+      "feature_keys": [
+        "hellotest.manual.environments"
+      ],
+      "story_id": "sample-v3-feature-configuration-profiles",
+      "case_id": "sample-v7-ht-case-configuration-profiles",
+      "routes": [
+        "/test-configurations"
+      ]
+    },
+    {
+      "key": "datasets-parameters",
+      "feature_keys": [
+        "hellotest.manual.test_data"
+      ],
+      "story_id": "sample-v3-feature-datasets-parameters",
+      "case_id": "sample-v7-ht-case-datasets-parameters",
+      "routes": [
+        "/test-data",
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "ai-authoring-data",
+      "feature_keys": [
+        "hellotest.ai.test_authoring",
+        "hellotest.ai.test_data_generation",
+        "hellotest.ai.content_rephrase"
+      ],
+      "story_id": "sample-v3-feature-ai-authoring-data",
+      "case_id": "sample-v7-ht-case-ai-authoring-data",
+      "routes": [
+        "/test-cases",
+        "/test-data"
+      ]
+    },
+    {
+      "key": "run-planning",
+      "feature_keys": [
+        "hellotest.manual.runs"
+      ],
+      "story_id": "sample-v3-feature-run-planning",
+      "case_id": "sample-v7-ht-case-run-planning",
+      "routes": [
+        "/executions?view=suite-runs"
+      ]
+    },
+    {
+      "key": "frozen-evidence",
+      "feature_keys": [
+        "hellotest.manual.runs",
+        "hellotest.manual.run_gherkin"
+      ],
+      "story_id": "sample-v3-feature-frozen-evidence",
+      "case_id": "sample-v7-ht-case-frozen-evidence",
+      "routes": [
+        "/executions"
+      ]
+    },
+    {
+      "key": "dataset-outcomes",
+      "feature_keys": [
+        "hellotest.manual.runs"
+      ],
+      "story_id": "sample-v3-feature-dataset-outcomes",
+      "case_id": "sample-v7-ht-case-dataset-outcomes",
+      "routes": [
+        "/executions"
+      ]
+    },
+    {
+      "key": "scheduled-runs",
+      "feature_keys": [
+        "hellotest.manual.runs"
+      ],
+      "story_id": "sample-v3-feature-scheduled-runs",
+      "case_id": "sample-v7-ht-case-scheduled-runs",
+      "routes": [
+        "/executions?view=scheduled-runs"
+      ]
+    },
+    {
+      "key": "execution-analysis-reports",
+      "feature_keys": [
+        "hellotest.manual.runs",
+        "hellotest.ai.execution_analysis"
+      ],
+      "story_id": "sample-v3-feature-execution-analysis-reports",
+      "case_id": "sample-v7-ht-case-execution-analysis-reports",
+      "routes": [
+        "/executions"
+      ]
+    },
+    {
+      "key": "bug-lifecycle",
+      "feature_keys": [
+        "hellotest.manual.bugs"
+      ],
+      "story_id": "sample-v3-feature-bug-lifecycle",
+      "case_id": "sample-v7-ht-case-bug-lifecycle",
+      "routes": [
+        "/issues"
+      ]
+    },
+    {
+      "key": "bug-collaboration",
+      "feature_keys": [
+        "hellotest.manual.bugs"
+      ],
+      "story_id": "sample-v3-feature-bug-collaboration",
+      "case_id": "sample-v7-ht-case-bug-collaboration",
+      "routes": [
+        "/issues"
+      ]
+    },
+    {
+      "key": "bug-regression-ai",
+      "feature_keys": [
+        "hellotest.manual.bugs",
+        "hellotest.ai.bug_triage"
+      ],
+      "story_id": "sample-v3-feature-bug-regression-ai",
+      "case_id": "sample-v7-ht-case-bug-regression-ai",
+      "routes": [
+        "/issues",
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "automation-coverage",
+      "feature_keys": [
+        "hellotest.automation.workspace"
+      ],
+      "story_id": "sample-v3-feature-automation-coverage",
+      "case_id": "sample-v7-ht-case-automation-coverage",
+      "routes": [
+        "/automation"
+      ]
+    },
+    {
+      "key": "builder-step-code",
+      "feature_keys": [
+        "hellotest.automation.assets",
+        "hellotest.automation.builder",
+        "hellotest.automation.step_code"
+      ],
+      "story_id": "sample-v3-feature-builder-step-code",
+      "case_id": "sample-v7-ht-case-builder-step-code",
+      "routes": [
+        "/automation",
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "api-requests",
+      "feature_keys": [
+        "hellotest.automation.preview"
+      ],
+      "story_id": "sample-v3-feature-api-requests",
+      "case_id": "sample-v7-ht-case-api-requests",
+      "routes": [
+        "/test-cases",
+        "/automation"
+      ]
+    },
+    {
+      "key": "object-repository",
+      "feature_keys": [
+        "hellotest.automation.object_repository"
+      ],
+      "story_id": "sample-v3-feature-object-repository",
+      "case_id": "sample-v7-ht-case-object-repository",
+      "routes": [
+        "/object-repository"
+      ]
+    },
+    {
+      "key": "step-recorder",
+      "feature_keys": [
+        "hellotest.automation.step_recording"
+      ],
+      "story_id": "sample-v3-feature-step-recorder",
+      "case_id": "sample-v7-ht-case-step-recorder",
+      "routes": [
+        "/automation",
+        "/test-cases"
+      ]
+    },
+    {
+      "key": "local-execution",
+      "feature_keys": [
+        "hellotest.automation.local_execution"
+      ],
+      "story_id": "sample-v3-feature-local-execution",
+      "case_id": "sample-v7-ht-case-local-execution",
+      "routes": [
+        "/executions?view=local-runs",
+        "/automation"
+      ]
+    },
+    {
+      "key": "remote-parallel",
+      "feature_keys": [
+        "hellotest.automation.remote_execution",
+        "hellotest.automation.parallel_execution"
+      ],
+      "story_id": "sample-v3-feature-remote-parallel",
+      "case_id": "sample-v7-ht-case-remote-parallel",
+      "routes": [
+        "/automation",
+        "/executions"
+      ]
+    },
+    {
+      "key": "android-appium",
+      "feature_keys": [
+        "hellotest.mobile.appium"
+      ],
+      "story_id": "sample-v3-feature-android-appium",
+      "case_id": "sample-v7-ht-case-android-appium",
+      "routes": [
+        "/automation",
+        "/test-configurations"
+      ]
+    },
+    {
+      "key": "repository-specialists",
+      "feature_keys": [
+        "hellotest.ai.automation"
+      ],
+      "story_id": "sample-v3-feature-repository-specialists",
+      "case_id": "sample-v7-ht-case-repository-specialists",
+      "routes": [
+        "/agentic-workflows?view=agents"
+      ]
+    },
+    {
+      "key": "knowledge-ingestion",
+      "feature_keys": [
+        "hellotest.ai.knowledge"
+      ],
+      "story_id": "sample-v3-feature-knowledge-ingestion",
+      "case_id": "sample-v7-ht-case-knowledge-ingestion",
+      "routes": [
+        "/knowledge-repo"
+      ]
+    },
+    {
+      "key": "knowledge-search",
+      "feature_keys": [
+        "hellotest.ai.knowledge"
+      ],
+      "story_id": "sample-v3-feature-knowledge-search",
+      "case_id": "sample-v7-ht-case-knowledge-search",
+      "routes": [
+        "/knowledge-repo"
+      ]
+    },
+    {
+      "key": "ask-hellotest",
+      "feature_keys": [
+        "hellotest.ai.knowledge",
+        "hellotest.ai.chatbot"
+      ],
+      "story_id": "sample-v3-feature-ask-hellotest",
+      "case_id": "sample-v7-ht-case-ask-hellotest",
+      "routes": [
+        "/knowledge-repo"
+      ]
+    },
+    {
+      "key": "workflow-canvas",
+      "feature_keys": [
+        "hellotest.ai.agentic_workflows"
+      ],
+      "story_id": "sample-v3-feature-workflow-canvas",
+      "case_id": "sample-v7-ht-case-workflow-canvas",
+      "routes": [
+        "/agentic-workflows?view=workflows"
+      ]
+    },
+    {
+      "key": "workflow-history",
+      "feature_keys": [
+        "hellotest.ai.agentic_workflows"
+      ],
+      "story_id": "sample-v3-feature-workflow-history",
+      "case_id": "sample-v7-ht-case-workflow-history",
+      "routes": [
+        "/agentic-workflows?view=runs"
+      ]
+    },
+    {
+      "key": "prompt-governance",
+      "feature_keys": [
+        "hellotest.ai.prompt_mapping",
+        "hellotest.ai.prompt_templates"
+      ],
+      "story_id": "sample-v3-feature-prompt-governance",
+      "case_id": "sample-v7-ht-case-prompt-governance",
+      "routes": [
+        "/admin-space",
+        "/settings?tab=ai"
+      ]
+    },
+    {
+      "key": "quality-analytics",
+      "feature_keys": [
+        "hellotest.analytics.dashboards",
+        "hellotest.automation.analytics"
+      ],
+      "story_id": "sample-v3-feature-quality-analytics",
+      "case_id": "sample-v7-ht-case-quality-analytics",
+      "routes": [
+        "/?view=analytics"
+      ]
+    },
+    {
+      "key": "custom-dashboards",
+      "feature_keys": [
+        "hellotest.analytics.dashboards"
+      ],
+      "story_id": "sample-v3-feature-custom-dashboards",
+      "case_id": "sample-v7-ht-case-custom-dashboards",
+      "routes": [
+        "/?view=custom"
+      ]
+    },
+    {
+      "key": "release-readiness",
+      "feature_keys": [
+        "hellotest.analytics.dashboards",
+        "hellotest.ai.quality_insights"
+      ],
+      "story_id": "sample-v3-feature-release-readiness",
+      "case_id": "sample-v7-ht-case-release-readiness",
+      "routes": [
+        "/?view=readiness"
+      ]
+    },
+    {
+      "key": "product-metrics",
+      "feature_keys": [
+        "hellotest.manual.requirements"
+      ],
+      "story_id": "sample-v3-feature-product-metrics",
+      "case_id": "sample-v7-ht-case-product-metrics",
+      "routes": [
+        "/stories",
+        "/backlog",
+        "/sprints",
+        "/releases"
+      ]
+    },
+    {
+      "key": "background-jobs",
+      "feature_keys": [
+        "hellotest.ops.background_jobs",
+        "hellotest.automation.batch_process"
+      ],
+      "story_id": "sample-v3-feature-background-jobs",
+      "case_id": "sample-v7-ht-case-background-jobs",
+      "routes": [
+        "/testops"
+      ]
+    },
+    {
+      "key": "telemetry-traces",
+      "feature_keys": [
+        "hellotest.ops.telemetry"
+      ],
+      "story_id": "sample-v3-feature-telemetry-traces",
+      "case_id": "sample-v7-ht-case-telemetry-traces",
+      "routes": [
+        "/ops-telemetry"
+      ]
+    },
+    {
+      "key": "notifications",
+      "feature_keys": [
+        "hellotest.ops.notifications"
+      ],
+      "story_id": "sample-v3-feature-notifications",
+      "case_id": "sample-v7-ht-case-notifications",
+      "routes": [
+        "/notifications"
+      ]
+    },
+    {
+      "key": "instance-setup",
+      "feature_keys": [
+        "hellotest.ops.admin"
+      ],
+      "story_id": "sample-v3-feature-instance-setup",
+      "case_id": "sample-v7-ht-case-instance-setup",
+      "routes": [
+        "/admin/?section=setup"
+      ]
+    },
+    {
+      "key": "feature-dropdown-governance",
+      "feature_keys": [
+        "hellotest.ops.admin"
+      ],
+      "story_id": "sample-v3-feature-feature-dropdown-governance",
+      "case_id": "sample-v7-ht-case-feature-dropdown-governance",
+      "routes": [
+        "/admin/?section=features",
+        "/admin/?section=dropdowns"
+      ]
+    },
+    {
+      "key": "integrations-api-keys",
+      "feature_keys": [
+        "hellotest.api.integrations",
+        "hellotest.api.keys"
+      ],
+      "story_id": "sample-v3-feature-integrations-api-keys",
+      "case_id": "sample-v7-ht-case-integrations-api-keys",
+      "routes": [
+        "/integrations",
+        "/admin-space"
+      ]
+    },
+    {
+      "key": "admin-audit-security",
+      "feature_keys": [
+        "hellotest.ops.admin"
+      ],
+      "story_id": "sample-v3-feature-admin-audit-security",
+      "case_id": "sample-v7-ht-case-admin-audit-security",
+      "routes": [
+        "/admin/?section=audit",
+        "/admin/?section=security"
+      ]
+    },
+    {
+      "key": "support-guidance",
+      "feature_keys": [],
+      "story_id": "sample-v3-feature-support-guidance",
+      "case_id": "sample-v7-ht-case-support-guidance",
+      "routes": [
+        "/support"
+      ]
+    }
+  ],
+  "reserved_features": [
+    {
+      "key": "hellotest.manual.plans",
+      "reason": "Reserved feature flag; no standalone Test Plans page is registered in the current frontend router. Suites and run planning are covered separately."
+    },
+    {
+      "key": "hellotest.manual.quality_gates",
+      "reason": "Reserved feature flag; no standalone Quality Gates page is registered in the current frontend router. Quality assistance and readiness are covered separately."
+    }
+  ],
+  "live_only": [
+    "Provider latency and usage require a configured LLM.",
+    "TestGrid heartbeat, device sessions, logs, traces and infrastructure alerts require live services.",
+    "Synthetic saved evidence is not proof of live execution."
+  ],
+  "metrics": {
+    "stories": [
+      "covered",
+      "uncovered",
+      "groomed",
+      "not_groomed",
+      "dev_done",
+      "qa_done",
+      "slipped",
+      "on_course",
+      "backlog",
+      "assigned"
+    ],
+    "sprints": [
+      "closed",
+      "active",
+      "future",
+      "overdue"
+    ],
+    "releases": [
+      "released",
+      "in_progress",
+      "future",
+      "overdue"
+    ],
+    "cases": [
+      "pending_review",
+      "accepted",
+      "manual",
+      "automated",
+      "failed",
+      "blocked",
+      "unexecuted"
+    ],
+    "suites": [
+      "story_coverage",
+      "case_counts",
+      "mixed_outcomes"
+    ],
+    "shared_steps": [
+      "reused_cases",
+      "reusability",
+      "failed_shared_steps",
+      "open_defects",
+      "failure_clusters"
+    ],
+    "runs": [
+      "passed",
+      "failed",
+      "blocked",
+      "skipped",
+      "unexecuted_scope",
+      "historical_trend",
+      "duration"
+    ],
+    "defects": [
+      "severity",
+      "priority",
+      "open",
+      "triaged",
+      "in_progress",
+      "resolved",
+      "closed",
+      "reopened",
+      "converted_regression"
+    ],
+    "knowledge": [
+      "documents",
+      "chunks",
+      "collections",
+      "sources",
+      "index_states"
+    ],
+    "agents": [
+      "draft_workflows",
+      "completed",
+      "needs_review",
+      "failed"
+    ],
+    "chatbot": [
+      "saved_answer",
+      "provider_unavailable"
+    ],
+    "setup": [
+      "schema_separate",
+      "permissions",
+      "role_presets",
+      "dynamic_admin_memberships",
+      "idempotence"
+    ]
+  }
+}

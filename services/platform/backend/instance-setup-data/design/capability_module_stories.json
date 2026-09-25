@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-project-applications"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-membership-roles"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-navigation-scope"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-authentication"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-project-deletion"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-regional-settings"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-story-authoring"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-backlog-planning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-sprint-lifecycle"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-release-scope"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-delivery-selectors"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-story-traceability"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-story-import-sync"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "requirement_id": "sample-v3-feature-story-ai-design"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-structured-cases"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-gherkin-authoring"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-shared-steps"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-suite-modules"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-case-review-versioning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-case-import-export"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-environment-targets"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-configuration-profiles"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-datasets-parameters"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "requirement_id": "sample-v3-feature-ai-authoring-data"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-run-planning"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-frozen-evidence"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-dataset-outcomes"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-scheduled-runs"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-execution-analysis-reports"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-bug-lifecycle"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-bug-collaboration"
+    },
+    {
+      "module_id": "sample-v7-ht-module-testing",
+      "requirement_id": "sample-v3-feature-bug-regression-ai"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-automation-coverage"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-builder-step-code"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-api-requests"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-object-repository"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-step-recorder"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-local-execution"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-remote-parallel"
+    },
+    {
+      "module_id": "sample-v7-ht-module-automation",
+      "requirement_id": "sample-v3-feature-android-appium"
+    },
+    {
+      "module_id": "sample-v7-ht-module-ai",
+      "requirement_id": "sample-v3-feature-repository-specialists"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-ingestion"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-search"
+    },
+    {
+      "module_id": "sample-v7-ht-module-knowledge",
+      "requirement_id": "sample-v3-feature-ask-hellotest"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "requirement_id": "sample-v3-feature-workflow-canvas"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "requirement_id": "sample-v3-feature-workflow-history"
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "requirement_id": "sample-v3-feature-prompt-governance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "requirement_id": "sample-v3-feature-quality-analytics"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "requirement_id": "sample-v3-feature-custom-dashboards"
+    },
+    {
+      "module_id": "sample-v7-ht-module-dashboard",
+      "requirement_id": "sample-v3-feature-release-readiness"
+    },
+    {
+      "module_id": "sample-v7-ht-module-manual",
+      "requirement_id": "sample-v3-feature-product-metrics"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-background-jobs"
+    },
+    {
+      "module_id": "sample-v7-ht-module-trace",
+      "requirement_id": "sample-v3-feature-telemetry-traces"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-notifications"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-instance-setup"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-feature-dropdown-governance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-integration",
+      "requirement_id": "sample-v3-feature-integrations-api-keys"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-admin-audit-security"
+    },
+    {
+      "module_id": "sample-v7-ht-module-platform",
+      "requirement_id": "sample-v3-feature-support-guidance"
+    }
+  ]
+}

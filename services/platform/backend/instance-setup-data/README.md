@@ -4,10 +4,10 @@ This directory is the reviewed, repository-owned source for the Admin **Instance
 setup → Module sample data** installer. Installation reads these files; it does
 not generate Stories, shift dates, call an LLM, or invent replacement content.
 
-`manifest.json` identifies dataset `hellotest-instance-v1`, version 6. It lists
+`manifest.json` identifies dataset `hellotest-instance-v1`, version 7. It lists
 the selectable modules and each object file in dependency order. The dataset
-contains 715 relational records and 7 workspace role presets across 105 files.
-The authored calendar starts at **2026-09-20T09:00:00.000Z**. Fixed dates are
+contains 2,240 relational records and 7 workspace role presets across 135 files.
+The authored calendar spans August–October 2026, including completed and overdue work. Fixed dates are
 intentional: time-window metrics reflect the saved dates as these examples age.
 
 `schema-setup/` holds database bootstrap SQL, separately from the sample dataset. It is excluded from the manifest and explicitly rejected by the sample installer. See [schema setup](schema-setup/README.md).
@@ -25,11 +25,13 @@ intentional: time-window metrics reflect the saved dates as these examples age.
 | `execution` | Saved runs, suite links, frozen case/step snapshots, dataset iterations, outcomes, timing, defect evidence and comments |
 | `knowledge` | Authored documents, sources, checksums, searchable chunks, indexing metadata and collection/access links |
 | `automation` | Object repository examples, automated API cases, requests/assertions and manual-case links |
-| `agents` | Draft manual workflows and prompt templates |
+| `agents` | Draft HelloTest workflows and clearly labeled synthetic completed, needs-review and failed history |
+| `ai_templates` | Shared prompt library covering Story creation/completion, Test Case generation/improvement and Defect creation |
+| `chatbot` | Authored example conversations with readable responses and provider-unavailable recovery |
 | `dashboards` | Six connected dashboard definitions with metric and chart metadata |
 | `integrations` | Ten inactive, credential-free integration examples |
 | `testops` | Disabled schedule, sample activity, downloadable reference artifacts and a read notification |
-| `reference` | Human-readable feature blueprint and detailed Story reference; these are not separate installation records |
+| `reference` | Feature blueprint, detailed Story reference and `coverage.json` mapping every published feature to examples or explicitly reserved/live-only behavior |
 
 The core feature blueprint describes 59 Stories, including 10 Backlog Stories,
 7 Sprints and 3 Releases. Commerce and metric walkthrough objects provide
@@ -61,7 +63,42 @@ workflow states and link to their Story, module, suite, case and exact run.
 Execution results, readiness reviews and activity records are clearly marked
 as **synthetic examples**. Installation does not claim real code reviews,
 Product Owner approval, CI outcomes, AI output or production execution.
-Integrations remain inactive, schedules disabled and workflows drafts.
+Integrations remain inactive, schedules disabled and workflow definitions remain drafts. Saved agent/chat history is authored sample evidence, not a claim that a provider ran.
+
+## Capability coverage (v7)
+
+The `capability_*.json` files connect **all 59 HelloTest feature Stories** to
+acceptance-criteria Test Cases, local step groups, shared preconditions, a
+capability module and suite. A three-row role dataset uses matching parameters
+across cases, shared groups, environment, configuration, suites and frozen runs.
+Three dated runs contain 243 synthetic results; selected cases remain unexecuted
+to exercise pending-work metrics. Eight additional Defects retain exact Story,
+module, suite, case, run and failing-step links. Shared-step failure clusters
+span multiple cases and have linked open Defects.
+
+Additional planning records include Dev Done, QA Done, active and ungroomed
+Stories, a closed Sprint, an overdue active Sprint, and a future Sprint. Short
+Release names and versions include released, overdue in-progress and planned
+work. Existing examples remain installed: dataset upgrades only insert missing
+stable IDs and do not overwrite customer edits or customized role grants.
+
+`reference/coverage.json` is the machine-checked coverage inventory. The
+PostgreSQL integration check runs the same Story, case, release, shared-step
+and dashboard metric readers used by the application. It verifies covered and
+uncovered Stories, slippage, failed/blocked cases, mixed outcomes, pending work,
+multiple trend dates and overdue Releases.
+
+Live engine heartbeats, running jobs, infrastructure health, provider responses,
+OPS alerts and telemetry require real connected services. Setup does not create
+fake active workers, queue jobs, enable schedules or supply working credentials.
+Fixed sample dates will leave short rolling dashboard windows as time passes;
+select their authored date range to inspect the historical trend.
+
+Schema setup always initializes the permission catalog, base Admin/Member roles
+and seven persona roles before sample installation. Existing role grants are
+preserved, including intentionally empty roles. Sample project installation
+adds active administrators as members dynamically; suspended administrators are
+excluded. Schema setup remains separate from optional sample content.
 
 ## File contract and installation identities
 

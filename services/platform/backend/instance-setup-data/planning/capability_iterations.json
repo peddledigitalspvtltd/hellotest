@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-sprint-shipped",
+      "display_id": "HT7-S1",
+      "project_id": "sample-project",
+      "name": "Core S4",
+      "description": "Synthetic HelloTest shipped delivery window.",
+      "goal": "Demonstrate permission, traceability and delivery health.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "closed",
+      "start_date": "2026-08-18T09:00:00.000Z",
+      "end_date": "2026-08-30T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-sprint-overdue",
+      "display_id": "HT7-S2",
+      "project_id": "sample-project",
+      "name": "Access S5",
+      "description": "Synthetic HelloTest overdue delivery window.",
+      "goal": "Demonstrate permission, traceability and delivery health.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "active",
+      "start_date": "2026-09-01T09:00:00.000Z",
+      "end_date": "2026-09-15T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-sprint-future",
+      "display_id": "HT7-S3",
+      "project_id": "sample-project",
+      "name": "AI S6",
+      "description": "Synthetic HelloTest future delivery window.",
+      "goal": "Demonstrate permission, traceability and delivery health.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "connected-demo"
+      ],
+      "external_references": [],
+      "state": "future",
+      "start_date": "2026-10-01T09:00:00.000Z",
+      "end_date": "2026-10-15T18:00:00.000Z",
+      "assignee_id": "__SETUP_ACTOR_ID__",
+      "effort_points": 13,
+      "original_dev_id": "__SETUP_ACTOR_ID__",
+      "original_qa_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

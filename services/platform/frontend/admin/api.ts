@@ -167,6 +167,7 @@ export type SampleSetupJob = {
 export type SampleSetupState = { running: boolean; job: SampleSetupJob | null };
 
 export type FlagSnapshot = {
+  capability_availability?: Record<string, boolean>;
   groups: Array<{
     key: string;
     label: string;

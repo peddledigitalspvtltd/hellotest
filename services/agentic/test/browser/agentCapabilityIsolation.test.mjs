@@ -7,8 +7,8 @@ const require = createRequire(new URL('../../../../testengine/backend/package.js
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../../platform/frontend/', import.meta.url);
 const baseSource = await readFile(new URL('agentWorkspace.test.mjs', import.meta.url), 'utf8');
-const baseFixture = baseSource.match(/const fixture = `
-import { knowledgeApi } from "/services/knowledge/frontend/api.client";([\s\S]*?)`;\nconst specialists/)[1];
+const baseFixture = 'import { knowledgeApi } from "/services/knowledge/frontend/api.client";\n'
+  + baseSource.match(/const fixture = `([\s\S]*?)`;\nconst specialists/)[1];
 const fixture = baseFixture
   .replace("import { AuthProvider }", "import { AuthProvider, useAuth }")
   .replace("import '/src/styles.css';", "import policy from '/src/platform/lib/featurePolicy.generated.json'; import '/src/catalog-list.css'; import '/src/styles.css';")

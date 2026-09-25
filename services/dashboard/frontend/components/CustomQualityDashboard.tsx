@@ -334,7 +334,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
   const releaseOptions = useQuery({
     queryKey: ["dashboard-release-options", projectId],
     queryFn: async () => asArray(await api.requirementReleases.list({ project_id: projectId })),
-    enabled: Boolean(projectId && editorMode && editorTab === "configure"),
+    enabled: Boolean(projectId && canManage && editorMode && editorTab === "configure"),
     staleTime: 60_000
   });
   const builtInDashboards = useMemo(() => QUALITY_DASHBOARD_PRESETS.map(preset => createDashboardPreset(projectId, preset.id)), [projectId]);
@@ -508,7 +508,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
     if (!shareReport.isPending) setIsReportEmailModalOpen(false);
   };
   const reportDialogRef = useDialogFocus<HTMLFormElement>({
-    active: isReportEmailModalOpen,
+    active: isReportEmailModalOpen && canManage,
     closeDisabled: shareReport.isPending,
     onClose: closeReportEmailModal
   });
@@ -522,7 +522,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
     preview.reset();
   };
   const editorDialogRef = useDialogFocus<HTMLDivElement>({
-    active: Boolean(editorMode),
+    active: Boolean(editorMode && canManage),
     closeDisabled: isEditorBusy,
     onClose: closeEditor
   });
@@ -674,7 +674,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
     <div className="custom-dashboard-workspace">
       <header className="dashboard-page-header">
         <div className="dashboard-page-title"><span className="dashboard-page-icon"><IconLayoutDashboard size={23} /></span><div><h1>Dashboards</h1><p>Turn project evidence into the next decision.</p></div></div>
-        <button className="primary-button" disabled={!canManage} onClick={openCreateEditor} type="button"><IconPlus size={17} />Create dashboard</button>
+        {canManage ? (<button className="primary-button" disabled={!canManage} onClick={openCreateEditor} type="button"><IconPlus size={17} />Create dashboard</button>) : null}
       </header>
       <nav className="dashboard-preset-navigation" aria-label="Preloaded dashboards">
         {QUALITY_DASHBOARD_PRESETS.map((preset, index) => {
@@ -687,9 +687,9 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
         <FormField className="custom-dashboard-selector-field" label="Current dashboard"><select value={selected.id} onChange={event => setSelectedId(event.target.value)}><optgroup label="Ready to use">{builtInDashboards.map(dashboard => <option key={dashboard.id} value={dashboard.id}>{dashboard.name}</option>)}</optgroup>{dashboards.data?.length ? <optgroup label="Saved in this project">{dashboards.data.map(dashboard => <option key={dashboard.id} value={dashboard.id}>{dashboard.name}</option>)}</optgroup> : null}</select></FormField>
         <div className="custom-dashboard-toolbar-actions">
           <span className="dashboard-freshness" role="status">{isDashboardRefreshPending ? "Updating project evidence…" : dashboardResults.data?.evaluated_at ? `Updated ${new Date(dashboardResults.data.evaluated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Project evidence"}</span>
-          <button className="ghost-button" disabled={!canManage} onClick={openEditEditor} type="button"><IconSettings size={16} />{isBuiltIn ? "Customize" : "Edit layout"}</button>
+          {canManage ? (<button className="ghost-button" disabled={!canManage} onClick={openEditEditor} type="button"><IconSettings size={16} />{isBuiltIn ? "Customize" : "Edit layout"}</button>) : null}
           <button aria-label={isDashboardRefreshPending ? "Refreshing dashboards" : "Refresh dashboards"} aria-busy={isDashboardRefreshPending} className={`ghost-button compact custom-dashboard-refresh${isDashboardRefreshPending ? " is-loading" : ""}`} disabled={isDashboardRefreshPending} onClick={() => void refreshDashboards()} title="Refresh dashboard evidence" type="button">{isDashboardRefreshPending ? <LoadingState label="Refreshing dashboard evidence" /> : <RefreshIcon size={17} />}</button>
-          {!isBuiltIn ? <details className="dashboard-actions-menu" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary aria-label="Dashboard actions"><IconDots size={19} /></summary><div><button disabled={downloadReport.isPending || isDashboardRefreshPending} onClick={() => void handleDownloadReport()} type="button">{downloadReport.isPending ? "Exporting…" : "Export PDF"}</button><button disabled={!canManage || shareReport.isPending || isDashboardRefreshPending} onClick={handleOpenReportEmailModal} type="button">Email report</button><button className="danger" disabled={!canManage || remove.isPending} onClick={() => void deleteSelectedDashboard()} type="button">{remove.isPending ? "Deleting…" : "Delete dashboard"}</button></div></details> : null}
+          {!isBuiltIn ? <details className="dashboard-actions-menu" onKeyDown={event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}><summary aria-label="Dashboard actions"><IconDots size={19} /></summary><div><button disabled={downloadReport.isPending || isDashboardRefreshPending} onClick={() => void handleDownloadReport()} type="button">{downloadReport.isPending ? "Exporting…" : "Export PDF"}</button>{canManage ? (<button disabled={!canManage || shareReport.isPending || isDashboardRefreshPending} onClick={handleOpenReportEmailModal} type="button">Email report</button>) : null}{canManage ? (<button className="danger" disabled={!canManage || remove.isPending} onClick={() => void deleteSelectedDashboard()} type="button">{remove.isPending ? "Deleting…" : "Delete dashboard"}</button>) : null}</div></details> : null}
         </div>
       </div>
       {dashboards.isError ? <div className="inline-message error-message" role="alert">Saved dashboards could not be loaded. Starter dashboards are still available. <button type="button" onClick={() => void dashboards.refetch()}>Retry saved dashboards</button></div> : null}
@@ -709,7 +709,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
         </div>
       </section>
 
-      {editorMode ? (
+      {editorMode && canManage ? (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={closeEditor} role="presentation">
           <div
             aria-labelledby="custom-dashboard-dialog-title"
@@ -821,7 +821,7 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
                   <div className="dashboard-designer-fields">
                     <FormField label="Release / Fix version" hint="Optional; safely added to generated JQL."><input value={designerDraft.release} onChange={(event) => setDesignerDraft((current) => ({ ...current, release: event.target.value }))} /></FormField>
                     <FormField className="dashboard-designer-prompt" label="Dashboard build prompt" hint="Use this rich default, erase it, or write your own bounded quality-dashboard brief."><textarea maxLength={2000} rows={5} value={designerDraft.prompt} onChange={(event) => setDesignerDraft((current) => ({ ...current, prompt: event.target.value }))} /></FormField>
-                    <button className="primary-button" disabled={!canManage || design.isPending} onClick={() => design.mutate({ ...designerDraft, projectId, editorGeneration: editorGenerationRef.current })} type="button"><SparkIcon />{design.isPending ? "Designing…" : "Design draft"}</button>
+                    {canManage ? (<button className="primary-button" disabled={!canManage || design.isPending} onClick={() => design.mutate({ ...designerDraft, projectId, editorGeneration: editorGenerationRef.current })} type="button"><SparkIcon />{design.isPending ? "Designing…" : "Design draft"}</button>) : null}
                   </div>
                   {design.data ? <>
                     <div className="dashboard-design-assurance"><span>{design.data.generation_mode === "llm" ? "Model draft" : "Stakeholder template"}</span><span>{asArray(design.data.dashboard?.gadgets).length} supported widgets</span><span>Review before saving</span></div>
@@ -833,11 +833,11 @@ export function CustomQualityDashboard({ projectId, canManage, canUseAi, canUseA
               </fieldset>
             </div>
 
-            <div className="action-row custom-dashboard-modal-actions"><span>{draft.gadgets.length} widgets · {editorTab === "configure" ? "Apply widget changes to continue" : "Changes are saved to this project"}</span><button className="ghost-button" disabled={isEditorBusy} onClick={closeEditor} type="button">Cancel</button><button className="primary-button" disabled={!canManage || !draft.name.trim() || !draft.gadgets.length || isEditorBusy || editorTab === "configure"} onClick={() => save.mutate({ dashboard: draft, projectId, editorGeneration: editorGenerationRef.current })} type="button">{save.isPending ? "Saving…" : editorMode === "create" ? "Create dashboard" : "Save changes"}</button></div>
+            <div className="action-row custom-dashboard-modal-actions"><span>{draft.gadgets.length} widgets · {editorTab === "configure" ? "Apply widget changes to continue" : "Changes are saved to this project"}</span><button className="ghost-button" disabled={isEditorBusy} onClick={closeEditor} type="button">Cancel</button>{canManage ? (<button className="primary-button" disabled={!canManage || !draft.name.trim() || !draft.gadgets.length || isEditorBusy || editorTab === "configure"} onClick={() => save.mutate({ dashboard: draft, projectId, editorGeneration: editorGenerationRef.current })} type="button">{save.isPending ? "Saving…" : editorMode === "create" ? "Create dashboard" : "Save changes"}</button>) : null}</div>
           </div>
         </div>
       ) : null}
-      {selected && isReportEmailModalOpen ? (
+      {selected && isReportEmailModalOpen && canManage ? (
         <div className="modal-backdrop" onClick={closeReportEmailModal} role="presentation">
           <form
             aria-labelledby="dashboard-report-email-title"

@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-workflow-review-1",
+      "workflow_id": "sample-v7-ht-workflow-1",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "workflow_name": "HelloTest permission review · synthetic",
+      "status": "completed",
+      "trigger_kind": "manual",
+      "input_payload": {
+        "sample": true,
+        "synthetic": true,
+        "prompt": "Review project role grants, disabled features and revoked-session behavior using supplied evidence."
+      },
+      "output_payload": {
+        "sample": true,
+        "synthetic": true,
+        "summary": "SYNTHETIC: review access gates before publication."
+      },
+      "workflow_snapshot": {
+        "id": "sample-v7-ht-workflow-1",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest permission review",
+        "description": "Review project role grants, disabled features and revoked-session behavior using supplied evidence. Draft synthetic example; configure a provider and run explicitly.",
+        "status": "draft",
+        "trigger_kind": "manual",
+        "nodes": [
+          {
+            "id": "start",
+            "type": "agenticStep",
+            "position": {
+              "x": 40,
+              "y": 120
+            },
+            "data": {
+              "kind": "trigger",
+              "label": "Manual review",
+              "triggerKind": "manual"
+            }
+          },
+          {
+            "id": "review",
+            "type": "agenticStep",
+            "position": {
+              "x": 360,
+              "y": 120
+            },
+            "data": {
+              "kind": "agent",
+              "label": "HelloTest permission review",
+              "agentId": "story-architect",
+              "prompt": "Review project role grants, disabled features and revoked-session behavior using supplied evidence.",
+              "contextScopes": [
+                "knowledge",
+                "stories",
+                "test-cases"
+              ],
+              "outputKey": "review"
+            }
+          },
+          {
+            "id": "finish",
+            "type": "agenticStep",
+            "position": {
+              "x": 680,
+              "y": 120
+            },
+            "data": {
+              "kind": "output",
+              "label": "Review findings",
+              "outputKey": "result"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "start-review",
+            "source": "start",
+            "target": "review"
+          },
+          {
+            "id": "review-finish",
+            "source": "review",
+            "target": "finish"
+          }
+        ],
+        "settings": {
+          "sample": true
+        },
+        "created_by": "__SETUP_ACTOR_ID__",
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "updated_at": "2026-09-23T12:00:00.000Z"
+      },
+      "node_results": [
+        {
+          "node_id": "review",
+          "label": "HelloTest permission review",
+          "status": "completed",
+          "output": {
+            "summary": "Authored synthetic workflow result. No model was called."
+          },
+          "error": null,
+          "started_at": "2026-09-22T10:00:00.000Z",
+          "completed_at": "2026-09-22T11:00:00.000Z"
+        }
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "started_at": "2026-09-22T10:00:00.000Z",
+      "completed_at": "2026-09-22T11:00:00.000Z",
+      "created_at": "2026-09-22T10:00:00.000Z",
+      "updated_at": "2026-09-22T11:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-workflow-review-2",
+      "workflow_id": "sample-v7-ht-workflow-2",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "workflow_name": "HelloTest release review · synthetic",
+      "status": "needs_review",
+      "trigger_kind": "manual",
+      "input_payload": {
+        "sample": true,
+        "synthetic": true,
+        "prompt": "Review linked Stories, cases, results and open Defects. State missing evidence without inventing approvals."
+      },
+      "output_payload": {
+        "sample": true,
+        "synthetic": true,
+        "summary": "SYNTHETIC: review is incomplete because linked evidence is missing."
+      },
+      "workflow_snapshot": {
+        "id": "sample-v7-ht-workflow-2",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest release review",
+        "description": "Review linked Stories, cases, results and open Defects. State missing evidence without inventing approvals. Draft synthetic example; configure a provider and run explicitly.",
+        "status": "draft",
+        "trigger_kind": "manual",
+        "nodes": [
+          {
+            "id": "start",
+            "type": "agenticStep",
+            "position": {
+              "x": 40,
+              "y": 120
+            },
+            "data": {
+              "kind": "trigger",
+              "label": "Manual review",
+              "triggerKind": "manual"
+            }
+          },
+          {
+            "id": "review",
+            "type": "agenticStep",
+            "position": {
+              "x": 360,
+              "y": 120
+            },
+            "data": {
+              "kind": "agent",
+              "label": "HelloTest release review",
+              "agentId": "test-designer",
+              "prompt": "Review linked Stories, cases, results and open Defects. State missing evidence without inventing approvals.",
+              "contextScopes": [
+                "knowledge",
+                "stories",
+                "test-cases"
+              ],
+              "outputKey": "review"
+            }
+          },
+          {
+            "id": "finish",
+            "type": "agenticStep",
+            "position": {
+              "x": 680,
+              "y": 120
+            },
+            "data": {
+              "kind": "output",
+              "label": "Review findings",
+              "outputKey": "result"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "start-review",
+            "source": "start",
+            "target": "review"
+          },
+          {
+            "id": "review-finish",
+            "source": "review",
+            "target": "finish"
+          }
+        ],
+        "settings": {
+          "sample": true
+        },
+        "created_by": "__SETUP_ACTOR_ID__",
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "updated_at": "2026-09-23T12:00:00.000Z"
+      },
+      "node_results": [
+        {
+          "node_id": "review",
+          "label": "HelloTest release review",
+          "status": "partial",
+          "output": {
+            "summary": "Authored synthetic workflow result. No model was called."
+          },
+          "error": null,
+          "started_at": "2026-09-22T10:00:00.000Z",
+          "completed_at": "2026-09-22T11:00:00.000Z"
+        }
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "started_at": "2026-09-22T10:00:00.000Z",
+      "completed_at": "2026-09-22T11:00:00.000Z",
+      "created_at": "2026-09-22T10:00:00.000Z",
+      "updated_at": "2026-09-22T11:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-workflow-review-3",
+      "workflow_id": "sample-v7-ht-workflow-3",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "workflow_name": "HelloTest automation readiness · synthetic",
+      "status": "failed",
+      "trigger_kind": "manual",
+      "input_payload": {
+        "sample": true,
+        "synthetic": true,
+        "prompt": "Check preconditions, data tokens, objects and execution configuration before automation is dispatched."
+      },
+      "output_payload": {
+        "sample": true,
+        "synthetic": true,
+        "summary": "SYNTHETIC: provider unavailable; retry after configuration."
+      },
+      "workflow_snapshot": {
+        "id": "sample-v7-ht-workflow-3",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest automation readiness",
+        "description": "Check preconditions, data tokens, objects and execution configuration before automation is dispatched. Draft synthetic example; configure a provider and run explicitly.",
+        "status": "draft",
+        "trigger_kind": "manual",
+        "nodes": [
+          {
+            "id": "start",
+            "type": "agenticStep",
+            "position": {
+              "x": 40,
+              "y": 120
+            },
+            "data": {
+              "kind": "trigger",
+              "label": "Manual review",
+              "triggerKind": "manual"
+            }
+          },
+          {
+            "id": "review",
+            "type": "agenticStep",
+            "position": {
+              "x": 360,
+              "y": 120
+            },
+            "data": {
+              "kind": "agent",
+              "label": "HelloTest automation readiness",
+              "agentId": "repository-curator",
+              "prompt": "Check preconditions, data tokens, objects and execution configuration before automation is dispatched.",
+              "contextScopes": [
+                "knowledge",
+                "stories",
+                "test-cases"
+              ],
+              "outputKey": "review"
+            }
+          },
+          {
+            "id": "finish",
+            "type": "agenticStep",
+            "position": {
+              "x": 680,
+              "y": 120
+            },
+            "data": {
+              "kind": "output",
+              "label": "Review findings",
+              "outputKey": "result"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "start-review",
+            "source": "start",
+            "target": "review"
+          },
+          {
+            "id": "review-finish",
+            "source": "review",
+            "target": "finish"
+          }
+        ],
+        "settings": {
+          "sample": true
+        },
+        "created_by": "__SETUP_ACTOR_ID__",
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "updated_at": "2026-09-23T12:00:00.000Z"
+      },
+      "node_results": [
+        {
+          "node_id": "review",
+          "label": "HelloTest automation readiness",
+          "status": "failed",
+          "output": {
+            "summary": "Authored synthetic workflow result. No model was called."
+          },
+          "error": "Synthetic provider unavailable example.",
+          "started_at": "2026-09-22T10:00:00.000Z",
+          "completed_at": "2026-09-22T11:00:00.000Z"
+        }
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "started_at": "2026-09-22T10:00:00.000Z",
+      "completed_at": "2026-09-22T11:00:00.000Z",
+      "created_at": "2026-09-22T10:00:00.000Z",
+      "updated_at": "2026-09-22T11:00:00.000Z"
+    }
+  ]
+}

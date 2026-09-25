@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { IconPhotoPlus } from "@tabler/icons-react";
 import { FileAddIcon, TrashIcon, UploadIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
-import { AiPromptTemplatePicker, type AiPromptScope } from "./AiPromptTemplatePicker";
+import { AiPromptTemplatePicker, type AiPromptScope } from "@hellotest/integration/frontend/components/AiPromptTemplatePicker";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
 import { SmartContextWorkbench, type SmartContextSelection } from "./SmartContextWorkbench";
 import {

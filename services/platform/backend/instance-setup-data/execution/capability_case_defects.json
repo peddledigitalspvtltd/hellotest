@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "test_case_id": "sample-v7-ht-case-membership-roles",
+      "issue_id": "sample-v7-ht-defect-1"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-navigation-scope",
+      "issue_id": "sample-v7-ht-defect-2"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-sprint-lifecycle",
+      "issue_id": "sample-v7-ht-defect-3"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-release-scope",
+      "issue_id": "sample-v7-ht-defect-4"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-gherkin-authoring",
+      "issue_id": "sample-v7-ht-defect-5"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-shared-steps",
+      "issue_id": "sample-v7-ht-defect-6"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-datasets-parameters",
+      "issue_id": "sample-v7-ht-defect-7"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-ai-authoring-data",
+      "issue_id": "sample-v7-ht-defect-8"
+    }
+  ]
+}

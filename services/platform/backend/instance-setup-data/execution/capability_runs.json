@@ -1,0 +1,481 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-run-baseline",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "HelloTest baseline · synthetic",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "duration_ms": 2970000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v7-ht-env",
+      "test_environment_name": "HelloTest QA",
+      "test_environment_snapshot": {
+        "id": "sample-v7-ht-env",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest QA",
+        "description": "Example HelloTest QA target for acceptance walkthroughs.",
+        "base_url": "https://hellotest.qa.example.test",
+        "browser": "Chrome",
+        "notes": "Synthetic target. Configure your own endpoint before live execution.",
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://hellotest.qa.example.test"
+          },
+          {
+            "key": "tenant",
+            "value": "hellotest-sample"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "test_configuration_id": "sample-v7-ht-config",
+      "test_configuration_name": "Desktop access review",
+      "test_configuration_snapshot": {
+        "id": "sample-v7-ht-config",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Desktop access review",
+        "description": "Chrome, en-US and explicit timeouts for the HelloTest acceptance dataset.",
+        "browser": "Chrome",
+        "mobile_os": null,
+        "platform_version": "Linux",
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "20000"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "targets": [
+          {
+            "id": "sample-v6-ht-config-core-target",
+            "os": "Linux",
+            "browser": "Chrome",
+            "mobile_os": "",
+            "version": ""
+          }
+        ]
+      },
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_set_name": "HelloTest access matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v7-ht-data-access",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest access matrix",
+        "description": "Synthetic roles and route inputs. Replace example identities before real execution.",
+        "mode": "table",
+        "columns": [
+          "actor_email",
+          "role",
+          "project_name",
+          "target_route",
+          "feature_key"
+        ],
+        "rows": [
+          {
+            "actor_email": "qa.lead@example.test",
+            "role": "QA Lead",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/test-cases",
+            "feature_key": "hellotest.manual.test_cases"
+          },
+          {
+            "actor_email": "reporter@example.test",
+            "role": "Reporter",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/issues",
+            "feature_key": "hellotest.manual.bugs"
+          },
+          {
+            "actor_email": "viewer@example.test",
+            "role": "Viewer",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/",
+            "feature_key": "hellotest.analytics.dashboards"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "release": "HT Core",
+      "sprint": "Core S4",
+      "release_id": "sample-v7-ht-release-shipped",
+      "iteration_id": "sample-v7-ht-sprint-shipped",
+      "build": "7.0-rc2",
+      "start_date": "2026-09-21",
+      "end_date": "2026-09-21",
+      "started_at": "2026-09-21T11:00:00.000Z",
+      "ended_at": "2026-09-21T12:11:45.000Z",
+      "created_at": "2026-09-21T11:00:00.000Z",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_suite_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_scope_default": "r",
+      "direct_test_case_ids": [
+        "sample-v7-ht-case-project-applications",
+        "sample-v7-ht-case-membership-roles",
+        "sample-v7-ht-case-navigation-scope",
+        "sample-v7-ht-case-authentication",
+        "sample-v7-ht-case-project-deletion",
+        "sample-v7-ht-case-regional-settings",
+        "sample-v7-ht-case-story-authoring",
+        "sample-v7-ht-case-backlog-planning",
+        "sample-v7-ht-case-sprint-lifecycle",
+        "sample-v7-ht-case-release-scope",
+        "sample-v7-ht-case-delivery-selectors",
+        "sample-v7-ht-case-story-traceability"
+      ]
+    },
+    {
+      "id": "sample-v7-ht-run-regression",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "HelloTest regression · synthetic",
+      "trigger": "manual",
+      "status": "completed",
+      "execution_mode": "remote",
+      "duration_ms": 4365000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v7-ht-env",
+      "test_environment_name": "HelloTest QA",
+      "test_environment_snapshot": {
+        "id": "sample-v7-ht-env",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest QA",
+        "description": "Example HelloTest QA target for acceptance walkthroughs.",
+        "base_url": "https://hellotest.qa.example.test",
+        "browser": "Chrome",
+        "notes": "Synthetic target. Configure your own endpoint before live execution.",
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://hellotest.qa.example.test"
+          },
+          {
+            "key": "tenant",
+            "value": "hellotest-sample"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "test_configuration_id": "sample-v7-ht-config",
+      "test_configuration_name": "Desktop access review",
+      "test_configuration_snapshot": {
+        "id": "sample-v7-ht-config",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Desktop access review",
+        "description": "Chrome, en-US and explicit timeouts for the HelloTest acceptance dataset.",
+        "browser": "Chrome",
+        "mobile_os": null,
+        "platform_version": "Linux",
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "20000"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "targets": [
+          {
+            "id": "sample-v6-ht-config-core-target",
+            "os": "Linux",
+            "browser": "Chrome",
+            "mobile_os": "",
+            "version": ""
+          }
+        ]
+      },
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_set_name": "HelloTest access matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v7-ht-data-access",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest access matrix",
+        "description": "Synthetic roles and route inputs. Replace example identities before real execution.",
+        "mode": "table",
+        "columns": [
+          "actor_email",
+          "role",
+          "project_name",
+          "target_route",
+          "feature_key"
+        ],
+        "rows": [
+          {
+            "actor_email": "qa.lead@example.test",
+            "role": "QA Lead",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/test-cases",
+            "feature_key": "hellotest.manual.test_cases"
+          },
+          {
+            "actor_email": "reporter@example.test",
+            "role": "Reporter",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/issues",
+            "feature_key": "hellotest.manual.bugs"
+          },
+          {
+            "actor_email": "viewer@example.test",
+            "role": "Viewer",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/",
+            "feature_key": "hellotest.analytics.dashboards"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "release": "HT Access",
+      "sprint": "Access S5",
+      "release_id": "sample-v7-ht-release-overdue",
+      "iteration_id": "sample-v7-ht-sprint-overdue",
+      "build": "7.1-rc2",
+      "start_date": "2026-09-22",
+      "end_date": "2026-09-22",
+      "started_at": "2026-09-22T11:00:00.000Z",
+      "ended_at": "2026-09-22T12:47:15.000Z",
+      "created_at": "2026-09-22T11:00:00.000Z",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_suite_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_scope_default": "r",
+      "direct_test_case_ids": [
+        "sample-v7-ht-case-project-applications",
+        "sample-v7-ht-case-membership-roles",
+        "sample-v7-ht-case-navigation-scope",
+        "sample-v7-ht-case-authentication",
+        "sample-v7-ht-case-project-deletion",
+        "sample-v7-ht-case-regional-settings",
+        "sample-v7-ht-case-story-authoring",
+        "sample-v7-ht-case-backlog-planning",
+        "sample-v7-ht-case-sprint-lifecycle",
+        "sample-v7-ht-case-release-scope",
+        "sample-v7-ht-case-delivery-selectors",
+        "sample-v7-ht-case-story-traceability",
+        "sample-v7-ht-case-story-import-sync",
+        "sample-v7-ht-case-story-ai-design",
+        "sample-v7-ht-case-structured-cases",
+        "sample-v7-ht-case-gherkin-authoring",
+        "sample-v7-ht-case-shared-steps",
+        "sample-v7-ht-case-suite-modules"
+      ]
+    },
+    {
+      "id": "sample-v7-ht-run-acceptance",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "HelloTest capabilities · synthetic",
+      "trigger": "manual",
+      "status": "partially_completed",
+      "execution_mode": "remote",
+      "duration_ms": 12555000,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "assigned_to": "__SETUP_ACTOR_ID__",
+      "assigned_to_ids": [
+        "__SETUP_ACTOR_ID__"
+      ],
+      "test_environment_id": "sample-v7-ht-env",
+      "test_environment_name": "HelloTest QA",
+      "test_environment_snapshot": {
+        "id": "sample-v7-ht-env",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest QA",
+        "description": "Example HelloTest QA target for acceptance walkthroughs.",
+        "base_url": "https://hellotest.qa.example.test",
+        "browser": "Chrome",
+        "notes": "Synthetic target. Configure your own endpoint before live execution.",
+        "variables": [
+          {
+            "key": "base_url",
+            "value": "https://hellotest.qa.example.test"
+          },
+          {
+            "key": "tenant",
+            "value": "hellotest-sample"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "test_configuration_id": "sample-v7-ht-config",
+      "test_configuration_name": "Desktop access review",
+      "test_configuration_snapshot": {
+        "id": "sample-v7-ht-config",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "Desktop access review",
+        "description": "Chrome, en-US and explicit timeouts for the HelloTest acceptance dataset.",
+        "browser": "Chrome",
+        "mobile_os": null,
+        "platform_version": "Linux",
+        "variables": [
+          {
+            "key": "locale",
+            "value": "en-US"
+          },
+          {
+            "key": "timeout_ms",
+            "value": "20000"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z",
+        "targets": [
+          {
+            "id": "sample-v6-ht-config-core-target",
+            "os": "Linux",
+            "browser": "Chrome",
+            "mobile_os": "",
+            "version": ""
+          }
+        ]
+      },
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_set_name": "HelloTest access matrix",
+      "test_data_set_snapshot": {
+        "id": "sample-v7-ht-data-access",
+        "project_id": "sample-project",
+        "app_type_id": "sample-app-web",
+        "name": "HelloTest access matrix",
+        "description": "Synthetic roles and route inputs. Replace example identities before real execution.",
+        "mode": "table",
+        "columns": [
+          "actor_email",
+          "role",
+          "project_name",
+          "target_route",
+          "feature_key"
+        ],
+        "rows": [
+          {
+            "actor_email": "qa.lead@example.test",
+            "role": "QA Lead",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/test-cases",
+            "feature_key": "hellotest.manual.test_cases"
+          },
+          {
+            "actor_email": "reporter@example.test",
+            "role": "Reporter",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/issues",
+            "feature_key": "hellotest.manual.bugs"
+          },
+          {
+            "actor_email": "viewer@example.test",
+            "role": "Viewer",
+            "project_name": "HelloTest Launchpad",
+            "target_route": "/",
+            "feature_key": "hellotest.analytics.dashboards"
+          }
+        ],
+        "created_at": "2026-08-18T09:00:00.000Z"
+      },
+      "release": "HT Access",
+      "sprint": "Access S5",
+      "release_id": "sample-v7-ht-release-overdue",
+      "iteration_id": "sample-v7-ht-sprint-overdue",
+      "build": "7.1-rc2",
+      "start_date": "2026-09-23",
+      "end_date": "2026-09-23",
+      "started_at": "2026-09-23T11:00:00.000Z",
+      "ended_at": "2026-09-23T16:53:30.000Z",
+      "created_at": "2026-09-23T11:00:00.000Z",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_suite_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_scope_default": "r",
+      "direct_test_case_ids": [
+        "sample-v7-ht-case-project-applications",
+        "sample-v7-ht-case-membership-roles",
+        "sample-v7-ht-case-navigation-scope",
+        "sample-v7-ht-case-authentication",
+        "sample-v7-ht-case-project-deletion",
+        "sample-v7-ht-case-regional-settings",
+        "sample-v7-ht-case-story-authoring",
+        "sample-v7-ht-case-backlog-planning",
+        "sample-v7-ht-case-sprint-lifecycle",
+        "sample-v7-ht-case-release-scope",
+        "sample-v7-ht-case-delivery-selectors",
+        "sample-v7-ht-case-story-traceability",
+        "sample-v7-ht-case-story-import-sync",
+        "sample-v7-ht-case-story-ai-design",
+        "sample-v7-ht-case-structured-cases",
+        "sample-v7-ht-case-gherkin-authoring",
+        "sample-v7-ht-case-shared-steps",
+        "sample-v7-ht-case-suite-modules",
+        "sample-v7-ht-case-case-review-versioning",
+        "sample-v7-ht-case-case-import-export",
+        "sample-v7-ht-case-environment-targets",
+        "sample-v7-ht-case-configuration-profiles",
+        "sample-v7-ht-case-datasets-parameters",
+        "sample-v7-ht-case-ai-authoring-data",
+        "sample-v7-ht-case-run-planning",
+        "sample-v7-ht-case-frozen-evidence",
+        "sample-v7-ht-case-dataset-outcomes",
+        "sample-v7-ht-case-scheduled-runs",
+        "sample-v7-ht-case-execution-analysis-reports",
+        "sample-v7-ht-case-bug-lifecycle",
+        "sample-v7-ht-case-bug-collaboration",
+        "sample-v7-ht-case-bug-regression-ai",
+        "sample-v7-ht-case-automation-coverage",
+        "sample-v7-ht-case-builder-step-code",
+        "sample-v7-ht-case-api-requests",
+        "sample-v7-ht-case-object-repository",
+        "sample-v7-ht-case-step-recorder",
+        "sample-v7-ht-case-local-execution",
+        "sample-v7-ht-case-remote-parallel",
+        "sample-v7-ht-case-android-appium",
+        "sample-v7-ht-case-repository-specialists",
+        "sample-v7-ht-case-knowledge-ingestion",
+        "sample-v7-ht-case-knowledge-search",
+        "sample-v7-ht-case-ask-hellotest",
+        "sample-v7-ht-case-workflow-canvas",
+        "sample-v7-ht-case-workflow-history",
+        "sample-v7-ht-case-prompt-governance",
+        "sample-v7-ht-case-quality-analytics",
+        "sample-v7-ht-case-custom-dashboards",
+        "sample-v7-ht-case-release-readiness",
+        "sample-v7-ht-case-product-metrics",
+        "sample-v7-ht-case-background-jobs",
+        "sample-v7-ht-case-telemetry-traces",
+        "sample-v7-ht-case-notifications",
+        "sample-v7-ht-case-instance-setup",
+        "sample-v7-ht-case-feature-dropdown-governance",
+        "sample-v7-ht-case-integrations-api-keys",
+        "sample-v7-ht-case-admin-audit-security",
+        "sample-v7-ht-case-support-guidance"
+      ]
+    }
+  ]
+}

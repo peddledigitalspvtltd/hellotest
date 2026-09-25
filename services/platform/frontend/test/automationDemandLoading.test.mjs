@@ -52,11 +52,11 @@ test("repository pagination stops on navigation cancellation instead of fetching
 
 test("TestOps traces avoid batch queries and final transaction records stop polling", () => {
   for (const name of ["appTypesQuery", "integrationsQuery", "transactionsQuery", "transactionEventsQuery", "transactionArtifactsQuery"]) {
-    assert.equal(queryOptions("TestOpsPage", name, { view: "traces", canUseBatchProcesses: true }).enabled, false, name);
+    assert.equal(queryOptions("TestOpsPage", name, { view: "traces", canViewBackgroundJobs: true, canUseBatchProcesses: false }).enabled, false, name);
   }
   for (const name of ["transactionEventsQuery", "transactionArtifactsQuery"]) {
-    const active = queryOptions("TestOpsPage", name, { view: "batch-process", canUseBatchProcesses: true });
-    const terminal = queryOptions("TestOpsPage", name, { view: "batch-process", canUseBatchProcesses: true, selectedTransactionStatus: "completed", selectedTransactionIsRunning: false });
+    const active = queryOptions("TestOpsPage", name, { view: "batch-process", canViewBackgroundJobs: true, canUseBatchProcesses: false });
+    const terminal = queryOptions("TestOpsPage", name, { view: "batch-process", canViewBackgroundJobs: true, canUseBatchProcesses: false, selectedTransactionStatus: "completed", selectedTransactionIsRunning: false });
     assert.equal(active.enabled, true);
     assert.equal(active.refetchInterval, 15_000);
     assert.equal(terminal.enabled, true);

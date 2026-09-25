@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-config",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "Desktop access review",
+      "description": "Chrome, en-US and explicit timeouts for the HelloTest acceptance dataset.",
+      "browser": "Chrome",
+      "mobile_os": null,
+      "platform_version": "Linux",
+      "variables": [
+        {
+          "key": "locale",
+          "value": "en-US"
+        },
+        {
+          "key": "timeout_ms",
+          "value": "20000"
+        }
+      ],
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "targets": [
+        {
+          "id": "sample-v6-ht-config-core-target",
+          "os": "Linux",
+          "browser": "Chrome",
+          "mobile_os": "",
+          "version": ""
+        }
+      ]
+    }
+  ]
+}

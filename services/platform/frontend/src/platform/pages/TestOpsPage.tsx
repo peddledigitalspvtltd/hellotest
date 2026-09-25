@@ -205,6 +205,8 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
   const canUseAutomationWorkspace = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace"]);
+  const canViewBackgroundJobs = hasPermission(session, "transaction.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ops.background_jobs"]);
   const canUseBatchProcesses = areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.batch_process", "hellotest.ops.background_jobs"]);
   const canBuildAutomation = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
@@ -213,7 +215,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     && canUseAutomationWorkspace
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.object_repository"]);
   const canManageTransactions = hasPermission(session, "transaction.manage", projectId) && canUseBatchProcesses;
-  const canDownloadArtifacts = hasPermission(session, "transaction.artifact.download", projectId) && canUseBatchProcesses;
+  const canDownloadArtifacts = hasPermission(session, "transaction.artifact.download", projectId) && canViewBackgroundJobs;
 
   useEffect(() => {
     setView(initialView);
@@ -237,7 +239,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
       project_id: projectId || undefined,
       limit: 300
     }, { signal }),
-    enabled: Boolean(projectId && session && canUseBatchProcesses && (view === "batch-process" || view === "automation-builder")),
+    enabled: Boolean(projectId && session && canViewBackgroundJobs && (view === "batch-process" || view === "automation-builder")),
     refetchInterval: (query) =>
       Array.isArray(query.state.data) && query.state.data.some((transaction) => ["queued", "running"].includes(transaction.status))
         ? 15_000
@@ -263,13 +265,13 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     // Include status so completion fetches the final records before polling stops.
     queryKey: ["workspace-transaction-events", "testops", selectedTransactionId, selectedTransactionStatus],
     queryFn: ({ signal }) => api.workspaceTransactions.events(selectedTransactionId, { signal }),
-    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses && view === "batch-process"),
+    enabled: Boolean(selectedTransactionId && session && canViewBackgroundJobs && view === "batch-process"),
     refetchInterval: selectedTransactionIsRunning ? 15_000 : false
   });
   const transactionArtifactsQuery = useQuery({
     queryKey: ["workspace-transaction-artifacts", "testops", selectedTransactionId, selectedTransactionStatus],
     queryFn: ({ signal }) => api.workspaceTransactions.artifacts(selectedTransactionId, { signal }),
-    enabled: Boolean(selectedTransactionId && session && canUseBatchProcesses && view === "batch-process"),
+    enabled: Boolean(selectedTransactionId && session && canViewBackgroundJobs && view === "batch-process"),
     refetchInterval: selectedTransactionIsRunning ? 15_000 : false
   });
 

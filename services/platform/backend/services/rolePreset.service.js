@@ -1,6 +1,7 @@
 const db = require("../src/db");
 const { randomUUID } = require("crypto");
 const { DEFAULT_ROLE_PRESETS, normalizePresetRoleName } = require("../src/security/rolePresets.catalog");
+const { DEFAULT_ROLE_PERMISSIONS } = require("../src/security/permissions.catalog");
 
 const placeholders = values => values.map(() => "?").join(", ");
 const readRoles = (presets = DEFAULT_ROLE_PRESETS) => db.prepare(`
@@ -83,4 +84,10 @@ async function ensureSetupRoles(presets = DEFAULT_ROLE_PRESETS) {
   })();
 }
 
-module.exports = { ensureSetupRoles, getSetupRoleCatalog };
+// Schema setup and application startup use the same idempotent role initializer.
+// Existing roles, including deliberately empty grants, are never reset.
+const ensureFoundationRoles = () => ensureSetupRoles(Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([name, codes]) => ({
+  id: `role-${name}`, name, permission_codes: [...codes].sort()
+})));
+
+module.exports = { ensureSetupRoles, ensureFoundationRoles, getSetupRoleCatalog };

@@ -20,7 +20,7 @@ test("Admin Feature Availability explains accumulated manual workflow boundaries
   // values; publishing a parent toggle must preserve unrelated child settings.
   assert.match(adminApp, /createFeatureFlagPatch\(snapshot\.local_flags \|\| snapshot\.flags, draft\)/);
   assert.match(adminApp, /adminApi\.updateFlags\(patch\)/);
-  assert.match(adminApp, /effectiveFeatureFlags\(draft, snapshot\?\.dependencies\)/);
+  assert.match(adminApp, /effectiveFeatureFlags\(availableFlags\(draft\), snapshot\?\.dependencies\)/);
   assert.match(adminApp, /\{feature\.description \? <span>\{feature\.description\}<\/span> : null\}/);
   assert.match(adminApp, /aria-pressed=\{Boolean\(draft\[feature\.key\]\)\}/);
   assert.match(adminApp, /\(feature\.routes \|\| \[\]\)\.join\(" "\)/);

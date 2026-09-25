@@ -1,0 +1,2826 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-case-project-applications",
+      "display_id": "HT7-T1",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-project-applications",
+      "title": "Verify create a project with explicit application scopes",
+      "description": "As a workspace administrator, I want to create a described project with Web, API and mobile application scopes so work stays organized.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nProject visibility, description and application platform define the workspace context. Application selection must remain within the chosen project.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "project-applications"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": "hellotest.ops.projects"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-membership-roles",
+      "display_id": "HT7-T2",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-membership-roles",
+      "title": "Verify apply project membership and workspace role grants accurately",
+      "description": "As a workspace administrator, I want to assign existing members appropriate project roles so access matches responsibility.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nMembership determines project access; workspace role presets provide Product Owner, QA, Automation, AI, Reporter and Viewer responsibilities. Sample setup must preserve customized grants.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "membership-roles"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/people",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-navigation-scope",
+      "display_id": "HT7-T3",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-navigation-scope",
+      "title": "Verify navigate available capabilities without leaking project scope",
+      "description": "As a project member, I want to find authorized product areas and retain valid project context across navigation.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe workspace navigator combines capabilities, feature availability and project permissions. Restricted, disabled and missing-project states must remain distinguishable.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "navigation-scope"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-authentication",
+      "display_id": "HT7-T4",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-authentication",
+      "title": "Verify maintain authenticated sessions and recover expired access",
+      "description": "As a workspace user, I want to sign in and recover an expired session without losing authorization boundaries.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nAuthentication controls protected workspace APIs and pages. Session expiry must result in a clear sign-in path without treating a failed request as a successful save.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "authentication"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/auth",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-project-deletion",
+      "display_id": "HT7-T5",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-project-deletion",
+      "title": "Verify delete large projects with recoverable background progress",
+      "description": "As a project administrator, I want to delete project-owned records and stored files without holding the UI request open.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nDeletion uses a durable job receipt, bounded SQL batches and post-commit storage cleanup. The requester can continue monitoring after project membership disappears.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "project-deletion"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/projects",
+        "feature_key": "hellotest.ops.projects"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-regional-settings",
+      "display_id": "HT7-T6",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-regional-settings",
+      "title": "Verify persist workspace preferences and regional presentation",
+      "description": "As a workspace user, I want to use supported language, time and display preferences consistently.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nSettings and regional controls influence labels and formatting without rewriting stored delivery dates or identifiers. Governed defaults remain separate from personal choices.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "regional-settings"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/settings",
+        "feature_key": "hellotest.ops.settings"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-story-authoring",
+      "display_id": "HT7-T7",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-authoring",
+      "title": "Verify author stories with actionable specifications and ownership",
+      "description": "As a Product Owner, I want to capture a precise story, acceptance criteria, labels and delivery ownership.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nStories support Gherkin or Spec Kit specifications alongside title, description, priority, status, effort, assignee, original Dev/QA and delivery dates.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-authoring"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-backlog-planning",
+      "display_id": "HT7-T8",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-backlog-planning",
+      "title": "Verify prioritize unscheduled stories and move them into a sprint",
+      "description": "As a Product Owner, I want to organize the backlog and schedule selected stories without creating duplicates.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nBacklog is the unscheduled view of the same story records. Moving work changes canonical iteration membership rather than copying stories.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "backlog-planning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/backlog",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-sprint-lifecycle",
+      "display_id": "HT7-T9",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-sprint-lifecycle",
+      "title": "Verify plan sprint goals, dates, ownership and lifecycle",
+      "description": "As a delivery lead, I want to create and manage iterations with clear goals and correctly linked stories.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nSprints have description, goal, labels, owner, effort and start/end dates with future, active and closed lifecycle states. Stories and sprint metrics derive from canonical membership.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "sprint-lifecycle"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/sprints",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-release-scope",
+      "display_id": "HT7-T10",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-release-scope",
+      "title": "Verify create release milestones with explicit and sprint-inherited scope",
+      "description": "As a release manager, I want to plan a release version and target date while keeping its story scope accurate.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nReleases contain a unique project milestone, fix version, description, target information and linked sprints. Scope can include manually selected stories and stories inherited through sprints.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "release-scope"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/releases",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-delivery-selectors",
+      "display_id": "HT7-T11",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-delivery-selectors",
+      "title": "Verify use available sprints and releases consistently across story dialogs",
+      "description": "As a Product Owner, I want to select the same valid delivery metadata from Stories, Backlog and Sprint creation and edit dialogs.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nLocal project sprints and releases are the canonical options. Imported metadata may supplement choices but must not replace a native iteration ID with a legacy label.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "delivery-selectors"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-story-traceability",
+      "display_id": "HT7-T12",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-traceability",
+      "title": "Verify relate stories to test cases, defects and dependencies",
+      "description": "As a QA Lead, I want to inspect the evidence and dependencies associated with each story.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nStory links connect acceptance intent to test cases, Defects and related stories. Traceability counts represent unique linked records, not execution completion.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-traceability"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-story-import-sync",
+      "display_id": "HT7-T13",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-story-import-sync",
+      "title": "Verify import and synchronize stories while retaining delivery metadata",
+      "description": "As a Product Owner, I want to bring external requirements into the project with reviewable mappings.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nStory import and configured tracker synchronization retain source references and map supported fields. Imported labels must not be mistaken for canonical local sprint or release IDs.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "story-import-sync"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-story-ai-design",
+      "display_id": "HT7-T14",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-story-ai-design",
+      "title": "Verify review AI-assisted story refinement and proposed test coverage",
+      "description": "As a Product Owner, I want to use project-grounded suggestions to improve acceptance criteria before saving them.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe story AI workspace helps refine requirements and generate reviewable design artifacts using a configured provider and permitted context. Suggestions are drafts until accepted.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "story-ai-design"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.ai.requirement_design"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-structured-cases",
+      "display_id": "HT7-T15",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-structured-cases",
+      "title": "Verify author structured test cases with ordered steps and expected results",
+      "description": "As a QA Member, I want to create reproducible test cases linked to the correct application and story.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nA case records title, description, type, priority, lifecycle, author and ordered actions with expected results. Case links and module/suite context must survive editing.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "structured-cases"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-gherkin-authoring",
+      "display_id": "HT7-T16",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-gherkin-authoring",
+      "title": "Verify preserve Gherkin Features, Backgrounds and Scenario Outlines",
+      "description": "As a QA Member, I want to express behavior in readable Gherkin with reusable parameters and examples.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nGherkin authoring preserves feature-level context and behavior steps. Dataset examples and parameter placeholders must remain aligned with the saved structured representation.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "gherkin-authoring"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-shared-steps",
+      "display_id": "HT7-T17",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-shared-steps",
+      "title": "Verify reuse shared step groups without losing parameter boundaries",
+      "description": "As a QA Lead, I want to maintain common behavior once and reuse it across test cases.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nShared groups support structured and Gherkin content plus parameters. References must preserve local case behavior and the source group identity.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "shared-steps"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/shared-steps",
+        "feature_key": "hellotest.manual.suites"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-suite-modules",
+      "display_id": "HT7-T18",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-suite-modules",
+      "title": "Verify organize cases into modules and reusable ordered suites",
+      "description": "As a QA Lead, I want to assemble a repeatable execution scope from existing cases.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nModules organize test design; suites select execution membership. Stored membership and order must agree with the run scope produced from the suite.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "suite-modules"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/design",
+        "feature_key": "hellotest.manual.suites"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-case-review-versioning",
+      "display_id": "HT7-T19",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-case-review-versioning",
+      "title": "Verify retain case revision history and review ownership",
+      "description": "As a QA Lead, I want to review changed test content and compare saved revisions.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nCase history preserves prior snapshots and change summaries. Review and author metadata provide accountability without inventing execution evidence.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "case-review-versioning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-case-import-export",
+      "display_id": "HT7-T20",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-case-import-export",
+      "title": "Verify round-trip supported test case imports and exports",
+      "description": "As a QA Member, I want to reuse case definitions across supported files without losing ordered behavior.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nImport/export covers supported case fields and step structures. Users must be able to review mapping and row-level errors before trusting the imported scope.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "case-import-export"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.manual.test_cases"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-environment-targets",
+      "display_id": "HT7-T21",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-environment-targets",
+      "title": "Verify configure environment targets and scoped variables",
+      "description": "As a QA Lead, I want to define repeatable application endpoints without editing each test case.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nEnvironment configuration stores a base URL and variables within project/application scope. Run creation selects permitted environments and freezes the chosen context.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "environment-targets"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-environments",
+        "feature_key": "hellotest.manual.environments"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-configuration-profiles",
+      "display_id": "HT7-T22",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-configuration-profiles",
+      "title": "Verify select browser and mobile configuration profiles",
+      "description": "As a Automation Engineer, I want to reuse execution target settings across runs.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nProfiles describe supported browser, platform, mobile OS/version and configuration variables. Selection must remain compatible with application scope and configured engine support.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "configuration-profiles"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-configurations",
+        "feature_key": "hellotest.manual.environments"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-datasets-parameters",
+      "display_id": "HT7-T23",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-datasets-parameters",
+      "title": "Verify link datasets and apply parameter precedence consistently",
+      "description": "As a QA Member, I want to run the same scenario with explicit input rows and predictable overrides.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nDatasets contain named columns and rows and can be linked to cases or runs. Execution preserves the selected input row and the parameter scopes used to resolve it.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "datasets-parameters"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-data",
+        "feature_key": "hellotest.manual.test_data"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-ai-authoring-data",
+      "display_id": "HT7-T24",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-ai-authoring-data",
+      "title": "Verify review AI case mapping, step rephrase and synthetic data drafts",
+      "description": "As a QA Member, I want to accelerate authoring with reviewable suggestions and generated sample inputs.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nConfigured AI can help map cases, rephrase steps or rich text and propose synthetic dataset rows. Accepted content still uses ordinary validation and saving paths.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "ai-authoring-data"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.ai.test_authoring"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-run-planning",
+      "display_id": "HT7-T25",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-run-planning",
+      "title": "Verify create a run from authorized suites and explicit delivery context",
+      "description": "As a QA Lead, I want to prepare a run with the intended cases, assignees and release scope.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nRun setup combines suite/case selection, assignments, environment, configuration, data and optional Release, Sprint and Build fields.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "run-planning"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=suite-runs",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-frozen-evidence",
+      "display_id": "HT7-T26",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-frozen-evidence",
+      "title": "Verify record manual case and step outcomes against frozen run snapshots",
+      "description": "As a QA Member, I want to capture repeatable evidence while cases continue to evolve.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nRuns snapshot selected cases, steps and input context. Manual outcomes, notes, attachments and defects belong to the saved run evidence, not a moving case definition.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "frozen-evidence"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-dataset-outcomes",
+      "display_id": "HT7-T27",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-dataset-outcomes",
+      "title": "Verify calculate final case outcomes across dataset iterations",
+      "description": "As a QA Lead, I want to interpret run results without counting retries or data rows as extra cases.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nA case may have multiple data-row attempts. Case and run metrics must use the supported finalized-outcome policy and preserve individual iteration evidence.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "dataset-outcomes"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-scheduled-runs",
+      "display_id": "HT7-T28",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-scheduled-runs",
+      "title": "Verify manage disabled, future and recurring run schedules",
+      "description": "As a QA Lead, I want to repeat a validated execution scope at the intended time.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nSchedules retain project/application, suite selection, execution context, assignees and cadence. Installation examples remain disabled until explicitly configured.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "scheduled-runs"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=scheduled-runs",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-execution-analysis-reports",
+      "display_id": "HT7-T29",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-execution-analysis-reports",
+      "title": "Verify inspect execution reports and AI-assisted failure analysis",
+      "description": "As a QA Lead, I want to investigate failed runs using saved results rather than assumptions.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nReports and analysis use the permitted run scope, saved result evidence and configured AI capability. Exported outcomes must agree with visible finalized metrics.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "execution-analysis-reports"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions",
+        "feature_key": "hellotest.manual.runs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-bug-lifecycle",
+      "display_id": "HT7-T30",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-lifecycle",
+      "title": "Verify capture and triage Defects with severity, ownership and history",
+      "description": "As a QA Member, I want to record actionable defects and follow their resolution.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nDefects capture description, type, severity, priority, status, root cause, regression information and delivery/environment context. History preserves the investigation trail.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-lifecycle"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-bug-collaboration",
+      "display_id": "HT7-T31",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-collaboration",
+      "title": "Verify review duplicate Defects and linked evidence before creating another",
+      "description": "As a QA Member, I want to find related defects and collaborate using scoped comments and attachments.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nDuplicate review uses selected case/module context. Story, case, suite and run relationships let investigators reach supporting evidence without losing source scope.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-collaboration"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-bug-regression-ai",
+      "display_id": "HT7-T32",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-testing",
+      "requirement_id": "sample-v3-feature-bug-regression-ai",
+      "title": "Verify turn Defect findings into reviewed regression coverage",
+      "description": "As a QA Lead, I want to create a regression test from a defect and review AI triage suggestions.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nDefect-to-case conversion maps supported defect details into an editable test draft. Configured AI assistance can help draft or triage without replacing human review.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing",
+        "bug-regression-ai"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/issues",
+        "feature_key": "hellotest.manual.bugs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-automation-coverage",
+      "display_id": "HT7-T33",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-automation-coverage",
+      "title": "Verify link executable automation to its manual coverage",
+      "description": "As a Automation Engineer, I want to maintain traceability between manual intent and executable cases.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nAutomation status and manual-to-automation links describe coverage readiness. An executable counterpart must retain its application scope and source case relationship.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "automation-coverage"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.workspace"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-builder-step-code",
+      "display_id": "HT7-T34",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-builder-step-code",
+      "title": "Verify review executable assets and step-level code before running",
+      "description": "As a Automation Engineer, I want to inspect generated or authored automation and maintain reusable assets.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe automation workspace exposes supported assets, builder operations and step-level code. Feature controls independently govern previews and saved code views.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "builder-step-code"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.assets"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-api-requests",
+      "display_id": "HT7-T35",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-api-requests",
+      "title": "Verify configure API requests, validations and captured parameters",
+      "description": "As a Automation Engineer, I want to test API contracts using reviewable request definitions.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nAPI steps store method, URL, headers, body mode, validations and captures. Preview validates configured requests and returns observed response information.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "api-requests"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/test-cases",
+        "feature_key": "hellotest.automation.preview"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-object-repository",
+      "display_id": "HT7-T36",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-object-repository",
+      "title": "Verify curate stable object bindings with locator provenance",
+      "description": "As a Automation Engineer, I want to reuse reliable page and screen objects across automated steps.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nObjects retain screen/page intent, names, locators, platform metadata, source and confidence. Reuse should preserve why a binding was chosen.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "object-repository"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/object-repository",
+        "feature_key": "hellotest.automation.object_repository"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-step-recorder",
+      "display_id": "HT7-T37",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-step-recorder",
+      "title": "Verify capture browser actions and review saved automation steps",
+      "description": "As a Automation Engineer, I want to record a supported interaction flow and review the resulting saved plan.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nStep-level recording connects a configured recording environment to case authoring and object bindings. Finishing recording saves supported captured steps; the updated plan can then be reviewed and edited.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "step-recorder"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.step_recording"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-local-execution",
+      "display_id": "HT7-T38",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-local-execution",
+      "title": "Verify run supported automation locally and retain its evidence",
+      "description": "As a Automation Engineer, I want to execute against a configured local agent and review saved results.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nLocal execution connects the selected case and context to the configured desktop/Playwright runner. Local Runs exposes recorded attempts and their outcomes.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "local-execution"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/executions?view=local-runs",
+        "feature_key": "hellotest.automation.local_execution"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-remote-parallel",
+      "display_id": "HT7-T39",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-remote-parallel",
+      "title": "Verify dispatch remote automation with bounded parallel execution",
+      "description": "As a Automation Engineer, I want to execute supported suites on configured workers without duplicate claims.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nRemote dispatch and parallel execution use configured engine capabilities. Worker ownership, progress and callbacks must remain associated with the correct project and run.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "remote-parallel"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.automation.remote_execution"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-android-appium",
+      "display_id": "HT7-T40",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-automation",
+      "requirement_id": "sample-v3-feature-android-appium",
+      "title": "Verify use configured Android and Appium execution targets",
+      "description": "As a Automation Engineer, I want to validate mobile behavior with an available supported device.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nMobile execution depends on the configured mobile engine, Appium and device availability. Configuration and locator strategy must remain compatible with the chosen mobile target.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation",
+        "android-appium"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/automation",
+        "feature_key": "hellotest.mobile.appium"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-repository-specialists",
+      "display_id": "HT7-T41",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-ai",
+      "requirement_id": "sample-v3-feature-repository-specialists",
+      "title": "Verify generate reviewable automation artifacts from selected source",
+      "description": "As a Automation Engineer, I want to inspect repository-derived objects, API tests and knowledge before reuse.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nRepository agents accept supported source inputs and generate bounded review artifacts. Source provenance and configured AI/runtime requirements remain visible.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai",
+        "repository-specialists"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=agents",
+        "feature_key": "hellotest.ai.automation"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-knowledge-ingestion",
+      "display_id": "HT7-T42",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-ingestion",
+      "title": "Verify ingest supported project evidence and supplied content into knowledge",
+      "description": "As a AI Engineer, I want to curate reusable sources for grounded assistance.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nKnowledge supports selected project records, supplied text, supported files and URLs. Extraction, revision and indexing state show when a source is actually searchable.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "knowledge-ingestion"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-knowledge-search",
+      "display_id": "HT7-T43",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-knowledge-search",
+      "title": "Verify search versioned knowledge within authorized project scope",
+      "description": "As a AI Engineer, I want to retrieve relevant source passages with inspectable citations.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nRetrieval uses available lexical and semantic indexing, source versions and access bindings. Collection filters must retain project-level security.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "knowledge-search"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-ask-hellotest",
+      "display_id": "HT7-T44",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-knowledge",
+      "requirement_id": "sample-v3-feature-ask-hellotest",
+      "title": "Verify answer project questions with current evidence and explicit gaps",
+      "description": "As a project member, I want to ask HelloTest for product guidance and project analysis backed by citations.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe assistant combines permitted live project facts with relevant knowledge and product guidance. Provider outages retain deterministic evidence-backed fallback behavior.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge",
+        "ask-hellotest"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/knowledge-repo",
+        "feature_key": "hellotest.ai.knowledge"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-workflow-canvas",
+      "display_id": "HT7-T45",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-workflow-canvas",
+      "title": "Verify compose specialist workflows with validated steps and outputs",
+      "description": "As a AI Engineer, I want to build a reusable manual workflow from supported specialists.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nWorkflow definitions contain triggers, agent steps, context scopes, edges and outputs. Drafts are not executed by sample installation.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "workflow-canvas"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=workflows",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-workflow-history",
+      "display_id": "HT7-T46",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-workflow-history",
+      "title": "Verify inspect workflow attempts and per-step recovery states",
+      "description": "As a AI Engineer, I want to understand which workflow steps completed and why an attempt failed.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nWorkflow history retains attempts, step outcomes and generated review artifacts. Observed execution state remains distinct from the editable workflow definition.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "workflow-history"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=runs",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-prompt-governance",
+      "display_id": "HT7-T47",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-integration",
+      "requirement_id": "sample-v3-feature-prompt-governance",
+      "title": "Verify reuse prompt templates and governed AI provider mappings",
+      "description": "As a AI Engineer, I want to apply consistent prompts through administrator-approved integrations.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nPrompt templates retain scope, tags and applicable entities. Provider mappings select a configured project-compatible integration; credentials remain governed configuration.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "integration",
+        "prompt-governance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin-space",
+        "feature_key": "hellotest.ai.prompt_mapping"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-quality-analytics",
+      "display_id": "HT7-T48",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-quality-analytics",
+      "title": "Verify explain quality metrics with consistent scope and denominators",
+      "description": "As a QA Lead, I want to assess coverage, execution outcomes and automation readiness using current evidence.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nQuality analytics aggregates authorized project records. Unique traceability, finalized execution outcomes and readiness signals answer different questions and must be labeled clearly.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "quality-analytics"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=analytics",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-custom-dashboards",
+      "display_id": "HT7-T49",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-custom-dashboards",
+      "title": "Verify build reusable Executive, Product and QA dashboards",
+      "description": "As a project lead, I want to compose a dashboard from supported widgets and saved filters.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nCustom dashboards preserve layouts, widget configuration and supported data sources. Templates provide starting points while evidence remains project-scoped.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "custom-dashboards"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=custom",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-release-readiness",
+      "display_id": "HT7-T50",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-dashboard",
+      "requirement_id": "sample-v3-feature-release-readiness",
+      "title": "Verify review release readiness from traceability, execution and Defect risk",
+      "description": "As a release manager, I want to inspect release evidence before making a delivery decision.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nReadiness relates release scope to linked cases, execution results and unresolved defects. The page presents the evidence and its limitations rather than replacing human approval.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard",
+        "release-readiness"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/?view=readiness",
+        "feature_key": "hellotest.analytics.dashboards"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-product-metrics",
+      "display_id": "HT7-T51",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-manual",
+      "requirement_id": "sample-v3-feature-product-metrics",
+      "title": "Verify keep Stories, Backlog, Sprint and Release cards mathematically consistent",
+      "description": "As a Product Owner, I want to trust product metric cards and story tile counts after every change.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nProduct metrics use the same status normalization, unique story scope and traceability rules across lists and tiles. Full-scope totals must remain independent of loaded pagination.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual",
+        "product-metrics"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/stories",
+        "feature_key": "hellotest.manual.requirements"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-background-jobs",
+      "display_id": "HT7-T52",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-background-jobs",
+      "title": "Verify monitor background work and download reusable artifacts",
+      "description": "As a project member, I want to follow long operations without keeping the initiating request open.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nTestOps exposes permitted background transactions, progress, events and artifacts from imports, AI and automation. Management controls are governed separately from read access.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "background-jobs"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/testops",
+        "feature_key": "hellotest.ops.background_jobs"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-telemetry-traces",
+      "display_id": "HT7-T53",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-trace",
+      "requirement_id": "sample-v3-feature-telemetry-traces",
+      "title": "Verify investigate operational health and distributed request traces",
+      "description": "As a operations engineer, I want to follow a failing request across available service diagnostics.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nOPS telemetry groups dashboards, TestGrid worker and project execution telemetry, infrastructure logs, distributed traces, alerts, and service health in tabs. Missing collectors or unavailable evidence must be presented accurately.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "trace",
+        "telemetry-traces"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/ops-telemetry",
+        "feature_key": "hellotest.ops.telemetry"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-notifications",
+      "display_id": "HT7-T54",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-notifications",
+      "title": "Verify review relevant notifications and retain read state",
+      "description": "As a project member, I want to see updates for work I can access and navigate to their context.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nNotifications provide user-scoped activity with read state and destination links. Counts and unread indicators must reflect the actual permitted records.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "notifications"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/notifications",
+        "feature_key": "hellotest.ops.notifications"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-instance-setup",
+      "display_id": "HT7-T55",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-instance-setup",
+      "title": "Verify install selected sample modules in dependency order without resetting edits",
+      "description": "As a workspace administrator, I want to set up a usable learning workspace with connected sample records.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nInstance setup offers module previews and explicit dependency selection. Project/apps and missing active-administrator memberships precede sprint/release/story records; installation is transactional and repeatable.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "instance-setup"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=setup",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "draft",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "pending",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-feature-dropdown-governance",
+      "display_id": "HT7-T56",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-feature-dropdown-governance",
+      "title": "Verify govern feature availability and domain dropdown values",
+      "description": "As a workspace administrator, I want to control supported capabilities and metadata choices consistently.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nFeature flags and domain metadata shape available actions and permitted choices. Existing values require safe display even when the selectable catalog changes.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "feature-dropdown-governance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=features",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-integrations-api-keys",
+      "display_id": "HT7-T57",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-integration",
+      "requirement_id": "sample-v3-feature-integrations-api-keys",
+      "title": "Verify configure provider integrations and scoped API keys",
+      "description": "As a workspace administrator, I want to connect approved services with explicit access boundaries.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nIntegration setup supports configured providers and connection checks. API keys retain their permitted routes/scopes and must not bypass ordinary project authorization.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "integration",
+        "integrations-api-keys"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/integrations",
+        "feature_key": "hellotest.api.integrations"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 1,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-admin-audit-security",
+      "display_id": "HT7-T58",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-admin-audit-security",
+      "title": "Verify separate administrator access and retain setup audit activity",
+      "description": "As a workspace administrator, I want to review sensitive administration changes and security settings.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe admin portal governs administrator access, setup, feature availability and audit/security views. Product project roles alone do not grant workspace administration.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "admin-audit-security"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/admin/?section=audit",
+        "feature_key": "hellotest.ops.admin"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-support-guidance",
+      "display_id": "HT7-T59",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-platform",
+      "requirement_id": "sample-v3-feature-support-guidance",
+      "title": "Verify find support guidance without changing workspace data",
+      "description": "As a workspace user, I want to reach help for product workflows and configuration issues.\n\nPreconditions: an authorized project session, the required feature availability, and configured dependencies.\n\nThe Support page provides the available help surface. Guidance should identify the current product area and preserve the user’s project context.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform",
+        "support-guidance"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/support",
+        "feature_key": ""
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "ready",
+      "reviewer_id": "__SETUP_ACTOR_ID__",
+      "review_status": "accepted",
+      "review_history": [
+        {
+          "status": "accepted",
+          "at": "2026-09-21T10:00:00.000Z",
+          "reviewer_id": "__SETUP_ACTOR_ID__",
+          "note": "SYNTHETIC: authored acceptance example, not a real review."
+        }
+      ],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-09-21T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

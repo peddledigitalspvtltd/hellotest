@@ -46,7 +46,7 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
     </div> : !dataSet && (isLoading || error || linkedDataSetId) ? <div className="test-case-data-set-inline-empty" role={error ? "alert" : "status"}>
       <strong>{isLoading ? linkedDataSetId ? "Loading Linked Test Data…" : "Loading Data Sets…" : error || "Linked Test Data Is Unavailable"}</strong>
       {!isLoading && onRetry ? <button className="link-button" onClick={onRetry} type="button">Retry</button> : null}
-      {!isLoading && linkedDataSetId ? <button className="link-button" disabled={!canLink} onClick={onLink} type="button">Change Data Set</button> : null}
+      {!isLoading && linkedDataSetId ? (canLink ? (<button className="link-button" disabled={!canLink} onClick={onLink} type="button">Change Data Set</button>) : null) : null}
     </div> : dataSet ? <article className="test-case-data-set-card test-case-data-set-card--single">
       <header>
         <div className="authoring-data-set-copy">
@@ -55,14 +55,14 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
         </div>
         <div className="test-case-data-set-actions">
           <span className="test-case-iteration-badge">{iterations} {iterations === 1 ? "iteration" : "iterations"}</span>
-          {onOverrideSharedStepsChange ? <label className="authoring-data-set-override"
+          {canLink && onOverrideSharedStepsChange ? <label className="authoring-data-set-override"
             title="When selected, this test case's data set can replace values supplied by linked Shared Step Groups.">
             <input type="checkbox" checked={overrideSharedSteps !== false} disabled={!canLink}
               onChange={(event) => onOverrideSharedStepsChange(event.target.checked)} />
             <span>Override Shared Groups Test Data</span>
           </label> : null}
-          <button className="link-button" disabled={!canLink} onClick={onLink} type="button">Change</button>
-          <button aria-label={`Unlink ${dataSet.name}`} className="link-button danger" disabled={!canLink} onClick={onUnlink} type="button">Unlink</button>
+          {canLink ? (<button className="link-button" disabled={!canLink} onClick={onLink} type="button">Change</button>) : null}
+          {canLink ? (<button aria-label={`Unlink ${dataSet.name}`} className="link-button danger" disabled={!canLink} onClick={onUnlink} type="button">Unlink</button>) : null}
         </div>
       </header>
       {dataSet.description ? <div className="authoring-data-set-description"><RichTextContent value={dataSet.description} /></div> : null}
@@ -74,15 +74,15 @@ export function AuthoringDataSetPanel({ dataSet, gherkin = false, singleIteratio
     </article> : <div className="test-case-data-set-inline-empty">
       <strong>{gherkin ? "No Examples Test Data Linked" : "No Data Sets Defined"}</strong>
       <span>
-        <button className="link-button" disabled={!canCreate} onClick={onCreate} type="button">Create Data Set</button>
-        <span aria-hidden="true">or</span>
-        <button className="link-button" disabled={!canLink} onClick={onLink} type="button">Link Existing Data Set</button>
+        {canCreate ? (<button className="link-button" disabled={!canCreate} onClick={onCreate} type="button">Create Data Set</button>) : null}
+        {canCreate && canLink ? <span aria-hidden="true">or</span> : null}
+        {canLink ? (<button className="link-button" disabled={!canLink} onClick={onLink} type="button">Link Existing Data Set</button>) : null}
       </span>
       <small>{singleIteration ? "Link a data set with exactly one table row, or a key/value data set, to supply this group's defaults." : "Without a linked data set, this test case executes once using its parameter defaults."}</small>
     </div>}
     <div className="test-case-data-set-secondary-actions">
       <button className="link-button" onClick={onManageParameters} type="button">Manage Test Params</button>
-      {canView && dataSet ? <button className="link-button" disabled={!canCreate} onClick={onCreate} type="button">Create a replacement data set</button> : null}
+      {canView && dataSet ? (canCreate ? (<button className="link-button" disabled={!canCreate} onClick={onCreate} type="button">Create a replacement data set</button>) : null) : null}
     </div>
   </div>;
 }

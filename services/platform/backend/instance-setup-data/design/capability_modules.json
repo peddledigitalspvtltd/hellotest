@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-module-platform",
+      "display_id": "HT7-M1",
+      "app_type_id": "sample-app-web",
+      "name": "Platform",
+      "description": "HelloTest Platform source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-manual",
+      "display_id": "HT7-M2",
+      "app_type_id": "sample-app-web",
+      "name": "Product management",
+      "description": "HelloTest Product management source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-ai",
+      "display_id": "HT7-M3",
+      "app_type_id": "sample-app-web",
+      "name": "AI assistance",
+      "description": "HelloTest AI assistance source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-testing",
+      "display_id": "HT7-M4",
+      "app_type_id": "sample-app-web",
+      "name": "Testing foundation",
+      "description": "HelloTest Testing foundation source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-automation",
+      "display_id": "HT7-M5",
+      "app_type_id": "sample-app-web",
+      "name": "Automation",
+      "description": "HelloTest Automation source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-knowledge",
+      "display_id": "HT7-M6",
+      "app_type_id": "sample-app-web",
+      "name": "Knowledge Repo",
+      "description": "HelloTest Knowledge Repo source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-agentic",
+      "display_id": "HT7-M7",
+      "app_type_id": "sample-app-web",
+      "name": "Agentic",
+      "description": "HelloTest Agentic source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-integration",
+      "display_id": "HT7-M8",
+      "app_type_id": "sample-app-web",
+      "name": "Integration",
+      "description": "HelloTest Integration source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-dashboard",
+      "display_id": "HT7-M9",
+      "app_type_id": "sample-app-web",
+      "name": "Dashboard",
+      "description": "HelloTest Dashboard source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-module-trace",
+      "display_id": "HT7-M10",
+      "app_type_id": "sample-app-web",
+      "name": "OPS telemetry",
+      "description": "HelloTest OPS telemetry source ownership and feature coverage.",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

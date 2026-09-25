@@ -1095,6 +1095,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const canViewAutomationCode = resolveCanViewAutomationCode(session, featureFlagsQuery.data, projectId);
   const canEditAutomationCode = resolveCanEditAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseAutomationBuilder = canEditAutomationCode;
+  const canUpdateAutomationCase = canUseAutomationBuilder && hasPermission(session, "testcase.update", projectId);
+  const canCreateAutomationDraft = canUseAutomationBuilder && hasPermission(session, "testcase.create", projectId);
   const canUseAutomationAi = resolveCanGenerateAutomationCode(session, featureFlagsQuery.data, projectId);
   const canUseRecorder = resolveCanRecordAutomationCode(session, featureFlagsQuery.data, projectId);
   const canInspectRepository = hasPermission(session, "automation.repository.manage", projectId)
@@ -1126,7 +1128,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     history: false
   });
   const [isCreateAutomationOpen, setIsCreateAutomationOpen] = useState(false);
-  const [automationCreationMode, setAutomationCreationMode] = useState<AutomationCreationMode>("ai");
+  const [requestedCreationMode, setAutomationCreationMode] = useState<AutomationCreationMode>("ai");
+  // A revoked or unavailable optional method must never strand the authoring form.
+  const automationCreationMode = requestedCreationMode === "ai" && !canUseAutomationAi
+    || requestedCreationMode === "record" && !canUseRecorder ? "blank" : requestedCreationMode;
+  const canCreateAutomationCase = canCreateAutomationDraft
+    && (automationCreationMode !== "ai" || canUseAutomationAi)
+    && (automationCreationMode !== "record" || canUseRecorder);
   const [automationCreateManualCaseIds, setAutomationCreateManualCaseIds] = useState<string[]>([]);
   const [automationManualLinkDraftIds, setAutomationManualLinkDraftIds] = useState<string[]>([]);
   const [activeRelationshipPanel, setActiveRelationshipPanel] = useState<"manual" | "runs" | "bugs" | null>("manual");
@@ -1555,6 +1563,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     : activeAutomatedCase ? [activeAutomatedCase.id] : [];
   const selectedCaseSummary = automatedCases.find((testCase) => testCase.id === selectedCaseId) || null;
   const activeCase = selectedAutomationCaseDetail;
+  const canRemoveAutomationCase = canUseAutomationBuilder && Boolean(activeCase)
+    && (activeCase?.manual_test_case_id || activeCase?.manual_test_case_ids?.length
+      ? hasPermission(session, "testcase.delete", projectId)
+      : canUpdateAutomationCase && hasPermission(session, "step.manage", projectId));
   const isAutomationCaseDetailReady = Boolean(activeCase);
   const isAutomationCaseWorkspaceOpen = Boolean(selectedCaseId);
   const linkedManualCases = useMemo(() => {
@@ -2976,7 +2988,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const createAutomationCase = useMutation({
     mutationFn: async () => {
-      if (!canUseAutomationBuilder) throw new Error("Permission required: automation.build");
+      if (!canCreateAutomationCase) throw new Error("Automation authoring access is required.");
       if (!appTypeId) throw new Error("Select an application before creating automation.");
       const metadata = { ...automationCreateMetadata, manualCaseIds: [...automationCreateManualCaseIds] };
       const title = metadata.title.trim();
@@ -3212,8 +3224,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const updateAutomationCase = useMutation({
     mutationFn: async () => {
-      if (!canUseAutomationBuilder) {
-        throw new Error("Permission required: automation.build");
+      if (!canUpdateAutomationCase) {
+        throw new Error("Automation authoring and Test Case update permissions are required.");
       }
       if (!isAutomationCaseDetailReady || !activeCase) {
         throw new Error("Wait for the complete automation case details before saving.");
@@ -3279,6 +3291,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const deleteAutomationCase = useMutation({
     mutationFn: async (testCase: TestCase) => {
+      if (!canRemoveAutomationCase) throw new Error("Permission to remove this automation case is required.");
       if (testCase.manual_test_case_id || testCase.manual_test_case_ids?.length) {
         await api.testCases.delete(testCase.id);
         return { preservedManual: true };
@@ -5125,10 +5138,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     <OpenIcon />
                     <span>Run remote</span>
                   </button>) : null}
-                  <button className="primary-button automation-choose-manual-toolbar-button" disabled={!canUseAutomationBuilder || !appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
+                  {canCreateAutomationDraft ? <button className="primary-button automation-choose-manual-toolbar-button" disabled={!appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
                     <AddIcon />
                     <span>Create automation case</span>
-                  </button>
+                  </button> : null}
                 </div>
               </div>
             )}
@@ -5139,7 +5152,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <section className="automation-start-guide">
                 <div><span className="eyebrow">Build your first automation</span><h2>Start with a behavior worth protecting.</h2><p>Bring a manual case or describe the flow. Review the generated steps and objects before your first run.</p></div>
                 <div className="automation-start-options">
-                  <article><span className="automation-start-number">01</span><h3>Define the behavior</h3><p>Use an existing case, record a browser flow or author steps in the editor.</p><button className="primary-button" disabled={!canUseAutomationBuilder || !appTypeId} type="button" onClick={() => setIsCreateAutomationOpen(true)}>Create automation case <span aria-hidden="true">→</span></button>{!canUseAutomationBuilder ? <small>Automation authoring permission is required.</small> : !appTypeId ? <small>Select an application to begin.</small> : null}</article>
+                  <article><span className="automation-start-number">01</span><h3>Define the behavior</h3><p>Use an existing case, record a browser flow or author steps in the editor.</p>{canCreateAutomationDraft ? <button className="primary-button" disabled={!appTypeId} type="button" onClick={() => setIsCreateAutomationOpen(true)}>Create automation case <span aria-hidden="true">→</span></button> : null}{!canCreateAutomationDraft ? <small>Automation authoring and Test Case creation permissions are required.</small> : !appTypeId ? <small>Select an application to begin.</small> : null}</article>
                   <article><span className="automation-start-number">02</span><h3>Build reusable objects</h3><p>Generate locator candidates from source and review them in the object repository.</p>{hasPermission(session, "agentic_workflow.view", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button" type="button" onClick={() => navigate("/agentic-workflows?view=agents")}>Explore source agents <span aria-hidden="true">→</span></button> : <small>Source agents need agent access and the Agents feature.</small>}</article>
                   <article><span className="automation-start-number">03</span><h3>Run with evidence</h3><p>Choose an environment and configuration, then capture outcomes, logs and attachments.</p><small>Run actions become available after you select an automation case.</small></article>
                 </div>
@@ -5337,7 +5350,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <section className="automation-plan-workspace" aria-label="Automation case details">
                     <AutomationCaseMetadata
                       {...metadataOptions}
-                      disabled={!canUseAutomationBuilder || updateAutomationCase.isPending}
+                      disabled={!canUpdateAutomationCase || updateAutomationCase.isPending}
                       value={{ title: caseDraft.title, description: caseDraft.description, status: caseDraft.status, priority: caseDraft.priority, manualCaseIds: automationManualLinkDraftIds, requirementIds: caseRequirementIds, moduleIds: caseModuleIds, suiteIds: suiteLinkDraftIds, dataSetId: caseDataSetId }}
                       onChange={(change) => {
                         setCaseDraft((current) => ({ ...current, ...Object.fromEntries(Object.entries(change).filter(([key]) => ["title", "description", "status", "priority"].includes(key))) }));
@@ -5349,10 +5362,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       }}
                     />
                     <div className="automation-plan-actions">
-                      <button className="primary-button" disabled={!canUseAutomationBuilder || !caseDraft.title.trim() || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">{updateAutomationCase.isPending ? "Saving…" : "Save details"}</button>
+                      {canUpdateAutomationCase ? (<button className="primary-button" disabled={!caseDraft.title.trim() || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">{updateAutomationCase.isPending ? "Saving…" : "Save details"}</button>) : null}
                       {linkedManualCases.map((source) => <button className="ghost-button compact" key={source.id} onClick={() => openLinkedManualCase(activeCase, source.id)} type="button"><OpenIcon size={14} />{source.display_id || source.title}</button>)}
                       <button className="ghost-button compact" onClick={exportAutomationCasePdf} type="button">Export PDF</button>
-                      <button className="ghost-button compact danger" disabled={!canUseAutomationBuilder || deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">Remove automation case</button>
+                      {canRemoveAutomationCase ? (<button className="ghost-button compact danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">Remove automation case</button>) : null}
                     </div>
                   </section>
                 ) : null}
@@ -5499,16 +5512,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                    </div>
 	                    ) : null}
 		                    <div className="testops-action-row">
-		                      <button className="primary-button" disabled={!canUseAutomationBuilder || !isAutomationCaseDetailReady || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">
+		                      {canUpdateAutomationCase ? (<button className="primary-button" disabled={!isAutomationCaseDetailReady || updateAutomationCase.isPending} onClick={() => updateAutomationCase.mutate()} type="button">
 		                        <span>{updateAutomationCase.isPending ? "Saving..." : "Save automation case"}</span>
-		                      </button>
+		                      </button>) : null}
                       {canViewAutomationCode ? (
                         <button className="ghost-button" disabled={!isAutomationCaseDetailReady} onClick={exportAutomationCasePdf} type="button">
                           <ExportIcon size={16} />
                           <span>Export PDF</span>
                         </button>
                       ) : null}
-	                      {activeAutomationWorkspaceTab === "details" ? <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
+	                      {activeAutomationWorkspaceTab === "details" && canRemoveAutomationCase ? <button className="ghost-button danger" disabled={deleteAutomationCase.isPending} onClick={() => deleteAutomationCase.mutate(activeCase)} type="button">
 	                        <TrashIcon size={16} />
 	                        <span>{deleteAutomationCase.isPending ? "Deleting..." : "Delete automation case"}</span>
                       </button> : null}
@@ -6542,7 +6555,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         </div>
       </div> : null}
 
-      {isCreateAutomationOpen ? (
+      {isCreateAutomationOpen && canCreateAutomationDraft ? (
         <div className="modal-backdrop modal-backdrop--scroll" onClick={closeCreateAutomation} role="presentation">
           <div aria-modal="true" aria-labelledby="automation-create-dialog-title" className="modal-card resource-modal-card automation-create-dialog automation-authoring-create" onClick={(event) => event.stopPropagation()} ref={createAutomationDialogRef} role="dialog" tabIndex={-1}>
             <div className="resource-modal-header">
@@ -6605,7 +6618,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               </div>
               <div className="resource-form-footer">
                 <button className="ghost-button" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Cancel</button>
-                {canUseAutomationAi ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || !agentMission.trim() || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()))))} type="submit">
+                {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || !agentMission.trim() || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()))))} type="submit">
                   <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : automationCreationMode === "ai" ? agentScheduledAt ? "Create and schedule build" : "Create and build with AI" : automationCreationMode === "record" ? "Create and open recorder" : "Create automation case"}</span>
                 </button>) : null}
               </div>

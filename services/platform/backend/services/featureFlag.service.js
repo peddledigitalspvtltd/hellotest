@@ -116,8 +116,8 @@ const PERMISSION_FEATURES = {
   "integration.import_export": ["hellotest.api.integrations"],
   "knowledge.view": ["hellotest.ai.knowledge"],
   "knowledge.manage": ["hellotest.ai.knowledge"],
-  "prompt_template.view": ["hellotest.ai.test_authoring"],
-  "prompt_template.manage": ["hellotest.ai.test_authoring"],
+  "prompt_template.view": ["hellotest.ai.prompt_templates"],
+  "prompt_template.manage": ["hellotest.ai.prompt_templates"],
   "transaction.view": ["hellotest.ops.background_jobs"],
   "transaction.manage": ["hellotest.ops.background_jobs", "hellotest.automation.batch_process"],
   "transaction.artifact.download": ["hellotest.ops.background_jobs"],
@@ -144,169 +144,125 @@ const FEATURE_PERMISSION_CODES = Object.entries(PERMISSION_FEATURES).reduce((fea
 
 const FEATURE_GROUPS = [
   {
-    key: "manual_testing",
-    label: "Manual Testing",
-    description: "Stories, delivery planning, manual cases, suites, Shared Step Groups, execution, and evidence review.",
+    key: "platform",
+    label: "Workspace & administration",
+    description: "Projects, people, access, preferences, API keys, notifications and background evidence.",
     features: [
-      {
-        key: "hellotest.manual.requirements",
-        label: "Product Management — Stories, Sprints, and Releases",
-        description: "Manage Stories, backlog, Sprints, and Releases. This also supplies the editable Release and Sprint choices used by creation dialogs.",
-        routes: ["/requirements", "/stories", "/backlog", "/sprints", "/releases"]
-      },
-      {
-        key: "hellotest.manual.test_cases",
-        label: "Test cases",
-        description: "Author test cases with selectable ownership. Delivery planning adds requirement-linked modules and Story/Release/Sprint context; Test data and datasets add dataset links.",
-        routes: ["/test-cases", "/shared-steps", "/design"]
-      },
-      {
-        key: "hellotest.manual.suites",
-        label: "Suites and Shared Step Groups",
-        description: "Organize cases into suites and maintain reusable Shared Step Groups for consistent manual authoring.",
-        routes: ["/design", "/shared-steps"]
-      },
-      {
-        key: "hellotest.manual.runs",
-        label: "Runs, schedules, and reports",
-        description: "Create manual and scheduled runs and review reports. Delivery planning adds editable Release/Sprint context; Test data and datasets expand linked rows into case instances.",
-        routes: ["/executions"]
-      },
-      {
-        key: "hellotest.manual.run_gherkin",
-        label: "Gherkin Run step view",
-        description: "Let permitted users switch saved Run steps from the default Structured view to a Given/When/Then presentation. Execution outcomes and controls stay attached to the same saved steps.",
-        routes: ["/executions"],
-        permissions: ["run.gherkin.view"]
-      },
-      {
-        key: "hellotest.manual.bugs",
-        label: "Defects",
-        description: "Create and triage Defects, with populated and editable Release/Sprint context when delivery planning is available.",
-        routes: ["/issues", "/feedback"]
-      },
-      { key: "hellotest.manual.plans", label: "Test plans", routes: ["/test-plans"] },
-      { key: "hellotest.manual.quality_gates", label: "Quality gates", routes: ["/quality-gates"] },
-      { key: "hellotest.manual.environments", label: "Environments and configurations", routes: ["/test-environments", "/test-configurations"] },
-      {
-        key: "hellotest.manual.test_data",
-        label: "Test data and datasets",
-        description: "Create reusable datasets, manage static or generated values, and link one dataset with one or many rows to a test case.",
-        routes: ["/test-data", "/test-cases"]
-      }
+      {"key":"hellotest.api.keys","label":"Scoped API keys","routes":["/admin-space"]},
+      {"key":"hellotest.ops.background_jobs","label":"Background jobs","description":"Read background progress and downloadable evidence from imports, AI and automation work. Batch processing adds separate management controls.","routes":["/testops"]},
+      {"key":"hellotest.ops.notifications","label":"Notifications","routes":["/notifications"]},
+      {"key":"hellotest.ops.projects","label":"Projects and application types","routes":["/projects"]},
+      {"key":"hellotest.ops.settings","label":"Workspace settings","description":"Provide personal workspace preferences and the Settings surface. Workspace-wide policy changes also require the Administration feature.","routes":["/settings"]},
+      {"key":"hellotest.ops.admin","label":"Administration","description":"Govern people, permissions, integrations, feature availability, localization, and workspace-wide policy.","routes":["/admin-space","/people"]}
     ]
   },
   {
-    key: "analytics",
-    label: "Analytics",
-    description: "Project-scoped quality analytics and configurable dashboards.",
+    key: "testing",
+    label: "Testing foundation",
+    description: "Shared test cases, suites, runs, defects, environments and datasets for manual and automated work.",
     features: [
-      { key: "hellotest.analytics.dashboards", label: "Quality and custom dashboards", routes: ["/"] }
+      {"key":"hellotest.manual.test_cases","label":"Test cases","description":"Author test cases with selectable ownership. Delivery planning adds requirement-linked modules and Story/Release/Sprint context; Test data and datasets add dataset links.","routes":["/test-cases","/shared-steps","/design"]},
+      {"key":"hellotest.manual.suites","label":"Suites and Shared Step Groups","description":"Organize cases into suites and maintain reusable Shared Step Groups for consistent manual authoring.","routes":["/design","/shared-steps"]},
+      {"key":"hellotest.manual.runs","label":"Runs, schedules, and reports","description":"Create manual and scheduled runs and review reports. Delivery planning adds editable Release/Sprint context; Test data and datasets expand linked rows into case instances.","routes":["/executions"]},
+      {"key":"hellotest.manual.run_gherkin","label":"Gherkin Run step view","description":"Let permitted users switch saved Run steps from the default Structured view to a Given/When/Then presentation. Execution outcomes and controls stay attached to the same saved steps.","routes":["/executions"],"permissions":["run.gherkin.view"]},
+      {"key":"hellotest.manual.bugs","label":"Defects","description":"Create and triage Defects, with populated and editable Release/Sprint context when delivery planning is available.","routes":["/issues","/feedback"]},
+      {"key":"hellotest.manual.environments","label":"Environments and configurations","routes":["/test-environments","/test-configurations"]},
+      {"key":"hellotest.manual.test_data","label":"Test data and datasets","description":"Create reusable datasets, manage static or generated values, and link one dataset with one or many rows to a test case.","routes":["/test-data","/test-cases"]},
+      {"key":"hellotest.automation.batch_process","label":"Batch processing jobs","description":"Operate background batch jobs in TestOps. Scheduled test runs are governed by Runs, schedules, and reports.","routes":["/testops"]}
+    ]
+  },
+  {
+    key: "manual",
+    label: "Product management",
+    description: "Stories, backlog, Sprints and Releases.",
+    features: [
+      {"key":"hellotest.manual.requirements","label":"Product Management — Stories, Sprints, and Releases","description":"Manage Stories, backlog, Sprints, and Releases. This also supplies the editable Release and Sprint choices used by creation dialogs.","routes":["/requirements","/stories","/backlog","/sprints","/releases"]},
+      {"key":"hellotest.manual.plans","label":"Test plans","routes":[],"description":"Reserved capability flag. A standalone workspace page is not currently available."},
+      {"key":"hellotest.manual.quality_gates","label":"Quality gates","routes":[],"description":"Reserved capability flag. A standalone workspace page is not currently available."}
+    ]
+  },
+  {
+    key: "dashboard",
+    label: "Dashboards",
+    description: "Quality analytics, Release Readiness and Custom Dashboard in one capability.",
+    features: [
+      {"key":"hellotest.analytics.dashboards","label":"Analytics, Release Readiness & Custom Dashboard","routes":["/"],"description":"Enable all three Dashboard views; viewing requires dashboard.view and editing saved dashboards requires dashboard.manage."},
+      {"key":"hellotest.automation.analytics","label":"Automation quality analytics","routes":["/"],"permissions":["automation.analytics.view","dashboard.view"],"default_enabled":false}
     ]
   },
   {
     key: "automation",
-    label: "Automation",
-    description: "Automation authoring, object repository, recorder capture, step code, local/remote execution, and batch process operations.",
+    label: "Automation & TestGrid",
+    description: "Authoring, reusable objects, recording, API previews and local, remote and mobile execution.",
     features: [
-      { key: "hellotest.automation.workspace", label: "Automation workspace and execution", description: "Master availability for the Automation workspace, assets, object repository, builder and local/remote runners. API previews and saved step-code views have independent controls.", routes: ["/automation"] },
-      {
-        key: "hellotest.automation.preview",
-        label: "API request validation previews",
-        description: "Validate API request contracts and inspect approved response evidence from Test Case, Shared Step Group, and Automation editors.",
-        routes: ["/test-cases", "/shared-steps", "/automation"],
-        permissions: ["automation.preview"],
-        default_enabled: false
-      },
-      { key: "hellotest.automation.analytics", label: "Automation quality analytics", routes: ["/"], permissions: ["automation.analytics.view", "dashboard.view"], default_enabled: false },
-      { key: "hellotest.automation.assets", label: "Automation assets", routes: ["/automation-assets"] },
-      { key: "hellotest.automation.object_repository", label: "Object repository", routes: ["/object-repository"] },
-      { key: "hellotest.automation.builder", label: "Automation builder", routes: ["/test-cases", "/automation"] },
-      {
-        key: "hellotest.automation.step_code",
-        label: "Auto test and step-level code",
-        description: "Let users with automation code access inspect step scripts and switch Run steps to the Coded view. Structured and Gherkin presentations keep their own visibility rules.",
-        routes: ["/test-cases", "/automation", "/executions"]
-      },
-      { key: "hellotest.automation.step_recording", label: "Step-level recording", routes: ["/test-cases", "/automation", "/object-repository"] },
-      { key: "hellotest.automation.local_execution", label: "Local Playwright and local runs", routes: ["/test-cases", "/automation", "/executions"] },
-      { key: "hellotest.automation.remote_execution", label: "Remote automation runs", routes: ["/test-cases", "/automation", "/executions"] },
-      { key: "hellotest.automation.parallel_execution", label: "Parallel automation execution", routes: ["/design", "/test-cases", "/executions"] },
-      {
-        key: "hellotest.automation.batch_process",
-        label: "Batch processing jobs",
-        description: "Operate background batch jobs in TestOps. Scheduled test runs are governed by Runs, schedules, and reports.",
-        routes: ["/testops"]
-      }
+      {"key":"hellotest.automation.workspace","label":"Automation workspace and execution","description":"Master availability for the Automation workspace, assets, object repository, builder and local/remote runners. API previews and saved step-code views have independent controls.","routes":["/automation"]},
+      {"key":"hellotest.automation.preview","label":"API request validation previews","description":"Validate API request contracts and inspect approved response evidence from Test Case, Shared Step Group, and Automation editors.","routes":["/test-cases","/shared-steps","/automation"],"permissions":["automation.preview"],"default_enabled":false},
+      {"key":"hellotest.automation.assets","label":"Automation assets","description":"Reserved capability flag. A standalone workspace page is not currently available.","routes":[]},
+      {"key":"hellotest.automation.object_repository","label":"Object repository","routes":["/object-repository"]},
+      {"key":"hellotest.automation.builder","label":"Automation builder","routes":["/test-cases","/automation"]},
+      {"key":"hellotest.automation.step_code","label":"Auto test and step-level code","description":"Let users with automation code access inspect step scripts and switch Run steps to the Coded view. Structured and Gherkin presentations keep their own visibility rules.","routes":["/test-cases","/automation","/executions"]},
+      {"key":"hellotest.automation.step_recording","label":"Step-level recording","routes":["/test-cases","/automation","/object-repository"]},
+      {"key":"hellotest.automation.local_execution","label":"Local Playwright and local runs","routes":["/test-cases","/automation","/executions"]},
+      {"key":"hellotest.automation.remote_execution","label":"Remote automation runs","routes":["/test-cases","/automation","/executions"]},
+      {"key":"hellotest.automation.parallel_execution","label":"Parallel automation execution","routes":["/design","/test-cases","/executions"]},
+      {"key":"hellotest.mobile.appium","label":"Android and Appium","description":"Enable supported Android Appium authoring, recorder, configuration, and execution controls.","routes":["/automation","/test-cases","/test-environments","/executions","/integrations"]}
     ]
   },
   {
     key: "ai",
-    label: "AI",
-    description: "AI requirement design, test generation, automation repair, execution analysis, knowledge, and agents.",
+    label: "AI assistance",
+    description: "Story and test-case authoring, assurance, grooming, defect drafting, Smart Run and quality analysis.",
     features: [
-      { key: "hellotest.ai.requirement_design", label: "Requirement design", routes: ["/requirements", "/design"] },
-      { key: "hellotest.ai.test_authoring", label: "Test-case AI mapping and step rephrase", routes: ["/test-cases"] },
-      { key: "hellotest.ai.test_data_generation", label: "Synthetic test data generation", routes: ["/test-data"] },
-      { key: "hellotest.ai.content_rephrase", label: "Rich-text AI rephrase", routes: ["/projects", "/requirements", "/test-cases", "/design", "/issues", "/automation", "/shared-steps", "/test-environments", "/test-data"] },
-      { key: "hellotest.ai.bug_triage", label: "AI-assisted Defect drafting and triage", routes: ["/issues", "/feedback"], permissions: ["feedback.create", "feedback.manage"] },
-      { key: "hellotest.ai.quality_insights", label: "Quality insights", routes: ["/", "/quality-gates"], permissions: ["quality_insight.view", "quality_gate.ai", "dashboard.view"] },
-      { key: "hellotest.ai.automation", label: "Automation AI", routes: ["/automation", "/object-repository"] },
-      { key: "hellotest.ai.execution_analysis", label: "Execution analysis", routes: ["/executions"] },
-      {
-        key: "hellotest.ai.knowledge",
-        label: "Knowledge Repo",
-        description: "Build project-scoped context from HelloTest records, text, chat, and governed files; search it with citations.",
-        routes: ["/knowledge-repo"]
-      },
-      { key: "hellotest.ai.chatbot", label: "Ask HelloTest", description: "Conversations grounded in authorized project evidence.", routes: [] },
-      { key: "hellotest.ai.agentic_workflows", label: "Agentic workflows", routes: ["/agentic-workflows"] },
-      { key: "hellotest.ai.prompt_mapping", label: "AI prompt key mapping", routes: ["/admin-space"] }
+      {"key":"hellotest.ai.requirement_design","label":"AI Story creation, completion, grooming & assurance","routes":["/requirements","/design"]},
+      {"key":"hellotest.ai.test_authoring","label":"AI test-case generation, improvement & assurance","routes":["/test-cases"]},
+      {"key":"hellotest.ai.test_data_generation","label":"Synthetic test data generation","routes":["/test-data"]},
+      {"key":"hellotest.ai.content_rephrase","label":"Rich-text AI rephrase","routes":["/projects","/requirements","/test-cases","/design","/issues","/automation","/shared-steps","/test-environments","/test-data"]},
+      {"key":"hellotest.ai.bug_triage","label":"AI-assisted Defect drafting and triage","routes":["/issues","/feedback"],"permissions":["feedback.create","feedback.manage"]},
+      {"key":"hellotest.ai.quality_insights","label":"Quality insights","routes":["/"],"permissions":["quality_insight.view","quality_gate.ai","dashboard.view"]},
+      {"key":"hellotest.ai.automation","label":"Automation AI","routes":["/automation","/object-repository"]},
+      {"key":"hellotest.ai.execution_analysis","label":"AI Smart Run & failure analysis","routes":["/executions"]}
     ]
   },
   {
-    key: "api",
-    label: "API",
-    description: "API integrations, scoped API keys, and external automation clients.",
+    key: "chatbot",
+    label: "Ask HelloTest",
+    description: "Project conversations with authorized retrieval, readable answers and cited sources.",
     features: [
-      { key: "hellotest.api.keys", label: "Scoped API keys", routes: ["/admin-space"] },
-      { key: "hellotest.api.integrations", label: "API integrations", routes: ["/integrations", "/admin-space"] }
+      {"key":"hellotest.ai.chatbot","label":"Ask HelloTest","description":"Ask questions from any workspace page. Requires Knowledge Repo availability and project knowledge.view access; retrieved records also require their own read permissions.","routes":[],"permissions":["knowledge.view"]}
     ]
   },
   {
-    key: "mobile",
-    label: "Mobile",
-    description: "Supported Android authoring, configuration, recording, and execution through Appium.",
+    key: "knowledge",
+    label: "Knowledge Repo",
+    description: "Project knowledge ingestion, search, collections and governed evidence.",
     features: [
-      {
-        key: "hellotest.mobile.appium",
-        label: "Android and Appium",
-        description: "Enable supported Android Appium authoring, recorder, configuration, and execution controls.",
-        routes: ["/automation", "/test-cases", "/test-environments", "/executions", "/integrations"]
-      }
+      {"key":"hellotest.ai.knowledge","label":"Knowledge Repo","description":"Build project-scoped context from HelloTest records, text, chat, and governed files; search it with citations.","routes":["/knowledge-repo"]}
     ]
   },
   {
-    key: "operations",
-    label: "Operations",
-    description: "Background jobs, local agents, OPS telemetry, traces, notifications, and audit controls.",
+    key: "agentic",
+    label: "Agentic workflows",
+    description: "Specialist agents, workflow design and reviewed execution.",
     features: [
-      { key: "hellotest.ops.background_jobs", label: "Background jobs", description: "Read background progress and downloadable evidence from imports, AI and automation work. Batch processing adds separate management controls.", routes: ["/testops"] },
-      { key: "hellotest.ops.telemetry", label: "OPS telemetry", routes: ["/ops-telemetry", "/traces"] },
-      { key: "hellotest.ops.notifications", label: "Notifications", routes: ["/notifications"] },
-      { key: "hellotest.ops.projects", label: "Projects and application types", routes: ["/projects"] },
-      {
-        key: "hellotest.ops.settings",
-        label: "Workspace settings",
-        description: "Provide personal workspace preferences and the Settings surface. Workspace-wide policy changes also require the Administration feature.",
-        routes: ["/settings"]
-      },
-      {
-        key: "hellotest.ops.admin",
-        label: "Administration",
-        description: "Govern people, permissions, integrations, feature availability, localization, and workspace-wide policy.",
-        routes: ["/admin-space", "/people"]
-      }
+      {"key":"hellotest.ai.agentic_workflows","label":"Agentic workflows","routes":["/agentic-workflows"]}
+    ]
+  },
+  {
+    key: "integration",
+    label: "Integrations & AI configuration",
+    description: "Provider connections, shared prompt templates and model prompt configuration.",
+    features: [
+      {"key":"hellotest.ai.prompt_mapping","label":"AI prompt key mapping","routes":["/admin-space"]},
+      {"key":"hellotest.api.integrations","label":"API integrations","routes":["/integrations","/admin-space"]},
+      {"key":"hellotest.ai.prompt_templates","label":"Shared AI prompt templates","description":"Browse and maintain project prompt templates across Story, test-case and Defect authoring. Independent of any single AI authoring feature.","routes":[]}
+    ]
+  },
+  {
+    key: "trace",
+    label: "OPS telemetry",
+    description: "TestGrid telemetry, infrastructure logs, service health, dashboards, traces and alerts.",
+    features: [
+      {"key":"hellotest.ops.telemetry","label":"OPS telemetry","routes":["/ops-telemetry","/traces"]}
     ]
   }
 ];
@@ -458,6 +414,7 @@ exports.getSnapshot = async () => {
     groups: FEATURE_GROUPS_WITH_PERMISSIONS,
     flags: evaluateLocalFlags(localFlags),
     local_flags: localFlags,
+    capability_availability: applyCapabilityAvailability(Object.fromEntries(FEATURE_DEFINITIONS.map(feature => [feature.key, true]))),
     dependencies: FEATURE_DEPENDENCIES,
     optional_dependencies: OPTIONAL_FEATURE_DEPENDENCIES,
     permission_features: PERMISSION_FEATURE_MAP,

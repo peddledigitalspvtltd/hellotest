@@ -11892,7 +11892,7 @@ function ExecutionStepCard({
               type="file"
             />
             <div className="execution-step-evidence-actions">
-              <button
+              {canCreateEvidence && (!hasEvidence || canDeleteEvidence) ? (<button
                 className="execution-step-evidence-button"
                 disabled={isLocked || isUploadingEvidence || !canCreateEvidence || (hasEvidence && !canDeleteEvidence)}
                 onClick={() => evidenceInputRef.current?.click()}
@@ -11905,10 +11905,10 @@ function ExecutionStepCard({
               >
                 <ExecutionEvidenceImageIcon />
                 <span>{isUploadingEvidence ? "Uploading…" : evidence ? "Replace file" : "Attach file"}</span>
-              </button>
+              </button>) : null}
               {evidence ? (
                 <>
-                  <button
+                  {canViewEvidence ? (<button
                     className="execution-step-evidence-link"
                     disabled={isUploadingEvidence || isOpeningEvidence || !canViewEvidence}
                     onClick={onViewEvidence}
@@ -11917,8 +11917,8 @@ function ExecutionStepCard({
                   >
                     <ExecutionEvidencePreviewIcon />
                     <span>{isOpeningEvidence ? "Loading evidence…" : evidence.fileName || "View file"}</span>
-                  </button>
-                  <button
+                  </button>) : null}
+                  {canDeleteEvidence ? (<button
                     className="execution-step-evidence-delete"
                     disabled={isLocked || isUploadingEvidence || !canDeleteEvidence}
                     onClick={onDeleteEvidence}
@@ -11927,7 +11927,7 @@ function ExecutionStepCard({
                   >
                     <ExecutionEvidenceDeleteIcon />
                     <span>Delete file</span>
-                  </button>
+                  </button>) : null}
                 </>
               ) : (
                 <span className="execution-step-evidence-empty">No evidence attached</span>

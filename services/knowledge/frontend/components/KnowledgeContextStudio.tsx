@@ -29,6 +29,9 @@ import {
   IconX
 } from "@tabler/icons-react";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
+import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
+import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
+import { hasCapability } from "@hellotest/platform/frontend/src/platform/lib/capabilityAccess";
 import { SelectionToggleIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
@@ -248,10 +251,23 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const buildAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
-  const [activeTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "build");
-  const [activeRecordKind, setActiveRecordKind] = useState<RecordKind>("requirements");
+  const [requestedTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "build");
+  const activeTab = requestedTab === "build" && !canManage ? "search" : requestedTab;
+  const { session } = useAuth();
+  const featureFlags = useFeatureFlags(Boolean(session));
+  const readableRecords: Record<RecordKind, boolean> = {
+    requirements: hasCapability(session, featureFlags.data, "requirement.view", projectId),
+    test_cases: hasCapability(session, featureFlags.data, "testcase.view", projectId),
+    executions: hasCapability(session, featureFlags.data, "run.view", projectId),
+    bugs: hasCapability(session, featureFlags.data, "feedback.view", projectId)
+  };
+  const availableRecordKinds = recordKinds.filter(({ key }) => readableRecords[key]);
+  const [requestedRecordKind, setActiveRecordKind] = useState<RecordKind>("requirements");
+  const activeRecordKind = readableRecords[requestedRecordKind] ? requestedRecordKind : availableRecordKinds[0]?.key || "requirements";
   const [recordSearch, setRecordSearch] = useState("");
-  const [selectedRecords, setSelectedRecords] = useState<KnowledgeSelectedRecords>(emptySelectedRecords);
+  const [selectedRecordDraft, setSelectedRecords] = useState<KnowledgeSelectedRecords>(emptySelectedRecords);
+  // A revoked source grant cannot leave stale selections in the ingestion request.
+  const selectedRecords = Object.fromEntries(recordKinds.map(({ key }) => [key, readableRecords[key] ? selectedRecordDraft[key] : []])) as KnowledgeSelectedRecords;
   const [files, setFiles] = useState<StagedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteKind, setPasteKind] = useState<PasteKind>("text");
@@ -300,22 +316,22 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const requirementsQuery = useQuery({
     queryKey: ["knowledge-builder-requirements", projectId],
     queryFn: () => api.requirements.list({ project_id: projectId, projection: "summary", limit: 250 }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.requirements)
   });
   const testCasesQuery = useQuery({
     queryKey: ["knowledge-builder-test-cases", projectId, appTypeId],
     queryFn: () => api.testCases.list({ project_id: projectId, app_type_id: appTypeId || undefined, projection: "summary", limit: 250 }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.test_cases)
   });
   const executionsQuery = useQuery({
     queryKey: ["knowledge-builder-executions", projectId, appTypeId],
     queryFn: () => api.executions.list({ project_id: projectId, app_type_id: appTypeId || undefined, page_size: 250 }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.executions)
   });
   const bugsQuery = useQuery({
     queryKey: ["knowledge-builder-bugs", projectId],
     queryFn: () => api.issues.list({ project_id: projectId, projection: "summary", page_size: 250 }),
-    enabled: Boolean(projectId)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.bugs)
   });
   const collections = asArray(collectionsQuery.data);
   const overview = overviewQuery.data;
@@ -337,11 +353,11 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   };
   const visibleRecords = useMemo(() => {
     const query = recordSearch.trim().toLowerCase();
-    const records = recordsByKind[activeRecordKind];
+    const records = readableRecords[activeRecordKind] ? recordsByKind[activeRecordKind] : [];
     if (!query) return records;
     return records.filter((item) => [recordIdentity(item), recordTitle(item), recordStatus(item)]
       .join(" ").toLowerCase().includes(query));
-  }, [activeRecordKind, recordSearch, requirementsQuery.data, testCasesQuery.data, executionsQuery.data, bugsQuery.data]);
+  }, [activeRecordKind, readableRecords[activeRecordKind], recordSearch, requirementsQuery.data, testCasesQuery.data, executionsQuery.data, bugsQuery.data]);
 
   const selectedRecordCount = Object.values(selectedRecords).reduce((total, ids) => total + ids.length, 0);
   const acceptableFiles = files.filter((item) => item.status === "extractable" || (item.status !== "unsupported" && item.status !== "too_large" && item.extractedText.trim()));
@@ -367,6 +383,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
 
   const buildMutation = useMutation({
     mutationFn: async () => {
+      if (!canManage) throw new Error("Knowledge management permission is required.");
       const inputs: KnowledgeIngestionInput[] = hasPastedInput ? [{
         kind: pasteKind,
         title: pasteTitle.trim() || (pasteKind === "chat" ? "Conversation context" : pasteKind === "url" ? "Web reference" : "Context note"),
@@ -630,7 +647,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           ["sources", "Source inventory", IconFileText],
           ["collections", "Collections", IconFolders],
           ["activity", "Processing", IconClock]
-        ] as Array<[StudioTab, string, typeof IconStack2]>).map(([tab, label, Icon]) => (
+        ] as Array<[StudioTab, string, typeof IconStack2]>).filter(([tab]) => tab !== "build" || canManage).map(([tab, label, Icon]) => (
           <button
             aria-controls={`knowledge-panel-${tab}`}
             aria-selected={activeTab === tab}
@@ -662,7 +679,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
         ))}
       </div>
 
-      {activeTab === "build" ? (
+      {activeTab === "build" && canManage ? (
         <div aria-labelledby="knowledge-tab-build" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">
           {!canManage ? (
             <div className="knowledge-studio-readonly" role="status"><IconInfoCircle size={18} /> You can search and use project knowledge, but your role cannot ingest or organize sources.</div>
@@ -679,7 +696,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           <div className="knowledge-builder-grid">
             <nav className="knowledge-source-nav" aria-label="Context source types">
               <span className="knowledge-builder-section-label">HelloTest records</span>
-              {recordKinds.map(({ key, label, description, icon: Icon }) => (
+              {availableRecordKinds.map(({ key, label, description, icon: Icon }) => (
                 <button className={activeRecordKind === key ? "is-active" : ""} key={key} onClick={() => setActiveRecordKind(key)} type="button">
                   <span className="knowledge-source-icon"><Icon size={18} /></span>
                   <span><strong>{label}</strong><small>{description}</small></span>
@@ -699,7 +716,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
             </nav>
 
             <div className="knowledge-source-workspace">
-              <section className="knowledge-record-picker">
+              {availableRecordKinds.length ? <section className="knowledge-record-picker">
                 <div className="knowledge-picker-header">
                   <div>
                     <span className="knowledge-builder-section-label">{recordKinds.find((item) => item.key === activeRecordKind)?.label}</span>
@@ -742,7 +759,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                   })}
                   {!visibleRecords.length ? <div className="knowledge-picker-empty">No matching records in the current project scope.</div> : null}
                 </div>
-              </section>
+              </section> : null}
 
               <section className="knowledge-paste-section">
                 <div className="knowledge-section-title">

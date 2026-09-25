@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-conversation-1-user",
+      "session_id": "sample-v7-ht-conversation-1",
+      "project_id": "sample-project",
+      "role": "user",
+      "content": "Which HelloTest delivery work needs attention?",
+      "status": "answered",
+      "citations": [],
+      "retrieval": {
+        "sample": true,
+        "synthetic": true,
+        "scope": "HelloTest Launchpad",
+        "note": "Authored sample history. Run a new question for current citations."
+      },
+      "safety": {
+        "sample": true,
+        "synthetic": true
+      },
+      "provider": null,
+      "model": null,
+      "client_turn_id": "sample-v7-ht-turn-1",
+      "content_fingerprint": "f3eccac20132d706e2c94e1b647539a7337b6ed72d003bfd5718f4297cd2898c",
+      "created_at": "2026-09-23T10:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-conversation-1-assistant",
+      "session_id": "sample-v7-ht-conversation-1",
+      "project_id": "sample-project",
+      "role": "assistant",
+      "content": "## Response\n\n**Synthetic walkthrough:** Access S5 and HT Access have passed their saved target dates. Permission revocation and remote recovery still have unfinished delivery work.\n\n- Review the linked Stories and acceptance cases.\n- Inspect failed and blocked results before release.\n- Treat this saved example as authored guidance, not a live AI assessment.",
+      "status": "answered",
+      "citations": [],
+      "retrieval": {
+        "sample": true,
+        "synthetic": true,
+        "scope": "HelloTest Launchpad",
+        "note": "Authored sample history. Run a new question for current citations."
+      },
+      "safety": {
+        "sample": true,
+        "synthetic": true
+      },
+      "provider": "sample",
+      "model": "authored-example",
+      "client_turn_id": "sample-v7-ht-turn-1",
+      "content_fingerprint": "46252e194e2822f5da5995ba4b29d6cf84be621ce5d2fe1abd9b09be27e55bc1",
+      "created_at": "2026-09-23T11:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-conversation-2-user",
+      "session_id": "sample-v7-ht-conversation-2",
+      "project_id": "sample-project",
+      "role": "user",
+      "content": "Summarize the latest execution evidence.",
+      "status": "answered",
+      "citations": [],
+      "retrieval": {
+        "sample": true,
+        "synthetic": true,
+        "scope": "HelloTest Launchpad",
+        "note": "Authored sample history. Run a new question for current citations."
+      },
+      "safety": {
+        "sample": true,
+        "synthetic": true
+      },
+      "provider": null,
+      "model": null,
+      "client_turn_id": "sample-v7-ht-turn-2",
+      "content_fingerprint": "919a13557d820703326fd8cc709505d4242c4939623f9c49ad94b862f6471c9a",
+      "created_at": "2026-09-23T10:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-conversation-2-assistant",
+      "session_id": "sample-v7-ht-conversation-2",
+      "project_id": "sample-project",
+      "role": "assistant",
+      "content": "The configured provider is unavailable in this synthetic example. Configure a model and retry; no answer has been invented.",
+      "status": "provider_unavailable",
+      "citations": [],
+      "retrieval": {
+        "sample": true,
+        "synthetic": true,
+        "scope": "HelloTest Launchpad",
+        "note": "Authored sample history. Run a new question for current citations."
+      },
+      "safety": {
+        "sample": true,
+        "synthetic": true
+      },
+      "provider": "sample",
+      "model": "authored-example",
+      "client_turn_id": "sample-v7-ht-turn-2",
+      "content_fingerprint": "f206963d8a2b8bd8c2473d653fe493e70eb6cce61124e64eb55e266d7a3a5168",
+      "created_at": "2026-09-23T11:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

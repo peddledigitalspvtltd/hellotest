@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-release-shipped",
+      "display_id": "HT7-RL1",
+      "project_id": "sample-project",
+      "name": "HT Core",
+      "description": "Synthetic shipped milestone. Saved dates deliberately expose overdue and released states.",
+      "fix_version": "7.0",
+      "target_date_label": "2026-08-30",
+      "plan_date": "2026-08-18T09:00:00.000Z",
+      "target_date": "2026-08-30T18:00:00.000Z",
+      "state": "released",
+      "sprint_ids": [
+        "sample-v7-ht-sprint-shipped"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-release-overdue",
+      "display_id": "HT7-RL2",
+      "project_id": "sample-project",
+      "name": "HT Access",
+      "description": "Synthetic overdue milestone. Saved dates deliberately expose overdue and released states.",
+      "fix_version": "7.1",
+      "target_date_label": "2026-09-15",
+      "plan_date": "2026-09-01T09:00:00.000Z",
+      "target_date": "2026-09-15T18:00:00.000Z",
+      "state": "in_progress",
+      "sprint_ids": [
+        "sample-v7-ht-sprint-overdue"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-release-future",
+      "display_id": "HT7-RL3",
+      "project_id": "sample-project",
+      "name": "HT AI",
+      "description": "Synthetic future milestone. Saved dates deliberately expose overdue and released states.",
+      "fix_version": "7.2",
+      "target_date_label": "2026-10-15",
+      "plan_date": "2026-10-01T09:00:00.000Z",
+      "target_date": "2026-10-15T18:00:00.000Z",
+      "state": "planned",
+      "sprint_ids": [
+        "sample-v7-ht-sprint-future"
+      ],
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

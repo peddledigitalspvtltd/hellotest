@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-env",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "HelloTest QA",
+      "description": "Example HelloTest QA target for acceptance walkthroughs.",
+      "base_url": "https://hellotest.qa.example.test",
+      "browser": "Chrome",
+      "notes": "Synthetic target. Configure your own endpoint before live execution.",
+      "variables": [
+        {
+          "key": "base_url",
+          "value": "https://hellotest.qa.example.test"
+        },
+        {
+          "key": "tenant",
+          "value": "hellotest-sample"
+        }
+      ],
+      "created_at": "2026-08-18T09:00:00.000Z"
+    }
+  ]
+}

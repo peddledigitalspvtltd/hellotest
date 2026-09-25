@@ -2,8 +2,8 @@ const db = require("./index");
 const {
   INTEGRATION_TYPE_VALUES
 } = require("../domain/catalog");
-const { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } = require("../security/permissions.catalog");
-const { ensureSetupRoles } = require("@hellotest/platform/backend/services/rolePreset.service");
+const { PERMISSIONS } = require("../security/permissions.catalog");
+const { ensureSetupRoles, ensureFoundationRoles } = require("@hellotest/platform/backend/services/rolePreset.service");
 
 let bootstrapPromise = null;
 const SCHEMA_LOCK_KEY = "hellotest:main-runtime-schema:v1";
@@ -33,14 +33,6 @@ const rebrandJsonColumn = (table, column) => {
 const permissionSeedValues = PERMISSIONS
   .map((permission) => `(${sqlValue(permission.id)}, ${sqlValue(permission.code)}, ${sqlValue(permission.description)})`)
   .join(",\n      ");
-const rolePermissionSeedStatements = Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([roleName, permissionCodes]) => `
-    INSERT INTO role_permissions (role_id, permission_id)
-    SELECT roles.id, permissions.id
-    FROM roles
-    JOIN permissions ON permissions.code IN (${permissionCodes.map(sqlValue).join(", ")})
-    WHERE LOWER(roles.name) = ${sqlValue(roleName.toLowerCase())}
-    ON CONFLICT (role_id, permission_id) DO NOTHING
-  `);
 
 const statements = [
   ...require('@hellotest/agentic/backend/agents/schema'),
@@ -1561,7 +1553,6 @@ const statements = [
     WHERE permission.code = catalog.code
       AND permission.description IS DISTINCT FROM catalog.description
   `,
-  ...rolePermissionSeedStatements,
   `CREATE INDEX IF NOT EXISTS idx_execution_suites_execution_suite ON execution_suites (execution_id, suite_id)`,
   `DROP INDEX IF EXISTS idx_ai_test_case_generation_jobs_scope_status`,
   `CREATE INDEX IF NOT EXISTS idx_ai_test_case_generation_jobs_scope_status ON ai_test_case_generation_jobs (app_type_id, status, next_run_at, created_at DESC)`,
@@ -2603,6 +2594,7 @@ const executeStatements = () => db.transaction(async () => {
   for (const statement of statements) {
     await db.query(statement);
   }
+  await ensureFoundationRoles();
   await ensureSetupRoles();
   await require("./schemaReadiness").recordSchema(db, "main");
 })();

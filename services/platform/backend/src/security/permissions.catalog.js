@@ -1,7 +1,7 @@
 const PERMISSION_GROUPS = [
   {
     key: "workspace",
-    label: "Workspace",
+    label: "Workspace & administration",
     permissions: [
       ["workspace.view", "View workspace dashboard, metadata, and global activity"],
       ["project.view", "View projects"],
@@ -14,11 +14,11 @@ const PERMISSION_GROUPS = [
       ["workspace_preferences.manage", "Manage workspace-wide preferences"],
       ["api_key.manage", "Create, view, and revoke scoped API keys"],
       ["localization.manage", "Upload, reset, and manage workspace localization strings"],
-      ["ai_prompt.manage", "Manage AI prompt registry key mappings and prompt text"],
       ["feature_flag.manage", "Manage workspace feature flags and rollout controls"],
-      ["dashboard.view", "View project quality dashboards and bounded analytics"],
-      ["dashboard.manage", "Create, update, and delete project quality dashboards"],
-      ["quality_insight.view", "Preview evidence-backed quality insights"]
+      ["app_type.view", "View app types"],
+      ["app_type.manage", "Create, update, and delete app types"],
+      ["notification.view", "View and acknowledge in-app notifications"],
+      ["notification.manage", "Update notification state"]
     ]
   },
   {
@@ -35,8 +35,8 @@ const PERMISSION_GROUPS = [
     ]
   },
   {
-    key: "test_management",
-    label: "Product Management",
+    key: "product",
+    label: "Product management",
     permissions: [
       ["requirement.view", "View Stories and Backlog"],
       ["requirement.create", "Create Stories"],
@@ -44,18 +44,22 @@ const PERMISSION_GROUPS = [
       ["requirement.export", "Export Story records"],
       ["requirement.update", "Update Stories"],
       ["requirement.delete", "Delete Stories"],
-      ["requirement.ai", "Use AI Story optimization and test design"],
       ["requirement_iteration.view", "View Sprints and Releases"],
       ["requirement_iteration.create", "Create Sprints and Releases"],
       ["requirement_iteration.update", "Update Sprints, Releases, and Story assignments"],
-      ["requirement_iteration.delete", "Delete Sprints and Releases"],
+      ["requirement_iteration.delete", "Delete Sprints and Releases"]
+    ]
+  },
+  {
+    key: "testing",
+    label: "Testing foundation",
+    permissions: [
       ["testcase.view", "View test cases"],
       ["testcase.create", "Create, accept, and generate test cases"],
       ["testcase.import", "Import test cases from CSV, JUnit, TestNG, and source files"],
       ["testcase.update", "Update test cases and requirement links"],
       ["testcase.delete", "Delete or reject test cases"],
       ["testcase.export", "Export test cases"],
-      ["testcase.ai", "Use AI test case authoring, design, and step rephrasing"],
       ["step.manage", "Create, update, reorder, group, duplicate, and delete test steps"],
       ["shared_step.view", "View Shared Step Groups"],
       ["shared_step.manage", "Create, update, and delete Shared Step Groups"],
@@ -71,52 +75,12 @@ const PERMISSION_GROUPS = [
       ["quality_gate.create", "Create release quality gates"],
       ["quality_gate.update", "Update release quality gates"],
       ["quality_gate.delete", "Delete release quality gates"],
-      ["quality_gate.ai", "Preview evidence-backed quality-gate assessments"]
-    ]
-  },
-  {
-    key: "automation",
-    label: "Automation Management",
-    permissions: [
-      ["automation.view", "View automation workspace and object repository"],
-      ["automation.asset.create", "Create reusable automation assets"],
-      ["automation.asset.update", "Update reusable automation assets"],
-      ["automation.asset.delete", "Delete reusable automation assets"],
-      ["automation.repository.manage", "Create, import, update, improve, and delete object repository entries"],
-      ["automation.repository.import", "Import object repository entries from CSV and source files"],
-      ["automation.repository.export", "Export object repository entries"],
-      ["automation.build", "Generate or queue automation from manual cases"],
-      ["automation.ai", "Use AI automation repair, improvement, and gap analysis"],
-      ["content.ai", "Rephrase rich-text authoring fields with the configured AI provider"],
-      ["automation.recorder", "Start and finish local recorder sessions"],
-      ["automation.code.view", "View generated step-level automation code and script previews"],
-      ["automation.run.local", "Create and start local Playwright or local Test Engine automation runs"],
-      ["automation.run.remote", "Create and start remote Test Engine automation runs"],
-      ["automation.run.parallel", "Configure parallel automation execution"],
-      ["automation.preview", "Run local API/request previews"],
-      ["automation.analytics.view", "View automation-specific quality analytics"]
-    ]
-  },
-  {
-    key: "ai_agentic",
-    label: "AI Agentic",
-    permissions: [
-      ["agentic_workflow.view", "View agentic workflows and workflow run snapshots"],
-      ["agentic_workflow.manage", "Create, update, and delete agentic workflows"],
-      ["agentic_workflow.run", "Launch agentic workflow runs"]
-    ]
-  },
-  {
-    key: "execution",
-    label: "Runs & evidence",
-    permissions: [
       ["run.view", "View runs, reports, logs, and execution artifacts"],
       ["run.gherkin.view", "View saved Run steps in Gherkin format"],
       ["run.create", "Create manual and smart manual runs"],
       ["run.update", "Update runs and run assignments"],
       ["run.execute", "Start, rerun, complete, abort, and run steps"],
       ["run.delete", "Delete runs"],
-      ["run.ai", "Use AI run planning and execution failure analysis"],
       ["run.report.export", "Download or export run reports"],
       ["run.report.share", "Email or share run reports"],
       ["result.view", "View execution results and evidence"],
@@ -130,13 +94,7 @@ const PERMISSION_GROUPS = [
       ["schedule.create", "Create schedules"],
       ["schedule.update", "Update schedules"],
       ["schedule.run", "Launch schedules immediately"],
-      ["schedule.delete", "Delete schedules"]
-    ]
-  },
-  {
-    key: "environment",
-    label: "Environment & data",
-    permissions: [
+      ["schedule.delete", "Delete schedules"],
       ["environment.view", "View test environments"],
       ["environment.manage", "Create, update, and delete test environments"],
       ["configuration.view", "View test configurations"],
@@ -145,38 +103,92 @@ const PERMISSION_GROUPS = [
       ["data.manage", "Create, update, and delete test data sets"],
       ["data.import", "Import test data sets"],
       ["data.export", "Export test data sets"],
-      ["data.ai", "Generate human-reviewed synthetic test data"],
-      ["mobile.view", "View mobile and Appium configuration metadata"],
-      ["mobile.manage", "Manage mobile and Appium configuration and recorder workflows"],
-      ["app_type.view", "View app types"],
-      ["app_type.manage", "Create, update, and delete app types"]
+      ["feedback.view", "View reported Defects"],
+      ["feedback.create", "Report new Defects without editing or deleting existing Defects"],
+      ["feedback.manage", "Create, update, and delete reported Defects"]
     ]
   },
   {
-    key: "connect",
-    label: "Integrations & knowledge",
+    key: "dashboard",
+    label: "Dashboards",
     permissions: [
+      ["dashboard.view", "View project quality dashboards and bounded analytics"],
+      ["dashboard.manage", "Create, update, and delete project quality dashboards"]
+    ]
+  },
+  {
+    key: "automation",
+    label: "Automation & TestGrid",
+    permissions: [
+      ["automation.view", "View automation workspace and object repository"],
+      ["automation.asset.create", "Create reusable automation assets"],
+      ["automation.asset.update", "Update reusable automation assets"],
+      ["automation.asset.delete", "Delete reusable automation assets"],
+      ["automation.repository.manage", "Create, import, update, improve, and delete object repository entries"],
+      ["automation.repository.import", "Import object repository entries from CSV and source files"],
+      ["automation.repository.export", "Export object repository entries"],
+      ["automation.build", "Generate or queue automation from manual cases"],
+      ["automation.recorder", "Start and finish local recorder sessions"],
+      ["automation.code.view", "View generated step-level automation code and script previews"],
+      ["automation.run.local", "Create and start local Playwright or local Test Engine automation runs"],
+      ["automation.run.remote", "Create and start remote Test Engine automation runs"],
+      ["automation.run.parallel", "Configure parallel automation execution"],
+      ["automation.preview", "Run local API/request previews"],
+      ["automation.analytics.view", "View automation-specific quality analytics"],
+      ["mobile.view", "View mobile and Appium configuration metadata"],
+      ["mobile.manage", "Manage mobile and Appium configuration and recorder workflows"]
+    ]
+  },
+  {
+    key: "ai",
+    label: "AI assistance",
+    permissions: [
+      ["quality_insight.view", "Preview evidence-backed quality insights"],
+      ["requirement.ai", "Use AI Story optimization and test design"],
+      ["testcase.ai", "Use AI test case authoring, design, and step rephrasing"],
+      ["quality_gate.ai", "Preview evidence-backed quality-gate assessments"],
+      ["automation.ai", "Use AI automation repair, improvement, and gap analysis"],
+      ["content.ai", "Rephrase rich-text authoring fields with the configured AI provider"],
+      ["run.ai", "Use AI run planning and execution failure analysis"],
+      ["data.ai", "Generate human-reviewed synthetic test data"]
+    ]
+  },
+  {
+    key: "agentic",
+    label: "Agentic workflows",
+    permissions: [
+      ["agentic_workflow.view", "View agentic workflows and workflow run snapshots"],
+      ["agentic_workflow.manage", "Create, update, and delete agentic workflows"],
+      ["agentic_workflow.run", "Launch agentic workflow runs"]
+    ]
+  },
+  {
+    key: "knowledge",
+    label: "Knowledge & Ask HelloTest",
+    permissions: [
+      ["knowledge.view", "View and search project knowledge and use the grounded Knowledge Assistant"],
+      ["knowledge.manage", "Create collections and ingest, process, update, relate, and delete project knowledge"]
+    ]
+  },
+  {
+    key: "integration",
+    label: "Integrations & prompt templates",
+    permissions: [
+      ["ai_prompt.manage", "Manage AI prompt registry key mappings and prompt text"],
       ["integration.view", "View integrations"],
       ["integration.manage", "Create, test, update, delete, and use integrations"],
       ["integration.import_export", "Import and export integration settings"],
-      ["knowledge.view", "View and search project knowledge and use the grounded Knowledge Assistant"],
-      ["knowledge.manage", "Create collections and ingest, process, update, relate, and delete project knowledge"],
       ["prompt_template.view", "View AI prompt templates"],
       ["prompt_template.manage", "Create, update, and delete AI prompt templates"]
     ]
   },
   {
     key: "ops",
-    label: "Operations",
+    label: "OPS & background work",
     permissions: [
       ["transaction.view", "View background transactions, events, and artifacts"],
       ["transaction.manage", "Delete background transactions"],
       ["transaction.artifact.download", "Download background transaction artifacts"],
-      ["notification.view", "View and acknowledge in-app notifications"],
-      ["notification.manage", "Update notification state"],
-      ["feedback.view", "View reported Defects"],
-      ["feedback.create", "Report new Defects without editing or deleting existing Defects"],
-      ["feedback.manage", "Create, update, and delete reported Defects"],
       ["ops.view", "View operational metadata, metrics, and local agent status"],
       ["ops.manage", "Manage operational telemetry"]
     ]

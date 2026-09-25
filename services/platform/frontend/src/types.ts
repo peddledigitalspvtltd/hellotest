@@ -84,6 +84,7 @@ export type FeatureFlagGroup = {
 };
 
 export type FeatureFlagSnapshot = {
+  capability_availability?: Record<string, boolean>;
   groups: FeatureFlagGroup[];
   flags: Record<string, boolean>;
   local_flags: Record<string, boolean>;

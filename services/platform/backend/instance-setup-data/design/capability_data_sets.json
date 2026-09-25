@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-data-access",
+      "project_id": "sample-project",
+      "app_type_id": "sample-app-web",
+      "name": "HelloTest access matrix",
+      "description": "Synthetic roles and route inputs. Replace example identities before real execution.",
+      "mode": "table",
+      "columns": [
+        "actor_email",
+        "role",
+        "project_name",
+        "target_route",
+        "feature_key"
+      ],
+      "rows": [
+        {
+          "actor_email": "qa.lead@example.test",
+          "role": "QA Lead",
+          "project_name": "HelloTest Launchpad",
+          "target_route": "/test-cases",
+          "feature_key": "hellotest.manual.test_cases"
+        },
+        {
+          "actor_email": "reporter@example.test",
+          "role": "Reporter",
+          "project_name": "HelloTest Launchpad",
+          "target_route": "/issues",
+          "feature_key": "hellotest.manual.bugs"
+        },
+        {
+          "actor_email": "viewer@example.test",
+          "role": "Viewer",
+          "project_name": "HelloTest Launchpad",
+          "target_route": "/",
+          "feature_key": "hellotest.analytics.dashboards"
+        }
+      ],
+      "created_at": "2026-08-18T09:00:00.000Z"
+    }
+  ]
+}

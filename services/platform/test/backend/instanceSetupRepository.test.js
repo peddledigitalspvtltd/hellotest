@@ -135,7 +135,7 @@ test('version 6 sample data provides a connected HelloTest delivery and executio
   const runs = selected('executions');
   const results = selected('execution_results');
   const defects = selected('feedback');
-  assert.equal(repository.loadManifest().manifest.version, 6);
+  assert.ok(repository.loadManifest().manifest.version >= 6);
   assert.equal(sprints.length, 3);
   assert(sprints.every(sprint => sprint.name.length <= 7));
   assert.equal(releases.length, 3);

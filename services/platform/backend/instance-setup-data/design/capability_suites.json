@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "id": "sample-v7-ht-suite-platform",
+      "display_id": "HT7-TS1",
+      "app_type_id": "sample-app-web",
+      "name": "Platform acceptance",
+      "description": "HelloTest Platform feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "platform"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-manual",
+      "display_id": "HT7-TS2",
+      "app_type_id": "sample-app-web",
+      "name": "Product management acceptance",
+      "description": "HelloTest Product management feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "manual"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-ai",
+      "display_id": "HT7-TS3",
+      "app_type_id": "sample-app-web",
+      "name": "AI assistance acceptance",
+      "description": "HelloTest AI assistance feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "ai"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-testing",
+      "display_id": "HT7-TS4",
+      "app_type_id": "sample-app-web",
+      "name": "Testing foundation acceptance",
+      "description": "HelloTest Testing foundation feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "testing"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-automation",
+      "display_id": "HT7-TS5",
+      "app_type_id": "sample-app-web",
+      "name": "Automation acceptance",
+      "description": "HelloTest Automation feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "automation"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-knowledge",
+      "display_id": "HT7-TS6",
+      "app_type_id": "sample-app-web",
+      "name": "Knowledge Repo acceptance",
+      "description": "HelloTest Knowledge Repo feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "knowledge"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-agentic",
+      "display_id": "HT7-TS7",
+      "app_type_id": "sample-app-web",
+      "name": "Agentic acceptance",
+      "description": "HelloTest Agentic feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-integration",
+      "display_id": "HT7-TS8",
+      "app_type_id": "sample-app-web",
+      "name": "Integration acceptance",
+      "description": "HelloTest Integration feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "integration"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-dashboard",
+      "display_id": "HT7-TS9",
+      "app_type_id": "sample-app-web",
+      "name": "Dashboard acceptance",
+      "description": "HelloTest Dashboard feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "dashboard"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-suite-trace",
+      "display_id": "HT7-TS10",
+      "app_type_id": "sample-app-web",
+      "name": "OPS telemetry acceptance",
+      "description": "HelloTest OPS telemetry feature acceptance with scope and failure boundaries.",
+      "labels": [
+        "sample",
+        "hellotest",
+        "trace"
+      ],
+      "test_data_set_id": "sample-v7-ht-data-access",
+      "test_data_options": {
+        "override_test_case_data": false,
+        "override_shared_steps": false
+      },
+      "parameter_values": {
+        "project_name": "HelloTest Launchpad"
+      },
+      "parallel_enabled": false,
+      "parallel_count": 1,
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-08-18T09:00:00.000Z",
+      "updated_at": "2026-09-23T12:00:00.000Z"
+    }
+  ]
+}

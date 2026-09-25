@@ -82,5 +82,5 @@ test("Project administration and TestOps use exact catalog permissions and featu
   assert.match(projects, /hasPermission\(session, "project\.update", selectedProjectId\)/);
   assert.match(projects, /hasPermission\(session, "app_type\.manage", selectedProjectId\)/);
   assert.match(testOps, /hasPermission\(session, "transaction\.manage", projectId\) && canUseBatchProcesses/);
-  assert.match(featureFlags, /"\/testops": \["hellotest\.automation\.batch_process", "hellotest\.ops\.background_jobs"\]/);
+  assert.match(featureFlags, /"\/testops": \["hellotest\.ops\.background_jobs"\]/);
 });
