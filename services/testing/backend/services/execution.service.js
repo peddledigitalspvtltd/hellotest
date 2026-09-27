@@ -1,4 +1,5 @@
 const { redactSharedStepData, regenerateSharedStepData } = require("./sharedStepDataSnapshot.service");
+const { snapshotExecutionHooks, redactExecutionHooks, regenerateExecutionHooks } = require("./executionHookSnapshots.service");
 const { normalizeDataOptions, composeScopedTestData, sharedParameterNames } = require("@hellotest/platform/backend/src/utils/scopedTestData");
 const { preserveFrozenRunParameters, normalizeFrozenCapturedValues } = require("@hellotest/platform/backend/src/utils/frozenRunParameterCompatibility");
 const { expandSuiteSelection, loadSuiteContexts } = require("./suiteExecutionContext.service");
@@ -129,10 +130,10 @@ const getStepSnapshotsForExecution = db.prepare(`
 `);
 
 const getResultsForExecution = db.prepare(`
-  SELECT test_case_id, status, created_at
+  SELECT id, test_case_id, status, created_at, data_set_iteration_index, data_set_iteration_key
   FROM execution_results
   WHERE execution_id = ?
-  ORDER BY created_at DESC, id DESC
+  ORDER BY created_at DESC NULLS LAST, id DESC
 `);
 
 const getResultLogsForExecution = db.prepare(`
@@ -628,6 +629,7 @@ function attachExecutionContext(execution) {
 
   return {
     ...execution,
+    execution_hooks: redactExecutionHooks(execution.execution_hooks),
     test_environment_snapshot: environmentSnapshot ? { ...environmentSnapshot, variables: sanitizeVariablesForRead(environmentSnapshot.variables), template_variables: sanitizeVariablesForRead(environmentSnapshot.template_variables) } : null,
     test_configuration_snapshot: configurationSnapshot ? { ...configurationSnapshot, variables: sanitizeVariablesForRead(configurationSnapshot.variables), template_variables: sanitizeVariablesForRead(configurationSnapshot.template_variables) } : null,
     test_data_set_snapshot: dataSetSnapshot,
@@ -678,6 +680,7 @@ async function loadExecutionRuntimeContext(execution) {
     ? await getCaseSnapshotsForExecution.all(execution.id) : [];
   return preserveFrozenRunParameters({
     ...execution,
+    execution_hooks: parseJsonValue(stored.execution_hooks, []),
     test_environment: execution.test_environment ? { ...execution.test_environment, snapshot: parseJsonValue(stored.test_environment_snapshot, null) } : null,
     test_configuration: execution.test_configuration ? { ...execution.test_configuration, snapshot: parseJsonValue(stored.test_configuration_snapshot, null) } : null,
     test_data_set: execution.test_data_set ? { ...execution.test_data_set, snapshot: parseJsonValue(stored.test_data_set_snapshot, null) } : null,
@@ -1543,6 +1546,7 @@ exports.createExecution = async ({
 
   const dataOptions = normalizeDataOptions(test_data_options);
   if (test_data_set_id && app_type_id) await require('./runParameterPlan.service').assertRunDataSetCompatible({ project_id, app_type_id, suite_ids: uniqueSuiteIds, test_case_ids: uniqueTestCaseIds, test_data_set_id, test_data_options: dataOptions });
+  const frozenExecutionHooks = await snapshotExecutionHooks(execution_hooks, { projectId: project_id, appTypeId: app_type_id, userId: created_by });
   const transaction = db.transaction(async () => {
     await db.prepare(`
       INSERT INTO executions
@@ -1596,7 +1600,7 @@ exports.createExecution = async ({
       normalizeText(release),
       normalizeText(sprint),
       normalizeText(build),
-      Array.isArray(execution_hooks) ? execution_hooks : [],
+      frozenExecutionHooks,
       uniqueTestCaseIds,
       resolvedSourceIdempotencyKey,
       normalizedParallelEnabled,
@@ -1767,8 +1771,13 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
 
   if (failed_only) {
     const executionResults = await getResultsForExecution.all(id);
+    const latestIterations = new Map();
+    for (const result of executionResults) {
+      const key = `${result.test_case_id}:${result.data_set_iteration_index ?? result.data_set_iteration_key ?? "default"}`;
+      if (!latestIterations.has(key)) latestIterations.set(key, result);
+    }
     const failedCaseIds = new Set(
-      executionResults
+      [...latestIterations.values()]
         .filter((result) => result.status === "failed")
         .map((result) => result.test_case_id)
     );
@@ -1854,6 +1863,7 @@ exports.rerunExecution = async (id, { failed_only = false, created_by, name } = 
     );
 
     await db.prepare("UPDATE executions SET test_data_options = ? WHERE id = ?").run(normalizeDataOptions(sourceExecution.test_data_options), nextExecutionId);
+    await db.prepare("UPDATE executions SET execution_hooks = ? WHERE id = ?").run(regenerateExecutionHooks(sourceExecution.execution_hooks), nextExecutionId);
     if (sourceExecution.release_id || sourceExecution.iteration_id) {
       await db.prepare('UPDATE executions SET release_id = ?, iteration_id = ? WHERE id = ?')
         .run(sourceExecution.release_id || null, sourceExecution.iteration_id || null, nextExecutionId);

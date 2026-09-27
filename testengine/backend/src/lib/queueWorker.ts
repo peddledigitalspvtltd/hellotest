@@ -10,11 +10,12 @@ import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { executeApiStepInEngine } from "./apiEngine.js";
 import {
-  executeAndroidSteps,
+  createMobileRunSession,
+  type MobileExecutionResult,
   getMobileEngineConfigurationError,
   isMobileEngineConfigured
 } from "./mobileEngine.js";
-import type { EngineQueuedJob, EngineRunStep } from "../contracts/hellotest.js";
+import type { EngineQueuedJob, EngineRunStep, EngineRunHook } from "../contracts/hellotest.js";
 import { registerContextValue } from "./runtimeContext.js";
 
 type Logger = {
@@ -269,7 +270,7 @@ function buildAutomationDetail(step: EngineRunStep, status: "passed" | "failed" 
   };
 }
 
-async function executeQueuedJob(
+export async function executeQueuedJob(
   job: EngineQueuedJob,
   workerId: string,
   logger: Logger,
@@ -284,22 +285,26 @@ async function executeQueuedJob(
     .slice()
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
   const accepted = saveRun(buildAcceptedRun(envelope), envelope);
-  const webRunSession = orderedSteps.some((step) => step.step_type === "web")
+  const webRunSession = [...orderedSteps, ...(envelope.hooks || []).flatMap((hook) => hook.steps || [])].some((step) => step.step_type === "web")
     ? createWebRunSession(envelope, job.runtime_state?.captured_values || {})
     : null;
+  const mobileRunSession = createMobileRunSession(envelope, (error) => logger.error({ error, jobId: job.id }, "Unable to close Mobile Engine session"));
   let capturedValues = { ...(job.runtime_state?.captured_values || {}) };
   let healingAttempted = Boolean(job.runtime_state?.healing_attempted);
   let healingSucceeded = Boolean(job.runtime_state?.healing_succeeded);
   const patchProposals: Array<Record<string, unknown>> = [];
   const pendingStepReports: Array<Promise<void>> = [];
+  let reportChain = Promise.resolve();
+  let reportFailure: unknown = null;
   const reportedStepIds = new Set<string>();
   const enqueueStepReport = (stepId: string, payload: Parameters<typeof reportQueuedStep>[2]) => {
     reportedStepIds.add(stepId);
-    const reportPromise = reportQueuedStep(job.id, stepId, payload)
+    const reportPromise = reportChain.then(() => reportQueuedStep(job.id, stepId, payload))
       .then((report) => {
         syncCapturedValuesToWebContext(report.captures, webRunSession);
       })
       .catch((error) => {
+        reportFailure = error;
         logger.error({ error, jobId: job.id, stepId }, "Unable to report queued step result back to HelloTest");
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
           event_type: "testengine.queue.step.report.failed",
@@ -309,6 +314,7 @@ async function executeQueuedJob(
         }));
       });
 
+    reportChain = reportPromise;
     pendingStepReports.push(reportPromise);
   };
   const flushStepReports = async () => {
@@ -317,6 +323,7 @@ async function executeQueuedJob(
     }
 
     await Promise.allSettled(pendingStepReports);
+    if (reportFailure) throw new Error("Unable to persist all step results to HelloTest. This run cannot be marked passed.");
   };
   let webRunSessionStopped = false;
   let currentStep: EngineRunStep | null = null;
@@ -334,6 +341,59 @@ async function executeQueuedJob(
     }
   };
 
+  let hookFailure: "failed" | "blocked" | null = null;
+  let postHooksRun = false;
+  const runHooks = async (phase: EngineRunHook["phase"]) => {
+    for (const hook of (envelope.hooks || []).filter((entry) => entry.phase === phase)) {
+      if (hook.scope !== "test") throw new Error(`Hook "${hook.name}" uses ${hook.scope} scope, which requires coordinated scheduling. Use Before Test or After Test for this case.`);
+      if (!hook.steps?.length) throw new Error(`Hook "${hook.name}" has no executable snapshot. Select a hook case included in this run.`);
+      for (const source of [...hook.steps].sort((a, b) => a.order - b.order)) {
+        const step = { ...source, id: `${hook.scope}:${hook.phase}:${hook.id}:${source.id}` };
+        let payload: Parameters<typeof reportQueuedStep>[2];
+        try {
+          if (step.step_type === "api") {
+            const result = await executeApiStepInEngine(envelope, step, capturedValues);
+            payload = { status: result.status, note: result.note, evidence: result.evidence, api_detail: result.detail as unknown as Record<string, unknown>, captures: result.captures };
+          } else if (step.step_type === "web" && webRunSession) {
+            const result = await webRunSession.runStep(step);
+            payload = { status: result.status, note: result.note, evidence: result.evidence, web_detail: result.web_detail, captures: result.captures, automation_detail: { ...buildAutomationDetail(step, result.status, result.note, webRunSession.provider), line_results: result.line_results } };
+          } else if (step.step_type === "android" || step.step_type === "ios") {
+            const result = (await mobileRunSession.run([step], capturedValues)).results[0];
+            payload = result ? { status: result.status, note: result.note, evidence: result.evidence, captures: result.captures } : { status: "blocked", note: "Mobile hook returned no result." };
+          } else throw new Error(`Unsupported hook runtime ${step.step_type}`);
+        } catch (error) { payload = { status: "failed", note: error instanceof Error ? error.message : "Hook failed" }; }
+        payload.note = `[${phase === "pre" ? "Before" : "After"} ${hook.scope}] ${hook.name} · ${step.action}
+${payload.note || ""}`;
+        payload.automation_detail ||= buildAutomationDetail(step, payload.status, payload.note, step.step_type);
+        enqueueStepReport(step.id, payload);
+        await flushStepReports();
+        capturedValues = { ...capturedValues, ...payload.captures };
+        syncCapturedValuesToWebContext(payload.captures, webRunSession);
+        if (payload.status !== "passed") {
+          if (hook.fail_behavior !== "continue") {
+            hookFailure = hook.fail_behavior === "mark-blocked" ? "blocked" : "failed";
+            if (phase === "pre") throw new Error(payload.note);
+          }
+          break;
+        }
+      }
+    }
+  };
+  const finalizeArtifacts = async (status?: "passed" | "failed" | "blocked") => {
+    if (!postHooksRun) {
+      postHooksRun = true;
+      try { await runHooks("post"); } catch (error) {
+        hookFailure = "failed";
+        logger.error({ error, jobId: job.id }, "Unable to complete teardown hooks");
+      }
+    }
+    return stopWebRunSession(status === "failed" ? status : hookFailure || status);
+  };
+  const completeJob = (id: string, payload: Parameters<typeof completeQueuedJobWithMetadata>[1]) => completeQueuedJobWithMetadata(id, {
+    ...payload,
+    ...(hookFailure && payload.status !== "failed" ? { status: hookFailure, error: "A configured execution hook failed. Inspect hook results.", summary: "A configured execution hook failed. Inspect hook results." } : {})
+  });
+
   try {
     await startQueuedJob(job.id, workerId);
     updateRunState(accepted.id, "running", `Leased ${job.test_case_title} from HelloTest queue.`);
@@ -344,9 +404,9 @@ async function executeQueuedJob(
     }));
 
     if (!orderedSteps.length) {
-      const emptyJobSummary = `${job.test_case_title} has no executable API, web, or Android steps in its queued snapshot.`;
+      const emptyJobSummary = `${job.test_case_title} has no executable API, web, Android, or iOS steps in its queued snapshot.`;
       updateRunState(accepted.id, "failed", emptyJobSummary);
-      await completeQueuedJobWithMetadata(job.id, {
+      await completeJob(job.id, {
         status: "failed",
         error: emptyJobSummary,
         summary: emptyJobSummary,
@@ -365,7 +425,7 @@ async function executeQueuedJob(
     const remainingSteps = orderedSteps.filter((step) => existingStatuses[step.id] !== "passed");
 
     if (!remainingSteps.length) {
-      await completeQueuedJobWithMetadata(job.id, {
+      await completeJob(job.id, {
         status: "passed",
         summary: `${job.test_case_title} was already complete.`,
         deterministic_attempted: true,
@@ -387,7 +447,7 @@ async function executeQueuedJob(
       } catch (error) {
         const message = formatWorkerErrorMessage(error, `${job.test_case_title} could not start the web automation session.`);
         const startupStep = remainingSteps.find((step) => step.step_type === "web");
-        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
 
         updateRunState(accepted.id, "failed", message);
 
@@ -406,7 +466,7 @@ async function executeQueuedJob(
         }
 
         await flushStepReports();
-        await completeQueuedJobWithMetadata(job.id, {
+        await completeJob(job.id, {
           status: "failed",
           error: message,
           summary: message,
@@ -433,11 +493,9 @@ async function executeQueuedJob(
       }
     }
 
-    const androidResultsByStepId = new Map<string, {
-      status: "passed" | "failed" | "blocked";
-      note?: string;
-      captures?: Record<string, string>;
-    }>();
+    await runHooks("pre");
+
+    const mobileResultsByStepId = new Map<string, MobileExecutionResult["results"][number]>();
 
     for (const [index, step] of remainingSteps.entries()) {
       currentStep = step;
@@ -465,10 +523,10 @@ async function executeQueuedJob(
 
         if (result.status === "failed") {
           const failureSummary = result.note || `${job.test_case_title} failed on step ${step.order}.`;
-          const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+          const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
           updateRunState(accepted.id, "failed", failureSummary);
           await flushStepReports();
-          await completeQueuedJobWithMetadata(job.id, {
+          await completeJob(job.id, {
             status: "failed",
             error: failureSummary,
             summary: failureSummary,
@@ -494,39 +552,40 @@ async function executeQueuedJob(
         continue;
       }
 
-      if (step.step_type === "android") {
-        if (!androidResultsByStepId.has(step.id)) {
+      if (step.step_type === "android" || step.step_type === "ios") {
+        if (!mobileResultsByStepId.has(step.id)) {
           // A contiguous mobile block shares a driver while respecting API/web
           // preconditions and captures produced earlier in the authored plan.
-          const androidBlock: EngineRunStep[] = [];
+          const mobileBlock: EngineRunStep[] = [];
           for (const next of remainingSteps.slice(index)) {
-            if (next.step_type !== "android") break;
-            androidBlock.push(next);
+            if (next.step_type !== step.step_type) break;
+            mobileBlock.push(next);
           }
           if (!isMobileEngineConfigured()) {
-            const message = `${job.test_case_title} requires Android execution, but the Mobile Engine client is not ready: ${getMobileEngineConfigurationError() || "unknown configuration error"}.`;
-            for (const mobileStep of androidBlock) {
-              androidResultsByStepId.set(mobileStep.id, { status: "blocked", note: message });
+            const message = `${job.test_case_title} requires ${step.step_type} execution, but the Mobile Engine client is not ready: ${getMobileEngineConfigurationError() || "unknown configuration error"}.`;
+            for (const mobileStep of mobileBlock) {
+              mobileResultsByStepId.set(mobileStep.id, { step_id: mobileStep.id, status: "blocked", note: message });
             }
           } else {
-            const mobileResult = await executeAndroidSteps(envelope, androidBlock, capturedValues);
-            for (const mobileStep of androidBlock) {
-              androidResultsByStepId.set(mobileStep.id, {
+            const mobileResult = await mobileRunSession.run(mobileBlock, capturedValues);
+            for (const mobileStep of mobileBlock) {
+              mobileResultsByStepId.set(mobileStep.id, {
+                step_id: mobileStep.id,
                 status: "blocked",
-                note: "Android Mobile Engine did not return a result for this step."
+                note: "Mobile Engine did not return a result for this step."
               });
             }
             for (const mobileStep of mobileResult.results || []) {
-              androidResultsByStepId.set(mobileStep.step_id, mobileStep);
+              mobileResultsByStepId.set(mobileStep.step_id, mobileStep);
             }
           }
         }
-        const result = androidResultsByStepId.get(step.id) || { status: "blocked" as const, note: "Android Mobile Engine did not return a result for this step." };
-        const message = result.note || `${job.test_case_title} Android step ${step.order} finished with ${result.status}.`;
+        const result = mobileResultsByStepId.get(step.id) || { step_id: step.id, status: "blocked" as const, note: "Mobile Engine did not return a result for this step." };
+        const message = result.note || `${job.test_case_title} ${step.step_type} step ${step.order} finished with ${result.status}.`;
         enqueueStepReport(step.id, {
           status: result.status,
           note: message,
-          evidence: null,
+          evidence: result.evidence || null,
           web_detail: null,
           automation_detail: buildAutomationDetail(step, result.status, message, envelope.mobile_engine?.active || "mobile"),
           captures: result.captures || {}
@@ -539,10 +598,10 @@ async function executeQueuedJob(
           continue;
         }
 
-        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("blocked"));
+        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("blocked"));
         updateRunState(accepted.id, "failed", message);
         await flushStepReports();
-        await completeQueuedJobWithMetadata(job.id, {
+        await completeJob(job.id, {
           status: result.status,
           error: message,
           summary: message,
@@ -566,10 +625,10 @@ async function executeQueuedJob(
 
       if (step.step_type !== "web" || !webRunSession) {
         const message = `${job.test_case_title} includes unsupported step type ${step.step_type}.`;
-        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
         updateRunState(accepted.id, "failed", message);
         await flushStepReports();
-        await completeQueuedJobWithMetadata(job.id, {
+        await completeJob(job.id, {
           status: "failed",
           error: message,
           summary: message,
@@ -598,7 +657,7 @@ async function executeQueuedJob(
         patchProposals.push({
           kind: "script",
           status: "review",
-          summary: `Step ${step.order} recovered after a headed browser retry. Review this step for locator or wait hardening before promoting the fix.`,
+          summary: `Step ${step.order} passed after a configured retry. The automation code was unchanged; review the step for unstable locators or timing.`,
           target_path: `hellotest://test-cases/${envelope.hellotest_test_case_id}/steps/${step.id}`
         });
       }
@@ -607,7 +666,7 @@ async function executeQueuedJob(
         note: stepResult.note,
         evidence: stepResult.evidence || null,
         web_detail: stepResult.web_detail,
-        automation_detail: buildAutomationDetail(step, stepResult.status, stepResult.note, stepResult.web_detail?.provider || webRunSession.provider),
+        automation_detail: { ...buildAutomationDetail(step, stepResult.status, stepResult.note, stepResult.web_detail?.provider || webRunSession.provider), line_results: stepResult.line_results },
         captures: stepResult.captures,
         recovery_attempted: stepResult.recovery_attempted,
         recovery_succeeded: stepResult.recovery_succeeded
@@ -620,10 +679,10 @@ async function executeQueuedJob(
 
       if (stepResult.status === "failed") {
         const failureSummary = stepResult.note || `${job.test_case_title} failed on step ${step.order}.`;
-        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+        const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
         updateRunState(accepted.id, "failed", failureSummary);
         await flushStepReports();
-        await completeQueuedJobWithMetadata(job.id, {
+        await completeJob(job.id, {
           status: "failed",
           error: failureSummary,
           summary: failureSummary,
@@ -650,9 +709,9 @@ async function executeQueuedJob(
     }
 
     const completionSummary = `${job.test_case_title} completed successfully.`;
-    const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("passed"));
+    const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("passed"));
     await flushStepReports();
-    await completeQueuedJobWithMetadata(job.id, {
+    await completeJob(job.id, {
       status: "passed",
       summary: completionSummary,
       deterministic_attempted: true,
@@ -678,7 +737,7 @@ async function executeQueuedJob(
     }));
 
     try {
-      const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await stopWebRunSession("failed"));
+      const artifactBundle = mergeArtifactBundle(accepted.artifact_bundle, await finalizeArtifacts("failed"));
       if (currentStep && !reportedStepIds.has(currentStep.id)) {
         enqueueStepReport(currentStep.id, {
           status: "failed",
@@ -693,7 +752,7 @@ async function executeQueuedJob(
         });
       }
       await flushStepReports();
-      await completeQueuedJobWithMetadata(job.id, {
+      await completeJob(job.id, {
         status: "failed",
         error: message,
         summary: message,
@@ -715,7 +774,7 @@ async function executeQueuedJob(
   } finally {
     if (webRunSession && !webRunSessionStopped) {
       try {
-        await stopWebRunSession();
+        await finalizeArtifacts();
       } catch (stopError) {
         logger.error({ error: stopError, jobId: job.id }, "Unable to stop web automation session cleanly");
         emitTelemetry(telemetry, buildJobTelemetry(job, workerId, {
@@ -726,6 +785,7 @@ async function executeQueuedJob(
         }));
       }
     }
+    await mobileRunSession.close();
   }
 }
 

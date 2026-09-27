@@ -1,12 +1,12 @@
 # HelloTest Test Engine
 
-`testengine/` is a backend-only Playwright execution plane for HelloTest. HelloTest remains the only frontend, the only operator surface, and the system of record for authoring, runs, evidence history, and review.
+`testengine/` is the API, browser and native execution service for HelloTest. The product workspace remains the system of record for authoring, runs, evidence history and review. The engine also exposes a diagnostic telemetry board. For host development and breakpoints, use [CONTRIBUTING.md](../CONTRIBUTING.md) and the [debugging runbook](../docs/development/debugging.md).
 
 This is the sole HelloTest execution runtime. The redundant prototype has been
 removed after a [capability comparison](../docs/testengine-consolidation.md).
 Develop, build, test, and deploy execution features from this directory.
 
-There should not be a second UI here. The right split is:
+The product boundary is:
 
 - HelloTest frontend and backend: control plane
 - Test Engine: scalable Docker worker plane
@@ -20,12 +20,12 @@ HelloTest already owns:
 - case snapshots and step snapshots
 - manual result review and preserved history
 
-What HelloTest does not yet own is an isolated execution runtime that can:
+TestEngine owns the execution runtime that can:
 
 - execute browser, API, and mobile automation inside Docker/Kubernetes
 - scale independently from the main app
 - reuse attached automation scripts on repeat runs
-- attempt constrained self-healing on failure
+- retry configured browser steps and preserve each attempt’s evidence
 - emit artifact bundles without bloating the core app server
 
 That belongs in a separate backend service, not a separate product frontend.
@@ -39,17 +39,21 @@ HelloTest control plane:
 - HelloTest snapshots cases, steps, environment, configuration, and data
 - HelloTest hands automated cases to Test Engine
 - HelloTest records run status, case result, and evidence history
-- HelloTest remains the review surface for promoted healing patches
+- HelloTest remains the review surface for agent-generated code and retry findings
 
 Test Engine worker plane:
 
 - continuously leases queued automated jobs from HelloTest
 - splits workers by engine class: API, Web, and Android
-- resolves attached script versus manual handover generation
-- executes API requests, Playwright browser steps, and Android/Appium handoffs deterministically first
-- performs constrained repair only after failure
-- captures trace, screenshots, console, network, DOM, and summary artifacts
+- executes attached code produced by manual authoring, recording, keywords, or the automation build agent
+- executes API requests, Playwright browser steps, and Android/iOS Appium handoffs
+- retries unchanged browser code only when retries are configured; no runtime LLM repair is implemented
+- captures configured browser trace/video, failure screenshots, console/network diagnostics, and API request/assertion summaries
 - calls back into HelloTest with case result and step evidence payloads
+
+## Execution trust boundary
+
+Saved web/mobile scripts execute through `AsyncFunction` in the worker process. Treat automation authors and code as trusted; this is not an arbitrary-code sandbox. Run workers with limited OS privileges, target-specific credentials and appropriate network isolation. The MCP inspection destination policy is distinct from authored execution and does not make all test-target requests SSRF-safe.
 
 ## Worker Pools
 
@@ -59,13 +63,13 @@ flow:
 
 - `api`: API-only jobs. These are lightweight and should scale aggressively.
 - `web`: any job containing Web steps. Web+API unified flows stay in this pool so runtime variables can move from API extractors into browser steps.
-- `android`: any job containing Android steps. This pool is capped lower because real devices, emulators, and Appium sessions are scarce resources.
+- `android`: the shared native mobile pool for Android and iOS steps. The authored platform remains distinct and selects UiAutomator2 or XCUITest. This pool is capped lower because devices, simulators, and Appium sessions are scarce resources.
 
 Each worker sets `TESTENGINE_WORKER_CLASS` and only leases matching orchestration
 jobs. HelloTest queue stats expose both `by_orchestration_class` for scaling current
 worker deployments and `by_step_engine_class` for step-level demand visibility.
 Mixed cases therefore remain ordered and safe, while the model still records
-that API, Web, and Android capabilities are step-level concerns.
+that API, Web, Android, and iOS capabilities are step-level concerns.
 
 Recommended integration config keys:
 
@@ -103,32 +107,23 @@ HelloTest already has the core APIs needed to make this work:
 - `POST /executions/:id/complete`
   - finish the run after all automated cases settle
 
-The important compatibility detail is that HelloTest already stores step-level statuses, notes, and image evidence inside `execution_results.logs` as structured JSON. Test Engine should use that shape first instead of inventing a second evidence model for the first integration pass.
+Step statuses, notes, diagnostics and evidence references are persisted through the existing structured `execution_results.logs` contract. Keep queue reports, direct callbacks and the product result view compatible with that contract.
 
-## Evidence Strategy
+## Evidence storage
 
-Near-term compatibility path:
+Case outcomes and durations live in `execution_results`; structured logs retain step statuses, notes, API/browser diagnostics, captures and automation operation outcomes. Step evidence can refer to an authenticated attachment or a bounded inline image. Product attachments store metadata in PostgreSQL and file bytes in configured object storage.
 
-- inline step status in `logs.stepStatuses`
-- inline step notes in `logs.stepNotes`
-- inline step screenshot preview in `logs.stepEvidence`
-- case status and duration in `execution_results`
-
-Scale path for larger artifacts:
-
-- keep full trace, HAR, video, DOM, and console bundles in Test Engine artifact storage
-- send HelloTest a manifest plus an optional preview image per failed step
-- add a dedicated HelloTest artifact table later when we need durable large-object storage
+Browser trace/video bundles and their manifests also depend on the engine's artifact directory and configured policy. Retain that storage for as long as its references are needed. A worker restart, a passing step or a disabled capture policy does not promise every artifact exists. Native screenshots are supported for configured failures; native per-line traces and device video are not implemented.
 
 ## Core Decisions
 
-- Runtime: Playwright for Web, native REST for API, Appium handoff for Android
+- Runtime: Playwright for Web, native REST for API, WebdriverIO/Appium for Android and iOS
 - Primary language: TypeScript
-- Packaging: Docker only
-- Execution policy: deterministic first, AI fallback second
-- Healing scope: locator, wait, popup, navigation recovery
+- Packaging: Docker for deployment; Node/TypeScript host processes for development
+- Execution policy: the automation build agent produces reviewable code; runs execute saved code deterministically
+- Retry scope: configured retries execute unchanged browser code, preserving attempt numbers
 - Assertion policy: business assertions never change silently
-- Review policy: healed patches are proposed to HelloTest before promotion
+- Review policy: generated code and retry findings are reviewed in HelloTest
 
 ## Folder Layout
 
@@ -148,19 +143,18 @@ testengine/
 
 ## Running In Docker
 
-The Playwright engine already has a separate Docker image definition at `testengine/services/platform/backend/Dockerfile`.
+From the repository root, start the standalone development execution stack:
 
-Build and run it directly:
-
-```bash
-docker build -f testengine/services/platform/backend/Dockerfile -t hellotest-testengine ./testengine/backend
-docker run --rm -p 4301:4301 -e PORT=4301 -e ARTIFACT_ROOT=/artifacts hellotest-testengine
+```sh
+docker compose -f testengine/docker-compose.yml up --build
 ```
 
-Or use Compose for local source builds:
+Its local defaults are documented in [.env.example](.env.example); Compose does not load that example file automatically. Supply overrides through your environment or an explicit `--env-file`. Development credentials must match the local HelloTest API and must not be used for hosted deployments.
 
-```bash
-docker compose -f testengine/docker-compose.yml up --build
+To build only the engine image, the Dockerfile and context are:
+
+```sh
+docker build -f testengine/backend/Dockerfile -t hellotest-testengine ./testengine/backend
 ```
 
 For a standalone image-based host deployment, use:
@@ -173,8 +167,8 @@ Use `--config <file>` or environment variables to override the HelloTest API URL
 published engine URL, image tag, Selenium binds, and shared secret:
 
 ```bash
-HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
-ENGINE_PUBLIC_URL=http://13.55.32.201:4301 \
+HELLOTEST_API_BASE_URL=https://hellotest.example.com/api \
+ENGINE_PUBLIC_URL=https://engine.example.com \
 ./hellotest.sh deploy --stack testengine --yes
 ```
 
@@ -183,14 +177,13 @@ active HelloTest integrations and expose the local telemetry board on the same h
 prefer:
 
 ```bash
-HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api \
+HELLOTEST_API_BASE_URL=https://hellotest.example.com/api \
 HELLOTEST_AUTH_TOKEN=replace-with-a-hellotest-token \
 HELLOTEST_PROJECT_ID=replace-with-project-id \
 ./start-testengine-ops.sh
 ```
 
-`HELLOTEST_TESTENGINE_SECRET` is optional for this script. If omitted, the Test
-Engine uses the same development fallback as the HelloTest API.
+Configure a matching TestEngine secret on both the API and worker. Development fallbacks apply only outside production; generated standalone deployment credentials must match the control plane. The OPS lookup script does not establish authorization merely by discovering an integration.
 
 If you do not want integration lookup, set `ENGINE_PUBLIC_URL` directly instead.
 When the stack is up, the Test Engine host serves:
@@ -269,7 +262,7 @@ All these routes retain the existing OPS telemetry authentication policy and
 configured `OPS_TELEMETRY_API_KEY`; project filtering does not replace access
 checks in the HelloTest API.
 
-Queue pull mode polls HelloTest for queued automated API and web jobs every 5
+Queue pull mode polls HelloTest for eligible API, web and native jobs every 5
 minutes by default. Configure `queue_poll_interval_minutes` on the active
 Test Engine integration in HelloTest; `start-testengine-ops.sh` resolves that value
 into `TESTENGINE_POLL_INTERVAL_MINUTES` / `TESTENGINE_POLL_INTERVAL_MS` for the
@@ -310,3 +303,13 @@ debugging behind restrictive network rules.
 - [HelloTest product operating model](../docs/HELLOTEST_PRODUCT_OPERATING_MODEL.md)
 - [Architecture](ARCHITECTURE.md)
 - [HelloTest handoff contract](backend/src/contracts/hellotest.ts)
+
+## Automation build and playback capabilities
+
+`POST /api/v1/automation/mcp` exposes the authenticated browser tools used by the automation build agent. Initialization accepts the application start URL and explicit browser-interaction setting. Sessions are isolated, limited to two concurrent browsers, expire after five idle minutes, and close through `DELETE` with `Mcp-Session-Id`. Navigation stays within the configured application origin and the inspection proxy validates browser destinations. Private applications need the existing explicit inspection-host configuration or a local recorder.
+
+Web code uses the native Playwright page and locator APIs, retrying Playwright assertions, and the application’s parameter/repository bindings. Code may be a step body, one `test(...)` wrapper importing `test` and `expect`, or an exported async function. Configure multi-case suites and before/after hooks in the application; inline runner suites, fixtures, and arbitrary static module imports are rejected. Awaited operations record executed source lines, status, duration, and attempt; synchronous assertion failures also record their failing line. This is operation evidence, not a claim that every source line is an assertion.
+
+API execution produces request/response assertions and captures. Android and iOS use native Appium sessions that survive intervening API steps and setup/cleanup groups, with separate sessions per platform. Device execution requires a reachable Mobile Engine, its shared credential, an Appium server and driver, and a configured device/application. XCUITest requires a macOS Appium host with an iOS simulator or device. Native failures can attach screenshots when `screenshot_on_failure` is enabled; native per-line traces and device video are not implemented. Browser trace/video policies apply to owned Playwright contexts; attachments larger than the inline limit require accessible engine artifact storage.
+
+`web.aiStep`, `android.aiStep`, `ios.aiStep`, and `mobile.aiStep` fail explicitly when an instruction has no executable code. They do not perform runtime AI interpretation. Legacy `healing_attempted` / `healing_succeeded` callback fields currently describe configured browser retries, not autonomous code or locator repair.

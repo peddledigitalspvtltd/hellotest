@@ -202,6 +202,50 @@ test("failed-only reruns preserve only the explicit pins included in the rerun s
   assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 2]), ["case-1"]);
 });
 
+test("reruns restore private frozen hooks and preserve code after the source case changes", async (context) => {
+  const hooks = [{ id: "setup", scope: "test", phase: "pre", target_id: "external-source", steps: [{
+    id: "saved-hook-step", test_case_id: "external-source", automation_code: "await page.goto('/saved');",
+    source_case_parameters: { "t.label": "prior" }, source_case_parameter_templates: { "t.label": "frozen template" },
+    shared_parameter_values: { "r.secret": "frozen credential" }, shared_parameter_template_values: { "r.secret": "frozen credential" },
+    shared_parameter_sensitive_names: ["r.secret"]
+  }] }];
+  context.mock.method(execution, "getExecution", async () => ({ ...run, status: "completed", execution_hooks: [],
+    case_snapshots: [{ test_case_id: "case", test_case_title: "Case" }], suite_snapshots: [], step_snapshots: [] }));
+  const writes = stubDatabase(context, sql => {
+    if (/SELECT \*\s+FROM executions/.test(sql)) return [{ ...run, execution_hooks: hooks }];
+    if (/FROM users|FROM project_members/.test(sql)) return [{ id: "user-1" }];
+    return [];
+  });
+  await execution.rerunExecution(run.id, { created_by: "user-1" });
+  const update = writes.find(entry => /UPDATE executions SET execution_hooks/.test(entry.sql));
+  assert.ok(update, "The rerun must persist its frozen hooks");
+  const saved = JSON.parse(update.values[0]);
+  assert.equal(saved[0].steps[0].automation_code, hooks[0].steps[0].automation_code);
+  assert.equal(saved[0].steps[0].source_case_parameters["t.label"], "frozen template");
+  assert.equal(saved[0].steps[0].shared_parameter_values["r.secret"], "frozen credential");
+  assert.equal(writes.some(entry => /FROM test_cases/.test(entry.sql)), false, "A rerun must not load changed hook source cases");
+});
+
+test("failed-only reruns use the latest attempt per data row and retain a case with any failing row", async context => {
+  context.mock.method(require("../services/mobileFeature.service"), "assertExecutionMobileFeatureEnabled", async () => undefined);
+  context.mock.method(execution, "getExecution", async () => ({ ...run, status: "completed", direct_test_case_ids: ["recovered", "partial"],
+    case_snapshots: ["recovered", "partial"].map(test_case_id => ({ test_case_id, test_case_title: test_case_id })), suite_snapshots: [], step_snapshots: [] }));
+  const writes = stubDatabase(context, sql => {
+    if (/FROM execution_results/.test(sql)) return [
+      { test_case_id: "recovered", status: "passed", data_set_iteration_index: 0 },
+      { test_case_id: "partial", status: "passed", data_set_iteration_index: 0 },
+      { test_case_id: "partial", status: "failed", data_set_iteration_index: 1 },
+      { test_case_id: "recovered", status: "failed", data_set_iteration_index: 0 }
+    ];
+    if (/FROM users|FROM project_members/.test(sql)) return [{ id: "user-1" }];
+    return [];
+  });
+  await execution.rerunExecution(run.id, { failed_only: true, created_by: "user-1" });
+  const insert = writes.find(entry => /INSERT INTO executions\s*\(/.test(entry.sql));
+  const columns = insert.sql.match(/INSERT INTO executions\s*\(([^)]+)\)/)[1].split(",").map(column => column.trim());
+  assert.deepEqual(JSON.parse(insert.values[columns.indexOf("direct_test_case_ids") - 2]), ["partial"]);
+});
+
 test("run metrics deduplicate actual defects and all story links while reducing latest case iterations", () => {
   const result = (id, test_case_id, status, date, extra = {}) => ({ id, test_case_id, status, created_at: new Date(date), ...extra });
   const metrics = execution.summarizeExecutionMetrics([

@@ -341,7 +341,7 @@ exports.runApiRequestPreview = async (input) => {
   return apiRequestExecutionService.runApiRequestPreview(input);
 };
 
-exports.updateTestStep = async (id, data = {}) => {
+exports.updateTestStep = async (id, data = {}, options = {}) => {
   const existing = await ensureStep(id);
   const nextTestCaseId = data.test_case_id ?? existing.test_case_id;
   const nextStepOrder = data.step_order !== undefined ? normalizeStepOrder(data.step_order, existing.step_order) : existing.step_order;
@@ -403,7 +403,7 @@ exports.updateTestStep = async (id, data = {}) => {
   });
 
   await transaction();
-  await syncSharedGroupFromStep(await ensureStep(id));
+  if (options.syncSharedGroup !== false) await syncSharedGroupFromStep(await ensureStep(id));
   return { updated: true };
 };
 

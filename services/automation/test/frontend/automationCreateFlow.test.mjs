@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { automationCaseMappingStatus } from "../../frontend/lib/automationStepPersistence.ts";
 
 const planExports = {};
 new Function("require", "exports", ts.transpileModule(readFileSync(new URL("../../frontend/lib/automationPlan.ts", import.meta.url), "utf8"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(() => ({}), planExports);
@@ -12,7 +13,7 @@ const functionEnd = source.indexOf("\n    onSuccess:", functionStart);
 const mutationSource = source.slice(functionStart, functionEnd).trim().replace(/,$/, "");
 const mutationScript = ts.transpileModule(`const mutation = ${mutationSource};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
-function fixture({ queueFails = false } = {}) {
+function fixture({ queueFails = false, mission = "Build account journey" } = {}) {
   let sequence = 0;
   const calls = { created: [], modules: [], queued: [] };
   const sources = [
@@ -27,9 +28,9 @@ function fixture({ queueFails = false } = {}) {
     automationCreateSteps: [{ id: "draft", action: "sign out", expected_result: "session closed", step_type: "web", precondition: false }],
     createSourcesQuery: { data: sources },
     automationModules: [{ id: "module", name: "Accounts" }],
-    agentMission: "Build account journey", agentScheduledAt: "", agentAutonomy: "supervised", agentRetryBudget: 3, agentCapabilities: ["repository"],
-    startUrl: "https://example.test", builderContext: "Keep assertions", selectedExecutionEnvironmentId: "env", selectedExecutionConfigurationId: "config",
-    ...planExports,
+    agentMission: mission, agentScheduledAt: "", agentAutonomy: "supervised", agentRetryBudget: 3, agentCapabilities: ["repository"],
+    allowBrowserActions: true, startUrl: "https://example.test", builderContext: "Keep assertions", selectedExecutionEnvironmentId: "env", selectedExecutionConfigurationId: "config",
+    ...planExports, automationCaseMappingStatus,
     crypto: { randomUUID: () => String(++sequence) },
     api: {
       testCases: {
@@ -58,6 +59,7 @@ test("automation creation copies every source plan, preserves groups, and saves 
   assert.deepEqual(payload.requirement_ids, ["story"]);
   assert.deepEqual(calls.modules, [["module", ["created"], true]]);
   assert.equal(calls.queued[0].id, "created");
+  assert.equal(calls.queued[0].payload.allow_browser_actions, true);
   assert.match(calls.queued[0].payload.additional_context, /Build account journey/);
 });
 
@@ -84,4 +86,11 @@ test("new AI creation begins build tracking for the durable created case", async
   assert.equal(calls.setAgentBuildTracking.transactionId, "queued-build");
   assert.deepEqual(calls.setAgentBuildTracking.caseIds, ["created"]);
   assert.equal(calls.setAgentBuildTracking.projectId, "project");
+});
+
+test("linked manual cases can build without a redundant mission", async () => {
+  const { calls, mutation } = fixture({ mission: "" });
+  await mutation();
+  assert.equal(calls.created.length, 1);
+  assert.match(calls.queued[0].payload.additional_context, /saved behavior plan and verify its expected results/);
 });

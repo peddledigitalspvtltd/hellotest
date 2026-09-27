@@ -61,6 +61,7 @@ export type ExecutionStepWebDetail = {
 };
 
 export type ExecutionStepAutomationDetail = {
+  line_results?: Array<{ line: number; status: "passed" | "failed"; duration_ms: number; attempt: number; error?: string }>;
   engine?: string;
   provider?: string | null;
   status?: ExecutionStepStatus | "queued" | "running" | "skipped";

@@ -17,12 +17,8 @@ type HookDefinition = {
 };
 
 const HOOK_DEFINITIONS: HookDefinition[] = [
-  { type: "BEFORE_ALL", label: "Before Run", description: "Runs once before the entire run starts." },
-  { type: "BEFORE_SUITE", label: "Before Suite", description: "Runs before each selected suite starts." },
   { type: "BEFORE_TEST", label: "Before Test", description: "Runs before each test case starts." },
   { type: "AFTER_TEST", label: "After Test", description: "Runs after each test case completes." },
-  { type: "AFTER_SUITE", label: "After Suite", description: "Runs after each selected suite completes." },
-  { type: "AFTER_ALL", label: "After Run", description: "Runs once after the entire run completes." }
 ];
 
 function makeHookId(hookType: RunHookType, itemType: RunHookItemType, itemId: string) {
@@ -56,7 +52,7 @@ export function RunHooksBuilder({
   const canSelectCases = can("testcase.view");
   const canSelectSuites = can("suite.view");
   const [pickerResolvedCases, setPickerResolvedCases] = useState<TestCase[]>([]);
-  const [activeHookType, setActiveHookType] = useState<RunHookType>("BEFORE_ALL");
+  const [activeHookType, setActiveHookType] = useState<RunHookType>("BEFORE_TEST");
   const [pickerHookType, setPickerHookType] = useState<RunHookType | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
@@ -83,38 +79,10 @@ export function RunHooksBuilder({
   };
 
   const openSuggestions = () => {
-    // simple heuristic-based suggestions (client-side AI stub)
-    const suggestions: RunHookSelection[] = [];
-    // global before-run suggestions
-    suggestions.push({
-      id: makeHookId("BEFORE_ALL", "test", "prepare-global"),
-      hookType: "BEFORE_ALL",
-      itemType: "test",
-      itemId: "prepare-global",
-      name: "Prepare test environment"
-    });
-
-    // suggest per-suite hooks for up to 5 suites
-    suites.slice(0, 5).forEach((suite) => {
-      suggestions.push({
-        id: makeHookId("BEFORE_SUITE", "suite", suite.id),
-        hookType: "BEFORE_SUITE",
-        itemType: "suite",
-        itemId: suite.id,
-        name: `Seed data for ${suite.name}`
-      });
-    });
-
-    // suggest per-test hooks for up to 5 test cases
-    testCases.slice(0, 5).forEach((testCase) => {
-      suggestions.push({
-        id: makeHookId("BEFORE_TEST", "test", testCase.id),
-        hookType: "BEFORE_TEST",
-        itemType: "test",
-        itemId: testCase.id,
-        name: `Reset state for ${testCase.title}`
-      });
-    });
+    const existingIds = new Set(value.map(hook => hook.id));
+    const suggestions: RunHookSelection[] = (canSelectCases ? testCases : []).filter((item) => item.automated === "yes").map((item) => ({
+      id: makeHookId(activeHookType, "test", item.id), hookType: activeHookType, itemType: "test" as const, itemId: item.id, name: item.title
+    })).filter(hook => !existingIds.has(hook.id)).slice(0, 5);
 
     setSuggestedHooks(suggestions);
     setShowSuggestions(true);
@@ -209,7 +177,7 @@ export function RunHooksBuilder({
         <div className="hook-picker-header">
           <div>
             <strong>Suggested hooks</strong>
-            <span>AI-driven suggestions based on your suites and test cases.</span>
+            <span>Existing automated cases you can reuse for {activeHookType === "AFTER_TEST" ? "teardown" : "setup"}.</span>
           </div>
           <DialogCloseButton label="Close suggested hooks" onClick={closeSuggestions} />
         </div>
@@ -303,7 +271,7 @@ export function RunHooksBuilder({
             })}
             {!filteredSuites.length ? <p>No suites match this search.</p> : null}
           </section>
-          {projectId && appTypeId ? <TestCasePicker
+          {canSelectCases && projectId && appTypeId ? <TestCasePicker
             projectId={projectId}
             appTypeId={appTypeId}
             heading="Test Cases"
@@ -357,7 +325,7 @@ export function RunHooksBuilder({
         <div>
           <span className="eyebrow">Run Hooks</span>
           <h4>Setup and cleanup automation</h4>
-          <p>Configure what runs before or after the run, suites, and individual tests.</p>
+          <p>Select executable cases or suites for setup and teardown around each test. Their code is frozen when the run is created.</p>
         </div>
       </div>
       <div className="run-hooks-tabs" role="tablist" aria-label="Run hook sections">
@@ -381,7 +349,7 @@ export function RunHooksBuilder({
             <span>{activeDefinition.description}</span>
           </div>
           <div style={{display: 'flex', gap: '0.5rem'}}>
-            {can("run.ai") && (canSelectSuites || canSelectCases) ? <button className="ghost-button" onClick={() => openSuggestions()} type="button">Suggest</button> : null}
+            {canSelectCases ? <button className="ghost-button" onClick={() => openSuggestions()} type="button">Reuse automated case</button> : null}
             <button className="ghost-button" disabled={!canSelectSuites && !canSelectCases} onClick={() => openPicker(activeDefinition.type)} type="button">+ Add hook</button>
           </div>
         </div>

@@ -1,4 +1,6 @@
 import Fastify from "fastify";
+import { createExecutionSessions } from "./executionSessions.js";
+import { buildCapabilities, resolveMobilePlatform } from "./mobileCapabilities.js";
 import { remote } from "webdriverio";
 import { randomUUID } from "crypto";
 import { readFile } from "fs/promises";
@@ -33,6 +35,10 @@ const requiresProviderReadiness = () => ["1", "true", "yes", "on"]
 
 const mobileEngineSecurity = resolveMobileEngineSecurity();
 const app = Fastify({
+  genReqId: (request) => {
+    const supplied = request.headers["x-request-id"];
+    return typeof supplied === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(supplied) ? supplied : randomUUID();
+  },
   logger: {
     level: process.env.LOG_LEVEL || "info",
     serializers: {
@@ -64,6 +70,7 @@ const resolveRecorderSessionId = (request) => {
   }
 };
 
+app.addHook("onRequest", async (request, reply) => { reply.header("x-request-id", request.id); });
 app.addHook("onRequest", createMobileEngineRouteGuard({
   security: mobileEngineSecurity,
   resolveSessionTokenDigest: (request) => sessions.get(resolveRecorderSessionId(request))?.sessionTokenDigest
@@ -88,7 +95,6 @@ async function localFileToBase64(value) {
 }
 
 const KEYWORDS = [
-  "aiStep",
   "step",
   "tap",
   "tapPoint",
@@ -124,59 +130,6 @@ const KEYWORDS = [
   "setOrientation",
   "pause"
 ];
-
-function buildCapabilities(input = {}) {
-  const provider = normalizeText(input.provider || process.env.MOBILE_PROVIDER || "local-appium").toLowerCase();
-  const config = input.config && typeof input.config === "object" ? input.config : {};
-  const appiumServerUrl = normalizeText(input.appium_server_url || config.appium_server_url || process.env.APPIUM_SERVER_URL || "http://host.docker.internal:4723");
-  const deviceName = normalizeText(input.device_name || config.device_name || process.env.ANDROID_DEVICE_NAME || "Android Device");
-  const platformVersion = normalizeText(input.platform_version || config.platform_version || process.env.ANDROID_PLATFORM_VERSION);
-  const appPath = normalizeText(input.app || config.app || process.env.ANDROID_APP);
-
-  const capabilities = {
-    platformName: "Android",
-    "appium:automationName": "UiAutomator2",
-    "appium:deviceName": deviceName,
-    ...(platformVersion ? { "appium:platformVersion": platformVersion } : {}),
-    ...(appPath ? { "appium:app": appPath } : {}),
-    ...(config.app_package ? { "appium:appPackage": config.app_package } : {}),
-    ...(config.app_activity ? { "appium:appActivity": config.app_activity } : {}),
-    ...(config.no_reset !== undefined ? { "appium:noReset": Boolean(config.no_reset) } : { "appium:noReset": true })
-  };
-
-  if (provider === "saucelabs" || provider === "browserstack" || provider === "lambdatest" || provider === "crossbrowser") {
-    return {
-      provider,
-      appiumServerUrl: normalizeText(input.remote_url || config.remote_url || process.env.MOBILE_REMOTE_URL) || appiumServerUrl,
-      capabilities: {
-        ...capabilities,
-        ...(config.provider_options && typeof config.provider_options === "object" ? config.provider_options : {})
-      }
-    };
-  }
-
-  return { provider, appiumServerUrl, capabilities };
-}
-
-async function withDriver(input, fn) {
-  const { appiumServerUrl, capabilities } = buildCapabilities(input);
-  const parsed = new URL(appiumServerUrl);
-  const driver = await remote({
-    // WebDriver protocol logs include typed values; scoped secrets stay in requests.
-    logLevel: "silent",
-    protocol: parsed.protocol.replace(":", ""),
-    hostname: parsed.hostname,
-    port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80)),
-    path: parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "/",
-    capabilities
-  });
-
-  try {
-    return await fn(driver);
-  } finally {
-    await driver.deleteSession().catch(() => undefined);
-  }
-}
 
 async function createSessionDriver(input) {
   const { appiumServerUrl, capabilities } = buildCapabilities(input);
@@ -302,11 +255,10 @@ async function resolveElementCenter(driver, selector, resolveSelector = (value) 
   };
 }
 
-async function executeCodedAndroidScript(driver, source, resolveSelector, params) {
+async function executeCodedMobileScript(driver, source, resolveSelector, params, platform) {
   const driverFacade = createDriverFacade(driver, (selector) => resolveSelector(interpolateMobileText(selector, params)));
-  const android = buildAndroidApi(driver, resolveSelector, params);
   const $ = (selector) => driverFacade.$(selector);
-  const fn = new AsyncFunction("android", "driver", "browser", "$", "params", "capture", source);
+  const fn = new AsyncFunction("android", "ios", "mobile", "driver", "browser", "$", "params", "capture", source);
   const captures = {};
   const capture = (key, value) => {
     const normalizedKey = normalizeMobileParameterKey(key) || `capture_${Object.keys(captures).length + 1}`;
@@ -315,11 +267,13 @@ async function executeCodedAndroidScript(driver, source, resolveSelector, params
     params[normalizedKey] = normalizedValue;
     if (!normalizedKey.includes(".")) params[`t.${normalizedKey}`] = normalizedValue;
   };
-  await fn(android, driverFacade, driverFacade, $, params, capture);
+  const mobile = buildMobileApi(driver, resolveSelector, params, platform, capture);
+  await fn(mobile, mobile, mobile, driverFacade, driverFacade, $, params, capture);
   return captures;
 }
 
-async function executeKeyword(driver, command, resolveSelector = (value) => value) {
+async function executeKeyword(driver, command, resolveSelector = (value) => value, platform = "android") {
+  if (platform === "ios" && ["pressBack", "pressKeyCode", "startActivity", "openDeepLink", "deepLink"].includes(command.keyword)) throw new Error(`${command.keyword} is Android-only. Use an iOS locator or driver command.`);
   const [selector, value, extra] = command.args;
   const resolvedSelector = selector !== undefined && selector !== null ? resolveSelector(selector) : selector;
   switch (command.keyword) {
@@ -329,7 +283,7 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       }
       return { status: "passed", note: `Completed Android step ${selector || ""}`.trim() };
     case "aiStep":
-      return { status: "passed", note: `AI step noted: ${selector || value || "instruction"}` };
+      throw new Error("This instruction has no executable automation. Use Build with automation agent, review the generated steps, then run again.");
     case "tap":
       if (String(resolvedSelector).startsWith("point:")) {
         await tapPoint(driver, parsePoint(resolvedSelector));
@@ -339,7 +293,9 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
       return { status: "passed", note: `Tapped ${selector}` };
     case "tapByText": {
       const text = String(selector || value || "");
-      const selectorText = `android=new UiSelector().textContains("${escapeUiSelectorText(text)}")`;
+      const selectorText = platform === "ios"
+        ? `-ios predicate string:label CONTAINS ${JSON.stringify(text)}`
+        : `android=new UiSelector().textContains("${escapeUiSelectorText(text)}")`;
       await driver.$(selectorText).click();
       return { status: "passed", note: `Tapped text ${text}` };
     }
@@ -522,13 +478,13 @@ async function executeKeyword(driver, command, resolveSelector = (value) => valu
   }
 }
 
-function buildAndroidApi(driver, resolveSelector, params) {
+function buildMobileApi(driver, resolveSelector, params, platform, capture) {
   const run = (keyword, args) => executeKeyword(driver, {
     keyword,
     args: args.map((value) => interpolateMobileValue(value, params))
-  }, resolveSelector);
+  }, resolveSelector, platform);
   return {
-    step: async (_name, fn) => (typeof fn === "function" ? fn() : undefined),
+    step: async (_name, fn) => { if (typeof fn !== "function") throw new Error("A mobile step needs an executable callback."); return fn(); },
     aiStep: (instruction, options) => run("aiStep", [instruction, options]),
     tap: (selector, options) => run("tap", [selector, options]),
     tapByText: (text, options) => run("tapByText", [text, options]),
@@ -562,7 +518,15 @@ function buildAndroidApi(driver, resolveSelector, params) {
     activateApp: (appId) => run("activateApp", [appId]),
     terminateApp: (appId) => run("terminateApp", [appId]),
     setOrientation: (orientation) => run("setOrientation", [orientation]),
-    pause: (ms) => run("pause", [ms])
+    pause: (ms) => run("pause", [ms]),
+    expectVisible: (selector) => run("expectDisplayed", [selector]),
+    expectHidden: (selector, timeoutMs) => run("expectNotDisplayed", [selector, timeoutMs]),
+    captureText: async (selector, key) => {
+      const value = await driver.$(resolveSelector(interpolateMobileText(selector, params))).getText();
+      if (key) capture(key, value);
+      return value;
+    },
+    screenshot: () => driver.takeScreenshot()
   };
 }
 
@@ -624,19 +588,31 @@ app.get("/health/ready", async (_request, reply) => {
 
 app.get("/api/v1/capabilities", async () => ({
   runner: "mobile",
-  supported_platforms: ["android"],
+  supported_platforms: ["android", "ios"],
   supported_engines: ["webdriverio", "appium"],
   supported_providers: ["local-appium", "saucelabs", "lambdatest", "browserstack", "crossbrowser", "other"],
   android_keywords: KEYWORDS,
+  ios_keywords: KEYWORDS.filter((keyword) => !["pressBack", "pressKeyCode", "startActivity", "openDeepLink", "deepLink", "aiStep"].includes(keyword)),
   recorder_modes: ["local", "remote"]
 }));
 
+const executionSessions = createExecutionSessions({ createDriver: createSessionDriver, onCloseError: (details) => app.log.warn(details, "Mobile execution session cleanup failed") });
+app.addHook("onClose", () => executionSessions.dispose());
+app.delete("/api/v1/mobile/execution-sessions/:id", async (request) => {
+  await executionSessions.close(request.params.id);
+  return { status: "closed" };
+});
 app.post("/api/v1/mobile/execute", async (request) => {
   const payload = request.body || {};
-  return withDriver(payload, (driver) => executeAndroidStepsWithDriver(driver, payload));
+  const platform = resolveMobilePlatform(payload);
+  const key = payload.execution_session_key || randomUUID();
+  try { return await executionSessions.execute(key, platform, payload, (driver) => executeMobileStepsWithDriver(driver, payload)); }
+  finally { if (!payload.execution_session_key) await executionSessions.close(key); }
 });
 
-export async function executeAndroidStepsWithDriver(driver, payload = {}) {
+export async function executeMobileStepsWithDriver(driver, payload = {}) {
+  const platform = resolveMobilePlatform(payload);
+  const label = platform === "ios" ? "iOS" : "Android";
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
   let params = buildMobileParameterValues(payload.parameter_values);
   const capturedValues = {};
@@ -648,26 +624,36 @@ export async function executeAndroidStepsWithDriver(driver, payload = {}) {
   const results = [];
 
   for (const step of steps) {
+    const startedAt = Date.now();
     params = buildMobileParameterValues({ ...payload.parameter_values, ...step.parameter_values, ...capturedValues });
     const source = String(step.automation_code || "").trim();
     if (!source) {
       results.push({
         step_id: step.id,
         status: "blocked",
-        note: "Android step has no executable android keyword script."
+        note: `${label} step has no executable script.`
       });
       break;
     }
 
     try {
-      const captures = await executeCodedAndroidScript(driver, source, resolveSelector, params);
+      const captures = await executeCodedMobileScript(driver, source, resolveSelector, params, platform);
       Object.assign(capturedValues, captures);
-      results.push({ step_id: step.id, status: "passed", note: "Android step completed.", captures });
+      results.push({ step_id: step.id, status: "passed", note: `${label} step completed.`, captures, duration_ms: Date.now() - startedAt });
     } catch (error) {
+      let evidence = null;
+      if (payload.artifact_policy?.screenshot_on_failure === true) {
+        try {
+          const image = await driver.takeScreenshot();
+          if (typeof image === "string" && image.length < 4 * 1024 * 1024) evidence = { dataUrl: `data:image/png;base64,${image}`, fileName: `mobile-${step.id}.png`, mimeType: "image/png" };
+        } catch { /* Screenshot failure must not replace the original test failure. */ }
+      }
       results.push({
         step_id: step.id,
         status: "failed",
-        note: error instanceof Error ? error.message : "Android step failed."
+        duration_ms: Date.now() - startedAt,
+        evidence,
+        note: error instanceof Error ? error.message : `${label} step failed.`
       });
       break;
     }
@@ -675,6 +661,8 @@ export async function executeAndroidStepsWithDriver(driver, payload = {}) {
 
   return { status: results.some((item) => item.status === "failed") ? "failed" : results.some((item) => item.status === "blocked") ? "blocked" : "passed", results };
 }
+
+export const executeAndroidStepsWithDriver = executeMobileStepsWithDriver;
 
 app.post("/api/v1/mobile/recorder/sessions", async (request) => {
   const payload = request.body || {};
@@ -685,7 +673,8 @@ app.post("/api/v1/mobile/recorder/sessions", async (request) => {
     id,
     status: "running",
     recorder_mode: mode,
-    display_mode: mode === "remote" ? "cloud-device" : "local-adb-device",
+    platform: resolveMobilePlatform(payload),
+    display_mode: mode === "remote" ? "cloud-device" : "local-device",
     action_count: 0,
     network_count: 0,
     actions: [],
@@ -747,12 +736,13 @@ const screen=document.getElementById("screen");
 const empty=document.getElementById("empty");
 const device=document.getElementById("device");
 const withPath=(path)=>"/api/v1/mobile/recorder/sessions/"+encodeURIComponent(sessionId)+path;
-async function refresh(){try{const response=await fetch(withPath("/screenshot")+"?t="+Date.now(),{cache:"no-store",headers:sessionHeaders});if(!response.ok)throw new Error(await response.text());const blob=await response.blob();screen.src=URL.createObjectURL(blob);screen.style.display="block";empty.style.display="none";}catch(error){screen.style.display="none";empty.style.display="block";empty.textContent=String(error.message||error||"Waiting for device screenshot");}}
-async function send(payload){await fetch(withPath("/input"),{method:"POST",headers:{"Content-Type":"application/json",...sessionHeaders},body:JSON.stringify(payload)});setTimeout(refresh,250);}
+async function refresh(){try{const response=await fetch(withPath("/screenshot")+"?t="+Date.now(),{cache:"no-store",headers:sessionHeaders});if(!response.ok)throw new Error(await response.text());const blob=await response.blob();const previous=screen.src;screen.src=URL.createObjectURL(blob);if(previous.startsWith("blob:"))URL.revokeObjectURL(previous);screen.style.display="block";empty.style.display="none";}catch(error){screen.style.display="none";empty.style.display="block";empty.textContent=String(error.message||error||"Waiting for device screenshot");}}
+async function send(payload){const response=await fetch(withPath("/input"),{method:"POST",headers:{"Content-Type":"application/json",...sessionHeaders},body:JSON.stringify(payload)});if(!response.ok){const error=await response.json();empty.style.display="block";empty.textContent=error.message||"Input failed";}}
 device.addEventListener("click",(event)=>{const rect=device.getBoundingClientRect();send({type:"tap",x:Math.round(event.clientX-rect.left),y:Math.round(event.clientY-rect.top),width:Math.round(rect.width),height:Math.round(rect.height)});});
 document.getElementById("type").addEventListener("click",()=>{const value=document.getElementById("text").value;send({type:"type",value});});
 document.getElementById("back").addEventListener("click",()=>send({type:"pressBack"}));
-refresh();setInterval(refresh,1000);
+document.getElementById("back").hidden=${JSON.stringify(session.platform === "ios")};
+async function poll(){await refresh();setTimeout(poll,1000);}poll();
 </script></body></html>`;
 });
 
@@ -794,6 +784,14 @@ app.post("/api/v1/mobile/recorder/sessions/:id/input", async (request, reply) =>
     return { message: "Mobile recorder session not found" };
   }
   const payload = request.body || {};
+  if (session.status !== "running" || !session.driver) {
+    reply.code(409);
+    return { message: session.driver_error || "Wait for a connected device before recording actions." };
+  }
+  if (session.platform === "ios" && payload.type === "pressBack") {
+    reply.code(400);
+    return { message: "Use the app’s back control on iOS." };
+  }
   try {
     if (payload.type === "tap") {
       const size = session.driver ? await session.driver.getWindowSize().catch(() => null) : null;

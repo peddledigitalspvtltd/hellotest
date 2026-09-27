@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { isAutomationStepMapped } from "../../frontend/lib/automationStepPersistence.ts";
 import { automationNumericArgument, automationParameterArgument, getAutomationKeywordInputSpec, parseAutomationKeywordCall } from "../../frontend/lib/automationKeywordInputs.ts";
 
 const pageSource = readFileSync(new URL("../../frontend/pages/AutomationPage.tsx", import.meta.url), "utf8");
@@ -75,18 +76,18 @@ test("stored numeric, nullable, escaped, and ios calls round-trip through keywor
   const swipe = parse(step("await mobile.swipe(0, 100, 200, 0, 300);", "ios"));
   assert.equal(swipe.objectRef, "0,100");
   assert.equal(swipe.value, "200,0,300");
-  assert.equal(parse(step('await ios.tap("Login.Submit");', "ios")).keyword, "mobile.tap");
+  assert.equal(parse(step('await ios.tap("Login.Submit");', "ios")).keyword, "ios.tap");
 });
 
-test("saving edited API code clears a competing request while prose/options saves retain it", async () => {
+test("saving executable code clears a competing legacy request while prose/options saves retain it", async () => {
   const start = pageSource.indexOf("  const updateAutomationStepCode = useMutation({");
   const fnStart = pageSource.indexOf("mutationFn:", start) + "mutationFn:".length;
   const fnEnd = pageSource.indexOf("\n    onSuccess:", fnStart);
   const mutationScript = ts.transpileModule(`const mutation = ${pageSource.slice(fnStart, fnEnd).trim().replace(/,$/, "")};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   async function save(code) {
     let payload;
-    const step = { id: "api", test_case_id: "case", automation_code: 'await api.request("GET /old");', api_request: { method: "GET", url: "/old" } };
-    const context = { canEditAutomationCode: true, stepCodeDrafts: { api: code }, stepOptionDrafts: {}, stepDrafts: { api: { name: "Updated action", expected_result: "Updated result" } }, applyAutomationStepOptions: (value) => value, parseAutomationStepOptions: () => ({}), parseAutomationStepDraft: parse, buildAutomationStepAction: (value) => value.name, api: { testSteps: { update: async (_id, input) => { payload = input; } } }, refreshAutomationStepAfterSave: async () => step };
+    const step = { id: "api", test_case_id: "case", step_type: "web", automation_code: 'await api.request("GET /old");', api_request: { method: "GET", url: "/old" } };
+    const context = { isAutomationStepMapped, canEditAutomationCode: true, stepCodeDrafts: { api: code }, stepOptionDrafts: {}, stepDrafts: { api: { name: "Updated action", expected_result: "Updated result" } }, applyAutomationStepOptions: (value) => value, parseAutomationStepOptions: () => ({}), parseAutomationStepDraft: parse, buildAutomationStepAction: (value) => value.name, api: { testSteps: { update: async (_id, input) => { payload = input; } } }, refreshAutomationStepAfterSave: async () => step };
     await new Function(...Object.keys(context), `${mutationScript}\nreturn mutation;`)(...Object.values(context))(step);
     return payload;
   }

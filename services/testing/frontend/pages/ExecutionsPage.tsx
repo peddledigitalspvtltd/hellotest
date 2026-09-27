@@ -1,3 +1,4 @@
+import { ExecutionHookResults } from "../components/ExecutionHookResults";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
 const AiInsightPreviewDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiInsightPreviewDialog")["AiInsightPreviewDialog"]> & {}>("ai", "AiInsightPreviewDialog", () => import("@hellotest/ai/frontend/components/AiInsightPreviewDialog"), "ai");
@@ -4668,7 +4669,7 @@ export function ExecutionsPage() {
     }
   };
 
-  const openExecutionEvidence = async (step: TestStep, evidence: ExecutionStepEvidence) => {
+  const openExecutionEvidence = async (step: Pick<TestStep, "id" | "step_order">, evidence: ExecutionStepEvidence, label = `Step ${step.step_order}`) => {
     if (!hasExecutionEvidence(evidence)) {
       return;
     }
@@ -4682,7 +4683,7 @@ export function ExecutionsPage() {
       closeExecutionEvidence();
       if (evidence.dataUrl) {
         setExecutionEvidencePreview({
-          stepLabel: `Step ${step.step_order}`,
+          stepLabel: label,
           fileName: evidence.fileName || null,
           mimeType: evidenceMimeType(evidence),
           sourceUrl: evidence.dataUrl
@@ -4695,7 +4696,7 @@ export function ExecutionsPage() {
       executionEvidenceObjectUrlRef.current = sourceUrl;
       setExecutionEvidencePreview({
         attachmentId: evidence.attachmentId,
-        stepLabel: `Step ${step.step_order}`,
+        stepLabel: label,
         fileName: evidence.fileName || null,
         mimeType: evidence.mimeType || blob.type || "application/octet-stream",
         sourceUrl
@@ -4706,6 +4707,9 @@ export function ExecutionsPage() {
       setOpeningEvidenceStepId((current) => current === step.id ? "" : current);
     }
   };
+
+  const openHookEvidence = (evidence: ExecutionStepEvidence, stepId: string) =>
+    openExecutionEvidence({ id: stepId, step_order: 0 }, evidence, stepId.split(":")[1] === "pre" ? "Setup evidence" : "Teardown evidence");
 
   const handleUploadStepEvidence = async (step: TestStep, file: File) => {
     if (!selectedExecution || !selectedTestCaseId) return;
@@ -8618,6 +8622,7 @@ export function ExecutionsPage() {
                       </section>
                         ) : null}
 
+                        <ExecutionHookResults logs={selectedExecutionResult?.logs || null} canViewEvidence={canViewRunEvidence} canViewAutomationCode={canViewRunAutomationCode} onOpenEvidence={openHookEvidence} />
                         {!selectedSteps.length ? <div className="empty-state compact">No snapshot steps are available for this case.</div> : null}
 
                         {selectedSteps.length ? (
@@ -8841,6 +8846,7 @@ export function ExecutionsPage() {
                               onOpenEvidence={openExecutionEvidence}
                               steps={selectedSteps}
                             />
+                            <ExecutionHookResults logs={selectedExecutionResult.logs} canViewEvidence={canViewRunEvidence} canViewAutomationCode={canViewRunAutomationCode} onOpenEvidence={openHookEvidence} />
                           </div>
                         ) : (
                           <div className="empty-state compact">No logs yet for the selected case.</div>
@@ -11432,6 +11438,7 @@ function ExecutionAttemptDialog({ result, runName, canViewEvidence, onClose }: {
       {result.lifecycle_history.slice().reverse().map((event, index) => <li key={`${event.at}-${index}`}><strong>{event.actor_name || event.actor_email || "Tester"}</strong><span>{event.action.replace(/_/g, " ")} · {BOARD_STATUS_META[event.to_status as BoardStatusTone]?.label || event.to_status}</span><time dateTime={event.at}>{formatExecutionTimestamp(event.at)}</time></li>)}
     </ol> : null}
     {run.isLoading ? <LoadingState label="Loading saved case steps" /> : run.isError ? <p role="alert">Saved steps could not be loaded. The recorded logs remain available.</p> : null}
+    <ExecutionHookResults logs={result.logs} canViewEvidence={canViewEvidence} />
     <ExecutionStructuredLogView logsJson={result.logs} steps={steps} />
     <CaseRunAttachmentPanel resultId={result.id} executionId={result.execution_id} testCaseId={result.test_case_id} iterationKey={result.data_set_iteration_key || undefined} canView={canViewEvidence} canUpload={false} canDelete={false} ensureResult={async () => result} legacyEvidence={parseExecutionLogs(result.logs).stepEvidence || {}} />
   </RunReviewDialog>;
@@ -11788,10 +11795,11 @@ function ExecutionStepCard({
               <pre className="execution-automation-code-block">
                 {automationDetail.code.split(/\r?\n/).map((line, index) => {
                   const lineNumber = index + 1;
+                  const lineResult = automationDetail.line_results?.filter((result) => result.line === lineNumber).at(-1);
                   const isHotLine = lineNumber === automationDetail.error_line || lineNumber === automationDetail.active_line;
                   return (
                     <span className={isHotLine ? "is-hot-line" : ""} key={`${lineNumber}:${line}`}>
-                      <strong>{lineNumber}</strong>
+                      <strong title={lineResult ? `${lineResult.status} · ${lineResult.duration_ms}ms · attempt ${lineResult.attempt}` : "No awaited operation recorded"}>{lineNumber}{lineResult ? lineResult.status === "passed" ? " ✓" : " ✕" : ""}</strong>
                       <code>{line || " "}</code>
                     </span>
                   );
@@ -12027,10 +12035,11 @@ function ExecutionAutomationStepCard({
       <pre className="execution-automation-code-block">
         {code.split(/\r?\n/).map((line, index) => {
           const lineNumber = index + 1;
+          const lineResult = automationDetail?.line_results?.filter((result) => result.line === lineNumber).at(-1);
           const isHotLine = lineNumber === activeLine;
           return (
             <span className={isHotLine ? "is-hot-line" : ""} key={`${step.id}:${lineNumber}`}>
-              <strong>{lineNumber}</strong>
+              <strong title={lineResult ? `${lineResult.status} · ${lineResult.duration_ms}ms · attempt ${lineResult.attempt}` : "No awaited operation recorded"}>{lineNumber}{lineResult ? lineResult.status === "passed" ? " ✓" : " ✕" : ""}</strong>
               <code>{line || " "}</code>
             </span>
           );

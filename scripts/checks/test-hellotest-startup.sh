@@ -14,6 +14,13 @@ set -eu
 
 case "$1" in
   ps) exit 0 ;;
+  image)
+    [ "$2" = inspect ] || exit 92
+    [ "${MOCK_MINIO_PRESENT:-1}" = 1 ] && exit 0
+    exit 1 ;;
+  build)
+    printf '%s\n' 'minio source build' >> "$MOCK_DOCKER_TRACE"
+    exit "${MOCK_MINIO_BUILD_STATUS:-0}" ;;
   compose) shift ;;
   *) echo "Unexpected Docker command: $*" >&2; exit 90 ;;
 esac
@@ -25,6 +32,13 @@ while [ "$#" -gt 0 ]; do
     *) break ;;
   esac
 done
+
+if [ "$1" = config ]; then
+  [ "$2" = --services ] || exit 93
+  [ "${MOCK_STORAGE_REQUIRED:-1}" = 0 ] || printf '%s\n' minio
+  printf '%s\n' api frontend
+  exit 0
+fi
 
 printf '%s\n' "$*" >> "$MOCK_DOCKER_TRACE"
 case "$1" in
@@ -71,6 +85,7 @@ fail() {
 reset_case() {
   : > "$MOCK_DOCKER_TRACE"
   export MOCK_PULL_STATUS=0 MOCK_BUILD_STATUS=0 MOCK_OPS_STATUS=0
+  export MOCK_MINIO_PRESENT=1 MOCK_MINIO_BUILD_STATUS=0 MOCK_STORAGE_REQUIRED=1
 }
 
 assert_trace() {
@@ -89,6 +104,40 @@ build --no-cache
 up -d' 'runtime images are ready before an uncached build and startup'
 
 reset_case
+export MOCK_MINIO_PRESENT=0
+"$ROOT_DIR/hellotest.sh" up --build --stack local > "$TEST_DIR/output" 2>&1
+assert_trace 'minio source build
+pull --ignore-buildable --include-deps --policy missing
+up -d --build' 'missing default MinIO is built before runtime pulls and application startup'
+
+reset_case
+export MOCK_MINIO_PRESENT=0 MOCK_MINIO_BUILD_STATUS=18
+if "$ROOT_DIR/hellotest.sh" up --build --stack local > "$TEST_DIR/output" 2>&1; then
+  fail 'failed MinIO source build must prevent startup'
+fi
+assert_trace 'minio source build' 'a failed MinIO build cannot proceed to pulls or startup'
+
+reset_case
+export MOCK_MINIO_PRESENT=0
+if "$ROOT_DIR/hellotest.sh" up --build --stack local --skip-image-pull > "$TEST_DIR/output" 2>&1; then
+  fail 'offline startup must reject an absent default MinIO image'
+fi
+assert_trace '' 'offline startup never downloads or compiles a missing MinIO image'
+grep -F 'npm run build:minio' "$TEST_DIR/output" >/dev/null || fail 'offline failure must explain how to prepare MinIO'
+
+reset_case
+export MOCK_MINIO_PRESENT=0 MOCK_STORAGE_REQUIRED=0
+"$ROOT_DIR/hellotest.sh" up --build --stack local redis > "$TEST_DIR/output" 2>&1
+assert_trace 'pull --ignore-buildable --include-deps --policy missing redis
+up -d --build redis' 'a scoped service without MinIO does not build it'
+
+reset_case
+export MOCK_MINIO_PRESENT=0
+MINIO_IMAGE=registry.example.test/minio:custom "$ROOT_DIR/hellotest.sh" up --build --stack local > "$TEST_DIR/output" 2>&1
+assert_trace 'pull --ignore-buildable --include-deps --policy missing
+up -d --build' 'custom MinIO registry images are never replaced by a source build'
+
+reset_case
 "$ROOT_DIR/hellotest.sh" up --build --stack local frontend > "$TEST_DIR/output" 2>&1
 assert_trace 'pull --ignore-buildable --include-deps --policy missing frontend
 up -d --build frontend' 'cached builds preserve service scope and include dependencies in preflight'
@@ -101,7 +150,7 @@ fi
 assert_trace 'pull --ignore-buildable --include-deps --policy missing' 'failed dependency pull prevents build and startup'
 grep -F 'Registry unavailable for runtime image' "$TEST_DIR/output" >/dev/null \
   || fail 'the original pull error must remain visible'
-grep -F 'no build or startup was attempted' "$TEST_DIR/output" >/dev/null \
+grep -F 'no application build or startup was attempted' "$TEST_DIR/output" >/dev/null \
   || fail 'pull failure must explain that build and startup were skipped'
 if grep -F 'HelloTest is starting' "$TEST_DIR/output" >/dev/null; then
   fail 'failed startup must not report success'

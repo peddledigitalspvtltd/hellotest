@@ -2,10 +2,12 @@ const Fastify = require("fastify");
 const { LogController } = Fastify;
 const { config } = require("./config");
 const { generateRequestId } = require("./utils/token");
+const { serializeDiagnosticError } = require("./utils/diagnosticErrorSerializer");
 
 const fastify = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || "info",
+    serializers: { err: serializeDiagnosticError, error: serializeDiagnosticError },
     redact: {
       censor: "[REDACTED]",
       paths: [

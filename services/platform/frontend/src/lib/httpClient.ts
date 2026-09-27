@@ -1,5 +1,7 @@
+import { ClientRequestCache } from "./clientRequestCache";
+import { consumeApiResponse } from "./clientRequestTransport";
 import { getRequestTimeout } from "../platform/lib/requestTimeout";
-import type { ApiError, JiraAttachment, JiraComment, Requirement, SessionPayload, TestCase, TestStep } from "../types";
+import type { ApiError, Requirement, SessionPayload, TestCase, TestStep } from "../types";
 import { resolveServiceBase } from "../platform/lib/serviceEndpoints";
 import { appendCurrentProjectScope } from "../platform/lib/currentScope";
 
@@ -27,13 +29,12 @@ export const API_BASE_URL =
 
 const SESSION_KEY = "hellotest.session";
 
-const CLIENT_GET_CACHE_TTL_MS = 1_500;
+const requestCache = new ClientRequestCache();
 
-const CLIENT_GET_CACHE_MAX_ENTRIES = 120;
+/** @deprecated Retained for protocol 1 capability releases. Prefer invalidation. */
+export const clientGetResponseCache = requestCache.compatibilityResponses;
 
-const inFlightClientRequests = new Map<string, Promise<unknown>>();
-
-export const clientGetResponseCache = new Map<string, { expiresAt: number; value: unknown }>();
+export const invalidateClientGetResponses = () => requestCache.invalidate();
 
 const stableStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -45,122 +46,6 @@ const stableStringify = (value: unknown): string => {
   }
 
   return JSON.stringify(value);
-};
-
-const rememberClientGetResponse = (key: string, value: unknown) => {
-  clientGetResponseCache.set(key, {
-    expiresAt: Date.now() + CLIENT_GET_CACHE_TTL_MS,
-    value
-  });
-
-  while (clientGetResponseCache.size > CLIENT_GET_CACHE_MAX_ENTRIES) {
-    const oldestKey = clientGetResponseCache.keys().next().value;
-    if (!oldestKey) break;
-    clientGetResponseCache.delete(oldestKey);
-  }
-};
-
-const readClientGetResponse = (key: string) => {
-  const cached = clientGetResponseCache.get(key);
-
-  if (!cached) {
-    return undefined;
-  }
-
-  if (cached.expiresAt <= Date.now()) {
-    clientGetResponseCache.delete(key);
-    return undefined;
-  }
-
-  return cached.value;
-};
-
-async function ensureJiraResponse(response: Response, action: string) {
-  if (response.ok) {
-    return response;
-  }
-
-  let detail = "";
-  try {
-    const raw = await response.text();
-    try {
-      const payload = JSON.parse(raw) as { errorMessages?: string[]; errors?: Record<string, string>; message?: string };
-      detail = payload.message
-        || payload.errorMessages?.filter(Boolean).join(" ")
-        || Object.values(payload.errors || {}).filter(Boolean).join(" ");
-    } catch {
-      detail = raw;
-    }
-  } catch {
-    detail = "";
-  }
-
-  throw new Error(detail || `${action} failed with HelloTest status ${response.status}.`);
-}
-
-function normalizeJiraAttachment(value: unknown): JiraAttachment {
-  const attachment = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const authorValue = attachment.author && typeof attachment.author === "object"
-    ? attachment.author as Record<string, unknown>
-    : null;
-
-  return {
-    id: String(attachment.id || ""),
-    filename: String(attachment.filename || "attachment"),
-    size: Number(attachment.size || 0),
-    storedSize: Number(attachment.storedSize || attachment.stored_size || attachment.size || 0),
-    compression: typeof attachment.compression === "string" ? attachment.compression : "none",
-    savedBytes: Number(attachment.savedBytes || attachment.saved_bytes || 0),
-    mimeType: String(attachment.mimeType || attachment.mime_type || "application/octet-stream"),
-    created: typeof attachment.created === "string" ? attachment.created : null,
-    content: typeof attachment.content === "string" ? attachment.content : null,
-    thumbnail: typeof attachment.thumbnail === "string" ? attachment.thumbnail : null,
-    author: authorValue ? {
-      accountId: typeof authorValue.accountId === "string" ? authorValue.accountId : undefined,
-      displayName: typeof authorValue.displayName === "string" ? authorValue.displayName : undefined,
-      avatarUrls: authorValue.avatarUrls && typeof authorValue.avatarUrls === "object"
-        ? authorValue.avatarUrls as Record<string, string>
-        : undefined
-    } : null
-  };
-}
-
-function jiraAdfToPlainText(value: unknown): string {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map(jiraAdfToPlainText).filter(Boolean).join("");
-  if (typeof value !== "object") return "";
-  const node = value as { type?: string; text?: string; content?: unknown[] };
-  if (typeof node.text === "string") return node.text;
-  const content = (node.content || []).map(jiraAdfToPlainText).join("");
-  return ["paragraph", "heading", "listItem", "blockquote", "codeBlock"].includes(node.type || "") ? `${content}\n` : content;
-}
-
-function normalizeJiraComment(value: unknown): JiraComment {
-  const comment = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const authorValue = comment.author && typeof comment.author === "object"
-    ? comment.author as Record<string, unknown>
-    : null;
-  return {
-    id: String(comment.id || ""),
-    body: jiraAdfToPlainText(comment.body).trim(),
-    created: typeof comment.created === "string" ? comment.created : null,
-    updated: typeof comment.updated === "string" ? comment.updated : null,
-    author: authorValue ? {
-      accountId: typeof authorValue.accountId === "string" ? authorValue.accountId : undefined,
-      displayName: typeof authorValue.displayName === "string" ? authorValue.displayName : undefined,
-      avatarUrls: authorValue.avatarUrls && typeof authorValue.avatarUrls === "object"
-        ? authorValue.avatarUrls as Record<string, string>
-        : undefined
-    } : null
-  };
-}
-
-type ForgeBlobPayload = {
-  __hellotest_blob__: true;
-  base64: string;
-  mimeType?: string;
-  fileName?: string;
 };
 
 export const sessionStorage = {
@@ -195,8 +80,7 @@ export function readRequestSession() {
   if (fingerprint !== requestSessionFingerprint) {
     requestSessionFingerprint = fingerprint;
     requestSessionRevision += 1;
-    clientGetResponseCache.clear();
-    inFlightClientRequests.clear();
+    invalidateClientGetResponses();
   }
   return { token: session?.token || null, revision: requestSessionRevision };
 }
@@ -258,90 +142,78 @@ export async function request<T>(path: string, init?: RequestInit, timeoutMs = g
   const { token } = requestSession;
   if (!headers.has("Content-Type") && init?.body) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const canReuseRequest = method === "GET" && init?.cache !== "no-store";
+  const serviceBase = resolveServiceBase(scopedPath, API_BASE_URL);
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+  if (isMutation) invalidateClientGetResponses();
+  const cacheRevision = requestCache.revision;
+  const canReuseRequest = method === "GET" && (!init?.cache || init.cache === "default");
   // A component's cancellation must not abort another component's request.
   // React Query already coalesces observers sharing the same query and signal.
   const canSharePendingRequest = canReuseRequest && !init?.signal;
   const requestKey = canReuseRequest
-    ? stableStringify({ method, path: scopedPath, session: requestSession.revision })
+    ? stableStringify({
+      method, path: scopedPath, serviceBase, session: requestSession.revision,
+      headers: Array.from(headers.entries()), timeoutMs,
+      credentials: init?.credentials, mode: init?.mode, redirect: init?.redirect,
+      integrity: init?.integrity, referrer: init?.referrer, referrerPolicy: init?.referrerPolicy
+    })
     : "";
 
   if (canReuseRequest) {
-    const cached = readClientGetResponse(requestKey);
+    const cached = requestCache.read(requestKey);
 
     if (cached !== undefined) {
       return cached as T;
     }
 
-    const pending = canSharePendingRequest ? inFlightClientRequests.get(requestKey) : undefined;
+    const pending = canSharePendingRequest ? requestCache.getPending(requestKey) : undefined;
 
     if (pending) {
       return (await pending) as T;
     }
   }
 
-  const executeRequest = async (): Promise<T> => {
-    const serviceBase = resolveServiceBase(scopedPath, API_BASE_URL);
-    let response: Response;
-    try {
-      const timeoutSignal = AbortSignal.timeout(timeoutMs);
-      const signal = init?.signal
-        ? AbortSignal.any([init.signal, timeoutSignal])
-        : timeoutSignal;
-      response = await fetch(`${serviceBase}${scopedPath}`, {
-        ...init,
-        method,
-        headers,
-        signal
-      });
-    } catch (err) {
-      if (init?.signal?.aborted) throw err;
-      if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
-        throw new Error(`Request timeout: ${scopedPath} took too long to respond`);
+  const executeRequest = () => consumeApiResponse<T>(
+    `${serviceBase}${scopedPath}`,
+    { ...init, method, headers },
+    { timeoutMs, timeoutMessage: "Request timeout: the API took too long to respond." },
+    async (response) => {
+      if (!response.ok) {
+        const apiError = await parseApiError(response);
+        if (response.status === 401 && token && isSessionAuthFailure(scopedPath, apiError.message) && readRequestSession().revision === requestSession.revision) {
+          sessionStorage.clear();
+          if (!scopedPath.startsWith("/auth/")) window.location.assign("/auth");
+        }
+        throw apiError;
       }
-      throw new Error(`Unable to reach API at ${serviceBase}. Check your connection and try again.`);
-    }
 
-    if (!response.ok) {
-      const apiError = await parseApiError(response);
-      if (response.status === 401 && token && isSessionAuthFailure(scopedPath, apiError.message) && readRequestSession().revision === requestSession.revision) {
-        sessionStorage.clear();
-        if (!scopedPath.startsWith("/auth/")) window.location.assign("/auth");
-      }
-      throw apiError;
+      if (response.status === 204) return undefined as T;
+      const isJson = response.headers.get("content-type")?.includes("application/json");
+      return (isJson ? await response.json() : await response.text()) as T;
     }
-
-    if (response.status === 204) return undefined as T;
-    const isJson = response.headers.get("content-type")?.includes("application/json");
-    return (isJson ? await response.json() : await response.text()) as T;
-  };
+  );
 
   const pendingRequest = executeRequest();
 
   if (canSharePendingRequest) {
-    inFlightClientRequests.set(requestKey, pendingRequest);
+    requestCache.setPending(requestKey, pendingRequest);
   }
 
   try {
     const response = await pendingRequest;
 
     if (canReuseRequest && readRequestSession().revision === requestSession.revision) {
-      rememberClientGetResponse(requestKey, response);
-    } else if (method !== "GET") {
-      clientGetResponseCache.clear();
+      requestCache.remember(requestKey, response, cacheRevision);
     }
 
     return response;
   } catch (err) {
     throw err instanceof Error ? err : new Error("HelloTest request failed");
   } finally {
-    if (canSharePendingRequest && inFlightClientRequests.get(requestKey) === pendingRequest) {
-      inFlightClientRequests.delete(requestKey);
-    }
+    if (isMutation) invalidateClientGetResponses();
+    if (canSharePendingRequest) requestCache.release(requestKey, pendingRequest);
   }
 }
-
-
 
 export async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   const scopedPath = appendCurrentProjectScope(path);
@@ -352,21 +224,21 @@ export async function requestBlob(path: string, init?: RequestInit): Promise<Blo
     headers.set("Content-Type", "application/json");
   }
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  let response: Response;
+  const isMutation = !["GET", "HEAD", "OPTIONS"].includes(String(init?.method || "GET").toUpperCase());
+  init?.signal?.throwIfAborted();
+  if (isMutation) invalidateClientGetResponses();
   try {
-    response = await fetch(`${serviceBase}${scopedPath}`, {
-      ...init,
-      headers,
-      signal: AbortSignal.timeout(120_000)
-    });
-  } catch (err) {
-    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
-      throw new Error(`Download timeout: ${scopedPath} took too long to respond`);
-    }
-    throw new Error(`Unable to reach API at ${serviceBase}. Check your connection and try again.`);
+    return await consumeApiResponse(
+      `${serviceBase}${scopedPath}`, { ...init, headers },
+      { timeoutMs: 120_000, timeoutMessage: "Download timeout: the API took too long to respond." },
+      async (response) => {
+        if (!response.ok) throw await parseApiError(response);
+        return response.blob();
+      }
+    );
+  } finally {
+    if (isMutation) invalidateClientGetResponses();
   }
-  if (!response.ok) throw await parseApiError(response);
-  return response.blob();
 }
 
 export async function requestForm<T>(path: string, formData: FormData, options?: { idempotencyKey?: string; signal?: AbortSignal }): Promise<T> {
@@ -376,27 +248,20 @@ export async function requestForm<T>(path: string, formData: FormData, options?:
   const token = getStoredToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (options?.idempotencyKey) headers.set("Idempotency-Key", options.idempotencyKey);
-  let response: Response;
+  options?.signal?.throwIfAborted();
+  invalidateClientGetResponses();
   try {
-    const timeoutSignal = AbortSignal.timeout(120_000);
-    const signal = options?.signal
-      ? AbortSignal.any([options.signal, timeoutSignal])
-      : timeoutSignal;
-    response = await fetch(`${serviceBase}${scopedPath}`, {
-      method: "POST",
-      headers,
-      body: formData,
-      signal
-    });
-  } catch (err) {
-    if (options?.signal?.aborted) throw err;
-    if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
-      throw new Error("Attachment upload timed out. Try a smaller file or check object storage connectivity.");
-    }
-    throw new Error(`Unable to reach API at ${serviceBase}. Check your connection and try again.`);
+    return await consumeApiResponse<T>(
+      `${serviceBase}${scopedPath}`, { method: "POST", headers, body: formData, signal: options?.signal },
+      { timeoutMs: 120_000, timeoutMessage: "Attachment upload timed out. Try a smaller file or check object storage connectivity." },
+      async (response) => {
+        if (!response.ok) throw await parseApiError(response);
+        return await response.json() as T;
+      }
+    );
+  } finally {
+    invalidateClientGetResponses();
   }
-  if (!response.ok) throw await parseApiError(response);
-  return await response.json() as T;
 }
 
 export type BatchQueueResponse = {

@@ -29,6 +29,9 @@ test("Mobile Engine client configuration is independently authenticated and prod
   assert.deepEqual(buildMobileEngineRequestHeaders(valid), {
     [MOBILE_ENGINE_SECRET_HEADER]: PRODUCTION_SECRET
   });
+  for (const baseUrl of ["https://admin:password@mobile.example", "https://mobile.example?token=secret", "https://mobile.example#fragment"]) {
+    assert.equal(resolveMobileEngineClientSecurity({ MOBILE_ENGINE_URL: baseUrl, MOBILE_ENGINE_SHARED_SECRET: PRODUCTION_SECRET }).ready, false);
+  }
 });
 
 test("Android execution sends the dedicated Mobile Engine credential header", async () => {
@@ -63,7 +66,7 @@ test("Android execution sends the dedicated Mobile Engine credential header", as
       case_parameters: { "first name": "case override" },
       data_set: { source: "test_case", mode: "table", rows: [{ "First Name": "row default", amount: 12 }] },
       environment: { variables: [{ key: "token", value: "environment token" }] }
-    }, [], { "r.token": "resumed token" });
+    }, [{ id: "mobile", step_type: "android" }], { "r.token": "resumed token" });
     assert.deepEqual(result, { status: "passed", results: [] });
   } finally {
     globalThis.fetch = previous.fetch;

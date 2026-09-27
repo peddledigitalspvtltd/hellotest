@@ -27,6 +27,7 @@
     "./client": "./frontend/api.client.ts",
     "./frontend/api.client": "./frontend/api.client.ts",
     "./frontend/components/ExecutionContextSelector": "./frontend/components/ExecutionContextSelector.tsx",
+    "./frontend/components/ExecutionHookResults": "./frontend/components/ExecutionHookResults.tsx",
     "./frontend/components/GherkinEditor": "./frontend/components/GherkinEditor.tsx",
     "./frontend/components/GherkinStepTextField": "./frontend/components/GherkinStepTextField.tsx",
     "./frontend/components/HierarchyLoadMoreButton": "./frontend/components/HierarchyLoadMoreButton.tsx",

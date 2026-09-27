@@ -35,13 +35,13 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
     return null;
   }
 
-  const recentActions = (session.actions || []).slice(-5).reverse();
-  const recentNetwork = (session.network || []).slice(-5).reverse();
+  const recentActions = [...(session.actions || [])].sort((left, right) => left.index - right.index);
+  const recentNetwork = [...(session.network || [])].sort((left, right) => left.index - right.index);
 
   if (!recentActions.length && !recentNetwork.length) {
     return (
       <div className="recorder-insights-grid">
-        <div className="empty-state compact">Recorder is waiting for browser actions and API traffic.</div>
+        <div className="empty-state compact">Recorder is waiting for actions. A connected browser or device is required.</div>
       </div>
     );
   }
@@ -54,19 +54,20 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
             <div className="execution-context-summary-title-row">
               <strong>Captured steps</strong>
               <InfoTooltip
-                content="Latest browser actions with the locator HelloTest will reuse for playback."
+                content="Recorded actions in playback order, with their locators."
                 label="Captured steps information"
               />
             </div>
           </div>
           <span className="count-pill">{session.action_count || recentActions.length} actions</span>
         </div>
+        {(session.action_count || 0) > recentActions.length ? <p className="muted" role="status">Showing {recentActions.length} of {session.action_count} captured actions. Split long recordings into smaller reusable groups before building.</p> : null}
         {recentActions.length ? (
           <div className="stack-list recorder-insight-list">
             {recentActions.map((action) => (
               <div className="stack-item" key={`${action.index}-${action.timestamp || ""}`}>
                 <div>
-                  <strong>{action.type}</strong>
+                  <strong>{action.index}. {action.type}</strong>
                   <span>{formatUrl(action.url)}{action.value || action.text ? ` · ${maskCapturedValue(action.value || action.text)}` : ""}</span>
                 </div>
                 {action.locator ? <code className="execution-operation-json">{action.locator}</code> : null}
@@ -74,7 +75,7 @@ export function RecorderSessionInsights({ session }: RecorderSessionInsightsProp
             ))}
           </div>
         ) : (
-          <div className="empty-state compact">No browser actions have been captured yet.</div>
+          <div className="empty-state compact">No actions have been captured yet.</div>
         )}
       </section>
 

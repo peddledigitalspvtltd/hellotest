@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import Fastify from 'fastify';
+import { access, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('Playwright playback keeps strict/nth/count semantics, parameters and real line/trace evidence', {timeout:45000}, async t=>{
+  const root=await mkdtemp(join(tmpdir(),'hellotest-playback-'));
+  const previous=process.env.ARTIFACT_ROOT;process.env.ARTIFACT_ROOT=root;
+  const {createWebRunSession}=await import('../../dist/lib/webEngine.js');
+  const app=Fastify();app.get('/',async(_req,reply)=>reply.type('text/html').send('<!doctype html><label>Email<input name="email"></label><button onclick="document.querySelector(\'output\').textContent=\'First\'">Save</button><button onclick="document.querySelector(\'output\').textContent=\'Second\'">Save</button><output></output>'));
+  const url=await app.listen({host:'127.0.0.1',port:0});
+  t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});if(previous===undefined)delete process.env.ARTIFACT_ROOT;else process.env.ARTIFACT_ROOT=previous;});
+  const session=createWebRunSession({engine_run_id:'line-fixture',browser:'chromium',headless:true,web_engine:{active:'playwright'},environment:{base_url:url},run_timeout_seconds:20,max_repair_attempts:0,case_parameters:{'t.email':'reader@example.test'},artifact_policy:{trace_mode:'on',video_mode:'off',screenshot_on_failure:false,capture_console:false,capture_network:false},steps:[]});
+  t.after(()=>session.stop('failed'));await session.start();
+  const step={id:'s1',order:1,step_type:'web',action:'Choose the second record',expected_result:'Second is selected',automation_code:'if (await page.locator("button").count() !== 2) throw new Error("count is not strict");\nawait page.getByLabel("Email", { exact: true }).fill("@t.email");\nawait page.locator("button").nth(1).click();\nawait expect(page.locator("output")).toContainText("Second");'};
+  const passed=await session.runStep(step);assert.equal(passed.status,'passed',passed.note);assert.deepEqual(passed.line_results.map(r=>r.line),[1,2,3,4]);assert.ok(passed.line_results.every(r=>r.status==='passed'));
+  const failed=await session.runStep({...step,id:'s2',order:2,automation_code:'await page.getByRole("button", {name:"Save"}).click();'});assert.equal(failed.status,'failed');assert.equal(failed.line_results[0].status,'failed');assert.equal(failed.evidence,undefined);assert.deepEqual(failed.web_detail.network,[]);
+  const first=await session.runStep({...step,id:'s3',order:3,automation_code:'await page.locator("button").first().click();\nawait expect(page.locator("output")).toContainText("First");'});assert.equal(first.status,'passed',first.note);
+  const native=await session.runStep({...step,id:'s4',order:4,automation_code:'const response = await page.goto("/", { waitUntil: "domcontentloaded" });\nexpect(response.ok()).toBe(true);\nexpect(page.url()).toContain("127.0.0.1");\nawait page.locator("body").getByRole("button").filter({ hasText: "Save" }).last().click();\nawait expect(page.locator("output")).toHaveText(/Second/);\nawait expect(page.getByLabel("Email")).toBeEnabled();\nawait page.evaluate(() => setTimeout(() => { document.querySelector("output").textContent = "Async completed"; }, 100));\nawait expect(page.locator("output")).toHaveText("Async completed");\nawait expect(page.getByRole("button")).toHaveCount(2);'});
+  assert.equal(native.status,'passed',native.note);
+  const wrapped=await session.runStep({...step,id:'s5',order:5,automation_code:'import {\n test, expect\n} from "@playwright/test";\ntest("supports } in strings", async ({ page }) => {\n await page.getByLabel("Email").fill("@t.email");\n await expect(page.getByLabel("Email")).toHaveValue("reader@example.test");\n});'});
+  assert.equal(wrapped.status,'passed',wrapped.note);
+  assert.deepEqual(wrapped.line_results.map(r=>r.line),[5,6]);
+  const reusable=await session.runStep({...step,id:'s6',order:6,automation_code:'export default async function ({ page, expect }) {\n await expect(page.getByRole("button")).toHaveCount(2);\n}'});
+  assert.equal(reusable.status,'passed',reusable.note);
+  assert.deepEqual(reusable.line_results.map(r=>r.line),[2]);
+  const syncFailure=await session.runStep({...step,id:'s7',order:7,automation_code:'const label = "test";\nexpect(label).toBe("different");'});
+  assert.equal(syncFailure.status,'failed');assert.equal(syncFailure.line_results[0].line,2);assert.equal(syncFailure.line_results[0].status,'failed');
+  const unmapped=await session.runStep({...step,id:'s8',order:8,automation_code:'await web.aiStep("submit the order");'});
+  assert.equal(unmapped.status,'failed');assert.match(unmapped.note,/no executable automation/);assert.equal(unmapped.line_results[0].status,'failed');
+  const artifacts=await session.stop('failed');assert.ok(artifacts.trace_path);await access(join(root,artifacts.trace_path));assert.equal(artifacts.video_path,null);assert.ok(artifacts.artifact_refs.some(ref=>ref.kind==='trace'&&ref.content_base64));
+});

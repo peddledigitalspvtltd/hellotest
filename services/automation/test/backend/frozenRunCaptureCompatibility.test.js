@@ -6,7 +6,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { stripTypeScriptTypes } = require("node:module");
 const { normalizeFrozenCapturedValues, preserveFrozenEngineEnvelope } = require("../../../platform/backend/src/utils/frozenRunParameterCompatibility");
-const { collectPriorParameterCaptures, resolveParameterLayers, matchesParameterIteration } = require("../../../platform/backend/src/utils/stepParameterResolution");
+const { collectPriorParameterCaptures, resolveParameterLayers, normalizeParameterLayer, matchesParameterIteration } = require("../../../platform/backend/src/utils/stepParameterResolution");
 const runtime = require("../../../platform/backend/src/domain/executionStepEvidence");
 const obsDb = require("../../../platform/backend/src/obsDb");
 const dispatch = require("../../backend/services/testEngineDispatch.service");
@@ -57,6 +57,20 @@ test("a persisted legacy queue job resumes with the same test-local values in AP
   assert.equal(engine.values["r.token"], undefined, "A legacy session token is not promoted into the run namespace.");
   assert.deepEqual(row, before, "Frozen persisted payload and logs remain unchanged.");
   assert.deepEqual(preserveFrozenEngineEnvelope(job.payload, "t"), job.payload);
+
+  const dispatchSource = await readFile(path.join(__dirname, '../../backend/services/testEngineDispatch.service.js'), 'utf8');
+  const functionSource = dispatchSource.slice(dispatchSource.indexOf('const buildRuntimeParameterValues ='), dispatchSource.indexOf('const resultStatusToJobStatus ='));
+  const apiParameters = new Function('resolveParameterLayers', 'normalizeParameterLayer', 'normalizeFrozenCapturedValues', `${functionSource}\nreturn buildRuntimeParameterValues;`)(resolveParameterLayers, normalizeParameterLayer, normalizeFrozenCapturedValues);
+  const hook = { group_kind: 'reusable', shared_parameter_values: { 't.shared': 'shared default' }, source_case_parameters: { token: 'hook default', 't.email': 'hook email' } };
+  for (const dataPolicy of [undefined, { version: 2, case: {}, suite: {}, run: {} }]) {
+    const envelope = { ...job.payload, data_policy: dataPolicy };
+    const native = buildInitialContext(envelope, job.runtime_state.captured_values, hook);
+    const apiHook = apiParameters(envelope, job.runtime_state.captured_values, hook);
+    assert.equal(apiHook['t.email'], 'hook email', 'The saved hook source owns its test data.');
+    assert.equal(apiHook['t.shared'], 'shared default');
+    assert.equal(apiHook['t.token'], 'saved session', 'Captured setup values override source defaults.');
+    for (const key of ['t.email', 't.shared', 't.token']) assert.equal(apiHook[key], native.values[key], key);
+  }
 });
 
 test("capture compatibility never changes selected dataset identity or row matching", () => {

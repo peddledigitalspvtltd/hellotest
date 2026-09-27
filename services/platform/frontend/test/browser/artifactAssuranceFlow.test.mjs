@@ -44,6 +44,8 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
 }};
 ` + 'const mode=new URLSearchParams');
       else fixture = fixture.replace('const client=new QueryClient', injected + 'const client=new QueryClient');
+      if (kind === 'story') fixture = fixture.replace('client={new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWindowFocus:false}}})}', 'client={window.assuranceClient = new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWindowFocus:false}}})}');
+      else fixture = fixture.replace("client.setQueryData(['feature-flags'],flags);", "client.setQueryData(['feature-flags'],flags);window.assuranceClient=client;");
       const name = `assurance-${kind}-${randomUUID()}`;
       const tsx = new URL(`${name}.tsx`, root), html = new URL(`${name}.html`, root); files.push(tsx, html);
       await writeFile(tsx, fixture);
@@ -149,6 +151,13 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
         await grooming.getByLabel('Additional AI review context', { exact: true }).fill('New delivery constraint awaiting review.');
         await grooming.getByText(/supporting evidence changed after the brief was generated/).waitFor();
       }
+      await page.evaluate((key) => {
+        window.assuranceClient.setQueryData(['feature-flags'], {flags:new Proxy({[key]:false},{get:(target,property)=>property===key?false:true})});
+      }, kind === 'story' ? 'hellotest.ai.requirement_design' : 'hellotest.ai.test_authoring');
+      await assuranceTab.waitFor({state:'detached'});
+      assert.equal(await page.getByRole('tab', {name:/Assurance/}).count(), 0);
+      assert.equal(await page.locator('.artifact-assurance-workspace').count(), 0, 'Revoked feature must unmount its panel');
+      assert.equal(await page.locator('.story-grooming-workspace').count(), 0);
       assert.deepEqual(errors, []);
       await page.close();
     }

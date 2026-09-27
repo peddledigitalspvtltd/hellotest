@@ -83,7 +83,6 @@ test("shared AI surfaces reuse the governed process rail", async () => {
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../../../ai/frontend/components/AiInsightPreviewDialog.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.tsx"),
-    readSource("../../../automation/frontend/pages/AutomationPage.tsx"),
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx")
   ]);
 
@@ -113,7 +112,7 @@ test("every AI output is review-first, editable, selectable, and explicitly acce
   assert.match(insights, /Editable review sequence/);
   assert.match(insights, /Accept review plan/);
   assert.match(bugs, /Accept into Defect form/);
-  assert.match(automation, /What should the agent automate\?/);
+  assert.match(automation, /Build instructions \(optional\)/);
   assert.match(automation, /Build step plan/);
   assert.match(automation, /aria-label="Automation step plan"/);
   assert.match(automation, /Save section/);

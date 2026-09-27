@@ -5337,6 +5337,74 @@ paths:
       summary: Execute projects knowledge
       responses:
         "200": { description: Successful response }
+  /projects/{project_id}/knowledge/refresh:
+    parameters:
+      - { name: project_id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Knowledge]
+      summary: Read project knowledge refresh configuration and progress
+      responses:
+        "200": { description: Current configuration and latest refresh result }
+    put:
+      tags: [Knowledge]
+      summary: Configure periodic knowledge refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, interval_ms]
+              properties:
+                enabled: { type: boolean }
+                interval_ms: { type: integer }
+      responses:
+        "200": { description: Saved refresh configuration }
+    post:
+      tags: [Knowledge]
+      summary: Queue a project knowledge refresh
+      responses:
+        "202": { description: Refresh requested }
+  /agentic-workflows/connections:
+    get:
+      tags: [Agentic Workflows]
+      summary: List available project workflow connections
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Available project connections }
+  /agentic-workflows/connections/mcp-tools:
+    post:
+      tags: [Agentic Workflows]
+      summary: Discover tools from a configured project MCP connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, connection_id]
+              properties:
+                project_id: { type: string }
+                connection_id: { type: string }
+      responses:
+        "200": { description: Discovered tools }
+  /agentic-workflows/connections/http-test:
+    post:
+      tags: [Agentic Workflows]
+      summary: Test an HTTP node using a project connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, data]
+              properties:
+                project_id: { type: string }
+                data: { type: object }
+      responses:
+        "200": { description: HTTP node result }
   /projects/{project_id}/knowledge/context-package:
     parameters:
       - { name: project_id, in: path, required: true, schema: { type: string } }
@@ -6000,7 +6068,7 @@ paths:
     post:
       tags: [Test Cases]
       summary: Queue or schedule an automation generator build
-      description: Requires project membership and the automation.build permission. Scheduled jobs become eligible for processing at scheduled_at.
+      description: Requires project membership, automation.build and automation.ai permissions, and their feature flags. Scheduled jobs become eligible at scheduled_at and recheck access before generation.
       requestBody:
         content:
           application/json:
@@ -6074,7 +6142,7 @@ paths:
     post:
       tags: [Test Cases]
       summary: Queue or schedule an automation build batch
-      description: Requires membership and the automation.build permission in the application's project. Scheduled batches become eligible for processing at scheduled_at.
+      description: Requires membership, automation.build and automation.ai permissions in the application's project. Scheduled batches become eligible for processing at scheduled_at.
       requestBody:
         required: true
         content:
@@ -10724,6 +10792,10 @@ components:
       properties:
         integration_id: { type: string }
         start_url: { type: string }
+        allow_browser_actions:
+          type: boolean
+          default: false
+          description: Allow browser click, fill, keyboard and select tools during single-case or batch builds. May submit forms in the configured target application.
         additional_context: { type: string }
         test_environment_id: { type: string }
         test_configuration_id: { type: string }

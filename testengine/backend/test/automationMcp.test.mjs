@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import Fastify from 'fastify';
+import { registerAutomationMcp } from '../dist/lib/automationMcp.js';
+import { createPrivilegedRunGuard, resolveTestEngineSharedSecret } from '../dist/lib/testEngineSecurity.js';
+import { resolveRepositoryLocator } from '../dist/lib/repositoryLocator.js';
+
+test('MCP requires engine auth, confines tools, rejects private URLs and releases capacity', async t => {
+  const old = process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;
+  process.env.RECORDER_ALLOWED_PRIVATE_HOSTS = '127.0.0.1';
+  const app = Fastify();
+  await registerAutomationMcp(app, createPrivilegedRunGuard(resolveTestEngineSharedSecret({ TESTENGINE_SHARED_SECRET: 'test-secret' })));
+  t.after(async () => { await app.close(); if(old===undefined)delete process.env.RECORDER_ALLOWED_PRIVATE_HOSTS;else process.env.RECORDER_ALLOWED_PRIVATE_HOSTS=old; });
+  const url='/api/v1/automation/mcp';
+  const headers={'x-hellotest-testengine-secret':'test-secret'};
+  const invoke=(method,params={},session)=>app.inject({method:'POST',url,headers:{...headers,...(session?{'mcp-session-id':session}:{})},payload:{jsonrpc:'2.0',id:1,method,params}});
+  assert.equal((await app.inject({method:'POST',url,payload:{}})).statusCode,401);
+  assert.ok((await invoke('initialize',{_meta:{hellotest:{start_url:'http://169.254.169.254/'}}})).json().error);
+  const init=()=>invoke('initialize',{_meta:{hellotest:{start_url:'http://127.0.0.1:1234/'}}});
+  const first=await init(); const session=first.headers['mcp-session-id'];
+  assert.ok(session);
+  const listed=(await invoke('tools/list',{},session)).json().result.tools;
+  assert.equal(listed.some(t=>t.name==='browser_fill'),false);
+  assert.ok((await invoke('tools/call',{name:'browser_click',arguments:{locator:'button'}},session)).json().error);
+  assert.ok((await invoke('tools/call',{name:'browser_evaluate',arguments:{}},session)).json().error);
+  for (const argumentsValue of [[], '', 1, false]) assert.equal((await invoke('tools/call',{name:'browser_snapshot',arguments:argumentsValue},session)).json().error.code,-32602);
+  assert.equal((await invoke('tools/list',[],session)).json().error.code,-32600);
+  await init(); assert.equal((await init()).statusCode,429);
+  await app.inject({method:'DELETE',url,headers:{...headers,'mcp-session-id':session}});
+  assert.equal((await invoke('tools/list',{},session)).statusCode,404);
+  assert.equal((await init()).statusCode,200);
+});
+test('inspection and execution locators preserve strict matches and explicit nth',()=>{
+  const calls=[];
+  const locator={nth:n=>{calls.push(['nth',n]);return locator;},first:()=>{calls.push(['first']);return locator;},last:()=>locator};
+  const page={getByRole:(...args)=>{calls.push(args);return locator;},locator:selector=>{calls.push(selector);return locator;}};
+  resolveRepositoryLocator(page,'getByRole("button", { name: "Save", exact: true }).nth(1)');
+  assert.deepEqual(calls,[['button',{name:'Save',exact:true}],['nth',1]]);
+  calls.length=0;resolveRepositoryLocator(page,'button');assert.deepEqual(calls,['button']);
+  assert.throws(()=>resolveRepositoryLocator(page,'getByRole("button").filter({hasText:"Save"})'),/Unsupported locator chain/);
+});

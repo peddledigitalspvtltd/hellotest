@@ -50,6 +50,7 @@ async function readJson(url: string) {
 }
 
 export function RecorderStartControls({
+  platform = "unified",
   disabled,
   isStarting,
   hasSession,
@@ -61,6 +62,7 @@ export function RecorderStartControls({
   primaryAction,
   moreActions
 }: {
+  platform?: "web" | "api" | "android" | "ios" | "unified";
   disabled: boolean;
   isStarting: boolean;
   hasSession: boolean;
@@ -215,6 +217,18 @@ export function RecorderStartControls({
     };
   }, [isMoreOpen]);
 
+  if (platform === "api") return <p className="muted">Use the request editor to add API requests, assertions and response captures. Browser recording belongs to Web tests.</p>;
+  if (platform === "android" || platform === "ios") return (
+    <div className="recorder-control-pane">
+      <p className="muted">{platform === "ios" ? "Connect an iOS device or simulator through an XCUITest host, or use a configured device cloud." : "Connect an Android device or emulator through Appium, or use a configured device cloud."}</p>
+      <div className="testops-recorder-actions recorder-control-buttons">
+        {mobileAppiumEnabled ? <button className="primary-button" disabled={disabled || isStarting || hasSession} onClick={() => onStart({ recorder_mode: "local", recorder_target: "mobile" })} type="button"><RecordIcon size={16} />{isStarting ? "Connecting…" : `Record on ${platform === "ios" ? "iOS" : "Android"} device`}</button> : null}
+        {mobileAppiumEnabled && mobileRemoteEnabled ? <button className="ghost-button" disabled={disabled || isStarting || hasSession} onClick={() => onStart({ recorder_mode: "remote", recorder_target: "mobile" })} type="button"><RecordIcon size={16} />Record on device cloud</button> : null}
+        {primaryAction}{moreActions}
+      </div>
+    </div>
+  );
+
   return (
     <div className="recorder-control-pane">
       <div className="testops-recorder-actions recorder-control-buttons">
@@ -284,7 +298,7 @@ export function RecorderStartControls({
                 </button>
               </>
             ) : null}
-            {mobileAppiumEnabled ? (
+            {platform === "unified" && mobileAppiumEnabled ? (
               <button
                 className="ghost-button"
                 disabled={disabled || isStarting || hasSession}
@@ -299,7 +313,7 @@ export function RecorderStartControls({
                 <span>{isStarting ? "Starting..." : "Mobile Appium"}</span>
               </button>
             ) : null}
-            {mobileAppiumEnabled && mobileRemoteEnabled ? (
+            {platform === "unified" && mobileAppiumEnabled && mobileRemoteEnabled ? (
               <button
                 className="ghost-button"
                 disabled={disabled || isStarting || hasSession}

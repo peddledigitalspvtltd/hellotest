@@ -795,8 +795,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   useEffect(() => {
     if ((activeTraceabilityTab === "cases" && !canViewTestCases)
       || (activeTraceabilityTab === "defects" && !canViewBugs)
+      || (["grounding", "grooming"].includes(activeTraceabilityTab) && !canUseRequirementAi)
       || (activeTraceabilityTab === "history" && !canViewRequirementResults)) setActiveTraceabilityTab("details");
-  }, [activeTraceabilityTab, canViewTestCases, canViewBugs, canViewRequirementResults]);
+  }, [activeTraceabilityTab, canViewTestCases, canViewBugs, canViewRequirementResults, canUseRequirementAi]);
   const [storyGroomingByRequirementId, setStoryGroomingByRequirementId] = useState<Record<string, StoryGroomingPreviewResponse>>({});
   const [storyGroomingReviewedInputsByRequirementId, setStoryGroomingReviewedInputsByRequirementId] = useState<Record<string, string>>({});
   const [storyGroomingContextChangedByRequirementId, setStoryGroomingContextChangedByRequirementId] = useState<Record<string, boolean>>({});
@@ -6235,7 +6236,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     { value: "details", label: "Details", description: "Scope and ownership", icon: <PencilIcon /> },
                     { value: "related", label: "Related items", description: "Connected delivery work", icon: <IconLink />, count: selectedRequirement.related_items?.length || 0 },
                     { value: "comments", label: "Comments", description: "Team decisions", icon: <IconMessage /> },
-                    { value: "grounding", label: "AI Assurance", description: "Evidence and risk", icon: <IconShieldCheck /> },
+                    ...(canUseRequirementAi ? [{ value: "grounding" as const, label: "AI Assurance", description: "Evidence and risk", icon: <IconShieldCheck /> }] : []),
                     ...(canUseRequirementAi
                       ? [{ value: "grooming" as const, label: "AI Grooming", description: "Readiness review", icon: <IconBolt /> }]
                       : []),
@@ -6515,7 +6516,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     />
                   </div>
                 ) : null}
-                {activeTraceabilityTab === "grounding" ? (
+                {canUseRequirementAi && activeTraceabilityTab === "grounding" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <ArtifactAssuranceWorkspace
                       providerControl={<AiReviewControls key={`story-assurance-${projectId}-${selectedRequirement.id}`} usageKey="ai.quality.story_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.story").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={storyAssuranceIntegrationId} onIntegrationIdChange={setStoryAssuranceIntegrationId} promptGuidance={storyAssurancePromptGuidance} onPromptGuidanceChange={setStoryAssurancePromptGuidance} additionalContext={storyAssuranceContext} onAdditionalContextChange={setStoryAssuranceContext} artifactIds={[selectedRequirement.id]} artifactContext={JSON.stringify(selectedRequirementAssuranceProposedChange)} disabled={previewRequirementImpact.isPending} onBusyChange={setStoryAssuranceContextBusy} />}

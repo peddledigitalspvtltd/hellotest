@@ -1,7 +1,6 @@
 # HelloTest Local Run Bundle
 
-This folder is intentionally self-contained for local setup commands. It does
-not replace or edit the existing root scripts or compose files.
+This folder contains the source-build local stack, host recorder helpers and native provider. The root [README](../README.md) is the application entry point; [CONTRIBUTING](../CONTRIBUTING.md) and the [debugging runbook](../docs/development/debugging.md) cover host development, environment loading and troubleshooting.
 
 ## Files
 
@@ -17,7 +16,7 @@ not replace or edit the existing root scripts or compose files.
 - `bin/logs.sh`: follow logs.
 - `bin/health.sh`: check local service health endpoints.
 - `bin/fix-recorder-integration.sh`: patch an existing local DB volume so the API container reaches the Test Engine and the browser gets localhost live-view URLs.
-- `bin/reset-data.sh`: remove only the `local-run` Postgres volume and restart.
+- `bin/reset-data.sh`: destructive local PostgreSQL reset; use only after an intentional backup/disposable-data decision, never for routine recovery.
 
 ## Quick Start
 
@@ -52,10 +51,7 @@ Use the matching `*_BIND` setting in `.env` only when another trusted host must
 connect (for example, `API_BIND=0.0.0.0`). Apply host firewall rules before
 opening a bind.
 
-Seed login:
-
-- `admin@hellotest.ai` / `admin123`
-- `member@hellotest.ai` / `member123`
+For a new local database with unchanged API runtime defaults, administration bootstrap is `admin` / `admin` and requires password replacement. Existing accounts retain their credentials. Optional sample records are installed through Administration → Instance setup or `HELLOTEST_INSTANCE_SETUP_MODULES`; old sample email/password pairs are not a supported login contract. The local Compose API currently uses its runtime bootstrap defaults; use the configured bootstrap identity for other deployment stacks.
 
 ## Optional monitoring
 
@@ -69,11 +65,27 @@ From the repository root, build and start with:
 TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
 ```
 
-The operator checks missing runtime images before building application images.
-An unavailable registry image stops the command before a lengthy rebuild.
-MinIO uses `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`; the same release
-supports both Intel and Apple Silicon. Set `MINIO_IMAGE` to use a private mirror.
+The root operator prepares runtime images before building application images;
+`bin/start.sh` also prepares the default MinIO image automatically.
+MinIO is compiled from the pinned [official source release](https://github.com/minio/minio/releases/tag/RELEASE.2025-10-15T17-29-55Z)
+into `hellotest/minio:RELEASE.2025-10-15T17-29-55Z` when missing locally. The first
+build needs network access, available Docker CPU/memory and several minutes;
+later starts reuse that image. No `MINIO_IMAGE` override is needed. Remove old
+Quay/Docker Hub overrides from your selected environment or set the new local
+tag. An intentional private mirror remains supported and skips source building.
 Existing MinIO data volumes and credentials are preserved.
+The root launcher's `--skip-image-pull` requires that image to be cached already;
+it will fail with preparation instructions instead of downloading source.
+
+Before using Docker Compose directly, run this from the repository root:
+
+```bash
+npm run build:minio
+```
+
+If MinIO reports `unauthorized` and parallel pulls are `Canceled`, fix the image
+selection/build first and rerun. Logging into a registry does not restore a
+withdrawn public image, and deleting volumes cannot fix the download.
 
 The API allows up to three minutes for database initialization before startup
 fails. It logs each initialization phase and stays unready until setup completes.
@@ -100,7 +112,7 @@ and can be scaled without changing the browser/API URL:
 
 - `testengine-api-worker` leases API-only jobs.
 - `testengine-web-worker` leases jobs with web steps, including Web+API unified flows.
-- `testengine-android-worker` leases jobs with Android steps.
+- `testengine-android-worker` leases native Android and iOS jobs; each authored platform uses its own device session.
 
 The local Test Engine defaults to:
 
@@ -210,3 +222,10 @@ local database volume:
 ```bash
 bin/fix-recorder-integration.sh
 ```
+
+
+## Non-destructive troubleshooting
+
+Use `bin/status.sh`, `bin/health.sh` and `bin/logs.sh` first. `bin/stop.sh` stops the stack without deleting the named data volumes. Restart only the affected service after diagnosing the failure; changed environment settings require a recreated container. Do not use `bin/reset-data.sh` or Compose `down -v` to apply a schema update or repair an unavailable provider.
+
+For host recording, install the dependencies described in [CONTRIBUTING](../CONTRIBUTING.md), then use the launcher appropriate to the host OS. Container URLs such as `http://testengine:4301` are for API-to-engine traffic inside Compose; browser live views need a host-reachable URL. For mobile execution, the provider still needs a separate Appium server, driver and configured device/application; starting the local stack does not create them.

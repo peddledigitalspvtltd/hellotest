@@ -2162,6 +2162,9 @@ export function TestCasesPage() {
   const currentCaseLinkScopeRef = useRef("");
   currentCaseLinkScopeRef.current = `${projectId}:${selectedTestCaseId}`;
   const [activeTestCaseDetailTab, setActiveTestCaseDetailTab] = useState<TestCaseDetailTab>("details");
+  useEffect(() => {
+    if (!canUseTestCaseAi && activeTestCaseDetailTab === "assurance") setActiveTestCaseDetailTab("details");
+  }, [canUseTestCaseAi, activeTestCaseDetailTab]);
   const [searchTerm, setSearchTerm] = useState("");
   const [catalogViewMode, setCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [isCatalogViewPending, startCatalogViewTransition] = useTransition();
@@ -10758,7 +10761,7 @@ export function TestCasesPage() {
                       items={[
                         { value: "details", label: "Details", description: "Metadata, steps & data", icon: <PencilIcon /> },
                         { value: "automation" as const, label: "Automation Cases", description: "Executable coverage", icon: <AutomationCodeIcon />, count: linkedAutomationCases.length },
-                        { value: "assurance", label: "Assurance", description: "Quality & impact", icon: <TestCaseSparkIcon /> },
+                        ...(canUseTestCaseAi ? [{ value: "assurance" as const, label: "Assurance", description: "Quality & impact", icon: <TestCaseSparkIcon /> }] : []),
                         { value: "suites", label: "Suites", description: "Collection links", icon: <TileCardSuiteIcon />, count: selectedCaseSuiteIds.length },
                         { value: "history", label: "History", description: "Trend, runs & versions", icon: <ActivityIcon /> },
                         { value: "defects", label: "Defects", description: "Failure traceability", icon: <BugIcon />, count: selectedTestCase.defect_ids?.length || 0 },
@@ -11327,7 +11330,7 @@ export function TestCasesPage() {
                             setIsQualitySuggestionModalOpen(true);
                             return;
                           }
-                          if (!isCreating) {
+                          if (!isCreating && canUseTestCaseAi) {
                             setActiveTestCaseDetailTab("assurance");
                           }
                         },
@@ -11964,7 +11967,7 @@ export function TestCasesPage() {
                     ) : null}
                   </div>
                 ) : null}
-                {!isCreating && activeTestCaseDetailTab === "assurance" && selectedTestCase ? (
+                {!isCreating && canUseTestCaseAi && activeTestCaseDetailTab === "assurance" && selectedTestCase ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
                     <ArtifactAssuranceWorkspace
                       providerControl={<AiReviewControls key={`case-assurance-${projectId}-${selectedTestCase.id}`} usageKey="ai.quality.test_case_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.test_case").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={testCaseAssuranceIntegrationId} onIntegrationIdChange={setTestCaseAssuranceIntegrationId} promptGuidance={testCaseAssurancePromptGuidance} onPromptGuidanceChange={setTestCaseAssurancePromptGuidance} additionalContext={testCaseAssuranceContext} onAdditionalContextChange={setTestCaseAssuranceContext} artifactIds={[selectedTestCase.id]} artifactContext={JSON.stringify(selectedTestCaseAssuranceProposedChange)} disabled={previewTestCaseImpact.isPending} onBusyChange={setTestCaseAssuranceContextBusy} />}

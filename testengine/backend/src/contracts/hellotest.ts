@@ -1,4 +1,4 @@
-export type EngineStepType = "web" | "api" | "android";
+export type EngineStepType = "web" | "api" | "android" | "ios";
 export type EngineWebEngineProvider = "playwright" | "selenium";
 export type EngineRunTrigger = "execution" | "test-run";
 export type EngineSourceMode = "attached-script" | "manual-handover";
@@ -37,6 +37,7 @@ export type EngineApiRequest = {
 };
 
 export type EngineRunStep = {
+  source_case_parameters?: Record<string, string>;
   shared_parameter_values?: Record<string, string>;
   id: string;
   order: number;
@@ -216,6 +217,7 @@ export type HelloTestExecutionStepWebDetail = {
 };
 
 export type HelloTestExecutionStepAutomationDetail = {
+  line_results?: Array<{ line: number; status: "passed" | "failed"; duration_ms: number; attempt: number; error?: string }>;
   engine: EngineStepType | "ios" | string;
   provider?: string | null;
   status: HelloTestExecutionResultStatus | "queued" | "running" | "skipped";
@@ -336,6 +338,12 @@ export type EngineRunEnvelope = {
     active: EngineWebEngineProvider;
   } | null;
   mobile_engine?: {
+    platform_name?: "android" | "ios" | null;
+    udid?: string | null;
+    bundle_id?: string | null;
+    app_package?: string | null;
+    app_activity?: string | null;
+    provider_options?: Record<string, unknown>;
     active: EngineMobileProvider;
     recorder_mode?: "local" | "remote";
     appium_server_url?: string | null;

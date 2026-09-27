@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import "./DetailSectionTabs.css";
 
 export type DetailSectionTab<T extends string> = {
@@ -24,8 +24,26 @@ export function DetailSectionTabs<T extends string>({
   presentation?: "compact" | "inline";
   onChange: (value: T) => void;
 }) {
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = tabsRef.current;
+    if (!container) return;
+    const revealActiveTab = () => {
+      const active = container.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!active) return;
+      const bounds = container.getBoundingClientRect();
+      const tabBounds = active.getBoundingClientRect();
+      if (tabBounds.left < bounds.left) container.scrollLeft -= bounds.left - tabBounds.left;
+      else if (tabBounds.right > bounds.right) container.scrollLeft += tabBounds.right - bounds.right;
+    };
+    revealActiveTab();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(revealActiveTab);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [activeTab]);
   return (
-    <div className={["detail-section-tabs", presentation === "inline" ? "detail-section-tabs--inline" : "", className].filter(Boolean).join(" ")} role="tablist" aria-label={ariaLabel}>
+    <div ref={tabsRef} className={["detail-section-tabs", presentation === "inline" ? "detail-section-tabs--inline" : "", className].filter(Boolean).join(" ")} role="tablist" aria-label={ariaLabel}>
       {items.map((item, index) => (
         <button
           aria-selected={activeTab === item.value}

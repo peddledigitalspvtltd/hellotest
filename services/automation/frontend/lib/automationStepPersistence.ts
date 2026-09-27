@@ -1,7 +1,7 @@
 import type { TestStep } from "@hellotest/platform/frontend/src/types";
 
 export function isAutomationStepMapped(step: Pick<TestStep, "automation_code" | "api_request" | "step_type">) {
-  if (step.step_type === "api" && step.api_request?.url?.trim()) return true;
+  if (step.step_type === "api") return Boolean(step.api_request?.url?.trim());
   const executable = String(step.automation_code || "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/[^\n]*$/gm, "").trim();
   return Boolean(executable);
 }

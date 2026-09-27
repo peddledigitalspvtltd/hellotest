@@ -39,15 +39,17 @@ for (const profile of [...Object.keys(expected), 'all']) {
     await module.exports({ addHook(name, run) { hooks[name].push(run); }, log: { error(error) { throw error; } } });
     assert.deepEqual(loaded.sort(), [...owners].sort(), 'Do not import other services merely to register timers');
     for (const run of hooks.onReady) await run();
-    assert.equal(timers.size, owners.length);
+    const hasKnowledgeRefresh = profile === "knowledge" || profile === "all";
+    assert.equal(timers.size, owners.length + Number(hasKnowledgeRefresh));
     const captured = [...timers];
     for (const run of captured) await run();
+    assert.equal(called.includes("knowledgeRefresh.processDue"), hasKnowledgeRefresh);
     for (const name of owners) assert.ok(called.some(call => call.startsWith(`${name}.`)), `${name} must execute`);
     for (const run of hooks.onClose) await run();
     assert.equal(timers.size, 0);
     const callCount = called.length;
     for (const run of captured) await run();
     assert.equal(called.length, callCount, 'No queued callback may start work after shutdown');
-    assert.ok(called.every(call => owners.includes(call.split('.')[0])));
+    assert.ok(called.every(call => [...owners, ...(hasKnowledgeRefresh ? ['knowledgeRefresh'] : [])].includes(call.split('.')[0])));
   });
 }

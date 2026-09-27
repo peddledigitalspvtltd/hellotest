@@ -1,12 +1,12 @@
 // The API includes the engine's compiled recorder modules, so local setup does
 // not depend on a configured or reachable remote Test Engine.
-exports.buildInstaller = ({ recorder, security, inspection_security, inspection_proxy, origin, agent_token }) => {
-  if (![recorder, security, inspection_security, inspection_proxy].every(value => typeof value === "string" && value.length > 100 && value.length < 1024 * 1024)) {
+exports.buildInstaller = ({ recorder, security, inspection_security, inspection_proxy, repository_locator, origin, agent_token }) => {
+  if (![recorder, security, inspection_security, inspection_proxy, repository_locator].every(value => typeof value === "string" && value.length > 100 && value.length < 1024 * 1024)) {
     throw Object.assign(new Error("The local inspection installer is unavailable. Update the HelloTest API and try again."), { statusCode: 503 });
   }
   const config = JSON.stringify({ origin, token: agent_token });
   const occupiedPortMessage = JSON.stringify(`Port 4311 is already in use. Stop the existing HelloTest inspection agent in its terminal (Ctrl+C), then rerun the setup command copied from ${origin}. Each setup is paired with that application and browser; an agent started for localhost cannot connect to the cloud application.`);
-  const modules = JSON.stringify({ "recorder.js": recorder, "testEngineSecurity.js": security, "inspectionSecurity.js": inspection_security, "inspectionProxy.js": inspection_proxy });
+  const modules = JSON.stringify({ "recorder.js": recorder, "testEngineSecurity.js": security, "inspectionSecurity.js": inspection_security, "inspectionProxy.js": inspection_proxy, "repositoryLocator.js": repository_locator });
   return `// HelloTest local browser inspection setup. Requires Node.js 20 or newer.
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";

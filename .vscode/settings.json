@@ -1,4 +1,28 @@
 {
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "editor.detectIndentation": true,
+  "editor.renderWhitespace": "selection",
+  "search.useIgnoreFiles": true,
+  "search.exclude": {
+    "**/dist": true,
+    "**/dist-admin": true,
+    "**/coverage": true,
+    "**/.hellotest": true,
+    "**/.cache": true,
+    "local-run/artifacts": true
+  },
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/dist-admin/**": true,
+    "**/coverage/**": true,
+    "**/.cache/**": true,
+    "**/.hellotest/**": true,
+    "**/local-run/artifacts/**": true
+  },
   "hellotest.outputDir": "out/hellotest-output",
   "hellotest.learningDir": "out/hellotest-learning",
 

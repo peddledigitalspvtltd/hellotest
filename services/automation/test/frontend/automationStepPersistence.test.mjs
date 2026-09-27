@@ -13,6 +13,7 @@ test("a plan is ready only when every step has a real mapping", () => {
   assert.equal(isAutomationStepMapped(step("3", { automation_code: "// @hellotest-options optional\n/* mapping pending */" })), false);
   assert.equal(isAutomationStepMapped(step("4", { step_type: "api", api_request: { method: "GET", url: "@t.baseUrl/orders" } })), true);
   assert.equal(isAutomationStepMapped(step("4", { step_type: "api", api_request: { method: "GET", url: "" } })), false);
+  assert.equal(isAutomationStepMapped(step("5", { step_type: "api", automation_code: 'await api.request("GET /orders");' })), false, "API source references do not replace an executable request");
 });
 
 test("prose changes preserve mapping identity, while executable argument changes are detected", () => {

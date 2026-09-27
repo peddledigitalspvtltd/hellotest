@@ -228,7 +228,7 @@ resolve_defaults() {
   MOBILE_ENGINE_PORT="${MOBILE_ENGINE_PORT:-4312}"
   REDIS_PORT="${REDIS_PORT:-6379}"
   STORAGE_PROVIDER="${STORAGE_PROVIDER:-minio}"
-  MINIO_IMAGE="${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}"
+  MINIO_IMAGE="${MINIO_IMAGE:-hellotest/minio:RELEASE.2025-10-15T17-29-55Z}"
   MINIO_ENDPOINT="${MINIO_ENDPOINT:-minio}"
   MINIO_PORT="${MINIO_PORT:-9000}"
   MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
@@ -430,6 +430,19 @@ compose() {
   compose_cmd --env-file "$RESOLVED_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+prepare_object_storage_image() {
+  [ "$MINIO_IMAGE" = "hellotest/minio:RELEASE.2025-10-15T17-29-55Z" ] || return 0
+  # Compose expands service dependencies, so scoped Redis/worker starts do not
+  # compile storage while API/frontend starts prepare their required MinIO.
+  required_services=$(compose config --services "$@") || die "Could not resolve the requested Compose services."
+  printf '%s\n' "$required_services" | grep -Fx minio >/dev/null || return 0
+  if [ "$SKIP_IMAGE_PULL" = "1" ]; then
+    MINIO_IMAGE="$MINIO_IMAGE" sh "$ROOT_DIR/scripts/build/minio.sh" --offline
+  else
+    MINIO_IMAGE="$MINIO_IMAGE" sh "$ROOT_DIR/scripts/build/minio.sh"
+  fi
+}
+
 prepare_runtime_images() {
   [ "$SKIP_IMAGE_PULL" = "0" ] || return 0
 
@@ -437,7 +450,7 @@ prepare_runtime_images() {
   # Resolve image-only dependencies first so a failed pull does not waste a
   # full source build. Keep cached images and the caller's service scope.
   if ! compose pull --ignore-buildable --include-deps --policy missing "$@"; then
-    die "Runtime images could not be prepared. Resolve the pull error above and rerun; no build or startup was attempted."
+    die "Runtime images could not be prepared. Resolve the pull error above and rerun; no application build or startup was attempted."
   fi
 }
 
@@ -516,6 +529,7 @@ run_local_ops() {
 
 run_up() {
   ensure_docker
+  prepare_object_storage_image "$@"
   if [ "$BUILD_COMPOSE" = "1" ]; then
     prepare_runtime_images "$@"
     if [ "$NO_CACHE" = "1" ]; then
@@ -544,6 +558,7 @@ run_deploy() {
   maybe_git_pull
   confirm_deploy
   ensure_docker
+  prepare_object_storage_image "$@"
 
   if [ "$BUILD_COMPOSE" = "1" ]; then
     prepare_runtime_images "$@"

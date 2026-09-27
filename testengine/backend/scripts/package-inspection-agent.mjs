@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib";
 
 // Ship the browser runtime with the API so local setup needs no remote engine.
 // Regenerate after changing recorder/security sources: npm run package:inspection-agent.
-const names = { recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy" };
+const names = { recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy", repository_locator: "repositoryLocator" };
 const modules = {};
 const hashes = {};
 for (const [key, name] of Object.entries(names)) {

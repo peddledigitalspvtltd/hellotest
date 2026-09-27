@@ -131,3 +131,32 @@ test('unsupported direct-run steps fail without invoking a runner', async (t) =>
   assert.equal(callback.case_result.status, 'failed');
   assert.match(callback.case_result.error, /unsupported step type/);
 });
+
+for (const failure of ['case', 'setup', 'blocked-setup', 'continue-setup']) test(`direct execution runs teardown once after ${failure} failure`, async (t) => {
+  const visited = [];
+  let callback;
+  t.mock.method(globalThis, 'fetch', async (url, { body }) => {
+    if (url === 'http://callback.test/result') {
+      callback = JSON.parse(body);
+      return Response.json({});
+    }
+    const action = new URL(url).pathname.slice(1);
+    visited.push(action);
+    if (failure === 'continue-setup' && action === 'setup') throw new Error('Setup network error');
+    return Response.json({}, { status: action === (failure === 'case' ? 'case' : 'setup') ? 500 : 200 });
+  });
+  const step = (id) => ({ id, order: 1, action: id, step_type: 'api', api_request: { url: `http://app.test/${id}` } });
+  const envelope = {
+    engine_run_id: `direct-hooks-${failure}`, hellotest_run_id: 'run-hooks', hellotest_test_case_id: 'case-hooks',
+    steps: [step('case')], artifact_policy: { video_mode: 'off' },
+    hooks: [
+      { id: 'setup-hook', name: 'Setup', scope: 'case', phase: 'pre', fail_behavior: failure === 'blocked-setup' ? 'mark-blocked' : failure === 'continue-setup' ? 'continue' : 'fail-run', steps: [step('setup')] },
+      { id: 'cleanup-hook', name: 'Cleanup', scope: 'case', phase: 'post', fail_behavior: 'fail-run', steps: [step('cleanup')] }
+    ],
+    callback: { url: 'http://callback.test/result', signing_secret: 'fixture-secret' }
+  };
+  await queueRunExecution(envelope, saveAcceptedRun(envelope, buildAcceptedRun(envelope)), { info() {}, error() {} });
+  assert.deepEqual(visited, ['case','continue-setup'].includes(failure) ? ['setup', 'case', 'cleanup'] : ['setup', 'cleanup']);
+  assert.equal(callback.case_result.status, failure === 'blocked-setup' ? 'blocked' : failure === 'continue-setup' ? 'passed' : 'failed');
+  assert.equal(callback.case_result.logs.stepStatuses['case:post:cleanup-hook:cleanup'], 'passed');
+});

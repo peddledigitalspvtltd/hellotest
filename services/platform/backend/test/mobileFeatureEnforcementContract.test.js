@@ -73,7 +73,8 @@ test("execution routes and background services enforce the retained mobile featu
 test("iOS authoring is dispatched through the shared Appium mobile engine", async () => {
   const dispatchService = await readSource("../../../automation/backend/services/testEngineDispatch.service.js");
 
-  assert.match(dispatchService, /if \(normalized === "ios"\) \{\s*return "android";/);
+  assert.match(dispatchService, /SUPPORTED_ENGINE_STEP_TYPES = new Set\(\["api", "web", "android", "ios"\]\)/);
+  assert.doesNotMatch(dispatchService, /if \(normalized === "ios"\) \{\s*return "android";/);
   assert.match(dispatchService, /stepTypes\.has\("android"\) \|\| stepTypes\.has\("ios"\)/);
   assert.match(dispatchService, /appTypeKind === "ios"/);
   assert.match(dispatchService, /integrationConfig\.ios_app/);

@@ -1,340 +1,162 @@
 # HelloTest
 
-HelloTest is a QA management workspace with a Fastify backend, a React frontend, PostgreSQL for relational persistence, and MinIO-compatible object storage for binary test evidence.
+HelloTest is a QA workspace for stories, manual and automated cases, reusable steps, test data, suites, runs and evidence. Its React workspace and administration portal use a Fastify API. TestEngine executes structured API requests, Playwright browser automation and Android/iOS flows through a native provider.
 
-This repo is now PostgreSQL-first. SQLite is no longer part of the runtime, which avoids the read-only database file issues that were happening with mounted `.db` files.
+| Your task | Start here |
+| --- | --- |
+| Run and administer a local application | Follow the Docker startup below |
+| Change code or attach VS Code debuggers | [Step-by-step developer walkthrough](CONTRIBUTE.md) |
+| Understand ownership, engineering rules and test coverage | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Diagnose a failing request, build or run | [Debugging runbook](docs/development/debugging.md) |
+| Plan a shared deployment or capability release | [Platform deployment](docs/PLATFORM_STACK.md), [service deployment](services/README.md), [release contracts](docs/architecture/capability-packaging.md) |
 
-For source ownership, architecture diagrams, development setup and contribution checks, read [CONTRIBUTING.md](CONTRIBUTING.md).
+## Prerequisites and execution boundaries
 
-## Stack
+Run commands from the repository root. The examples use a POSIX shell on macOS/Linux; Windows needs a compatible Docker/Linux shell environment, rather than pasting these commands into PowerShell.
 
-- Backend: Fastify on Node.js
-- Frontend: React + Vite
-- Database: PostgreSQL 16
-- Cache/coordination: Redis
-- Attachments: MinIO / S3-compatible object storage through the official JavaScript SDK
-- Rich document extraction: Apache Tika
-- Observability: OpenTelemetry, Prometheus, Loki, Jaeger, and Grafana
-- Containers: Docker Compose
+| Workflow | Prerequisites |
+| --- | --- |
+| Docker application | Docker with a running daemon, Compose v2, a POSIX shell, Git checkout and curl; network access for initial images/source/dependencies and Docker resources for compilation |
+| Default local monitoring | Host Node.js **22.18+**; monitoring is enabled by the root launcher unless `HELLOTEST_OPS_ENABLED=false` |
+| Source development | Node.js **22.18+**, npm and the dependencies installed by `npm run setup`; infrastructure appropriate to the feature |
+| Real browser, AI or native execution | Configured target application and provider credentials; matching Playwright browser, LLM integration or Appium/device as applicable |
 
-## Repo layout
+Runtime package manifests permit Node 20; contribution tests import TypeScript directly and require the newer development runtime. iOS execution needs a compatible macOS/Appium host or remote device provider. Starting the application does not provision a model account or physical devices. See the [automation workflow](docs/architecture/automation-workflow.md) for authoring and evidence limits.
 
-- `services/platform/backend`: shared Fastify runtime and composition shell
-- `services/<profile>/backend`: backend routes, feature services and route manifests
-- `services/<profile>/frontend`: frontend feature pages, components, hooks, helpers and endpoint ownership
-- `services/catalog.json`: canonical bounded-service and deployment registry
-- `docker-compose.microservices.yml`: selectable API profiles for Platform, Testing, Manual, Dashboard, Automation, Agentic, Knowledge, Chatbot, AI, Integration and Trace
-- `services/platform/backend/instance-setup-data/schema-setup/schema.sql`: PostgreSQL schema loaded on first database boot
-- `services/platform/backend/instance-setup-data/manifest.json`: versioned sample content installed through Administration or opt-in startup setup
-- `services/platform/backend/docker-compose.yml`: backend + PostgreSQL + MinIO
-- `docker-compose.full.yml`: full stack with PostgreSQL, MinIO, API, and frontend
-- `docker-compose.platform.yml`: full stack plus HAProxy, Prometheus, Grafana, Loki, Alloy, and OpenTelemetry Collector
-- `frontend`: React workspace/admin composition and build shell
-- `testengine/backend`: the sole supported API, Web, and Android execution worker plane
-- `testengine/docker-compose.yml`: independent TestEngine workers, Selenium Grid hub/node, and mobile execution plane
-- `openapi.yaml`: API contract
-- [`docs/architecture/backend.md`](docs/architecture/backend.md): module boundaries, provider contracts, health, queues, and change rules
-- [`docs/PLATFORM_STACK.md`](docs/PLATFORM_STACK.md): deployment topology and operator endpoints
-- [`services/README.md`](services/README.md): service ownership, setup, and migration rules
-- [`docs/source-layout-audit.md`](docs/source-layout-audit.md): source ownership, naming rules, duplicate detection, and safe cleanup history
-- [`docs/repository-file-map.md`](docs/repository-file-map.md): repository-wide Markdown, YAML, shell, generated-file, and cleanup policy
-- [`docs/platform-acceptance-status.md`](docs/platform-acceptance-status.md): verified architecture behavior and remaining work toward full service independence
+## Start the Docker application
 
-## Quick Start
+1. **Check the tools and Docker daemon.** These commands should succeed before you start the stack:
 
-Start everything from the repo root:
+   ```sh
+   docker --version
+   docker compose version
+   docker info --format '{{.ServerVersion}}'
+   node --version
+   ```
 
-```bash
-./hellotest.sh up --build --no-cache --stack local
-```
+   Node supports the default monitoring launcher. If you intentionally omit monitoring, prefix the startup command with `HELLOTEST_OPS_ENABLED=false`.
 
-Open the apps:
+2. **Build and start the local stack.**
 
-- Frontend: `http://localhost:8080`
-- Administration portal (canonical API route): `http://localhost:3000/admin`
-- Administration portal (direct container port): `http://localhost:8081`
-- API: `http://localhost:3000`
-- PostgreSQL: `localhost:5432`
-- MinIO API: `localhost:9000`
-- MinIO console: `http://localhost:9001`
+   ```sh
+   ./hellotest.sh up --build --stack local
+   ```
 
-On the first boot, the Postgres container creates the `hellotest` database and automatically runs:
+   The stack includes the application, PostgreSQL, object storage and execution services. The first run downloads and compiles dependencies; allow it to finish before investigating readiness. A monitoring warning is separate from application readiness. Do not use `--no-cache` for routine startup.
 
-- `services/platform/backend/instance-setup-data/schema-setup/schema.sql`
+3. **Confirm readiness.** A started container alone is not the checkpoint:
 
-The API then initializes runtime schema and the bootstrap administrator. Sample content is optional: use Administration → Instance setup, or set `HELLOTEST_INSTANCE_SETUP_MODULES=all` (or comma-separated module keys) before startup. Progress and retry use the same durable jobs in Administration.
+   ```sh
+   ./hellotest.sh status --stack local
+   curl --fail --max-time 5 http://localhost:3000/health/ready
+   curl --fail --max-time 5 http://localhost:4301/health/ready
+   curl --fail --max-time 5 http://localhost:9000/minio/health/ready
+   ```
 
-## Install all deployable workspaces
+   Expect HTTP success from the intended services. The API stays unready during initialization. `/health/live` checks process liveness; `/health/ready` checks that service's configured dependencies. A ready API does not establish LLM, device or application-under-test connectivity.
 
-The repository root now owns the setup command. It installs the lockfile-backed API, frontend, and TestEngine workspaces, then installs the mobile worker (which currently has no lockfile). Dependency directories and generated build output are ignored by Git.
+4. **Sign in and complete instance setup.** Open the administration URL below. For a **fresh local database with unchanged API defaults**, sign in with `admin` / `admin` and replace the password in **Security**. Then sign in to the product workspace with email `bootstrap.admin@hellotest.local` and the new password; the portals use separate sessions. Existing databases retain their users. Other deployment stacks use their configured bootstrap identity. Sample content is optional through **Administration → Instance setup**, or `HELLOTEST_INSTANCE_SETUP_MODULES` before API startup; it is separate from schema initialization.
 
-```bash
+| Surface | Default local URL |
+| --- | --- |
+| Workspace | http://localhost:8080 |
+| Administration | http://localhost:8081 or http://localhost:3000/admin |
+| API | http://localhost:3000 |
+| TestEngine gateway | http://localhost:4301 |
+| MinIO console | http://localhost:9001 |
+
+These are local-stack defaults. The bundle binds published development ports to loopback; other stacks and explicit overrides can differ. Complete a small representative test and inspect its saved result/evidence before treating an execution provider as verified.
+
+### MinIO on the first start
+
+The launcher builds `hellotest/minio:RELEASE.2025-10-15T17-29-55Z` from pinned official source when the local image is absent, following [upstream container-build guidance](https://github.com/minio/minio/releases/tag/RELEASE.2025-10-15T17-29-55Z). The first build needs network access, Docker CPU/memory and several minutes; later starts reuse the image. No `MINIO_IMAGE` override is required.
+
+Remove an obsolete Quay/Docker Hub override or set the local tag above. An intentional private-mirror override remains supported. Direct Compose users must first run `npm run build:minio`; use `sh scripts/build/minio.sh` if working without npm. `--skip-image-pull` requires the default image to be cached and does not download source. Image preparation preserves existing MinIO credentials and volumes. Registry login and volume deletion do not repair a withdrawn public image.
+
+## Develop and verify changes
+
+Follow [CONTRIBUTE.md](CONTRIBUTE.md) for the complete API, frontend, TestEngine, native worker and VS Code walkthrough. For frontend work against the running Docker API:
+
+```sh
 npm run setup
-npm run audit:source-layout
-npm run validate:architecture
+npm run doctor
+npm --prefix services/platform/frontend run dev -- --host localhost --strictPort
 ```
 
-The redundant execution prototype has been removed. All engine development and tests use `testengine/backend`; see [the consolidation review](docs/testengine-consolidation.md).
+The workspace dev server uses **5173** and proxies `/api` to **3000**. Start administration with `npm --prefix services/platform/frontend run dev:admin -- --host localhost --strictPort`, then open `http://localhost:5174/admin/`. These commands fail on an occupied port so you can resolve the duplicate process. Do not start a second API on port 3000 while Docker owns it. Node servers do not implicitly load `.env`; the walkthrough supplies explicit environment-loading commands.
 
-## Independently deploy bounded services
+`npm run doctor` checks local tooling, installed package manifests and workspace links without reading environment-file contents or probing live services. A passing report is the setup checkpoint, not an end-to-end test.
 
-The API route manifest assigns every route to one service profile. Run the profiles with the dedicated Compose contract:
+Before handing off a code change, run the applicable focused tests and the broader checks required by [CONTRIBUTING.md](CONTRIBUTING.md#tests-and-verification):
 
-```bash
+```sh
+npm test
+npm run build
+npm --prefix local-run/mobile-engine test
+```
+
+Root tests include backend, frontend, TestEngine and architecture gates. Native tests are separate; browser fixtures, live PostgreSQL integrations, models and devices need their own prerequisites. Record what was exercised and what remains unverified.
+
+### VS Code debugging
+
+For debugging server code, follow [CONTRIBUTE.md](CONTRIBUTE.md) to switch to host processes and create the ignored root `.env.development.local` from the checked-in [template](docs/development/development.env.example). Open the repository root in VS Code. Start **Backend API**, verify readiness, then start **Frontend**, **Admin Frontend** or **Test Engine** as needed. **Full Stack Debug** combines API, TestEngine and product UI; native execution uses the separate **Mobile Engine** profile.
+
+The checked-in [launch profiles](.vscode/launch.json), [tasks](.vscode/tasks.json) and [workspace settings](.vscode/settings.json) include loopback Node inspectors, strict Vite ports, infrastructure preparation and current-file Node/TypeScript tests. The walkthrough explains the first breakpoint, request tracing, environment precedence and how to stop background tasks while retaining data.
+
+## Topology and source ownership
+
+`testengine/backend` is the sole supported execution worker implementation; the mobile worker supplies its native provider.
+
+Capability profiles select API processes and routes. They share PostgreSQL, runtime adapters and some exported implementation contracts; separate processes do not provide independent databases or complete failure isolation. Saved web/native automation is trusted code executed in workers, so isolate worker privileges, credentials and network access appropriately. See [backend architecture](docs/architecture/backend.md), [implementation boundaries](docs/architecture/implementation-boundaries.md) and the [refactor assessment](docs/architecture/refactor-review.md).
+
+| Source owner | Responsibility |
+| --- | --- |
+| [services/platform](services/platform) | `backend`: API composition, identity, projects, administration and shared adapters; `frontend`: workspace/admin shells and shared UI |
+| [services/testing](services/testing) | Cases, shared steps, suites, test data, configurations, runs, results and defects |
+| [services/manual](services/manual) | Stories, requirements, planning and work-item relationships |
+| [services/dashboard](services/dashboard) | Quality analytics, release readiness and custom dashboards |
+| [services/automation](services/automation) | Automation building, recording, execution dispatch and callbacks |
+| [services/agentic](services/agentic) | Agent workflows, repository agents and inspection |
+| [services/ai](services/ai) | Quality assistance, generation and AI review |
+| [services/knowledge](services/knowledge) | Ingestion, search and grounding/context retrieval |
+| [services/chatbot](services/chatbot) | Conversations, assistant answers and citations |
+| [services/integration](services/integration) | Provider configuration, prompt/model selection and synchronization |
+| [services/trace](services/trace) | Operational telemetry and monitoring gateways |
+| [testengine/backend](testengine/backend) | API/browser/native orchestration, recording and execution evidence |
+| [local-run/mobile-engine](local-run/mobile-engine) | Appium/WebdriverIO Android and iOS provider |
+| [services/platform/backend/instance-setup-data](services/platform/backend/instance-setup-data) | Canonical SQL and versioned optional samples |
+| [ops](ops), [scripts](scripts), [local-run](local-run) | Monitoring, build/deployment checks and local runtime wrappers |
+| [services/catalog.json](services/catalog.json), [services/capabilities.json](services/capabilities.json) | Deployment/source registry and generated dependency metadata |
+| [openapi.yaml](openapi.yaml) | Public API contract |
+
+Each capability owns its `backend`, `frontend` and tests. There are no root `backend/` or `frontend/` source directories. To inspect a capability deployment without starting it:
+
+```sh
 npm run services:up -- --capabilities automation --print
-npm run services:up -- --capabilities automation --build
-npm run services:up -- --capabilities knowledge --build
-docker compose -f docker-compose.microservices.yml up --build ai-api
 ```
 
-Set `HELLOTEST_SERVICE_PROFILE` when deploying the API image directly. `all` remains the default for compatibility. The current transition shares PostgreSQL, Redis, MinIO, and Tika; service-specific databases are a later migration after cross-domain joins become versioned projections.
+## Diagnose and recover
 
-## Monitoring stack
+Start with the affected service and preserve the request/trace/job IDs:
 
-`./hellotest.sh up --stack local` starts the compact monitoring stack automatically, including when used with `--build --no-cache`. In Test Ops → Telemetry, the workspace provides Dashboard, Grafana dashboard (automatic read-only sign-in for administrators), TestGrid telemetry, Infrastructure logs, Distributed traces (Jaeger), Alertmanager, and consolidated Service health. All consoles load within their tabs. Use `HELLOTEST_OPS_ENABLED=false` to omit monitoring, `npm run ops:up` to start/repair it independently, and `npm run ops:verify` to check data flow. See [operations and resource budgets](docs/ops-operations.md).
-
-## Operator Script
-
-Use `hellotest.sh` as the single root entrypoint for service relation config, image publishing, and compose deployment:
-
-```bash
-./hellotest.sh config --stack full
-./hellotest.sh push
-./hellotest.sh deploy --stack platform
-./hellotest.sh deploy --stack testengine --yes
+```sh
+./hellotest.sh status --stack local
+./hellotest.sh logs --stack local --tail 100 api
 ```
 
-`--build --no-cache` now rebuilds every Compose service without Docker layer cache before starting it, including both the product and administration frontend bundles. The equivalent full-stack command is:
+The [debugging runbook](docs/development/debugging.md) covers inspector ports, request IDs, logs, queue failures and provider health. For monitoring, use the [operations runbook](docs/ops-operations.md). Share sanitized errors and reproduction steps; omit environment files, cookies, tokens and private test data.
 
-```bash
-docker compose -f docker-compose.full.yml up -d --build
-```
+After correcting the cause, `./hellotest.sh restart --stack local api` restarts the API. Changed container environment settings require recreation through the appropriate `up` command. `./hellotest.sh down --stack local` stops the application and its launcher-managed monitoring without deleting named volumes. Confirm the stack/service scope before an operation; never use volume deletion as routine repair.
 
-For the cloud/edge stack, use:
+## Configuration, data and release handoff
 
-```bash
-./hellotest.sh deploy --build --no-cache --stack platform --yes
-```
+Use the intended stack's configuration, not values copied from another environment. `hellotest.sh config` writes resolved settings under private `.hellotest/`; `--config <file>` supplies operator overrides. Keep these files, local environments and credentials out of commits and support reports. [CONTRIBUTING.md](CONTRIBUTING.md#configuration-ownership) identifies setting owners; the [platform guide](docs/PLATFORM_STACK.md) describes hosted bootstrap and secrets.
 
-The edge route is `${HELLOTEST_PUBLIC_URL}/admin`; the API container also serves `/admin` directly whenever its port is exposed.
+Before a shared deployment, assign and record these responsibilities:
 
-`./hellotest.sh config` writes the resolved service contract to `.hellotest/<stack>.env` with owner-only directory/file permissions and redacts secrets from terminal output. Use `--show-secrets` only in a private terminal when the raw resolved values are explicitly required. Override any endpoint or image with environment variables or `--config <file>`:
+- **Operator:** target stack, public/internal URLs, TLS/access controls, image/source versions and provider credentials. Local development defaults are not a hosted deployment policy.
+- **Data owner:** backups and a verified restore procedure for PostgreSQL, object-storage evidence and protected configuration. A database-only backup does not include attachment bytes; preserve volumes during routine upgrades.
+- **Release owner:** compatible schema/API/client changes, migration order and rollback plan. Retain older hashed UI assets during rolling releases as required by the [release contract](docs/architecture/capability-packaging.md).
+- **Verifier:** readiness, sign-in/access checks and representative execution/results/evidence, with live-provider coverage and remaining gaps stated explicitly.
 
-```bash
-HELLOTEST_PUBLIC_URL=https://hellotest.example.com \
-HELLOTEST_API_BASE_URL=https://hellotest.example.com/api \
-./hellotest.sh deploy --stack platform
-```
-
-The deploy command prints the target stack, compose file, frontend URL, API URLs, and Test Engine URL before it changes containers. Use `--yes` only from automation.
-
-For AWS EC2 hosts, prefer the scripts in [AWS deployment scripts](scripts/deploy/aws/README.md):
-
-```bash
-scripts/deploy/aws/deploy-app.sh
-HELLOTEST_API_BASE_URL=https://hellotest.qualipal.in/api scripts/deploy/aws/deploy-testengine.sh
-scripts/deploy/aws/status.sh
-scripts/deploy/aws/logs.sh --stack app
-```
-
-## Quick start: backend only
-
-Run the backend and PostgreSQL without the frontend:
-
-```bash
-cd backend
-docker pull pgvector/pgvector:0.8.6-pg16-bookworm
-docker compose up --build
-```
-
-You can also use:
-
-```bash
-cd backend
-./start.sh
-```
-
-The API will be available at `http://localhost:3000`.
-
-The Compose credentials are development defaults. Set unique `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_ACCESS_KEY`, and `MINIO_SECRET_KEY` values for every hosted environment; the API keeps these server-side and stores only object pointers and metadata in PostgreSQL.
-
-## Start Individual Services
-
-From the repo root, target services through the same operator script:
-
-```bash
-./hellotest.sh up --stack full postgres api
-./hellotest.sh up --stack full frontend
-./hellotest.sh up --stack testengine
-./hellotest.sh up --stack testengine testengine-web
-```
-
-## Platform stack
-
-For the stronger Docker edge and observability layer:
-
-```bash
-docker compose -f docker-compose.platform.yml up -d
-```
-
-That stack adds:
-
-- HAProxy on `http://localhost`
-- Prometheus on `http://localhost:9090`
-- Grafana on `http://localhost:3001`
-- Loki on `http://localhost:3100`
-- HAProxy stats on `http://localhost:8404/stats`
-
-If port `80` is already used on the host, publish HAProxy on another host port:
-
-```bash
-HELLOTEST_HTTP_PORT=8081 docker compose -f docker-compose.platform.yml up -d
-```
-
-More detail is in [docs/PLATFORM_STACK.md](docs/PLATFORM_STACK.md).
-
-## Manual PostgreSQL setup
-
-If you want to run Postgres yourself instead of using Compose, these are the explicit steps.
-
-1. Pull the image:
-
-```bash
-docker pull pgvector/pgvector:0.8.6-pg16-bookworm
-```
-
-2. Start PostgreSQL:
-
-```bash
-docker run --name hellotest-postgres \
-  -e POSTGRES_DB=hellotest \
-  -e POSTGRES_USER=hellotest \
-  -e POSTGRES_PASSWORD=hellotest \
-  -p 5432:5432 \
-  -d pgvector/pgvector:0.8.6-pg16-bookworm
-```
-
-3. Load the schema:
-
-```bash
-PGPASSWORD=hellotest psql -h localhost -U hellotest -d hellotest -f services/platform/backend/instance-setup-data/schema-setup/schema.sql
-```
-
-4. Optionally enable the current instance dataset after API initialization:
-
-```bash
-export HELLOTEST_INSTANCE_SETUP_MODULES=all
-```
-
-Leave it unset for an empty customer instance. Administration → Instance setup can install selected modules later.
-
-5. Run the API locally:
-
-```bash
-cd services/platform/backend
-npm install
-DATABASE_URL=postgresql://hellotest:hellotest@localhost:5432/hellotest npm start
-```
-
-Execution and operational records use a separately owned adapter but the same PostgreSQL database in this release, so the command above is complete. `OBS_DATABASE_URL` is optional and, when supplied, must identify the same host and database (it may use a separate database user). A physically separate execution database is rejected at startup until domain joins have been replaced by service contracts.
-
-6. Run the frontend locally in another terminal:
-
-```bash
-cd services/platform/frontend
-npm install
-VITE_API_BASE_URL=http://localhost:3000 npm run dev
-```
-
-Run the administration portal as a separate Vite process only when developing its UI. It uses the same API and PostgreSQL database as the product workspace:
-
-```bash
-cd services/platform/frontend
-VITE_API_BASE_URL=http://localhost:3000 npm run dev:admin
-```
-
-Vite opens the portal under `http://localhost:5174/admin/`; a locally running API also gateways it at `http://localhost:3000/admin`. In Docker, no extra npm process is needed: the admin bundle is included in the frontend image. Local development can bootstrap with `admin` / `admin` and immediately requires password replacement. When `NODE_ENV=production`, bootstrap login is disabled by default; explicitly enabling it requires a non-default administrator identity and a strong one-time `ADMIN_BOOTSTRAP_PASSWORD`.
-
-## Sample login
-
-The seed file creates these users:
-
-- `admin@hellotest.ai` / `admin123`
-- `member@hellotest.ai` / `member123`
-
-## Environment variables
-
-### Backend
-
-- `DATABASE_URL`
-  Example: `postgresql://hellotest:hellotest@postgres:5432/hellotest`
-- `SESSION_SECRET`
-- `CORS_ORIGIN`
-- `LOG_LEVEL`
-- `STORAGE_PROVIDER` (`minio` for the bundled object store, or `s3` for a compatible hosted endpoint)
-- `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_USE_SSL`
-- `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_REGION`
-- `MAX_ATTACHMENT_BYTES` (defaults to 100 MiB)
-- `KNOWLEDGE_MAX_FILE_BYTES` (defaults to 50 MiB per Knowledge Repo upload)
-- `KNOWLEDGE_EXTRACTION_MAX_BYTES` (defaults to 20 MiB buffered for bounded document extraction)
-- `KNOWLEDGE_MAX_EXTRACTED_TEXT_CHARS` (defaults to 2,000,000 extracted characters per source)
-- `KNOWLEDGE_TIKA_URL` (fixed internal Apache Tika endpoint; the bundled stacks use `http://tika:9998`)
-- `KNOWLEDGE_TIKA_TIMEOUT_MS` (defaults to 30 seconds)
-- `KNOWLEDGE_VECTOR_STORE` (`qdrant` in bundled stacks; `postgresql` is the safe fallback)
-- `KNOWLEDGE_QDRANT_URL` (internal Qdrant REST endpoint; bundled stacks use `http://qdrant:6333`)
-- `KNOWLEDGE_QDRANT_API_KEY` (required when the Qdrant deployment enforces API-key authentication)
-- `KNOWLEDGE_QDRANT_COLLECTION_PREFIX` (dimension-versioned collection prefix)
-- `KNOWLEDGE_QDRANT_TIMEOUT_MS` (bounded projection/query deadline; defaults to 4 seconds)
-
-Standard attachment uploads are streamed through the authenticated API. Knowledge source uploads are separately size-bounded and read once by the API for signature, extension, and unsafe Office-package checks before being persisted to object storage and queued for extraction. PostgreSQL stores the HelloTest entity scope, object key, checksum, content type, and audit metadata; file bytes remain in object storage and downloads are lazy. Knowledge ingestion stores extracted, redacted chunks and retrieval provenance in PostgreSQL/pgvector while retaining source files in object storage. Keep object-storage and parser endpoints on the API network only—never expose them through the frontend runtime config. When an administrator configures an external embedding or chat endpoint, redacted project passages are sent to that provider; review its retention and data-handling terms before enabling it. Without that configuration, Knowledge search stays local and uses PostgreSQL full-text search plus the explicitly degraded deterministic fallback.
-
-### PostgreSQL container
-
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-
-### Frontend
-
-- `HELLOTEST_API_BASE_URL` for the container build/runtime config
-  Example: `http://localhost:3000` for `docker-compose.full.yml`, or `/api` when the frontend and API share the same public host behind HAProxy or a load balancer
-- `VITE_API_BASE_URL` for local Vite development
-- `HELLOTEST_ADMIN_URL` for the public administration portal URL reported by `hellotest.sh`
-- `HELLOTEST_ADMIN_PORT` for the optional direct administration frontend port (defaults to `8081`)
-- `ADMIN_FRONTEND_INTERNAL_URL` for the API-to-frontend Docker route (defaults to `http://frontend:81`)
-- `HELLOTEST_BACKEND_IMAGE` to override the backend Docker Hub image
-- `HELLOTEST_FRONTEND_IMAGE` to override the frontend Docker Hub image
-
-## Database behavior
-
-- The bundled stacks use the pinned official `pgvector/pgvector` PostgreSQL 16 image and create the database defined by `POSTGRES_DB`.
-- Apache Tika runs on a separate internal-only network with a read-only filesystem and bounded temporary storage; its port is not published to the host.
-- The mounted SQL files in `services/platform/backend/instance-setup-data/schema-setup` are executed only when the Postgres data directory is empty.
-- Optional sample content comes from the versioned instance dataset. Set `HELLOTEST_INSTANCE_SETUP_MODULES=all` before startup to queue it after schema and administrator initialization.
-
-## Reset the database
-
-If you want a fresh database and fresh seed data:
-
-From the repo root:
-
-```bash
-docker compose -f docker-compose.full.yml down -v
-docker compose -f docker-compose.full.yml pull
-docker compose -f docker-compose.full.yml up -d
-```
-
-From the backend folder:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
-
-## Notes
-
-- `docker-compose.full.yml` now uses Docker Hub images by default:
-- Backend: `jayarajumetta/hellotest-backend:latest`
-- Frontend: `jayarajumetta/hellotest-frontend:latest`
-- The frontend is configured to talk to `http://localhost:3000` by default in local Docker workflows.
-- The schema in `services/platform/backend/instance-setup-data/schema-setup/schema.sql` is ordered for PostgreSQL foreign key creation. Sample data installation validates JSON relationships and saves resumable receipts.
+The bundled stack does not establish a production availability, capacity or disaster-recovery guarantee. Choose deployment/storage/monitoring arrangements and acceptance checks for the actual environment before release.

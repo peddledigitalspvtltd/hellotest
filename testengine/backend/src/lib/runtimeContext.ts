@@ -200,6 +200,7 @@ export const buildInitialContext = (envelope: EngineRunEnvelope, capturedValues:
     ? Object.fromEntries(rows.filter((row) => row?.key).map((row) => [row.key, row.value]))
     : rows[0], "r");
   }
+  apply(step?.source_case_parameters, "t");
   Object.entries(capturedValues).forEach(([key, value]) => registerContextValue(context, key, value));
   for (const [key, template] of Object.entries(GENERATED_CONTEXT_ALIASES)) {
     if (/^[tr]\./.test(key) && !Object.hasOwn(context.values, key)) context.values[key] = materializeTemplateValue(template);

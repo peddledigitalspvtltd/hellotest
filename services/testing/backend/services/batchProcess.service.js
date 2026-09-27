@@ -480,6 +480,7 @@ exports.queueAutomationBuild = async ({
   app_type_id,
   test_case_ids = [],
   integration_id,
+  allow_browser_actions = false,
   start_url,
   test_environment_id,
   test_configuration_id,
@@ -502,10 +503,10 @@ exports.queueAutomationBuild = async ({
     app_type_id,
     category: "automation_build",
     action: "batch_case_automation_build",
-    title: "Batch AI automation",
+    title: "Build with automation agent",
     description: selectedCaseCount
-      ? `Queued ${selectedCaseCount} selected manual web case${selectedCaseCount === 1 ? "" : "s"} to automate with AI.`
-      : "Queued manual web cases to automate with AI.",
+      ? `Queued ${selectedCaseCount} selected manual case${selectedCaseCount === 1 ? "" : "s"} to build with the automation agent.`
+      : "Queued manual cases to build with the automation agent.",
     metadata: {
       selected_case_count: selectedCaseCount,
       total_items: selectedCaseCount,
@@ -518,6 +519,7 @@ exports.queueAutomationBuild = async ({
       app_type_id,
       test_case_ids,
       integration_id,
+      allow_browser_actions: allow_browser_actions === true,
       start_url,
       test_environment_id,
       test_configuration_id,

@@ -845,6 +845,7 @@ module.exports = async function (fastify) {
       app_type_id: { required: true, type: "string" },
       test_case_ids: { required: false, type: "array", items: "string" },
       integration_id: { required: false, type: "string" },
+      allow_browser_actions: { required: false, type: "boolean" },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
@@ -857,10 +858,12 @@ module.exports = async function (fastify) {
     const appType = await appTypeService.getAppType(req.body.app_type_id);
     await projectService.getProject(appType.project_id, req.user.id);
     await fastify.requirePermission("automation.build", { projectId: appType.project_id })(req);
+    await fastify.requirePermission("automation.ai", { projectId: appType.project_id })(req);
     await ensureTestCaseDataSetAccess(fastify, req, appType.project_id, req.body?.test_data_set_id);
 
     return batchProcessService.queueAutomationBuild({
       ...req.body,
+      allow_browser_actions: req.body.allow_browser_actions === true,
       created_by: req.user.id
     });
   });
@@ -988,6 +991,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      allow_browser_actions: { required: false, type: "boolean" },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
@@ -998,12 +1002,14 @@ module.exports = async function (fastify) {
     }, req.body || {});
 
     const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
+    await ensureTestCasePermission(fastify, req, "automation.ai");
     await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return aiAutomationBuilderService.buildAutomationForCase({
       test_case_id: req.params.id,
       integration_id: req.body?.integration_id,
       start_url: req.body?.start_url,
+      allow_browser_actions: req.body?.allow_browser_actions === true,
       additional_context: req.body?.additional_context,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,
@@ -1019,6 +1025,7 @@ module.exports = async function (fastify) {
 
     fastify.validate({
       integration_id: { required: false, type: "string" },
+      allow_browser_actions: { required: false, type: "boolean" },
       start_url: { required: false, type: "string" },
       additional_context: { required: false, type: "string" },
       test_environment_id: { required: false, type: "string" },
@@ -1028,6 +1035,7 @@ module.exports = async function (fastify) {
     }, req.body || {});
 
     const { projectId } = await ensureTestCasePermission(fastify, req, "automation.build");
+    await ensureTestCasePermission(fastify, req, "automation.ai");
     await ensureTestCaseDataSetAccess(fastify, req, projectId, req.body?.test_data_set_id);
 
     return automationGeneratorService.queueGeneratorJob({
@@ -1035,6 +1043,7 @@ module.exports = async function (fastify) {
       scheduled_at: req.body?.scheduled_at,
       integration_id: req.body?.integration_id,
       start_url: req.body?.start_url,
+      allow_browser_actions: req.body?.allow_browser_actions === true,
       additional_context: req.body?.additional_context,
       test_environment_id: req.body?.test_environment_id,
       test_configuration_id: req.body?.test_configuration_id,

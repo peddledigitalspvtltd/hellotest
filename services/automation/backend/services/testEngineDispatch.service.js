@@ -22,7 +22,7 @@ const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/uti
 const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/resilientHttpClient");
 const { SERVICE_ERROR_CODES, serviceError } = require("@hellotest/platform/backend/src/utils/serviceErrors");
 
-const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android"]);
+const SUPPORTED_ENGINE_STEP_TYPES = new Set(["api", "web", "android", "ios"]);
 const TESTENGINE_ENGINE_CLASSES = new Set(["api", "web", "android"]);
 const DEFAULT_LEASE_SECONDS = Math.max(30, Number(process.env.TESTENGINE_JOB_LEASE_SECONDS || 90));
 const DIRECT_DISPATCH_TIMEOUT_MS = Math.max(1_000, Math.min(60_000, Number(process.env.TESTENGINE_DIRECT_DISPATCH_TIMEOUT_MS || 10_000)));
@@ -527,12 +527,14 @@ const normalizeEngineHookStep = (step, index, fallbackType = "api") => {
     return null;
   }
 
-  const stepType = resolveStepEngineClass(step, fallbackType);
+  const stepType = resolveEngineStepType(step.step_type, fallbackType);
   return {
     id: normalizeText(step.id) || `hook-step-${index + 1}`,
     order: Math.max(1, normalizeInteger(step.order ?? step.step_order, index + 1) ?? index + 1),
     step_type: stepType,
-    engine_class: stepType,
+    engine_class: resolveStepEngineClass(step, fallbackType),
+    source_case_parameters: normalizeStringRecord(step.source_case_parameters),
+    shared_parameter_values: normalizeStringRecord(step.shared_parameter_values),
     action: normalizeText(step.action) || null,
     expected_result: normalizeText(step.expected_result) || normalizeText(step.expectedResult) || null,
     automation_code: normalizeText(step.automation_code) || normalizeText(step.automationCode) || null,
@@ -931,19 +933,12 @@ const resolveEngineStepType = (stepType, appTypeKind) => {
     return normalized;
   }
 
-  // One Appium worker executes both mobile platforms. Authored iOS identity
-  // remains on the case and target configuration while dispatch uses that
-  // worker's established mobile step contract.
-  if (normalized === "ios") {
-    return "android";
-  }
-
   if (appTypeKind === "api" && !normalized) {
     return "api";
   }
 
   if ((appTypeKind === "android" || appTypeKind === "ios") && !normalized) {
-    return "android";
+    return appTypeKind;
   }
 
   if ((appTypeKind === "web" || appTypeKind === "unified") && !normalized) {
@@ -1081,6 +1076,12 @@ const buildEngineEnvelope = async ({
       active: normalizeTestEngineWebEngine(integrationConfig.active_web_engine, "playwright")
     },
     mobile_engine: {
+      platform_name: isMobileTarget ? appTypeKind : null,
+      udid: normalizeText(configurationSnapshot.udid || integrationConfig.udid) || null,
+      bundle_id: normalizeText(configurationSnapshot.bundle_id || integrationConfig.ios_bundle_id) || null,
+      app_package: normalizeText(integrationConfig.app_package) || null,
+      app_activity: normalizeText(integrationConfig.app_activity) || null,
+      provider_options: integrationConfig.provider_options || {},
       active: normalizeText(integrationConfig.active_mobile_engine) || "local-appium",
       recorder_mode: normalizeText(integrationConfig.mobile_recorder_mode) || "local",
       appium_server_url: normalizeText(integrationConfig.appium_server_url) || null,
@@ -1266,17 +1267,22 @@ const hydrateJob = (row) => {
   };
 };
 
-const buildRuntimeParameterValues = (envelope, capturedValues = {}, step = null) => resolveParameterLayers({
-  sharedValues: step?.shared_parameter_values,
-  dataPolicy: envelope.data_policy,
-  isSharedStep: step?.group_kind === "reusable",
-  caseValues: { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
-  suiteValues: envelope.suite_parameters,
-  environmentVariables: envelope.environment?.variables,
-  configurationVariables: envelope.configuration?.variables,
-  runValues: envelope.run_parameters,
-  dataSet: envelope.data_set,
-  capturedValues: normalizeFrozenCapturedValues(capturedValues, envelope.parameter_scope_default)
+const buildRuntimeParameterValues = (envelope, capturedValues = {}, step = null) => ({
+  ...resolveParameterLayers({
+    sharedValues: step?.shared_parameter_values,
+    dataPolicy: envelope.data_policy,
+    isSharedStep: step?.group_kind === "reusable",
+    caseValues: { ...envelope.manual_spec?.test_data, ...envelope.case_parameters },
+    suiteValues: envelope.suite_parameters,
+    environmentVariables: envelope.environment?.variables,
+    configurationVariables: envelope.configuration?.variables,
+    runValues: envelope.run_parameters,
+    dataSet: envelope.data_set
+  }),
+  // A hook executes with its source case's test data, just as in the web/native
+  // worker. Captures remain the last layer so setup can hand values to teardown.
+  ...normalizeParameterLayer(step?.source_case_parameters, "t"),
+  ...normalizeFrozenCapturedValues(capturedValues, envelope.parameter_scope_default)
 });
 
 const resultStatusToJobStatus = (status) => {
@@ -2352,7 +2358,10 @@ exports.executeQueuedApiStep = async ({ job_id, step_id } = {}) => {
     throw new Error("Queued job payload is missing step data");
   }
 
-  const step = job.payload.steps.find((entry) => entry.id === step_id);
+  const hookSteps = (job.payload.hooks || []).flatMap((hook) => (hook.steps || []).map((entry) => ({
+    ...entry, id: `${hook.scope}:${hook.phase}:${hook.id}:${entry.id}`
+  })));
+  const step = [...job.payload.steps, ...hookSteps].find((entry) => entry.id === step_id);
 
   if (!step) {
     throw new Error("Queued job step not found");
@@ -2505,7 +2514,10 @@ exports.reportQueuedStep = async ({
     throw new Error("Queued job payload is missing step data");
   }
 
-  const step = job.payload.steps.find((entry) => entry.id === step_id);
+  const hookSteps = (job.payload.hooks || []).flatMap((hook) => (hook.steps || []).map((entry) => ({
+    ...entry, id: `${hook.scope}:${hook.phase}:${hook.id}:${entry.id}`
+  })));
+  const step = [...job.payload.steps, ...hookSteps].find((entry) => entry.id === step_id);
 
   if (!step) {
     throw new Error("Queued job step not found");

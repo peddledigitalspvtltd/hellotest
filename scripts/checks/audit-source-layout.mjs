@@ -74,6 +74,7 @@ const genericNames = new Set([
   "utils.ts"
 ]);
 const allowedPackageDocumentation = new Set([
+  "CONTRIBUTE.md",
   "CONTRIBUTING.md",
   "docs/architecture/backend.md",
   "services/platform/backend/instance-setup-data/reference/hellotest-feature-stories.md",

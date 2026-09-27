@@ -1,3 +1,4 @@
+import { resolveRepositoryLocator } from "./repositoryLocator.js";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -297,7 +298,7 @@ const touchSession = (session: RecorderSession) => {
   session.last_activity_at = new Date().toISOString();
 };
 
-const pushRecorderAction = (
+export const pushRecorderAction = (
   session: RecorderSession,
   action: Omit<RecorderAction, "index" | "timestamp"> & Partial<Pick<RecorderAction, "index" | "timestamp">>
 ): RecorderAction | null => {
@@ -311,16 +312,19 @@ const pushRecorderAction = (
   const actionTimestamp = action.timestamp || new Date().toISOString();
 
   if ((actionType === "fill" || actionType === "change" || actionType === "upload" || actionType === "select" || actionType === "check" || actionType === "uncheck") && actionLocator) {
-    const recentEditableAction = [...session.actions].reverse().find((candidate) => {
+    // Collapse a typing burst only while it remains the latest action. Crossing a
+    // click/navigation boundary changes the recorded workflow and loses evidence.
+    const candidate = session.actions.at(-1);
+    const recentEditableAction = candidate && (() => {
       const candidateType = String(candidate.type || "").toLowerCase();
       const candidateTime = Date.parse(candidate.timestamp || "");
       const nextTime = Date.parse(actionTimestamp);
 
       return (candidateType === "fill" || candidateType === "change" || candidateType === "upload" || candidateType === "select" || candidateType === "check" || candidateType === "uncheck")
         && candidate.locator === actionLocator
-        && (!actionPageId || !candidate.page_id || candidate.page_id === actionPageId)
-        && (!Number.isFinite(candidateTime) || !Number.isFinite(nextTime) || Math.abs(nextTime - candidateTime) <= 12_000);
-    });
+        && candidate.page_id === actionPageId
+        && Number.isFinite(candidateTime) && Number.isFinite(nextTime) && nextTime >= candidateTime && nextTime - candidateTime <= 12_000;
+    })() ? candidate : null;
 
     if (recentEditableAction) {
       recentEditableAction.type = action.type;
@@ -335,7 +339,7 @@ const pushRecorderAction = (
   }
 
   const entry: RecorderAction = {
-    index: action.index || session.actions.length + 1,
+    index: (session.actions.at(-1)?.index || 0) + 1,
     type: action.type,
     locator: action.locator ?? null,
     text: action.text ?? null,
@@ -1100,54 +1104,6 @@ const installInspectMode = async (page: Page) => {
       clearHoverHighlight();
     };
   });
-};
-
-const readRepositoryLocatorArgument = (expression: string, name = "") => {
-  const pattern = name
-    ? new RegExp(`\\b${name}\\s*:\\s*(["'\x60])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "i")
-    : /\(\s*(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/;
-  const match = expression.match(pattern);
-  if (!match) return "";
-  if (match[1] === '"') {
-    try {
-      return JSON.parse(`"${match[2]}"`);
-    } catch {
-      // Fall through to the conservative literal unescape below.
-    }
-  }
-  return match[2].replace(/\\(["'`\\])/g, "$1");
-};
-
-const resolveRepositoryLocator = (page: Page, expression: string): Locator => {
-  const locator = normalizeText(expression) || "";
-  const getByMatch = locator.match(/^(?:page\.)?(getByRole|getByLabel|getByPlaceholder|getByText|getByTestId)\s*\(/i);
-
-  if (getByMatch) {
-    const method = getByMatch[1].toLowerCase();
-    const value = readRepositoryLocatorArgument(locator);
-    if (method === "getbytestid") return page.getByTestId(value);
-    if (method === "getbylabel") return page.getByLabel(value, { exact: true });
-    if (method === "getbyplaceholder") return page.getByPlaceholder(value, { exact: true });
-    if (method === "getbytext") return page.getByText(value, { exact: true });
-    const role = value as Parameters<Page["getByRole"]>[0];
-    const name = readRepositoryLocatorArgument(locator, "name");
-    return page.getByRole(role, name ? { name, exact: true } : undefined);
-  }
-
-  const roleMatch = locator.match(/^role=([^\[]+)(?:\[name=["']?(.+?)["']?\])?$/i);
-  if (roleMatch) {
-    const role = roleMatch[1].trim() as Parameters<Page["getByRole"]>[0];
-    return page.getByRole(role, roleMatch[2] ? { name: roleMatch[2], exact: true } : undefined);
-  }
-  const textMatch = locator.match(/^text=(.+)$/i);
-  if (textMatch) return page.getByText(textMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
-  const labelMatch = locator.match(/^label=(.+)$/i);
-  if (labelMatch) return page.getByLabel(labelMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
-  const placeholderMatch = locator.match(/^placeholder=(.+)$/i);
-  if (placeholderMatch) return page.getByPlaceholder(placeholderMatch[1].replace(/^["']|["']$/g, ""), { exact: true });
-  const testIdMatch = locator.match(/^(?:testid|data-testid)=(.+)$/i);
-  if (testIdMatch) return page.getByTestId(testIdMatch[1].replace(/^["']|["']$/g, ""));
-  return page.locator(locator.replace(/^xpath=/i, "xpath="));
 };
 
 const captureValidatedRepositoryLocator = async (

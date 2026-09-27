@@ -34,6 +34,8 @@ test("queued API and mobile blocks execute in plan order and exchange captured p
       return json({ next: "api-next" });
     }
     if (url.hostname === "mobile-engine.test") {
+      if (options.method === "DELETE") return json({ status: "closed" });
+      assert.ok(body.execution_session_key);
       const ids = body.steps.map((step) => step.id);
       order.push(ids.join("+"));
       assert.equal(body.parameter_values["s.tenant"], "team");

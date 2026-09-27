@@ -58,8 +58,9 @@ validate_compose_contract() {
       const api = config.services?.api;
       const minio = config.services?.minio;
       if (!api || !minio) throw new Error("api and minio services are required");
-      const expectedMinioImage = process.env.MINIO_IMAGE || "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z";
-      if (minio.image !== expectedMinioImage) throw new Error("minio must use its pinned Quay image or the configured MINIO_IMAGE override");
+      const expectedMinioImage = process.env.MINIO_IMAGE || "hellotest/minio:RELEASE.2025-10-15T17-29-55Z";
+      if (minio.image !== expectedMinioImage) throw new Error("minio must use its locally built source image or the configured MINIO_IMAGE override");
+      if (minio.pull_policy !== "missing") throw new Error("minio must reuse the prepared local image");
       const apiProbe = JSON.stringify(api.healthcheck?.test || []);
       const minioProbe = JSON.stringify(minio.healthcheck?.test || []);
       if (!apiProbe.includes("/health/ready")) throw new Error("api healthcheck must use /health/ready");

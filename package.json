@@ -31,7 +31,9 @@
     "check:boundaries": "node scripts/checks/check-service-boundaries.mjs",
     "build:capabilities": "npm run build --workspaces",
     "setup:capabilities": "npm ci --ignore-scripts --no-audit --no-fund",
-    "generate:capabilities": "node scripts/checks/sync-capability-metadata.mjs"
+    "generate:capabilities": "node scripts/checks/sync-capability-metadata.mjs",
+    "doctor": "node scripts/dev/doctor.mjs",
+    "build:minio": "sh scripts/build/minio.sh"
   },
   "engines": {
     "node": ">=20"

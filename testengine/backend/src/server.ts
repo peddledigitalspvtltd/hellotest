@@ -1,4 +1,6 @@
+import { registerAutomationMcp } from "./lib/automationMcp.js";
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
 import { buildAcceptedRun, buildCapabilities } from "./lib/pipeline.js";
 import { queueRunExecution, saveAcceptedRun } from "./lib/executor.js";
 import { createOpsTelemetry } from "./lib/opsTelemetry.js";
@@ -67,8 +69,22 @@ const buildPlaywrightLiveViewUrl = () => {
   }
 };
 const app = Fastify({
+  genReqId: (request) => {
+    const supplied = request.headers["x-request-id"];
+    return typeof supplied === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(supplied) ? supplied : randomUUID();
+  },
   logger: {
-    level: process.env.LOG_LEVEL || "info"
+    level: process.env.LOG_LEVEL || "info",
+    serializers: {
+      req: (request) => ({
+        method: request.method,
+        // Recorder/live-view query strings contain scoped bearer credentials.
+        url: String(request.url || "").split("?", 1)[0],
+        hostname: request.headers?.host,
+        remoteAddress: request.socket?.remoteAddress,
+        remotePort: request.socket?.remotePort
+      })
+    }
   }
 });
 const sharedSecretConfig = resolveTestEngineSharedSecret();
@@ -78,6 +94,7 @@ const activeDirectExecutions = new Set<Promise<void>>();
 let queueWorker: QueueWorkerController | null = null;
 let shuttingDown = false;
 
+app.addHook("onRequest", async (request, reply) => { reply.header("x-request-id", request.id); });
 app.addHook("onRequest", createCorsHook(corsPolicy));
 
 app.options("/*", async (_request, reply) => {
@@ -99,7 +116,7 @@ const buildLiveHealth = () => ({
   service: process.env.ENGINE_NAME || "HelloTest Test Engine",
   runner: process.env.TESTENGINE_WORKER_CLASS || "hybrid",
   ui: "hellotest",
-  execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android"
+  execution_scope: process.env.TESTENGINE_WORKER_CLASS || "api+web+android+ios"
 });
 
 app.get("/health/live", async () => buildLiveHealth());
@@ -311,6 +328,7 @@ const startServer = async () => {
   opsTelemetry = await createOpsTelemetry(app.log);
   await opsTelemetry.register(app);
   await registerRecorderRoutes(app);
+  await registerAutomationMcp(app, privilegedRunGuard);
   queueWorker = startQueueWorker(app.log, opsTelemetry);
   app.addHook("onClose", async () => {
     shuttingDown = true;

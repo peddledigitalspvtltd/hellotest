@@ -51,26 +51,26 @@ test("automation scheduling normalizes timezone offsets and rejects invalid or p
 
 const loadBuilderTestFunctions = (records) => {
   const file = path.join(__dirname, "../../../automation/backend/services/aiAutomationBuilder.service.js");
-  const dbStub = { prepare: () => ({ get: async () => null, all: async () => [], run: async () => ({ changes: 1 }) }) };
+  const dbStub = { transaction: callback => callback, prepare: () => ({ get: async () => null, all: async () => Array.from(records.values()), run: async () => ({ changes: 1 }) }) };
   const sandbox = { module: { exports: {} }, exports: {}, process, URL, Buffer, setTimeout, clearTimeout, console, require: (id) => {
     if (dependencyName(id) === "db" || dependencyName(id) === "obsDb") return dbStub;
     if (id === "crypto") return require("crypto");
     if (dependencyName(id) === "testStepAutomation") return automationUtils;
-    if (dependencyName(id) === "testStep.service") return { updateTestStep: async (id, update) => Object.assign(records.get(id), update) };
+    if (dependencyName(id) === "testStep.service") return { updateTestStep: async (id, update, options) => { assert.equal(options.syncSharedGroup, false); return Object.assign(records.get(id), update); } };
     return {};
   } };
-  vm.runInNewContext(`${fs.readFileSync(file, "utf8")}\nmodule.exports = { buildFallbackBuild, applyBuild };`, sandbox, { filename: file });
+  vm.runInNewContext(`${fs.readFileSync(file, "utf8")}\nmodule.exports = { normalizeLlmBuild: (payload, ...args) => normalizeLlmBuild(JSON.parse(JSON.stringify(payload)), ...args), applyBuild };`, sandbox, { filename: file });
   return sandbox.module.exports;
 };
 
-test("AI fallback and persistence keep API/native capabilities and never overwrite step prose", async () => {
+test("complete AI mappings preserve API/native capabilities and never overwrite step prose", async () => {
   const mixedSteps = [
     ...sourceSteps,
     { id: "native", action: "Tap sign in", expected_result: "Welcome appears", step_type: "android", automation_code: "await driver.back();" }
   ];
   const records = new Map(mixedSteps.map((step) => [step.id, { ...step }]));
-  const { buildFallbackBuild, applyBuild } = loadBuilderTestFunctions(records);
-  const build = buildFallbackBuild(mixedSteps, [], "https://example.test", "LLM unavailable");
+  const { normalizeLlmBuild, applyBuild } = loadBuilderTestFunctions(records);
+  const build = normalizeLlmBuild({ steps: mixedSteps.map(step => ({ step_id: step.id, step_type: step.step_type, automation_code: step.automation_code, api_request: step.api_request })) }, mixedSteps, [], "https://example.test");
   await applyBuild({ build });
   assert.equal(records.get("setup").api_request.url, "/accounts");
   assert.equal(records.get("setup").step_type, "api");
@@ -196,4 +196,20 @@ test("automation status endpoint authorizes the transaction project and reports 
   assert.deepEqual(checks, [["authenticate"], ["project", "project", "author"], ["automation.build", "project"]]);
   transaction = { ...transaction, category: "unrelated" };
   await assert.rejects(() => handler({ params: { transactionId: "build" }, user: { id: "author" } }), (error) => error.statusCode === 404);
+});
+
+ test("AI mapping rejects omissions, duplicate IDs, runtime changes, placeholders and invalid code", () => {
+  const { normalizeLlmBuild } = loadBuilderTestFunctions(new Map());
+  const steps = [{ id: "a", step_order: 1, step_type: "web", action: "Save", expected_result: "Saved" }];
+  for (const candidates of [[], [{step_id:"unknown",automation_code:"await page.reload();"}], [{step_id:"a",automation_code:"// TODO"}], [{step_id:"a",automation_code:"await page.;"}], [{step_id:"a",step_type:"api",api_request:{url:"/"}}], [{step_id:"a",automation_code:"await page.reload();"},{step_id:"a",automation_code:"await page.reload();"}]]) {
+    assert.throws(() => normalizeLlmBuild({ steps: candidates }, steps, [], null));
+  }
+});
+
+test("a changed case is rejected before AI updates can overwrite concurrent edits", async () => {
+  const step = { id: "s", test_case_id: "c", step_order: 1, step_type: "web", action: "Save", expected_result: "Saved", automation_code: "old" };
+  const records = new Map([["s", { ...step, action: "User edit" }]]);
+  const { applyBuild } = loadBuilderTestFunctions(records);
+  await assert.rejects(applyBuild({ build: { updates: [{ step, step_type: "web", automation_code: "new" }] } }), /case changed/);
+  assert.equal(records.get("s").automation_code, "old");
 });

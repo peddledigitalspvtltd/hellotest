@@ -158,7 +158,7 @@ test("setup links expire, are user bound, contain no bearer plaintext and cannot
 });
 test("standalone installer embeds only scoped pairing and pins exact runtime dependencies", () => {
   const module = "export {};\n".repeat(20);
-  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, origin: "https://app.example.test", agent_token: "a".repeat(48) });
+  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, origin: "https://app.example.test", agent_token: "a".repeat(48) });
   assert.match(source, /fastify: "4.29.1", playwright: "1.59.1"/);
   assert.match(source, /host: "127.0.0.1", port: 4311/);
   assert.match(source, /TESTENGINE_CORS_ORIGINS = config.origin/);
@@ -176,7 +176,7 @@ test("standalone setup detects an occupied agent port before installation and ex
   });
   if (reserved) t.after(() => new Promise(resolve => server.close(resolve)));
   const module = "export {};\n".repeat(20);
-  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, origin: "https://app.example.test", agent_token: "test-pairing-token" });
+  const source = buildInstaller({ recorder: module, security: module, inspection_security: module, inspection_proxy: module, repository_locator: module, origin: "https://app.example.test", agent_token: "test-pairing-token" });
   // Execute the actual generated preflight, ending before filesystem/network
   // installation work so this regression test never installs npm dependencies.
   const preflight = source.slice(0, source.indexOf("const directory ="));

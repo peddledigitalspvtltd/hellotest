@@ -939,7 +939,7 @@ export function StepTypePickerButton({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const requestedStepType = normalizeStepType(value);
-  const stepType = !canUseMobileAppium && ["android", "ios"].includes(requestedStepType) ? "web" : requestedStepType;
+  const stepType = requestedStepType;
   const meta = getStepTypeMeta(stepType);
 
   useEffect(() => {
@@ -2095,7 +2095,7 @@ export function StepAutomationDialog({
         action: step.action || null,
         expected_result: step.expected_result || null,
         step_type: stepType,
-        automation_code: automationCode,
+        automation_code: stepType === "api" ? "" : automationCode,
         api_request: normalizedApiRequest
       }),
     [automationCode, normalizedApiRequest, step.action, step.expected_result, step.step_order, stepType]
@@ -2423,7 +2423,7 @@ export function StepAutomationDialog({
       }));
     }
 
-    setApiPreviewMessage(`Added ${selectedJsonPath.path} to the response validations and custom override.`);
+    setApiPreviewMessage(`Added ${selectedJsonPath.path} to the response validations and source reference.`);
     setApiPreviewError("");
   };
 
@@ -2589,7 +2589,7 @@ export function StepAutomationDialog({
                     apiRequest.auth?.type && apiRequest.auth.type !== "none" ? apiRequest.auth.type : "",
                     (apiRequest.headers || []).filter((item) => item.key).length ? `${(apiRequest.headers || []).filter((item) => item.key).length} headers` : "",
                     apiRequest.body_mode && apiRequest.body_mode !== "none" ? apiRequest.body_mode.toUpperCase() : "",
-                    automationCode ? "Code override" : ""
+                    ""
                   ].filter(Boolean).join(" · ") || "Authentication, headers, body & more"}</strong></summary>
                   <div className="step-composer-settings-body">
 <section className="step-composer-settings-group"><h3>Authentication</h3>
@@ -2746,19 +2746,19 @@ export function StepAutomationDialog({
                 </details>
 <details className="automation-request-details automation-custom-code-panel">
                   <summary>
-                    <span>Custom code override</span>
-                    <strong>{automationCode ? "Override active" : "Optional"}</strong>
+                    <span>Saved source reference</span>
+                    <strong>{automationCode ? "Available" : "No reference"}</strong>
                   </summary>
                   <div className="automation-request-details-body">
                     <FormField
-                      label="Override JavaScript"
-                      hint="Leave blank to use the generated request snippet in group and case-level consolidated code views. JPath selections can seed this override automatically."
+                      label="Saved JavaScript reference"
+                      hint="API runs execute the structured request, assertions and captures above. This saved code is a reference; use the request editor to change execution."
                     >
                       <textarea
-                        placeholder="// Optional: override the generated request snippet for this step."
+                        readOnly
+                        placeholder="No saved source reference."
                         rows={5}
                         value={automationCode}
-                        onChange={(event) => setAutomationCode(event.target.value)}
                       />
                     </FormField>
                   </div>

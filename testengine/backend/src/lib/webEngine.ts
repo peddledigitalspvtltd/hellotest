@@ -1,3 +1,7 @@
+import { instrumentAutomationLines, createAutomationLineTracer, type AutomationLineResult } from "./automationLineTrace.js";
+import { resolveRepositoryLocator } from "./repositoryLocator.js";
+import { createPlaywrightCodeBindings } from "./playwrightBindings.js";
+import { parse } from "acorn";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -67,6 +71,7 @@ type WebStepExecutionResult = {
   note: string;
   captures: Record<string, string>;
   web_detail: WebStepDetail;
+  line_results?: AutomationLineResult[];
   evidence?: StepEvidence | null;
   recovery_attempted: boolean;
   recovery_succeeded: boolean;
@@ -76,6 +81,8 @@ type StepExecutionOptions = {
   step: EngineRunStep;
   context: RuntimeExecutionContext;
   envelope: EngineRunEnvelope;
+  lineResults?: AutomationLineResult[];
+  attempt?: number;
 };
 
 type PageLocatorFacade = {
@@ -117,11 +124,11 @@ type PageFacade = {
   url: () => Promise<string>;
   textContent: (target: string) => Promise<string>;
   locator: (target: string) => PageLocatorFacade;
-  getByText: (target: string) => PageLocatorFacade;
-  getByLabel: (target: string) => PageLocatorFacade;
-  getByPlaceholder: (target: string) => PageLocatorFacade;
+  getByText: (target: string, options?: { exact?: boolean }) => PageLocatorFacade;
+  getByLabel: (target: string, options?: { exact?: boolean }) => PageLocatorFacade;
+  getByPlaceholder: (target: string, options?: { exact?: boolean }) => PageLocatorFacade;
   getByTestId: (target: string) => PageLocatorFacade;
-  getByRole: (role: string, options?: { name?: string | RegExp }) => PageLocatorFacade;
+  getByRole: (role: string, options?: { name?: string | RegExp; exact?: boolean }) => PageLocatorFacade;
   keyboard: {
     press: (key: string) => Promise<void>;
   };
@@ -203,6 +210,7 @@ type WebSession = {
   readonly provider: EngineWebEngineProvider;
   start: () => Promise<void>;
   stop: (finalStatus?: EngineStepOutcomeStatus) => Promise<WebSessionArtifacts>;
+  startRetryTrace?: () => Promise<void>;
   goto: (target: string, options?: WebGotoOptions) => Promise<void>;
   reload: (options?: WebGotoOptions) => Promise<void>;
   goBack: (options?: WebGotoOptions) => Promise<void>;
@@ -240,6 +248,7 @@ type WebSession = {
 };
 
 type WebSessionArtifacts = {
+  trace_path?: string | null;
   video_path?: string | null;
   artifact_refs?: EngineArtifactRef[];
 };
@@ -900,6 +909,10 @@ const extractPlaywrightOptionName = (source: string) => {
 const extractPlaywrightOptionExact = (source: string) => /\bexact\s*:\s*true\b/i.test(source);
 
 const buildPlaywrightLocatorCandidates = (page: Page, raw: string, text: string) => {
+  // Explicit selectors keep Playwright strictness. Natural-language keywords may try semantic alternatives.
+  if (/^(?:(?:page\.)?(?:getBy\w+|locator)\s*\(|[.#\[]|\/\/|(?:css|xpath|role|text|label|placeholder|testid|data-testid)=)|[ >+~\[]/.test(raw.trim())) {
+    return [() => resolveRepositoryLocator(page, raw)];
+  }
   const candidates: Array<() => Locator> = [];
   const push = (candidate: (() => Locator) | null | undefined) => {
     if (candidate) {
@@ -918,53 +931,53 @@ const buildPlaywrightLocatorCandidates = (page: Page, raw: string, text: string)
     const exact = extractPlaywrightOptionExact(trimmed);
 
     if (method === "getbyrole" && firstArg) {
-      push(() => page.getByRole(firstArg as never, name ? { name, exact } as never : undefined).first());
+      push(() => page.getByRole(firstArg as never, name ? { name, exact } as never : undefined));
     } else if (method === "getbylabel" && firstArg) {
-      push(() => page.getByLabel(firstArg, { exact }).first());
+      push(() => page.getByLabel(firstArg, { exact }));
     } else if (method === "getbyplaceholder" && firstArg) {
-      push(() => page.getByPlaceholder(firstArg, { exact }).first());
+      push(() => page.getByPlaceholder(firstArg, { exact }));
     } else if (method === "getbytext" && firstArg) {
-      push(() => page.getByText(firstArg, { exact }).first());
+      push(() => page.getByText(firstArg, { exact }));
     } else if (method === "getbytestid" && firstArg) {
-      push(() => page.getByTestId(firstArg).first());
+      push(() => page.getByTestId(firstArg));
     }
   } else if (locatorMatch) {
     const selector = extractPlaywrightQuotedArgument(trimmed);
     if (selector) {
-      push(() => page.locator(selector).first());
+      push(() => page.locator(selector));
     }
   }
 
   if (roleMatch) {
     const role = roleMatch[1];
     const name = roleMatch[3] ? unescapeLocatorLiteral(roleMatch[3]) : undefined;
-    push(() => page.getByRole(role as never, name ? { name, exact: false } as never : undefined).first());
+    push(() => page.getByRole(role as never, name ? { name, exact: false } as never : undefined));
   }
 
   if (trimmed.startsWith("css=")) {
-    push(() => page.locator(trimmed.slice(4)).first());
+    push(() => page.locator(trimmed.slice(4)));
   } else if (trimmed.startsWith("xpath=") || trimmed.startsWith("//")) {
-    push(() => page.locator(trimmed.startsWith("xpath=") ? trimmed : `xpath=${trimmed}`).first());
+    push(() => page.locator(trimmed.startsWith("xpath=") ? trimmed : `xpath=${trimmed}`));
   } else if (trimmed.startsWith("text=")) {
-    push(() => page.getByText(trimmed.slice(5), { exact: false }).first());
+    push(() => page.getByText(trimmed.slice(5), { exact: false }));
   } else if (trimmed.startsWith("label=")) {
-    push(() => page.getByLabel(trimmed.slice(6), { exact: false }).first());
+    push(() => page.getByLabel(trimmed.slice(6), { exact: false }));
   } else if (trimmed.startsWith("placeholder=")) {
-    push(() => page.getByPlaceholder(trimmed.slice(12), { exact: false }).first());
+    push(() => page.getByPlaceholder(trimmed.slice(12), { exact: false }));
   } else if (/^(?:testid|data-testid)=/i.test(trimmed)) {
-    push(() => page.getByTestId(trimmed.replace(/^(?:testid|data-testid)=/i, "")).first());
+    push(() => page.getByTestId(trimmed.replace(/^(?:testid|data-testid)=/i, "")));
   } else if (trimmed.startsWith("id=")) {
-    push(() => page.locator(`#${trimmed.slice(3)}`).first());
+    push(() => page.locator(`#${trimmed.slice(3)}`));
   } else if (trimmed.startsWith("name=")) {
-    push(() => page.locator(`[name="${trimmed.slice(5).replace(/"/g, '\\"')}"]`).first());
+    push(() => page.locator(`[name="${trimmed.slice(5).replace(/"/g, '\\"')}"]`));
   }
 
-  push(() => page.getByLabel(text, { exact: false }).first());
-  push(() => page.getByPlaceholder(text, { exact: false }).first());
-  push(() => page.getByRole("button", { name: text, exact: false }).first());
-  push(() => page.getByRole("link", { name: text, exact: false }).first());
-  push(() => page.getByText(text, { exact: false }).first());
-  push(() => page.locator(trimmed).first());
+  push(() => page.getByLabel(text, { exact: false }));
+  push(() => page.getByPlaceholder(text, { exact: false }));
+  push(() => page.getByRole("button", { name: text, exact: false }));
+  push(() => page.getByRole("link", { name: text, exact: false }));
+  push(() => page.getByText(text, { exact: false }));
+  push(() => page.locator(trimmed));
 
   return candidates;
 };
@@ -1149,7 +1162,7 @@ const createPlaywrightLocatorFacade = (resolver: (target: string, resolutionStat
       timeout: options?.timeout
     });
   },
-  first: () => createPlaywrightLocatorFacade(resolver, target),
+  first: () => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).first(), target),
   nth: (index: number) => createPlaywrightLocatorFacade(async (value) => (await resolver(value)).nth(index), target),
   count: async () => {
     const locator = await resolver(target);
@@ -1161,6 +1174,7 @@ const createPlaywrightLocatorFacade = (resolver: (target: string, resolutionStat
 class PlaywrightWebSession implements WebSession {
   readonly provider: EngineWebEngineProvider = "playwright";
   private browser: Browser | null = null;
+  private tracing = false;
   private browserContext: BrowserContext | null = null;
   private browserPage: Page | null = null;
   private observedPages = new WeakSet<Page>();
@@ -1203,6 +1217,7 @@ class PlaywrightWebSession implements WebSession {
 
     this.observedPages.add(page);
     page.on("console", (message) => {
+      if (this.envelope.artifact_policy?.capture_console === false || this.consoleEntries.length >= 500) return;
       const location = message.location();
       this.consoleEntries.push({
         type: message.type(),
@@ -1212,6 +1227,7 @@ class PlaywrightWebSession implements WebSession {
       });
     });
     page.on("response", (response) => {
+      if (this.envelope.artifact_policy?.capture_network === false || this.networkEntries.length >= 1000) return;
       const request = response.request();
       this.networkEntries.push({
         method: request.method(),
@@ -1222,6 +1238,7 @@ class PlaywrightWebSession implements WebSession {
       });
     });
     page.on("requestfailed", (request) => {
+      if (this.envelope.artifact_policy?.capture_network === false || this.networkEntries.length >= 1000) return;
       this.networkEntries.push({
         method: request.method(),
         url: request.url(),
@@ -1250,7 +1267,8 @@ class PlaywrightWebSession implements WebSession {
     } else {
       const browserType = PLAYWRIGHT_BROWSER_MAP[normalizeBrowser(this.envelope.browser)];
       this.browser = await browserType.launch({
-        headless: shouldLaunchHeadless(this.envelope)
+        headless: shouldLaunchHeadless(this.envelope),
+        ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {})
       });
       this.ownsBrowser = true;
       this.ownsContext = true;
@@ -1269,6 +1287,10 @@ class PlaywrightWebSession implements WebSession {
           : {})
       });
       this.browserPage = await this.browserContext.newPage();
+    }
+    if (this.ownsContext && ["on", "retain-on-failure"].includes(this.envelope.artifact_policy?.trace_mode)) {
+      await this.browserContext?.tracing.start({ screenshots: true, snapshots: true });
+      this.tracing = true;
     }
     this.liveSessionId = `${this.envelope.engine_run_id}:playwright`;
     registerLiveViewSession({
@@ -1297,12 +1319,34 @@ class PlaywrightWebSession implements WebSession {
     }
   }
 
+  async startRetryTrace() {
+    if (this.ownsContext && !this.tracing && this.envelope.artifact_policy?.trace_mode === "on-first-retry") {
+      await this.browserContext?.tracing.start({ screenshots: true, snapshots: true });
+      this.tracing = true;
+    }
+  }
+
   async stop(finalStatus?: EngineStepOutcomeStatus) {
     const video = this.browserPage?.video() || null;
     const shouldAttach = shouldAttachVideo(this.envelope, finalStatus);
     const artifactPath = `artifacts/${this.envelope.engine_run_id}/video.webm`;
     const artifactFullPath = path.join(ARTIFACT_ROOT, artifactPath);
-    const artifacts: WebSessionArtifacts = {};
+    const artifacts: WebSessionArtifacts = { trace_path: null, video_path: null, artifact_refs: [] };
+    if (this.tracing) {
+      const retain = this.envelope.artifact_policy?.trace_mode !== "retain-on-failure" || finalStatus === "failed" || finalStatus === "blocked";
+      const tracePath = `artifacts/${this.envelope.engine_run_id}/trace.zip`;
+      const fullPath = path.join(ARTIFACT_ROOT, tracePath);
+      try {
+        if (retain) await mkdir(path.dirname(fullPath), { recursive: true });
+        await this.browserContext?.tracing.stop(retain ? { path: fullPath } : {});
+        if (retain) {
+          const metadata = await stat(fullPath);
+          artifacts.trace_path = tracePath;
+          artifacts.artifact_refs?.push({ kind: "trace", label: "Playwright execution trace", path: tracePath, file_name: "trace.zip", content_type: "application/zip", size_bytes: metadata.size, ...(metadata.size <= 8 * 1024 * 1024 ? { content_base64: (await readFile(fullPath)).toString("base64") } : {}) });
+        }
+      } catch { /* Evidence collection must not replace the actual case result. */ }
+      this.tracing = false;
+    }
 
     unregisterLiveViewSession(this.liveSessionId);
 
@@ -1317,6 +1361,7 @@ class PlaywrightWebSession implements WebSession {
         const videoStats = await stat(artifactFullPath);
         artifacts.video_path = artifactPath;
         artifacts.artifact_refs = [
+          ...(artifacts.artifact_refs || []),
           {
             kind: "video",
             label: "Compressed browser run video",
@@ -1334,6 +1379,7 @@ class PlaywrightWebSession implements WebSession {
       }
     }
 
+    await video?.delete().catch(() => undefined);
     if (this.ownsBrowser) {
       await this.browser?.close();
     }
@@ -1345,9 +1391,14 @@ class PlaywrightWebSession implements WebSession {
     return artifacts;
   }
 
-  private async resolveLocator(target: string, resolutionState: LocatorResolutionState = "visible") {
+  private async resolveLocator(target: string, resolutionState: LocatorResolutionState = "visible", deferWait = false) {
     const page = this.pageOrThrow;
     const candidateTargets = resolveObjectRepositoryLocatorCandidates(this.envelope, target);
+    if (deferWait) {
+      const locators = candidateTargets.map((candidate) => resolveRepositoryLocator(page, candidate));
+      for (const locator of locators) if (await locator.count().catch(() => 0)) return locator;
+      return locators[0] || page.locator(target);
+    }
     let lastError: unknown = null;
 
     for (const candidateTarget of candidateTargets) {
@@ -1357,7 +1408,7 @@ class PlaywrightWebSession implements WebSession {
       for (const candidate of locatorCandidates) {
         try {
           const locator = candidate();
-          await locator.waitFor({ state: resolutionState, timeout: this.timeouts.action });
+          if (!deferWait) await locator.waitFor({ state: resolutionState, timeout: this.timeouts.action });
           return locator;
         } catch (error) {
           lastError = error;
@@ -1796,21 +1847,21 @@ class PlaywrightWebSession implements WebSession {
         wheel: (deltaX: number, deltaY: number) => this.scroll(deltaX, deltaY)
       },
       waitForSelector: async (target: string, options) => {
-        const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value), target);
+        const locator = createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target);
         await locator.waitFor(options);
         return locator;
       },
       url: async () => this.pageOrThrow.url(),
       textContent: (target: string) => this.text(target),
-      locator: (target: string) => createPlaywrightLocatorFacade((value) => this.resolveLocator(value), target),
-      getByText: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByText(value, { exact: false }).first()), target),
-      getByLabel: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByLabel(value, { exact: false }).first()), target),
-      getByPlaceholder: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByPlaceholder(value, { exact: false }).first()), target),
-      getByTestId: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByTestId(value).first()), target),
-      getByRole: (role: string, options?: { name?: string | RegExp }) => {
+      locator: (target: string) => createPlaywrightLocatorFacade((value) => this.resolveLocator(value, "visible", true), target),
+      getByText: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByText(value, options)), target),
+      getByLabel: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByLabel(value, options)), target),
+      getByPlaceholder: (target: string, options) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByPlaceholder(value, options)), target),
+      getByTestId: (target: string) => createPlaywrightLocatorFacade((value) => Promise.resolve(this.pageOrThrow.getByTestId(value)), target),
+      getByRole: (role: string, options?: { name?: string | RegExp; exact?: boolean }) => {
         const target = options?.name === undefined ? role : String(options.name);
         return createPlaywrightLocatorFacade(
-          () => Promise.resolve(this.pageOrThrow.getByRole(role as never, options as never).first()),
+          () => Promise.resolve(this.pageOrThrow.getByRole(role as never, options as never)),
           target
         );
       },
@@ -2478,7 +2529,7 @@ class SeleniumWebSession implements WebSession {
       getByLabel: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
       getByPlaceholder: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(value), target),
       getByTestId: (target: string) => createSeleniumLocatorFacade((value) => this.resolveElement(`testid=${value}`), target),
-      getByRole: (_role: string, options?: { name?: string | RegExp }) => {
+      getByRole: (_role: string, options?: { name?: string | RegExp; exact?: boolean }) => {
         const target = options?.name instanceof RegExp ? options.name.source : options?.name ? String(options.name) : _role;
         return createSeleniumLocatorFacade((value) => this.resolveElement(value), target);
       },
@@ -2631,11 +2682,11 @@ const buildBindings = (
     url: () => providerBindings.page.url(),
     textContent: async (target: string) => providerBindings.page.textContent(resolveTarget(target)),
     locator: (target: string) => providerBindings.page.locator(resolveTarget(target)),
-    getByText: (target: string) => providerBindings.page.getByText(interpolateText(target, context)),
-    getByLabel: (target: string) => providerBindings.page.getByLabel(interpolateText(target, context)),
-    getByPlaceholder: (target: string) => providerBindings.page.getByPlaceholder(interpolateText(target, context)),
+    getByText: (target: string, options) => providerBindings.page.getByText(interpolateText(target, context), options),
+    getByLabel: (target: string, options) => providerBindings.page.getByLabel(interpolateText(target, context), options),
+    getByPlaceholder: (target: string, options) => providerBindings.page.getByPlaceholder(interpolateText(target, context), options),
     getByTestId: (target: string) => providerBindings.page.getByTestId(interpolateText(target, context)),
-    getByRole: (role: string, options?: { name?: string | RegExp }) =>
+    getByRole: (role: string, options?: { name?: string | RegExp; exact?: boolean }) =>
       providerBindings.page.getByRole(role, {
         ...options,
         name: typeof options?.name === "string" ? interpolateText(options.name, context) : options?.name
@@ -2647,13 +2698,8 @@ const buildBindings = (
 
   const web = {
     step: async (_title: string, fn: () => Promise<unknown>) => fn(),
-    aiStep: async (instruction: string, options?: { target?: string | null }) => {
-      const target = normalizeText(options?.target || null);
-      const resolvedInstruction = interpolateText(instruction, context);
-      if (target) {
-        await session.expectVisible(resolveTarget(target), { timeoutMs: 10_000 }).catch(() => undefined);
-      }
-      return resolvedInstruction;
+    aiStep: async (_instruction: string, _options?: { target?: string | null }) => {
+      throw new Error("This instruction has no executable automation. Use Build with automation agent, review the generated steps, then run again.");
     },
     goto: async (target: string, options?: WebGotoOptions) => session.goto(resolveNavigationTarget(interpolateText(target, context), envelope), options),
     reload: async (options?: WebGotoOptions) => session.reload(options),
@@ -2733,42 +2779,36 @@ const buildBindings = (
     capture
   };
 
+  const nativeBindings = providerBindings.playwrightPage ? createPlaywrightCodeBindings(providerBindings.playwrightPage, {
+    interpolate: (value) => interpolateText(value, context),
+    resolveLocator: (value) => resolveObjectRepositoryLocator(envelope, value),
+    resolveUrl: (value) => resolveNavigationTarget(value, envelope),
+    assertionTimeout: resolveTimeoutPolicy(envelope).assertion
+  }) : null;
+
   return {
     ...providerBindings,
-    page,
+    page: nativeBindings ? nativeBindings.page as unknown as PageFacade : page,
     web,
-    expect,
+    expect: nativeBindings ? Object.assign(nativeBindings.expect, { equal: expect.equal, truthy: expect.truthy, contains: expect.contains }) as unknown as ExpectationApi : expect,
     params: toParameterValuesRecord(context),
     capture
   };
 };
 
 const stripTrailingTestWrapper = (source: string) => {
-  const trimmed = source.trim();
-  const testCall = trimmed.match(/(?:^|\n)\s*(?:test|it)\s*\(\s*["'`][\s\S]*?["'`]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{/);
-
-  if (!testCall || testCall.index === undefined) {
-    return source;
-  }
-
-  const bodyStart = testCall.index + testCall[0].length;
-  let depth = 1;
-
-  for (let index = bodyStart; index < trimmed.length; index += 1) {
-    const char = trimmed[index];
-
-    if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
-      depth -= 1;
-
-      if (depth === 0) {
-        return trimmed.slice(bodyStart, index).trim();
-      }
-    }
-  }
-
-  return source;
+  if (!/\b(?:test|it)\s*\(/.test(source)) return source;
+  const tree = parse(source, { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true });
+  const tests = tree.body.filter((node: any) => node.type === "ExpressionStatement" && node.expression.type === "CallExpression" && ["test", "it"].includes(node.expression.callee.name)) as any[];
+  if (!tests.length) return source;
+  if (tests.length !== 1) throw new Error("Each automation step supports one Playwright test body. Split multiple tests into cases or shared groups.");
+  const statement = tests[0];
+  const callback = statement.expression.arguments.at(-1);
+  if (callback?.body?.type !== "BlockStatement") throw new Error("The Playwright test wrapper must contain a function body.");
+  const blank = (value: string) => value.replace(/[^\r\n]/g, " ");
+  return source.slice(0, statement.start) + blank(source.slice(statement.start, callback.body.start + 1))
+    + source.slice(callback.body.start + 1, callback.body.end - 1)
+    + blank(source.slice(callback.body.end - 1, statement.end)) + source.slice(statement.end);
 };
 
 const stripMarkdownFence = (source: string) => {
@@ -2778,19 +2818,23 @@ const stripMarkdownFence = (source: string) => {
 };
 
 const normalizeAutomationSource = (source: string) => {
-  const withoutFences = stripMarkdownFence(source);
-  const withoutImports = withoutFences
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      return !/^import\s+/.test(trimmed)
-        && !/^const\s+\{?\s*(test|expect)\b.*require\(/.test(trimmed)
-        && !/^const\s+.*require\(["']@playwright\/test["']\)/.test(trimmed)
-        && !/^test\.describe\s*\(/.test(trimmed)
-        && !/^test\.(?:use|beforeEach|afterEach|beforeAll|afterAll)\s*\(/.test(trimmed)
-    })
-    .join("\n");
-
+  let withoutImports = stripMarkdownFence(source);
+  if (/^\s*import\s/m.test(withoutImports)) {
+    const tree = parse(withoutImports, { ecmaVersion: "latest", sourceType: "module", allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true });
+    for (const declaration of [...tree.body].reverse()) {
+      if (declaration.type !== "ImportDeclaration") continue;
+      if (!["@playwright/test", "playwright/test"].includes(String(declaration.source.value)) || declaration.specifiers.some((item: any) => item.type !== "ImportSpecifier" || !["test", "expect"].includes(item.imported.name) || item.local.name !== item.imported.name)) {
+        throw new Error("Automation steps provide page, expect and runtime helpers. Use shared groups for reusable actions; external module imports are not supported.");
+      }
+      withoutImports = withoutImports.slice(0, declaration.start) + withoutImports.slice(declaration.start, declaration.end).replace(/[^\r\n]/g, " ") + withoutImports.slice(declaration.end);
+    }
+  }
+  withoutImports = withoutImports.split(/\r?\n/).map((line) => {
+    const trimmed = line.trim();
+    if (/^test\.(?:describe|use|beforeEach|afterEach|beforeAll|afterAll)\s*\(/.test(trimmed)) throw new Error("Configure suites and before/after hooks in the automation workspace; inline Playwright suite declarations are not supported in a step.");
+    return /^const\s+\{?\s*(test|expect)\b.*require\(/.test(trimmed)
+      || /^const\s+.*require\(["']@playwright\/test["']\)/.test(trimmed) ? "" : line;
+  }).join("\n");
   return stripTrailingTestWrapper(withoutImports);
 };
 
@@ -2865,25 +2909,20 @@ const compileAutomationFunction = (source: string, forceInvocation = false) => {
     "playwrightPage",
     "driver",
     "bindings",
+    "__hellotestTrace",
     body
   );
 };
 
 const executeAutomationCode = async (
   source: string,
-  bindings: WebExecutionBindings
+  bindings: WebExecutionBindings,
+  lineResults: AutomationLineResult[] = [],
+  attempt = 1
 ) => {
-  const executableSource = normalizeAutomationSource(source);
-  let fn: (...values: unknown[]) => Promise<unknown>;
-
-  try {
-    fn = compileAutomationFunction(executableSource);
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) {
-      throw error;
-    }
-    fn = compileAutomationFunction(executableSource, true);
-  }
+  const normalizedSource = normalizeAutomationSource(source);
+  const executableSource = looksLikeAutomationFunction(normalizedSource) ? toAutomationFunctionExpression(normalizedSource) : normalizedSource;
+  const fn = compileAutomationFunction(instrumentAutomationLines(executableSource));
 
   try {
     const hellotestBindings = {
@@ -2904,13 +2943,18 @@ const executeAutomationCode = async (
       bindings.capture,
       bindings.playwrightPage,
       bindings.driver,
-      hellotestBindings
+      hellotestBindings,
+      createAutomationLineTracer(lineResults, attempt)
     );
   } catch (error) {
     const stack = error instanceof Error ? error.stack || "" : "";
     const lineMatch = stack.match(/<anonymous>:(\d+):\d+/);
     if (error instanceof Error && lineMatch) {
-      (error as Error & { hellotestLine?: number }).hellotestLine = Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+      (error as Error & { hellotestLine?: number }).hellotestLine ??= Math.max(1, Number.parseInt(lineMatch[1], 10) - 2);
+      if (!lineResults.some((result) => result.attempt === attempt && result.status === "failed")) {
+        const failure: AutomationLineResult = { line: (error as Error & { hellotestLine: number }).hellotestLine, status: "failed", duration_ms: 0, attempt, error: error.message.slice(0, 2000) };
+        if (lineResults.length >= 1000) lineResults[lineResults.length - 1] = failure; else lineResults.push(failure);
+      }
     }
     throw error;
   }
@@ -2925,7 +2969,7 @@ const executeStepAttempt = async (
   const source = normalizeText(options.step.automation_code || null);
 
   if (source && looksLikeExecutableAutomationSource(source)) {
-    await executeAutomationCode(source, bindings);
+    await executeAutomationCode(source, bindings, options.lineResults, options.attempt);
   } else {
     const generatedStep = source ? { ...options.step, action: source } : options.step;
     await applyGeneratedAction(session, generatedStep, options.context, options.envelope);
@@ -3001,6 +3045,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
     runStep: async (step: EngineRunStep) => {
       const stepContext = buildInitialContext(envelope, context.capturedValues, step);
       const captures: Record<string, string> = {};
+      const lineResults: AutomationLineResult[] = [];
       let recoveryAttempted = false;
       let recoverySucceeded = false;
       let finalError: Error | null = null;
@@ -3009,7 +3054,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
       const collectWebDetail = () => session.collectDiagnostics(diagnosticsMarker, captures, Math.max(Date.now() - startedAtMs, 0));
 
       try {
-        await executeStepAttempt(session, { step, context: stepContext, envelope }, captures);
+        await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: 1 }, captures);
         for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
 
         return {
@@ -3023,6 +3068,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           }),
           captures,
           web_detail: await collectWebDetail(),
+          line_results: lineResults,
           recovery_attempted: recoveryAttempted,
           recovery_succeeded: recoverySucceeded
         };
@@ -3036,9 +3082,10 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         recoveryAttempted = true;
 
         try {
+          await session.startRetryTrace?.();
           await session.waitForTimeout(resolveTimeoutPolicy(envelope).recoveryWait * attempt);
-          await executeStepAttempt(session, { step, context: stepContext, envelope }, captures);
-        for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
+          await executeStepAttempt(session, { step, context: stepContext, envelope, lineResults, attempt: attempt + 1 }, captures);
+          for (const [key, value] of Object.entries(captures)) registerContextValue(context, key, value);
           recoverySucceeded = true;
 
           return {
@@ -3052,7 +3099,8 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
             }),
             captures,
             web_detail: await collectWebDetail(),
-            evidence: await session.screenshot(`step-${step.order}-recovered`),
+            line_results: lineResults,
+            evidence: envelope.artifact_policy?.screenshot_on_failure === false ? undefined : await session.screenshot(`step-${step.order}-recovered`).catch(() => undefined),
             recovery_attempted: recoveryAttempted,
             recovery_succeeded: recoverySucceeded
           };
@@ -3073,7 +3121,8 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
         }),
         captures,
         web_detail: await collectWebDetail(),
-        evidence: await session.screenshot(`step-${step.order}-failed`),
+        line_results: lineResults,
+        evidence: envelope.artifact_policy?.screenshot_on_failure === false ? undefined : await session.screenshot(`step-${step.order}-failed`).catch(() => undefined),
         recovery_attempted: recoveryAttempted,
         recovery_succeeded: recoverySucceeded
       };

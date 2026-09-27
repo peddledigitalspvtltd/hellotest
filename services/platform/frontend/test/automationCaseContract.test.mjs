@@ -10,9 +10,8 @@ test("automation authoring is a dedicated case workflow with complete build surf
 
   for (const capability of [
     "Create automation case",
-    "Build with agent",
+    "Build with automation agent",
     "Schedule builds",
-    "AI build",
     "Record flow",
     "Author steps",
     "Build your automation",
@@ -26,7 +25,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
   assert.match(page, /manual_test_case_id: metadata\.manualCaseIds\[0\] \|\| null/);
   assert.match(page, /manual_test_case_ids: metadata\.manualCaseIds/);
   assert.match(page, /seedAutomationPlan\(sources/);
-  assert.match(page, /What should the agent automate\?/);
+  assert.match(page, /Build instructions \(optional\)/);
   assert.match(page, /target_step_id: recorderOriginRef\.current\?\.targetStepId \|\| undefined/);
   assert.match(page, /code=\{completeAutomationCode\}/);
   assert.match(page, /Automation mapping needed/);

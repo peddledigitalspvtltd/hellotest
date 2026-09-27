@@ -43,36 +43,14 @@ export function buildAcceptedRun(envelope: EngineRunEnvelope): EngineRunRecord {
     generated_script_path: generatedScriptPath,
     locator_map_path: locatorMapPath,
     artifact_bundle: {
-      trace_path: `${artifactRoot}/trace.zip`,
-      video_path: envelope.artifact_policy.video_mode === "off" || isApiOnlyRun ? null : `${artifactRoot}/video.webm`,
-      screenshot_paths: isApiOnlyRun ? [] : [`${artifactRoot}/screenshots/step-failure.png`],
-      console_log_path: envelope.artifact_policy.capture_console ? `${artifactRoot}/console.log` : null,
-      network_har_path: envelope.artifact_policy.capture_network ? `${artifactRoot}/network.har` : null,
-      dom_snapshot_path: `${artifactRoot}/dom.html`,
+      trace_path: null,
+      video_path: null,
+      screenshot_paths: [],
+      console_log_path: null,
+      network_har_path: null,
+      dom_snapshot_path: null,
       summary_path: `${artifactRoot}/engine-summary.json`,
-      artifact_refs: [
-        ...(envelope.artifact_policy.video_mode === "off" || isApiOnlyRun
-          ? []
-          : [
-              {
-                kind: "video" as const,
-                label: "Compressed browser run video",
-                path: `${artifactRoot}/video.webm`,
-                file_name: "video.webm",
-                content_type: "video/webm"
-              }
-            ]),
-        {
-          kind: "script",
-          label: "Generated automation spec",
-          path: generatedScriptPath
-        },
-        {
-          kind: "locator-map",
-          label: "Locator knowledge",
-          path: locatorMapPath
-        }
-      ]
+      artifact_refs: []
     },
     patch_proposals: envelope.max_repair_attempts
       ? [
@@ -95,8 +73,8 @@ export function buildCapabilities() {
     runner: workerClass,
     control_plane: "hellotest",
     browsers: ["chromium", "firefox", "webkit"],
-    execution_scope: "api+web+android",
-    supported_step_types: ["api", "web", "android"],
+    execution_scope: "api+web+android+ios",
+    supported_step_types: ["api", "web", "android", "ios"],
     worker_class: workerClass,
     supported_web_engines: ["playwright", "selenium"],
     web_keywords: [

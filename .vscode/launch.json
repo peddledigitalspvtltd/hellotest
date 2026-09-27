@@ -9,7 +9,7 @@
       "runtimeExecutable": "node",
       "runtimeArgs": [
         "--watch",
-        "--inspect=9230"
+        "--inspect=127.0.0.1:9230"
       ],
       "program": "${workspaceFolder}/services/platform/backend/src/server.js",
       "console": "integratedTerminal",
@@ -19,17 +19,10 @@
         "<node_internals>/**"
       ],
       "preLaunchTask": "postgres:up",
+      "envFile": "${workspaceFolder}/.env.development.local",
       "env": {
         "NODE_ENV": "development",
-        "PORT": "3000",
-        "PGHOST": "localhost",
-        "PGPORT": "5432",
-        "PGUSER": "hellotest",
-        "PGPASSWORD": "hellotest",
-        "PGDATABASE": "hellotest",
-        "SESSION_SECRET": "hellotest-dev-secret",
-        "TESTENGINE_SHARED_SECRET": "hellotest-testengine-dev-secret",
-        "CORS_ORIGIN": "http://localhost:5173,http://127.0.0.1:5173"
+        "PORT": "3000"
       }
     },
     {
@@ -41,7 +34,8 @@
       "restart": true,
       "skipFiles": [
         "<node_internals>/**"
-      ]
+      ],
+      "address": "127.0.0.1"
     },
     {
       "name": "Test Engine",
@@ -51,7 +45,7 @@
       "runtimeExecutable": "node",
       "runtimeArgs": [
         "--watch",
-        "--inspect=9231",
+        "--inspect=127.0.0.1:9231",
         "--import",
         "tsx"
       ],
@@ -62,15 +56,11 @@
       "skipFiles": [
         "<node_internals>/**"
       ],
+      "envFile": "${workspaceFolder}/.env.development.local",
       "env": {
         "NODE_ENV": "development",
         "PORT": "4301",
-        "ENGINE_NAME": "HelloTest Test Engine",
-        "LOG_LEVEL": "debug",
-        "ARTIFACT_ROOT": "${workspaceFolder}/testengine/backend/.artifacts",
-        "HELLOTEST_API_BASE_URL": "http://localhost:3000",
-        "HELLOTEST_TESTENGINE_SECRET": "hellotest-testengine-dev-secret",
-        "ENGINE_PUBLIC_URL": "http://localhost:4301"
+        "ARTIFACT_ROOT": "${workspaceFolder}/local-run/artifacts"
       }
     },
     {
@@ -82,7 +72,8 @@
       "restart": true,
       "skipFiles": [
         "<node_internals>/**"
-      ]
+      ],
+      "address": "127.0.0.1"
     },
     {
       "name": "Frontend",
@@ -92,6 +83,97 @@
       "webRoot": "${workspaceFolder}/services/platform/frontend",
       "sourceMaps": true,
       "preLaunchTask": "frontend:dev"
+    },
+    {
+      "name": "Admin Frontend",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5174/admin/",
+      "webRoot": "${workspaceFolder}/services/platform/frontend",
+      "sourceMaps": true,
+      "preLaunchTask": "frontend:admin:dev"
+    },
+    {
+      "name": "Mobile Engine",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/local-run/mobile-engine",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--watch",
+        "--inspect=127.0.0.1:9232"
+      ],
+      "program": "${workspaceFolder}/local-run/mobile-engine/src/server.js",
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "autoAttachChildProcesses": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "envFile": "${workspaceFolder}/.env.development.local",
+      "env": {
+        "NODE_ENV": "development",
+        "PORT": "4312"
+      }
+    },
+    {
+      "name": "Mobile Engine (Attach 9232)",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9232,
+      "cwd": "${workspaceFolder}/local-run/mobile-engine",
+      "restart": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Node Test (Current File)",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--test",
+        "--test-concurrency=1"
+      ],
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "autoAttachChildProcesses": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "envFile": "${workspaceFolder}/.env.development.local",
+      "env": {
+        "NODE_ENV": "test"
+      }
+    },
+    {
+      "name": "TypeScript Test (Current File)",
+      "type": "pwa-node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/testengine/backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1"
+      ],
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "autoAttachChildProcesses": true,
+      "sourceMaps": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "envFile": "${workspaceFolder}/.env.development.local",
+      "env": {
+        "NODE_ENV": "test"
+      }
     }
   ],
   "compounds": [

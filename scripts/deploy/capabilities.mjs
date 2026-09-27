@@ -22,10 +22,25 @@ const command = ['compose', '-f', 'docker-compose.microservices.yml', ...(down ?
 if (print) console.log(JSON.stringify({ capabilities: [...enabled], command: ['docker', ...command] }, null, 2));
 else {
   const root = fileURLToPath(new URL('../..', import.meta.url));
-  const result = spawnSync('docker', command, {
+  const options = {
     cwd: root, stdio: 'inherit',
     env: { ...process.env, HELLOTEST_ENABLED_CAPABILITIES: selection }
-  });
+  };
+  // Every selected API inherits MinIO through x-api-common.depends_on.
+  // Resolve its effective image through Compose, including .env overrides.
+  if (!down && services.some(service => service.endsWith('-api'))) {
+    const image = spawnSync('docker', ['compose', '-f', 'docker-compose.microservices.yml', 'config', '--images', 'minio'], {
+      ...options, stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8'
+    });
+    if (image.error) throw image.error;
+    if (image.status !== 0) process.exit(image.status ?? 1);
+    const prepared = spawnSync('sh', ['scripts/build/minio.sh'], {
+      ...options, env: { ...options.env, MINIO_IMAGE: image.stdout.trim() }
+    });
+    if (prepared.error) throw prepared.error;
+    if (prepared.status !== 0) process.exit(prepared.status ?? 1);
+  }
+  const result = spawnSync('docker', command, options);
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 }

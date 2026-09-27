@@ -1,5 +1,6 @@
 import type { EngineQueuedJob } from "../contracts/hellotest.js";
 import { resolveTestEngineSharedSecret } from "./testEngineSecurity.js";
+import { EngineHttpError, requestEngineService } from "./engineHttpClient.js";
 
 const HELLOTEST_API_BASE_URL = String(process.env.HELLOTEST_API_BASE_URL || "").trim().replace(/\/+$/, "");
 const HELLOTEST_API_PATH_PREFIX = String(process.env.HELLOTEST_API_PATH_PREFIX || process.env.HELLOTEST_API_PREFIX || "")
@@ -59,37 +60,12 @@ async function requestOnce<T>(baseUrl: string, path: string, init?: RequestInit)
     headers.set("content-type", "application/json");
   }
 
-  const timeoutController = new AbortController();
-  const timeoutHandle = setTimeout(() => timeoutController.abort(), HELLOTEST_REQUEST_TIMEOUT_MS);
-  timeoutHandle.unref?.();
-  const signal = init?.signal
-    ? AbortSignal.any([init.signal, timeoutController.signal])
-    : timeoutController.signal;
-  let response: Response;
-
-  try {
-    response = await fetch(appendPath(baseUrl, path), {
-      ...init,
-      headers,
-      signal
-    });
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
-  const contentType = response.headers.get("content-type") || "";
-  const rawBody = await response.text();
-  const payload = contentType.includes("application/json") && rawBody
-    ? JSON.parse(rawBody)
-    : null;
-
-  if (!response.ok) {
-    const message = payload && typeof payload === "object" && "message" in payload
-      ? String((payload as { message?: unknown }).message || "")
-      : "";
-    throw new Error(message || `HelloTest internal API returned ${response.status}`);
-  }
-
-  return payload as T;
+  return requestEngineService<T>({
+    url: appendPath(baseUrl, path),
+    service: "HelloTest internal API",
+    timeoutMs: HELLOTEST_REQUEST_TIMEOUT_MS,
+    init: { ...init, headers }
+  });
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -104,7 +80,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error || "HelloTest internal API request failed"));
 
-      if (index === candidates.length - 1 || !/HelloTest internal API returned (404|405)\b/.test(lastError.message)) {
+      if (index === candidates.length - 1 || !(error instanceof EngineHttpError && error.code === "HTTP_ERROR" && [404, 405].includes(error.status || 0))) {
         throw lastError;
       }
     }

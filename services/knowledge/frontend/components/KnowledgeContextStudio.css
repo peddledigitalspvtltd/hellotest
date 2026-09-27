@@ -801,3 +801,7 @@
 .knowledge-refresh-dialog .knowledge-refresh-enabled input { width: auto; }
 :root[data-theme="dark"] .knowledge-studio-hero, :root[data-theme="dark"] .knowledge-refresh-dialog { background: #111d2e; }
 @media (max-width: 680px) { .knowledge-studio-hero, .knowledge-refresh-control { padding: 16px; } .knowledge-refresh-actions { width: 100%; } .knowledge-studio-tabs { padding-inline: 12px; } }
+
+/* Keep the item action icon anchored to the card edge. */
+.knowledge-catalog-card .tile-card-select-row { display: flex; align-items: center; width: 100%; gap: 0.5rem; }
+.knowledge-catalog-card .tile-card-select-row > div:last-child { margin-left: auto; flex-shrink: 0; }

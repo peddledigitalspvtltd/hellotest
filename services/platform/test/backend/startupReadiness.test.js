@@ -33,6 +33,7 @@ const createApp = ({
     fastify: quietFastify,
     "./config": { config: { ...config, startupTimeoutMs } },
     "./utils/token": { generateRequestId: () => "startup-test" },
+    "./utils/diagnosticErrorSerializer": require("../../backend/src/utils/diagnosticErrorSerializer"),
     "./db/schemaReadiness": { schemaMode: () => mode, verifySchema: verify },
     "./db": { component: "main" },
     "./obsDb": { component: "observability" },

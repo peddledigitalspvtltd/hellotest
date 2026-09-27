@@ -35,10 +35,17 @@ const normalizeDependency = (value) => {
 
 const sanitizeInternalErrorText = (value) => String(value || "")
   .replace(/:\/\/[^/@\s]+@/g, "://[redacted]@")
-  .replace(/([?&](?:access[_-]?token|api[_-]?key|authorization|code|credential|key|password|secret|sig|signature|token)=)[^&#\s]+/gi, "$1[redacted]")
+  .replace(/([?&](?:(?:access|refresh|id|session|auth|api)[_-]?token|api[_-]?key|authorization|code|credential|key|password|secret|sig|signature|token|x-amz-signature|x-goog-signature)=)[^&#\s]+/gi, "$1[redacted]")
   .replace(/\b(Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [redacted]")
-  .replace(/\b(password|secret|token|api[_-]?key|access[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "$1=[redacted]")
+  .replace(/\b((?:set-)?cookie)\s*:\s*[^\r\n]*/gi, "$1: [redacted]")
+  .replace(/\b(password|secret|token|(?:access|refresh|id|session|auth|api)[_-]?token|api[_-]?key|access[_-]?key|client[_-]?secret|session[_-]?secret|authorization|cookie|set-cookie)["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/gi, "$1=[redacted]")
   .slice(0, 8_000);
+
+// Absent hints stay absent; Number(null) must not manufacture Retry-After: 1.
+const normalizeRetryAfter = (value) => value !== null && value !== undefined && value !== ""
+  && Number.isFinite(Number(value))
+  ? Math.max(1, Math.min(86_400, Math.ceil(Number(value))))
+  : null;
 
 class ServiceBoundaryError extends Error {
   constructor(message, {
@@ -58,10 +65,9 @@ class ServiceBoundaryError extends Error {
     this.operation = String(operation || "request").slice(0, 120);
     this.retryable = Boolean(retryable);
     this.statusCode = Number(statusCode) || 502;
-    this.retryAfterSeconds = Number.isFinite(Number(retryAfterSeconds))
-      ? Math.max(1, Math.ceil(Number(retryAfterSeconds)))
-      : null;
-    this.upstreamStatus = Number.isFinite(Number(upstreamStatus)) ? Number(upstreamStatus) : null;
+    this.retryAfterSeconds = normalizeRetryAfter(retryAfterSeconds);
+    this.upstreamStatus = upstreamStatus != null && Number.isInteger(Number(upstreamStatus))
+      && Number(upstreamStatus) >= 100 && Number(upstreamStatus) <= 599 ? Number(upstreamStatus) : null;
     this.publicMessage = PUBLIC_MESSAGES[code] || PUBLIC_MESSAGES[SERVICE_ERROR_CODES.UNAVAILABLE];
   }
 
@@ -149,6 +155,7 @@ module.exports = {
   isAbortLike,
   isNetworkLike,
   normalizeDependency,
+  normalizeRetryAfter,
   sanitizeInternalErrorText,
   serviceError
 };

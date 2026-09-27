@@ -2,16 +2,66 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "minio:prepare",
+      "detail": "Resolve the development MinIO image and build the pinned source image only when it is missing. Runs on demand; the first build can take several minutes.",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -eu; MINIO_IMAGE=$(docker compose --env-file .env.development.local -f services/platform/backend/docker-compose.yml config --images minio); export MINIO_IMAGE; exec sh scripts/build/minio.sh"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "hellotest-debug"
+      }
+    },
+    {
       "label": "postgres:up",
+      "detail": "Prepare PostgreSQL and MinIO for host debugging and wait for health checks. Debugger Stop leaves these services and their data running.",
+      "dependsOn": "minio:prepare",
       "type": "process",
       "command": "docker",
       "args": [
         "compose",
+        "--env-file",
+        ".env.development.local",
         "-f",
         "services/platform/backend/docker-compose.yml",
         "up",
         "-d",
-        "postgres"
+        "--wait",
+        "postgres",
+        "minio"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "hellotest-debug"
+      }
+    },
+    {
+      "label": "debug:infra:stop",
+      "detail": "Stop the debugger's PostgreSQL and MinIO containers; preserve their volumes. Stop Node debugging first.",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "--env-file",
+        ".env.development.local",
+        "-f",
+        "services/platform/backend/docker-compose.yml",
+        "stop",
+        "postgres",
+        "minio"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -25,26 +75,84 @@
     },
     {
       "label": "frontend:dev",
+      "detail": "Product Vite on localhost:5173. Use Tasks: Terminate Task when finished; stopping Chrome debugging leaves Vite running.",
       "type": "process",
       "command": "npm",
       "args": [
         "run",
-        "dev"
+        "dev",
+        "--",
+        "--host",
+        "localhost",
+        "--port",
+        "5173",
+        "--strictPort"
       ],
       "options": {
         "cwd": "${workspaceFolder}/services/platform/frontend"
       },
       "isBackground": true,
       "problemMatcher": {
-        "owner": "custom",
+        "owner": "vite",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/services/platform/frontend"
+        ],
         "pattern": {
-          "regexp": "^(.*)$",
-          "message": 1
+          "regexp": "^(.+):(\\d+):(\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": ".",
-          "endsPattern": "Local:\\s+http://"
+          "beginsPattern": "\\bVITE v\\d",
+          "endsPattern": "Local:\\s+http://localhost:5173(?:/|\\s|$)"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "hellotest-debug"
+      }
+    },
+    {
+      "label": "frontend:admin:dev",
+      "detail": "Administration Vite on localhost:5174/admin/. Use Tasks: Terminate Task when finished; stopping Chrome debugging leaves Vite running.",
+      "type": "process",
+      "command": "npm",
+      "args": [
+        "run",
+        "dev:admin",
+        "--",
+        "--host",
+        "localhost",
+        "--port",
+        "5174",
+        "--strictPort"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/services/platform/frontend"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/services/platform/frontend"
+        ],
+        "pattern": {
+          "regexp": "^(.+):(\\d+):(\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "\\bVITE v\\d",
+          "endsPattern": "Local:\\s+http://localhost:5174(?:/|\\s|$)"
         }
       },
       "presentation": {

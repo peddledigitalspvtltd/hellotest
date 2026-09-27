@@ -8,6 +8,8 @@ for await (const chunk of process.stdin) input += chunk;
 const { services } = JSON.parse(input);
 const catalog = JSON.parse(await readFile(new URL('../../services/catalog.json', import.meta.url), 'utf8'));
 const profiles = catalog.services.map(service => service.profile).filter(Boolean);
+assert.equal(services.minio.image, process.env.MINIO_IMAGE || 'hellotest/minio:RELEASE.2025-10-15T17-29-55Z', 'MinIO must use the prepared source image or the explicit registry override');
+assert.equal(services.minio.pull_policy, 'missing', 'MinIO must reuse its prepared local image');
 const migration = services['schema-migrate'];
 assert.deepEqual(migration.command, ['node', 'src/migrate.js']);
 assert.equal(migration.restart, 'no');

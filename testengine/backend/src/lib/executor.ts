@@ -1,8 +1,8 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { requestEngineService } from "./engineHttpClient.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
-  EngineApiRequest,
   EngineCallbackPayload,
   EngineCaseResultPayload,
   EngineRunEnvelope,
@@ -17,8 +17,8 @@ import type {
 import { saveRun, updateRun } from "./runStore.js";
 import { createWebRunSession } from "./webEngine.js";
 import { buildInitialContext, interpolateText, registerContextValue } from "./runtimeContext.js";
-import { readJsonPath, readJsonPathValue } from "./apiJsonPath.js";
-import { apiRequestTimeoutMs } from "./apiRequestTimeout.js";
+import { executeApiStepInEngine } from "./apiEngine.js";
+import { createMobileRunSession } from "./mobileEngine.js";
 
 type Logger = {
   info: (message: unknown, ...args: unknown[]) => void;
@@ -128,137 +128,6 @@ const stringifyError = (error: unknown, fallback = "Step execution failed.") => 
   return String(error || fallback);
 };
 
-const parseExpectedLiteral = (value?: string | null) => {
-  const normalized = normalizeText(value);
-
-  if (!normalized) {
-    return "";
-  }
-
-  if (normalized === "true") {
-    return true;
-  }
-
-  if (normalized === "false") {
-    return false;
-  }
-
-  if (normalized === "null") {
-    return null;
-  }
-
-  if (/^-?\d+(\.\d+)?$/.test(normalized)) {
-    return Number(normalized);
-  }
-
-  if (/^[\[{"]/.test(normalized)) {
-    try {
-      return JSON.parse(normalized);
-    } catch {
-      return normalized;
-    }
-  }
-
-  return normalized;
-};
-
-
-const interpolateHeaders = (
-  headers: EngineApiRequest["headers"],
-  context: ExecutionContext
-) =>
-  (headers || []).reduce<Record<string, string>>((accumulator, header) => {
-    const key = interpolateText(header?.key || "", context).trim();
-
-    if (!key) {
-      return accumulator;
-    }
-
-    accumulator[key] = interpolateText(header?.value || "", context);
-    return accumulator;
-  }, {});
-
-const mapHeaders = (headers: Headers) => {
-  const values: Record<string, string> = {};
-  headers.forEach((value, key) => {
-    values[key] = value;
-  });
-  return values;
-};
-
-const parseResponseJson = (bodyText: string, contentType?: string | null) => {
-  const normalizedBody = bodyText.trim();
-
-  if (!normalizedBody) {
-    return null;
-  }
-
-  const looksLikeJson = String(contentType || "").toLowerCase().includes("json")
-    || normalizedBody.startsWith("{")
-    || normalizedBody.startsWith("[");
-
-  if (!looksLikeJson) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(normalizedBody);
-  } catch {
-    return null;
-  }
-};
-
-const buildResponsePreview = (bodyText: string, json: unknown) => {
-  if (json !== null && json !== undefined) {
-    return truncateText(stringifyValue(json));
-  }
-
-  return truncateText(bodyText);
-};
-
-const buildApiEvidenceDataUrl = ({
-  status,
-  title,
-  url,
-  method,
-  captureLines
-}: {
-  status: EngineStepOutcomeStatus;
-  title: string;
-  url: string;
-  method: string;
-  captureLines: string[];
-}) => {
-  const bg = status === "passed" ? "#dff7ec" : status === "failed" ? "#ffe6ea" : "#eef2ff";
-  const accent = status === "passed" ? "#0f9d6c" : status === "failed" ? "#cd3658" : "#5b6fd8";
-  const lines = [
-    `${method} ${url}`,
-    title,
-    ...captureLines.slice(0, 3)
-  ];
-
-  const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="220" viewBox="0 0 900 220">`,
-    `<rect width="900" height="220" rx="22" fill="${bg}"/>`,
-    `<rect x="28" y="28" width="844" height="164" rx="18" fill="#ffffff" stroke="${accent}" stroke-width="4"/>`,
-    `<text x="52" y="72" font-size="28" font-family="Arial, sans-serif" fill="${accent}" font-weight="700">${status.toUpperCase()}</text>`,
-    ...lines.map((line, index) =>
-      `<text x="52" y="${112 + index * 28}" font-size="${index === 0 ? 22 : 18}" font-family="Arial, sans-serif" fill="#16324f">${escapeXml(line)}</text>`
-    ),
-    `</svg>`
-  ].join("");
-
-  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-};
-
-const escapeXml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-
 const buildCallbackSignature = (secret: string, payload: string) =>
   createHmac("sha256", secret).update(payload).digest("hex");
 
@@ -281,19 +150,17 @@ const emitCallback = async (envelope: EngineRunEnvelope, payload: EngineCallback
   const serialized = JSON.stringify(payload);
   const signature = buildCallbackSignature(envelope.callback.signing_secret, serialized);
 
-  const response = await fetch(envelope.callback.url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-testengine-signature": signature
-    },
-    body: serialized
+  await requestEngineService({
+    url: envelope.callback.url,
+    service: "HelloTest execution callback",
+    timeoutMs: 15_000,
+    responseType: "none",
+    init: {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-testengine-signature": signature },
+      body: serialized
+    }
   });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HelloTest callback failed with status ${response.status}`);
-  }
 };
 
 const persistRunSummary = async (
@@ -455,7 +322,7 @@ const normalizeHooks = (envelope: EngineRunEnvelope, phase: EngineRunHook["phase
           hook,
           step: {
             ...step,
-            id: step.id || `${hook.id}:${phase}:${index + 1}`,
+            id: `${hook.scope}:${phase}:${hook.id}:${step.id || index + 1}`,
             order: step.order || index + 1
           }
         }))
@@ -467,228 +334,31 @@ const decorateHookOutcome = (
   outcome: EngineStepOutcome
 ): EngineStepOutcome => ({
   ...outcome,
-  step_id: `${hook.scope}:${hook.phase}:${hook.id}:${outcome.step_id}`,
+  step_id: outcome.step_id,
   note: [
     `[${hook.phase === "pre" ? "Pre" : "Post"} ${hook.scope} hook] ${hook.name}`,
     outcome.note || `${step.action || `Step ${step.order}`} completed.`
   ].filter(Boolean).join("\n")
 });
 
-const buildApiAssertionResult = (
-  validation: NonNullable<EngineApiRequest["validations"]>[number],
-  response: { status: number; headers: Record<string, string>; body: string; json: unknown }
-) => {
-  const kind = validation.kind || "status";
-
-  if (kind === "header") {
-    const target = normalizeText(validation.target || "content-type").toLowerCase();
-    const expected = normalizeText(validation.expected);
-    const actual = response.headers[target] || "";
-    return {
-      kind,
-      passed: expected !== null ? actual === expected : Boolean(actual),
-      target,
-      expected,
-      actual
-    };
-  }
-
-  if (kind === "body_contains") {
-    const expected = normalizeText(validation.expected);
-    return {
-      kind,
-      passed: expected ? response.body.includes(expected) : false,
-      target: null,
-      expected,
-      actual: expected ? String(response.body.includes(expected)) : null
-    };
-  }
-
-  if (kind === "json_path") {
-    const target = normalizeText(validation.target || "$");
-    const expected = parseExpectedLiteral(validation.expected);
-    const resolved = readJsonPathValue(response.json, target);
-    const actualValue = resolved.value;
-    return {
-      kind,
-      passed: resolved.found && (actualValue === expected || (
-        typeof actualValue === "object" && actualValue !== null && typeof expected === "object" && expected !== null
-        && JSON.stringify(actualValue) === JSON.stringify(expected)
-      )),
-      target,
-      expected: stringifyValue(expected),
-      actual: stringifyValue(actualValue)
-    };
-  }
-
-  const expectedStatus = Number.parseInt(normalizeText(validation.expected || "200"), 10) || 200;
-  return {
-    kind: "status",
-    passed: response.status === expectedStatus,
-    target: null,
-    expected: String(expectedStatus),
-    actual: String(response.status)
-  };
-};
-
-const executeApiStep = async ({
-  envelope,
-  run,
-  step,
-  context
-}: {
-  envelope: EngineRunEnvelope;
-  run: EngineRunRecord;
-  step: EngineRunEnvelope["steps"][number];
-  context: ExecutionContext;
+const executeApiStep = async ({ envelope, run, step, context }: {
+  envelope: EngineRunEnvelope; run: EngineRunRecord; step: EngineRunEnvelope["steps"][number]; context: ExecutionContext;
 }): Promise<ApiStepExecutionResult> => {
-  const startedAt = Date.now();
-  const request = step.api_request;
-
-  if (!request?.url) {
-    throw new Error(`Step ${step.order} is missing an API request URL.`);
-  }
-
-  const interpolatedUrl = interpolateText(request.url, context);
-  const interpolatedBody = normalizeOptionalText(interpolateText(request.body || "", context));
-  const headers = interpolateHeaders(request.headers, context);
-
-  const response = await fetch(interpolatedUrl, {
-    method: request.method || "GET",
-    headers,
-    body: request.body_mode && request.body_mode !== "none" ? interpolatedBody || undefined : undefined,
-    signal: AbortSignal.timeout(apiRequestTimeoutMs(request.timeout_ms))
-  });
-
-  const responseBody = await response.text();
-  const responseHeaders = mapHeaders(response.headers);
-  const responseJson = parseResponseJson(responseBody, response.headers.get("content-type"));
-  const assertions = (request.validations || [{ kind: "status", expected: "200" }]).map((validation) =>
-    buildApiAssertionResult(validation, {
-      status: response.status,
-      headers: responseHeaders,
-      body: responseBody,
-      json: responseJson
-    })
-  );
-
-  const captures: Record<string, string> = {};
-
-  for (const capture of request.captures || []) {
-    const target = readJsonPath(responseJson ?? responseBody, capture.path || "$");
-    const parameter = normalizeText(capture.parameter);
-
-    if (!parameter) {
-      continue;
-    }
-
-    const stringValue = stringifyValue(target);
-    captures[parameter] = stringValue;
-    registerContextValue(context, parameter, stringValue);
-  }
-
-  const captureLines = Object.entries(captures).map(([key, value]) => `Captured ${key} = ${value}`);
-  const assertionLines = assertions.map((assertion) =>
-    `${assertion.kind}${assertion.target ? `(${assertion.target})` : ""}: ${assertion.passed ? "passed" : `failed, expected ${assertion.expected || ""}, got ${assertion.actual || ""}`}`
-  );
-  const passed = assertions.every((assertion) => assertion.passed);
-  const responsePreview = buildResponsePreview(responseBody, responseJson);
-  const note = [
-    `${request.method || "GET"} ${interpolatedUrl} -> ${response.status} ${response.statusText}`.trim(),
-    summarizeAssertionProgress(assertions),
-    ...assertionLines,
-    ...captureLines,
-    responsePreview ? `Response preview: ${responsePreview}` : ""
-  ].filter(Boolean).join("\n");
-  const evidenceDataUrl = buildApiEvidenceDataUrl({
-    status: passed ? "passed" : "failed",
-    title: step.action || `Step ${step.order}`,
-    url: interpolatedUrl,
-    method: request.method || "GET",
-    captureLines
-  });
-  const stepArtifactPath = path.posix.join(`artifacts/${run.id}`, "steps", `${String(step.order).padStart(2, "0")}.json`);
-
-  await writeArtifactFile(
-    stepArtifactPath,
-    JSON.stringify(
-      {
-        step_id: step.id,
-        title: step.action || `Step ${step.order}`,
-        expected_result: step.expected_result,
-        request: {
-          method: request.method || "GET",
-          url: interpolatedUrl,
-          headers,
-          body: interpolatedBody
-        },
-        response: {
-          status: response.status,
-          status_text: response.statusText,
-          headers: responseHeaders,
-          body: responseBody,
-          json: responseJson
-        },
-        assertions,
-        captures
-      },
-      null,
-      2
-    )
-  );
-
+  const startedAt = nowIso();
+  // Push and pull execution use the same interpolation, request and assertion engine.
+  const result = await executeApiStepInEngine(envelope, step, context.capturedValues || {});
+  const summary = { step_id: step.id, ...result.detail };
+  const stepKey = createHash("sha256").update(step.id).digest("hex").slice(0, 16);
+  const artifactPath = path.posix.join(`artifacts/${run.id}`, "steps", `${String(step.order).padStart(2, "0")}-${stepKey}.json`);
+  await writeArtifactFile(artifactPath, JSON.stringify(summary, null, 2));
   return {
-    outcome: {
-      step_id: step.id,
-      status: passed ? "passed" : "failed",
-      started_at: new Date(startedAt).toISOString(),
-      ended_at: nowIso(),
-      duration_ms: Date.now() - startedAt,
-      note,
-      evidence_image: {
-        data_url: evidenceDataUrl,
-        file_name: `step-${step.order}.svg`,
-        mime_type: "image/svg+xml",
-        artifact_path: stepArtifactPath
-      },
-      artifacts: [
-        {
-          kind: "summary",
-          label: `API step ${step.order} summary`,
-          path: stepArtifactPath,
-          content_type: "application/json"
-        }
-      ]
+    outcome: { step_id: step.id, status: result.status, started_at: startedAt, ended_at: nowIso(), duration_ms: result.duration_ms, note: result.note,
+      evidence_image: { data_url: result.evidence.dataUrl, file_name: result.evidence.fileName, mime_type: result.evidence.mimeType, artifact_path: artifactPath },
+      artifacts: [{ kind: "summary", label: `API step ${step.order} summary`, path: artifactPath, content_type: "application/json" }]
     },
-    summary: {
-      step_id: step.id,
-      request: {
-        method: request.method || "GET",
-        url: interpolatedUrl,
-        headers,
-        body: interpolatedBody
-      },
-      response: {
-        status: response.status,
-        status_text: response.statusText,
-        headers: responseHeaders,
-        body: responseBody,
-        json: responseJson
-      },
-      captures,
-      assertions
-    },
-    captures,
-    automation_detail: buildStepAutomationDetail({
-      step,
-      status: passed ? "passed" : "failed",
-      provider: "api",
-      startedAt: new Date(startedAt).toISOString(),
-      endedAt: nowIso(),
-      errorMessage: passed ? null : note
-    }),
-    recovery_attempted: false,
-    recovery_succeeded: false
+    summary, captures: result.captures,
+    automation_detail: buildStepAutomationDetail({ step, status: result.status, provider: "api", startedAt, endedAt: nowIso(), errorMessage: result.status === "failed" ? result.note : null }),
+    recovery_attempted: false, recovery_succeeded: false
   };
 };
 
@@ -719,14 +389,14 @@ const executeWebStep = async ({
     },
     captures: result.captures,
     web_detail: result.web_detail,
-    automation_detail: buildStepAutomationDetail({
+    automation_detail: { ...buildStepAutomationDetail({
       step,
       status: result.status,
       provider: result.web_detail?.provider || webRunSession.provider,
       startedAt: result.web_detail?.started_at || null,
       endedAt: result.web_detail?.ended_at || null,
       errorMessage: result.status === "failed" ? result.note : null
-    }),
+    }), line_results: result.line_results },
     recovery_attempted: result.recovery_attempted,
     recovery_succeeded: result.recovery_succeeded
   };
@@ -887,7 +557,8 @@ const executeUnsupportedRun = async ({
 };
 
 async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, logger: Logger) {
-  const hasUnsupportedStep = envelope.steps.some((step) => step.step_type !== "api" && step.step_type !== "web");
+  const allSteps = [...envelope.steps, ...(envelope.hooks || []).flatMap((hook) => hook.steps || [])];
+  const hasUnsupportedStep = allSteps.some((step) => !["api", "web", "android", "ios"].includes(step.step_type));
 
   if (hasUnsupportedStep) {
     await executeUnsupportedRun({
@@ -899,7 +570,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     return;
   }
 
-  const hasWebSteps = envelope.steps.some((step) => step.step_type === "web");
+  const hasWebSteps = allSteps.some((step) => step.step_type === "web");
   const running = markRunState(
     run.id,
     "running",
@@ -914,6 +585,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
 
   const startedAt = Date.now();
   const context = buildInitialContext(envelope);
+  const mobileRunSession = createMobileRunSession(envelope, (error) => logger.error({ error, engineRunId: run.id }, "Unable to close Mobile Engine session"));
   const stepOutcomes: EngineStepOutcome[] = [];
   const stepSummaries: ApiStepExecutionResult["summary"][] = [];
   const stepCaptures: Record<string, Record<string, string>> = {};
@@ -926,6 +598,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   let healingAttempted = false;
   let healingSucceeded = false;
   let webRunSessionStopped = false;
+  let postHooksRun = false;
   let currentStep: EngineRunEnvelope["steps"][number] | null = null;
   const stopWebRunSession = async (status?: "passed" | "failed" | "blocked") => {
     if (!webRunSession || webRunSessionStopped) {
@@ -941,28 +614,23 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
     }
   };
   const executeEngineStep = async (step: EngineRunEnvelope["steps"][number]) => {
-    const result =
-      step.step_type === "api"
-        ? await executeApiStep({
-            envelope,
-            run: running,
-            step,
-            context: buildInitialContext(envelope, context.capturedValues, step)
-          })
-        : webRunSession
-          ? await executeWebStep({
-              step,
-              webRunSession
-            })
-          : null;
-
-    if (!result) {
-      throw new Error(`Unable to execute step ${step.order}.`);
-    }
+    let result: ExecutedEngineStepResult;
+    if (step.step_type === "api") result = await executeApiStep({ envelope, run: running, step, context: buildInitialContext(envelope, context.capturedValues, step) });
+    else if (step.step_type === "web" && webRunSession) result = await executeWebStep({ step, webRunSession });
+    else if (step.step_type === "android" || step.step_type === "ios") {
+      const mobile = (await mobileRunSession.run([step], context.capturedValues)).results.find((item) => item.step_id === step.id);
+      if (!mobile) throw new Error(`Mobile Engine returned no result for step ${step.order}`);
+      result = {
+        outcome: { step_id: step.id, status: mobile.status, duration_ms: mobile.duration_ms, note: mobile.note,
+          ...(mobile.evidence ? { evidence_image: { data_url: mobile.evidence.dataUrl, file_name: mobile.evidence.fileName, mime_type: mobile.evidence.mimeType } } : {}) },
+        captures: mobile.captures || {}, automation_detail: buildStepAutomationDetail({ step, status: mobile.status, provider: "appium", errorMessage: mobile.status === "passed" ? null : mobile.note }),
+        recovery_attempted: false, recovery_succeeded: false
+      };
+    } else throw new Error(`Unable to execute step ${step.order}.`);
 
     syncCapturedValues(context, result.captures);
 
-    if (webRunSession && step.step_type === "api") {
+    if (webRunSession && step.step_type !== "web") {
       syncCapturedValues(webRunSession.context, result.captures);
     }
 
@@ -991,20 +659,36 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
   const runHookSteps = async (phase: EngineRunHook["phase"], entries: ReturnType<typeof normalizeHooks>) => {
     for (const entry of entries) {
       currentStep = entry.step;
-      const result = await executeEngineStep(entry.step);
+      let result: ExecutedEngineStepResult;
+      try { result = await executeEngineStep(entry.step); }
+      catch (error) {
+        const note = stringifyError(error, "Execution hook failed.");
+        result = {
+          outcome: { step_id: entry.step.id, status: "failed", note, ended_at: nowIso() },
+          captures: {},
+          automation_detail: buildStepAutomationDetail({ step: entry.step, status: "failed", provider: entry.step.step_type, errorMessage: note }),
+          recovery_attempted: false, recovery_succeeded: false
+        };
+      }
       result.outcome = decorateHookOutcome(entry.hook, entry.step, result.outcome);
       recordStepResult(result);
       currentStep = null;
 
-      if (result.outcome.status === "failed" && entry.hook.fail_behavior !== "continue") {
+      if (result.outcome.status !== "passed" && entry.hook.fail_behavior !== "continue") {
         const behavior = entry.hook.fail_behavior || "fail-run";
         if (behavior === "mark-blocked") {
           result.outcome.status = "blocked";
-          return;
+          return false;
         }
         throw new Error(`${entry.hook.name} ${phase} hook failed: ${result.outcome.note || "hook step failed"}`);
       }
     }
+    return true;
+  };
+  const runPostHooks = async () => {
+    if (postHooksRun) return;
+    postHooksRun = true;
+    await runHookSteps("post", postHookSteps);
   };
 
   try {
@@ -1012,9 +696,9 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       await webRunSession.start();
     }
 
-    await runHookSteps("pre", preHookSteps);
+    const preHooksPassed = await runHookSteps("pre", preHookSteps);
 
-    for (const step of orderedSteps) {
+    for (const step of preHooksPassed ? orderedSteps : []) {
       currentStep = step;
       const result = await executeEngineStep(step);
       recordStepResult(result);
@@ -1061,6 +745,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       }
 
       if (result.outcome.status === "failed") {
+        await runPostHooks();
         const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("failed"));
         const failedRun = markRunState(
           run.id,
@@ -1104,9 +789,10 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
 
         return;
       }
+      if (result.outcome.status === "blocked") break;
     }
 
-    await runHookSteps("post", postHookSteps);
+    await runPostHooks();
 
     const finalStatus: "passed" | "blocked" = stepOutcomes.some((outcome) => outcome.status === "blocked") ? "blocked" : "passed";
     const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession(finalStatus));
@@ -1175,6 +861,9 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       });
     }
 
+    try { await runPostHooks(); } catch (hookError) {
+      logger.error({ error: hookError, engineRunId: run.id }, "Unable to complete teardown hooks after execution failure");
+    }
     const artifactBundle = mergeArtifactBundle(running.artifact_bundle, await stopWebRunSession("failed"));
     const failedRun = markRunState(
       run.id,
@@ -1220,6 +909,7 @@ async function executeRun(envelope: EngineRunEnvelope, run: EngineRunRecord, log
       logger.error({ error: callbackError, engineRunId: run.id }, "Unable to emit HelloTest callback after execution failure");
     }
   } finally {
+    await mobileRunSession.close();
     if (webRunSession && !webRunSessionStopped) {
       try {
         await stopWebRunSession();

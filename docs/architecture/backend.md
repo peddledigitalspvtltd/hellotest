@@ -78,9 +78,11 @@ Every pluggable service should expose or implement these concepts:
 
 Provider failures must be translated to typed application errors. Raw upstream responses, authorization headers, cookies, access tokens, and user test data must not be persisted in operational telemetry.
 
+Automation execution is a separate process boundary, not an untrusted-code sandbox. Saved web/native scripts run inside workers; authorize authors and isolate worker privileges, network reach and credentials. The inspection MCP destination policy applies to inspection tools, not arbitrary authored code.
+
 ## Background work
 
-`api/src/plugins/backgroundTasks.js` loads only workers enabled by the profile and capability selection. Platform owns instance setup and project deletion; Testing owns schedules and batch processing; AI owns story/test-case generation; Integration owns project synchronization; Knowledge owns ingestion and its synchronization outbox; Agentic owns repository analyses; Automation owns orphan recorder cleanup. Other profiles start no recurring domain workers. The `all` profile starts workers for all enabled capabilities. Some worker implementations still call other capability modules; this ownership assignment is not a queue or data split.
+`services/platform/backend/src/plugins/backgroundTasks.js` loads only workers enabled by the profile and capability selection. Platform owns instance setup and project deletion; Testing owns schedules and batch processing; AI owns story/test-case generation; Integration owns project synchronization; Knowledge owns ingestion and its synchronization outbox; Agentic owns repository analyses; Automation owns orphan recorder cleanup. Other profiles start no recurring domain workers. The `all` profile starts workers for all enabled capabilities. Some worker implementations still call other capability modules; this ownership assignment is not a queue or data split.
 
 Request handlers may enqueue durable work but cannot be the only worker. A job is safe for multiple API replicas only when it has an atomic claim, lease owner, lease expiry, heartbeat/progress, retry policy, and conditional terminal transition. Process-local mutexes and `setImmediate` are latency optimizations, not correctness mechanisms.
 
@@ -101,15 +103,15 @@ Long-term, queue consumers can move to dedicated worker deployments without chan
 
 - `services/<profile>/backend`: bounded API composition roots, route handlers and feature use cases.
 - `services/<profile>/backend/routes`: transport validation, authentication, authorization and response mapping.
-- `api/src/routes`: shared route manifest aggregation and profile registration.
+- `services/platform/backend/src/routes`: shared route manifest aggregation and profile registration.
 - `services/<profile>/backend/services`: feature use cases. Split large modules by cohesive responsibility, not arbitrary line count.
-- `api/src/services`: shared runtime services and storage/email/probe adapters. Instance setup belongs to Platform.
-- `services/<profile>/frontend`: capability UI, hooks, and API clients. `services/platform/frontend/src/platform` composes the workspace shell, `services/platform/frontend/src/shared` holds reusable UI, and `services/platform/frontend/src/services` retains the compatibility API facade. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
-- `api/src/security`: permission catalogs, runtime-secret policy, and security boundary helpers.
-- `api/src/db` and `api/src/obsDb`: database adapters and compatibility bootstrap only.
-- `api/src/plugins`: Fastify lifecycle composition; no domain SQL.
-- `api/src/utils`: stateless shared primitives; no feature orchestration.
-- `instance-setup-data/schema-setup/schema.sql`: canonical new-install schema. Runtime bootstrap must never be the sole definition of a table.
+- `services/platform/backend/src/services`: shared runtime services and storage/email/probe adapters. Instance setup belongs to Platform.
+- `services/<profile>/frontend`: capability UI, hooks, and API clients. `services/platform/frontend/src/platform` composes the workspace shell, `services/platform/frontend/src/shared` holds reusable UI, and `services/platform/frontend/src/lib/api.ts` retains the compatibility API facade. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
+- `services/platform/backend/src/security`: permission catalogs, runtime-secret policy, and security boundary helpers.
+- `services/platform/backend/src/db` and `services/platform/backend/src/obsDb`: database adapters and compatibility bootstrap only.
+- `services/platform/backend/src/plugins`: Fastify lifecycle composition; no domain SQL.
+- `services/platform/backend/src/utils`: stateless shared primitives; no feature orchestration.
+- `services/platform/backend/instance-setup-data/schema-setup/schema.sql`: canonical new-install schema. Runtime bootstrap must never be the sole definition of a table.
 - `testengine/backend`, `local-run/mobile-engine`: independently deployable execution providers. `testengine/backend` is the sole supported Test Engine worker implementation.
 - `ops`: Collector, metrics, logging, tracing, dashboards, and alert configuration.
 

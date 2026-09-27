@@ -48,7 +48,7 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
       TESTENGINE_SHARED_SECRET: SHARED_SECRET,
       OPS_TELEMETRY_ENVIRONMENT: "local",
       OPS_TELEMETRY_STORE_PATH: path.join(artifactRoot, "ops.ndjson"),
-      LOG_LEVEL: "error"
+      LOG_LEVEL: "info"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -58,8 +58,9 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
   try {
     await waitForServer(`${baseUrl}/health/live`, child, output);
 
-    const live = await fetch(`${baseUrl}/health/live`);
+    const live = await fetch(`${baseUrl}/health/live?session_token=must-not-appear-in-worker-logs`, { headers: { "x-request-id": "engine-correlation-fixture" } });
     assert.equal(live.status, 200);
+    assert.equal(live.headers.get("x-request-id"), "engine-correlation-fixture");
     assert.equal((await live.json()).status, "live");
 
     const ready = await fetch(`${baseUrl}/health/ready`);
@@ -87,6 +88,8 @@ test("real server exposes split health, protects run APIs, enforces CORS, and ex
     const [exitCode, signal] = await once(child, "exit");
     assert.equal(exitCode, 0, `Unexpected signal ${signal || "none"}: ${output.join("")}`);
     assert.equal(signal, null);
+    assert.ok(output.join("").includes("engine-correlation-fixture"));
+    assert.ok(!output.join("").includes("must-not-appear-in-worker-logs"));
   } finally {
     if (child.exitCode === null) {
       child.kill("SIGKILL");

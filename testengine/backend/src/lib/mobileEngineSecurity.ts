@@ -35,9 +35,9 @@ export function resolveMobileEngineClientSecurity(
 
   try {
     const parsed = new URL(configuredUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("unsupported protocol");
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("unsupported endpoint");
   } catch {
-    return { ready: false, baseUrl: null, secret: null, source: null, reason: "MOBILE_ENGINE_URL must be an HTTP or HTTPS URL" };
+    return { ready: false, baseUrl: null, secret: null, source: null, reason: "MOBILE_ENGINE_URL must be an HTTP or HTTPS base URL without credentials, query parameters, or fragments" };
   }
 
   if (!secret) {
@@ -78,4 +78,3 @@ export function buildMobileEngineRequestHeaders(configuration = resolveMobileEng
   }
   return { [MOBILE_ENGINE_SECRET_HEADER]: configuration.secret };
 }
-

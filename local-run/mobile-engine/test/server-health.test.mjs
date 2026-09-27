@@ -47,9 +47,12 @@ test("registered health routes preserve compatibility and gate readiness on Appi
       runner: "webdriverio+appium"
     });
 
-    const live = await app.inject({ method: "GET", url: "/health/live" });
+    const live = await app.inject({ method: "GET", url: "/health/live", headers: { "x-request-id": "mobile-correlation-fixture" } });
     assert.equal(live.statusCode, 200);
+    assert.equal(live.headers["x-request-id"], "mobile-correlation-fixture");
     assert.equal(live.json().status, "live");
+    const invalidId = await app.inject({ method: "GET", url: "/health/live", headers: { "x-request-id": "invalid request id" } });
+    assert.match(invalidId.headers["x-request-id"], /^[a-f0-9-]{36}$/);
 
     const ready = await app.inject({ method: "GET", url: "/health/ready" });
     assert.equal(ready.statusCode, 200);

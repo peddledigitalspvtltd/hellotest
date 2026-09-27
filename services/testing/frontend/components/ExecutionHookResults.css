@@ -1,0 +1,16 @@
+.execution-hook-results { border: 1px solid var(--border-color, #dce3ed); border-radius: 12px; background: var(--surface, #fff); overflow: hidden; }
+.execution-hook-results > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 14px 16px; cursor: pointer; }
+.execution-hook-results > summary::before { content: "›"; font-size: 18px; }
+.execution-hook-results[open] > summary::before { transform: rotate(90deg); }
+.execution-hook-results > summary span, .execution-hook-result-heading small, .execution-hook-result-fact { color: var(--text-muted, #596779); font-size: 12px; }
+.execution-hook-results > ol { display: grid; gap: 0; list-style: none; padding: 0 16px 12px; margin: 0; }
+.execution-hook-results li { min-width: 0; padding: 12px 0; border-top: 1px solid var(--border-color, #dce3ed); }
+.execution-hook-result-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.execution-hook-result-heading > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.execution-hook-results li p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; margin: 10px 0; }
+.execution-hook-results li > button, .execution-hook-results li > a { display: inline-flex; margin-top: 10px; }
+.execution-hook-lines, .execution-hook-code { margin-top: 12px; font-size: 12px; }
+.execution-hook-lines summary, .execution-hook-code summary { cursor: pointer; }
+.execution-hook-lines table { width: 100%; text-align: left; border-collapse: collapse; margin-top: 8px; }
+.execution-hook-lines th, .execution-hook-lines td { padding: 6px; border-bottom: 1px solid var(--border-color, #dce3ed); }
+.execution-hook-code pre { max-height: 260px; overflow: auto; padding: 12px; background: var(--surface-subtle, #f4f6fa); border-radius: 8px; }
