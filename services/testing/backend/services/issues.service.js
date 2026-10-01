@@ -133,6 +133,8 @@ function buildDetailValues(input = {}, fallback = {}) {
   );
 }
 
+const normalizeLabels = value => [...new Set((Array.isArray(value) ? value : []).filter(item => typeof item === "string").map(item => item.trim()).filter(Boolean))];
+
 const normalizeList = (value) => normalizeReferenceList(Array.isArray(value) ? value : []);
 
 const deriveTestCaseImpactScope = async ({ projectId, testCaseIds = [] } = {}) => {
@@ -174,7 +176,7 @@ const deriveTestCaseImpactScope = async ({ projectId, testCaseIds = [] } = {}) =
   };
 };
 
-exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }, { actorId = user_id } = {}) => {
+exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }, { actorId = user_id, issueId } = {}) => {
   if (!project_id || !user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
@@ -183,7 +185,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
   await validateUser(details.assignee_id, "Assignee not found");
   details = await validateClassifications(details);
 
-  const id = uuid();
+  const id = issueId || uuid();
   const display_id = await displayIdService.createDisplayId("issue");
 
   const project = await db.prepare("SELECT id FROM projects WHERE id = ?").get(project_id);
@@ -238,7 +240,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
       normalizeList(linked_test_suite_ids),
       resolvedModuleIds,
       resolvedRequirementIds,
-      normalizeList(labels),
+      normalizeLabels(labels),
       ...buildDetailValues(details).slice(9),
       normalizeStatus(status),
       Boolean(regression)
@@ -461,7 +463,7 @@ exports.updateIssue = async (id, data, { actorId } = {}) => db.transaction(async
     Object.prototype.hasOwnProperty.call(data, "linked_test_suite_ids") ? normalizeList(data.linked_test_suite_ids) : normalizeList(existing.linked_test_suite_ids),
     resolvedModuleIds,
     resolvedRequirementIds,
-    Object.prototype.hasOwnProperty.call(data, "labels") ? normalizeList(data.labels) : normalizeList(existing.labels),
+    Object.prototype.hasOwnProperty.call(data, "labels") ? normalizeLabels(data.labels) : normalizeLabels(existing.labels),
     ...buildDetailValues(data, existing).slice(9),
     data.status !== undefined ? normalizeStatus(data.status) : existing.status,
     data.regression !== undefined ? Boolean(data.regression) : Boolean(existing.regression),

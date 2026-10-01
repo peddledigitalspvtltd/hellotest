@@ -239,7 +239,19 @@
 .repository-agent-status small { color: var(--text-secondary); font-size: 11px; }
 .repository-agent-status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--text-secondary); }
 .repository-agent-status.is-connected .repository-agent-status-dot { background: var(--success, #15803d); }
+.page-content--automation > .object-repository-page-header { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; }
+.object-repository-page-header > .page-header-text { grid-column: 1; grid-row: 1; }
+.object-repository-page-header > .page-actions { grid-column: 2; grid-row: 1; width: auto !important; margin: 0 !important; justify-self: end; }
+@media (max-width: 600px) {
+  .page-content--automation > .object-repository-page-header { grid-template-columns: minmax(0, 1fr); }
+  .object-repository-page-header > .page-actions { grid-column: 1; grid-row: 2; }
+}
+.repository-healing-panel { display: grid; gap: 16px; min-width: 0; }
 .repository-session-controls, .repository-session-split { display: inline-flex; min-width: 0; align-items: stretch; }
+.repository-session-controls { flex-wrap: wrap; gap: 6px; }
+.repository-inspect-destination { display: grid; gap: 6px; padding: 12px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+.repository-inspect-destination input { width: 100%; min-width: 0; }
+.repository-inspect-destination small { color: var(--text-secondary); line-height: 1.5; }
 .repository-session-split > button:first-child { border-start-end-radius: 0; border-end-end-radius: 0; }
 .repository-session-split .repository-session-toggle { border-inline-start: 0; border-start-start-radius: 0; border-end-start-radius: 0; padding-inline: 7px; }
 .repository-session-menu {

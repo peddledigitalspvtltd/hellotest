@@ -81,6 +81,15 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
     await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
     const input = page.getByRole("textbox", { name: "Ask about this HelloTest project" });
+    await page.waitForFunction(() => document.activeElement?.id === "grounded-assistant-input");
+    if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-focused.png"), animations: "disabled" });
+    assert.equal(await page.getByText("Current project only", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("Current searchable knowledge", { exact: true }).count(), 0);
+    await page.getByRole("button", { name: "About your project assistant" }).click();
+    await page.getByRole("tooltip").getByText(/Explore coverage, investigate failures/).waitFor();
+    await page.keyboard.press("Escape");
+    assert.equal(await page.getByRole("dialog", { name: "HelloTest grounded project assistant" }).count(), 1);
+    if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-welcome.png"), animations: "disabled" });
     await input.fill("What should we verify before the checkout release?");
     await page.getByRole("button", { name: "Send message", exact: true }).click();
     await page.getByRole("region", { name: "Answer progress" }).waitFor();
@@ -131,9 +140,13 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await sourceDialog.getByRole("button", { name: "Close source evidence" }).click();
     await sourceDialog.waitFor({ state: "detached" });
     await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
-    await page.getByText("Partial evidence", { exact: true }).waitFor();
+    assert.equal(await page.getByText("Partial evidence", { exact: true }).count(), 0);
+    assert.equal(await page.locator(".grounded-assistant-message-scope").count(), 0);
+    await page.getByText(/Evidence information/).click();
+    await page.getByText("The latest test execution was unavailable.", { exact: true }).waitFor();
 
     await page.getByRole("button", { name: "Start a new assistant chat" }).click();
+    await page.waitForFunction(() => document.activeElement?.id === "grounded-assistant-input");
     await page.evaluate(() => { window.qa.mode = "timeout"; });
     await input.fill("Find the release risk");
     await page.getByRole("button", { name: "Send message", exact: true }).click();

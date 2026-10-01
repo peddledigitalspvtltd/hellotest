@@ -110,7 +110,7 @@ type AutomationStepView = "keyword" | "code";
 type AutomationCreationMode = "ai" | "record" | "blank";
 type AutomationBehaviorKeyword = "Given" | "When" | "Then" | "And";
 type RepositoryScreenTab = "overview" | "fields" | "dom";
-type RepositoryFieldTab = "locators" | "evidence" | "meaning";
+type RepositoryFieldTab = "locators" | "evidence" | "meaning" | "healing";
 type RepositoryInspectReviewTab = "selected" | "candidates" | "evidence";
 const REPOSITORY_CONFIG_DRAWER_DEFAULT_WIDTH = 440;
 const REPOSITORY_CONFIG_DRAWER_MIN_WIDTH = 360;
@@ -626,6 +626,13 @@ function isScreenRepositoryRecord(entry: AutomationLearningCacheEntry) {
 
 function getRepositoryMemberName(entry: AutomationLearningCacheEntry) {
   const metadata = entry.metadata || {};
+  // Saved names are execution bindings. A locator repair must not rename the
+  // member (or change its casing) merely because its CSS selector changed.
+  const storedName = normalizeMetadataValue(metadata.object_name) || normalizeMetadataValue(metadata.member_name) || normalizeMetadataValue(metadata.field_name);
+  if (storedName) {
+    const prefix = `${getScreenName(entry)}.`;
+    return storedName.startsWith(prefix) ? storedName.slice(prefix.length) : storedName;
+  }
   const locator = String(entry.locator || "");
   const locatorLabel =
     locator.match(/\[(?:aria-label|placeholder|name|data-testid|id)=["']?([^"'\]]+)["']?\]/i)?.[1] ||
@@ -1223,6 +1230,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const inspectLifecycleBusyRef = useRef(false);
   const [highlightedRepositoryId, setHighlightedRepositoryId] = useState("");
   const [selectedRepositoryId, setSelectedRepositoryId] = useState("");
+  const lastRepositoryRouteRef = useRef<string | null>(null);
   const [selectedScreenName, setSelectedScreenName] = useState("");
   const [screenRenameDraft, setScreenRenameDraft] = useState("");
   const [renamingScreenName, setRenamingScreenName] = useState("");
@@ -1988,9 +1996,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     locatorCount: selectedLocators.length,
     hasDomEvidence: Boolean(screenDomDraft.trim() || normalizeMetadataValue(selectedRepositoryEntry?.metadata?.ancestor_dom)),
     hasVisualEvidence: Boolean(screenScreenshotDraft.trim() || repositoryDraft.element_screenshot_url.trim()),
-    hasValidationHistory: Boolean(
+    hasValidationHistory: !["not_validated", "unverified", "pending"].includes(normalizeMetadataValue(selectedRepositoryEntry?.metadata?.last_validated_status)) && Boolean(
       normalizeMetadataValue(selectedRepositoryEntry?.metadata?.last_validated_at)
-      || normalizeMetadataValue(selectedRepositoryEntry?.metadata?.last_validated_status)
+      || ["unique", "ambiguous", "missing", "invalid"].includes(normalizeMetadataValue(selectedRepositoryEntry?.metadata?.last_validated_status))
       || (Array.isArray(selectedRepositoryEntry?.metadata?.validation_history) && selectedRepositoryEntry.metadata.validation_history.length)
     )
   }), [repositoryDraft.element_screenshot_url, repositoryDraft.stability_score, screenDomDraft, screenScreenshotDraft, selectedLocators.length, selectedRepositoryEntry]);
@@ -2009,6 +2017,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+
+  const selectRepositoryScreen = (screenName: string) => {
+    setSelectedScreenName(screenName);
+    setSelectedRepositoryId("");
+    setIsRepositoryConfigOpen(false);
+    setLocatorImprovementPreview(null);
+    syncRepositorySearchParams(null);
+  };
 
   const selectRepositoryEntry = useCallback((repositoryId: string, screenName?: string) => {
     if (screenName && screenName !== selectedScreenName) {
@@ -2135,18 +2151,25 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
     if (
       initialView !== "repository"
-      || !requestedRepositoryId
       || learningCacheQuery.isLoading
       || learningCacheQuery.isFetching
     ) {
       return;
     }
 
+    // Consume a URL selection once. Local selection can render before the
+    // router commits its new URL; replaying the old URL would undo that click.
+    const routeKey = `${projectId}:${appTypeId}:${requestedRepositoryId}`;
+    if (lastRepositoryRouteRef.current === routeKey) return;
+    lastRepositoryRouteRef.current = routeKey;
+    if (!requestedRepositoryId) return;
+
     const requestedEntry = groupedRepository
       .flatMap(([screenName, entries]) => entries.map((entry) => ({ screenName, entry })))
       .find(({ entry }) => entry.id === requestedRepositoryId && !isNonElementRepositoryEntry(entry));
 
     if (requestedEntry) {
+      if (selectedRepositoryId === requestedEntry.entry.id && selectedScreenName === requestedEntry.screenName) return;
       setView("repository");
       selectRepositoryEntry(requestedEntry.entry.id, requestedEntry.screenName);
       return;
@@ -2160,11 +2183,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [
     groupedRepository,
     initialView,
+    projectId,
+    appTypeId,
     learningCacheQuery.isFetching,
     learningCacheQuery.isLoading,
     searchParams,
     selectRepositoryEntry,
     selectedRepositoryId,
+    selectedScreenName,
     syncRepositorySearchParams
   ]);
 
@@ -4478,6 +4504,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to delete repository screen.")
   });
 
+  const repositorySelectionRef = useRef(selectedRepositoryEntry?.id);
+  repositorySelectionRef.current = selectedRepositoryEntry?.id;
   const improveRepositoryEntry = useMutation({
     mutationFn: () => {
       if (!selectedRepositoryEntry) {
@@ -4489,7 +4517,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       });
     },
     onSuccess: (response) => {
+      if (response.entry.id !== repositorySelectionRef.current) return;
       setLocatorImprovementPreview(response);
+      setFieldDetailTab("healing");
       showSuccess(response.fallback_used
         ? `Locator proposal prepared with deterministic rules: ${response.fallback_reason || "No model output was used."}`
         : "Locator proposal prepared. Review the before-and-after values before applying it.");
@@ -4499,7 +4529,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   const applyRepositoryImprovement = useMutation({
     mutationFn: () => {
-      if (!selectedRepositoryEntry || !locatorImprovementPreview) {
+      if (!selectedRepositoryEntry || !locatorImprovementPreview || locatorImprovementPreview.entry.id !== selectedRepositoryEntry.id) {
         throw new Error("Generate and review a locator proposal first.");
       }
 
@@ -4513,12 +4543,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         confirmed: true,
         locator,
         strategy,
+        expected_locator: locatorImprovementPreview.entry.locator,
         ...(typeof locatorImprovementPreview.suggestion.confidence === "number" ? { confidence: locatorImprovementPreview.suggestion.confidence } : {}),
         ...(locatorImprovementPreview.request_id ? { request_id: locatorImprovementPreview.request_id } : {})
       });
     },
-    onSuccess: () => {
-      setLocatorImprovementPreview(null);
+    onSuccess: (response) => {
+      queryClient.setQueriesData<AutomationLearningCacheEntry[]>({ queryKey: ["automation-learning-cache"] }, (entries) => entries?.map((entry) => entry.id === response.entry.id ? response.entry : entry));
+      if (response.entry.id === repositorySelectionRef.current) {
+        setLocatorImprovementPreview(null);
+        setRepositoryDraft((current) => ({ ...current, locator: response.entry.locator, locator_kind: response.entry.locator_kind || "css", fallback_locators: formatLocatorDraft(getRepositoryLocators(response.entry)) }));
+      }
       showSuccess("Reviewed locator improvement applied. Dependent automation remains visible for validation.");
       void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
       void queryClient.invalidateQueries({ queryKey: ["automation-repository-context"] });
@@ -4649,14 +4684,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     }
   };
 
-  const launchInspectBrowser = async (requestedMode: InspectSessionMode = recommendedInspectMode) => {
+  const launchInspectBrowser = async (requestedMode: InspectSessionMode = recommendedInspectMode, destination?: string) => {
     if (!canInspectRepository) throw new Error("Object repository management permission is required to inspect a browser.");
     if (inspectLifecycleBusyRef.current) return inspectSessionRef.current;
-    const inspectionStartUrl = normalizeRepositoryInspectStartUrl(screenUrlDraft);
+    const inspectionStartUrl = normalizeRepositoryInspectStartUrl(destination === undefined ? screenUrlDraft : destination);
     inspectLifecycleBusyRef.current = true;
     setIsLaunchingInspectBrowser(true);
     setInspectMessage(requestedMode === "local" ? "Connecting to your local inspection agent…" : "Starting a remote inspection browser in the Test Engine…");
     let generation = inspectSessionGenerationRef.current;
+    let createdSession: RecorderSessionResponse | null = null;
     try {
       const currentSession = inspectSessionRef.current;
       if (currentSession?.status === "running") {
@@ -4671,6 +4707,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       }
       generation = ++inspectSessionGenerationRef.current;
       setIsInspectingLiveField(false);
+      inspectSessionRef.current = null;
+      setInspectRecorderSession(null);
+      setInspectTabs([]);
       let connectedSession: RecorderSessionResponse;
       if (requestedMode === "local") {
         const runtime = await inspectAgent.check();
@@ -4693,6 +4732,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           start_url: inspectionStartUrl
         });
       }
+      createdSession = connectedSession;
       if (generation !== inspectSessionGenerationRef.current) {
         await stopRepositoryInspectSession(connectedSession, readRecorderJson).catch(() => null);
         return null;
@@ -4705,6 +4745,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
       const tabs = await loadInspectTabs(connectedSession, { activate: true, refreshPreview: true });
       setInspectMessage(tabs.length ? "" : "Browser ready. Navigate to a page, then refresh tabs.");
       return connectedSession;
+    } catch (error) {
+      if (createdSession) await stopRepositoryInspectSession(createdSession, readRecorderJson).catch(() => null);
+      if (generation === inspectSessionGenerationRef.current) {
+        inspectSessionRef.current = null;
+        setInspectRecorderSession(null);
+        setInspectTabs([]);
+        selectedInspectTabIdRef.current = "";
+        setSelectedInspectTabId("");
+        setIsInspectingLiveField(false);
+      }
+      throw error;
     } finally {
       inspectLifecycleBusyRef.current = false;
       setIsLaunchingInspectBrowser(false);
@@ -5083,9 +5134,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   return (
     <div className="page-content page-content--automation">
       <PageHeader
+        className={view === "repository" ? "object-repository-page-header" : undefined}
         eyebrow={automationPageHeader.eyebrow}
         title={automationPageHeader.title}
         description={automationPageHeader.description}
+        actions={view === "repository" && canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
         meta={[
           { label: "Automation cases", value: testCasesQuery.data ? automatedCases.length : "—" },
           { label: "Manual link candidates", value: testCasesQuery.data ? manualCases.length : "—" },
@@ -5813,7 +5866,6 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <TrashIcon size={16} />
                   <span>{deleteRepositoryScreen.isPending ? "Checking..." : "Delete screen"}</span>
                 </button>
-                {canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : null}
               </div>
             )}
           >
@@ -5885,12 +5937,12 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       </form>
                     ) : (
                       <>
-                        <button className="pom-page-select" onClick={() => setSelectedScreenName(page.screenName)} type="button">
+                        <button className="pom-page-select" onClick={() => selectRepositoryScreen(page.screenName)} type="button">
                           <strong>{page.pageName}</strong>
                           <small>{appTypes.find((appType) => appType.id === page.appTypeId)?.name || "Workspace"}</small>
                         </button>
                         <button aria-label={`Rename ${page.pageName}`} className="pom-page-rename" onClick={() => {
-                          setSelectedScreenName(page.screenName);
+                          selectRepositoryScreen(page.screenName);
                           setScreenRenameDraft(page.pageName);
                           setRenamingScreenName(page.screenName);
                         }} type="button">
@@ -6027,10 +6079,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                  <MousePointerIcon />
 	                  <span>Highlight</span>
 	                </button>
-	                {canUseAutomationAi ? <button className="ghost-button" disabled={improveRepositoryEntry.isPending || applyRepositoryImprovement.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
-	                  <SparkIcon />
-	                  <span>{improveRepositoryEntry.isPending ? "Preparing..." : locatorImprovementPreview ? "Regenerate proposal" : "Suggest improvement"}</span>
-	                </button> : null}
+
 	                <button className="primary-button" disabled={saveRepositoryEntry.isPending} onClick={() => saveRepositoryEntry.mutate()} type="button">
 	                  <PlayIcon />
 	                  <span>{saveRepositoryEntry.isPending ? "Saving..." : "Save field"}</span>
@@ -6041,6 +6090,20 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                </button>
 	              </div>
 	              <div className="repository-field-detail">
+	                <SubnavTabs
+	                  ariaLabel="Field details"
+	                  className="object-repository-screen-tabs"
+                  value={fieldDetailTab}
+                  onChange={setFieldDetailTab}
+                  items={[
+	                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
+	                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
+	                    { value: "meaning", label: "AI Meaning", meta: "Agent context" },
+                      { value: "healing", label: "Healing", meta: locatorImprovementPreview ? "Review proposal" : "Readiness" }
+	                  ]}
+                />
+                {fieldDetailTab === "healing" ? (
+                  <div className="repository-healing-panel">
 	                <AiAssurancePanel
 	                  compact
 	                  gaps={selectedLocatorReviewReadiness.gaps}
@@ -6094,17 +6157,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	                    </div>
 	                  </section>
 	                ) : null}
-	                <SubnavTabs
-	                  ariaLabel="Field details"
-	                  className="object-repository-screen-tabs"
-                  value={fieldDetailTab}
-                  onChange={setFieldDetailTab}
-                  items={[
-	                    { value: "locators", label: "Locators", meta: `${selectedLocators.length} strategies` },
-	                    { value: "evidence", label: "Evidence", meta: "DOM + visual" },
-	                    { value: "meaning", label: "AI Meaning", meta: "Agent context" }
-	                  ]}
-                />
+                    <div className="action-row">
+	                {canUseAutomationAi ? <button className="ghost-button" disabled={improveRepositoryEntry.isPending || applyRepositoryImprovement.isPending} onClick={() => improveRepositoryEntry.mutate()} type="button">
+	                  <SparkIcon />
+	                  <span>{improveRepositoryEntry.isPending ? "Preparing..." : locatorImprovementPreview ? "Regenerate proposal" : "Suggest improvement"}</span>
+	                </button> : null}
+                    </div>
+                  </div>
+                ) : null}
                 {fieldDetailTab === "locators" ? (
                   <div className="repository-locator-detail">
                     <div className="repository-locator-list">
@@ -6299,6 +6359,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       disabled={!canInspectRepository}
                       running={inspectRecorderSession?.status === "running"}
                       onStart={mode => void launchInspectBrowser(mode).catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start inspection browser."))}
+                      onStartBlank={mode => void launchInspectBrowser(mode, "").catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to start a blank inspection browser."))}
                       onClose={() => void closeInspectBrowser().catch(error => setInspectMessage(error instanceof Error ? error.message : "Unable to close inspection browser."))}
                       onSetup={inspectAgent.openSetup}
                     />
@@ -6336,6 +6397,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   <div className="object-repository-live-inspect-body">
                   <div className="object-repository-capture-workspace">
                     <section className="object-repository-browser-preview">
+                      {inspectRecorderSession?.status !== "running" ? <label className="repository-inspect-destination">
+                        <span>Page URL</span>
+                        <input aria-label="Inspection page URL" type="text" inputMode="url" placeholder="https://your-application.com" value={screenUrlDraft} disabled={isLaunchingInspectBrowser} onChange={event => setScreenUrlDraft(event.target.value)} />
+                        <small>Local sessions use this computer’s network. Remote sessions use the Test Engine’s network. Replace demo addresses with your application URL, or open a blank browser.</small>
+                      </label> : null}
                       <RepositoryInspectBrowser
                         tabs={inspectTabs}
                         selectedTabId={selectedInspectTabId}

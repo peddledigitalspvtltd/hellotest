@@ -2222,15 +2222,9 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
   "",
   "Return strict JSON with this shape:",
   "{",
-  '  "page_key": "stable screen key",',
-  '  "screen_name": "human readable screen name",',
-  '  "object_name": "human readable field/control name",',
-  '  "object_role": "button|textbox|link|checkbox|dropdown|field|file|view|mobile-control",',
   '  "locator": "best target locator string",',
-  '  "locator_kind": "role|label|placeholder|testid|css|xpath|text|accessibility_id|android_uiautomator",',
-  '  "target_criteria": ["primary criteria", "secondary criteria"],',
-  '  "dom_structure": "short DOM/accessibility structure around the element",',
-  '  "fallback_strategy": "how screenshot/visual fallback should be used if locator fails",',
+  '  "strategy": "role|label|placeholder|testid|css|xpath|text|accessibility_id|android_uiautomator",',
+  '  "reason": "why the locator is supported by the supplied evidence",',
   '  "confidence": 0.91',
   "}",
   "",
@@ -2238,7 +2232,7 @@ const buildRepositoryImprovePrompt = ({ entry, guidance }) => [
   "- Prefer stable semantic locators over brittle CSS/XPath.",
   "- For mobile objects, use accessibility id or Android UiAutomator when available.",
   "- Keep screenshot fallback descriptive; do not replace locator-first execution.",
-  "- Preserve user supplied intent unless there is a clear naming improvement.",
+  "- Preserve field identity and user intent; propose only a locator change for review.",
   "",
   "Current repository entry:",
   JSON.stringify(entry, null, 2),
@@ -2353,7 +2347,7 @@ const buildDeterministicRepositorySuggestion = (entry, guidance) => {
     target_criteria: criteria,
     dom_structure: normalizeText(metadata.dom_structure || metadata.dom_path || metadata.html) || `Stable ${objectName} control on ${screenName}.`,
     fallback_strategy: normalizeText(metadata.fallback_strategy) || "Use screenshot and nearby DOM/accessibility labels only after locator retry fails.",
-    confidence: Math.max(0.72, clampNumber(entry.confidence, 0.72)),
+    confidence: clampNumber(entry.confidence, 0.5),
     fallback_used: true,
     fallback_reason: "No active LLM repository improvement was available."
   };
@@ -4139,34 +4133,63 @@ exports.improveLearningCacheEntry = async ({ id, integration_id, user_id, guidan
     suggestion = buildDeterministicRepositorySuggestion(existing, normalizeText(guidance));
   }
 
-  const updated = await exports.updateLearningCacheEntry(existing.id, {
-    page_key: suggestion.page_key,
-    locator_intent: suggestion.intent || suggestion.locator_intent || suggestion.object_name,
-    locator: suggestion.locator,
-    locator_kind: suggestion.locator_kind || suggestion.kind,
-    confidence: suggestion.confidence,
-    source: suggestion.fallback_used ? "ai_repository_fallback" : "ai_repository_improved",
-    metadata: {
-      ...existing.metadata,
-      screen_name: suggestion.screen_name,
-      object_name: suggestion.object_name,
-      object_role: suggestion.object_role,
-      target_criteria: Array.isArray(suggestion.target_criteria) ? suggestion.target_criteria : [],
-      dom_structure: suggestion.dom_structure,
-      fallback_strategy: suggestion.fallback_strategy,
-      ai_improved_at: new Date().toISOString(),
-      ai_integration_id: integration?.id || null,
-      ai_fallback_used: Boolean(suggestion.fallback_used),
-      ai_fallback_reason: suggestion.fallback_reason || null
-    }
-  });
-
+  const locator = normalizeText(suggestion?.locator);
+  const strategy = normalizeText(suggestion?.strategy || suggestion?.locator_kind || suggestion?.kind);
+  if (!locator || !strategy) {
+    suggestion = { ...buildDeterministicRepositorySuggestion(existing, normalizeText(guidance)), fallback_reason: "The model did not return a usable locator and strategy." };
+  }
+  const fallback = Boolean(suggestion.fallback_used);
   return {
-    entry: updated,
-    suggestion,
-    fallback_used: Boolean(suggestion.fallback_used),
-    fallback_reason: suggestion.fallback_reason || null
+    entry: existing,
+    suggestion: {
+      locator: normalizeText(suggestion.locator),
+      strategy: normalizeText(suggestion.strategy || suggestion.locator_kind || suggestion.kind) || existing.locator_kind || "css",
+      confidence: clampNumber(suggestion.confidence, existing.confidence),
+      reason: normalizeText(suggestion.reason || suggestion.fallback_strategy) || "Review this locator against the captured evidence before applying."
+    },
+    fallback_used: fallback,
+    fallback_reason: suggestion.fallback_reason || null,
+    generation_mode: fallback ? "deterministic" : "llm",
+    generated_at: new Date().toISOString(),
+    request_id: uuid(),
+    requires_human_review: true,
+    provenance: { provider: fallback ? "HelloTest deterministic rules" : integration?.name || integration?.type || "Configured AI provider", model: fallback ? null : integration?.config?.model || null }
   };
+};
+
+exports.applyLearningCacheImprovement = async ({ id, confirmed, locator, strategy, confidence, expected_locator, request_id, user_id } = {}) => {
+  const invalid = message => Object.assign(new Error(message), { statusCode: 400 });
+  if (confirmed !== true) throw invalid("Review and confirm the proposed locator before applying it.");
+  locator = normalizeText(locator);
+  strategy = normalizeText(strategy);
+  if (!locator || !strategy || locator.length > 8192 || strategy.length > 100) throw invalid("A valid locator and strategy are required.");
+  if (confidence !== undefined && (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1)) throw invalid("Confidence must be between 0 and 1.");
+  return obsDb.transaction(async () => {
+    await obsDb.prepare("SELECT id FROM automation_learning_cache WHERE id = ? FOR UPDATE").get(id);
+    const existing = await exports.getLearningCacheEntry(id);
+    if (isRepositoryScreenRecord(existing)) throw invalid("Select a repository field to improve.");
+    if (typeof expected_locator !== "string" || existing.locator !== expected_locator) {
+      throw Object.assign(new Error("This field changed since the proposal was generated. Refresh and generate a new proposal."), { statusCode: 409 });
+    }
+    const reviewedAt = new Date().toISOString();
+    const changed = existing.locator !== locator || existing.locator_kind !== strategy;
+    const fallbacks = Array.isArray(existing.metadata?.fallback_locators) ? existing.metadata.fallback_locators : [];
+    const previous = { locator: existing.locator, strategy: existing.locator_kind || "css", confidenceScore: existing.confidence, isPrimary: false };
+    const entry = await exports.updateLearningCacheEntry(id, {
+      locator, locator_kind: strategy, confidence: confidence ?? existing.confidence,
+      source: "reviewed_locator_improvement",
+      metadata: {
+        ...existing.metadata,
+        fallback_locators: [ ...(changed ? [previous] : []), ...fallbacks ].filter((item, index, all) => item.locator !== locator && all.findIndex(other => other.locator === item.locator) === index),
+        ...(changed ? { last_validated_at: null, last_validated_status: "not_validated" } : {}),
+        locator_review_history: [...(Array.isArray(existing.metadata?.locator_review_history) ? existing.metadata.locator_review_history : []), {
+          before: { locator: existing.locator, strategy: existing.locator_kind }, after: { locator, strategy },
+          reviewed_by: user_id, reviewed_at: reviewedAt, request_id: request_id || null
+        }].slice(-50)
+      }
+    });
+    return { entry, applied: true };
+  })();
 };
 
 exports.extractRepositoryFields = async ({

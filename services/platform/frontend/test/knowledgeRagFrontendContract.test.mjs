@@ -115,7 +115,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /hasPermission\(session, "knowledge\.view", projectId\)/);
   assert.match(assistant, /areFeatureFlagsEnabled\(featureFlagsQuery\.data, \["hellotest\.ai\.knowledge", "hellotest\.ai\.chatbot"\]\)/);
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
-  assert.match(assistant, /Current project only/);
+  assert.match(assistant, /Sources are limited to this project/);
   assert.match(assistant, /live project \+ all Knowledge Repository sources/);
   assert.match(assistant, /<KnowledgeTurnProgress events=\{progressEvents\}/);
   assert.match(assistant, /chatbotApi\.assistant\.streamMessage/);

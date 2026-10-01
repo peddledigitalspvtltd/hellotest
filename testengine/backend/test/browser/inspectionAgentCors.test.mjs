@@ -28,7 +28,7 @@ async function agentFixture(t, pairedToHostedApp) {
   t.after(() => new Promise(resolve => { secureHost.closeAllConnections(); secureHost.close(resolve); }));
   const hostedOrigin = `https://app.hellotest.ai:${secureHost.address().port}`;
   const origin = pairedToHostedApp ? hostedOrigin : "http://localhost:8080";
-  for (const [key, name] of Object.entries({ recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy" })) {
+  for (const [key, name] of Object.entries({ recorder: "recorder", security: "testEngineSecurity", inspection_security: "inspectionSecurity", inspection_proxy: "inspectionProxy", repository_locator: "repositoryLocator" })) {
     await writeFile(join(directory, `${name}.js`), modules[key]);
   }
   const previous = process.env.HELLOTEST_INSPECTOR_TOKEN;
@@ -41,6 +41,7 @@ async function agentFixture(t, pairedToHostedApp) {
   app.addHook("onRequest", async request => { requests.push({ method: request.method, origin: request.headers.origin }); });
   app.addHook("onRequest", createCorsHook(resolveCorsPolicy({ HELLOTEST_INSPECTOR_TOKEN: pairToken, TESTENGINE_CORS_ORIGINS: origin })));
   app.options("/*", async (_request, reply) => reply.code(204).send());
+  app.get("/target", async (_request, reply) => reply.type("text/html").send('<!doctype html><title>Local application</title><button id="local-save">Save locally</button>'));
   await registerRecorderRoutes(app);
   const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
   t.after(() => app.close());
@@ -58,11 +59,11 @@ async function agentFixture(t, pairedToHostedApp) {
       return { status: response.status, payload: await response.json() };
     } catch (error) { return { error: error.name }; }
   }, { baseUrl, token });
-  return { check, requests, baseUrl, hostedOrigin };
+  return { check, requests, baseUrl, hostedOrigin, page };
 }
 
 test("API-packaged agent permits real secure-origin CORS and exposes a wrong pairing as readable401", { timeout: 30000 }, async t => {
-  const { check, requests, baseUrl, hostedOrigin } = await agentFixture(t, true);
+  const { check, requests, baseUrl, hostedOrigin, page } = await agentFixture(t, true);
   const allowed = await check(pairToken);
   assert.equal(allowed.status, 200, JSON.stringify(allowed));
   assert.equal(allowed.payload.service, "hellotest-inspection-agent");
@@ -74,6 +75,18 @@ test("API-packaged agent permits real secure-origin CORS and exposes a wrong pai
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("access-control-allow-origin"), hostedOrigin);
   assert.equal(preflight.headers.get("access-control-allow-private-network"), "true");
+  const localSession = await page.evaluate(async ({ baseUrl, pairToken }) => {
+    const response = await fetch(`${baseUrl}/api/v1/recorder/sessions`, { method: "POST", headers: { "content-type": "application/json", "X-HelloTest-Agent-Token": pairToken }, body: JSON.stringify({ purpose: "repository-inspect", start_url: `${baseUrl}/target` }) });
+    return { status: response.status, body: await response.json() };
+  }, { baseUrl, pairToken });
+  assert.equal(localSession.status, 202, JSON.stringify(localSession));
+  const session = localSession.body;
+  const token = new URL(session.live_view_url || session.live_view_path, baseUrl).searchParams.get("token");
+  const headers = { "X-HelloTest-Agent-Token": pairToken, "X-HelloTest-Recorder-Token": token, "content-type": "application/json" };
+  const checked = await fetch(`${baseUrl}/api/v1/recorder/sessions/${session.id}/inspect/validate`, { method: "POST", headers, body: JSON.stringify({ fields: [{ locator: "#local-save", name: "Local save" }] }) });
+  assert.equal(checked.status, 200, await checked.text());
+  const stopped = await fetch(`${baseUrl}/api/v1/recorder/sessions/${session.id}/stop`, { method: "POST", headers, body: "{}" });
+  assert.equal(stopped.status, 200);
 });
 
 test("an agent paired to localhost rejects the cloud origin before a status request", { timeout: 30000 }, async t => {

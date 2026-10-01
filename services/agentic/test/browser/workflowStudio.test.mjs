@@ -149,3 +149,53 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   const readonly=await browser.newPage({viewport:{width:1200,height:900}});readonly.on('pageerror',err=>errors.push(err.message));await readonly.goto(url+'&readonly=true');await readonly.getByRole('heading',{name:'Agentic Studio',exact:true}).waitFor();assert.equal(await readonly.getByRole('button',{name:'Create Agentic Workflow',exact:true}).count(),0);assert.equal(await readonly.locator('.studio-template-card').count(),0);await readonly.getByText('Readonly review',{exact:true}).click();await readonly.getByRole('region',{name:'Workflow editor',exact:true}).waitFor();assert.equal(await readonly.getByRole('button',{name:'Save',exact:true}).count(),0);assert.equal(await readonly.getByRole('button',{name:'Add node',exact:true}).count(),0);assert.equal(await readonly.getByRole('button',{name:'Execute workflow',exact:true}).count(),0);assert.equal(await readonly.getByRole('textbox',{name:'Node name',exact:true}).isDisabled(),true);assert.deepEqual(errors,[]);
  } finally { await browser?.close();await Promise.allSettled([unlink(html),unlink(tsx)]); }
 });
+
+
+test('workflow and run selection follows search and stays synchronized between tiles and lists', {timeout:60000}, async () => {
+ const name='studio-selection-'+randomUUID(), html=new URL(name+'.html',root), tsx=new URL(name+'.tsx',root);
+ const records = ['Checkout', 'Refund'].map((name,index)=>({id:'selection-'+index,name,project_id:'project',app_type_id:'app',description:'Review '+name,status:'draft',trigger_kind:'manual',nodes:[],edges:[],settings:{},run_count:1}));
+ const runs = records.map(row=>({id:'run-'+row.id,workflow_id:row.id,workflow_name:row.name,project_id:'project',app_type_id:'app',status:'completed',trigger_kind:'manual',node_results:[],created_at:'2026-09-10T10:00:00Z'}));
+ const selectionFixture = base.replace('function RouteObserver()', `import '/src/catalog-list.css';
+api.agenticWorkflows.list=async()=>${JSON.stringify(records)};
+api.agenticWorkflows.listRuns=async()=>${JSON.stringify(runs)};
+function RouteObserver()`);
+ let browser;
+ try {
+  await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+  await writeFile(tsx,selectionFixture);
+  browser=await chromium.launch({headless:true});
+  const page=await browser.newPage({viewport:{width:1512,height:1050}});page.setDefaultTimeout(10000);
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5294'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);
+  for(const surface of ['workflows','runs']) {
+   if(surface==='runs') await page.getByRole('button',{name:'Workflow history',exact:true}).click();
+   const search=page.getByRole('searchbox',{name:surface==='workflows'?'Search workflows':'Search workflow runs',exact:true});
+   const controls=page.getByRole('group',{name:'Catalog selection',exact:true});
+   const select=controls.getByRole('button',{name:'Select all',exact:true}), clear=controls.getByRole('button',{name:'Clear all',exact:true});
+   await page.getByRole('button',{name:'Tile view',exact:true}).click();
+   await page.getByRole('checkbox',{name:'Select Checkout',exact:true}).waitFor();
+   assert.equal(await select.innerText(),'Select all');assert.equal(await clear.innerText(),'Clear all');
+   assert.equal(await clear.isDisabled(),true);
+   await search.fill('Checkout');await select.click();
+   assert.equal(await page.getByRole('checkbox',{name:'Select Checkout',exact:true}).isChecked(),true);
+   await search.fill('');
+   assert.equal(await page.getByRole('checkbox',{name:'Select Refund',exact:true}).isChecked(),false);
+   await select.click();assert.equal(await page.locator('.agentic-catalog-stage input[type="checkbox"]:checked').count(),2);
+   await page.getByRole('button',{name:'List view',exact:true}).click();
+   assert.equal(await page.getByRole('checkbox',{name:'Select row 1',exact:true}).isChecked(),true);
+   assert.equal(await page.getByRole('checkbox',{name:'Select row 2',exact:true}).isChecked(),true);
+   await clear.click();assert.equal(await page.getByRole('checkbox',{name:'Select row 1',exact:true}).isChecked(),false);
+   await page.getByRole('checkbox',{name:'Select row 2',exact:true}).check();assert.equal(await clear.isDisabled(),false);
+   await page.getByRole('button',{name:'Tile view',exact:true}).click();assert.equal(await page.getByRole('checkbox',{name:'Select Refund',exact:true}).isChecked(),true);
+   await search.fill('Checkout');await clear.click();await search.fill('');
+   assert.equal(await page.getByRole('checkbox',{name:'Select Refund',exact:true}).isChecked(),false,'Clear all also clears records hidden by search');
+   await search.fill('no matching workflow');assert.equal(await select.isDisabled(),true);await search.fill('');
+   await page.setViewportSize({width:390,height:900});
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+   await select.scrollIntoViewIfNeeded();
+   await mkdir('/tmp/qaira-ui-refinements',{recursive:true});await page.screenshot({path:'/tmp/qaira-ui-refinements/'+surface+'-selection-mobile.png',fullPage:true});
+   await page.setViewportSize({width:1512,height:1050});
+  }
+  assert.deepEqual(errors,[]);
+ } finally {await browser?.close();await Promise.all([unlink(html).catch(()=>{}),unlink(tsx).catch(()=>{})]);}
+});

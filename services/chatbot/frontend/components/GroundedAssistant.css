@@ -186,13 +186,6 @@
   font-weight: 700;
 }
 
-.grounded-assistant-scope-bar span:first-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: #15803d;
-}
-
 .grounded-assistant-conversation {
   min-height: 0;
   overflow: auto;
@@ -228,13 +221,16 @@
   letter-spacing: -0.02em;
 }
 
-.grounded-assistant-welcome > p {
-  max-width: 23rem;
-  margin: 0.5rem 0 1rem;
-  color: var(--text-secondary);
-  font-size: 0.82rem;
-  line-height: 1.55;
+.grounded-assistant-welcome-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 0;
+  margin-bottom: 1rem;
 }
+
+.grounded-assistant-welcome-heading .info-tooltip-trigger { flex-shrink: 0; }
 
 .grounded-assistant-structured-answer { display: grid; gap: 0.55rem; }
 .grounded-assistant-structured-answer :is(p, ul, section, h3) { margin: 0; }
@@ -926,6 +922,7 @@
 .grounded-assistant-panel .knowledge-claim-citations a,
 .grounded-assistant-panel .knowledge-claim-citations button { border-radius: 4px; padding: 1px 4px; background: color-mix(in srgb, #6366f1 8%, transparent); }
 .grounded-assistant-panel :is(button, select, textarea, summary, a):focus-visible { outline: 2px solid var(--accent, #6366f1); outline-offset: 2px; }
+.grounded-assistant-panel .grounded-assistant-composer textarea:focus-visible { outline: none; box-shadow: none; }
 @media (max-width: 620px) {
   .grounded-assistant-panel .grounded-assistant-header { flex-wrap: wrap; gap: .5rem; }
   .grounded-assistant-panel .grounded-assistant-header-actions { margin-left: auto; }

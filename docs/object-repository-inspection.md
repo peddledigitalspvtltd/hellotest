@@ -16,6 +16,14 @@ The packaged Test Engine HAProxy configuration uses an affinity cookie. The API 
 
 Remote inspection accepts HTTP(S) targets and checks initial navigation and explicit navigation against private network addresses. Its per-browser egress proxy validates and pins each connection to its resolved address, including redirects and WebSocket/TLS tunnels; service workers and non-proxied WebRTC UDP are disabled. Use a local agent for private applications. Administrators can allow exact internal hostnames with `RECORDER_ALLOWED_PRIVATE_HOSTS` on the Test Engine; do not expose metadata or infrastructure endpoints in this allowlist. Apply the normal network egress controls for browser workers as well.
 
+### Resolving startup DNS errors
+
+`INSPECTION_DNS_FAILED` refers to the **Page URL hostname**, not the HelloTest API endpoint. Running HelloTest at `localhost:8080` does not make a remote Test Engine browser a local session. The demo project uses `staging.example.test`; replace this illustrative address with the application's real URL. The Live builder exposes Page URL before startup and an **Open blank browser** action for either session type. Editing this address does not update the repository until the screen is saved.
+
+For local sessions, pair the local agent and select **Local session**. It uses that computer's DNS and VPN. For remote sessions, the target must resolve and be reachable from the Test Engine worker. Container `localhost` refers to the container; a host application needs a reachable host address (such as `host.docker.internal` where supported) and an exact private-host allowlist entry. The allowlist grants access; it does not create a DNS record. Configure internal DNS/host mappings on the worker or use a local session for private applications.
+
+Temporary DNS errors retry up to three times, with a five-second deadline per attempt, and return retryable HTTP 503 if resolution still fails. Unknown hostnames return HTTP 400 with the failing hostname and correction guidance. Paths, queries and credentials are omitted from DNS diagnostics. The selected session type is retained after a failed start.
+
 ## Local agent
 
 Click **Local agent** in Object Repository to generate a paired setup command. The user needs Node.js 20 or newer and npm; no repository checkout or private npm package is required. The authenticated download link expires after ten minutes. The command installs pinned Fastify and Playwright versions plus Chromium beneath `~/.hellotest/inspection-agent/`, then starts the recorder on `127.0.0.1:4311`. Keep that terminal open; Ctrl+C stops the agent and its sessions.
@@ -41,3 +49,9 @@ node --test testengine/backend/test/browser/repositoryInspectionFlow.test.mjs
 ```
 
 The last check uses installed Playwright Chromium, starts isolated fixture servers, proves a real iframe stream through the `/api` proxy, validates a captured locator, denies direct unauthenticated access and closes the browser.
+
+## Locator review
+
+The Local agent indicator sits at the right of the page heading. Screen and field selection keeps the URL synchronized; changing screens clears the previous field link. Field configuration separates Locators, Evidence, AI Meaning and Healing. Healing combines readiness, suggestion generation and the editable proposal review.
+
+Generating a proposal never updates the saved field. Applying it requires repository management permission and the original locator for a conflict check. The previous locator remains a fallback, the reviewer and before/after values are recorded, and a changed locator needs fresh validation. Remote startup failures clear the failed session so the browser can be opened again.

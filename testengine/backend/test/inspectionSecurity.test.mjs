@@ -5,6 +5,27 @@ import { assertRemoteInspectionUrl, isPrivateInspectionAddress, resolveRemoteIns
 import { registerRecorderRoutes } from "../dist/lib/recorder.js";
 import { createCorsHook, resolveCorsPolicy } from "../dist/lib/testEngineSecurity.js";
 
+test("inspection retries temporary DNS failures and reports persistent lookup failures accurately", async () => {
+  let attempts = 0;
+  const transient = () => Object.assign(new Error("DNS unavailable"), { code: "EAI_AGAIN" });
+  assert.equal(await resolveRemoteInspectionTarget("https://app.example.test", async () => {
+    if (++attempts < 3) throw transient();
+    return [{ address: "93.184.216.34" }];
+  }), "93.184.216.34");
+  assert.equal(attempts, 3);
+  attempts = 0;
+  await assert.rejects(resolveRemoteInspectionTarget("https://app.example.test", async () => { attempts++; throw transient(); }), error => error.code === "INSPECTION_DNS_FAILED" && error.statusCode === 503 && error.retryable);
+  assert.equal(attempts, 3);
+  attempts = 0;
+  await assert.rejects(resolveRemoteInspectionTarget("https://staging.example.test/login?secret=hidden", async () => { attempts++; throw Object.assign(new Error("Not found"), { code: "ENOTFOUND" }); }), error => {
+    assert.equal(error.statusCode, 400); assert.equal(error.retryable, false);
+    assert.match(error.message, /staging.example.test/); assert.match(error.message, /blank browser/);
+    assert.doesNotMatch(error.message, /secret|hidden/); return true;
+  });
+  assert.equal(attempts, 1, "Unknown hostnames must be corrected instead of blindly retried");
+  await assert.rejects(resolveRemoteInspectionTarget("https://public.example.test", async () => [{ address: "93.184.216.34" }, { address: "10.0.0.1" }]), error => error.code === "INSPECTION_PRIVATE_TARGET");
+});
+
 test("remote inspection blocks local, metadata, mapped IPv6, protocols and private DNS destinations", async () => {
   for (const address of ["127.0.0.1", "169.254.169.254", "10.4.5.6", "172.16.0.1", "192.168.1.1", "100.64.1.1", "::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "fd00::1", "fe80::1"]) assert.equal(isPrivateInspectionAddress(address), true, address);
   assert.equal(isPrivateInspectionAddress("93.184.216.34"), false);

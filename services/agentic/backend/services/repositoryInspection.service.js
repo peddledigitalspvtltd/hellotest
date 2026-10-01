@@ -68,16 +68,28 @@ exports.start = async ({ project_id, app_type_id, start_url, user_id, authorizat
   const destination = startUrl(start_url);
   const integration = await integrationService.getActiveIntegrationByTypeForProject("testengine", project_id);
   const base = engineBase(integration);
-  const response = await fetch(`${base}/api/v1/recorder/sessions`, {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(60_000),
-    headers: engineHeaders(integration),
-    body: JSON.stringify({ start_url: destination, purpose: "repository-inspect", recorder_mode: "remote", reuse_existing: false })
-  });
-  const session = await readBoundedResponseJson(response, { maxBytes: 1024 * 1024, label: "Test Engine inspection response" });
+  let response;
+  let session;
+  try {
+    response = await fetch(`${base}/api/v1/recorder/sessions`, {
+      method: "POST", redirect: "error", signal: AbortSignal.timeout(60_000),
+      headers: engineHeaders(integration),
+      body: JSON.stringify({ start_url: destination, purpose: "repository-inspect", recorder_mode: "remote", reuse_existing: false })
+    });
+    session = await readBoundedResponseJson(response, { maxBytes: 1024 * 1024, label: "Test Engine inspection response" });
+  } catch (failure) {
+    if (failure.code === "INSPECTION_ENGINE_CONFIGURATION") throw failure;
+    const timedOut = ["TimeoutError", "AbortError"].includes(failure.name);
+    const message = timedOut
+      ? "The Test Engine timed out starting the browser. Check the engine is running, then retry."
+      : "The Test Engine could not be reached or returned an invalid response. Check its integration URL and connection, then retry.";
+    throw Object.assign(error(message, 503, "INSPECTION_ENGINE_UNAVAILABLE"), { publicMessage: message });
+  }
   if (!response.ok) {
     const validationCodes = new Set(["INSPECTION_URL_INVALID", "INSPECTION_PRIVATE_TARGET", "INSPECTION_DNS_FAILED"]);
-    const code = response.status === 400 && validationCodes.has(session?.code) ? session.code : undefined;
-    throw error(typeof session?.message === "string" ? session.message : "The Test Engine could not start an inspection browser.", response.status >= 500 ? 503 : response.status, code);
+    const code = [400, 503].includes(response.status) && validationCodes.has(session?.code) ? session.code : undefined;
+    const message = typeof session?.message === "string" ? session.message : "The Test Engine could not start an inspection browser.";
+    throw Object.assign(error(message, response.status >= 500 ? 503 : response.status, code), code ? { publicMessage: message } : {});
   }
   if (!session?.id || !/^[a-zA-Z0-9-]{1,100}$/.test(session.id)) throw error("The Test Engine returned an invalid inspection session.", 502);
   const live = new URL(session.live_view_path || session.live_view_url || "", base);

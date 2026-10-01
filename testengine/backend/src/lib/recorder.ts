@@ -3026,7 +3026,12 @@ export const registerRecorderRoutes = async (app: FastifyInstance) => {
         const parsed = new URL(startUrl);
         if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new InspectionTargetError("INSPECTION_URL_INVALID", "Enter an HTTP(S) URL without credentials.");
         if (remoteInspection) await assertRemoteInspectionUrl(startUrl);
-      } catch (error) { reply.code(400); return { code: error instanceof InspectionTargetError ? error.code : "INSPECTION_URL_INVALID", message: error instanceof Error ? error.message : "Invalid inspection URL" }; }
+      } catch (error) {
+        const targetError = error instanceof InspectionTargetError ? error : null;
+        app.log.warn({ code: targetError?.code || "INSPECTION_URL_INVALID", target_host: new URL(startUrl).hostname, mode: remoteInspection ? "remote" : "local" }, "Inspection destination could not be opened");
+        reply.code(targetError?.statusCode || 400);
+        return { code: targetError?.code || "INSPECTION_URL_INVALID", message: error instanceof Error ? error.message : "Invalid inspection URL", retryable: targetError?.retryable || false };
+      }
     }
     const reusableSession = purpose !== "repository-inspect" && body?.reuse_existing === true
       ? [...sessions.values()]

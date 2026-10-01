@@ -1121,6 +1121,8 @@ export function AgenticWorkflowsPage() {
                 </div>
               </CatalogSearchFilter>
               <CatalogSelectionControls
+                showLabels
+                clearLabel="Clear all"
                 allSelected={areAllFilteredActionItemsSelected}
                 canSelectAll={Boolean(visibleActionIds.length)}
                 onClear={() => {
@@ -1166,6 +1168,9 @@ export function AgenticWorkflowsPage() {
                   emptyMessage="No agentic workflows created yet."
                   enableColumnResize
                   enableHeaderColumnReorder
+                  enableRowSelection
+                  selectedRowKeys={selectedActionWorkflowIds}
+                  onSelectedRowKeysChange={setSelectedActionWorkflowIds}
                   getRowKey={(workflow) => workflow.id}
                   hideToolbarCopy
                   onRowClick={openDraft}
@@ -1218,6 +1223,9 @@ export function AgenticWorkflowsPage() {
                 emptyMessage="No workflow previews yet. Save a definition, then preview its data flow."
                 enableColumnResize
                 enableHeaderColumnReorder
+                enableRowSelection
+                selectedRowKeys={selectedActionRunIds}
+                onSelectedRowKeysChange={setSelectedActionRunIds}
                 getRowKey={(run) => run.id}
                 getRowClassName={(run) => (selectedRunId === run.id ? "is-active-row" : "")}
                 hideToolbarCopy

@@ -54,7 +54,8 @@ test("claims cite only authorized evidence; unknown and hidden evidence are excl
 
 test("interpretation is explicit and partial retrieval limits cannot disappear", () => {
   const markup = html(message({ claims: [{ statement: "Possible reason", classification: "INTERPRETATION", evidence_ids: ["e1"] }], limitations: { retrieval_status: "PARTIAL", authorization_partial: true, budget_partial: true, unavailable_sources: 2, stale_sources: ["e1"] } }));
-  for (const phrase of ["Response", "Interpretation", "Partial evidence", "Evidence information", "outside your access", "time or context limit", "2 sources were unavailable", "may be out of date"]) assert.match(markup, new RegExp(phrase));
+  for (const phrase of ["Response", "Interpretation", "Evidence information", "outside your access", "time or context limit", "2 sources were unavailable", "may be out of date"]) assert.match(markup, new RegExp(phrase));
+  assert.doesNotMatch(markup, /Partial evidence|Answer based on the authorized sources available for this turn/);
 });
 
 test("model-unavailable fallback retains validated evidence and disclosed partial coverage", () => {

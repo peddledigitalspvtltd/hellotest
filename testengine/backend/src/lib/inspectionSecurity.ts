@@ -1,10 +1,31 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { setTimeout as delay } from "node:timers/promises";
 
 export class InspectionTargetError extends Error {
-  constructor(public readonly code: "INSPECTION_URL_INVALID" | "INSPECTION_PRIVATE_TARGET" | "INSPECTION_DNS_FAILED", message: string) {
+  constructor(public readonly code: "INSPECTION_URL_INVALID" | "INSPECTION_PRIVATE_TARGET" | "INSPECTION_DNS_FAILED", message: string, public readonly statusCode = 400) {
     super(message);
     this.name = "InspectionTargetError";
+  }
+  get retryable() { return this.statusCode === 503; }
+}
+
+async function lookupInspectionHost(host: string, resolver: typeof lookup) {
+  for (let attempt = 0; ; attempt += 1) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        resolver(host, { all: true }),
+        new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => reject(Object.assign(new Error("DNS lookup timed out"), { code: "ETIMEOUT" })), 5_000); })
+      ]);
+    } catch (failure) {
+      const transient = ["EAI_AGAIN", "ETIMEOUT", "ETIMEDOUT", "ESERVFAIL", "ECONNREFUSED"].includes(String((failure as NodeJS.ErrnoException)?.code));
+      if (transient && attempt < 2) { await delay(200 * (attempt + 1)); continue; }
+      const message = transient
+        ? `The Test Engine's DNS service could not resolve "${host}" after three attempts. Check the engine's DNS or VPN connection, then retry.`
+        : `The remote Test Engine could not resolve "${host}". Check Page URL, or clear it to open a blank browser. Demo addresses such as staging.example.test must be replaced with your application's URL. For a private application, connect a local session or configure this hostname in the engine's DNS.`;
+      throw new InspectionTargetError("INSPECTION_DNS_FAILED", message, transient ? 503 : 400);
+    } finally { if (timeout) clearTimeout(timeout); }
   }
 }
 
@@ -36,9 +57,8 @@ export async function resolveRemoteInspectionTarget(value: string, resolver = lo
   const allowedPrivate = allowlisted.includes(host);
   if (!allowedPrivate && isPrivateInspectionAddress(host)) throw new InspectionTargetError("INSPECTION_PRIVATE_TARGET", "This address is private to the Test Engine. Use a connected local session, or ask an administrator to allow this exact hostname.");
   let addresses: Array<{ address: string }>;
-  try { addresses = isIP(host) ? [{ address: host }] : await resolver(host, { all: true }); }
-  catch { throw new InspectionTargetError("INSPECTION_DNS_FAILED", "The remote Test Engine could not resolve this hostname. Check the address, or use a local session for a private application."); }
-  if (!addresses.length) throw new InspectionTargetError("INSPECTION_DNS_FAILED", "The remote Test Engine could not resolve this hostname. Check the address, or use a local session for a private application.");
+  addresses = isIP(host) ? [{ address: host }] : await lookupInspectionHost(host, resolver);
+  if (!addresses.length) throw new InspectionTargetError("INSPECTION_DNS_FAILED", `The remote Test Engine found no DNS addresses for "${host}". Check Page URL or use a connected local session for a private application.`);
   if (!allowedPrivate && addresses.some(item => isPrivateInspectionAddress(item.address))) throw new InspectionTargetError("INSPECTION_PRIVATE_TARGET", "The remote inspection destination resolves to a private network. Use a local session for private applications.");
   return addresses[0].address;
 }

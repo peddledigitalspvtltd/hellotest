@@ -110,6 +110,16 @@ test("invalid engine configuration is reported as a setup issue rather than a ba
     assert.ok(!response.body.includes("secret"), "Configuration messages must not expose credentials");
   }
 });
+test("temporary engine DNS failures preserve retry guidance through the API", async t => {
+  const app = await fixture(t);
+  const message = 'The Test Engine DNS service could not resolve "app.example.test" after three attempts. Check the engine DNS, then retry.';
+  t.mock.method(global, "fetch", async () => new Response(JSON.stringify({ code: "INSPECTION_DNS_FAILED", message, retryable: true }), { status: 503, headers: { "content-type": "application/json" } }));
+  const response = await app.inject({ method: "POST", url: "/repository-inspection/sessions", headers: { authorization }, payload: { project_id: "project-1", start_url: "https://app.example.test" } });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().code, "INSPECTION_DNS_FAILED");
+  assert.equal(response.json().retryable, true);
+  assert.equal(response.json().message, message);
+});
 test("proxy authenticates iframe capability before permission checks and preserves reverse-proxy prefix", async t => {
   const app = await fixture(t);
   const cap = ticket();
@@ -242,4 +252,24 @@ test("real accessControl prehandlers revalidate capability login, permission and
   assert.equal(live.statusCode, 200, live.body);
   assert.equal(live.headers["x-frame-options"], undefined, "The scoped frame must override the API's global DENY header");
   assert.match(live.headers["content-security-policy"], /frame-ancestors 'self' https:\/\/app.example.test/);
+});
+
+
+test("remote startup reports actionable failures and can retry after an engine outage", async t => {
+  const app = await fixture(t);
+  let attempt = 0;
+  t.mock.method(global, "fetch", async () => {
+    attempt++;
+    if (attempt === 1) throw new TypeError("fetch failed");
+    if (attempt === 2) return new Response("<html>Proxy unavailable</html>", { status: 502 });
+    return json({ id: "session-1", status: "running", live_view_path: "/api/v1/recorder/sessions/session-1/live?token=engine-token" });
+  });
+  const request = { method: "POST", url: "/repository-inspection/sessions", headers: { authorization }, payload: { project_id: "project-1" } };
+  for (let i = 0; i < 2; i++) {
+    const response = await app.inject(request);
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.json().code, "INSPECTION_ENGINE_UNAVAILABLE");
+    assert.match(response.json().message, /integration URL.*retry/);
+  }
+  assert.equal((await app.inject(request)).statusCode, 200);
 });

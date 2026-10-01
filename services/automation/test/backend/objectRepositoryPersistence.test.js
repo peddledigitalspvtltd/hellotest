@@ -20,6 +20,7 @@ function repositoryFixture() {
     transaction: (callback) => callback
   };
   const obsDb = {
+    transaction: callback => callback,
     prepare: (statement) => {
       const sql = statement.replace(/\s+/g, " ").trim();
       return {
@@ -167,4 +168,26 @@ test("field parent references cannot cross project/app scope or refer to a missi
   await assert.rejects(service.createLearningCacheEntry({ ...input, app_type_id: "app-a", project_id: "project-a", metadata: { screen_entry_id: "missing" } }), /no longer exists/);
   await assert.rejects(service.createLearningCacheEntry({ ...input, app_type_id: "app-a", project_id: "project-a", metadata: { screen_entry_id: field.id } }), /no longer exists/);
   assert.equal(state.entries.length, initialCount, "invalid parent bindings fail before writes");
+});
+
+
+test("locator proposals are read-only and reviewed apply persists the locator, fallback and actor", async () => {
+  const { service } = repositoryFixture();
+  const field = await service.createLearningCacheEntry({ app_type_id: "app-a", screen_name: "Login", locator: "#email", locator_kind: "css", object_name: "Email", confidence: 0.4 });
+  const before = await service.getLearningCacheEntry(field.id);
+  const preview = await service.improveLearningCacheEntry({ id: field.id, user_id: "reviewer" });
+  assert.deepEqual(await service.getLearningCacheEntry(field.id), before);
+  assert.equal(preview.suggestion.strategy, "css");
+  assert.equal(preview.requires_human_review, true);
+  assert.equal(preview.generation_mode, "deterministic");
+  assert.equal(preview.suggestion.confidence, before.confidence, "No invented confidence increase without validation");
+  await assert.rejects(service.applyLearningCacheImprovement({ id: field.id, locator: "#email-new", strategy: "css" }), { statusCode: 400 });
+  const applied = await service.applyLearningCacheImprovement({ id: field.id, confirmed: true, locator: "#email-new", strategy: "css", expected_locator: "#email", request_id: preview.request_id, user_id: "reviewer" });
+  assert.equal(applied.entry.locator, "#email-new");
+  assert.equal(applied.entry.metadata.object_name, "Email");
+  assert.equal(applied.entry.metadata.fallback_locators[0].locator, "#email");
+  assert.equal(applied.entry.metadata.last_validated_status, "not_validated");
+  assert.equal(applied.entry.metadata.locator_review_history[0].reviewed_by, "reviewer");
+  await assert.rejects(service.applyLearningCacheImprovement({ id: field.id, confirmed: true, locator: "#stale", strategy: "css", expected_locator: "#email" }), { statusCode: 409 });
+  assert.equal((await service.getLearningCacheEntry(field.id)).locator, "#email-new");
 });

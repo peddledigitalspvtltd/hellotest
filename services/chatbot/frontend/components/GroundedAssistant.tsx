@@ -8,7 +8,6 @@ import {
   IconChevronDown,
   IconDownload,
   IconExternalLink,
-  IconLock,
   IconHistory,
   IconArrowRight,
   IconArchive,
@@ -23,6 +22,7 @@ import {
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { useCurrentAppType, useCurrentProject } from "@hellotest/platform/frontend/src/platform/hooks/useCurrentProject";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
+import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
 import { resolveAiLlmDefault } from "@hellotest/integration/frontend/lib/aiLlmDefault";
@@ -319,6 +319,13 @@ export function GroundedAssistant() {
     conversationEndRef.current?.scrollIntoView({ block: "nearest" });
   }, [messages, isSending]);
 
+  useEffect(() => {
+    const input = composerRef.current;
+    if (!isOpen || !input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(128, Math.max(56, input.scrollHeight))}px`;
+  }, [isOpen, prompt]);
+
   if (!canUseAssistant) return null;
 
   const startNewChat = () => {
@@ -336,6 +343,7 @@ export function GroundedAssistant() {
     setKnowledgeAsOf("");
     setProgressEvents([]);
     setSessionError("");
+    requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const openConversation = async (id: string) => {
@@ -588,9 +596,6 @@ export function GroundedAssistant() {
           </header>
 
           <div className="grounded-assistant-scope-bar">
-            <span><IconLock size={14} /> Current project only</span>
-            <span>{appTypeId ? "Current application" : "All applications"}</span>
-            <span>{knowledgeAsOf ? `As of ${new Date(knowledgeAsOf).toLocaleString()}` : "Current searchable knowledge"}</span>
             <div className="grounded-assistant-history-controls">
               <label><IconHistory size={14} /><span className="sr-only">Conversation history</span><select aria-label="Conversation history" disabled={isSending || isRestoringSession || sessionsQuery.isLoading} onChange={(event) => void openConversation(event.target.value)} value={sessionId}>
                 <option value="">New conversation</option>
@@ -608,8 +613,13 @@ export function GroundedAssistant() {
             {!messages.length ? (
               <div className="grounded-assistant-welcome">
                 <span className="grounded-assistant-welcome-icon"><IconBook2 size={26} /></span>
-                <h3>Your project, with the evidence in reach.</h3>
-                <p>Explore coverage, investigate failures, or find a decision in your documents. Each answer connects its findings to the sources you can review.</p>
+                <div className="grounded-assistant-welcome-heading">
+                  <h3>Your project, with the evidence in reach.</h3>
+                  <InfoTooltip label="About your project assistant" content={<>
+                    <p>Explore coverage, investigate failures, or find a decision in your documents. Each answer connects its findings to the sources you can review.</p>
+                    <p>Sources are limited to this project{appTypeId ? " and the current application" : " across its applications"}. {knowledgeAsOf ? `Knowledge as of ${new Date(knowledgeAsOf).toLocaleString()}.` : "Uses the current searchable knowledge."}</p>
+                  </>} />
+                </div>
                 <div className="grounded-assistant-starters">
                   {starterPrompts.map((item) => (
                     <button key={item} onClick={() => prepareQuestion(item)} type="button">
@@ -643,7 +653,6 @@ export function GroundedAssistant() {
                       </span>
                     ) : null}
                   </div>
-                  {message.scope ? <div className="grounded-assistant-message-scope">{message.scope.filters?.source_kinds?.filter((kind) => kind !== "product_help").map((kind) => formatRecordKindLabel(kind)).join(" · ") || "All permitted project sources"}{message.scope.filters?.as_of ? ` · As of ${new Date(message.scope.filters.as_of).toLocaleString()}` : " · Current knowledge"}</div> : null}
                   <div className="grounded-assistant-message-content">
                     {notice ? <div className="grounded-assistant-turn-notice" role={notice.kind === "error" ? "alert" : "status"}><strong>{notice.title}</strong><p>{notice.message}</p>{message.content && ![notice.message, notice.title].includes(message.content) && notice.kind === "error" ? <details><summary>Service details</summary><p>{message.content}</p></details> : null}</div>
                       : <>{modelUnavailable ? <div className="grounded-assistant-evidence-notice"><strong>{citations.length ? "Sources found; answer model unavailable" : "Answer model unavailable"}</strong><span>{citations.length ? knowledgeModelFailureMessage(message.retrieval?.provider_error_code) : "The model could not finish this answer. Try evidence only to look for relevant sources."}</span></div> : null}{isAssistant ? validatedAnswer ? <KnowledgeAnswer message={message} onEvidenceOpen={(citation) => citation.source_id && !["live_project", "product_help"].includes(String(citation.source_kind)) ? setSelectedCitation(citation) : setExpandedSources((current) => ({ ...current, [message.id]: true }))} /> : message.answer_contract || message.retrieval?.answer_contract ? <p>This saved answer uses an unsupported evidence contract. Ask the question again to retrieve current evidence.</p> : <StructuredAssistantAnswer content={message.content} structure={message.retrieval?.answer_structure} /> : message.content}</>}
@@ -799,6 +808,7 @@ export function GroundedAssistant() {
             <form className="grounded-assistant-composer" onSubmit={(event) => void submitPrompt(event)}>
               <label className="sr-only" htmlFor="grounded-assistant-input">Ask about this HelloTest project</label>
               <textarea
+                autoFocus
                 data-autofocus="true"
                 disabled={isRestoringSession}
                 id="grounded-assistant-input"

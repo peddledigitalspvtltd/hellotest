@@ -155,6 +155,9 @@ test("remote launch never discovers or contacts a browser-machine local agent", 
   assert.equal(result, remote);
   assert.deepEqual(started, { project_id: "project", app_type_id: "app", start_url: "https://target.test/" });
   assert.equal(context.selectedInspectTabIdRef.current, "remote-tab");
+  context.inspectSessionRef.current = null;
+  await handler("launchInspectBrowser", context)("remote", "");
+  assert.equal(started.start_url, undefined, "The explicit blank-browser action skips the saved demo destination");
 });
 
 test("local inspection forwards pairing credentials only for explicitly local sessions", () => {

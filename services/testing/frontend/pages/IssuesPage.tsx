@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
-import { BugIcon, ChevronRightIcon, ExportIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
+import { BugIcon, ChevronRightIcon, ExportIcon, ImportIcon, SearchIcon, SelectionToggleIcon, SparkIcon, TestCaseIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 
 import { AiEvidenceButton, AiEvidenceFlyout } from "@hellotest/agentic/frontend/components/AgenticExperience";
 import { StoryAiSettingsGroup } from "@hellotest/ai/frontend/components/StoryAiStudioShell";
@@ -67,6 +67,8 @@ import { downloadCsvRecords } from "@hellotest/platform/frontend/src/shared/lib/
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
 import { useWorkspaceData } from "@hellotest/platform/frontend/src/platform/hooks/useWorkspaceData";
 import type { AiBugDraftEditableField, AiBugDraftPreview, AiDesignImageInput, AiProcessingSnapshot, Issue, Requirement, RequirementIteration, RequirementRelease, TestCase } from "@hellotest/platform/frontend/src/types";
+import { IssueImportDialog } from "../components/IssueImportDialog";
+import { buildIssueImportTemplate } from "../lib/issueImport";
 import "./IssuesPage.css";
 
 const MAX_AI_BUG_TRIAGE_ITEMS = 10;
@@ -558,6 +560,23 @@ export function IssuesPage() {
   const emptyDraft = useMemo(() => createEmptyIssueDraft(defaultIssueStatus, session?.user.id), [defaultIssueStatus, session?.user.id]);
   const [selectedIssueId, setSelectedIssueId] = useState(() => searchParams.get("issue") || "");
   const [isCreating, setIsCreating] = useState(false);
+  const [isBugImportOpen, setIsBugImportOpen] = useState(false);
+  const [pendingBugImport, setPendingBugImport] = useState<{ id: string; projectId: string } | null>(null);
+  const pendingBugImportQuery = useQuery({
+    queryKey: ["bug-import", projectId, pendingBugImport?.id || ""],
+    queryFn: () => api.issues.importStatus(pendingBugImport!.id, projectId),
+    enabled: Boolean(pendingBugImport && pendingBugImport.projectId === projectId && !isBugImportOpen && canCreateBugs),
+    refetchInterval: query => ["completed", "failed"].includes(query.state.data?.status || "") ? false : 2000,
+    retry: 1
+  });
+  useEffect(() => {
+    const result = pendingBugImportQuery.data;
+    if (!pendingBugImport || pendingBugImport.projectId !== projectId || !result || !["completed", "failed"].includes(result.status)) return;
+    void queryClient.invalidateQueries({ queryKey: ["issues", projectId] });
+    setMessageTone(result.status === "completed" ? "success" : "error");
+    setMessage(result.description || (result.status === "completed" ? "Bug import completed." : "Bug import needs attention. Open Batch Process for details."));
+    setPendingBugImport(null);
+  }, [pendingBugImportQuery.data, pendingBugImport, projectId, queryClient]);
   const canEditBugFields = isCreating ? canCreateBugs : canManageBugs;
   const selectionProjectRef = useRef(projectId);
   useEffect(() => {
@@ -565,6 +584,7 @@ export function IssuesPage() {
     selectionProjectRef.current = projectId;
     setSelectedIssueId(searchParams.get("issue") || "");
     setIsCreating(false);
+    setIsBugImportOpen(false);
     setIssueAssigneeFilter("");
     setIssueReporterFilter("");
     setIsAiBugDraftOpen(false);
@@ -1913,6 +1933,7 @@ export function IssuesPage() {
 
   return (
     <div className="page-content issues-page">
+      {isBugImportOpen && canCreateBugs && projectId ? <IssueImportDialog key={projectId} projectId={projectId} people={assigneeLabelById} canViewBatchProcess={can("transaction.view")} onQueued={id => setPendingBugImport({ id, projectId })} onClose={() => setIsBugImportOpen(false)} /> : null}
       {confirmationDialog}
       {isAiBugTriageOpen && canUseAiBugTriage && projectId ? <DefectTriageDialog
         key={projectId}
@@ -2349,6 +2370,10 @@ export function IssuesPage() {
                   <ExportIcon />
                   <span>{isExportingIssues ? "Exporting…" : `Export${selectedActionIssues.length ? ` ${selectedActionIssues.length}` : ""}`}</span>
                 </button>
+                {canCreateBugs ? <>
+                  <button className="ghost-button catalog-selection-button" type="button" disabled={!projectId} onClick={() => downloadCsvRecords("hellotest-bug-import-template.csv", buildIssueImportTemplate())}><ExportIcon /><span>Bug template</span></button>
+                  <button className="ghost-button catalog-selection-button" type="button" disabled={!projectId} onClick={() => setIsBugImportOpen(true)}><ImportIcon /><span>Import Bugs</span></button>
+                </> : null}
                 {canUseAiBugTriage ? (
                   <button
                     className="ghost-button catalog-selection-button"
@@ -2467,11 +2492,7 @@ export function IssuesPage() {
                         >
                           <strong>{item.title}</strong>
                           <span className="tile-card-kicker">
-                            {[
-                              item.jira_bug_key || null,
-                              item.severity ? `Severity ${formatTileCardLabel(item.severity, "Not set")}` : null,
-                              item.priority ? `Priority ${formatTileCardLabel(item.priority, "Not set")}` : null
-                            ].filter(Boolean).join(" · ") || item.user_name || item.user_email || item.user_id}
+                            {item.jira_bug_key || item.user_name || item.user_email || item.user_id}
                           </span>
                         </button>
                       </div>

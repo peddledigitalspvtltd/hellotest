@@ -8,6 +8,7 @@ type CatalogSelectionControlsProps = {
   onSelectAll: () => void;
   clearLabel?: string;
   selectAllLabel?: string;
+  showLabels?: boolean;
 };
 
 export function CatalogSelectionControls({
@@ -17,6 +18,7 @@ export function CatalogSelectionControls({
   onClear,
   onSelectAll,
   selectAllLabel = "Select all",
+  showLabels = false,
   selectedCount
 }: CatalogSelectionControlsProps) {
   const hasSelection = selectedCount > 0;
@@ -32,7 +34,7 @@ export function CatalogSelectionControls({
         type="button"
       >
         <SelectionToggleIcon checked />
-        <span className="sr-only">{selectAllLabel}</span>
+        <span className={showLabels ? undefined : "sr-only"}>{selectAllLabel}</span>
       </button>
       <button
         aria-label={clearLabel}
@@ -43,7 +45,7 @@ export function CatalogSelectionControls({
         type="button"
       >
         <SelectionToggleIcon checked={false} />
-        <span className="sr-only">{clearLabel}</span>
+        <span className={showLabels ? undefined : "sr-only"}>{clearLabel}</span>
       </button>
     </div>
   );

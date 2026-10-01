@@ -825,6 +825,24 @@ module.exports = async function (fastify) {
     });
   });
 
+  fastify.put("/test-cases/automation/learning-cache/:id/ai-improve/apply", async (req) => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      confirmed: { required: true, type: "boolean" },
+      locator: { required: true, type: "string", maxLength: 8192 },
+      strategy: { required: true, type: "string", maxLength: 100 },
+      expected_locator: { required: true, type: "string" },
+      confidence: { required: false, type: "number" },
+      request_id: { required: false, type: "string", maxLength: 100 }
+    }, req.body || {});
+    const entry = await aiAutomationBuilderService.getLearningCacheEntry(req.params.id);
+    const projectId = entry.app_type_id ? (await appTypeService.getAppType(entry.app_type_id)).project_id : entry.project_id;
+    if (!projectId) throw Object.assign(new Error("Object repository entry is not scoped to a project"), { statusCode: 400 });
+    await projectService.getProject(projectId, req.user.id);
+    await fastify.requirePermission("automation.repository.manage", { projectId })(req);
+    return aiAutomationBuilderService.applyLearningCacheImprovement({ ...req.body, id: entry.id, user_id: req.user.id });
+  });
+
   fastify.get("/test-cases/automation/jobs/:transactionId", async (req) => {
     await fastify.authenticate(req);
     const transaction = await workspaceTransactionService.getTransaction(req.params.transactionId);

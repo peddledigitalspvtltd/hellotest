@@ -193,3 +193,33 @@ for (const [label, options, expectedStatus] of [
     assert.equal(writes.length, expectedStatus === 200 ? 1 : 0);
   });
 }
+
+test("bulk bug preview and queue enforce project and member permissions and ignore forged creators", async t => {
+  const { app, grants } = await fixture(t);
+  const imports = require('../../../testing/backend/services/issueImport.service');
+  const queue = require('../../../testing/backend/services/batchProcess.service');
+  const calls=[];
+  t.mock.method(imports,'validateRows',async input=>({rows:input.rows,errors:input.rows[0]?.title==='invalid'?[{row:2,message:'Invalid row'}]:[],total:input.rows.length}));
+  t.mock.method(queue,'queueIssueImport',async input=>{calls.push(input);return {transaction_id:'queued',queued:true};});
+  const input={project_id:'project-a',import_id:'a-valid-import-id-123',rows:[{title:'Valid bug',message:'Description'}],created_by:'forged'};
+  for(const base of ['/feedback','/issues']){
+    assert.equal((await app.inject({method:'POST',url:base+'/import-preview',headers,payload:input})).statusCode,200);
+    assert.equal((await app.inject({method:'POST',url:base+'/bulk-import',headers,payload:{...input,rows:[{...input.rows[0],title:'invalid'}]}})).statusCode,400);
+    assert.equal((await app.inject({method:'POST',url:base+'/bulk-import',headers,payload:{...input,project_id:'project-b'}})).statusCode,403);
+    assert.equal((await app.inject({method:'POST',url:base+'/bulk-import',headers,payload:{...input,rows:[{...input.rows[0],user_id:'project-colleague'}]}})).statusCode,403);
+    const result=await app.inject({method:'POST',url:base+'/bulk-import',headers,payload:input});
+    assert.equal(result.statusCode,200,result.body);assert.equal(calls.at(-1).created_by,reporter.id);
+  }
+  grants.delete('feedback.create');
+  assert.equal((await app.inject({method:'POST',url:'/feedback/import-preview',headers,payload:input})).statusCode,403);
+  assert.equal(calls.length,2);
+});
+
+test("import progress is limited to the creating user and project", async t => {
+  const {app}=await fixture(t);
+  const transactions=require('../services/workspaceTransaction.service');
+  t.mock.method(transactions,'getTransaction',async id=>({id,project_id:id==='foreign'?'project-b':'project-a',action:'bug_import',created_by:id==='another'?'someone-else':reporter.id,status:'running',metadata:{progress_percent:50}}));
+  for(const id of ['foreign','another'])assert.equal((await app.inject({method:'GET',url:`/feedback/imports/${id}?project_id=project-a`,headers})).statusCode,404);
+  const response=await app.inject({method:'GET',url:'/feedback/imports/own?project_id=project-a',headers});
+  assert.equal(response.statusCode,200,response.body);assert.equal(response.json().metadata.progress_percent,50);
+});

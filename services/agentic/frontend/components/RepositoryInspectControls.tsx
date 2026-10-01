@@ -42,7 +42,7 @@ export function RepositoryAgentSetup({ connection, onUseRemote }: { connection: 
   </div>, document.body);
 }
 
-export function RepositoryInspectSessionControls({ mode, recommendedMode, remoteAvailable, remoteReason, localConnected, busy, disabled = false, running, onStart, onClose, onSetup }: {
+export function RepositoryInspectSessionControls({ mode, recommendedMode, remoteAvailable, remoteReason, localConnected, busy, disabled = false, running, onStart, onStartBlank, onClose, onSetup }: {
   mode: InspectSessionMode;
   recommendedMode: InspectSessionMode;
   remoteAvailable: boolean;
@@ -52,10 +52,12 @@ export function RepositoryInspectSessionControls({ mode, recommendedMode, remote
   disabled?: boolean;
   running: boolean;
   onStart: (mode: InspectSessionMode) => void;
+  onStartBlank?: (mode: InspectSessionMode) => void;
   onClose: () => void;
   onSetup: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [selectedMode, setSelectedMode] = useState<InspectSessionMode | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -83,17 +85,18 @@ export function RepositoryInspectSessionControls({ mode, recommendedMode, remote
     return () => { cancelAnimationFrame(frame); document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("focusin", closeOutside); window.removeEventListener("keydown", onKey, true); };
   }, [open]);
   useEffect(() => { if (busy) setOpen(false); }, [busy]);
-  const choice = running ? mode : recommendedMode;
+  const choice = running ? mode : selectedMode || recommendedMode;
   return <div className="repository-session-controls">
     <div className="repository-session-split" ref={rootRef}>
-      <button className="ghost-button compact" disabled={disabled || busy || (!running && choice === "remote" && !remoteAvailable)} onClick={() => running ? onClose() : onStart(choice)} type="button" title={!running && choice === "remote" ? remoteReason || "Start a browser in the Test Engine" : undefined}>
+      <button className="ghost-button compact" disabled={disabled || busy || (!running && choice === "remote" && !remoteAvailable)} onClick={() => running ? onClose() : choice === "local" && !localConnected ? onSetup() : onStart(choice)} type="button" title={!running && choice === "remote" ? remoteReason || "Start a browser in the Test Engine" : undefined}>
         {choice === "local" ? <IconDeviceDesktop size={16} /> : <IconCloud size={16} />}<span>{busy ? "Connecting…" : running ? "Close browser" : choice === "local" ? "Local session" : "Remote browser"}</span>
       </button>
       <button className="ghost-button compact repository-session-toggle" ref={toggleRef} disabled={disabled || busy || running} aria-label="Choose inspection browser session" aria-haspopup="listbox" aria-expanded={open} aria-controls={menuId} id={`${menuId}-trigger`} onClick={() => setOpen(value => !value)} onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setOpen(true); } }} type="button"><IconChevronDown size={14} /></button>
     </div>
+    {!running && onStartBlank ? <button className="ghost-button compact" disabled={disabled || busy || (choice === "remote" && !remoteAvailable)} onClick={() => choice === "local" && !localConnected ? onSetup() : onStartBlank(choice)} title={`Open a blank ${choice} browser without navigating to Page URL`} type="button">Open blank browser</button> : null}
     {open ? createPortal(<div className="repository-session-menu" role="listbox" aria-label="Inspection browser sessions" id={menuId} ref={menuRef} style={menuStyle} data-dialog-popover-owner={`${menuId}-trigger`}>
-      <button role="option" aria-selected={choice === "local"} onClick={() => { setOpen(false); if (localConnected) onStart("local"); else onSetup(); }} type="button"><IconDeviceDesktop size={18} /><span><strong>Local session {localConnected ? <small>Recommended</small> : null}</strong><span>{localConnected ? "Use your connected agent and local network." : "Connect the agent on this computer."}</span></span></button>
-      <button role="option" aria-selected={choice === "remote"} disabled={!remoteAvailable} onClick={() => { setOpen(false); onStart("remote"); }} type="button"><IconCloud size={18} /><span><strong>Remote browser session {!localConnected && remoteAvailable ? <small>Recommended</small> : null}</strong><span>{remoteAvailable ? "Use the workspace Test Engine. No local setup." : remoteReason || "Remote browser is not available."}</span></span></button>
+      <button role="option" aria-selected={choice === "local"} onClick={() => { setSelectedMode("local"); setOpen(false); if (localConnected) onStart("local"); else onSetup(); }} type="button"><IconDeviceDesktop size={18} /><span><strong>Local session {localConnected ? <small>Recommended</small> : null}</strong><span>{localConnected ? "Use your connected agent and local network." : "Connect the agent on this computer."}</span></span></button>
+      <button role="option" aria-selected={choice === "remote"} disabled={!remoteAvailable} onClick={() => { setSelectedMode("remote"); setOpen(false); onStart("remote"); }} type="button"><IconCloud size={18} /><span><strong>Remote browser session {!localConnected && remoteAvailable ? <small>Recommended</small> : null}</strong><span>{remoteAvailable ? "Use the workspace Test Engine. No local setup." : remoteReason || "Remote browser is not available."}</span></span></button>
     </div>, document.body) : null}
   </div>;
 }

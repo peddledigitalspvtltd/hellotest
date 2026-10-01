@@ -64,6 +64,37 @@ function registerFeedbackRoutes(fastify, basePath) {
     });
   });
 
+  const prepareImport = async req => {
+    await fastify.authenticate(req);
+    fastify.validate({
+      project_id: { required: true, type: "string" },
+      rows: { required: true, type: "array", maxItems: 500 }
+    }, req.body || {});
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission("feedback.create", { projectId: req.body.project_id })(req);
+    if (req.body.rows.some(row => row?.assignee_id || (row?.user_id && row.user_id !== req.user.id))) {
+      await fastify.requirePermission("project_member.view", { projectId: req.body.project_id })(req);
+    }
+    return require("../services/issueImport.service").validateRows({ ...req.body, created_by: req.user.id });
+  };
+  fastify.get(`${basePath}/imports/:id`, async req => {
+    await fastify.authenticate(req);
+    await projectService.getProject(req.query.project_id, req.user.id);
+    await fastify.requirePermission("feedback.create", { projectId: req.query.project_id })(req);
+    const transaction = await require("@hellotest/platform/backend/services/workspaceTransaction.service").getTransaction(req.params.id);
+    if (transaction.action !== "bug_import" || transaction.project_id !== req.query.project_id || transaction.created_by !== req.user.id) throw Object.assign(new Error("Bug import not found"), { statusCode: 404 });
+    return { id: transaction.id, status: transaction.status, description: transaction.description, metadata: transaction.metadata };
+  });
+  fastify.post(`${basePath}/import-preview`, async req => prepareImport(req));
+  fastify.post(`${basePath}/bulk-import`, async req => {
+    const preview = await prepareImport(req);
+    if (preview.errors.length) throw Object.assign(new Error(preview.errors.map(error => `Row ${error.row}: ${error.message}`).join("\n")), { statusCode: 400 });
+    if (typeof req.body.import_id !== "string" || !/^[a-zA-Z0-9-]{16,100}$/.test(req.body.import_id)) throw Object.assign(new Error("A valid import ID is required."), { statusCode: 400 });
+    return require("../services/batchProcess.service").queueIssueImport({
+      project_id: req.body.project_id, rows: preview.rows, import_id: req.body.import_id, created_by: req.user.id
+    });
+  });
+
   fastify.post(`${basePath}/export`, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, issue_ids: { required: true, type: "array", items: "string" } }, req.body || {});

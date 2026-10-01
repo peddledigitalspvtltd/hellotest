@@ -136,6 +136,11 @@ testCaseDefects: {
   },
 
 issues: {
+    importStatus: (id: string, projectId: string) => request<{ id: string; status: string; description?: string; metadata?: { progress_percent?: number; imported?: number } }>(`/feedback/imports/${encodeURIComponent(id)}${toQueryString({ project_id: projectId })}`),
+    previewImport: (input: { project_id: string; rows: import("./lib/issueImport").IssueImportRow[] }) =>
+      request<import("./lib/issueImport").IssueImportPreview>("/feedback/import-preview", { method: "POST", body: JSON.stringify(input) }),
+    bulkImport: (input: { project_id: string; rows: import("./lib/issueImport").IssueImportRow[]; import_id: string }) =>
+      request<BatchQueueResponse>("/feedback/bulk-import", { method: "POST", body: JSON.stringify(input) }),
     list: (query?: import("./lib/issueCatalog").IssueCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }, options?: { signal?: AbortSignal }) =>
       request<Issue[]>(`/feedback${toQueryString(query)}`, { signal: options?.signal }),
     listPage: (query?: import("./lib/issueCatalog").IssueCatalogFilters & { page_size?: number; cursor?: string; projection?: "summary" | "detail" }) =>
@@ -507,7 +512,7 @@ testCases: {
         method: "POST",
         body: JSON.stringify(input || {})
       }),
-    applyLearningCacheImprovement: (id: string, input: { confirmed: true; locator: string; strategy: string; confidence?: number; request_id?: string }) =>
+    applyLearningCacheImprovement: (id: string, input: { confirmed: true; locator: string; strategy: string; expected_locator: string; confidence?: number; request_id?: string }) =>
       request<{ entry: AutomationLearningCacheEntry; applied: boolean }>(`/test-cases/automation/learning-cache/${id}/ai-improve/apply`, {
         method: "PUT",
         body: JSON.stringify(input)

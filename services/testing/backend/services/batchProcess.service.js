@@ -1,7 +1,7 @@
 const db = require("@hellotest/platform/backend/src/db");
 const { normalizeScheduledAt } = require("@hellotest/platform/backend/src/utils/automationSchedule");
 const obsDb = require("@hellotest/platform/backend/src/obsDb");
-const { randomUUID: uuid } = require("crypto");
+const { randomUUID: uuid, createHash } = require("crypto");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
 
@@ -379,6 +379,28 @@ exports.queueRequirementImport = async ({ project_id, rows = [], created_by } = 
     }
   });
 
+exports.queueIssueImport = async ({ project_id, rows, created_by, import_id }) => {
+  const relatedId = `${project_id}:${created_by}:${import_id}`;
+  const fingerprint = createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+  const queued = await obsDb.transaction(async () => {
+    await obsDb.prepare("SELECT pg_advisory_xact_lock(hashtext(?))").get(relatedId);
+    const existing = await workspaceTransactionService.findTransactionByRelated({ related_kind: "bug_import", related_id: relatedId });
+    if (existing) {
+      if (existing.metadata?.input_fingerprint !== fingerprint) throw Object.assign(new Error("This import ID was already used for a different file. Reload the CSV to start a new import."), { statusCode: 409 });
+      return { id: existing.id, transaction_id: existing.id, queued: true, status: existing.status };
+    }
+    return queueBatchJobRecord({
+      project_id, created_by, category: "bulk_import", action: "bug_import", operation: "bug_import",
+      title: "Bug import", description: `Queued ${rows.length} bugs for import.`,
+      related_kind: "bug_import", related_id: relatedId,
+      metadata: { import_source: "csv", total_rows: rows.length, total_items: rows.length, input_fingerprint: fingerprint },
+      payload: { project_id, rows, created_by }
+    });
+  })();
+  exports.triggerProcessing();
+  return queued;
+};
+
 exports.queueAlmRequirementImport = async ({ project_id, integration_id, alm_project_key, requirement_keys = [], created_by } = {}) =>
   exports.queueBatchJob({
     project_id,
@@ -737,6 +759,7 @@ async function runAutomationBuild(job) {
 }
 
 const JOB_HANDLERS = {
+  bug_import: job => require("./issueImport.service").run({ ...parseJsonValue(job.payload, {}), transaction_id: job.transaction_id }),
   user_import: runUserImport,
   requirement_import: runRequirementImport,
   alm_requirement_import: runAlmRequirementImport,
