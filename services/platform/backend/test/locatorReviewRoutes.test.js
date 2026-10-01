@@ -1,0 +1,23 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const Fastify=require('fastify');
+const builder=require('../../../automation/backend/services/aiAutomationBuilder.service');
+const apps=require('../services/appType.service');
+const projects=require('../services/project.service');
+test('reviewed locator changes reach the real apply route with project-scoped management permission',async t=>{
+  const app=Fastify(); t.after(()=>app.close());
+  const checks=[],writes=[];let allowed=true;
+  app.decorate('authenticate',async req=>{req.user={id:'reviewer'};});
+  app.decorate('requirePermission',(permission,scope)=>async()=>{checks.push({permission,scope});if(!allowed)throw Object.assign(new Error('Forbidden'),{statusCode:403});});
+  await app.register(require('../src/plugins/errorHandler'));await app.register(require('../src/plugins/validator'));
+  t.mock.method(builder,'getLearningCacheEntry',async id=>({id,app_type_id:'app',locator:'#old'}));
+  t.mock.method(apps,'getAppType',async()=>({id:'app',project_id:'project'}));
+  t.mock.method(projects,'getProject',async(id,user)=>{assert.equal(id,'project');assert.equal(user,'reviewer');return{id};});
+  t.mock.method(builder,'applyLearningCacheImprovement',async input=>{writes.push(input);return {applied:true,entry:{id:input.id,locator:input.locator}};});
+  await app.register(require('../../../testing/backend/routes/testCases.routes'));
+  const request={method:'PUT',url:'/test-cases/automation/learning-cache/field/ai-improve/apply',payload:{confirmed:true,locator:'#new',strategy:'css',expected_locator:'#old',user_id:'forged'}};
+  let response=await app.inject(request);assert.equal(response.statusCode,200,response.body);assert.equal(writes[0].user_id,'reviewer');
+  assert.deepEqual(checks[0],{permission:'automation.repository.manage',scope:{projectId:'project'}});
+  allowed=false;response=await app.inject(request);assert.equal(response.statusCode,403,response.body);assert.equal(writes.length,1);
+  allowed=true;response=await app.inject({...request,payload:{confirmed:true,locator:'#new',strategy:'css'}});assert.equal(response.statusCode,400,response.body);assert.equal(writes.length,1);
+});

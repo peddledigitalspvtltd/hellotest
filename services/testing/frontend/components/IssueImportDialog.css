@@ -1,0 +1,20 @@
+.modal-backdrop > .modal-card.issue-import-dialog { width: min(1040px, calc(100vw - 32px)) !important; min-height: 0 !important; display: flex !important; flex-direction: column !important; }
+.issue-import-dialog .import-modal-header { display: flex !important; flex-direction: row !important; align-items: center; flex-wrap: wrap !important; }
+.issue-import-dialog .import-modal-body { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; gap: 14px; align-content: start; }
+.issue-import-dialog .import-modal-actions { display: flex !important; flex-direction: row !important; justify-content: flex-end !important; flex-wrap: wrap !important; gap: 8px; }
+.modal-card.issue-import-dialog .import-modal-actions > button { flex: 0 1 auto !important; width: auto !important; min-width: 0 !important; height: 38px !important; }
+.issue-import-header-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.issue-import-dialog .import-modal-title p { margin: 6px 0 0; color: var(--text-secondary); }
+.issue-import-dialog .import-preview-table { max-height: 360px; overflow: auto; }
+.issue-import-dialog .data-table td { max-width: 320px; overflow-wrap: anywhere; white-space: normal; }
+.issue-import-errors { padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 10px; color: var(--danger, #b42318); overflow-wrap: anywhere; }
+.issue-import-guidance { color: var(--text-secondary); font-size: 13px; }
+.issue-import-guidance summary { cursor: pointer; font-weight: 600; }
+.issue-import-progress { display: grid; gap: 12px; }
+.issue-import-progress p { margin: 0; }
+.issue-import-progress progress { width: 100%; accent-color: var(--accent, #2563eb); }
+@media (max-width: 600px) {
+  .issue-import-dialog .import-modal-title { flex-basis: 100%; }
+  .issue-import-header-actions { width: 100%; justify-content: space-between; }
+  .issue-import-dialog .import-modal-actions { flex-wrap: wrap; }
+}
