@@ -299,7 +299,7 @@ resolve_defaults() {
   OPS_GRAFANA_PASSWORD="${OPS_GRAFANA_PASSWORD:-}"
   if [ "$STACK" = "local" ] && [ "$HELLOTEST_OPS_ENABLED" = "true" ]; then
     if [ ! -f "$ENV_DIR/ops.env" ]; then
-      HELLOTEST_ENV_DIR="$ENV_DIR" node "$ROOT_DIR/scripts/ops/stack.mjs" prepare || info "Warning: Grafana credentials could not be prepared."
+      HELLOTEST_ENV_DIR="$ENV_DIR" sh "$ROOT_DIR/scripts/ops/stack.sh" prepare || info "Warning: Grafana credentials could not be prepared."
     fi
     if [ -f "$ENV_DIR/ops.env" ]; then
       OPS_GRAFANA_PASSWORD=$(awk -F= 'index($0,"GRAFANA_ADMIN_PASSWORD=")==1 { print substr($0,24); exit }' "$ENV_DIR/ops.env")
@@ -522,8 +522,8 @@ confirm_deploy() {
 
 run_local_ops() {
   [ "$STACK" = "local" ] && [ "$HELLOTEST_OPS_ENABLED" = "true" ] || return 0
-  if ! HELLOTEST_ENV_DIR="$ENV_DIR" HELLOTEST_OPS_SKIP_IMAGE_PULL="$SKIP_IMAGE_PULL" node "$ROOT_DIR/scripts/ops/stack.mjs" "$1"; then
-    info "Warning: monitoring could not complete '$1'. Application services remain independent. Retry with npm run ops:up."
+  if ! HELLOTEST_ENV_DIR="$ENV_DIR" HELLOTEST_OPS_SKIP_IMAGE_PULL="$SKIP_IMAGE_PULL" sh "$ROOT_DIR/scripts/ops/stack.sh" "$1"; then
+    info "Warning: monitoring could not complete '$1'. Application services remain independent. Retry with sh scripts/ops/stack.sh $1 (using the same HELLOTEST_ENV_DIR)."
   fi
 }
 

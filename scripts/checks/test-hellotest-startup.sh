@@ -14,6 +14,7 @@ set -eu
 
 case "$1" in
   ps) exit 0 ;;
+  inspect) printf 'attached\n'; exit 0 ;;
   image)
     [ "$2" = inspect ] || exit 92
     [ "${MOCK_MINIO_PRESENT:-1}" = 1 ] && exit 0
@@ -26,12 +27,20 @@ case "$1" in
 esac
 
 [ "$1" != "version" ] || exit 0
+MOCK_IS_OPS=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --env-file|-f) shift 2 ;;
+    --env-file) shift 2 ;;
+    -f) case "$2" in */docker-compose.ops.yml) MOCK_IS_OPS=1 ;; esac; shift 2 ;;
     *) break ;;
   esac
 done
+
+if [ "$MOCK_IS_OPS" = 1 ]; then
+  printf 'ops %s\n' "$*" >> "$MOCK_DOCKER_TRACE"
+  [ "$1" != up ] || exit "${MOCK_OPS_STATUS:-0}"
+  exit 0
+fi
 
 if [ "$1" = config ]; then
   [ "$2" = --services ] || exit 93
@@ -55,21 +64,11 @@ esac
 EOF
 chmod +x "$TEST_DIR/bin/docker"
 
-REAL_NODE=$(command -v node)
-export REAL_NODE
+# Reproduce a VPS with no usable host Node executable.
 cat > "$TEST_DIR/bin/node" <<'EOF'
 #!/bin/sh
-case "$1" in
-  */scripts/ops/stack.mjs)
-    printf 'ops %s\n' "$2" >> "$MOCK_DOCKER_TRACE"
-    if [ "$2" = prepare ]; then
-      mkdir -p "$HELLOTEST_ENV_DIR"
-      printf 'GRAFANA_ADMIN_PASSWORD=test-only-generated-grafana-password\n' > "$HELLOTEST_ENV_DIR/ops.env"
-      exit 0
-    fi
-    exit "${MOCK_OPS_STATUS:-0}" ;;
-esac
-exec "$REAL_NODE" "$@"
+printf 'Unexpected host Node invocation\n' >> "$MOCK_DOCKER_TRACE"
+exit 127
 EOF
 chmod +x "$TEST_DIR/bin/node"
 export PATH="$TEST_DIR/bin:$PATH"
@@ -214,17 +213,21 @@ printf 'PASS: instance setup selection reaches the generated Compose environment
 reset_case
 unset HELLOTEST_OPS_ENABLED
 TESTENGINE_WEB_REPLICAS=1 "$ROOT_DIR/hellotest.sh" up --build --stack local --no-cache > "$TEST_DIR/output" 2>&1
-assert_trace 'ops prepare
-pull --ignore-buildable --include-deps --policy missing
+assert_trace 'pull --ignore-buildable --include-deps --policy missing
 build --no-cache
 up -d
-ops up' 'the exact local startup command includes ops by default'
+ops up -d
+ops ps' 'the exact local startup command includes ops without host Node'
+
+grep -E '^GRAFANA_ADMIN_PASSWORD=[0-9a-f]{64}$' "$HELLOTEST_ENV_DIR/ops.env" >/dev/null || fail 'ops must prepare random credentials without Node'
+prepared_ops_password=$(sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' "$HELLOTEST_ENV_DIR/ops.env")
+grep -Fx "OPS_GRAFANA_PASSWORD=$prepared_ops_password" "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'API configuration must receive prepared Grafana credentials'
 
 reset_case
 export MOCK_OPS_STATUS=19
 "$ROOT_DIR/hellotest.sh" up --stack local > "$TEST_DIR/output" 2>&1
 assert_trace 'up -d
-ops up' 'monitoring startup failure does not fail application startup'
+ops up -d' 'monitoring startup failure does not fail application startup'
 grep -F 'Warning: monitoring could not complete' "$TEST_DIR/output" >/dev/null || fail 'ops failure must be reported'
 
 reset_case
@@ -234,6 +237,6 @@ assert_trace 'up -d' 'local monitoring can be explicitly disabled'
 reset_case
 "$ROOT_DIR/hellotest.sh" status --stack local > "$TEST_DIR/output" 2>&1
 assert_trace 'ps
-ops status' 'local status includes monitoring'
+ops ps' 'local status includes monitoring'
 
 printf 'Startup regression checks completed without contacting Docker or starting services.\n'

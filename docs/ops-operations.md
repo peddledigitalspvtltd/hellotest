@@ -9,10 +9,20 @@ The canonical definition is `docker-compose.ops.yml`. The platform Compose file 
 TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
 
 # Monitoring only / repair network attachments
-npm run ops:up
-npm run ops:status
+sh scripts/ops/stack.sh up
+sh scripts/ops/stack.sh status
+
+# Optional deeper verification (requires host Node.js)
 node scripts/ops/verify.mjs
 ```
+
+Docker startup and monitoring management do not require host Node.js/npm. Existing `npm run ops:up`, `npm run ops:status` and `npm run ops:down` commands delegate to the same shell launcher when npm is available.
+
+### VPS reports `node: not found`
+
+Older copies of `hellotest.sh` used host Node.js to start monitoring. Update `hellotest.sh`, `scripts/ops/stack.sh` and `scripts/ops/stack.mjs` together, then rerun the original startup command with the same configuration options. No application image rebuild is required for this launcher fix. To start monitoring alone, use `sh scripts/ops/stack.sh up` with the same `HELLOTEST_ENV_DIR` used for application startup. If Grafana credentials were missing during the original application startup, rerun the application `up` command as well so the API receives the newly prepared credentials. Existing passwords and telemetry volumes are retained.
+
+The monitoring warning does not establish application readiness; check `curl --fail --max-time 5 http://localhost:3000/health/ready` on the VPS. Printed `localhost` addresses refer to that server. The local stack binds the frontend to `127.0.0.1:8080` by default; remote access needs an SSH tunnel or a configured reverse proxy. Set the public URL/CORS overrides for the deployment's actual origin when publishing it. Changing a printed URL alone does not change the Docker bind address.
 
 The operator script creates a random Grafana password in `.hellotest/ops.env` with mode 600, starts the ops services, and attaches the running local API and frontend to the `hellotest-ops` network without restarting them. Set `OPS_API_CONTAINER` and `OPS_FRONTEND_CONTAINER` for other installations. `hellotest.sh up/deploy --stack local` automatically starts monitoring and repairs these attachments after container recreation. `status --stack local` includes ops; `down --stack local` also stops ops without removing telemetry volumes. Use `HELLOTEST_OPS_ENABLED=false` to opt out. Monitoring startup failures print a warning while application startup remains successful. When using Docker Compose directly, re-run `ops:up` after recreating application containers. The platform deployment shares its own Compose network and does not need this attachment step.
 

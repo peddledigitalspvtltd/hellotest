@@ -17,7 +17,7 @@ Run commands from the repository root. The examples use a POSIX shell on macOS/L
 | Workflow | Prerequisites |
 | --- | --- |
 | Docker application | Docker with a running daemon, Compose v2, a POSIX shell, Git checkout and curl; network access for initial images/source/dependencies and Docker resources for compilation |
-| Default local monitoring | Host Node.js **22.18+**; monitoring is enabled by the root launcher unless `HELLOTEST_OPS_ENABLED=false` |
+| Default local monitoring | Docker, Compose and a POSIX shell; host Node.js/npm are not required. Enabled by the root launcher unless `HELLOTEST_OPS_ENABLED=false` |
 | Source development | Node.js **22.18+**, npm and the dependencies installed by `npm run setup`; infrastructure appropriate to the feature |
 | Real browser, AI or native execution | Configured target application and provider credentials; matching Playwright browser, LLM integration or Appium/device as applicable |
 
@@ -31,10 +31,9 @@ Runtime package manifests permit Node 20; contribution tests import TypeScript d
    docker --version
    docker compose version
    docker info --format '{{.ServerVersion}}'
-   node --version
    ```
 
-   Node supports the default monitoring launcher. If you intentionally omit monitoring, prefix the startup command with `HELLOTEST_OPS_ENABLED=false`.
+   Docker application and monitoring startup do not require Node.js on the host. If you intentionally omit monitoring, prefix the startup command with `HELLOTEST_OPS_ENABLED=false`.
 
 2. **Build and start the local stack.**
 

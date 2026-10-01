@@ -10,7 +10,8 @@ Run commands from the repository root. `hellotest.sh` remains the stable product
 | `deploy/aws/status.sh`, `logs.sh` | Inspect an EC2 host; `--help` is read-only |
 | `deploy/aws/aws-runtime.sh` | Sourced AWS/container/readiness helpers, not an entry point |
 | `deploy/provider-stack.sh` | Generate/run the provider-separated Compose or Kubernetes topology; this is infrastructure isolation, not customer capability selection |
-| `ops/stack.mjs` | Prepare monitoring credentials and start/status/stop the optional monitoring stack |
+| `ops/stack.sh` | Prepare monitoring credentials and start/status/stop the optional monitoring stack without host Node.js |
+| `ops/stack.mjs` | Compatibility wrapper for the existing npm monitoring commands |
 | `ops/verify.mjs` | Check a running monitoring stack and application integration; uses synthetic verification activity |
 | `ops/resolve-testengine-config.mjs` | Resolve engine monitoring configuration from its supplied input |
 | `checks/audit-source-layout.mjs` | Repository ownership, names, duplicates, documentation and tracked-artifact checks |

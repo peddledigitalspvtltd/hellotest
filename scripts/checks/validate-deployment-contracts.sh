@@ -90,6 +90,7 @@ cd "$ROOT_DIR"
 
 for script in \
   hellotest.sh \
+  scripts/ops/stack.sh \
   start-testengine-ops.sh \
   scripts/deploy/aws/deploy-app.sh \
   scripts/deploy/aws/deploy-testengine.sh \

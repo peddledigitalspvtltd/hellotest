@@ -55,7 +55,7 @@ For a new local database with unchanged API runtime defaults, administration boo
 
 ## Optional monitoring
 
-The root command `./hellotest.sh up --build --stack local --no-cache` starts all eight monitoring services automatically. Use `HELLOTEST_OPS_ENABLED=false` to opt out. When using `bin/start.sh` or Docker Compose directly, run `npm run ops:up` from the repository root after starting or recreating the application. This attaches the API and frontend to the independently managed monitoring network. Use `npm run ops:verify` to check data flow. See [the ops runbook](../docs/ops-operations.md) for resource limits and recovery. The source-build bundle's previous standalone Jaeger is opt-in through `--profile legacy-tracing`; use the consolidated stack for Test Ops monitoring.
+The root command `./hellotest.sh up --build --stack local --no-cache` starts all eight monitoring services automatically, without requiring host Node.js or npm. Use `HELLOTEST_OPS_ENABLED=false` to opt out. When using `bin/start.sh` or Docker Compose directly, run `sh scripts/ops/stack.sh up` from the repository root after starting or recreating the application. This attaches the API and frontend to the independently managed monitoring network. With Node.js installed, the existing `npm run ops:up` command also works; `npm run ops:verify` checks data flow. See [the ops runbook](../docs/ops-operations.md) for resource limits and recovery. The source-build bundle's previous standalone Jaeger is opt-in through `--profile legacy-tracing`; use the consolidated stack for Test Ops monitoring.
 
 ## Source Build vs Image Run
 
