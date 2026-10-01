@@ -88,6 +88,7 @@ const AI_BUG_DRAFT_PENDING_PROCESSING: AiProcessingSnapshot = {
 
 
 type IssueDraft = {
+  user_id: string;
   title: string;
   message: string;
   steps_to_reproduce: string;
@@ -147,7 +148,8 @@ const ISSUE_ROOT_CAUSE_OPTIONS = ["Code Defect", "Requirements Gap", "Design Def
 const ISSUE_QA_ROOT_CAUSE_OPTIONS = ["Missed test scenario", "Missed in execution", "Edge case not covered", "Unique data variation", "Third party scenario"];
 const ISSUE_BUG_TYPE_OPTIONS = ["Functional", "UI / UX", "Performance", "Security", "Accessibility", "Compatibility", "Integration", "Data", "API", "Reliability", "Localization", "Installation / Deployment", "Documentation"];
 
-const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
+const createEmptyIssueDraft = (defaultStatus = "To Do", userId = ""): IssueDraft => ({
+  user_id: userId,
   title: "",
   message: "",
   steps_to_reproduce: "",
@@ -176,6 +178,7 @@ const createEmptyIssueDraft = (defaultStatus = "To Do"): IssueDraft => ({
 });
 
 const createIssueDraftFromItem = (item: Issue, defaultStatus: string): IssueDraft => ({
+  user_id: item.user_id,
   title: item.title,
   message: item.message,
   steps_to_reproduce: item.steps_to_reproduce || "",
@@ -230,7 +233,7 @@ const deliveryScopePrefillKey = (prefill: DeliveryScopePrefillInput) => [
 const hasDeliveryScopePrefill = (prefill: DeliveryScopePrefillInput) =>
   Boolean(prefill.releaseId || prefill.releaseToken || prefill.sprintId || prefill.sprintToken);
 
-const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus: string): IssueDraft => {
+const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus: string, userId = ""): IssueDraft => {
   const runId = searchParams.get("run") || "";
   const linkedTestCaseIds = parseQueryIdList(
     searchParams.get("testCase"),
@@ -270,6 +273,7 @@ const createIssueDraftFromQuery = (searchParams: URLSearchParams, defaultStatus:
   ].filter((line) => line !== "").join("\n");
 
   return {
+    user_id: userId,
     title,
     message,
     steps_to_reproduce: "",
@@ -313,7 +317,7 @@ const bugTitleSimilarity = (left: string, right: string) => {
 
 const buildIssuePayload = (draft: IssueDraft, userId: string, projectId: string, can: (permission: string) => boolean) => ({
   project_id: projectId,
-  user_id: userId,
+  user_id: draft.user_id || userId,
   title: draft.title,
   message: draft.message,
   steps_to_reproduce: optionalDraftValue(draft.steps_to_reproduce),
@@ -551,7 +555,7 @@ export function IssuesPage() {
     () => asArray(domainMetadataQuery.data?.jira?.versions).filter((version) => !version.archived),
     [domainMetadataQuery.data?.jira?.versions]
   );
-  const emptyDraft = useMemo(() => createEmptyIssueDraft(defaultIssueStatus), [defaultIssueStatus]);
+  const emptyDraft = useMemo(() => createEmptyIssueDraft(defaultIssueStatus, session?.user.id), [defaultIssueStatus, session?.user.id]);
   const [selectedIssueId, setSelectedIssueId] = useState(() => searchParams.get("issue") || "");
   const [isCreating, setIsCreating] = useState(false);
   const canEditBugFields = isCreating ? canCreateBugs : canManageBugs;
@@ -561,6 +565,8 @@ export function IssuesPage() {
     selectionProjectRef.current = projectId;
     setSelectedIssueId(searchParams.get("issue") || "");
     setIsCreating(false);
+    setIssueAssigneeFilter("");
+    setIssueReporterFilter("");
     setIsAiBugDraftOpen(false);
     setIsAiBugEvidenceSetupOpen(false);
     setIsAiBugDraftEvidenceOpen(false);
@@ -568,7 +574,7 @@ export function IssuesPage() {
     setAiBugIntegrationId("");
     aiBugRequestSequence.current += 1;
   }, [projectId, searchParams]);
-  const [draft, setDraft] = useState<IssueDraft>(() => createEmptyIssueDraft());
+  const [draft, setDraft] = useState<IssueDraft>(emptyDraft);
   const rootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.root_causes", ISSUE_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.root_cause]);
   const qaRootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.qa_root_causes", ISSUE_QA_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.qa_root_cause]);
   const bugTypeOptions = getDomainOptions(domainMetadataQuery.data, "issues.bug_types", ISSUE_BUG_TYPE_OPTIONS.map(value => ({ value, label: value })), [draft.bug_type]);
@@ -595,6 +601,7 @@ export function IssuesPage() {
   const [issueStatusFilter, setIssueStatusFilter] = useState("");
   const [issuePriorityFilter, setIssuePriorityFilter] = useState("");
   const [issueAssigneeFilter, setIssueAssigneeFilter] = useState("");
+  const [issueReporterFilter, setIssueReporterFilter] = useState("");
   useEffect(() => {
     const timeout = window.setTimeout(() => setCatalogSearch(deferredIssueSearch.trim()), 200);
     return () => window.clearTimeout(timeout);
@@ -634,8 +641,9 @@ export function IssuesPage() {
     q: catalogSearch || undefined,
     status: issueStatusFilter || undefined,
     priority: issuePriorityFilter || undefined,
-    assignee_id: issueAssigneeFilter || undefined
-  }), [projectId, catalogSearch, issueStatusFilter, issuePriorityFilter, issueAssigneeFilter]);
+    assignee_id: issueAssigneeFilter || undefined,
+    user_id: issueReporterFilter || undefined
+  }), [projectId, catalogSearch, issueStatusFilter, issuePriorityFilter, issueAssigneeFilter, issueReporterFilter]);
   const catalogEnabled = Boolean(projectId && can("feedback.view") && !isCreating && !selectedIssueId);
   const issues = useInfiniteQuery({
     queryKey: ["issues", projectId, "catalog", session?.user.id, catalogFilters],
@@ -663,7 +671,7 @@ export function IssuesPage() {
     issues: false,
     roles: false,
     projects: false,
-    projectMembers: shouldLoadBugContext && canViewProjectMembers,
+    projectMembers: canViewProjectMembers,
     appTypes: false,
     testSuites: false,
     executionResults: false,
@@ -734,11 +742,14 @@ export function IssuesPage() {
   const issueLabelOptions = getDomainSuggestions(domainMetadataQuery.data, "issues.labels", observedIssueLabels);
   const bugStatusBreakdown = Object.entries(issueMetricsQuery.data?.statuses || {})
     .map(([status, count]) => `${formatTileCardLabel(status, "Open")} ${count}`).join(" · ");
-  const userItems = useMemo(() => asArray(projectMembers.data).map((member) => ({
-    id: member.user_id,
-    name: member.user_name,
-    email: member.user_email
-  })), [projectMembers.data]);
+  const userItems = useMemo(() => {
+    const members = asArray(projectMembers.data).map((member) => ({
+      id: member.user_id, name: member.user_name, email: member.user_email
+    }));
+    if (session?.user) members.push({ id: session.user.id, name: session.user.name, email: session.user.email });
+    return [...new Map(members.map(user => [user.id, user])).values()]
+      .sort((left, right) => (left.name || left.email || left.id).localeCompare(right.name || right.email || right.id));
+  }, [projectMembers.data, session?.user]);
   const executionItems = asArray(executions.data);
   const [resolvedCaseCache, setResolvedCaseCache] = useState<{ projectId: string; items: TestCase[] }>({ projectId, items: [] });
   const rememberCaseItems = useCallback((resolved: TestCase[]) => {
@@ -940,7 +951,7 @@ export function IssuesPage() {
   useEffect(() => {
     setSelectedActionIssueIds([]);
     setIsAiBugTriageOpen(false);
-  }, [projectId, catalogSearch, issueStatusFilter, issuePriorityFilter, issueAssigneeFilter]);
+  }, [projectId, catalogSearch, issueStatusFilter, issuePriorityFilter, issueAssigneeFilter, issueReporterFilter]);
 
   useEffect(() => {
     if (issues.isLoading) return;
@@ -1264,7 +1275,7 @@ export function IssuesPage() {
 
     const deliveryPrefill = readDeliveryScopePrefill(searchParams);
     const resolvedDeliveryPrefill = resolveDeliveryScopePrefill(deliveryPrefill, deliveryScopeCatalog);
-    const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus);
+    const nextDraft = createIssueDraftFromQuery(searchParams, defaultIssueStatus, session?.user.id);
     nextDraft.release = resolvedDeliveryPrefill.release || nextDraft.release;
     nextDraft.sprint = resolvedDeliveryPrefill.sprint || nextDraft.sprint;
 
@@ -1281,7 +1292,7 @@ export function IssuesPage() {
     nextParams.delete("create");
     nextParams.delete("issue");
     setSearchParams(nextParams, { replace: true });
-  }, [canCreateBugs, defaultIssueStatus, deliveryScopeCatalog, searchParams, setSearchParams]);
+  }, [canCreateBugs, defaultIssueStatus, deliveryScopeCatalog, searchParams, setSearchParams, session?.user.id]);
 
   useEffect(() => {
     if (!isCreating || !activeBugDeliveryPrefill || !resolvedActiveBugDeliveryPrefill) return;
@@ -2282,6 +2293,7 @@ export function IssuesPage() {
       ) : null}
 
       {issueMetricsQuery.isError && !isCreating && !selectedIssueId ? <p className="inline-error" role="alert">Defect metrics could not be loaded. <button className="ghost-button" type="button" onClick={() => void issueMetricsQuery.refetch()}>Retry metrics</button></p> : null}
+      {projectMembers.isError ? <p className="inline-error" role="alert">Project users could not be loaded. <button className="ghost-button" type="button" onClick={() => void projectMembers.refetch()}>Retry users</button></p> : null}
       {message && !isCreating ? <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p> : null}
 
       <WorkspaceMasterDetail
@@ -2291,7 +2303,7 @@ export function IssuesPage() {
               <div className="catalog-toolbar-discovery" aria-label="Defect views, search, and selection">
                 <CatalogViewToggle onChange={setCatalogViewMode} value={catalogViewMode} />
                 <CatalogSearchFilter
-                activeFilterCount={Number(Boolean(issueSearch.trim())) + Number(Boolean(issueStatusFilter)) + Number(Boolean(issuePriorityFilter)) + Number(Boolean(issueAssigneeFilter))}
+                activeFilterCount={Number(Boolean(issueSearch.trim())) + Number(Boolean(issueStatusFilter)) + Number(Boolean(issuePriorityFilter)) + Number(Boolean(issueAssigneeFilter)) + Number(Boolean(issueReporterFilter))}
                 ariaLabel="Search defects"
                 onChange={setIssueSearch}
                 placeholder="Search defects"
@@ -2303,9 +2315,10 @@ export function IssuesPage() {
                 <div className="catalog-filter-grid">
                   <label className="catalog-filter-field"><span>Status</span><select value={issueStatusFilter} onChange={(event) => setIssueStatusFilter(event.target.value)}><option value="">All statuses</option>{issueStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
                   <label className="catalog-filter-field"><span>Priority</span><select value={issuePriorityFilter} onChange={(event) => setIssuePriorityFilter(event.target.value)}><option value="">All priorities</option>{ISSUE_PRIORITY_OPTIONS.filter((option) => option.value).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="catalog-filter-field"><span>Assignee</span><select value={issueAssigneeFilter} onChange={(event) => setIssueAssigneeFilter(event.target.value)}><option value="">All assignees</option><option value="__unassigned__">Unassigned</option>{session?.user.id ? <option value={session.user.id}>Assigned to me</option> : null}</select></label>
+                  <label className="catalog-filter-field"><span>Assignee</span><select aria-label="Assignee" value={issueAssigneeFilter} onChange={(event) => setIssueAssigneeFilter(event.target.value)}><option value="">All assignees</option><option value="__unassigned__">Unassigned</option>{userItems.map(user => <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>)}</select></label>
+                  <label className="catalog-filter-field"><span>Reported by</span><select aria-label="Reported by" value={issueReporterFilter} onChange={(event) => setIssueReporterFilter(event.target.value)}><option value="">All reporters</option>{userItems.map(user => <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>)}</select></label>
                   <div className="catalog-filter-actions">
-                    <button className="ghost-button" disabled={!issueSearch.trim() && !issueStatusFilter && !issuePriorityFilter && !issueAssigneeFilter} onClick={() => { setIssueSearch(""); setIssueStatusFilter(""); setIssuePriorityFilter(""); setIssueAssigneeFilter(""); }} type="button">
+                    <button className="ghost-button" disabled={!issueSearch.trim() && !issueStatusFilter && !issuePriorityFilter && !issueAssigneeFilter && !issueReporterFilter} onClick={() => { setIssueSearch(""); setIssueStatusFilter(""); setIssuePriorityFilter(""); setIssueAssigneeFilter(""); setIssueReporterFilter(""); }} type="button">
                       Clear filters
                     </button>
                   </div>
@@ -2537,7 +2550,7 @@ export function IssuesPage() {
             ) : null}
 
             {issues.isError && !items.length ? <div className="empty-state compact" role="alert"><p>Defects could not be loaded.</p><button className="ghost-button" type="button" onClick={() => void issues.refetch()}>Retry</button></div> : null}
-            {!issues.isLoading && !issues.isError && !items.length ? <div className="empty-state compact">{catalogSearch || issueStatusFilter || issuePriorityFilter || issueAssigneeFilter ? "No defects match the current filters." : "No defects reported yet."}</div> : null}
+            {!issues.isLoading && !issues.isError && !items.length ? <div className="empty-state compact">{catalogSearch || issueStatusFilter || issuePriorityFilter || issueAssigneeFilter || issueReporterFilter ? "No defects match the current filters." : "No defects reported yet."}</div> : null}
             {issues.hasNextPage && !issues.isPlaceholderData ? <HierarchyAutoLoadSentinel
               isLoading={issues.isFetchingNextPage}
               onLoad={() => issues.fetchNextPage()}
@@ -2668,6 +2681,7 @@ export function IssuesPage() {
                     <FormField className="bug-field-assignee" label="Assignee" required={jiraBugCoreRequired.assignee}>
                       <select disabled={!canEditBugFields || !canViewProjectMembers} required={jiraBugCoreRequired.assignee} value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
                         <option value="">Unassigned</option>
+                        {draft.assignee_id && !userItems.some(user => user.id === draft.assignee_id) && <option value={draft.assignee_id}>{selectedItem?.assignee_name || selectedItem?.assignee_email || draft.assignee_id}</option>}
                         {userItems.map((user) => (
                           <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>
                         ))}
@@ -2782,6 +2796,13 @@ export function IssuesPage() {
                         {releaseOptions.map((option) => (
                           <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
                         ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Reported by" required>
+                      <select aria-label="Reported by" disabled={!canEditBugFields || !canViewProjectMembers} required value={draft.user_id} onChange={(event) => setDraft((current) => ({ ...current, user_id: event.target.value }))}>
+                        <option value="" disabled>Select a user</option>
+                        {draft.user_id && !userItems.some(user => user.id === draft.user_id) && <option value={draft.user_id}>{selectedItem?.user_name || selectedItem?.user_email || draft.user_id}</option>}
+                        {userItems.map(user => <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>)}
                       </select>
                     </FormField>
                   </div>

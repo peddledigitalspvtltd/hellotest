@@ -1,4 +1,5 @@
 import type { WorkflowDraft } from "./workflowGraph";
+import { specialistDefaults } from "./specialistProfiles";
 import {
   createWorkflowDraft,
   createFlowEdge,
@@ -145,6 +146,7 @@ export function draftFromTemplate(template: WorkflowTemplate): {
           retryCount: "0",
         }
       : {
+          ...specialistDefaults(template.agent || "quality-evaluator"),
           label: template.name,
           kind: "agent",
           agentId: template.agent,

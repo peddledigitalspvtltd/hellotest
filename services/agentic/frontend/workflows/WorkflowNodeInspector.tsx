@@ -1,6 +1,6 @@
 import { WorkflowOperationFields } from "./WorkflowOperationFields";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import {
   IconX,
@@ -16,7 +16,10 @@ import type {
 import { HELLOTEST_AGENT_CATALOG } from "../components/AgenticExperience";
 import { REPOSITORY_AGENTS } from "../agents/RepositoryAgents";
 import { SmartContextWorkbench } from "@hellotest/ai/frontend/components/SmartContextWorkbench";
+import { WorkflowSkills } from "./WorkflowSkills";
+import { specialistDefaults } from "./specialistProfiles";
 import { WorkflowDataView } from "./WorkflowDataView";
+import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
 import { EXECUTABLE_NODE_KINDS } from "./WorkflowCanvas";
 import {
   nodeKindLabels,
@@ -53,6 +56,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs">(
     "parameters",
   );
+  const contentRef = useRef<HTMLDivElement>(null);
   const [advanced, setAdvanced] = useState("");
   const [error, setError] = useState("");
   const root = useDialogFocus<HTMLElement>({
@@ -62,10 +66,13 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   useEffect(() => {
     setTab(run ? "output" : "parameters");
     setError("");
+    if (contentRef.current) contentRef.current.scrollTop = 0;
     setAdvanced(JSON.stringify(node.data, null, 2));
   }, [node.id, run?.id]);
   const kind = String(node.data.kind || "agent");
-  const specialist = ["agent", "llmAgent", "customAI"].includes(kind);
+  const specialist = ["agent", "llmAgent", "customAI"].includes(kind) || (kind === "loop" && node.data.loopAction === "customAI");
+  const canRetry = specialist || (["apiTool", "apiAgent", "webAgent"].includes(kind) && ["GET", "HEAD"].includes(kind === "webAgent" ? "GET" : String(node.data.apiMethod || "GET")));
+  const inputContext = result?.input as Record<string, unknown> | undefined;
   const progress = result?.progress as
     | {
         repository_run_id?: string;
@@ -108,13 +115,15 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           : "Workflow request"}
       </p>
       <WorkflowDataView
-        value={result?.input}
+        value={inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") ? inputContext.input : result?.input}
+        pathPrefix="$input"
         empty={
           incoming.length
             ? "Execute this step to receive upstream data. Required preceding steps will run first."
             : "The manual trigger receives your workflow input."
         }
       />
+      {inputContext && Object.prototype.hasOwnProperty.call(inputContext, "input") && <details><summary>Input context and prompt</summary><WorkflowDataView value={inputContext} /></details>}
     </section>
   );
   const outputPane = (
@@ -135,6 +144,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           {String(result.status).replace(/_/g, " ")} ·{" "}
           {String(result.attempts || 0)}{" "}
           {Number(result.attempts) === 1 ? "attempt" : "attempts"}
+          {result.started_at ? ` · ${executionDuration(result.started_at, result.completed_at)}` : ""}
         </p>
       )}
       {progress && (
@@ -175,7 +185,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           result?.status === "running"
             ? "This step is running. Output appears here when it completes."
             : result?.status === "skipped"
-              ? "This step was not reached."
+              ? String(result.skip_reason || "This step was not reached.")
               : undefined
         }
       />
@@ -255,13 +265,13 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         </label>
         {specialist && (
           <>
-            {kind !== "customAI" && (
+            {kind !== "customAI" && kind !== "loop" && (
               <label>
                 <span>Specialist</span>
                 <select
                   value={String(node.data.agentId || "")}
                   onChange={(event) =>
-                    props.onChange({ agentId: event.target.value })
+                    props.onChange(specialistDefaults(event.target.value))
                   }
                 >
                   <option value="">Choose a specialist</option>
@@ -275,10 +285,11 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
             )}
             {field(
               "prompt",
-              kind === "customAI" ? "Your AI task" : "Task",
+              kind === "customAI" ? "Your AI task" : kind === "loop" ? "Task for each item" : "Task",
               true,
             )}
-            {field("instructions", "Instructions", true)}
+            {field("instructions", kind === "loop" ? "Per-item instructions" : "Instructions", true)}
+            <WorkflowSkills data={node.data} projectId={props.projectId} appTypeId={props.appTypeId} disabled={!editable || props.busy} onChange={props.onChange} />
             <label>
               <span>Model connection</span>
               <select
@@ -304,6 +315,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
               <summary>Grounding and context</summary>
               {field("knowledgeScope", "Evidence scopes")}
               {field("knowledgeQuery", "Retrieval query")}
+              {field("contextInstructions", "Additional context", true)}
               {props.canKnowledge && (
                 <SmartContextWorkbench
                   projectId={props.projectId}
@@ -370,7 +382,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         {field("summary", "Description", true)}
         <details>
           <summary>Execution settings</summary>
-          {field("timeoutMs", "Timeout (ms)")}
+          <label><span>Timeout (ms)</span><input type="number" min={1000} max={kind === "repositoryAgent" ? 180000 : 70000} step={1000} value={String(node.data.timeoutMs ?? "")} onChange={event => props.onChange({ timeoutMs: event.target.value })} /></label>
           <label>
             <span>On error</span>
             <select
@@ -384,8 +396,13 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
               <option value="errorOutput">Route to error handler</option>
             </select>
           </label>
-          {field("retryCount", "Retries")}
-          {field("retryDelayMs", "Retry delay (ms)")}
+          {canRetry ? <>
+            <label><span>Retries</span><select aria-label="Retries" value={String(node.data.retryCount || "0")} onChange={event => props.onChange({ retryCount: event.target.value })}><option value="0">No automatic retries</option><option value="1">Retry once</option><option value="2">Retry twice</option></select></label>
+            <label><span>Retry delay (ms)</span><input type="number" min={0} max={10000} step={100} value={String(node.data.retryDelayMs ?? 500)} onChange={event => props.onChange({ retryDelayMs: event.target.value })} /></label>
+            <p className="studio-caption">Only transient failures retry, within this step's timeout. Each retry and its delay appear in the log.</p>
+          </> : <p className="studio-caption">This node runs once per execution. Automatic retries are unavailable for operations that may change data.</p>}
+          {!canRetry && Number(node.data.retryCount) > 0 && <button type="button" className="ghost-button" onClick={() => props.onChange({ retryCount: "0" })}>Clear unsupported retries</button>}
+          <label><span>Logging</span><select aria-label="Logging" value={String(node.data.logLevel || "standard")} onChange={event => props.onChange({ logLevel: event.target.value })}><option value="standard">Standard · events and errors</option><option value="audit">Audit · include sizes and source IDs</option></select></label>
           {field("outputKey", "Output label")}
           <p className="studio-caption">
             Failed steps stop by default. Connect an Error handler to recover.
@@ -452,7 +469,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           <>
             <p className="studio-caption">
               Testing sends a real HTTP request. Workflow graph previews do not
-              call this endpoint.
+              call this endpoint. Mapped requests run their preceding steps to resolve input.
             </p>
             <button
               type="button"
@@ -525,6 +542,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           ))}
         </nav>
         <div
+          ref={contentRef}
           className={`studio-inspector-content ${expanded && tab !== "logs" ? "is-three-pane" : ""}`}
         >
           {expanded && tab !== "logs" ? (
@@ -540,10 +558,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
           ) : tab === "logs" ? (
             <section className="studio-inspector-pane">
               <h3>Execution log</h3>
-              <WorkflowDataView
-                value={result?.logs}
-                empty="No execution has been recorded for this step."
-              />
+              <WorkflowExecutionLog logs={result?.logs} />
             </section>
           ) : (
             parameters

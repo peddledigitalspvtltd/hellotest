@@ -1,4 +1,5 @@
 const connections = require("./connections");
+const { isDeepStrictEqual } = require("node:util");
 const mcp = require("./mcpClient");
 const permissions = require("@hellotest/platform/backend/services/permission.service");
 const flags = require("@hellotest/platform/backend/services/featureFlag.service");
@@ -57,7 +58,7 @@ function mapValues(template, context, depth = 0) {
   if (depth > 12) throw connections.fail("Field mapping is too deeply nested.");
   if (
     typeof template === "string" &&
-    /^\$(input|request|item)(\.|$)/.test(template)
+    /^\$(input|request|item|nodes)(\.|$)/.test(template)
   )
     return readPath(context, template) ?? null;
   if (Array.isArray(template))
@@ -72,18 +73,24 @@ function mapValues(template, context, depth = 0) {
     );
   return template;
 }
+const inputValue = output => output && Object.hasOwn(output, "data") ? output.data
+  : output && Object.hasOwn(output, "request") ? output.request : output;
 const contextFor = (run, sources) => ({
   request: run.input_payload,
-  input:
-    sources.length === 1
-      ? (sources[0].output?.data ??
-        sources[0].output?.request ??
-        sources[0].output)
-      : sources.map((source) => source.output),
-  item: null,
+  input: Object.hasOwn(run, "iteration_input") ? run.iteration_input : !sources.length ? run.input_payload : sources.length === 1 ? inputValue(sources[0].output) : sources.map(source => inputValue(source.output)),
+  nodes: Object.fromEntries(sources.flatMap(source => [[source.node_id, source.output], ...(source.output_key && source.output_key !== source.node_id ? [[source.output_key, source.output]] : [])])),
+  item: Object.hasOwn(run, "iteration_input") ? run.iteration_input : run.input_payload?.item ?? null,
 });
+function interpolate(value, context, encode = false) {
+  return String(value || "").replace(/\{\{\s*(\$(?:input|request|item|nodes)(?:\.[\w-]+)*)\s*\}\}/g, (_, path) => {
+    const resolved = readPath(context, path);
+    if (resolved == null || typeof resolved === "object") throw connections.fail(`The value at ${path} must be text, a number or a boolean.`);
+    return encode ? encodeURIComponent(String(resolved)) : String(resolved);
+  });
+}
 function condition(data, context) {
   const actual = readPath(context, data.conditionPath || "input.status");
+  if (data.conditionOperator === "exists") return actual !== undefined && actual !== null;
   let expected;
   try {
     expected = JSON.parse(data.conditionValue || "true");
@@ -96,15 +103,15 @@ function condition(data, context) {
     case "exists":
       return actual !== undefined && actual !== null;
     case "equals":
-      return JSON.stringify(actual) === JSON.stringify(expected);
+      return isDeepStrictEqual(actual, expected);
     case "notEquals":
-      return JSON.stringify(actual) !== JSON.stringify(expected);
+      return !isDeepStrictEqual(actual, expected);
     case "contains":
       return typeof actual === "string" && typeof expected === "string"
         ? actual.includes(expected)
         : Array.isArray(actual) &&
             actual.some(
-              (value) => JSON.stringify(value) === JSON.stringify(expected),
+              (value) => isDeepStrictEqual(value, expected),
             );
     case "greater":
       return (
@@ -133,8 +140,10 @@ function validate(node) {
       errors.push(error.publicMessage || error.message);
     }
   };
-  if (["transform", "loop"].includes(kind))
+  if (kind === "transform" || (kind === "loop" && data.loopAction !== "customAI"))
     check(() => parseObject(data.transformMapping || "{}", "Field mapping"));
+  if (Number(data.retryCount) > 0 && !require("./runtimeEvents").canRetry(kind, data))
+    errors.push("Retries are available for AI reviews and HTTP GET/HEAD requests. Set retries to zero for this node.");
   if (kind === "condition") check(() => condition(data, {}));
   if (kind === "mcpTool") {
     if (!data.connectionId || !data.mcpTool)
@@ -142,6 +151,7 @@ function validate(node) {
     check(() => parseObject(data.mcpArguments || "{}", "Tool arguments"));
   }
   if (["apiTool", "apiAgent", "webAgent"].includes(kind)) {
+    if (data.apiBody) check(() => parseObject(data.apiBody, "Request body"));
     if (!data.apiUrl && !data.connectionId)
       errors.push("Enter an endpoint or select a connection.");
     if (data.apiAuth || data.credentialId)
@@ -195,13 +205,15 @@ async function execute({
   if (kind === "customAI")
     return review(run, {
       ...node,
-      data: { ...data, kind: "agent", agentId: "quality-evaluator" },
+      data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true },
     });
   if (["apiTool", "apiAgent", "webAgent"].includes(kind))
     return connections.callHttp({
       projectId: run.project_id,
       data: {
         ...data,
+        apiUrl: interpolate(data.apiUrl, context, true),
+        apiBody: data.apiBody ? JSON.stringify(mapValues(parseObject(data.apiBody, "Request body"), context)) : "",
         apiMethod: kind === "webAgent" ? "GET" : data.apiMethod,
       },
       signal,
@@ -233,7 +245,7 @@ async function execute({
     return {
       data: context.input,
       message: sanitizeAiText(
-        String(data.logMessage || "Received connected data."),
+        interpolate(data.logMessage || "Received connected data.", context),
       ).text,
     };
   if (kind === "errorHandler")
@@ -242,6 +254,9 @@ async function execute({
         node_id: source.node_id,
         status: source.status,
         error: source.error || null,
+        error_details: source.error_details || null,
+        input: source.input?.input ?? null,
+        attempts: source.attempts || 0,
       })),
       recovered: true,
     };
@@ -257,6 +272,7 @@ async function execute({
         `For each received ${items.length} items; its limit is ${max}. Split the input or increase the limit (maximum 10).`,
       );
     const results = [];
+    const mapping = data.loopAction === "customAI" ? null : parseObject(data.transformMapping || "{}", "Field mapping");
     for (let index = 0; index < items.length; index++) {
       if (signal.aborted) throw connections.fail("Iteration cancelled.", 499);
       await onProgress({
@@ -274,20 +290,17 @@ async function execute({
           ? await review(
               {
                 ...run,
-                input_payload: {
-                  ...run.input_payload,
-                  item: items[index],
-                  item_index: index,
-                },
+                iteration_input: items[index],
+                iteration_index: index,
               },
               {
                 ...node,
-                data: { ...data, kind: "agent", agentId: "quality-evaluator" },
+                data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true },
               },
             )
           : {
               data: mapValues(
-                parseObject(data.transformMapping || "{}", "Field mapping"),
+                mapping,
                 { ...context, item: items[index] },
               ),
             };
@@ -304,7 +317,8 @@ async function execute({
       })),
     });
     return {
-      data: results,
+      data: results.map(inputValue),
+      items: results,
       processed: results.length,
       ...(results.some(
         (result) =>
@@ -341,14 +355,14 @@ async function execute({
         {
           projectId: run.project_id,
           appTypeId: run.app_type_id,
-          query: String(
+          query: interpolate(
             data.knowledgeQuery ||
               (kind === "testOpsTool"
                 ? "Recent test runs and results"
                 : kind === "repositoryTool"
                   ? "Repository code and object metadata"
                   : "Project quality evidence"),
-          ),
+            context),
           filters,
           user,
           signal,
@@ -371,5 +385,5 @@ module.exports = {
   KINDS,
   validate,
   execute,
-  _internals: { parseObject, readPath, mapValues, condition, contextFor },
+  _internals: { parseObject, readPath, mapValues, condition, contextFor, inputValue, interpolate },
 };

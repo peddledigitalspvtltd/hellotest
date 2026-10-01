@@ -6,9 +6,9 @@ const execution = require("@hellotest/knowledge/backend/services/knowledgeExecut
 const {
   sanitizeAiText,
 } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
-const fail = (message, statusCode = 400) =>
-  Object.assign(new Error(message), { statusCode, publicMessage: message });
-function configured() {
+const { fail, cleanUrl } = require("./endpointPolicy");
+const settings = require("./connectionSettings");
+async function configured() {
   let rows;
   try {
     rows = JSON.parse(process.env.AGENTIC_HTTP_CONNECTIONS || "[]");
@@ -20,44 +20,35 @@ function configured() {
   }
   if (!Array.isArray(rows))
     throw fail("Workflow connections must be a configured list.", 503);
-  return rows.filter(
+  const saved = await settings.all();
+  const savedIds = new Set(saved.map(row => row.id));
+  return [...rows.filter(row => !savedIds.has(row?.id)), ...saved].filter(row => row.enabled !== false).filter(
     (row) => row && typeof row.id === "string" && typeof row.url === "string",
   );
 }
 const scoped = (connection, projectId) =>
   Array.isArray(connection.projectIds) &&
   connection.projectIds.includes(projectId);
-const list = (projectId) =>
-  configured()
+const list = async (projectId) =>
+  (await configured())
     .filter((row) => scoped(row, projectId))
     .map((row) => ({
       id: row.id,
       name: row.name || row.id,
       kind: row.kind === "mcp" ? "mcp" : "http",
       url: cleanUrl(row.url).toString(),
-      authenticated: Boolean(row.secretEnv),
+      authenticated: Boolean(row.secretEnv || row.encryptedSecret || row.encryptedHeaders),
       methods: row.methods || ["GET", "HEAD"],
       tools: row.tools || [],
+      toolDefinitions: (row.toolDefinitions || []).filter(tool => row.tools?.includes(tool.name)),
+      timeoutMs: row.timeoutMs || 30000,
+      transport: row.kind === "mcp" ? "streamable-http" : undefined,
+      serverInfo: row.serverInfo,
+      discovered_at: row.discovered_at,
     }));
-function cleanUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw fail("Enter a valid HTTP or HTTPS endpoint.");
-  }
-  if (
-    !["https:", "http:"].includes(url.protocol) ||
-    url.username ||
-    url.password
-  )
-    throw fail("Use an HTTP endpoint without embedded credentials.");
-  url.hash = "";
-  return url;
-}
-function resolve(id, projectId, endpoint, kind = "http") {
+async function resolve(id, projectId, endpoint, kind = "http") {
   const connection = id
-    ? configured().find((row) => row.id === id && scoped(row, projectId))
+    ? (await configured()).find((row) => row.id === id && scoped(row, projectId))
     : null;
   if (id && !connection)
     throw fail("This connection is unavailable in the selected project.", 403);
@@ -109,10 +100,11 @@ function metadataAddress(address) {
   return canonical.startsWith("[::ffff:a9fe:");
 }
 function authHeaders(connection) {
-  if (!connection?.secretEnv) return {};
-  if (!/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(connection.secretEnv))
+  const extra = settings.headers(connection);
+  if (!connection?.secretEnv && !connection?.encryptedSecret) return extra;
+  if (connection.secretEnv && !/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(connection.secretEnv))
     throw fail("The connection secret reference is invalid.", 503);
-  const secret = process.env[connection.secretEnv];
+  const secret = connection.secretEnv ? process.env[connection.secretEnv] : settings.credential(connection);
   if (!secret)
     throw fail("The selected connection has no configured credential.", 503);
   const name = connection.header || "Authorization";
@@ -122,6 +114,7 @@ function authHeaders(connection) {
   )
     throw fail("The connection credential header is invalid.", 503);
   return {
+    ...extra,
     [name]:
       connection.authType === "basic"
         ? `Basic ${Buffer.from(secret).toString("base64")}`
@@ -131,13 +124,14 @@ function authHeaders(connection) {
   };
 }
 function redact(value, connection) {
-  const secret = connection?.secretEnv ? process.env[connection.secretEnv] : "";
+  const secret = connection?.secretEnv ? process.env[connection.secretEnv] : connection?.encryptedSecret ? settings.credential(connection) : "";
+  const secrets = [secret, ...Object.values(settings.headers(connection))].filter(Boolean);
   return JSON.parse(JSON.stringify(value, (key, item) => {
     if (/^(authorization|cookie|set-cookie|password|secret|token|api[-_]?key|access[-_]?token)$/i.test(key)) return "[REDACTED]";
     if (typeof item !== "string") return item;
     // Redact before JSON escaping so credentials containing quotes/backslashes
     // cannot reappear in an endpoint's echo or diagnostic response.
-    if (secret) for (const token of [secret, Buffer.from(secret).toString("base64")]) item = item.split(token).join("[REDACTED]");
+    for (const secret of secrets) for (const token of [secret, Buffer.from(secret).toString("base64")]) item = item.split(token).join("[REDACTED]");
     return sanitizeAiText(item).text;
   }));
 }
@@ -252,7 +246,7 @@ async function request({
   });
 }
 async function callHttp({ projectId, data, signal }) {
-  const { connection, url } = resolve(
+  const { connection, url } = await resolve(
     data.connectionId,
     projectId,
     data.apiUrl,
@@ -278,12 +272,12 @@ async function callHttp({ projectId, data, signal }) {
       ? undefined
       : String(data.apiBody || ""),
     signal,
-    timeoutMs: Number(data.timeoutMs) || 30000,
+    timeoutMs: Number(data.timeoutMs) || connection?.timeoutMs || 30000,
   });
   if (response.status < 200 || response.status >= 300)
     throw fail(
       `The endpoint returned HTTP ${response.status}. Redirects are not followed.`,
-      502,
+      response.status,
     );
   let content;
   try {

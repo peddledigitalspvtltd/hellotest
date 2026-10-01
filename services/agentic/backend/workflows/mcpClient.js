@@ -32,17 +32,18 @@ function parseResponse(body, contentType, id) {
   }
 }
 async function withServer(
-  { projectId, connectionId, signal, timeoutMs = 30000 },
+  { projectId, connectionId, signal, timeoutMs, discoverAll = false, draftConnection },
   task,
 ) {
-  const { connection, url } = connections.resolve(
+  if (draftConnection && (draftConnection.kind !== "mcp" || !draftConnection.projectIds?.includes(projectId))) throw connections.fail("Select an MCP connection in the current project.", 403);
+  const { connection, url } = draftConnection ? { connection: draftConnection, url: new URL(draftConnection.url) } : await connections.resolve(
     connectionId,
     projectId,
     null,
     "mcp",
   );
   const headers = { Accept: "application/json, text/event-stream" };
-  const deadline = Date.now() + Math.min(70000, Math.max(1000, timeoutMs));
+  const deadline = Date.now() + Math.min(70000, Math.max(1000, timeoutMs ?? connection.timeoutMs ?? 30000));
   const rpc = async (method, params, notify = false) => {
     if (Date.now() >= deadline)
       throw connections.fail("The MCP operation timed out.", 504);
@@ -117,14 +118,16 @@ async function withServer(
         ...result.tools.filter(
           (tool) =>
             typeof tool.name === "string" &&
-            connection.tools?.includes(tool.name),
+            (discoverAll || connection.tools?.includes(tool.name)),
         ),
       );
+      if (tools.length > 100) throw connections.fail("The server catalog exceeds 100 tools. Configure a smaller catalog for this connection.", 422);
       cursor = result.nextCursor;
       if (!cursor) break;
     }
+    if (cursor) throw connections.fail("The server tool catalog exceeds five pages. Configure a smaller catalog for this connection.", 422);
     return connections.redact(
-      await task({ rpc, tools, connection }),
+      await task({ rpc, tools, connection, serverInfo: initialized.serverInfo, protocolVersion: initialized.protocolVersion }),
       connection,
     );
   } finally {
@@ -142,16 +145,17 @@ async function withServer(
     }
   }
 }
-const discover = (input) =>
-  withServer(input, async ({ tools }) =>
-    tools.map((tool) => ({
+const toolCatalog = tools => tools.map((tool) => ({
       name: tool.name,
       description: String(tool.description || "").slice(0, 2000),
       inputSchema: tool.inputSchema || { type: "object" },
-    })),
-  );
+      ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+      ...(tool.annotations ? { annotations: tool.annotations } : {}),
+    }));
+const discover = input => withServer(input, async ({ tools }) => toolCatalog(tools));
+const inspect = input => withServer({ ...input, discoverAll: true }, async ({ tools, serverInfo, protocolVersion }) => ({ tools: toolCatalog(tools), serverInfo, protocolVersion, discovered_at: new Date().toISOString() }));
 const call = (input, name, args) =>
-  withServer(input, async ({ rpc, tools }) => {
+  withServer({ ...input, discoverAll: false }, async ({ rpc, tools }) => {
     const tool = tools.find((item) => item.name === name);
     if (!tool)
       throw connections.fail(
@@ -191,7 +195,7 @@ const call = (input, name, args) =>
       );
     return {
       tool: name,
-      data: result.structuredContent || null,
+      data: result.structuredContent ?? (result.content || []).filter(item => item.type === "text").map(item => { try { return JSON.parse(item.text); } catch { return String(item.text || ""); } }),
       content: (result.content || [])
         .filter((item) => item.type === "text")
         .map((item) => String(item.text || "").slice(0, 32000)),
@@ -200,4 +204,4 @@ const call = (input, name, args) =>
       ).length,
     };
   });
-module.exports = { discover, call, _internals: { parseResponse } };
+module.exports = { discover, inspect, call, _internals: { parseResponse } };

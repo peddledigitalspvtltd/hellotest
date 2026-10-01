@@ -1,4 +1,5 @@
 import { MarkerType } from "@xyflow/react";
+import { specialistDefaults } from "./specialistProfiles";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import type {
   AgenticWorkflow,
@@ -177,6 +178,7 @@ export const buildNodeDefaults = (
   if (kind === "customAI")
     return {
       ...base,
+      ...specialistDefaults("quality-evaluator"),
       label: "Custom AI review",
       prompt:
         "Review the connected input and project evidence. Return a clear answer with supporting sources.",
@@ -233,6 +235,7 @@ export const buildNodeDefaults = (
             apiValidationMode: "schema-and-status",
           }
         : {}),
+      ...(["agent", "llmAgent"].includes(kind) ? specialistDefaults("quality-orchestrator") : {}),
     };
   }
 
@@ -369,6 +372,66 @@ export const decorateFlowEdge = (
   style: { ...(edge.style || {}), strokeWidth: 1.8 },
 });
 
+export type NodeInsertion = { sourceId?: string; sourceHandle?: string | null; edgeId?: string };
+
+export function canConnectWorkflow(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], source: string, target: string, handle?: string | null) {
+  const from = nodes.find(node => node.id === source), to = nodes.find(node => node.id === target);
+  if (!from || !to || source === target || from.data.kind === "output" || to.data.kind === "trigger") return false;
+  if (from.data.kind === "condition" && !["true", "false"].includes(handle || "")) return false;
+  if (edges.some(edge => edge.source === source && edge.target === target && (edge.sourceHandle || null) === (handle || null))) return false;
+  const visited = new Set<string>();
+  const reachesSource = (id: string): boolean => {
+    if (id === source) return true;
+    if (visited.has(id)) return false;
+    visited.add(id);
+    return edges.filter(edge => edge.source === id).some(edge => reachesSource(edge.target));
+  };
+  return !reachesSource(target);
+}
+
+export function insertWorkflowNode(nodes: AgenticWorkflowNode[], edges: AgenticWorkflowEdge[], kind: WorkflowNodeKind, insertion: NodeInsertion = {}) {
+  if (!nodes.length) kind = "trigger";
+  if (kind === "trigger" && nodes.some(node => node.data.kind === "trigger")) throw new Error("A workflow already has a manual trigger.");
+  const edge = edges.find(item => item.id === insertion.edgeId);
+  if (insertion.edgeId && !edge) throw new Error("This connection was removed. Choose where to add the node again.");
+  const source = nodes.find(node => node.id === (edge?.source || insertion.sourceId));
+  if (source?.data.kind === "output") throw new Error("Output ends a branch. Add a node before it.");
+  if (edge && ["trigger", "output", "errorHandler"].includes(kind)) throw new Error("Choose a processing node to insert on a connection.");
+  const handle = edge?.sourceHandle ?? insertion.sourceHandle ?? null;
+  if (source?.data.kind === "condition" && !["true", "false"].includes(handle || "")) throw new Error("Choose the true or false branch to add a node.");
+  const id = createNodeId(kind);
+  const downstream = source ? edges.filter(item => item.source === source.id && (item.sourceHandle || null) === handle && nodes.find(node => node.id === item.target)?.data.kind !== "errorHandler") : [];
+  const rewired = edge ? [edge] : ["output", "errorHandler", "trigger"].includes(kind) ? [] : downstream;
+  const shifted = new Set<string>();
+  const visit = (nodeId: string) => {
+    if (shifted.has(nodeId)) return;
+    shifted.add(nodeId);
+    edges.filter(item => item.source === nodeId).forEach(item => visit(item.target));
+  };
+  rewired.forEach(item => visit(item.target));
+  const next: AgenticWorkflowNode = { id, type: "agenticStep", position: {
+    x: source ? source.position.x + 310 : 70 + nodes.length * 310,
+    y: (source?.position.y ?? 140) + (source && !rewired.length && downstream.length ? 170 : handle === "false" ? 170 : 0),
+  }, data: buildNodeDefaults(kind, nodes.length) };
+  const aliases = new Set(nodes.flatMap(node => [node.id, node.data.outputKey]).filter(Boolean));
+  const baseAlias = next.data.outputKey || kind;
+  let alias = baseAlias;
+  let suffix = 2;
+  while (aliases.has(alias)) alias = `${baseAlias}_${suffix++}`;
+  next.data.outputKey = alias;
+  return {
+    node: next,
+    nodes: [...nodes.map(node => ({ ...node,
+      ...(source?.id === node.id && kind === "errorHandler" ? { data: { ...node.data, onError: "errorOutput" } } : {}),
+      position: shifted.has(node.id) ? { ...node.position, x: node.position.x + 310 } : node.position,
+    })), next],
+    edges: [...edges.filter(item => !rewired.includes(item)),
+      ...(source && kind !== "trigger" ? [{ ...createFlowEdge(source.id, id), sourceHandle: handle }] : []),
+      ...rewired.map(item => ({ ...item, source: id, sourceHandle: kind === "condition" ? "true" : null })),
+    ],
+  };
+}
+
 export function layoutWorkflow(
   nodes: AgenticWorkflowNode[],
   edges: AgenticWorkflowEdge[],
@@ -427,6 +490,7 @@ export const getDefaultWorkflowNodes = (): AgenticWorkflowNode[] => [
     type: "agenticStep",
     position: { x: 390, y: 140 },
     data: {
+      ...specialistDefaults("story-architect"),
       label: "Story Architect",
       kind: "agent",
       agentId: "story-architect",
@@ -443,6 +507,7 @@ export const getDefaultWorkflowNodes = (): AgenticWorkflowNode[] => [
     type: "agenticStep",
     position: { x: 710, y: 140 },
     data: {
+      ...specialistDefaults("run-planner"),
       label: "Smart Run Planner",
       kind: "agent",
       agentId: "run-planner",

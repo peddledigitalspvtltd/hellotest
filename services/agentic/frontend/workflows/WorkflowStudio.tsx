@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { executionDuration } from "./WorkflowExecutionLog";
 import {
   IconArrowLeft,
   IconPlus,
@@ -24,6 +25,8 @@ import {
   nodeKindLabels,
   nodeKindDescriptions,
   nodePaletteGroups,
+  canConnectWorkflow,
+  type NodeInsertion,
   type WorkflowDraft,
   type WorkflowNodeKind,
 } from "./workflowGraph";
@@ -51,7 +54,7 @@ type Props = {
   readiness?: AgenticWorkflowReadiness;
   readinessCurrent: boolean;
   onSelect: (id: string) => void;
-  onAdd: (kind: WorkflowNodeKind) => void;
+  onAdd: (kind: WorkflowNodeKind, insertion?: NodeInsertion) => void;
   onNodesChange: OnNodesChange<AgenticWorkflowNode>;
   onEdgesChange: OnEdgesChange<AgenticWorkflowEdge>;
   onConnect: OnConnect;
@@ -78,6 +81,10 @@ export function WorkflowStudio(props: Props) {
   const [tab, setTab] = useState<"editor" | "executions" | "settings">(
     "editor",
   );
+  const [insertion, setInsertion] = useState<NodeInsertion>();
+  const [runStatus, setRunStatus] = useState("all");
+  const visibleRuns = props.runs.filter(run => runStatus === "all" || run.status === runStatus);
+  const openLibrary = (target?: NodeInsertion) => { setInsertion(target); setQuery(""); setLibrary(true); };
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
   const [library, setLibrary] = useState(false),
     [query, setQuery] = useState(""),
@@ -287,7 +294,7 @@ export function WorkflowStudio(props: Props) {
               </label>
               <div className="studio-library-list">
                 {nodePaletteGroups.map((group) => {
-                  const kinds = group.kinds.filter((kind) =>
+                  const kinds = group.kinds.filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "errorHandler"].includes(kind))).filter((kind) =>
                     `${nodeKindLabels[kind]} ${nodeKindDescriptions[kind]}`
                       .toLowerCase()
                       .includes(query.toLowerCase()),
@@ -301,7 +308,7 @@ export function WorkflowStudio(props: Props) {
                           type="button"
                           disabled={!props.editable || props.busy}
                           onClick={() => {
-                            props.onAdd(kind);
+                            props.onAdd(kind, insertion);
                             setLibrary(false);
                           }}
                         >
@@ -337,7 +344,7 @@ export function WorkflowStudio(props: Props) {
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={() => setLibrary((value) => !value)}
+                  onClick={() => library ? setLibrary(false) : openLibrary()}
                   disabled={props.busy}
                 >
                   <IconPlus size={16} />
@@ -372,6 +379,8 @@ export function WorkflowStudio(props: Props) {
               )}
             </div>
             <WorkflowCanvas
+              onInsert={props.editable && !props.busy ? openLibrary : undefined}
+              isValidConnection={connection => canConnectWorkflow(props.nodes, props.edges, connection.source, connection.target, connection.sourceHandle)}
               nodes={props.nodes.map((node) => ({
                 ...node,
                 selected: node.id === props.selectedNodeId,
@@ -407,6 +416,7 @@ export function WorkflowStudio(props: Props) {
             />
             {!props.nodes.length && (
               <div className="studio-canvas-empty">
+                {props.editable && <button type="button" className="studio-start-button" disabled={props.busy} aria-label="Add manual trigger" onClick={() => props.onAdd("trigger")}><IconPlus size={30} /></button>}
                 <h3>Your workflow starts here</h3>
                 <p>
                   Add a trigger, connect your nodes, then inspect their input
@@ -460,6 +470,7 @@ export function WorkflowStudio(props: Props) {
             The latest 50 executions for this workflow, each with its saved
             definition and results.
           </p>
+          <div className="studio-history-filter"><label><span>Status</span><select aria-label="Filter execution status" value={runStatus} onChange={event => setRunStatus(event.target.value)}>{["all", "running", "completed", "needs_review", "failed", "cancelled", "interrupted"].map(value => <option key={value} value={value}>{value === "all" ? "All executions" : value.replace(/_/g, " ")}</option>)}</select></label><small>{visibleRuns.length} of {props.runs.length} executions</small></div>
           {props.historyError && (
             <p role="alert" className="studio-notice">
               {props.historyError}{" "}
@@ -472,7 +483,7 @@ export function WorkflowStudio(props: Props) {
             <p role="status">Loading workflow history…</p>
           )}
           {props.runs.length ? (
-            props.runs.map((run) => (
+            visibleRuns.length ? visibleRuns.map((run) => (
               <button
                 className="studio-history-row"
                 key={run.id}
@@ -489,12 +500,13 @@ export function WorkflowStudio(props: Props) {
                 </span>
                 <span>
                   {run.execution_mode === "review" ? "Execution" : "Preview"}
+                  {run.started_at ? ` · ${executionDuration(run.started_at, run.completed_at)}` : ""}
                 </span>
                 <span className="studio-status">
                   {run.status.replace(/_/g, " ")}
                 </span>
               </button>
-            ))
+            )) : <p className="studio-empty">No executions match this status.</p>
           ) : !props.historyError && !props.historyLoading ? (
             <p className="studio-empty">
               No executions yet. Execute the workflow to record its first

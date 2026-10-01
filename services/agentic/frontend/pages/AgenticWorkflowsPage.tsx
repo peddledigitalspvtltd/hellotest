@@ -48,7 +48,7 @@ import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemp
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
 type AgenticPageSurface = "agents" | "activity" | "workbench" | "repository" | WorkflowTab;
-import { WorkflowNodeKind, WorkflowDraft, AgenticCredential, AgenticApiResponseStyle, DEFAULT_RUN_INPUT, runMatchesDraft, layoutWorkflow, compactCount, safeJsonParse, prettyJson, buildNodeDefaults, createNodeId, createFlowEdge, decorateFlowEdge, reviewDefinitionKey, normalizeWorkflowNodeDirectLlm, createWorkflowDraft, buildN8nPayload } from "../workflows/workflowGraph";
+import { WorkflowNodeKind, WorkflowDraft, AgenticCredential, AgenticApiResponseStyle, DEFAULT_RUN_INPUT, runMatchesDraft, layoutWorkflow, compactCount, safeJsonParse, prettyJson, buildNodeDefaults, createNodeId, createFlowEdge, insertWorkflowNode, canConnectWorkflow, type NodeInsertion, decorateFlowEdge, reviewDefinitionKey, normalizeWorkflowNodeDirectLlm, createWorkflowDraft, buildN8nPayload } from "../workflows/workflowGraph";
 
 export function AgenticWorkflowsPage() {
   const { formatDate } = useLocalization();
@@ -781,30 +781,23 @@ export function AgenticWorkflowsPage() {
     setEdges([]);
   };
 
-  const addWorkflowNode = (kind: WorkflowNodeKind) => {
-    const id = createNodeId(kind);
-    const source = selectedNode?.data.kind !== "output" ? selectedNode : null;
-    const addsBranch = kind === "output" || kind === "errorHandler";
-    const nextNode: AgenticWorkflowNode = { id, type: "agenticStep",
-      position: { x: source ? source.position.x + 300 : 80 + nodes.length * 300,
-        y: (source?.position.y ?? 140) + (source && addsBranch && edges.some(edge => edge.source === source.id) ? 180 : 0) },
-      data: buildNodeDefaults(kind, nodes.length) };
-    const shifted = new Set<string>();
-    if (source && source.data.kind !== "condition" && kind !== "trigger" && !addsBranch) {
-      const visit = (parent: string) => edges.filter(edge => edge.source === parent).forEach(edge => {
-        if (!shifted.has(edge.target)) { shifted.add(edge.target); visit(edge.target); }
-      });
-      visit(source.id);
+  const addWorkflowNode = (kind: WorkflowNodeKind, insertion?: NodeInsertion) => {
+    try {
+      let target = insertion;
+      if (!target && selectedNode) {
+        target = selectedNode.data.kind === "output"
+          ? { edgeId: edges.find(edge => edge.target === selectedNode.id)?.id }
+          : { sourceId: selectedNode.id, sourceHandle: selectedNode.data.kind === "condition" ? "true" : null };
+      }
+      if (!target && nodes.length) {
+        const leaf = nodes.find(node => node.data.kind !== "output" && !edges.some(edge => edge.source === node.id));
+        target = leaf ? { sourceId: leaf.id, sourceHandle: leaf.data.kind === "condition" ? "true" : null } : { edgeId: edges.find(edge => nodes.find(node => node.id === edge.target)?.data.kind === "output")?.id };
+      }
+      const next = insertWorkflowNode(nodes, edges, kind, target);
+      setNodes(next.nodes); setEdges(next.edges); setSelectedNodeId(next.node.id);
+    } catch (failure) {
+      setReviewStartError(failure instanceof Error ? failure.message : "Unable to add this node.");
     }
-    setNodes(current => [...current.map(node => shifted.has(node.id) ? { ...node, position: { ...node.position, x: node.position.x + 300 } } : node), nextNode]);
-    if (source && kind !== "trigger") setEdges(current => {
-      const downstream = current.filter(edge => edge.source === source.id);
-      // Inserting after a branch point must not collapse its true/false paths.
-      if (source.data.kind === "condition") return current;
-      return [...current.filter(edge => edge.source !== source.id), createFlowEdge(source.id, id),
-        ...(addsBranch ? downstream : downstream.map(edge => ({ ...edge, source: id })))];
-    });
-    setSelectedNodeId(id);
   };
 
   const deleteSelectedNode = () => {
@@ -867,6 +860,10 @@ export function AgenticWorkflowsPage() {
   const testSelectedApiAgent = async () => {
     const requestScope = workspaceScopeKey;
     if (!selectedNode || !projectId || !canRunAgenticWorkflows) {
+      return;
+    }
+    if (/\$(?:input|request|item|nodes)(?:\.|\b)/.test(`${selectedNode.data.apiUrl || ""} ${selectedNode.data.apiBody || ""}`)) {
+      await prepareAndExecute(selectedNode.id);
       return;
     }
 
@@ -962,14 +959,14 @@ export function AgenticWorkflowsPage() {
   };
 
   const onConnect = useCallback((connection: Connection) => {
-    setEdges((currentEdges) => addEdge({
+    setEdges((currentEdges) => canConnectWorkflow(nodes, currentEdges, connection.source, connection.target, connection.sourceHandle) ? addEdge({
       ...connection,
       id: `${connection.source}-${connection.target}-${Date.now()}`,
       animated: true,
       markerEnd: { type: MarkerType.ArrowClosed },
       style: { strokeWidth: 1.8 }
-    }, currentEdges));
-  }, [setEdges]);
+    }, currentEdges) : currentEdges);
+  }, [setEdges, nodes]);
 
   const emptyScope = !projectId || !appTypeId;
   const mutationSessionIsSelected = Boolean(assistantReply && (!selectedAssistantSessionId || assistantReply.transaction.id === selectedAssistantSessionId));

@@ -14,14 +14,17 @@ import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks
 import { hasCapability } from "@hellotest/platform/frontend/src/platform/lib/capabilityAccess";
 import "./AiPromptTemplatePicker.css";
 
-export type AiPromptScope =
+export type AiPromptLibraryScope =
+  | "workflow_skill"
   | "requirement_creation"
   | "requirement_completion"
   | "test_case_generation"
   | "test_case_steps"
   | "bug_creation";
 
-const DEFAULT_PROMPT_SCOPE: AiPromptScope = "test_case_generation";
+export type AiPromptScope = Exclude<AiPromptLibraryScope, "workflow_skill">;
+
+const DEFAULT_PROMPT_SCOPE: AiPromptLibraryScope = "test_case_generation";
 
 type PromptScopeConfig = {
   triggerLabel: string;
@@ -48,7 +51,19 @@ type PromptScopeConfig = {
   promptPlaceholder: string;
 };
 
-const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
+const PROMPT_SCOPE_CONFIGS: Record<AiPromptLibraryScope, PromptScopeConfig> = {
+  workflow_skill: {
+    triggerLabel: "Choose or create skill", contextLabel: "Workflow skill library",
+    libraryTitle: "Choose or create a workflow skill",
+    libraryHelp: "Add reusable guidance to an AI node. Each node keeps an editable copy of its selected skills.",
+    searchPlaceholder: "Skill name, domain, role, or tag…", emptyMessage: "No skills matched. Create a skill for this project.",
+    createTitle: "Create skill", createHelp: "Save instructions to reuse across custom AI and specialist nodes.",
+    appliesTo: ["agentic_workflows"], domainLabel: "Domain", domainPlaceholder: "Payments, identity…",
+    roleLabel: "Role", rolePlaceholder: "QA architect…", typeLabel: "Skill focus", typePlaceholder: "Review, summarize, design…",
+    formatLabel: "Output guidance", formatPlaceholder: "Findings with supporting sources…",
+    countLabel: "Count", countUnit: "results", showCount: false,
+    promptLabel: "Skill instructions", promptPlaceholder: "Describe the repeatable task, expected output, and boundaries.",
+  },
   requirement_creation: {
     triggerLabel: "Story templates",
     contextLabel: "Story creation prompt library",
@@ -171,10 +186,10 @@ const PROMPT_SCOPE_CONFIGS: Record<AiPromptScope, PromptScopeConfig> = {
   }
 };
 
-const isAiPromptScope = (scope: string | undefined): scope is AiPromptScope =>
+const isAiPromptLibraryScope = (scope: string | undefined): scope is AiPromptLibraryScope =>
   Boolean(scope && scope in PROMPT_SCOPE_CONFIGS);
 
-const getPromptScopeConfig = (scope: AiPromptScope) => PROMPT_SCOPE_CONFIGS[scope];
+const getPromptScopeConfig = (scope: AiPromptLibraryScope) => PROMPT_SCOPE_CONFIGS[scope];
 
 type Draft = {
   name: string;
@@ -205,7 +220,7 @@ function compactJoin(items: Array<string | null | undefined>) {
 }
 
 export function renderAiPromptTemplate(template: AiPromptTemplate) {
-  if (!isAiPromptScope(template.scope)) {
+  if (!isAiPromptLibraryScope(template.scope)) {
     return String(template.prompt_text || "").trim();
   }
 
@@ -236,7 +251,7 @@ export function AiPromptTemplatePicker({
   appTypeId?: string;
   onApply: (prompt: string, template: AiPromptTemplate) => void;
   disabled?: boolean;
-  scope?: AiPromptScope;
+  scope?: AiPromptLibraryScope;
   triggerLabel?: string;
 }) {
   const queryClient = useQueryClient();
@@ -451,11 +466,11 @@ export function AiPromptTemplatePicker({
                       />
                     </div>
                   </div>
-                  <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(null)} type="button"><AddIcon size={15} /><span>New template</span></button>
+                  <button className="ghost-button compact" disabled={saveTemplate.isPending} onClick={() => selectTemplate(null)} type="button"><AddIcon size={15} /><span>{scope === "workflow_skill" ? "New skill" : "New template"}</span></button>
                 </div>
                 {editingTemplate?.built_in ? <p className="ai-prompt-template-edit-note">Saving these changes creates a template for this project.</p> : null}
                 <fieldset className="record-grid ai-prompt-template-fields" disabled={saveTemplate.isPending} onChange={() => setSavedMessage("")}>
-                  <FormField label="Template name">
+                  <FormField label={scope === "workflow_skill" ? "Skill name" : "Template name"}>
                     <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Checkout role-based regression" />
                   </FormField>
                   <FormField label="Description">

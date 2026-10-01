@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const { INTEGRATION_TYPE_OPTIONS } = require('../../../platform/backend/src/domain/catalog.js');
+const { INTEGRATION_TYPE_OPTIONS } = createRequire(import.meta.url)('../../../platform/backend/src/domain/catalog.js');
 const root = new URL('../../../platform/frontend/', import.meta.url);
 const fixture = `
 import React from 'react';

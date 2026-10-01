@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const connections = require("../../backend/workflows/connections");
 const mcp = require("../../backend/workflows/mcpClient");
+const settings = require("../../backend/workflows/connectionSettings");
+test.beforeEach(t => t.mock.method(settings._internals.store, "list", async () => []));
 const operations = require("../../backend/workflows/nodeOperations");
 async function server(t, handler) {
   const instance = http.createServer(handler);
@@ -58,10 +60,10 @@ test("HTTP uses a scoped connection, pins destinations, redacts credentials, and
   assert.equal(result.data.ok, true);
   assert.equal(result.data.authorization, "[REDACTED]");
   assert.doesNotMatch(
-    JSON.stringify(connections.list("p")),
+    JSON.stringify(await connections.list("p")),
     /connection-fixture-secret|secretEnv/,
   );
-  assert.deepEqual(connections.list("other"), []);
+  assert.deepEqual(await connections.list("other"), []);
   await assert.rejects(
     connections.callHttp({ projectId: "other", data: { connectionId: "api" } }),
     { statusCode: 403 },

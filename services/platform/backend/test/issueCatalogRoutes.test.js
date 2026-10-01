@@ -46,7 +46,7 @@ test('Bug metric and page routes authenticate and authorize before querying eith
 
 test('Bug list pages and metric routes pass identical server filters without materializing the catalog', async () => {
   const { calls, handlers } = await fixture();
-  const filters = { project_id: 'p', q: 'payment %_', status: 'open', priority: 'High', assignee_id: '__unassigned__' };
+  const filters = { project_id: 'p', q: 'payment %_', status: 'open', priority: 'High', assignee_id: '__unassigned__', user_id: 'reporter' };
   await handlers.get('/feedback')(request({ ...filters, include_page: 'true', include_total: 'false', page_size: '25', cursor: 'next' }));
   await handlers.get('/feedback/metrics')(request(filters));
   assert.deepEqual(calls.map(call => call.name), ['getIssuePage', 'getIssueMetrics']);

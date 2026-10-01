@@ -108,6 +108,21 @@ test("Bug edits record exact previous/new values and the editor independently of
   assert.equal(event.created_at, "2026-09-09T10:00:00.000Z");
 });
 
+test("Creating on behalf of a reporter keeps the actual creator in history, and reporter changes are audited", async (t) => {
+  const state = installDatabase(t);
+  const { id } = await issues.createIssue(createPayload, { actorId: "editor" });
+  assert.equal(state.issue.user_id, "reporter");
+  assert.equal(state.events[0].actor_id, "editor");
+  assert.equal(state.events[0].actor_name, "Editing User");
+  await issues.updateIssue(id, { user_id: "editor" }, { actorId: "reporter" });
+  assert.equal((await issues.getIssueItem(id)).user_id, "editor");
+  const event = state.events.at(-1);
+  assert.equal(event.actor_id, "reporter");
+  assert.equal(event.changes[0].field, "user_id");
+  assert.equal(event.changes[0].old_display, "Original Reporter");
+  assert.equal(event.changes[0].new_display, "Editing User");
+});
+
 test("Clearing QA Root Cause persists null and produces an explicit history change", async (t) => {
   const state = installDatabase(t);
   const { id } = await issues.createIssue(createPayload);
@@ -159,7 +174,7 @@ test("History reads enforce project permission and edits use the authenticated a
   const calls = [];
   let allowed = false;
   const service = {
-    getIssueItem: async (id) => ({ id, project_id: "project-1" }),
+    getIssueItem: async (id) => ({ id, project_id: "project-1", user_id: "reporter" }),
     getIssueHistory: async (id) => { calls.push(["history", id]); return []; },
     updateIssue: async (id, data, context) => { calls.push(["update", id, context.actorId]); return { updated: true }; }
   };
@@ -189,4 +204,56 @@ test("History reads enforce project permission and edits use the authenticated a
   await handlers.get("PUT /feedback/:id")(req);
   assert.ok(calls.some(([action, code, project]) => action === "permission" && code === "feedback.view" && project === "project-1"));
   assert.ok(calls.some(([action, id, actor]) => action === "update" && id === "bug-1" && actor === "authenticated-editor"));
+});
+
+test("Defect routes default the reporter, accept project users and keep the authenticated audit actor", async () => {
+  const handlers = new Map(), writes = [];
+  let allowMembers = true;
+  const service = {
+    getIssueItem: async id => ({ id, project_id: "project-1", user_id: "former-member" }),
+    createIssue: async (input, context) => { writes.push({ input, context }); return { id: "new" }; },
+    updateIssue: async (id, input, context) => { writes.push({ id, input, context }); return { updated: true }; }
+  };
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve("../../../testing/backend/routes/issues.routes"), "utf8"), {
+    module, require: name => {
+      if (name === "../services/issues.service") return service;
+      if (name === "@hellotest/platform/backend/public/projectAccess") return { getProject: async (id, userId) => {
+        if (!["creator", "reporter"].includes(userId)) throw new Error("Access denied");
+        return { id };
+      } };
+      return {};
+    }
+  });
+  await module.exports({
+    authenticate: async () => {}, validate: () => {},
+    requirePermission: code => async () => {
+      if (code === "project_member.view" && !allowMembers) throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    },
+    get() {}, delete() {},
+    post: (route, handler) => handlers.set(`POST ${route}`, handler),
+    put: (route, handler) => handlers.set(`PUT ${route}`, handler)
+  });
+  const request = body => ({ params: { id: "existing" }, user: { id: "creator" }, body: { project_id: "project-1", title: "Failure", message: "Observed failure", ...body } });
+  for (const base of ["/feedback", "/issues"]) {
+    await handlers.get(`POST ${base}`)(request({}));
+    assert.equal(writes.at(-1).input.user_id, "creator");
+    await handlers.get(`POST ${base}`)(request({ user_id: "reporter", actorId: "forged" }));
+    assert.equal(writes.at(-1).input.user_id, "reporter");
+    assert.equal(writes.at(-1).context.actorId, "creator");
+    await handlers.get(`PUT ${base}/:id`)(request({ user_id: "reporter" }));
+    assert.equal(writes.at(-1).input.user_id, "reporter");
+    assert.equal(writes.at(-1).context.actorId, "creator");
+    for (const user_id of ["outsider", " "]) {
+      const count = writes.length;
+      await assert.rejects(handlers.get(`POST ${base}`)(request({ user_id })), { statusCode: 400 });
+      await assert.rejects(handlers.get(`PUT ${base}/:id`)(request({ user_id })), { statusCode: 400 });
+      assert.equal(writes.length, count);
+    }
+    allowMembers = false;
+    await assert.rejects(handlers.get(`POST ${base}`)(request({ user_id: "reporter" })), { statusCode: 403 });
+    await handlers.get(`PUT ${base}/:id`)(request({ user_id: "former-member" }));
+    assert.equal(writes.at(-1).input.user_id, "former-member", "Unchanged historical reporters remain valid");
+    allowMembers = true;
+  }
 });

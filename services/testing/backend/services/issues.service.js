@@ -174,7 +174,7 @@ const deriveTestCaseImpactScope = async ({ projectId, testCaseIds = [] } = {}) =
   };
 };
 
-exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }) => {
+exports.createIssue = async ({ project_id, user_id, title, message, status, regression, linked_test_case_ids, linked_test_suite_ids, linked_module_ids, linked_requirement_ids, labels, ...details }, { actorId = user_id } = {}) => {
   if (!project_id || !user_id || !title || !message) {
     throw new Error("Missing required fields");
   }
@@ -245,7 +245,7 @@ exports.createIssue = async ({ project_id, user_id, title, message, status, regr
     );
 
     await issueLinks.replaceManualLinks({ issueId: id, projectId: project_id, testCaseIds: linked_test_case_ids, requirementIds: resolvedRequirementIds });
-    await issueHistory.record({ issueId: id, actorId: user_id, after: await exports.getIssueItem(id) });
+    await issueHistory.record({ issueId: id, actorId, after: await exports.getIssueItem(id) });
   });
   await transaction();
 

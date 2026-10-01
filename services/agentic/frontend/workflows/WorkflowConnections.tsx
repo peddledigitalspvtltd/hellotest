@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { IconPlugConnected, IconLock } from "@tabler/icons-react";
 import { agenticApi } from "../api.client";
@@ -7,6 +8,8 @@ export function WorkflowConnections({ projectId }: { projectId: string }) {
     queryFn: () => agenticApi.agenticWorkflows.connections(projectId),
     enabled: Boolean(projectId),
     staleTime: 30000,
+    refetchOnWindowFocus: "always",
+    refetchOnMount: "always",
   });
   return (
     <section className="studio-connections" aria-label="Project connections">
@@ -51,6 +54,7 @@ export function WorkflowConnections({ projectId }: { projectId: string }) {
           add an API or MCP connection.
         </p>
       )}
+      <Link to="/admin-space?section=integrations&integration=mcpServers" target="_blank" rel="noreferrer">Manage connections in Integrations</Link>
     </section>
   );
 }

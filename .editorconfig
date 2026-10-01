@@ -1,0 +1,8 @@
+root = true
+
+# Match .gitattributes when editing files, including copies made without Git.
+[*]
+end_of_line = lf
+
+[*.{bat,cmd}]
+end_of_line = crlf

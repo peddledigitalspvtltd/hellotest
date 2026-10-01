@@ -23,9 +23,10 @@ function setup(t, review = async () => response()) {
     if (rows.has(row.id)) return null;
     rows.set(row.id, structuredClone(row)); return { id: row.id };
   });
-  t.mock.method(runtime._internals.store, "save", async (id, status, nodes, output) => {
+  t.mock.method(runtime._internals.store, "save", async (id, status, nodes, output, expectedNodes = null) => {
     const row = rows.get(id);
     if (!row || row.status !== "running") return null;
+    if (expectedNodes && JSON.stringify(expectedNodes) !== JSON.stringify(row.node_results)) return null;
     rows.set(id, structuredClone({ ...row, status, node_results: nodes, output_payload: output, completed_at: status === "running" ? null : new Date().toISOString() }));
     return { id };
   });
@@ -155,6 +156,27 @@ test("a cancellation persisted by another worker is observed and cannot be overw
   rows.get(run.id).status = "cancelled";
   await finished(run.id);
   assert.equal(rows.get(run.id).status, "cancelled");
+});
+
+test("cancelling a stale snapshot preserves progress saved while stopping and records terminal events", async t => {
+  let began; const started = new Promise(resolve => { began = resolve; });
+  const { rows } = setup(t, async () => { began(); return new Promise(() => {}); });
+  const stale = await runtime.start(workflow(), {}, user); await started;
+  const save = runtime._internals.store.save;
+  let raced = false;
+  t.mock.method(runtime._internals.store, 'save', async (id, status, nodes, output, expectedNodes) => {
+    if (status === 'cancelled' && !raced) {
+      raced = true;
+      rows.get(id).node_results[0].output.request.progress = 'saved by another worker';
+    }
+    return save(id, status, nodes, output, expectedNodes);
+  });
+  const cancelled = await runtime.cancel(stale, user);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.node_results[0].output.request.progress, 'saved by another worker');
+  assert.equal(cancelled.node_results[1].logs.at(-1).code, 'WORKFLOW_CANCELLED');
+  assert.match(cancelled.node_results[2].skip_reason, /before this step started/);
+  await finished(stale.id);
 });
 
 test("safe transient step retries are counted and permission errors never retry", async t => {
@@ -299,7 +321,7 @@ test('condition selects a branch, skips the other and preserves mapped output', 
   assert.equal(done.status,'completed');
   assert.equal(done.node_results.find(n=>n.node_id==='yes').status,'skipped');
   assert.equal(done.node_results.find(n=>n.node_id==='no').output.data.answer,'rejected');
-  assert.deepEqual(done.node_results.at(-1).output.data.map(n=>n.node_id),['no']);
+  assert.deepEqual(done.node_results.at(-1).output.sources.map(n=>n.node_id),['no']);
 });
 
 test('For each maps every item and rejects oversized iterations without silently truncating', async t => {
@@ -309,7 +331,7 @@ test('For each maps every item and rejects oversized iterations without silently
   const run = await runtime.start(graph,{request_id:'iteration-good',input_payload:{project:'checkout',items:[{title:'One'},{title:'Two'}]}},user);
   const done = await finished(run.id);
   assert.equal(done.status,'completed');
-  assert.deepEqual(done.node_results[1].output.data.map(item=>item.data),[{title:'One',project:'checkout'},{title:'Two',project:'checkout'}]);
+  assert.deepEqual(done.node_results[1].output.data,[{title:'One',project:'checkout'},{title:'Two',project:'checkout'}]);
   assert.equal(done.node_results[1].progress.percent,100);
   const tooMany = await runtime.start(graph,{request_id:'iteration-limit',input_payload:{items:[1,2,3]}},user);
   const failed = await finished(tooMany.id);
@@ -328,8 +350,8 @@ test('custom AI and iterative AI pass connected input to the bounded review adap
   graph.nodes[1] = node('story','loop',{loopSourceKey:'input.items',loopAction:'customAI',loopMaxIterations:'2',prompt:'Review the current item'});
   const loopRun = await runtime.start(graph,{request_id:'custom-ai-loop',input_payload:{items:[{id:'A'},{id:'B'}]}},user);
   assert.equal((await finished(loopRun.id)).node_results[1].output.processed,2);
-  assert.match(requests[1].prompt,/"item":\{"id":"A"\}/);
-  assert.match(requests[2].prompt,/"item":\{"id":"B"\}/);
+  assert.deepEqual(requests[1].workflow_policy.connected_input.input,{id:"A"});
+  assert.deepEqual(requests[2].workflow_policy.connected_input.input,{id:"B"});
 });
 
 test('explicit error routing preserves failures and skips success paths', async t => {
@@ -380,7 +402,7 @@ test('evidence nodes use the project retrieval contract and preserve results thr
     assert.deepEqual(calls.at(-1).filters.source_kinds,sourceKinds);
     assert.equal(done.node_results.find(n=>n.node_id==='evidence').output.context_packet_id,'packet-1');
     assert.equal(done.node_results.find(n=>n.node_id==='log').output.data[0].content,'Release ready');
-    assert.equal(done.node_results.find(n=>n.node_id==='merge').output.data[0].output.data[0].evidence_id,'e1');
+    assert.equal(done.node_results.find(n=>n.node_id==='merge').output.data[0].evidence_id,'e1');
   }
   t.mock.method(permissions,'hasPermission',async (_user,permission)=>permission!=='knowledge.view');
   const graph=workflow(); graph.nodes[1]=node('story','knowledgeTool');
@@ -388,4 +410,127 @@ test('evidence nodes use the project retrieval contract and preserve results thr
   const done=await finished(denied.id);
   assert.equal(done.status,'failed');
   assert.equal(calls.length,3,'revoked knowledge access never reaches retrieval');
+});
+
+test('a matched field in ordinary HTTP or transform data never selects condition branches', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes = [node('request','trigger'), node('value','transform',{transformMapping:'{"matched":false,"title":"Still runs"}'}),node('log','log'),node('finish','output')];
+  graph.edges = [{source:'request',target:'value'},{source:'value',target:'log'},{source:'log',target:'finish'}];
+  const done = await finished((await runtime.start(graph,{},user)).id);
+  assert.equal(done.status,'completed');
+  assert.deepEqual(done.node_results.at(-1).output.data,{matched:false,title:'Still runs'});
+  assert.deepEqual(done.node_results[2].input.input,done.node_results[1].output.data);
+});
+
+test('AI execution sends selected skills, guardrails, tool restrictions and additional context', async t => {
+  const {requests} = setup(t);
+  const graph = workflow();
+  Object.assign(graph.nodes[1].data,{kind:'customAI',skills:[{id:'skill-1',name:'Boundary review',instructions:'Check zero, one and maximum quantities.'}],guardrails:'Do not assume an inventory policy.',contextInstructions:'Inventory is reviewed daily.',allowedTools:[],knowledgeScope:''});
+  const done = await finished((await runtime.start(graph,{input_payload:{quantity:2}},user)).id);
+  assert.equal(done.status,'completed');
+  assert.match(requests[0].prompt,/Check zero, one and maximum/);
+  assert.match(requests[0].prompt,/Do not assume an inventory policy/);
+  assert.match(requests[0].prompt,/Inventory is reviewed daily/);
+  assert.deepEqual(requests[0].workflow_policy.allowed_tools,[]);
+  assert.deepEqual(requests[0].context_scopes,[]);
+  assert.equal(requests[0].workflow_policy.custom_task,true);
+  assert.equal(requests[0].workflow_policy.connected_input.input.quantity,2);
+});
+
+test('merge appends branch data and subsequent mapping references both immediate data and source labels', async t => {
+  setup(t);
+  const graph = workflow();
+  graph.nodes=[node('request','trigger'),node('one','transform',{transformMapping:'{"title":"One"}'}),node('two','transform',{transformMapping:'{"title":"Two"}'}),node('merge','aggregator',{outputKey:'combined'}),node('map','transform',{transformMapping:'{"first":"$input.0.title","all":"$nodes.combined.data"}'}),node('finish','output')];
+  graph.edges=[{source:'request',target:'one'},{source:'request',target:'two'},{source:'one',target:'merge'},{source:'two',target:'merge'},{source:'merge',target:'map'},{source:'map',target:'finish'}];
+  const done=await finished((await runtime.start(graph,{},user)).id);
+  assert.equal(done.status,'completed');
+  assert.deepEqual(done.node_results.at(-1).output.data,{first:'One',all:[{title:'One'},{title:'Two'}]});
+});
+
+test('an unconnected condition branch does not report a completed output',async t=>{
+  setup(t);
+  const graph=workflow();
+  graph.nodes=[node('request','trigger'),node('check','condition',{conditionPath:'input.approved',conditionValue:'true'}),node('finish','output')];
+  graph.edges=[{source:'request',target:'check'},{source:'check',target:'finish',sourceHandle:'true'}];
+  const done=await finished((await runtime.start(graph,{input_payload:{approved:false}},user)).id);
+  assert.equal(done.status,'needs_review');assert.deepEqual(done.output_payload.results,[]);
+  assert.match(done.output_payload.summary,/did not reach/);
+});
+
+test('readiness rejects ambiguous output references, duplicate wires and ignored retry settings',()=>{
+  const graph=workflow();
+  graph.nodes[0].data.outputKey='shared';graph.nodes[1].data.outputKey='shared';
+  assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/unique output label/);
+  delete graph.nodes[1].data.outputKey;
+  graph.edges.push({...graph.edges[0],id:'duplicate'});
+  assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/duplicate connections/);
+  graph.edges.pop();graph.nodes[1]=node('story','transform',{retryCount:1});
+  assert.match(runtime.readiness(graph).blockers.map(item=>item.message).join(' '),/Set retries to zero/);
+});
+
+test('invalid workflow inputs are rejected instead of being silently replaced',async t=>{
+  const {rows}=setup(t);
+  for(const input_payload of [null,[],false,'{"task":"hello"}',12]) await assert.rejects(runtime.start(workflow(),{input_payload},user),/JSON object/);
+  assert.equal(rows.size,0);
+});
+
+test('HTTP retries produce diagnostic events, honor a zero delay and log actual messages',async t=>{
+  setup(t);const connections=require('../../../agentic/backend/workflows/connections');let calls=0;
+  t.mock.method(connections,'callHttp',async()=>{if(++calls===1)throw Object.assign(new Error('transient'),{statusCode:500,publicMessage:'Service busy'});return {data:{status:'ready'}};});
+  const graph=workflow();graph.nodes=[node('request','trigger'),node('http','apiTool',{apiUrl:'https://example.test',apiMethod:'GET',retryCount:2,retryDelayMs:0}),node('log','log',{logMessage:'Current state: {{ $input.status }}',logLevel:'audit'}),node('finish','output')];
+  graph.edges=[{source:'request',target:'http'},{source:'http',target:'log'},{source:'log',target:'finish'}];
+  const done=await finished((await runtime.start(graph,{},user)).id);
+  assert.equal(done.status,'completed');const http=done.node_results[1];
+  assert.equal(http.attempts,2);assert.equal(http.logs.find(item=>item.event==='retry_scheduled').retry_delay_ms,0);
+  assert.equal(http.logs.find(item=>item.event==='retry_scheduled').status_code,500);
+  assert.ok(Number.isFinite(http.duration_ms));
+  const log=done.node_results[2];assert.equal(log.logs.find(item=>item.event==='user_log').message,'Current state: ready');
+  assert.ok(log.logs.find(item=>item.event==='node_completed').output_size_bytes>0);
+});
+
+test('step deadlines are distinct from workflow deadlines and supply structured recovery input',async t=>{
+  setup(t,async()=>new Promise(()=>{}));
+  const graph=workflow();graph.nodes[1].data.timeoutMs=1000;
+  let done=await finished((await runtime.start(graph,{input_payload:{release:'R1'}},user)).id);
+  assert.equal(done.status,'failed');assert.equal(done.output_payload.error_code,'NODE_TIMEOUT');
+  assert.equal(done.node_results[1].error_details.code,'NODE_TIMEOUT');
+  assert.match(done.node_results[1].error,/step timeout/);
+  graph.nodes[1].data.onError='errorOutput';graph.nodes.splice(2,0,node('recover','errorHandler'));
+  graph.edges.push({source:'story',target:'recover'},{source:'recover',target:'finish'});
+  done=await finished((await runtime.start(graph,{input_payload:{release:'R1'}},user)).id);
+  assert.equal(done.status,'needs_review');
+  const recovered=done.node_results.find(item=>item.node_id==='recover').output.data[0];
+  assert.equal(recovered.error_details.code,'NODE_TIMEOUT');assert.equal(recovered.input.release,'R1');
+  assert.equal(done.node_results[1].logs.some(item=>item.event==='error_routed'),true);
+});
+
+test('disabled skills never reach the model and each AI loop review remains traceable',async t=>{
+  let count=0;const {requests}=setup(t,async()=>response('ready_for_review',`item-review-${++count}`));
+  const graph=workflow();graph.nodes[1]=node('story','loop',{loopAction:'customAI',loopSourceKey:'input.items',loopMaxIterations:2,prompt:'Review item',transformMapping:'unused invalid JSON',skills:[{id:'on',name:'First',instructions:'Follow this active instruction'},{id:'off',name:'Second',instructions:'Do not include paused guidance',enabled:false}]});
+  const done=await finished((await runtime.start(graph,{input_payload:{items:['a','b']}},user)).id);
+  assert.equal(done.status,'completed');assert.equal(done.node_results[1].attempts,2);
+  assert.match(requests[0].prompt,/active instruction/);assert.doesNotMatch(requests[0].prompt,/paused guidance/);
+  assert.deepEqual(requests.map(request=>request.workflow_policy.connected_input.input),['a','b']);
+  assert.deepEqual(requests.map(request=>request.workflow_policy.connected_input.request),[{items:['a','b']},{items:['a','b']}]);
+  assert.deepEqual(done.output_payload.review_session_ids,['item-review-1','item-review-2']);
+  assert.deepEqual(done.node_results.at(-1).output.reviews.map(item=>item.item_index),[0,1]);
+  assert.equal(done.node_results[1].logs.filter(item=>item.event==='attempt_started').length,2);
+});
+
+test('all HTTP node variants preserve null, false and empty array output as downstream input',async t=>{
+  setup(t);const connections=require('../../../agentic/backend/workflows/connections');let result;
+  t.mock.method(connections,'callHttp',async()=>({data:result}));
+  for(const kind of ['apiTool','apiAgent','webAgent'])for(const value of [null,false,[]]) {
+    result=value;const graph=workflow();graph.nodes[1]=node('story',kind,{apiUrl:'https://example.test',apiMethod:'GET'});
+    const done=await finished((await runtime.start(graph,{},user)).id);
+    assert.equal(done.status,'completed');assert.deepEqual(done.node_results.at(-1).output.data,value);
+  }
+});
+
+test('specialist variants use the same bounded review contract and conditions compare object contents',async t=>{
+  setup(t);const graph=workflow();graph.nodes[1].data.kind='llmAgent';
+  assert.equal((await finished((await runtime.start(graph,{},user)).id)).status,'completed');
+  const {condition}=require('../../../agentic/backend/workflows/nodeOperations')._internals;
+  assert.equal(condition({conditionPath:'input',conditionValue:'{"b":2,"a":1}'},{input:{a:1,b:2}}),true);
 });

@@ -1,5 +1,4 @@
-import { capabilityView } from "../src/platform/capabilities/CapabilityView";
-const IntegrationsPage = capabilityView<import("react").ComponentProps<typeof import("@hellotest/integration/frontend/pages/IntegrationsPage")["IntegrationsPage"]> & {}>("integration", "IntegrationsPage", () => import("@hellotest/integration/frontend/pages/IntegrationsPage"), "integration");
+import { IntegrationsWorkspacePage, useWorkflowProviderConnections } from "./IntegrationsWorkspacePage";
 import { metricTitle } from "../src/shared/lib/metricTitle";
 import { useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -51,6 +50,7 @@ export function AdminSpacePage() {
     queryFn: () => api.integrations.list(),
     enabled: isSectionEnabled("integrations")
   });
+  const workflowProviders = useWorkflowProviderConnections(isSectionEnabled("integrations"));
 
 
   const requestedSection = normalizeSection(searchParams.get("section")) || (searchParams.get("view") === "roles" ? "roles" : "users");
@@ -58,7 +58,7 @@ export function AdminSpacePage() {
   const activeSection = visibleSections.includes(requestedSection) ? requestedSection : (visibleSections[0] || "settings");
   const users = asArray(usersQuery.data);
   const roles = asArray(rolesQuery.data);
-  const integrations = asArray(integrationsQuery.data);
+  const integrations = [...asArray(integrationsQuery.data), ...(workflowProviders.enabled ? workflowProviders.connections.data || [] : []).map(connection => ({ is_active: connection.enabled }))];
   const activeIntegrations = integrations.filter((integration) => integration.is_active).length;
   const adminUsers = users.filter((user) => user.role === "admin").length;
 
@@ -142,6 +142,7 @@ export function AdminSpacePage() {
   };
 
   if (searchParams.get("section") === "health") return <Navigate to="/ops-telemetry?monitoring=health" replace />;
+  if (searchParams.get("section") === "settings" && searchParams.get("settings") === "mcpServers") return <Navigate to="/admin-space?section=integrations&integration=mcpServers" replace />;
 
   if (!visibleSections.length) {
     return (
@@ -203,7 +204,7 @@ export function AdminSpacePage() {
       <section className="admin-space-section" aria-label={`${activeSection} section`}>
         {activeSection === "users" ? <PeoplePage embedded forcedView="users" /> : null}
         {activeSection === "roles" ? <PeoplePage embedded forcedView="roles" /> : null}
-        {activeSection === "integrations" ? <IntegrationsPage embedded /> : null}
+        {activeSection === "integrations" ? <IntegrationsWorkspacePage embedded /> : null}
         {activeSection === "settings" ? <SettingsPage embedded /> : null}
       </section>
     </div>

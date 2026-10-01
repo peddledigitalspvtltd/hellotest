@@ -11,7 +11,7 @@ const { requireEntityPermission } = require("../services/entityScope.service");
 
 const reporter = { id: "reporter", role: "member", status: "active" };
 const headers = { authorization: "Bearer reporter-fixture" };
-const bug = { project_id: "project-a", user_id: "forged-author", title: "Checkout fails", message: "Payment submission fails." };
+const bug = { project_id: "project-a", title: "Checkout fails", message: "Payment submission fails." };
 const reporterPermissions = ["feedback.view", "feedback.create", "attachment.view", "attachment.create", "comment.view", "comment.create"];
 
 async function fixture(t, { permissions = reporterPermissions, apiKeyScope, featuresEnabled = true } = {}) {
@@ -42,11 +42,11 @@ async function fixture(t, { permissions = reporterPermissions, apiKeyScope, feat
     }
   }));
   t.mock.method(projectService, "getProject", async (projectId, userId) => {
-    if (projectId !== "project-a" || userId !== reporter.id) throw Object.assign(new Error("Project access denied"), { statusCode: 403 });
+    if (projectId !== "project-a" || ![reporter.id, "project-colleague"].includes(userId)) throw Object.assign(new Error("Project access denied"), { statusCode: 403 });
     return { id: projectId };
   });
   t.mock.method(issueService, "getIssueItem", async (id) => ({ id, project_id: id === "foreign-bug" ? "project-b" : "project-a", user_id: "another-reporter" }));
-  t.mock.method(issueService, "createIssue", async (input) => { writes.push({ kind: "create", input }); return { id: "new-bug", ...input }; });
+  t.mock.method(issueService, "createIssue", async (input, context) => { writes.push({ kind: "create", input, context }); return { id: "new-bug", ...input }; });
   t.mock.method(issueService, "updateIssue", async () => { writes.push({ kind: "update" }); return {}; });
   t.mock.method(issueService, "deleteIssue", async () => { writes.push({ kind: "delete" }); return {}; });
   t.mock.method(draftService, "preview", async (input) => { previews.push(input); return { draft: { title: input.intent } }; });
@@ -78,6 +78,25 @@ test("Reporter can create Bugs through both route aliases using the authenticate
   }
   assert.equal(writes.length, 2);
   assert.ok(writes.every(({ input }) => input.project_id === "project-a" && input.user_id === reporter.id));
+});
+
+test("Selecting another reporter requires member access, project membership and preserves the authenticated creator", async (t) => {
+  const { app, writes, grants } = await fixture(t);
+  for (const url of ["/issues", "/feedback"]) {
+    grants.delete("project_member.view");
+    let response = await app.inject({ method: "POST", url, headers, payload: { ...bug, user_id: "project-colleague" } });
+    assert.equal(response.statusCode, 403, response.body);
+    grants.add("project_member.view");
+    for (const user_id of ["outside-project", " ", null]) {
+      response = await app.inject({ method: "POST", url, headers, payload: { ...bug, user_id } });
+      assert.equal(response.statusCode, 400, response.body);
+    }
+    response = await app.inject({ method: "POST", url, headers, payload: { ...bug, user_id: "project-colleague", actorId: "forged" } });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(writes.at(-1).input.user_id, "project-colleague");
+    assert.equal(writes.at(-1).context.actorId, reporter.id);
+  }
+  assert.equal(writes.length, 2);
 });
 
 test("create-only Reporter cannot update, delete, bulk-delete or triage Bugs", async (t) => {

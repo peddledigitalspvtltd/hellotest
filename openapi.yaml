@@ -5373,6 +5373,81 @@ paths:
         - { name: project_id, in: query, required: true, schema: { type: string } }
       responses:
         "200": { description: Available project connections }
+  /agentic-workflows/admin/connections:
+    get:
+      tags: [Agentic Workflows]
+      summary: List managed MCP and HTTP connections in the current project (integration.view)
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Connection settings without credential values }
+    post:
+      tags: [Agentic Workflows]
+      summary: Create a managed workflow connection scoped to the current project (integration.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowConnectionSettings"
+      responses:
+        "200": { description: Saved connection with credential-presence indicator }
+        "400": { description: Invalid connection policy }
+        "503": { description: Credential encryption key not configured }
+  /agentic-workflows/admin/connections/discover:
+    post:
+      tags: [Agentic Workflows]
+      summary: Discover tools using unsaved MCP provider settings (integration.manage)
+      description: Requires current project membership. Initializes the server and reads its tool catalog without saving settings or invoking tools. Supply connection_id to reuse that project's saved credentials while editing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/WorkflowConnectionSettings"
+                - type: object
+                  properties:
+                    connection_id: { type: string }
+      responses:
+        "200": { description: Tool definitions with input/output schemas and annotations, serverInfo, protocolVersion and discovered_at }
+        "400": { description: Invalid connection settings }
+        "403": { description: Insufficient integration or project access }
+        "404": { description: Saved connection unavailable in the current project }
+        "502": { description: MCP server could not be reached or returned an invalid catalog }
+  /agentic-workflows/admin/connections/{connectionId}:
+    parameters:
+      - { name: connectionId, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Agentic Workflows]
+      summary: Update or disable a managed workflow connection (integration.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowConnectionSettings"
+      responses:
+        "200": { description: Updated connection without credential values }
+        "404": { description: Connection not found }
+    delete:
+      tags: [Agentic Workflows]
+      summary: Delete a managed workflow connection (integration.manage)
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Connection deleted; bound nodes require a replacement }
+  /agentic-workflows/admin/connections/{connectionId}/discover:
+    parameters:
+      - { name: connectionId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Agentic Workflows]
+      summary: Test a saved MCP server and discover tools for administrator selection (integration.manage)
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Server tool names, descriptions and input schemas; discovery does not enable or invoke tools }
+        "502": { description: MCP connection or protocol failure }
   /agentic-workflows/connections/mcp-tools:
     post:
       tags: [Agentic Workflows]
@@ -6598,6 +6673,38 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    WorkflowConnectionSettings:
+      type: object
+      required: [name, url, project_id]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 120 }
+        kind: { type: string, enum: [mcp, http], default: mcp }
+        transport: { type: string, enum: [streamable-http], description: MCP transport; protocol version and session headers are negotiated automatically }
+        timeoutMs: { type: integer, minimum: 1000, maximum: 70000, default: 30000 }
+        url: { type: string, format: uri, description: "HTTP(S) endpoint without credentials, query parameters or fragment" }
+        project_id: { type: string, description: Current project. A connection cannot be reassigned to another project. }
+        tools: { type: array, maxItems: 100, items: { type: string }, description: Exact tool names that workflows may call }
+        methods: { type: array, items: { type: string, enum: [GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS] } }
+        authType: { type: string, enum: [none, bearer, basic, header], default: none }
+        header: { type: string, default: Authorization }
+        username: { type: string, description: Display name for Basic authentication; secret contains username:password }
+        headers:
+          type: object
+          maxProperties: 16
+          additionalProperties: { type: string, maxLength: 2048 }
+          description: Additional request headers. Values are encrypted and returned as empty strings; an empty value preserves an existing header. Authentication and protocol headers are reserved.
+        toolDefinitions:
+          type: array
+          maxItems: 100
+          items: { type: object, additionalProperties: true }
+          description: Discovered tool catalog with names, descriptions, inputSchema, optional outputSchema and annotations. Maximum total size 96 KB. Execution revalidates against the live catalog.
+        serverInfo: { type: object, properties: { name: { type: string }, version: { type: string } } }
+        protocolVersion: { type: string }
+        discovered_at: { type: string, format: date-time }
+        secretEnv: { type: string, description: Optional AGENTIC_SECRET_ environment reference }
+        secret: { type: string, writeOnly: true, maxLength: 8192, description: Encrypted on save. Omit or leave empty to preserve the saved credential. }
+        allowPrivateNetwork: { type: boolean, default: false }
+        enabled: { type: boolean, default: true }
     InstanceSetupSnapshot:
       type: object
       required: [running, job]
@@ -8821,7 +8928,7 @@ components:
       type: object
       properties:
         project_id: { type: string }
-        user_id: { type: string, description: Compatibility field; authenticated creation records the acting user. }
+        user_id: { type: string, description: Reported-by user ID. Defaults to the authenticated user on creation. Selecting another reporter requires project_member.view and a user in the same project. History records the authenticated actor separately. }
         title: { type: string, minLength: 2 }
         message: { type: string, minLength: 2 }
         steps_to_reproduce: { type: string }
@@ -8862,7 +8969,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/IssueWriteFields"
         - type: object
-          required: [project_id, user_id, title, message]
+          required: [project_id, title, message]
     UpdateIssueRequest:
       $ref: "#/components/schemas/IssueWriteFields"
     IssueHistoryEntry:

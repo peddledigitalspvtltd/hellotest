@@ -40,6 +40,8 @@ export function buildIntegrationConnectionInput(payload: IntegrationConnectionIn
 }
 
 export const integrationConnectionHint: Record<IntegrationType, string> = {
+  mcp: "Discover tools from the MCP provider editor without executing them.",
+  http: "Configure allowed request methods in the HTTP provider editor.",
   llm: "Sends a small request to the selected model; provider quota may be used.",
   email: "Checks SMTP connection and authentication. No email is sent.",
   google_auth: "Checks Google OAuth setup. End-user sign-in still requires the browser flow.",

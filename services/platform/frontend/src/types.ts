@@ -1141,6 +1141,8 @@ export type AiBugTriagePreview = AiAssistedPreviewBase & {
 };
 
 export type IntegrationType =
+  | "mcp"
+  | "http"
   | "llm"
   | "jira"
   | "email"

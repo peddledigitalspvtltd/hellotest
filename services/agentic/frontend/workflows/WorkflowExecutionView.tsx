@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
 import { IconArrowLeft, IconRefresh } from "@tabler/icons-react";
 import type {
   AgenticWorkflowNode,
@@ -34,9 +35,12 @@ export function WorkflowExecutionView({
   onOpenReview: (agent: string, session: string) => void;
   onOpenSource: (agent: string, run: string) => void;
 }) {
-  const [tab, setTab] = useState<"steps" | "summary">("steps"),
+  const [tab, setTab] = useState<"steps" | "summary" | "logs">("steps"),
     [selectedId, setSelectedId] = useState(""),
     [expanded, setExpanded] = useState(false);
+  useEffect(() => { setSelectedId(""); setExpanded(false); }, [run.id]);
+  const logs = run.node_results.flatMap(result => (Array.isArray(result.logs) ? result.logs : []).map(entry => ({ ...entry as Record<string, unknown>, node_id: result.node_id, node_name: result.node_name })))
+    .sort((a, b) => String((a as Record<string, unknown>).at || "").localeCompare(String((b as Record<string, unknown>).at || "")));
   const nodes = (
     Array.isArray(run.workflow_snapshot.nodes)
       ? (run.workflow_snapshot.nodes as AgenticWorkflowNode[])
@@ -59,7 +63,9 @@ export function WorkflowExecutionView({
   ).map(decorateFlowEdge);
   const selected =
     nodes.find((node) => node.id === selectedId) ||
+    nodes.find((node) => ["failed", "interrupted", "cancelled"].includes(String(node.data.runStatus))) ||
     nodes.find((node) => node.data.runStatus === "running") ||
+    nodes.find((node) => node.data.kind === "output" && node.data.runStatus === "completed") ||
     nodes[0];
   const result = run.node_results.find((item) => item.node_id === selected?.id);
   const runtime = run.workflow_snapshot.runtime_contract as
@@ -109,6 +115,7 @@ export function WorkflowExecutionView({
           >
             Review summary
           </button>
+          <button type="button" aria-pressed={tab === "logs"} onClick={() => setTab("logs")}>Execution log</button>
         </nav>
         <span>
           {run.execution_mode !== "review"
@@ -144,7 +151,13 @@ export function WorkflowExecutionView({
               : "Preparing execution…"),
         )}
       </p>
-      {tab === "summary" ? (
+      <div className="studio-run-metrics" aria-label="Execution metrics">
+        <span><strong>{executionDuration(run.started_at || run.created_at, run.completed_at)}</strong>elapsed</span>
+        <span><strong>{run.node_results.filter(item => item.status === "completed").length}/{run.node_results.length}</strong>completed</span>
+        <span><strong>{run.node_results.filter(item => item.status === "failed").length}</strong>failed</span>
+        <span><strong>{run.node_results.filter(item => item.status === "skipped").length}</strong>skipped</span>
+      </div>
+      {tab === "logs" ? <div className="studio-run-log"><WorkflowExecutionLog logs={logs} onSelectNode={id => { setSelectedId(id); setTab("steps"); }} /></div> : tab === "summary" ? (
         <div className="studio-review-summary">
           <WorkflowReviewSummary
             run={run}
@@ -184,6 +197,7 @@ export function WorkflowExecutionView({
                       <strong>{String(item.node_name)}</strong>
                       <small>
                         {String(item.status).replace(/_/g, " ")}
+                        {item.started_at ? ` · ${executionDuration(item.started_at, item.completed_at)}` : ""}
                         {Number(item.attempts) > 1
                           ? ` · ${item.attempts} attempts`
                           : ""}

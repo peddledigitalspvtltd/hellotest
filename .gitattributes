@@ -1,0 +1,47 @@
+# Normalize all detected text to LF in Git and in every checkout, including
+# Windows with core.autocrlf=true. This covers source, tests, JSON, YAML,
+# SQL, HTML/CSS, Markdown, environment templates and other configuration.
+* text=auto eol=lf
+
+# Executable scripts and build files must retain Linux-compatible endings.
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.ps1 text eol=lf
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+*.Dockerfile text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Native Windows batch scripts use CRLF when checked out; Git stores LF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never normalize or text-merge binary assets, archives or executables.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.bz2 binary
+*.xz binary
+*.7z binary
+*.tar binary
+*.jar binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.wasm binary
+local-run/bin/hellotest-host-recorder binary

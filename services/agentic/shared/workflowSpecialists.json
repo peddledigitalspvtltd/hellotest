@@ -1,0 +1,230 @@
+{
+  "quality-orchestrator": {
+    "name": "Quality Orchestrator",
+    "description": "Reviews quality evidence and recommends a prioritized plan and specialist handoffs.",
+    "prompt": "Build a release quality plan, identify the highest-risk gaps, and show which specialist should handle each one.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "automation",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-quality-orchestrator",
+        "name": "Orchestrator review",
+        "instructions": "Reviews quality evidence and recommends a prioritized plan and specialist handoffs. Build a release quality plan, identify the highest-risk gaps, and show which specialist should handle each one."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "story-architect": {
+    "name": "Story Architect",
+    "description": "Reviews story acceptance boundaries and proposes testable criteria and Gherkin examples.",
+    "prompt": "Review the current Stories for ambiguity, missing acceptance boundaries, risks, and testability gaps.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-story-architect",
+        "name": "Story review",
+        "instructions": "Reviews story acceptance boundaries and proposes testable criteria and Gherkin examples. Review the current Stories for ambiguity, missing acceptance boundaries, risks, and testability gaps."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "test-designer": {
+    "name": "Test Design Agent",
+    "description": "Reviews test coverage and proposes traceable manual, Gherkin and automation scenarios.",
+    "prompt": "Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-test-designer",
+        "name": "Test design review",
+        "instructions": "Reviews test coverage and proposes traceable manual, Gherkin and automation scenarios. Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "automation-engineer": {
+    "name": "Automation Engineer",
+    "description": "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up.",
+    "prompt": "Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan.",
+    "scopes": [
+      "automation",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-automation-engineer",
+        "name": "Automation review",
+        "instructions": "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up. Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "run-planner": {
+    "name": "Smart Run Planner",
+    "description": "Selects impacted tests using release scope, Story traceability, risk, and execution history.",
+    "prompt": "Plan a Smart Run for the current delivery scope and explain why every selected Test Case matters.",
+    "scopes": [
+      "runs",
+      "test-cases",
+      "stories",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-run-planner",
+        "name": "Smart run review",
+        "instructions": "Selects impacted tests using release scope, Story traceability, risk, and execution history. Plan a Smart Run for the current delivery scope and explain why every selected Test Case matters."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "failure-analyst": {
+    "name": "Failure Analyst",
+    "description": "Explains failed and blocked evidence, clusters symptoms, and separates facts from hypotheses.",
+    "prompt": "Analyze recent failed and blocked runs, separate product risk from environment noise, and cite the evidence.",
+    "scopes": [
+      "runs",
+      "bugs",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-failure-analyst",
+        "name": "Run analysis review",
+        "instructions": "Explains failed and blocked evidence, clusters symptoms, and separates facts from hypotheses. Analyze recent failed and blocked runs, separate product risk from environment noise, and cite the evidence."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "bug-reporter": {
+    "name": "Defect Reporter",
+    "description": "Turns run, case, Story, and observed evidence into a concise review-ready Defect draft.",
+    "prompt": "Find the strongest recent failure evidence and prepare a review-ready Defect outline without creating it.",
+    "scopes": [
+      "runs",
+      "test-cases",
+      "stories",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-bug-reporter",
+        "name": "Defect draft review",
+        "instructions": "Turns run, case, Story, and observed evidence into a concise review-ready Defect draft. Find the strongest recent failure evidence and prepare a review-ready Defect outline without creating it."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "bug-triage": {
+    "name": "Defect Triage Agent",
+    "description": "Classifies, prioritizes, and sequences Defects while leaving the final decision with a person.",
+    "prompt": "Triage open Defects using severity, execution evidence, release scope, and traceability; explain every recommendation.",
+    "scopes": [
+      "bugs",
+      "runs",
+      "test-cases",
+      "stories",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-bug-triage",
+        "name": "Defect triage review",
+        "instructions": "Classifies, prioritizes, and sequences Defects while leaving the final decision with a person. Triage open Defects using severity, execution evidence, release scope, and traceability; explain every recommendation."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "quality-evaluator": {
+    "name": "Quality Evaluator",
+    "description": "Challenges quality claims against cited evidence and identifies unresolved review gaps.",
+    "prompt": "Evaluate current AI-assisted artifacts for grounding, completeness, traceability, and review readiness.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "automation",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-quality-evaluator",
+        "name": "Evaluator review",
+        "instructions": "Challenges quality claims against cited evidence and identifies unresolved review gaps. Evaluate current AI-assisted artifacts for grounding, completeness, traceability, and review readiness."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  },
+  "repository-curator": {
+    "name": "Object Repository Curator",
+    "description": "Reviews locator intent, reuse, stability, healing evidence, and approval-ready repository changes.",
+    "prompt": "Review repository stability and duplication, then prioritize approval-ready locator improvements.",
+    "scopes": [
+      "automation",
+      "test-cases",
+      "runs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-repository-curator",
+        "name": "Repository review",
+        "instructions": "Reviews locator intent, reuse, stability, healing evidence, and approval-ready repository changes. Review repository stability and duplication, then prioritize approval-ready locator improvements."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ]
+  }
+}

@@ -17,7 +17,7 @@ test('draft tests strip masked secrets, keep overrides and never attach another 
   const value = buildIntegrationConnectionInput({ type: 'email', username: 'new-user', config: { password: '••••••', host: 'new-host' } }, { id: 'saved', type: 'email' });
   assert.equal(value.integration_id, 'saved'); assert.equal(value.config.password, undefined); assert.equal(value.config.host, 'new-host');
   assert.equal(buildIntegrationConnectionInput({ type: 'github' }, { id: 'saved', type: 'email' }).integration_id, undefined);
-  assert.equal(Object.keys(integrationConnectionHint).length, 10);
+  assert.equal(Object.keys(integrationConnectionHint).length, 12);
 });
 test('native agent availability checks feature, project and server access, never guesses true', async () => {
   let reads = 0;

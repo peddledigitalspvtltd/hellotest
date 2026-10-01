@@ -8,7 +8,8 @@
     "frontend",
     "dist/ui",
     "package.json",
-    "README.md"
+    "README.md",
+    "shared"
   ],
   "exports": {
     "./backend": "./backend/service.manifest.js",
@@ -25,7 +26,8 @@
     "./frontend/lib/repositoryWorkspace": "./frontend/lib/repositoryWorkspace.ts",
     "./frontend/pages/AgenticWorkflowsPage": "./frontend/pages/AgenticWorkflowsPage.tsx",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./frontend/workflows/WorkflowConnectionSettings": "./frontend/workflows/WorkflowConnectionSettings.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs agentic",

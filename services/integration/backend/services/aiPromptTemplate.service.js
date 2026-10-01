@@ -4,6 +4,11 @@ const { randomUUID: uuid } = require("crypto");
 const DEFAULT_SCOPE = "test_case_generation";
 
 const BUILT_IN_TEMPLATES = [
+  ...[
+    ["evidence-review", "Evidence review", "Review connected input. Separate observed facts, assumptions and missing evidence. Cite available source identifiers and recommend a concrete next action."],
+    ["acceptance-review", "Acceptance criteria review", "Assess supplied stories for clear actors, observable acceptance criteria, boundaries and missing rules. Propose testable wording without inventing requirements."],
+    ["test-design", "Risk-based test design", "Derive a small prioritized set of scenarios from connected requirements and evidence. Include preconditions, data, actions, expected outcomes and traceability. Identify unsupported details as gaps."],
+  ].map(([id, name, prompt_text]) => ({ id: `builtin-workflow-${id}`, built_in: true, scope: "workflow_skill", name, prompt_text, description: prompt_text, applies_to: ["agentic_workflows"], tags: ["workflow", "skill"] })),
   {
     id: "builtin-story-user-outcome", built_in: true, scope: "requirement_creation",
     name: "User outcome", description: "Focused Stories for a user goal and measurable result.",

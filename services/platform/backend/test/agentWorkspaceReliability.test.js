@@ -53,6 +53,25 @@ test("a project name is not sufficient evidence for a specialist review", () => 
   for (const key of ["grounding", "completeness", "traceability", "risk_control", "maturity_score"]) assert.equal(result.evaluation[key], 0);
 });
 
+test("custom AI calls the selected model on supplied workflow input with retrieval disabled", async t => {
+  resilience.resetServiceResilienceState();
+  setupAssistant(t, { model: {name:'Configured model', model:'test-model', base_url:'https://model.example.test/v1', api_key:'test-only-credential'} });
+  t.mock.method(knowledge,'buildKnowledgeContextPackage',async()=>assert.fail('Disabled knowledge tool must not run'));
+  t.mock.method(context,'buildLiveProjectEvidence',async()=>assert.fail('Disabled project evidence tool must not run'));
+  const requests=[];
+  t.mock.method(globalThis,'fetch',async(_url, request)=>{
+    requests.push(JSON.parse(request.body));
+    return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({response:'There are two checkout items [K-workflow-input]',citation_ids:['K-workflow-input'],recommendations:[],findings:[],deliverables:[]})}}]}),{headers:{'content-type':'application/json'}});
+  });
+  const result=await assistant.respond({...input,prompt:'Count the connected checkout items.',context_scopes:[],workflow_policy:{custom_task:true,allowed_tools:[],connected_input:{items:['one','two']}}});
+  assert.equal(requests.length,1);
+  assert.equal(result.provenance.generation_mode,'llm');
+  assert.match(result.result.response,/two checkout items/);
+  assert.deepEqual(result.citations.map(citation=>citation.id),['K-workflow-input']);
+  assert.match(JSON.stringify(requests[0]),/unverified/);
+  assert.deepEqual(result.provenance.context_route.effective_scopes,[]);
+});
+
 test("specialist retrieval starts indexed and current evidence concurrently", async t => {
   setupAssistant(t);
   let releaseKnowledge;

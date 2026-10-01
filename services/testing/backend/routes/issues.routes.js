@@ -9,6 +9,20 @@ const { issueMetadata } = require("@hellotest/platform/backend/src/utils/nativeI
 const { shouldPaginate } = require("@hellotest/platform/backend/src/utils/pagination");
 
 function registerFeedbackRoutes(fastify, basePath) {
+  const validateReporter = async (req, projectId, previousReporterId) => {
+    if (req.body.user_id === undefined) return;
+    const reporterId = typeof req.body.user_id === "string" ? req.body.user_id.trim() : "";
+    if (!reporterId) throw Object.assign(new Error("Select a reported-by user."), { statusCode: 400 });
+    req.body.user_id = reporterId;
+    // Preserve existing reporters, including people who have left the project.
+    if (reporterId === previousReporterId || reporterId === req.user.id) return;
+    await fastify.requirePermission("project_member.view", { projectId })(req);
+    try {
+      await projectService.getProject(projectId, reporterId);
+    } catch {
+      throw Object.assign(new Error("Select a reported-by user who belongs to this project."), { statusCode: 400 });
+    }
+  };
   fastify.get(`${basePath}/create-metadata`, async (req) => {
     await fastify.authenticate(req);
     const project = await projectService.getProject(req.query.project_id, req.user.id);
@@ -111,7 +125,7 @@ function registerFeedbackRoutes(fastify, basePath) {
     await fastify.authenticate(req);
     fastify.validate({
       project_id: { required: true, type: "string" },
-      user_id: { required: true, type: "string" },
+      user_id: { required: false, type: "string" },
       title: { required: true, type: "string", minLength: 2 },
       message: { required: true, type: "string", minLength: 2 },
       steps_to_reproduce: { required: false, type: "string" },
@@ -141,7 +155,8 @@ function registerFeedbackRoutes(fastify, basePath) {
       await projectService.getProject(req.body.project_id, req.user.id);
       await fastify.requirePermission("feedback.create", { projectId: req.body.project_id })(req);
     }
-    return service.createIssue({ ...req.body, user_id: req.user.id });
+    await validateReporter(req, req.body.project_id);
+    return service.createIssue({ ...req.body, user_id: req.body.user_id || req.user.id }, { actorId: req.user.id });
   });
 
   const catalogFilters = async (req) => {
@@ -217,6 +232,7 @@ function registerFeedbackRoutes(fastify, basePath) {
       await projectService.getProject(req.body.project_id, req.user.id);
       await fastify.requirePermission("feedback.manage", { projectId: req.body.project_id })(req);
     }
+    await validateReporter(req, req.body.project_id || item.project_id, item.user_id);
     return service.updateIssue(req.params.id, req.body, { actorId: req.user.id });
   });
 

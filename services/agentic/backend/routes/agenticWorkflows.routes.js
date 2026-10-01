@@ -124,6 +124,39 @@ module.exports = async function (fastify) {
     await requireProjectPermission(req, req.query.project_id, "agentic_workflow.view");
     return require("../workflows/connections").list(req.query.project_id);
   });
+  const connectionSettings = require("../workflows/connectionSettings");
+  const adminConnectionAccess = async (req, permission, projectId) => {
+    await fastify.authenticate(req);
+    await fastify.requirePermission(permission)(req);
+    if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 255) throw Object.assign(new Error("Select a project to manage workflow connections."), { statusCode: 400 });
+    await projectService.getProject(projectId, req.user.id);
+  };
+  fastify.get("/agentic-workflows/admin/connections", async req => {
+    await adminConnectionAccess(req, "integration.view", req.query.project_id);
+    return connectionSettings.list(req.query.project_id);
+  });
+  fastify.post("/agentic-workflows/admin/connections", async req => {
+    await adminConnectionAccess(req, "integration.manage", req.body?.project_id);
+    return connectionSettings.save(req.body || {}, null, req.user.id);
+  });
+  fastify.post("/agentic-workflows/admin/connections/discover", async (req, reply) => {
+    await adminConnectionAccess(req, "integration.manage", req.body?.project_id);
+    const row = await connectionSettings.preview(req.body || {}, req.body?.connection_id);
+    return withConnection(req, reply, signal => require("../workflows/mcpClient").inspect({ projectId: req.body.project_id, draftConnection: row, signal }));
+  });
+  fastify.put("/agentic-workflows/admin/connections/:connectionId", async req => {
+    await adminConnectionAccess(req, "integration.manage", req.body?.project_id);
+    return connectionSettings.save(req.body || {}, req.params.connectionId, req.user.id);
+  });
+  fastify.delete("/agentic-workflows/admin/connections/:connectionId", async req => {
+    await adminConnectionAccess(req, "integration.manage", req.query.project_id);
+    return connectionSettings.remove(req.params.connectionId, req.query.project_id);
+  });
+  fastify.post("/agentic-workflows/admin/connections/:connectionId/discover", async (req, reply) => {
+    await adminConnectionAccess(req, "integration.manage", req.query.project_id);
+    const row = await connectionSettings.get(req.params.connectionId, req.query.project_id);
+    return withConnection(req, reply, signal => require("../workflows/mcpClient").discover({ projectId: req.query.project_id, connectionId: row.id, signal, discoverAll: true }));
+  });
   fastify.post("/agentic-workflows/connections/mcp-tools", async (req, reply) => {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, connection_id: { required: true, type: "string" } }, req.body || {});
@@ -193,7 +226,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
     await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
-    return workflowExecution.readiness(workflow, req.query.target_node_id || "");
+    return workflowExecution.checkReadiness(workflow, req.query.target_node_id || "");
   });
 
   fastify.post("/agentic-workflows/:id/executions", async (req, reply) => {

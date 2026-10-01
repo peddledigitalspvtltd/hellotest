@@ -132,7 +132,7 @@ type IntegrationTypeDefinition = {
   defaults?: Record<string, unknown>;
 };
 
-type IntegrationCategoryKey = "ai" | "notification" | "sso" | "backup" | "repository" | "testgrid" | "ops";
+type IntegrationCategoryKey = "workflow" | "ai" | "notification" | "sso" | "backup" | "repository" | "testgrid" | "ops";
 type IntegrationTypeFilter = "all" | IntegrationCategoryKey;
 
 const DEFAULT_INTEGRATION_TYPE: Integration["type"] = "llm";
@@ -145,6 +145,7 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
   description: string;
   defaultProvider: Integration["type"];
 }> = [
+  { value: "workflow", label: "Workflow connections", description: "Project MCP servers and HTTP APIs used by workflow nodes.", defaultProvider: "mcp" },
   { value: "ai", label: "AI Providers", description: "Direct LLM providers used by HelloTest AI flows.", defaultProvider: "llm" },
   { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
   { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },
@@ -156,6 +157,9 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
 
 function getIntegrationCategoryKey(type: Integration["type"]): IntegrationCategoryKey {
   switch (type) {
+    case "mcp":
+    case "http":
+      return "workflow";
     case "testengine":
     case "cloudrun":
     case "local-desktop":
@@ -349,6 +353,9 @@ function GoogleAuthIntegrationIcon() {
 
 function getIntegrationBadgeIcon(type: Integration["type"]) {
   switch (type) {
+    case "mcp":
+    case "http":
+      return <PlugIcon size={18} />;
     case "llm":
       return <SparkIcon size={18} />;
     case "email":
@@ -864,6 +871,8 @@ function getIntegrationSummary(integration: Integration, definitions: Integratio
     };
   }
 
+  if (["mcp", "http"].includes(integration.type)) return { primary: integration.base_url || "Endpoint not set", secondary: integration.type === "mcp" ? `${Array.isArray(config.tools) ? config.tools.length : 0} enabled tools · current project` : `${Array.isArray(config.methods) ? config.methods.join(", ") : "HTTP"} · current project` };
+
   if (integration.type === "llm") {
     return {
       primary: integration.model || "Model not set",
@@ -1003,7 +1012,17 @@ function IntegrationReadOnlyDetails({
   );
 }
 
-export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
+export type IntegrationProviderExtension = {
+  definition: IntegrationTypeDefinition;
+  records: Integration[];
+  loading?: boolean;
+  error?: string;
+  retry?: () => void;
+  renderEditor: (options: { integrationId?: string; onSaved: (id: string) => void; onClose: () => void }) => ReactNode;
+};
+const NO_ADDITIONAL_PROVIDERS: IntegrationProviderExtension[] = [];
+export type IntegrationsPageProps = { embedded?: boolean; additionalProviders?: IntegrationProviderExtension[]; initialProvider?: Integration["type"] };
+export function IntegrationsPage({ embedded = false, additionalProviders = NO_ADDITIONAL_PROVIDERS, initialProvider }: IntegrationsPageProps = {}) {
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const [projectId] = useCurrentProject();
@@ -1013,8 +1032,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const { confirmDelete, confirmationDialog } = useDeleteConfirmation();
   const domainMetadataQuery = useDomainMetadata();
   const integrationTypeDefinitions = useMemo(
-    () => ((domainMetadataQuery.data?.integrations?.types || []) as IntegrationTypeDefinition[]).filter((definition) => definition.value !== "jira"),
-    [domainMetadataQuery.data]
+    () => [...((domainMetadataQuery.data?.integrations?.types || []) as IntegrationTypeDefinition[]).filter((definition) => definition.value !== "jira" && !additionalProviders.some(provider => provider.definition.value === definition.value)), ...additionalProviders.map(provider => provider.definition)],
+    [domainMetadataQuery.data, additionalProviders]
   );
   const defaultIntegrationType = (domainMetadataQuery.data?.integrations?.default_type || DEFAULT_INTEGRATION_TYPE) as Integration["type"];
   const emptyDraft = useMemo(
@@ -1024,7 +1043,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [integrationCatalogViewMode, setIntegrationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
-  const [selectedIntegrationTypeFilter, setSelectedIntegrationTypeFilter] = useState<IntegrationTypeFilter>("all");
+  const [selectedIntegrationTypeFilter, setSelectedIntegrationTypeFilter] = useState<IntegrationTypeFilter>(initialProvider ? getIntegrationCategoryKey(initialProvider) : "all");
   const [selectedActionIntegrationIds, setSelectedActionIntegrationIds] = useState<string[]>([]);
   const [integrationSearch, setIntegrationSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -1052,12 +1071,12 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   const deleteIntegration = useMutation({ mutationFn: api.integrations.delete });
 
   const integrations = useMemo(
-    () => asArray(integrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id)),
-    [integrationsQuery.data]
+    () => [...asArray(integrationsQuery.data).filter((integration) => !isRovoIntegrationId(integration.id)), ...additionalProviders.flatMap(provider => provider.records)],
+    [integrationsQuery.data, additionalProviders]
   );
   const projects = asArray(projectsQuery.data);
-  const isIntegrationCatalogLoading = integrationsQuery.isLoading;
-  const integrationTypeOptions = INTEGRATION_CATEGORY_DEFINITIONS;
+  const isIntegrationCatalogLoading = integrationsQuery.isLoading || additionalProviders.some(provider => provider.loading);
+  const integrationTypeOptions = useMemo(() => INTEGRATION_CATEGORY_DEFINITIONS.filter(category => category.value !== "workflow" || additionalProviders.length > 0), [additionalProviders]);
   const searchFilteredIntegrations = useMemo(() => {
     const normalizedSearch = integrationSearch.trim().toLowerCase();
 
@@ -1198,8 +1217,9 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     [integrations, selectedIntegrationId]
   );
   const activeIntegrationCount = integrations.filter((item) => item.is_active && !isRovoIntegrationId(item.id)).length;
+  const selectedProviderExtension = additionalProviders.find(provider => provider.definition.value === (selectedIntegration?.type || draft.type));
   const isSelectedIntegrationRovo = isRovoIntegrationId(selectedIntegration?.id);
-  const isAdmin = session?.user.role === "admin";
+  const isAdmin = hasPermission(session, "integration.manage");
   const canTestConnection = hasPermission(session, "integration.manage");
   const isLlm = draft.type === "llm";
   const isEmail = draft.type === "email";
@@ -1324,8 +1344,8 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
       return;
     }
 
-    setSelectedIntegrationId("");
-    setDraft(emptyDraft);
+    // A capability-owned provider may have just saved while its catalog query
+    // is still propagating. Keep the selected ID and draft until the row arrives.
   }, [defaultIntegrationType, emptyDraft, integrationTypeDefinitions, isCreating, selectedIntegration, selectedIntegrationId]);
 
   const refresh = async () => {
@@ -1458,7 +1478,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
   };
 
   const openCreateForm = () => {
-    const preferredType = getIntegrationCategoryDefinition(selectedIntegrationTypeFilter)?.defaultProvider || defaultIntegrationType;
+    const preferredType = initialProvider && getIntegrationCategoryKey(initialProvider) === selectedIntegrationTypeFilter ? initialProvider : getIntegrationCategoryDefinition(selectedIntegrationTypeFilter)?.defaultProvider || defaultIntegrationType;
     setIsCreating(true);
     setSelectedIntegrationId("");
     setDraft(buildEmptyDraft(integrationTypeDefinitions, preferredType));
@@ -1531,6 +1551,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         className={selectedIntegrationId === integration.id ? "record-card tile-card is-active" : "record-card tile-card"}
         onClick={() => {
           setSelectedIntegrationId(integration.id);
+          setDraft(getDraftFromIntegration(integration, integrationTypeDefinitions, defaultIntegrationType));
           setIsCreating(false);
         }}
         type="button"
@@ -1571,6 +1592,47 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
     );
   };
 
+  const providerSelectors = (
+                <div className="record-grid">
+                  <FormField label="Integration type">
+                    <select
+                      value={draftCategoryKey}
+                      disabled={Boolean(selectedIntegration)}
+                      onChange={(event) => {
+                        const nextCategory = event.target.value as IntegrationCategoryKey;
+                        const nextType = getIntegrationCategoryDefinition(nextCategory)?.defaultProvider || getIntegrationProvidersForCategory(nextCategory, integrationTypeDefinitions)[0]?.value || DEFAULT_INTEGRATION_TYPE;
+                        setSelectedIntegrationTypeFilter(nextCategory);
+                        setDraft((current) =>
+                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
+                        );
+                      }}
+                    >
+                      {integrationTypeOptions.map((definition) => (
+                        <option key={definition.value} value={definition.value}>{definition.label}</option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Provider">
+                    <select
+                      value={draft.type}
+                      disabled={Boolean(selectedIntegration)}
+                      onChange={(event) => {
+                        const nextType = event.target.value as Integration["type"];
+                        setSelectedIntegrationTypeFilter(getIntegrationCategoryKey(nextType));
+                        setDraft((current) =>
+                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
+                        );
+                      }}
+                    >
+                      {draftProviderOptions.map((definition) => (
+                        <option key={definition.value} value={definition.value}>{definition.label}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+  );
+
   return (
     <div className={embedded ? "admin-embedded-page integrations-admin-page" : "page-content"}>
       {confirmationDialog}
@@ -1589,6 +1651,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
         />
       ) : null}
 
+      {additionalProviders.filter(provider => provider.error).map(provider => <p role="alert" key={provider.definition.value}>{provider.error} <button type="button" onClick={provider.retry}>Retry connections</button></p>)}
       <WorkspaceMasterDetail
           browseView={(
             <Panel
@@ -1672,7 +1735,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                 </div>
                 {integrationActions ? <div className="catalog-toolbar-actions" aria-label="Integration actions">{integrationActions}</div> : null}
               </div>
-              {canTestConnection && selectedConnectionProfile && !isRovoIntegrationId(selectedConnectionProfile.id) ? <IntegrationConnectionTest input={{ integration_id: selectedConnectionProfile.id, type: selectedConnectionProfile.type }} scopeKey={`${projectId}:catalog:${selectedConnectionProfile.id}`} name={selectedConnectionProfile.name} saved /> : null}
+              {canTestConnection && selectedConnectionProfile && !additionalProviders.some(provider => provider.definition.value === selectedConnectionProfile.type) && !isRovoIntegrationId(selectedConnectionProfile.id) ? <IntegrationConnectionTest input={{ integration_id: selectedConnectionProfile.id, type: selectedConnectionProfile.type }} scopeKey={`${projectId}:catalog:${selectedConnectionProfile.id}`} name={selectedConnectionProfile.name} saved /> : null}
               {isIntegrationCatalogLoading ? <TileCardSkeletonGrid /> : null}
               {!isIntegrationCatalogLoading && visibleIntegrationSections.length && integrationCatalogViewMode === "tile" ? (
                 <div className="integration-type-section-stack">
@@ -1705,6 +1768,7 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
                     hideToolbarCopy
                     onRowClick={(integration) => {
                       setSelectedIntegrationId(integration.id);
+                      setDraft(getDraftFromIntegration(integration, integrationTypeDefinitions, defaultIntegrationType));
                       setIsCreating(false);
                     }}
                     rowGroups={integrationListRowGroups}
@@ -1723,49 +1787,16 @@ export function IntegrationsPage({ embedded = false }: { embedded?: boolean } = 
               title={isCreating ? "New integration" : selectedIntegration ? "Integration details" : "Integration editor"}
               subtitle="Store the credentials and provider settings HelloTest needs to call external systems and power secure authentication flows."
             >
-              {selectedIntegration && (!isAdmin || isSelectedIntegrationRovo) ? (
+              {(isCreating || selectedIntegration) && isAdmin && selectedProviderExtension && providerSelectors}
+              {(isCreating || selectedIntegration) && selectedProviderExtension ? selectedProviderExtension.renderEditor({ integrationId: selectedIntegration?.id, onSaved: id => { setSelectedIntegrationId(id); setIsCreating(false); showSuccess("Integration saved."); }, onClose: closeIntegrationWorkspace }) : selectedIntegration && (!isAdmin || isSelectedIntegrationRovo) ? (
                 <>
                   <IntegrationReadOnlyDetails definitions={integrationTypeDefinitions} includeMobileAppium={canUseMobileAppium} integration={selectedIntegration} />
                   {canTestConnection && !isSelectedIntegrationRovo ? <IntegrationConnectionTest input={{ integration_id: selectedIntegration.id, type: selectedIntegration.type }} name={selectedIntegration.name} scopeKey={`${projectId}:${selectedIntegration.id}`} saved /> : null}
                 </>
               ) : isCreating || selectedIntegration ? (
                 <form className="form-grid" onSubmit={(event) => void handleSave(event)}>
-                <div className="record-grid">
-                  <FormField label="Integration type">
-                    <select
-                      value={draftCategoryKey}
-                      onChange={(event) => {
-                        const nextCategory = event.target.value as IntegrationCategoryKey;
-                        const nextType = getIntegrationCategoryDefinition(nextCategory)?.defaultProvider || getIntegrationProvidersForCategory(nextCategory, integrationTypeDefinitions)[0]?.value || DEFAULT_INTEGRATION_TYPE;
-                        setSelectedIntegrationTypeFilter(nextCategory);
-                        setDraft((current) =>
-                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
-                        );
-                      }}
-                    >
-                      {INTEGRATION_CATEGORY_DEFINITIONS.map((definition) => (
-                        <option key={definition.value} value={definition.value}>{definition.label}</option>
-                      ))}
-                    </select>
-                  </FormField>
+                {providerSelectors}
 
-                  <FormField label="Provider">
-                    <select
-                      value={draft.type}
-                      onChange={(event) => {
-                        const nextType = event.target.value as Integration["type"];
-                        setSelectedIntegrationTypeFilter(getIntegrationCategoryKey(nextType));
-                        setDraft((current) =>
-                          applyDraftDefaultsForType(nextType, current, integrationTypeDefinitions)
-                        );
-                      }}
-                    >
-                      {draftProviderOptions.map((definition) => (
-                        <option key={definition.value} value={definition.value}>{definition.label}</option>
-                      ))}
-                    </select>
-                  </FormField>
-                </div>
 
                 <div className="record-grid">
                   <FormField label="Name">

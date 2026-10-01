@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { IconPlugConnected, IconRefresh } from "@tabler/icons-react";
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
@@ -25,9 +26,12 @@ export function WorkflowOperationFields({
     queryFn: () => agenticApi.agenticWorkflows.connections(projectId),
     enabled: Boolean(projectId && usesConnection),
     staleTime: 30000,
+    refetchOnWindowFocus: "always",
+    refetchOnMount: "always",
   });
+  const connection = connections.data?.find(item => item.id === data.connectionId);
   const mcp = useQuery({
-    queryKey: ["workflow-mcp-tools", projectId, data.connectionId],
+    queryKey: ["workflow-mcp-tools", projectId, data.connectionId, connection?.discovered_at || connection?.url],
     queryFn: ({ signal }) =>
       agenticApi.agenticWorkflows.mcpTools(
         projectId,
@@ -38,10 +42,10 @@ export function WorkflowOperationFields({
     retry: false,
     gcTime: 30000,
   });
-  const connection = connections.data?.find(
-    (item) => item.id === data.connectionId,
-  );
-  const tool = mcp.data?.find((item) => item.name === data.mcpTool);
+  const catalog = mcp.data || (connection?.toolDefinitions?.length ? connection.toolDefinitions : (connection?.tools || []).map(name => ({ name })));
+  const availableTools = catalog
+    .filter(item => connection?.tools.includes(item.name));
+  const tool = (mcp.data || connection?.toolDefinitions)?.find((item) => item.name === data.mcpTool && connection?.tools.includes(item.name));
   const field = (
     key: string,
     label: string,
@@ -111,6 +115,7 @@ export function WorkflowOperationFields({
                   connectionId: event.target.value,
                   apiAuth: "",
                   credentialId: "",
+                  ...(selected?.timeoutMs ? { timeoutMs: String(selected.timeoutMs) } : {}),
                   ...(kind === "mcpTool"
                     ? { mcpTool: "", mcpArguments: "{}" }
                     : {
@@ -137,6 +142,7 @@ export function WorkflowOperationFields({
                 ))}
             </select>
           </label>
+          <button type="button" className="ghost-button" disabled={connections.isFetching} onClick={() => void connections.refetch()}><IconRefresh size={14} />Refresh connections</button>
           {connections.isError ? (
             <p role="alert">
               Connections are unavailable.{" "}
@@ -151,6 +157,7 @@ export function WorkflowOperationFields({
               ? "Only tools enabled for this project can run."
               : "Authenticated and private APIs require a managed connection."}
           </p>
+          <Link to={`/integrations?provider=${kind === "mcpTool" ? "mcp" : "http"}`} target="_blank" rel="noreferrer" className="studio-caption">Manage this provider in Integrations</Link>
           {data.credentialId || data.apiAuth ? (
             <p className="studio-notice">
               This node has a legacy credential binding. Select a managed
@@ -181,20 +188,21 @@ export function WorkflowOperationFields({
             : null}
           <p className="studio-caption">
             Requests return the actual response as <code>data</code>. Redirects
-            are not followed.
+            are not followed. Use <code>{"{{ $input.id }}"}</code> in the endpoint and <code>"$input.id"</code> in the JSON body.
           </p>
         </>
       ) : null}
       {kind === "mcpTool" ? (
         <>
+          {connection && <p className="studio-caption">{connection.serverInfo?.name || connection.name} · Streamable HTTP<br />{connection.url}<br />{connection.tools.length} enabled tools{connection.discovered_at ? " · saved server catalog" : ""}</p>}
           {canRun ? <button
             type="button"
             className="ghost-button"
-            disabled={!data.connectionId || mcp.isFetching}
+            disabled={!connection || mcp.isFetching}
             onClick={() => void mcp.refetch()}
           >
             <IconRefresh size={15} />
-            {mcp.isFetching ? "Reading server tools…" : "Load server tools"}
+            {mcp.isFetching ? "Reading server tools…" : connection?.toolDefinitions?.length ? "Refresh server tools" : "Load server tools"}
           </button> : null}
           {mcp.isError ? (
             <p role="alert">
@@ -205,13 +213,12 @@ export function WorkflowOperationFields({
           ) : null}
           {select("mcpTool", "Server tool", [
             ["", "Choose a tool"],
-            ...(
-              mcp.data || (connection?.tools || []).map((name) => ({ name }))
-            ).map((item) => [item.name, item.name] as [string, string]),
+            ...availableTools.map((item) => [item.name, item.name] as [string, string]),
           ])}
           {tool?.description ? (
             <p className="studio-caption">{tool.description}</p>
           ) : null}
+          {data.mcpTool && connection && !availableTools.some(item => item.name === data.mcpTool) && <p role="alert">This tool is no longer enabled. Choose a current server tool or update the provider in Integrations.</p>}
           {field("mcpArguments", "Tool arguments JSON", true, "{}")}
           {tool ? (
             <details>
@@ -284,8 +291,6 @@ export function WorkflowOperationFields({
           )}
           {data.loopAction === "customAI" ? (
             <>
-              {field("prompt", "Task for each item", true)}
-              {field("instructions", "Per-item instructions", true)}
               <p className="studio-caption">
                 The current item and its index are passed to your configured
                 project model. Each result remains available in Output.

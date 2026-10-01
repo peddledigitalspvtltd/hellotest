@@ -111,6 +111,7 @@ services:
       OBS_POSTGRES_DB: ${POSTGRES_DB:-hellotest}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       SESSION_SECRET: ${SESSION_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
+      WORKFLOW_CREDENTIAL_KEY: ${WORKFLOW_CREDENTIAL_KEY:-}
       HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}
       MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:?Run ./hellotest.sh config --stack platform to generate deployment secrets}

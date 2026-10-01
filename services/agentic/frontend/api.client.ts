@@ -15,6 +15,14 @@ type AgenticApiAgentTestInput = {
 };
 
 export const agenticApi = {
+workflowConnections: {
+    list: (projectId: string) => request<ManagedWorkflowConnection[]>(`/agentic-workflows/admin/connections${toQueryString({ project_id: projectId })}`),
+    create: (input: WorkflowConnectionSettingsInput) => request<ManagedWorkflowConnection>("/agentic-workflows/admin/connections", { method: "POST", body: JSON.stringify(input) }),
+    update: (id: string, input: WorkflowConnectionSettingsInput) => request<ManagedWorkflowConnection>(`/agentic-workflows/admin/connections/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+    delete: (id: string, projectId: string) => request<{ deleted: boolean }>(`/agentic-workflows/admin/connections/${encodeURIComponent(id)}${toQueryString({ project_id: projectId })}`, { method: "DELETE" }),
+    discover: (id: string, projectId: string) => request<McpToolDefinition[]>(`/agentic-workflows/admin/connections/${encodeURIComponent(id)}/discover${toQueryString({ project_id: projectId })}`, { method: "POST" }),
+    discoverDraft: (input: WorkflowConnectionSettingsInput, connectionId?: string) => request<McpDiscoveryResult>("/agentic-workflows/admin/connections/discover", { method: "POST", body: JSON.stringify({ ...input, connection_id: connectionId }) }, 75000),
+  },
 repositoryInspection: {
     localAgentSetup: async (input: { project_id: string; origin: string; agent_token: string }, options?: { signal?: AbortSignal }) => {
       const setup = await request<{ download_url: string; expires_at: string }>("/repository-inspection/local-agent/setup", { method: "POST", body: JSON.stringify(input), signal: options?.signal });
@@ -144,5 +152,14 @@ agenticWorkflows: {
   }
 };
 
-export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; methods: string[]; tools: string[] };
-export type McpToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown> };
+export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
+export type WorkflowConnectionSettingsInput = {
+  name: string; kind: "mcp" | "http"; url: string; project_id: string; tools: string[]; methods: string[];
+  authType: "none" | "bearer" | "basic" | "header"; header: string; secretEnv: string; secret?: string;
+  allowPrivateNetwork: boolean; enabled: boolean;
+  transport?: "streamable-http"; timeoutMs?: number; headers?: Record<string, string>; username?: string;
+  toolDefinitions?: McpToolDefinition[]; serverInfo?: { name: string; version: string }; protocolVersion?: string; discovered_at?: string;
+};
+export type ManagedWorkflowConnection = WorkflowConnectionSettingsInput & { id: string; authenticated: boolean; updated_at: string };
+export type McpToolDefinition = { name: string; description: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: Record<string, unknown> };
+export type McpDiscoveryResult = { tools: McpToolDefinition[]; serverInfo?: { name: string; version: string }; protocolVersion: string; discovered_at: string };
