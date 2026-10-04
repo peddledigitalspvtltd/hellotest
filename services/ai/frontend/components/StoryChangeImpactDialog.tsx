@@ -9,6 +9,7 @@ import "./StoryChangeImpactDialog.css";
 
 type Props = {
   open: boolean;
+  embedded?: boolean;
   response: RequirementImpactPreviewResponse | null | undefined;
   storyTitle: string;
   showAutomation?: boolean;
@@ -18,8 +19,8 @@ type Props = {
   onRetry: () => void;
 };
 
-export function StoryChangeImpactDialog({ open, response, storyTitle, showAutomation = true, loading, error, onClose, onRetry }: Props) {
-  const ref = useDialogFocus<HTMLDivElement>({ active: open, onClose });
+export function StoryChangeImpactDialog({ open, embedded = false, response, storyTitle, showAutomation = true, loading, error, onClose, onRetry }: Props) {
+  const ref = useDialogFocus<HTMLDivElement>({ active: open && !embedded, onClose });
   const titleId = useId();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
@@ -33,12 +34,12 @@ export function StoryChangeImpactDialog({ open, response, storyTitle, showAutoma
   const provenance = response?.provenance;
   const actions = [...new Set(response?.recommended_actions || [])];
 
-  return <div className="modal-backdrop story-impact-backdrop" onClick={onClose} role="presentation">
-    <div className="story-impact-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref} tabIndex={-1} onClick={event => event.stopPropagation()}>
+  return <div className={embedded ? "story-impact-embedded" : "modal-backdrop story-impact-backdrop"} onClick={embedded ? undefined : onClose} role="presentation">
+    <div className="story-impact-dialog" role={embedded ? "region" : "dialog"} aria-modal={embedded ? undefined : true} aria-labelledby={titleId} ref={ref} tabIndex={-1} onClick={event => event.stopPropagation()}>
       <header className="story-impact-header">
         <span className="story-impact-icon"><IconArrowFork size={24} aria-hidden="true" /></span>
-        <div><span className="story-impact-eyebrow">STORY REVIEW</span><h2 id={titleId}>Preview Story change impact</h2><p>{response?.requirement.display_id ? `${response.requirement.display_id} · ` : ""}{storyTitle}</p></div>
-        <DialogCloseButton label="Close Story change impact" onClick={onClose} />
+        <div><span className="story-impact-eyebrow">STORY REVIEW</span><h2 id={titleId}>AI Impact Analysis</h2><p>{response?.requirement.display_id ? `${response.requirement.display_id} · ` : ""}{storyTitle}</p></div>
+        {!embedded ? <DialogCloseButton label="Close Story change impact" onClick={onClose} /> : null}
       </header>
       <div className="story-impact-body" aria-busy={Boolean(loading)}>
         {loading ? <><LoadingState label="Reviewing Story change impact" /><p role="status">Checking the current Story draft and its connected delivery records…</p></> : error ? <div className="story-impact-notice is-warning" role="alert"><h3>Impact preview unavailable</h3><p>{error}</p><button className="primary-button" onClick={onRetry} type="button">Retry preview</button></div> : response ? <>
@@ -58,9 +59,9 @@ export function StoryChangeImpactDialog({ open, response, storyTitle, showAutoma
           </section>
           <section className="story-impact-recommendations"><h3>Recommended next steps</h3>{actions.length ? <ol>{actions.map(action => <li key={action}>{action}</li>)}</ol> : <p>No additional actions were returned.</p>}</section>
           <details className="story-impact-provenance"><summary>Review details and limitations</summary><dl><div><dt>Impact source</dt><dd>HelloTest relationships and run snapshots</dd></div><div><dt>AI review</dt><dd>{provenance?.provider || response.integration?.name || "Unavailable"}{response.integration?.model ? ` · ${response.integration.model}` : ""}</dd></div><div><dt>Generated</dt><dd>{response.generated_at ? new Date(response.generated_at).toLocaleString() : "Unavailable"}</dd></div><div><dt>Reference</dt><dd>{response.request_id || "Unavailable"}</dd></div></dl><p>Impact level reflects Story priority and linked test, run, and automation counts. It is a review signal, not a prediction of failure.</p>{response.assurance_review?.limitations?.length ? <ul>{response.assurance_review.limitations.map(limitation => <li key={limitation}>{limitation}</li>)}</ul> : null}</details>
-        </> : <p role="status">The impact preview is not available yet.</p>}
+        </> : <div className="story-impact-empty"><h3>Understand the reach of this change</h3><p>Review connected tests, runs, and automation alongside the current Story draft.</p><button className="primary-button" type="button" onClick={onRetry}>Analyze impact</button></div>}
       </div>
-      <footer className="story-impact-footer"><span>Preview only · Your Story and linked records stay unchanged.</span><button className="primary-button" type="button" onClick={onClose}>Close preview</button></footer>
+      {!embedded ? <footer className="story-impact-footer"><span>Preview only · Your Story and linked records stay unchanged.</span><button className="primary-button" type="button" onClick={onClose}>Close preview</button></footer> : null}
     </div>
   </div>;
 }

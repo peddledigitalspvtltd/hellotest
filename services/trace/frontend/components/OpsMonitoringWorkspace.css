@@ -1,4 +1,4 @@
-.ops-monitoring-workspace { display: grid; gap: 0; min-width: 0; padding: 0; overflow: hidden; }
+.ops-monitoring-workspace { display: grid; gap: 0; min-width: 0; padding: 0; overflow: hidden; color: var(--text-primary, var(--text)); }
 .ops-monitoring-workspace h2, .ops-monitoring-workspace h3, .ops-monitoring-workspace p { margin: 0; }
 .ops-monitoring-workspace > .ops-monitoring-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; padding: 24px 24px 20px; }
 .ops-monitoring-heading > div { display: grid; gap: 8px; }

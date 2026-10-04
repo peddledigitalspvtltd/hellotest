@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const crypto = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
@@ -1589,6 +1590,7 @@ exports.previewSmartExecution = async ({
       }
     ]
   };
+  requireAiAssessment({ integration, failed: providerFailed, accepted: generationMode !== "deterministic" });
   const acceptanceToken = createSmartExecutionAcceptanceToken({
     projectId: project_id,
     appTypeId: appType.id,

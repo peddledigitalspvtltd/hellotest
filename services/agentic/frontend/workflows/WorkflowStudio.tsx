@@ -34,7 +34,11 @@ import "./WorkflowStudio.css";
 import { WorkflowConnections } from "./WorkflowConnections";
 import { WorkflowNodeIcon } from "./WorkflowNodeIcon";
 
+import type { ProjectAgent } from "../agents/agentDefinitions";
+
 type Props = {
+  projectAgents?: ProjectAgent[];
+  onAddAgent?: (agent: ProjectAgent, insertion?: NodeInsertion) => void;
   draft: WorkflowDraft;
   nodes: AgenticWorkflowNode[];
   edges: AgenticWorkflowEdge[];
@@ -91,6 +95,7 @@ export function WorkflowStudio(props: Props) {
     [expanded, setExpanded] = useState(false);
   const [inputOpen, setInputOpen] = useState(false),
     [readinessOpen, setReadinessOpen] = useState(false);
+  const matchingProjectAgents = props.nodes.length ? (props.projectAgents || []).filter(agent => `${(agent.active_definition || agent.definition).name} ${(agent.active_definition || agent.definition).description}`.toLowerCase().includes(query.trim().toLowerCase())) : [];
   const selected = props.nodes.find((node) => node.id === props.selectedNodeId);
   useEffect(() => {
     if (props.error || props.readiness?.blockers.length) setReadinessOpen(true);
@@ -293,6 +298,7 @@ export function WorkflowStudio(props: Props) {
                 />
               </label>
               <div className="studio-library-list">
+                {matchingProjectAgents.length > 0 && <section><h3>Project agents</h3>{matchingProjectAgents.map(agent => <button key={agent.id} type="button" disabled={!props.editable || props.busy} onClick={() => { props.onAddAgent?.(agent, insertion); setLibrary(false); }}><span className="studio-library-icon" data-kind="agent"><WorkflowNodeIcon kind="agent" /></span><span><strong>{(agent.active_definition || agent.definition).name}</strong><small>Version {agent.active_version} · LLM required</small></span></button>)}</section>}
                 {nodePaletteGroups.map((group) => {
                   const kinds = group.kinds.filter(kind => !props.nodes.length ? kind === "trigger" : kind !== "trigger" && !(insertion?.edgeId && ["output", "errorHandler"].includes(kind))).filter((kind) =>
                     `${nodeKindLabels[kind]} ${nodeKindDescriptions[kind]}`
@@ -330,7 +336,7 @@ export function WorkflowStudio(props: Props) {
                     </section>
                   ) : null;
                 })}
-                {!Object.keys(nodeKindLabels).some((kind) =>
+                {!matchingProjectAgents.length && !Object.keys(nodeKindLabels).some((kind) =>
                   `${nodeKindLabels[kind as WorkflowNodeKind]} ${nodeKindDescriptions[kind as WorkflowNodeKind]}`
                     .toLowerCase()
                     .includes(query.toLowerCase()),

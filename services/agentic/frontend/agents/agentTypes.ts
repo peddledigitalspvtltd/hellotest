@@ -58,6 +58,7 @@ export type RepositoryAgentRun = {
   completed_at?: string;
   published?: { items: RepositoryAgentPublishedItem[]; [key: string]: unknown };
   result?: {
+    llm_review?: { session_id: string; response: string; model_execution?: { effective_model: string; model_calls: number } };
     schema_version: number;
     agent_type: RepositoryAgentType;
     summary: Record<string, unknown>;

@@ -4,6 +4,7 @@ import { AutomationRuntimeGuide } from "../components/AutomationRuntimeGuide";
 import { AutomationBuildContext } from "../components/AutomationBuildContext";
 import { AUTOMATION_RUNTIMES, getAutomationRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
+const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
 import { mapRunHooksToExecutionHooks } from "@hellotest/testing/frontend/lib/runHooks";
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
@@ -5613,6 +5614,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 {activeAutomationWorkspaceTab === "build" && (canUseAutomationAi || canRecordCurrentPlan) ? (
                   <section className="automation-agent-workspace" aria-label="Automation build tools">
                     <header><h3>Build your automation</h3><p>Start from your test cases, record a flow, or author instructions and code in the plan.</p></header>
+                    {canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }} features={["automation-repair"]} title="AI Automation Repair" />}
                     <div className="automation-build-methods" aria-label="Build method">
                       {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />Build with automation agent</button> : null}
                       {canRecordCurrentPlan ? <button aria-pressed={buildMethod === "record"} onClick={() => setBuildMethod("record")} type="button"><MousePointerIcon size={15} />Record & playback{recorderSession?.status === "running" ? " · Recording" : ""}</button> : null}

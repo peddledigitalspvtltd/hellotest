@@ -7,6 +7,42 @@ const executionService = require("@hellotest/testing/backend/services/execution.
 const appTypeService = require("@hellotest/platform/backend/public/applicationAccess");
 
 module.exports = async function (fastify) {
+  const repair = require('../services/automationRepair.service');
+  const repairAccess = async (req, writes = []) => {
+    await fastify.authenticate(req);
+    const input = (req.method === 'GET' ? req.query : req.body) || {};
+    fastify.validate({project_id:{required:true,type:'string',maxLength:255}},input);
+    await projectService.getProject(input.project_id,req.user.id);
+    for(const code of [...repair.permissions,'data.view',...writes]) await fastify.requirePermission(code,{projectId:input.project_id})(req);
+    return input;
+  };
+  fastify.get('/ai/automation-repairs/:id',async(req,reply)=>{const input=await repairAccess(req);reply.header('cache-control','no-store');return repair.load(input.project_id,req.params.id);});
+  fastify.post('/ai/automation-repairs/:id/validation',{bodyLimit:12000},async req=>{const input=await repairAccess(req,['run.create']);return repair.plan(input.project_id,req.params.id,req.user,input);});
+  fastify.post('/ai/automation-repairs/:id/start',{bodyLimit:12000},async req=>{const input=await repairAccess(req,['run.execute']);return repair.start(input.project_id,req.params.id,req.user,input);});
+  fastify.post('/ai/automation-repairs/:id/apply',{bodyLimit:12000},async req=>{const input=await repairAccess(req,['step.manage','testcase.update']);return repair.apply(input.project_id,req.params.id,req.user);});
+  const releasePolicy = require('../services/qualityReleasePolicy.service');
+  const policyAccess = async (req, waiver = false) => {
+    await fastify.authenticate(req);
+    const input = (req.method === 'GET' ? req.query : req.body) || {};
+    fastify.validate({project_id:{required:true,type:'string',maxLength:255}},input);
+    await projectService.getProject(input.project_id,req.user.id);
+    for (const code of ['quality_gate.view', ...(req.method === 'GET' ? [] : ['quality_gate.update']), ...(waiver ? ['requirement.view','testcase.view','run.view','result.view','feedback.view'] : [])]) await fastify.requirePermission(code,{projectId:input.project_id})(req);
+    return input;
+  };
+  fastify.get('/ai/release-policy',async(req,reply)=>{const input=await policyAccess(req);reply.header('cache-control','no-store');return {policy:await releasePolicy.current(input.project_id)};});
+  fastify.post('/ai/release-policy',{bodyLimit:12000},async(req)=>{const input=await policyAccess(req);return releasePolicy.approve(input.project_id,req.user,input);});
+  fastify.post('/ai/release-waivers',{bodyLimit:12000},async(req)=>{const input=await policyAccess(req,true);return releasePolicy.waive(input.project_id,req.user,input);});
+  const coverageReview = require('../services/qualityCoverageReview.service');
+  const coverageAccess = async req => {
+    const input = req.method === 'GET' ? req.query : req.body;
+    fastify.validate({ project_id:{required:true,type:'string',maxLength:255},story_id:{required:true,type:'string',maxLength:255} },input || {});
+    await projectService.getProject(input.project_id,req.user.id);
+    for (const permission of ['requirement.view','testcase.view',...(req.method === 'GET' ? [] : ['testcase.update'])]) await fastify.requirePermission(permission,{projectId:input.project_id})(req);
+    return {projectId:input.project_id,user:req.user,input};
+  };
+  fastify.get('/ai/coverage-mappings',async(req,reply)=> { reply.header('cache-control','no-store'); return coverageReview.load(await coverageAccess(req)); });
+  fastify.post('/ai/coverage-mappings', {bodyLimit:12000}, async(req)=>coverageReview.save(await coverageAccess(req)));
+
   const validateAssuranceInput = (body) => fastify.validate({
     project_id: { required: false, type: "string", maxLength: 255 },
     integration_id: { required: false, type: "string", maxLength: 255 },
@@ -69,6 +105,6 @@ module.exports = async function (fastify) {
     const execution = await executionService.getExecution(req.params.id);
     await projectService.getProject(execution.project_id, req.user.id);
     await fastify.requirePermission("run.ai", { projectId: execution.project_id })(req);
-    return assistance.previewFailureClusters({ user: req.user, executionId: req.params.id, requestedScope: req.body?.scope });
+    return assistance.previewFailureClusters({ user: req.user, executionId: req.params.id, requestedScope: req.body?.scope, integrationId: req.body?.integration_id });
   });
 };

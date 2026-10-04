@@ -17,6 +17,7 @@ export function WorkflowExecutionView({
   onBack,
   onRetry,
   canRun,
+  canViewTraces = false,
   stopping,
   onStop,
   error,
@@ -28,6 +29,7 @@ export function WorkflowExecutionView({
   onBack: () => void;
   onRetry?: () => void;
   canRun: boolean;
+  canViewTraces?: boolean;
   stopping: boolean;
   onStop: () => void;
   error?: string;
@@ -100,6 +102,7 @@ export function WorkflowExecutionView({
         )}
       </header>
       <div className="studio-toolbar">
+        {canViewTraces && run.execution_mode === "review" && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&run_id=${encodeURIComponent(run.id)}`}>Model calls</a>}
         <nav aria-label="Execution views">
           <button
             type="button"

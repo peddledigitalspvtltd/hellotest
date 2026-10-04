@@ -37,7 +37,7 @@ export function inspectSourceImports(ts, file, source, { readStrings = false } =
     if (readStrings && ts.isStringLiteralLike(node) && /^(\.|\/src\/|\/services\/)/.test(node.text)) imports.add(node.text);
     if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) imports.add(node.argument.literal.text);
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) imports.add(node.moduleSpecifier.text);
-    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText(ast) === 'require')) {
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || ['require', 'require.resolve'].includes(node.expression.getText(ast)))) {
       if (node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) imports.add(node.arguments[0].text);
       else dynamic.push(ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1);
     }

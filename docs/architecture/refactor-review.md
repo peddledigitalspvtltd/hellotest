@@ -55,9 +55,9 @@ These changes apply SOLID through concrete contracts: one responsibility per ext
 | `services/trace` | Operational telemetry and monitoring gateways. Preserve best-effort telemetry and bounded cardinality. Request/trace IDs connect public failures to structured API logs; worker HTTP also retains request references. |
 | `testengine` | Sole supported execution worker, provider orchestration, artifacts and queue adapters. Internal service transport was consolidated; target API execution policy remains separate. |
 | `local-run` | Local stack wrappers, recorder launchers and native provider. Native session lifecycle was corrected; infrastructure wrappers retain their existing stable entry points. |
-| `scripts` | Build, deployment, checks and operations entry points. Added read-only developer diagnosis. Existing architecture checks enforce source/import ownership; the requested root `CONTRIBUTE.md` pointer is explicitly allowed. |
+| `scripts` | Build, deployment, checks and operations entry points. Added read-only developer diagnosis. Existing architecture checks enforce source/import ownership and allow the canonical root contributor guide. |
 | `ops` | Monitoring/routing configuration. No monitoring stack or credentials were changed. Runtime health checks and OPS verification remain separate from static source audits. |
-| `docs`, root guides, `.vscode` | Corrected actual paths, ports, environment loading, setup and debugger instructions. `CONTRIBUTING.md` is canonical; `CONTRIBUTE.md` and the older debugging path point to it/the current runbook. |
+| `docs`, root guides, `.vscode` | Corrected actual paths, ports, environment loading, setup and debugger instructions. `CONTRIBUTING.md` combines onboarding, VS Code debugging and engineering rules; the older debugging path points to the current runbook. |
 
 Installed dependencies, build outputs, artifacts, private environment files and local tool state are not source-refactor targets. Source and package boundary checks assess all capability folders; that does not substitute for a line-by-line review of each implementation.
 

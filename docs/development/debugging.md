@@ -1,6 +1,6 @@
 # Development debugging runbook
 
-For first setup, follow the numbered [developer walkthrough](../../CONTRIBUTE.md). Use this runbook to choose a debugger, trace a failure and recover without losing data. Commands below assume that dependencies, infrastructure and the private root `.env.development.local` are configured. Engineering standards and terminal startup commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md).
+For development setup, VS Code configuration, engineering standards and terminal startup commands, use [CONTRIBUTING.md](../../CONTRIBUTING.md). Use this runbook to choose a debugger, trace a failure and recover without losing data. Commands below assume that dependencies, infrastructure and the private root `.env.development.local` are configured.
 
 ## Establish the process and topology
 
@@ -102,7 +102,7 @@ Pausing a queue worker does not pause lease expiry or another worker. Use an iso
 ## Breakpoint and task troubleshooting
 
 1. **Confirm the process and file.** Select the intended session in Call Stack. Frontend code needs the Chrome session; routes need Backend API; queue execution needs Test Engine. Break in original `.js`/`.ts`/`.tsx` source. Tests importing compiled engine `dist` need a current build; the server launch uses source through `tsx`.
-2. **Load the code path.** A hollow breakpoint may belong to a module the browser has not loaded yet. Navigate to the feature, then reload if React Query or the HTTP client cache prevents the request. The [Projects walkthrough](../../CONTRIBUTE.md#5-start-the-product-ui-and-trace-one-request) gives a known read path.
+2. **Load the code path.** A hollow breakpoint may belong to a module the browser has not loaded yet. Navigate to the feature, then reload if React Query or the HTTP client cache prevents the request. The [Projects walkthrough](../../CONTRIBUTING.md#2-example-debug-a-projects-request) gives a known read path.
 3. **Check source mapping.** Inspect the breakpoint tooltip and loaded scripts. Vite uses `@fs` paths for capability code outside the shell directory. Open the workspace root and use its checked-in source-map settings before inventing path overrides. Clear stale browser assets by reloading, and remove only relevant generated build output if a stale build is confirmed.
 4. **Inspect the task terminal.** A missing `.env.development.local`, stopped Docker daemon, failed MinIO build, unhealthy PostgreSQL or occupied Vite port prevents launch. Fix that reported prerequisite and rerun. Do not select “Debug Anyway” when infrastructure failed.
 5. **Check the launch environment.** Use the VS Code terminal to check `node --version` and `docker compose version`. A GUI-started editor may have a different PATH from your shell. Restart it from the configured development environment when tools are missing. Stop and relaunch a Node session after changing the environment file.

@@ -151,7 +151,7 @@ test("canonical schema includes every runtime bootstrap-only AI and API-key tabl
   }
 
   assert.match(schema, /agentic_workflows[\s\S]*status IN \('draft', 'active', 'paused', 'archived'\)/);
-  assert.match(schema, /agentic_workflow_runs[\s\S]*status IN \('queued', 'running', 'completed', 'failed', 'aborted'\)/);
+  assert.match(schema, /agentic_workflow_runs[\s\S]*status IN \('queued', 'running', 'completed', 'needs_review', 'failed', 'aborted', 'cancelled', 'interrupted'\)/);
   assert.match(schema, /automation_generator_jobs[\s\S]*status IN \('queued', 'leased', 'running', 'completed', 'failed', 'cancelled'\)/);
   assert.match(schema, /user_api_keys[\s\S]*REFERENCES users\(id\) ON DELETE CASCADE/);
   assert.match(schema, /ai_requirement_generation_jobs[\s\S]*REFERENCES projects\(id\) ON DELETE CASCADE/);

@@ -1,0 +1,50 @@
+# Overlay for docker-compose.platform.yml / docker-compose.full.yml.
+# Supply an existing persistent Temporal service; this file never starts an
+# ephemeral development server for production workflow history.
+services:
+  api:
+    environment:
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?Set the reachable Temporal frontend address}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-hellotest-agentic-v1}
+  agentic-durable:
+    build:
+      context: .
+      dockerfile: services/agentic/Dockerfile.durable
+    init: true
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      APP_MODE: docker
+      DATABASE_URL: ${DATABASE_URL:-}
+      OBS_DATABASE_URL: ${OBS_DATABASE_URL:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+      OBS_POSTGRES_HOST: postgres
+      OBS_POSTGRES_DB: ${POSTGRES_DB:-hellotest}
+      OBS_POSTGRES_USER: ${POSTGRES_USER:-hellotest}
+      OBS_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Database password is required}
+      KNOWLEDGE_VECTOR_STORE: ${KNOWLEDGE_VECTOR_STORE:-qdrant}
+      KNOWLEDGE_QDRANT_URL: ${KNOWLEDGE_QDRANT_URL:-http://qdrant:6333}
+      KNOWLEDGE_QDRANT_API_KEY: ${KNOWLEDGE_QDRANT_API_KEY:-}
+      KNOWLEDGE_QDRANT_COLLECTION_PREFIX: ${KNOWLEDGE_QDRANT_COLLECTION_PREFIX:-hellotest_knowledge_dense_v1}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+      MINIO_PORT: ${MINIO_PORT:-9000}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-hellotest}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Artifact storage credential is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-hellotest-attachments}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      SESSION_SECRET: ${SESSION_SECRET:?Use the same credential encryption key as the API}
+      WORKFLOW_CREDENTIAL_KEY: ${WORKFLOW_CREDENTIAL_KEY:-}
+      AGENTIC_HTTP_CONNECTIONS: ${AGENTIC_HTTP_CONNECTIONS:-[]}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:?Set the reachable Temporal frontend address}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-hellotest-agentic-v1}
+      TEMPORAL_TLS: ${TEMPORAL_TLS:-false}
+      TEMPORAL_API_KEY: ${TEMPORAL_API_KEY:-}
+    stop_grace_period: 30s

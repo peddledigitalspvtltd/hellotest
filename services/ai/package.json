@@ -47,7 +47,15 @@
     "./frontend/lib/artifactAssurance": "./frontend/lib/artifactAssurance.ts",
     "./frontend/lib/smartContext": "./frontend/lib/smartContext.ts",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./backend/services/qualityEvidence.service": "./backend/services/qualityEvidence.service.js",
+    "./frontend/components/QualityEvidencePanel": "./frontend/components/QualityEvidencePanel.tsx",
+    "./frontend/components/AiLifecycleReview": "./frontend/components/AiLifecycleReview.tsx",
+    "./backend/services/structuredReview.service": "./backend/services/structuredReview.service.js",
+    "./backend/services/qualityRecordSchema": "./backend/services/qualityRecordSchema.js",
+    "./backend/services/qualityGraphChanges": "./backend/services/qualityGraphChanges.js",
+    "./backend/services/automationRepair.service": "./backend/services/automationRepair.service.js",
+    "./frontend/components/AutomationRepairReview": "./frontend/components/AutomationRepairReview.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs ai",

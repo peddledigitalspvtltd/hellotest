@@ -3,6 +3,10 @@ import { request, toQueryString } from "@hellotest/platform/frontend/src/lib/htt
 
 
 export const traceApi = {
+  llmTraces: {
+    list: (query: { project_id: string; search?: string; status?: string; since?: string; cursor?: string; run_id?: string; session_id?: string }, signal?: AbortSignal) => request<import('./llmTraceTypes').LlmTracePage>(`/ops-telemetry/llm-traces${toQueryString(query)}`, { signal, cache: 'no-store' }, 10000),
+    detail: (projectId: string, id: string, signal?: AbortSignal) => request<import('./llmTraceTypes').LlmTrace>(`/ops-telemetry/llm-traces/${encodeURIComponent(id)}${toQueryString({ project_id: projectId })}`, { signal, cache: 'no-store' }, 6000)
+  },
 opsTelemetry: {
     platform: (projectId: string, signal?: AbortSignal) => request<import("@hellotest/platform/frontend/src/types").OpsPlatformSnapshot>(`/ops-telemetry/platform${toQueryString({ project_id: projectId })}`, { signal, cache: "no-store" }, 6000),
     monitoring: (projectId: string, section: import("@hellotest/platform/frontend/src/types").OpsMonitoringSection, signal?: AbortSignal) => request<import("@hellotest/platform/frontend/src/types").OpsMonitoringSnapshot>(`/ops-telemetry/monitoring/${section}${toQueryString({ project_id: projectId })}`, { signal, cache: "no-store" }, 6000),

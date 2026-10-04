@@ -1237,6 +1237,7 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
     if (historyResult.status === "rejected") retrieval.history_unavailable = true;
     const integration = integrationResult.status === "fulfilled" ? integrationResult.value : null;
     const integrationError = integrationResult.status === "rejected" ? integrationResult.reason : null;
+    if (responseMode !== "evidence" && !integration) throw createError("Configure an active LLM in Integrations to generate an AI answer, or choose evidence search.", 422, "LLM_INTEGRATION_MISSING");
     let intentPlan = null;
     let intentModelCompletedAt = 0;
     if (integration) {
@@ -1314,9 +1315,9 @@ const respondInternal = async ({ sessionId, message, filters, smartContext: smar
       } catch (error) {
         execution.assertActive();
         retrieval.provider_error_code = modelFailureCode(error);
-        retrieval.provider_error_message = modelFailureMessage(retrieval.provider_error_code);
-        outcome = fallback(retrieval.provider_error_message);
+        retrieval.provider_error_message = modelFailureMessage(retrieval.provider_error_code).replace("The retrieved evidence is available below.", "Retry or select another configured model.");
         execution.emit("GENERATION", "failed", { error_code: retrieval.provider_error_code });
+        throw createError(retrieval.provider_error_message, 502, retrieval.provider_error_code);
       }
     }
     // Access can change while a model is running. Recheck before saving or

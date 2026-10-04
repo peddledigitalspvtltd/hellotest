@@ -1,3 +1,4 @@
+const structuredReview = require("./structuredReview.service");
 const crypto = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const { requireEntityPermission } = require("@hellotest/platform/backend/services/entityScope.service");
@@ -38,6 +39,9 @@ const assisted = ({ capability, input, evidence, confidence, payload, aiReview =
   return {
     ...payload,
     ...(aiReview.assurance_review ? { assurance_review: aiReview.assurance_review } : {}),
+    ...(aiReview.model_execution ? { model_execution: aiReview.model_execution } : {}),
+    ...(aiReview.verification ? { verification: aiReview.verification } : {}),
+    execution_status: "completed", publication_status: "proposal",
     integration: aiReview.integration || { id: "hellotest-evidence-graph", name: "HelloTest evidence graph", type: "deterministic", model: null, generation_mode: "deterministic", direct_model_invocation: false },
     provenance,
     generation_mode: provenance.generation_mode,
@@ -163,12 +167,15 @@ const FAILURE_RULES = [
   { id: "blocked", label: "Blocked execution", pattern: /(blocked|not executed|dependency)/i, action: "Resolve the blocking dependency and record evidence before rerunning." }
 ];
 
-const previewFailureClusters = async ({ user, executionId, requestedScope }) => {
+const previewFailureClusters = async ({ user, executionId, requestedScope, integrationId }) => {
   const scope = await requireEntityPermission({ user, permissionCode: "run.ai", entityType: "execution", entityId: executionId });
+  const access = await getOptionalEvidenceAccess(user, scope.projectId, ["run.view", "result.view", "attachment.view"]);
+  if (!access["run.view"] || !access["result.view"]) throw Object.assign(new Error("Viewing runs and results is required to analyze failures."), { statusCode: 403 });
   const execution = await db.prepare("SELECT * FROM executions WHERE id = ?").get(executionId);
-  const results = await db.prepare("SELECT * FROM execution_results WHERE execution_id = ? ORDER BY created_at DESC").all(executionId);
+  const results = await db.prepare("SELECT * FROM execution_results WHERE execution_id = ? ORDER BY created_at DESC LIMIT 2001").all(executionId);
+  if (results.length > 2000) throw Object.assign(new Error("Select a run with at most 2000 results for failure analysis."), { code: "AI_EVIDENCE_BUDGET", statusCode: 422 });
   const failures = results.filter((item) => ["failed", "blocked"].includes(item.status));
-  const attachments = failures.length ? await db.prepare(`
+  const attachments = failures.length && access["attachment.view"] ? await db.prepare(`
     SELECT attachments.id, attachments.entity_id, attachments.file_name
     FROM attachments
     JOIN execution_results ON execution_results.id = attachments.entity_id
@@ -190,25 +197,46 @@ const previewFailureClusters = async ({ user, executionId, requestedScope }) => 
     id: rule.id,
     label: rule.label,
     count: members.length,
-    confidence: rule.pattern ? 0.78 : 0.5,
+    confidence: null,
     explanation: rule.pattern ? "Matched transparent error/log keywords; confirm the cause against evidence." : "No deterministic signal matched; manual classification is required.",
     recommended_action: rule.action,
     evidence_refs: [...new Set(members.flatMap((item) => [`execution-result:${item.id}`, ...(attachmentByResult[item.id] || []).map((attachment) => `attachment:${attachment.id}`)]))],
     members: members.map((item) => ({ execution_result_id: item.id, test_case_id: item.test_case_id || null, status: item.status, error_excerpt: String(item.error || item.logs || "").slice(0, 500) || null, created_at: item.created_at || null, updated_at: item.updated_at || null }))
   })).sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
   const evidence = clusters.flatMap((cluster) => cluster.evidence_refs);
+  const review = await structuredReview.review({ projectId: scope.projectId, userId: user?.id, integrationId,
+    usageKey: "ai.execution.analysis", task: "Explain the observed failure groups. Keyword groups are symptoms, never confirmed causes. Give competing hypotheses and a discriminating check. Do not reclassify passing attempts or change recorded group counts.",
+    evidence: { execution: { id: executionId, build: execution.build, environment: execution.test_environment_name }, clusters: clusters.map(cluster => ({ id: cluster.id, evidence_refs: cluster.evidence_refs, members: cluster.members })), total_failures: failures.length },
+    contract: '{"summary":"string","clusters":[{"id":"existing cluster id","explanation":"observations and hypotheses","recommended_action":"next discriminating check","evidence_refs":["exact supplied reference"]}]}',
+    validate: value => {
+      if (!value || typeof value.summary !== "string" || !value.summary.trim() || !Array.isArray(value.clusters) || value.clusters.length !== clusters.length) throw structuredReview.invalid();
+      const seen = new Set();
+      for (const item of value.clusters) {
+        const group = clusters.find(cluster => cluster.id === item.id);
+        if (!group || seen.has(item.id) || typeof item.explanation !== "string" || !item.explanation.trim() || typeof item.recommended_action !== "string" || !item.recommended_action.trim() || !Array.isArray(item.evidence_refs) || !item.evidence_refs.length || item.evidence_refs.some(ref => !group.evidence_refs.includes(ref))) throw structuredReview.invalid();
+        seen.add(item.id);
+      }
+      return value;
+    } });
+  for (const cluster of clusters) {
+    const assessed = review.result.clusters.find(item => item.id === cluster.id);
+    cluster.explanation = assessed.explanation.slice(0, 2000);
+    cluster.recommended_action = assessed.recommended_action.slice(0, 1000);
+  }
+
   return assisted({
     capability: "execution-failure-clustering-preview",
     input: { execution_id: executionId, requested_scope: requestedScope || "failed-and-blocked" },
     evidence,
-    confidence: failures.length ? (clusters.some((item) => item.id === "unclassified") ? 0.62 : 0.79) : 0.4,
+    confidence: null,
+    aiReview: review,
     payload: {
       execution: { id: execution.id, display_id: execution.display_id || execution.id, name: execution.name, status: execution.status, release: execution.release, build: execution.build },
       total_results: results.length,
       failed_or_blocked_results: failures.length,
       clusters,
       unclassified_count: clusters.find((item) => item.id === "unclassified")?.count || 0,
-      explanation: failures.length ? "Clusters are explainable keyword-based triage suggestions over HelloTest result evidence; they are not confirmed root causes." : "No failed or blocked result is available to cluster.",
+      explanation: review.result.summary.slice(0, 2000),
       recommended_actions: failures.length ? ["Review the largest cluster first.", "Confirm each root cause with linked evidence.", "Create or link a defect only for reproducible product behavior.", "Rerun the smallest affected scope after remediation."] : ["Complete execution and attach evidence before requesting failure clustering."],
       scope: { project_id: scope.projectId }
     }

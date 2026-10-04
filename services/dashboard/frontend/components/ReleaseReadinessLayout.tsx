@@ -44,6 +44,7 @@ type Props = {
   canBugs: boolean;
   canAi: boolean;
   aiPending: boolean;
+  aiReviewContent?: ReactNode;
   refreshing: boolean;
   text: (key: string, values?: Record<string, string | number>) => string;
   onScopeChange: (release: string, sprint: string) => void;
@@ -660,6 +661,7 @@ export function ReleaseReadinessLayout(props: Props) {
                   </div>
                   {aiButton(copy("openBrief", "Open evidence brief"))}
                 </div>
+                {props.aiReviewContent ? <div className="rr-layout-panel-body">{props.aiReviewContent}</div> : null}
               </section>
               <section className="rr-layout-panel is-risk">
                 <div className="rr-layout-panel-head">
@@ -1014,6 +1016,7 @@ export function ReleaseReadinessLayout(props: Props) {
                 stories: canStories ? n(metrics.requirementCount) : "—",
                 cases: canCases ? n(metrics.plannedCaseCount) : "—",
                 runs: canRuns ? n(model.executions.length) : "—",
+                defects: canBugs ? n(metrics.openBugCount) : "—",
                 bugs: canBugs ? n(metrics.openBugCount) : "—",
               },
             )}

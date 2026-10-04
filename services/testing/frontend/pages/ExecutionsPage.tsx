@@ -1,5 +1,6 @@
 import { ExecutionHookResults } from "../components/ExecutionHookResults";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
+const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiAssurancePanel")["AiAssurancePanel"]> & {}>("ai", "AiAssurancePanel", () => import("@hellotest/ai/frontend/components/AiAssurancePanel"), "ai");
 const AiInsightPreviewDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiInsightPreviewDialog")["AiInsightPreviewDialog"]> & {}>("ai", "AiInsightPreviewDialog", () => import("@hellotest/ai/frontend/components/AiInsightPreviewDialog"), "ai");
 import { StepKindIconBadge } from "../components/StepKindIconBadge";
@@ -5269,7 +5270,7 @@ export function ExecutionsPage() {
       severity: cluster.id === "unclassified" ? "high" : cluster.count > 2 ? "medium" : "info",
       description: cluster.explanation,
       action: cluster.recommended_action,
-      meta: `${Math.round(cluster.confidence * 100)}% deterministic rule-match strength · not root-cause certainty`,
+      meta: `Model-reviewed hypothesis · ${cluster.count} observed outcomes`,
       evidence: cluster.evidence_refs
     })),
     [previewExecutionFailureClusters.data]
@@ -8835,6 +8836,7 @@ export function ExecutionsPage() {
 
                       {activeTab === "logs" ? (
                         <div className="stack-list execution-logs-stack execution-case-run-tab-panel">
+                        {canUseRunAi && can("agentic_workflow.run") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: selectedTestCaseId, build: selectedExecution.build || undefined, environment_id: selectedExecution.test_environment?.id || undefined }} integrations={integrations} features={["flaky-test-intelligence", "quality-graph"]} title="Reliability investigation" />}
                         {selectedExecutionResult ? (
                           <div className="execution-log-focus">
                             <div className="execution-section-head">
@@ -9851,7 +9853,7 @@ export function ExecutionsPage() {
         response={previewExecutionFailureClusters.data}
         signals={previewExecutionFailureClusters.data ? [
           { label: "Failed / blocked", value: String(previewExecutionFailureClusters.data.failed_or_blocked_results), tone: previewExecutionFailureClusters.data.failed_or_blocked_results ? "warning" : "positive" },
-          { label: "Rule clusters", value: String(previewExecutionFailureClusters.data.clusters.length), tone: "neutral" },
+          { label: "Symptom groups", value: String(previewExecutionFailureClusters.data.clusters.length), tone: "neutral" },
           { label: "Unclassified", value: String(previewExecutionFailureClusters.data.unclassified_count), tone: previewExecutionFailureClusters.data.unclassified_count ? "warning" : "positive" }
         ] : []}
         subtitle={previewExecutionFailureClusters.data ? `${previewExecutionFailureClusters.data.execution.display_id} · ${previewExecutionFailureClusters.data.execution.name}` : selectedExecution?.name || "Selected run"}

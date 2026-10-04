@@ -113,13 +113,17 @@ context:{scope:{project_id:'project',project_key:'P'},bounded:true,limits:{},inc
       assert.equal(await workspace.locator('.artifact-assurance-overall-score').getAttribute('aria-valuenow'), baseline);
       assert.deepEqual(await workspace.locator('.artifact-assurance-dimension-score').allTextContents(), scores);
       if (kind === 'story') {
-        await workspace.getByRole('button', { name: 'Inspect impact', exact: true }).click();
-        const impact = page.getByRole('dialog', { name: 'Preview Story change impact', exact: true });
+        await workspace.getByRole('tab', { name: 'Impact analysis', exact: true }).click();
+        const impact = workspace.getByRole('region', { name: 'AI Impact Analysis', exact: true });
         await impact.waitFor();
         assert.match(await impact.innerText(), /Unsaved checkout Story/);
         assert.equal(await impact.locator('.story-impact-evidence').count(), 1);
         assert.equal(await page.evaluate(() => window.assuranceRequests.length), 1, 'Opening the current impact reuses the reviewed draft without another model request');
-        await impact.getByRole('button', { name: 'Close preview', exact: true }).click();
+        await workspace.getByRole('tab', { name: 'Quality review', exact: true }).click();
+        await workspace.getByRole('tab', { name: 'Impact analysis', exact: true }).click();
+        await impact.waitFor();
+        assert.equal(await page.evaluate(() => window.assuranceRequests.length), 1);
+        await workspace.getByRole('tab', { name: 'Quality review', exact: true }).click();
       }
       await workspace.getByLabel('AI review prompt', { exact: true }).fill('Review a changed focus on retry recovery.');
       await workspace.getByText('Draft changed.', { exact: true }).waitFor();

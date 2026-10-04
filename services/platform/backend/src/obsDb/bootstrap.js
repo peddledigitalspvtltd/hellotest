@@ -4,6 +4,7 @@ let bootstrapPromise = null;
 const SCHEMA_LOCK_KEY = "hellotest:execution-runtime-schema:v1";
 
 const statements = [
+  ...require("./llmTraceSchema"),
   `
     CREATE TABLE IF NOT EXISTS automation_learning_cache (
       id TEXT PRIMARY KEY,

@@ -2611,10 +2611,30 @@ paths:
       - $ref: "#/components/parameters/IdParam"
     post:
       tags: [Executions]
-      summary: Preview deterministic failed/blocked result clusters
+      summary: Review recorded failure symptoms and model-proposed diagnostic checks
       responses:
         "200": { description: Evidence-linked failure clusters with an explicit unclassified group }
   /ai/quality-insights:
+    post:
+      tags: [Quality Analytics]
+      summary: Explain code-computed quality insights with the configured LLM
+      description: Requires all relevant source permissions. Metrics and counts remain code-owned; model output is a proposal. Missing or failed models return an error.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: { type: string }
+                release: { type: string }
+                sprint: { type: string }
+                integration_id: { type: string }
+      responses:
+        "200": { description: Evidence-linked model explanation with unchanged metrics and model provenance }
+        "422": { description: Model configuration or evidence budget requires attention }
+        "502": { description: Model could not produce a valid review }
     get:
       tags: [Quality Analytics]
       summary: Preview project or release-scoped quality insights
@@ -5365,6 +5385,61 @@ paths:
       summary: Queue a project knowledge refresh
       responses:
         "202": { description: Refresh requested }
+  /agentic-workflows/agents:
+    get:
+      tags: [Agentic Workflows]
+      summary: List current project agent definitions and immutable versions
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Project agent definitions (agentic_workflow.view) }
+    post:
+      tags: [Agentic Workflows]
+      summary: Create a project-scoped LLM agent (agentic_workflow.manage)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, definition]
+              properties:
+                project_id: { type: string }
+                activate: { type: boolean, default: false }
+                definition: { type: object, description: "Name, objective, instructions, skills, allowed tools, context scopes, model connection, acceptance rules and bounded execution limits" }
+      responses:
+        "200": { description: Saved agent definition and version }
+        "422": { description: Invalid definition or unavailable model }
+  /agentic-workflows/agents/{agentId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [Agentic Workflows]
+      summary: Create a new agent version using optimistic concurrency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, expected_version, definition]
+              properties:
+                project_id: { type: string }
+                expected_version: { type: integer, minimum: 1 }
+                activate: { type: boolean, default: false }
+                definition: { type: object }
+      responses:
+        "200": { description: New immutable version }
+        "409": { description: Agent was changed since it was loaded }
+    delete:
+      tags: [Agentic Workflows]
+      summary: Archive a project agent without deleting historical versions
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string } }
+        - { name: version, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Archived agent }
+        "409": { description: Agent was changed since it was loaded }
   /agentic-workflows/connections:
     get:
       tags: [Agentic Workflows]
@@ -6616,6 +6691,169 @@ paths:
       summary: Update users password
       responses:
         "200": { description: Successful response }
+  /ops-telemetry/llm-traces:
+    get:
+      summary: List project LLM calls and aggregate performance
+      description: Metadata only; supports status, search, since, run_id, session_id, and cursor filters. Retained for 14 days.
+      tags: [TestOps]
+      parameters:
+        - {in: query, name: project_id, required: true, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: search, schema: {type: string}}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: run_id, schema: {type: string}}
+        - {in: query, name: session_id, schema: {type: string}}
+        - {in: query, name: cursor, schema: {type: string}}
+      responses:
+        '200': {description: Paginated calls, next cursor, and filtered latency and token aggregates}
+        '403': {description: Project access or ops.view permission required}
+  /ops-telemetry/llm-traces/{id}:
+    get:
+      summary: Inspect one LLM request and response
+      description: Only workspace administrators receive redacted prompt and response bodies. Other authorized operators receive metadata. Hidden provider reasoning and credentials are omitted.
+      tags: [TestOps]
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+        - {in: query, name: project_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Scoped trace with content_access indicator}
+        '404': {description: Missing, out-of-scope, or expired trace}
+  /ai/coverage-mappings:
+    get:
+      summary: Load current criteria and assertion revisions for human review
+      tags: [AI]
+      parameters:
+        - {in: query, name: project_id, required: true, schema: {type: string}}
+        - {in: query, name: story_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Current obligations, linked test assertions, and review decisions}
+        '403': {description: Story and Test Case read permissions required}
+    post:
+      summary: Record an immutable criterion-to-assertion review
+      description: Requires testcase.update plus source read access. The server checks current Story, Test Case, and assertion revisions; stale mappings cannot be approved. Repeating a request ID with changed content is rejected.
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, story_id, obligation_id, story_revision, test_case_id, test_revision, step_id, decision, rationale, request_id]
+              properties:
+                project_id: {type: string}
+                story_id: {type: string}
+                obligation_id: {type: string}
+                story_revision: {type: string}
+                test_case_id: {type: string}
+                test_revision: {type: string}
+                step_id: {type: string}
+                decision: {type: string, enum: [approved, rejected, revoked]}
+                rationale: {type: string, minLength: 12, maxLength: 2000}
+                request_id: {type: string, format: uuid}
+      responses:
+        '200': {description: Persisted review receipt}
+        '409': {description: Story or test revision changed, or request ID conflicts}
+
+  /ai/release-policy:
+    get:
+      tags: [AI]
+      summary: Read the current approved project release policy
+      parameters:
+        - {in: query, name: project_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Current immutable policy version or null}
+    post:
+      tags: [AI]
+      summary: Approve a release policy version with quality_gate.update authority
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, expected_version, policy, rationale]
+              properties:
+                project_id: {type: string}
+                expected_version: {type: integer, minimum: 0}
+                policy: {type: object, additionalProperties: true}
+                rationale: {type: string, minLength: 20, maxLength: 2000}
+      responses:
+        '200': {description: Approved immutable version}
+        '409': {description: Policy changed; reload before approving}
+  /ai/release-waivers:
+    post:
+      tags: [AI]
+      summary: Record or withdraw a scoped release exception
+      description: Requires quality_gate.update and all source read permissions. Only eligible recorded failures in the current policy and exact evidence revision can be waived. Unknown evidence is never waived. Expiry is limited to 30 days. This does not authorize deployment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, policy_version, release_id, build, environment_id, gate_id, evidence_hash, decision, rationale, reference, expires_at]
+              additionalProperties: true
+      responses:
+        '200': {description: Immutable exception decision}
+        '409': {description: Policy or gate evidence changed}
+
+  /ai/automation-repairs/{id}:
+    get:
+      tags: [AI]
+      summary: Inspect the typed repair, current source revision, validation Runs and trusted runner checks
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+        - {in: query, name: project_id, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Scoped repair result}
+        '403': {description: Source evidence or action permission missing}
+        '409': {description: Source, pinned evidence or prerequisite verification changed}
+  /ai/automation-repairs/{id}/validation:
+    post:
+      tags: [AI]
+      summary: Prepare immutable original, repaired/neighbor, and known-negative validation Runs
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [project_id], additionalProperties: true}
+      responses:
+        '200': {description: Scoped repair result}
+        '403': {description: Source evidence or action permission missing}
+        '409': {description: Source, pinned evidence or prerequisite verification changed}
+  /ai/automation-repairs/{id}/start:
+    post:
+      tags: [AI]
+      summary: Start a validation phase on the configured Test Engine after preceding checks pass
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [project_id], additionalProperties: true}
+      responses:
+        '200': {description: Scoped repair result}
+        '403': {description: Source evidence or action permission missing}
+        '409': {description: Source, pinned evidence or prerequisite verification changed}
+  /ai/automation-repairs/{id}/apply:
+    post:
+      tags: [AI]
+      summary: Apply a verified locator replacement with step.manage and testcase.update authority
+      parameters:
+        - {in: path, name: id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, required: [project_id], additionalProperties: true}
+      responses:
+        '200': {description: Scoped repair result}
+        '403': {description: Source evidence or action permission missing}
+        '409': {description: Source, pinned evidence or prerequisite verification changed}
+
 components:
   securitySchemes:
     traceConsoleSession:

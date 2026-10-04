@@ -545,6 +545,30 @@ const qualityInsights = async ({ projectId, release, sprint }) => {
   };
 };
 
+const explainQualityInsights = async ({ projectId, release, sprint, userId, integrationId }) => {
+  const baseline = await qualityInsights({ projectId, release, sprint });
+  const reviewer = require("@hellotest/ai/backend/services/structuredReview.service");
+  const review = await reviewer.review({ projectId, userId, integrationId, usageKey: "ai.quality.insights",
+    task: "Explain the recorded project quality signals. Counts and metrics are fixed code inputs. Linked coverage is not assertion adequacy. An advisory score is not release readiness. Distinguish observed failures from hypotheses and missing evidence.",
+    evidence: { ref: "quality:metrics", scope: baseline.scope, metrics: baseline.metrics, findings: baseline.findings, limitations: baseline.limitations },
+    contract: '{"summary":"string","findings":[{"id":"existing finding id","explanation":"string","action":"string","evidence_refs":["quality:metrics"]}]}',
+    validate: value => {
+      if (!value || typeof value.summary !== "string" || !value.summary.trim() || !Array.isArray(value.findings) || value.findings.length !== baseline.findings.length) throw reviewer.invalid();
+      const seen = new Set();
+      for (const item of value.findings) {
+        if (!baseline.findings.some(finding => finding.id === item.id) || seen.has(item.id) || typeof item.explanation !== "string" || !item.explanation.trim() || typeof item.action !== "string" || !item.action.trim() || !Array.isArray(item.evidence_refs) || !item.evidence_refs.length || item.evidence_refs.some(ref => ref !== "quality:metrics")) throw reviewer.invalid();
+        seen.add(item.id);
+      }
+      return value;
+    } });
+  const findings = baseline.findings.map(finding => { const explanation = review.result.findings.find(item => item.id === finding.id); return { ...finding, description: explanation.explanation.slice(0, 2000), action: explanation.action.slice(0, 1000) }; });
+  return { ...baseline, generation_mode: "llm", fallback_used: false, integration: review.integration, model_execution: review.model_execution,
+    summary: review.result.summary.slice(0, 2000), release_summary: review.result.summary.slice(0, 2000), findings,
+    insights: baseline.insights.map(item => ({ ...item, explanation: findings.find(finding => finding.id === item.id).description, recommended_action: findings.find(finding => finding.id === item.id).action })),
+    recommended_actions: findings.map(item => item.action),
+    provenance: { ...baseline.provenance, generation_mode: "llm", provider: review.integration.name, model: review.integration.model, input_fingerprint: review.model_execution.input_hash } };
+};
+
 module.exports = {
   NATIVE_DASHBOARD_METRICS,
   normalizeNativeMetric,
@@ -554,5 +578,6 @@ module.exports = {
   evaluateGadget,
   loadContext,
   loadRunResultSummaries,
-  qualityInsights
+  qualityInsights,
+  explainQualityInsights
 };

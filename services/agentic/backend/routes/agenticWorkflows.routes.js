@@ -34,6 +34,8 @@ module.exports = async function (fastify) {
       app_type_id: { required: false, type: "string" },
       mode: { required: false, type: "string" },
       agent_id: { required: false, type: "string" },
+      agent_version: { required: false, type: "number" },
+      inputs: { required: false, type: "object" },
       prompt: { required: true, type: "string" },
       context_scopes: { required: false, type: "array" },
       smart_context: { required: false, type: "object" },
@@ -43,7 +45,7 @@ module.exports = async function (fastify) {
 
     await requireProjectPermission(req, req.body.project_id, "agentic_workflow.run");
     await validateApp(req.body.project_id, req.body.app_type_id);
-    return withConnection(req, reply, (signal) => agenticAssistantService.respond({ ...req.body, user: req.user, signal }));
+    return withConnection(req, reply, (signal) => agenticAssistantService.respond({ ...Object.fromEntries(["project_id", "app_type_id", "mode", "agent_id", "agent_version", "inputs", "prompt", "context_scopes", "smart_context", "integration_id", "history"].filter(key => Object.hasOwn(req.body, key)).map(key => [key, req.body[key]])), user: req.user, signal }));
   });
 
   fastify.get("/agentic-assistant/sessions", async (req) => {
@@ -62,6 +64,29 @@ module.exports = async function (fastify) {
     const review = await agenticAssistantService.getSession(req.params.id, req.user);
     await fastify.requirePermission("agentic_workflow.view", { projectId: review.transaction.project_id })(req);
     return review;
+  });
+
+  const registry = require("../agents/agentRegistry.service");
+  const agentAccess = async (req, permission, projectId) => {
+    await fastify.authenticate(req);
+    if (typeof projectId !== "string" || !projectId.trim() || projectId.length > 255) throw Object.assign(new Error("Select a project."), { statusCode: 400 });
+    await requireProjectPermission(req, projectId, permission);
+  };
+  fastify.get("/agentic-workflows/agents", async req => {
+    await agentAccess(req, "agentic_workflow.view", req.query.project_id);
+    return registry.list(req.query.project_id);
+  });
+  fastify.post("/agentic-workflows/agents", async req => {
+    await agentAccess(req, "agentic_workflow.manage", req.body?.project_id);
+    return registry.save(req.body || {}, null, req.user.id);
+  });
+  fastify.put("/agentic-workflows/agents/:agentId", async req => {
+    await agentAccess(req, "agentic_workflow.manage", req.body?.project_id);
+    return registry.save(req.body || {}, req.params.agentId, req.user.id);
+  });
+  fastify.delete("/agentic-workflows/agents/:agentId", async req => {
+    await agentAccess(req, "agentic_workflow.manage", req.query.project_id);
+    return registry.archive(req.params.agentId, req.query.project_id, Number(req.query.version));
   });
 
   fastify.get("/agentic-workflows", async (req) => {
@@ -226,7 +251,7 @@ module.exports = async function (fastify) {
     await fastify.authenticate(req);
     const workflow = await agenticWorkflowService.getWorkflow(req.params.id);
     await requireProjectPermission(req, workflow.project_id, "agentic_workflow.view");
-    return workflowExecution.checkReadiness(workflow, req.query.target_node_id || "");
+    return workflowExecution.checkReadiness(workflow, req.query.target_node_id || "", req.user);
   });
 
   fastify.post("/agentic-workflows/:id/executions", async (req, reply) => {

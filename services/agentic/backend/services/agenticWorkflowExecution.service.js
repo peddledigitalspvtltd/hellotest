@@ -1,6 +1,8 @@
 const { createHash, randomUUID } = require("node:crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const assistant = require("./agenticAssistant.service");
+const agentRegistry = require("../agents/agentRegistry.service");
+const agentContract = require("../agents/agentDefinition");
 const permissions = require("@hellotest/platform/backend/services/permission.service");
 const flags = require("@hellotest/platform/backend/services/featureFlag.service");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
@@ -112,7 +114,7 @@ function readiness(workflow, targetNodeId = "") {
     if (kind === "repositoryAgent" && !require("../agents/catalog").AGENTS.some(agent => agent.id === data.repositoryAgentType)) add(node, "Choose a source analysis agent.");
     if (kind === "repositoryAgent" && Number(data.retryCount) > 0) add(node, "Source analysis uses its existing worker. Set retries to zero; review a failed analysis before starting a new execution.");
     if (["agent", "llmAgent", "customAI"].includes(kind)) {
-      if (kind !== "customAI" && !assistant.AGENT_CATALOG[data.agentId]) add(node, "Choose a registered workspace specialist in the step inspector.");
+      if (kind !== "customAI" && !assistant.AGENT_CATALOG[data.agentId] && !/^agent-[a-f0-9-]{36}$/.test(data.agentId || "")) add(node, "Choose a registered workspace specialist in the step inspector.");
       const prompt = text(data.prompt) || text(data.intent);
       if (!prompt) add(node, "Describe the task this specialist should review.");
       try { specialistPolicy(data); } catch (failure) { add(node, failure.publicMessage); }
@@ -142,9 +144,18 @@ async function requireRunAccess(user, projectId, { allowDisabled = false } = {})
   if (!allowDisabled && !await flags.areEnabled(flags.getFeatureKeysForPermission("agentic_workflow.run"), { user })) throw error("Agent workflows are disabled for this workspace.", 403);
 }
 
-async function checkReadiness(workflow, targetNodeId = "") {
+async function checkReadiness(workflow, targetNodeId = "", user) {
   const report = readiness(workflow, targetNodeId);
   if (!report.ready) return report;
+  for (const step of report.steps) {
+    const node = workflow.nodes.find(item => item.id === step.node_id);
+    if (!["agent", "llmAgent", "customAI", "repositoryAgent"].includes(step.kind) && !(step.kind === "loop" && node.data?.loopAction === "customAI")) continue;
+    if (step.kind === "repositoryAgent" && !node.data.llmIntegrationId) continue;
+    try {
+      const registered = String(node.data.agentId || "").startsWith("agent-") ? await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id) : null;
+      await agentRegistry.resolveModel(workflow.project_id, user?.id, node.data.llmIntegrationId || registered?.definition.integration_id);
+    } catch (failure) { report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || "Check this agent's version and model connection." }); }
+  }
   const connections = require("../workflows/connections");
   for (const step of report.steps.filter(step => ["mcpTool", "apiTool", "apiAgent", "webAgent"].includes(step.kind))) {
     const node = workflow.nodes.find(node => node.id === step.node_id), data = node.data || {};
@@ -152,6 +163,7 @@ async function checkReadiness(workflow, targetNodeId = "") {
       const { connection } = await connections.resolve(data.connectionId, workflow.project_id, step.kind === "mcpTool" ? null : data.apiUrl, step.kind === "mcpTool" ? "mcp" : "http");
       if (step.kind === "mcpTool" && !connection.tools?.includes(data.mcpTool)) throw error("Enable this tool in Integrations or choose an enabled tool.");
       if (step.kind !== "mcpTool" && !(connection?.methods || ["GET", "HEAD"]).includes(step.kind === "webAgent" ? "GET" : data.apiMethod || "GET")) throw error("This HTTP method is not enabled for the selected connection.");
+      if (step.kind === "mcpTool" && !connection.toolDefinitions?.some(tool => tool.name === data.mcpTool)) throw error("Discover and save this server tool in Integrations before running it.", 422);
       connections._internals.authHeaders(connection);
     } catch (failure) {
       report.blockers.push({ node_id: node.id, node_name: nodeName(node), message: failure.publicMessage || "This connection could not be checked. Review its settings in Admin Space." });
@@ -167,6 +179,7 @@ const terminalNodes = (nodes, currentId, state) => nodes.map(node => node.node_i
 
 async function reconcile(run) {
   if (!run || run.execution_mode !== MODE || run.status !== "running") return run;
+  if (run.workflow_snapshot.runtime_contract?.orchestrator === "temporal") return run;
   const deadline = Date.parse(run.workflow_snapshot?.runtime_contract?.deadline_at || "");
   if (!Number.isFinite(deadline) || deadline > Date.now()) return run;
   return stopRun(run, "interrupted", { summary: "This review exceeded its deadline or the worker stopped. Completed step results are preserved. Start a new review to retry.", error_code: "WORKFLOW_INTERRUPTED" });
@@ -240,7 +253,13 @@ const collectReviews = (sources) => sources.flatMap(source => {
 }).filter((review, index, all) => all.findIndex(other => other.node_id === review.node_id && other.item_index === review.item_index) === index).slice(0, 200);
 
 async function executeNode(run, node, user, signal, onAttempt, onProgress = async () => {}, onEvent = async () => {}) {
-  try { return await executeNodeTask(run, node, user, signal, onAttempt, onProgress, onEvent); }
+  try { return await require("@hellotest/platform/backend/src/utils/llmTraceContext").run(
+    { project_id: run.project_id, actor_id: user.id, run_id: run.id, node_id: node.id },
+    () => {
+      const kind=kindOf(node), effect=kind==='mcpTool'||(['apiTool','apiAgent'].includes(kind)&&!['GET','HEAD'].includes(node.data.apiMethod||'GET'));
+      const dispatch=()=>executeNodeTask(run,node,user,signal,onAttempt,onProgress,onEvent);
+      return effect ? require('../workflows/operationJournal').invoke({run,node,user,input:compactUpstream(run,node)},dispatch) : dispatch();
+    }); }
   catch (failure) {
     if (failure.code === "DEADLINE_EXCEEDED" && !signal.aborted) throw Object.assign(error(`${nodeName(node)} reached its step timeout. Increase the timeout or reduce the work in this step.`, 504), { code: "NODE_TIMEOUT" });
     throw failure;
@@ -264,7 +283,7 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
   if (kind === "customAI") return executeNode(run, { ...node, data: { ...data, kind: "agent", agentId: "quality-evaluator", customTask: true } }, user, signal, onAttempt, onProgress, onEvent);
   if (operations.KINDS.has(kind)) {
     return execution.bounded(async nodeSignal => {
-      const retries = kind !== "loop" && events.canRetry(kind, data) ? Number(data.retryCount || 0) : 0;
+      const retries = !["loop", "customAI"].includes(kind) && events.canRetry(kind, data) ? Number(data.retryCount || 0) : 0;
       for (let attempt = 0; ; attempt++) {
         await requireRunAccess(user, run.project_id);
         if (kind !== "loop" || data.loopAction !== "customAI") await onAttempt(attempt + 1);
@@ -288,7 +307,7 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
     if (source.type !== "github" || !text(source.repository_url)) throw error("Supply source.type = github and source.repository_url in the workflow input. ZIP uploads are available in the source agent workspace.");
     await onAttempt(1);
     const job = await repositoryAgents.createRun({ project_id: run.project_id, app_type_id: run.app_type_id,
-      agent_type: data.repositoryAgentType, source }, user, { requestKey: `workflow-${run.id}-${node.id}` });
+      agent_type: data.repositoryAgentType, llm_integration_id: text(data.llmIntegrationId) || undefined, source }, user, { requestKey: `workflow-${run.id}-${node.id}` });
     let lastProgress = "";
     try {
       return await execution.bounded(async childSignal => {
@@ -299,13 +318,19 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
           const signature = JSON.stringify(progress);
           if (signature !== lastProgress) { await onProgress(progress); lastProgress = signature; }
           if (["failed", "cancelled"].includes(current.status)) throw error("Source analysis did not complete. Inspect the source agent execution for details.", 502);
-          if (["completed", "partial"].includes(current.status)) return {
+          if (["completed", "partial"].includes(current.status)) {
+            const review = current.result?.llm_review;
+            if (data.llmIntegrationId && review?.provenance?.generation_mode !== "llm") throw agentContract.fail("The requested source review did not complete.", "AGENT_OUTPUT_INVALID");
+            return {
             repository_run_id: job.id, repository_agent_type: data.repositoryAgentType,
-            response: typeof current.summary === "string" ? current.summary : `Source analysis completed. ${JSON.stringify(current.summary || current.result?.summary || {})}`,
+            session_id: review?.session_id, response: review?.response, citation_ids: review?.citation_ids,
+            findings: current.result?.findings, review_findings: review?.findings, evidence_gaps: review?.evidence_gaps, verification: review?.verification,
+            model_execution: review?.model_execution, provenance: review?.provenance || { generation_mode: "deterministic", compiler_version: current.compiler_version },
             source: current.source, stages: current.stages, warnings: current.warnings,
             readiness: { status: current.status === "partial" ? "limited_evidence" : "ready_for_review" },
             requires_human_review: true
           };
+          }
           await execution.bounded(() => new Promise(resolve => setTimeout(resolve, 1_000)), { signal: childSignal, timeoutMs: 2_000 });
         }
         throw execution.abortError();
@@ -316,8 +341,10 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
     }
   }
   const deadline = Date.now() + (Number(data.timeoutMs) || 70_000);
-  const retries = Number(data.retryCount) || 0;
+  const retries = kind === "loop" && data.loopAction === "customAI" ? 0 : Number(data.retryCount) || 0;
   const policy = specialistPolicy(data);
+  // One ledger spans transport retries, JSON compatibility and output repairs for this node.
+  const modelBudget = { used: 0, max: data.agentSnapshot?.definition?.limits?.max_model_calls || 2 };
   const scopes = policy.context_scopes;
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -326,21 +353,95 @@ async function executeNodeTask(run, node, user, signal, onAttempt, onProgress, o
     await onAttempt(attempt + 1);
     try {
       const review = await execution.bounded((nodeSignal) => assistant.respond({ user, project_id: run.project_id, app_type_id: run.app_type_id,
-        mode: "agent", agent_id: data.agentId, workflow_policy: { ...policy, custom_task: data.customTask === true, connected_input: data.customTask === true ? { request: run.input_payload, input: contextFor(run, sources).input } : undefined }, prompt: specialistPrompt(run, node, sources), context_scopes: scopes,
+        mode: "agent", agent_id: data.agentId, workflow_policy: { ...policy, model_budget: modelBudget, agent_definition: data.agentSnapshot, custom_task: data.customTask === true || Boolean(data.agentSnapshot), connected_input: { request: run.input_payload, input: contextFor(run, sources).input } }, prompt: specialistPrompt(run, node, sources), context_scopes: scopes,
         integration_id: text(data.llmIntegrationId) || undefined,
         smart_context: { query: text(data.knowledgeQuery) || text(data.prompt), source_ids: array(data.knowledgeSourceIds), source_kinds: array(data.knowledgeSourceKinds) },
         signal: nodeSignal
       }), { timeoutMs: deadline - Date.now(), signal });
+      if (review.provenance?.generation_mode !== "llm") throw agentContract.fail("The AI node did not return a model-generated review.", "AGENT_OUTPUT_INVALID");
       return { session_id: review.transaction.id, specialist_id: data.agentId, ...review.result, provenance: review.provenance };
     } catch (failure) {
       lastError = failure;
-      if (signal.aborted || !events.retryable(failure) || attempt >= retries || Date.now() >= deadline) throw failure;
+      if (signal.aborted || modelBudget.used >= modelBudget.max || !events.retryable(failure) || attempt >= retries || Date.now() >= deadline) throw failure;
       const delay = Math.min(Number(data.retryDelayMs ?? 500) * (attempt + 1), deadline - Date.now());
       await onEvent({ level: "warning", event: "retry_scheduled", attempt: attempt + 1, retry_delay_ms: delay, status_code: failure.statusCode, message: `AI attempt ${attempt + 1} failed. Retrying in ${delay} ms.` });
       await execution.bounded(() => new Promise(resolve => setTimeout(resolve, delay)), { timeoutMs: deadline - Date.now(), signal });
     }
   }
   throw lastError;
+}
+
+async function runStep(run, node, user, signal, persist, shouldRun) {
+  await requireRunAccess(user, run.project_id);
+  if (signal.aborted) throw execution.abortError();
+  const result = run.node_results.find(item => item.node_id === node.id);
+  const incomingEdges = run.workflow_snapshot.edges.filter(edge => edge.target === node.id);
+  const activeEdges = incomingEdges.filter(edge => {
+    const parent = run.node_results.find(item => item.node_id === edge.source);
+    if (kindOf(node) === "errorHandler") return parent?.status === "failed";
+    if (parent?.status !== "completed") return false;
+    if (parent.node_type === "condition") return parent.output.matched === (edge.sourceHandle !== "false");
+    return true;
+  });
+  if (shouldRun === false || (shouldRun == null && kindOf(node) !== "trigger" && !activeEdges.length)) {
+    result.status = "skipped";
+    result.skip_reason = kindOf(node) === "errorHandler" ? "No upstream failure to recover." : "No selected upstream branch reached this node.";
+    result.completed_at = new Date().toISOString();
+    events.log(result, { event: "node_skipped", message: result.skip_reason });
+    await persist();
+    return { routed: true };
+  }
+  result.status = "running";
+  result.started_at = new Date().toISOString();
+  const upstream = compactUpstream(run, node);
+  result.input = {
+    input_mode: "connected_results", ...contextFor(run, upstream),
+    source_node_ids: upstream.map(source => source.node_id),
+    // Keep inspectable data bounded. Full upstream output is stored on its own node.
+    upstream: upstream.map(source => ({ node_id: source.node_id, status: source.status,
+      preview: JSON.stringify(source.output ?? { error: source.error }).slice(0, 2_000), truncated: JSON.stringify(source.output ?? { error: source.error }).length > 2_000 })),
+    ...(["agent", "llmAgent", "customAI"].includes(kindOf(node)) ? { prompt: specialistPrompt(run, node, upstream) } : {})
+  };
+  events.log(result, { event: "node_started", message: "Started the node with its connected input." });
+  await persist();
+  try {
+    const output = await executeNode(run, node, user, signal,
+      async (attempt, detail = {}) => {
+        result.attempts += 1;
+        events.log(result, { event: "attempt_started", attempt, ...detail, message: `${detail.item_index == null ? "" : `Item ${detail.item_index + 1}: `}attempt ${attempt} started.` });
+        await persist();
+      },
+      async progress => {
+        if (progress.current_item && progress.current_item !== result.progress?.current_item) events.log(result, { event: "item_started", item_index: progress.current_item - 1, message: `Processing item ${progress.current_item} of ${progress.total_items}.` });
+        result.progress = progress; await persist();
+      },
+      async event => { events.log(result, event); await persist(); });
+    if (Buffer.byteLength(JSON.stringify(output)) > 128 * 1024) throw error("Node output exceeded 128 KB. Narrow the query or field mapping.", 422);
+    result.output = output;
+  } catch (failure) {
+    if (signal.aborted || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
+    result.status = "failed";
+    result.error_details = events.failureInfo(failure);
+    result.error = result.error_details.message;
+    result.completed_at = new Date().toISOString();
+    result.duration_ms = events.duration(result);
+    events.log(result, { event: "node_failed", level: "error", ...result.error_details });
+    events.log(result, { event: "error_routed", level: "warning", message: "Failure routed to the connected Error handler. The successful path will be skipped." });
+    await persist();
+    return { routed: true };
+  }
+  if (signal.aborted) throw execution.abortError();
+  result.status = "completed";
+  result.completed_at = new Date().toISOString();
+  result.duration_ms = events.duration(result);
+  result.output_size_bytes = Buffer.byteLength(JSON.stringify(result.output));
+  result.attempts = Math.max(result.attempts, 1);
+  if (kindOf(node) === "log") events.log(result, { event: "user_log", message: result.output.message });
+  if (kindOf(node) === "condition") events.log(result, { event: "branch_selected", message: `Selected the ${result.output.matched ? "true" : "false"} branch.` });
+  events.log(result, { event: "node_completed", duration_ms: result.duration_ms, ...(node.data?.logLevel === "audit" ? { output_size_bytes: result.output_size_bytes, source_node_ids: upstream.map(source => source.node_id) } : {}), message: result.output.session_id ? "Specialist review saved with its evidence and provenance." : "Node completed with its connected results." });
+  run.output_payload.completed_steps += 1;
+  await persist();
+  return { needsReview: result.output.readiness?.status === "insufficient_evidence" || result.output.verification?.status === "needs_input" };
 }
 
 async function perform(run, user, controller) {
@@ -366,77 +467,10 @@ async function perform(run, user, controller) {
         await requireRunAccess(user, run.project_id);
         if (signal.aborted) throw execution.abortError();
         currentNode = node.id;
-        const result = run.node_results.find(item => item.node_id === node.id);
-        const incomingEdges = run.workflow_snapshot.edges.filter(edge => edge.target === node.id);
-        const activeEdges = incomingEdges.filter(edge => {
-          const parent = run.node_results.find(item => item.node_id === edge.source);
-          if (kindOf(node) === "errorHandler") return parent?.status === "failed";
-          if (parent?.status !== "completed") return false;
-          if (parent.node_type === "condition") return parent.output.matched === (edge.sourceHandle !== "false");
-          return true;
-        });
-        if (kindOf(node) !== "trigger" && !activeEdges.length) {
-          result.status = "skipped";
-          result.skip_reason = kindOf(node) === "errorHandler" ? "No upstream failure to recover." : "No selected upstream branch reached this node.";
-          result.completed_at = new Date().toISOString();
-          events.log(result, { event: "node_skipped", message: result.skip_reason });
-          await persist();
-          continue;
-        }
-        result.status = "running";
-        result.started_at = new Date().toISOString();
-        const upstream = compactUpstream(run, node);
-        result.input = {
-          input_mode: "connected_results", ...contextFor(run, upstream),
-          source_node_ids: upstream.map(source => source.node_id),
-          // Keep inspectable data bounded. Full upstream output is stored on its own node.
-          upstream: upstream.map(source => ({ node_id: source.node_id, status: source.status,
-            preview: JSON.stringify(source.output ?? { error: source.error }).slice(0, 2_000), truncated: JSON.stringify(source.output ?? { error: source.error }).length > 2_000 })),
-          ...(["agent", "llmAgent", "customAI"].includes(kindOf(node)) ? { prompt: specialistPrompt(run, node, upstream) } : {})
-        };
-        events.log(result, { event: "node_started", message: "Started the node with its connected input." });
-        await persist();
-        try {
-          const output = await executeNode(run, node, user, signal,
-            async (attempt, detail = {}) => {
-              result.attempts += 1;
-              events.log(result, { event: "attempt_started", attempt, ...detail, message: `${detail.item_index == null ? "" : `Item ${detail.item_index + 1}: `}attempt ${attempt} started.` });
-              await persist();
-            },
-            async progress => {
-              if (progress.current_item && progress.current_item !== result.progress?.current_item) events.log(result, { event: "item_started", item_index: progress.current_item - 1, message: `Processing item ${progress.current_item} of ${progress.total_items}.` });
-              result.progress = progress; await persist();
-            },
-            async event => { events.log(result, event); await persist(); });
-          if (Buffer.byteLength(JSON.stringify(output)) > 128 * 1024) throw error("Node output exceeded 128 KB. Narrow the query or field mapping.", 422);
-          result.output = output;
-        } catch (failure) {
-          if (signal.aborted || [401,403,499].includes(failure.statusCode) || node.data?.onError !== "errorOutput") throw failure;
-          result.status = "failed";
-          result.error_details = events.failureInfo(failure);
-          result.error = result.error_details.message;
-          result.completed_at = new Date().toISOString();
-          result.duration_ms = events.duration(result);
-          events.log(result, { event: "node_failed", level: "error", ...result.error_details });
-          events.log(result, { event: "error_routed", level: "warning", message: "Failure routed to the connected Error handler. The successful path will be skipped." });
-          await persist();
-          continue;
-        }
-        if (signal.aborted) throw execution.abortError();
-        result.status = "completed";
-        result.completed_at = new Date().toISOString();
-        result.duration_ms = events.duration(result);
-        result.output_size_bytes = Buffer.byteLength(JSON.stringify(result.output));
-        result.attempts = Math.max(result.attempts, 1);
-        if (kindOf(node) === "log") events.log(result, { event: "user_log", message: result.output.message });
-        if (kindOf(node) === "condition") events.log(result, { event: "branch_selected", message: `Selected the ${result.output.matched ? "true" : "false"} branch.` });
-        events.log(result, { event: "node_completed", duration_ms: result.duration_ms, ...(node.data?.logLevel === "audit" ? { output_size_bytes: result.output_size_bytes, source_node_ids: upstream.map(source => source.node_id) } : {}), message: result.output.session_id ? "Specialist review saved with its evidence and provenance." : "Node completed with its connected results." });
-        run.output_payload.completed_steps += 1;
-        await persist();
-        if (result.output.readiness?.status === "insufficient_evidence") {
-          if (signal.aborted) throw execution.abortError();
+        const outcome = await runStep(run, node, user, signal, persist);
+        if (outcome.needsReview) {
           run.node_results = terminalNodes(run.node_results, currentNode, "completed");
-          await store.save(run.id, "needs_review", run.node_results, { ...run.output_payload, status: "needs_review", summary: `${nodeName(node)} could not find sufficient permitted evidence. Review its evidence gaps before starting another workflow.`, review_session_ids: run.node_results.map(item => item.output?.session_id).filter(Boolean) });
+          await store.save(run.id, "needs_review", run.node_results, { ...run.output_payload, status: "needs_review", summary: `${nodeName(node)} needs additional evidence.`, review_session_ids: run.node_results.map(item => item.output?.session_id).filter(Boolean) });
           return;
         }
       }
@@ -473,13 +507,29 @@ async function perform(run, user, controller) {
 async function start(workflow, input = {}, user) {
   await requireRunAccess(user, workflow.project_id);
   const targetNodeId = input.target_node_id || "";
-  const report = await checkReadiness(workflow, targetNodeId);
+  const report = await checkReadiness(workflow, targetNodeId, user);
   if (!report.ready) throw Object.assign(error(report.blockers.map(item => item.message).join(" "), 422), { readiness: report });
   if (input.input_payload !== undefined && (input.input_payload === null || typeof input.input_payload !== "object" || Array.isArray(input.input_payload))) throw error("Workflow input must be a JSON object.");
   const payload = object(input.input_payload);
   if (Buffer.byteLength(JSON.stringify(payload)) > MAX_INPUT_BYTES) throw error("Review input is limited to 16 KB.");
   const needsRequestSource = report.steps.some(step => step.kind === "repositoryAgent" && workflow.edges.filter(edge => edge.target === step.node_id).every(edge => kindOf(workflow.nodes.find(node => node.id === edge.source)) === "trigger"));
   if (needsRequestSource && (object(payload.source).type !== "github" || !text(object(payload.source).repository_url))) throw error("Add source.type = github and source.repository_url to Workflow input before starting source analysis.");
+  workflow = structuredClone(workflow);
+  for (const node of workflow.nodes) {
+    delete node.data.agentSnapshot;
+    delete node.data.mcpToolHash;
+    if (kindOf(node) === "mcpTool" && report.steps.some(step => step.node_id === node.id)) {
+      const { connection } = await require("../workflows/connections").resolve(node.data.connectionId, workflow.project_id, null, "mcp");
+      const tool = connection.toolDefinitions?.find(item => item.name === node.data.mcpTool);
+      if (!tool) throw error("Discover and save the MCP tool catalog in Integrations before running this workflow.", 422);
+      node.data.mcpToolHash = require("../workflows/mcpClient")._internals.schemaHash(tool);
+    }
+    if (report.steps.some(step => step.node_id === node.id) && String(node.data.agentId || "").startsWith("agent-")) {
+      const pinned = await agentRegistry.resolve(node.data.agentId, node.data.agentVersion, workflow.project_id);
+      agentContract.validateInputs(pinned.definition, payload);
+      node.data = { ...agentContract.toNodeData(pinned.definition), ...node.data, agentVersion: pinned.version, agentSnapshot: pinned };
+    }
+  }
   const requestKey = text(input.request_id);
   if (requestKey && !/^[a-zA-Z0-9_-]{8,128}$/.test(requestKey)) throw error("Use a request ID of 8–128 letters, digits, underscores or hyphens.");
   // A transport retry may save the same definition again. Audit timestamps are
@@ -491,16 +541,24 @@ async function start(workflow, input = {}, user) {
     if (existing.workflow_snapshot.runtime_contract?.request_fingerprint !== requestFingerprint) throw error("This request ID was already used with a different workflow or input. Start a new review.", 409);
     return reconcile(existing);
   }
-  if (active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
+  const durable = require("../workflows/temporal/control");
+  if (!durable.enabled() && active.size >= MAX_PARALLEL_RUNS) throw error("Two review workflows are already running on this worker. Try again after one finishes.", 429);
   const runtime = { mode: "bounded-review-workflow", execution_mode: MODE, simulated: false, arbitrary_code_execution: false, project_changes_applied: false,
     external_write_tools: report.steps.some(step => ["mcpTool", "apiTool", "apiAgent"].includes(step.kind)), requires_human_review: true, max_duration_ms: MAX_DURATION_MS, target_node_id: targetNodeId || null,
     deadline_at: new Date(Date.now() + MAX_DURATION_MS).toISOString(), request_fingerprint: requestFingerprint,
-    recovery: "Interrupted work is preserved; it is never automatically replayed." };
+    orchestrator: durable.enabled() ? "temporal" : "local",
+    recovery: durable.enabled() ? "Temporal resumes from durable step receipts. Uncertain operations require reconciliation." : "Interrupted work is preserved; it is never automatically replayed." };
   const run = { id, workflow_id: workflow.id, project_id: workflow.project_id, app_type_id: workflow.app_type_id || null, workflow_name: workflow.name,
     created_by: user.id, execution_mode: MODE, status: "running", trigger_kind: "manual", input_payload: payload,
     workflow_snapshot: { ...structuredClone(workflow), execution_mode: MODE, runtime_contract: runtime, execution_order: report.steps.map(step => step.node_id), snapped_at: new Date().toISOString() },
     node_results: report.steps.map(step => ({ node_id: step.node_id, node_name: step.name, node_type: step.kind, specialist_id: step.specialist_id, status: "queued", execution_mode: MODE, attempts: 0, logs: [] })),
     output_payload: { execution_mode: MODE, status: "running", completed_steps: 0, total_steps: report.steps.length, summary: "Review workflow started.", requires_human_review: true, runtime_contract: runtime } };
+  if (durable.enabled()) {
+    await durable.enqueue(run, () => store.insert(run));
+    const persisted = await store.get(id);
+    if (persisted?.workflow_snapshot.runtime_contract?.request_fingerprint !== requestFingerprint) throw error("This request ID was already used with different workflow input. Start a new review.", 409);
+    return persisted;
+  }
   const controller = new AbortController();
   active.set(id, { controller, promise: null });
   try {
@@ -526,6 +584,7 @@ async function cancel(run, user) {
   await requireRunAccess(user, run.project_id, { allowDisabled: true });
   if (run.execution_mode !== MODE) throw error("Workflow previews cannot be cancelled.", 409);
   if (run.status !== "running") return run;
+  if (run.workflow_snapshot.runtime_contract?.orchestrator === "temporal") { await require("../workflows/temporal/control").cancel(run); return store.get(run.id); }
   return stopRun(run, "cancelled", { summary: "Review execution cancelled. Completed step results are preserved.", error_code: "WORKFLOW_CANCELLED", cancelled_by: user.id });
 }
 
@@ -541,4 +600,4 @@ const startOnce = async (workflow, input = {}, user) => {
   try { return await promise; } finally { starting.delete(key); }
 };
 
-module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, _internals: { store, active, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, executeNode, MAX_DURATION_MS } };
+module.exports = { readiness, checkReadiness, start: startOnce, cancel, reconcile, _internals: { store, active, diagnostics, perform, requireRunAccess, specialistPrompt, collectReviews, executeNode, runStep, terminalNodes, MAX_DURATION_MS } };

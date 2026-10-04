@@ -6,7 +6,7 @@ import { request, toQueryString } from "@hellotest/platform/frontend/src/lib/htt
 export const aiApi = {
 ai: {
     qualityInsights: (query: { project_id: string; release?: string }) =>
-      request<QualityInsightPreviewResponse>(`/ai/quality-insights${toQueryString(query)}`),
+      request<QualityInsightPreviewResponse>("/ai/quality-insights", { method: "POST", body: JSON.stringify(query) }, 70000),
     rephraseRichText: (input: {
       project_id: string;
       content: string;

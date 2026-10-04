@@ -5,8 +5,7 @@ HelloTest is a QA workspace for stories, manual and automated cases, reusable st
 | Your task | Start here |
 | --- | --- |
 | Run and administer a local application | Follow the Docker startup below |
-| Change code or attach VS Code debuggers | [Step-by-step developer walkthrough](CONTRIBUTE.md) |
-| Understand ownership, engineering rules and test coverage | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Set up development, debug services or contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Diagnose a failing request, build or run | [Debugging runbook](docs/development/debugging.md) |
 | Plan a shared deployment or capability release | [Platform deployment](docs/PLATFORM_STACK.md), [service deployment](services/README.md), [release contracts](docs/architecture/capability-packaging.md) |
 
@@ -74,7 +73,7 @@ Remove an obsolete Quay/Docker Hub override or set the local tag above. An inten
 
 ## Develop and verify changes
 
-Follow [CONTRIBUTE.md](CONTRIBUTE.md) for the complete API, frontend, TestEngine, native worker and VS Code walkthrough. For frontend work against the running Docker API:
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, service debugging, engineering rules and verification. For frontend work against the running Docker API:
 
 ```sh
 npm run setup
@@ -98,9 +97,7 @@ Root tests include backend, frontend, TestEngine and architecture gates. Native 
 
 ### VS Code debugging
 
-For debugging server code, follow [CONTRIBUTE.md](CONTRIBUTE.md) to switch to host processes and create the ignored root `.env.development.local` from the checked-in [template](docs/development/development.env.example). Open the repository root in VS Code. Start **Backend API**, verify readiness, then start **Frontend**, **Admin Frontend** or **Test Engine** as needed. **Full Stack Debug** combines API, TestEngine and product UI; native execution uses the separate **Mobile Engine** profile.
-
-The checked-in [launch profiles](.vscode/launch.json), [tasks](.vscode/tasks.json) and [workspace settings](.vscode/settings.json) include loopback Node inspectors, strict Vite ports, infrastructure preparation and current-file Node/TypeScript tests. The walkthrough explains the first breakpoint, request tracing, environment precedence and how to stop background tasks while retaining data.
+Follow the [VS Code setup and debugging section](CONTRIBUTING.md#vs-code-debugging) for the checked-in workspace settings, tasks, launch profiles and service ports. It includes a complete Backend API configuration and a step-by-step Projects request walkthrough, from the frontend breakpoint to the route and service. The same guide covers TestEngine, native execution, focused tests and stopping background tasks while retaining data.
 
 ## Topology and source ownership
 

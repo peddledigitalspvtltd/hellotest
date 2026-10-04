@@ -681,11 +681,11 @@ executions: {
       request<import("@hellotest/platform/frontend/src/types").TraceabilityRunHistoryItem[]>(`/executions/history${toQueryString(query)}`),
     get: (id: string) =>
       request<Execution>(`/executions/${id}`),
-    previewFailureClusters: (id: string, input: { project_id: string; scope?: string }) =>
+    previewFailureClusters: (id: string, input: { project_id: string; scope?: string; integration_id?: string }) =>
       request<ExecutionFailureClusterPreviewResponse>(`/executions/${id}/ai-failure-clusters`, {
         method: "POST",
         body: JSON.stringify(input)
-      }),
+      }, 70000),
     previewSmartPlan: (input: { project_id: string; app_type_id: string; integration_id?: string; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; scope_description?: string; additional_context?: string; prompt_guidance?: string; impacted_requirement_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string }) =>
       request<SmartExecutionPreviewResponse>("/executions/smart-plan-preview", { method: "POST", body: JSON.stringify(input) }),
     create: (input: { project_id: string; app_type_id?: string; suite_ids?: string[]; test_case_ids?: string[]; test_environment_id?: string; test_configuration_id?: string; test_data_options?: TestDataOptions; test_data_set_id?: string; execution_hooks?: Array<Record<string, unknown>>; parallel_enabled?: boolean; parallel_count?: number; execution_mode?: "manual" | "remote" | "local"; engine_base_url?: string; assigned_to?: string; assigned_to_ids?: string[]; release?: string; sprint?: string; release_id?: string; iteration_id?: string; build?: string; name?: string; start_date?: string; end_date?: string; scope_source?: "smart-run"; smart_plan?: { acceptance_token: string; request_id: string; input_fingerprint: string; selected_test_case_ids: string[] }; created_by: string }) =>

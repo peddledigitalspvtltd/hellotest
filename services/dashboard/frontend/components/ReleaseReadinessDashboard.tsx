@@ -1,4 +1,5 @@
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
+const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiInsightPreviewDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiInsightPreviewDialog")["AiInsightPreviewDialog"]> & {}>("ai", "AiInsightPreviewDialog", () => import("@hellotest/ai/frontend/components/AiInsightPreviewDialog"), "AI insights");
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
@@ -151,6 +152,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     canRuns &&
     allowed("suite.view", "hellotest.manual.suites") &&
     allowed("quality_insight.view", "hellotest.ai.quality_insights");
+  const canAgenticReview = canAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(flags.data, ["hellotest.ai.agentic_workflows"]);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedReleaseId = searchParams.get("release_id") || "";
   const requestedRelease = searchParams.get("release") || "";
@@ -159,6 +161,16 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
     queryKey: ["release-review-release-catalog", authorizationKey, projectId],
     queryFn: () => api.requirementReleases.list({ project_id: projectId }),
     enabled: canReleaseContext, staleTime: 30_000, retry: 1,
+  });
+  const aiEnvironments = useQuery({
+    queryKey: ["release-review-environments", authorizationKey, projectId],
+    queryFn: () => api.testEnvironments.list({ project_id: projectId }),
+    enabled: canAgenticReview && hasPermission(session, "environment.view", projectId), staleTime: 30_000, retry: false,
+  });
+  const aiModels = useQuery({
+    queryKey: ["release-review-models", authorizationKey, projectId],
+    queryFn: () => api.integrations.list({ type: "llm" }),
+    enabled: canAgenticReview && hasPermission(session, "integration.view", projectId), staleTime: 30_000, retry: false,
   });
   const sprintCatalog = useQuery({
     queryKey: ["release-review-sprint-catalog", authorizationKey, projectId],
@@ -1123,6 +1135,7 @@ function ReadinessWorkspace({ projectId }: { projectId: string }) {
             </div>
           )}
           <ReleaseReadinessLayout
+            aiReviewContent={canAgenticReview ? <AiLifecycleReview projectId={projectId} inputs={{ release_id: releaseId || undefined }} features={["release-readiness", "risk-prediction", "release-risk-simulation", "quality-graph"]} title="AI release review" environments={aiEnvironments.data || []} integrations={aiModels.data || []} /> : null}
             model={model}
             readinessIndex={readinessIndex}
             projectName={projectName}

@@ -529,3 +529,9 @@
 :root[data-theme="dark"] .artifact-assurance-meter { background: rgba(169, 189, 219, 0.2); }
 :root[data-theme="dark"] .artifact-assurance-frameworks span { background: var(--panel, #10284e); }
 :root[data-theme="dark"] .artifact-assurance-dimension-detail > p { background: rgba(12, 102, 228, 0.12); }
+
+.artifact-assurance-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line, #e0e6f0); padding-bottom: 10px; margin-bottom: 18px; }
+.artifact-assurance-tabs button { border: 1px solid transparent; border-radius: 9px; padding: 10px 16px; background: transparent; color: var(--text-secondary, #64748b); font: inherit; font-weight: 600; cursor: pointer; }
+.artifact-assurance-tabs button[aria-selected="true"] { background: color-mix(in srgb, var(--accent, #6554df) 10%, transparent); color: var(--text-primary, #172033); border-color: color-mix(in srgb, var(--accent, #6554df) 25%, transparent); }
+.artifact-assurance-tabs button:focus-visible { outline: 2px solid var(--accent, #6554df); outline-offset: 2px; }
+.artifact-assurance-workspace [hidden] { display: none; }

@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const crypto = require("crypto");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { fetchLlmWithRetry } = require("@hellotest/platform/backend/src/utils/llmHttpClient");
@@ -216,6 +217,7 @@ exports.rephrase = async ({ user, projectId, content, contentHtml, entityType, e
     generated = safeOriginal;
   }
 
+  requireAiAssessment({ integration, failed: Boolean(fallbackReason) });
   const requiresStructuredBullets = input.entityType.toLowerCase() === "project";
   if (requiresStructuredBullets) {
     generated = ensureBulletListHtml(generated, input.content);

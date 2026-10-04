@@ -65,12 +65,16 @@ api.featureFlags.snapshot = async () => {
       "hellotest.manual.runs",
       "hellotest.manual.bugs",
       "hellotest.ai.quality_insights",
+      "hellotest.ai.agentic_workflows",
     ].map((x) => [
       x,
       x === "hellotest.manual.bugs" ? !window.readinessDenyBugs : true,
     ]),
   ),
 });};
+api.testEnvironments.list = async () => [{id:"staging",project_id:"project",name:"Staging environment"}];
+api.integrations.list = async () => [{id:"review-model",type:"llm",name:"Release reviewer",model:"fixture",is_active:true}];
+api.agenticWorkflows.ask = async input => { window.lifecycleInput=input; return {result:{headline:"Recorded release review",response:"Review the original failures before making a release decision.",recommendations:[],findings:[]},citations:[],provenance:{model:"fixture"}}; };
 api.settings.getWorkspacePreferences = async () => ({ preferences: {} });
 api.projects.list = async () => [
   { id: "project", name: "Commerce platform", key: "CP" },

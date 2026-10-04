@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const crypto = require("crypto");
 const issueService = require("@hellotest/testing/backend/services/issues.service");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
@@ -395,6 +396,7 @@ exports.preview = async ({ project, issueIds = [], user, integrationId, promptGu
     providerError = error instanceof Error ? error.message : "Configured category refinement failed.";
     refinement = { triage: deterministicTriage, refined_issue_ids: [], fallback_sections: ["category"] };
   }
+  requireAiAssessment({ integration, failed: Boolean(providerError), accepted: refinement.refined_issue_ids.length > 0 });
   const triage = refinement.triage;
   const generationMode = refinement.refined_issue_ids.length ? "hybrid" : "deterministic";
   const fallbackSections = providerError

@@ -1,3 +1,4 @@
+import specialistProfiles from "../../shared/workflowSpecialists.json";
 export type AgentCategory = "repository" | "planning" | "design" | "investigation";
 export type AgentExperience = {
   category: AgentCategory;
@@ -33,6 +34,17 @@ export const AGENT_EXPERIENCES: Record<string, AgentExperience> = {
   "quality-evaluator": { category: "planning", outcome: "Challenge quality claims against their sources and expose unresolved gaps.", inputs: "Stories, tests, runs & knowledge", output: "Evidence readiness review", destination: "/projects", destinationLabel: "Open project workspace", destinationPermission: "project.view", starters: ["Evaluate whether current quality claims are supported by evidence. List contradictions, missing coverage and required human decisions.", "Review the completeness and traceability of current quality artifacts without assuming passing tests prove release readiness."] },
   "repository-curator": { category: "investigation", outcome: "Review existing locators for duplication, instability and opportunities to reuse.", inputs: "Object Repository & automation evidence", output: "Repository maintenance brief", destination: "/object-repository", destinationLabel: "Open Object Repository", destinationPermission: "automation.view", starters: ["Review existing object locators for duplication and fragility. Prioritize source-backed maintenance proposals.", "Identify reusable screen objects and evidence required before changing any current locator."] }
 };
+
+for (const [id, profile] of Object.entries(specialistProfiles)) {
+  if (AGENT_EXPERIENCES[id]) continue;
+  const metadata = profile as typeof profile & { category?: AgentCategory; destination?: string; destinationPermission?: string };
+  AGENT_EXPERIENCES[id] = {
+    category: metadata.category || "planning", outcome: profile.description,
+    inputs: profile.scopes.map(scope => scope.replace(/-/g, " ")).join(", "), output: "Verified evidence & reviewable proposals",
+    destination: metadata.destination || "/projects", destinationLabel: "Open related workspace", destinationPermission: metadata.destinationPermission || "project.view",
+    starters: [profile.prompt]
+  };
+}
 
 export function agentReadinessLabel(status?: string) {
   return status === "ready_for_review" ? "Ready for review" : status === "limited_evidence" ? "Limited evidence" : status === "insufficient_evidence" ? "More evidence needed" : "Review required";

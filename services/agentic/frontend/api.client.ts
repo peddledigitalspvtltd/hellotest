@@ -4,6 +4,8 @@ import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssi
 import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
 import { API_BASE_URL, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
+import type { AgentDefinition, ProjectAgent } from "./agents/agentDefinitions";
+
 type AgenticApiAgentTestInput = {
   project_id: string;
   method?: string;
@@ -15,6 +17,11 @@ type AgenticApiAgentTestInput = {
 };
 
 export const agenticApi = {
+  agentDefinitions: {
+    list: (projectId: string, options?: { signal?: AbortSignal }) => request<ProjectAgent[]>(`/agentic-workflows/agents${toQueryString({ project_id: projectId })}`, { signal: options?.signal }),
+    save: (input: { project_id: string; definition: AgentDefinition; activate: boolean; expected_version?: number }, id?: string) => request<ProjectAgent>(`/agentic-workflows/agents${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+    archive: (agent: ProjectAgent) => request<{ archived: boolean }>(`/agentic-workflows/agents/${encodeURIComponent(agent.id)}${toQueryString({ project_id: agent.project_id, version: agent.current_version })}`, { method: "DELETE" }),
+  },
 workflowConnections: {
     list: (projectId: string) => request<ManagedWorkflowConnection[]>(`/agentic-workflows/admin/connections${toQueryString({ project_id: projectId })}`),
     create: (input: WorkflowConnectionSettingsInput) => request<ManagedWorkflowConnection>("/agentic-workflows/admin/connections", { method: "POST", body: JSON.stringify(input) }),
@@ -73,6 +80,8 @@ agenticWorkflows: {
       app_type_id?: string;
       mode: AgenticAssistantMode;
       agent_id: string;
+      agent_version?: number;
+      inputs?: Record<string, unknown>;
       prompt: string;
       context_scopes: string[];
       smart_context?: {

@@ -167,4 +167,26 @@ module.exports = async function (fastify) {
     if (!includeAutomation) delete result.metrics.automationCoverage;
     return result;
   });
+
+  fastify.post("/ai/quality-insights", async (req) => {
+    fastify.validate({ project_id: { required: true, type: "string" }, release: { required: false, type: "string" }, integration_id: { required: false, type: "string" } }, req.body || {});
+    await fastify.authenticate(req);
+    await requireProject(req, req.body.project_id);
+    // This compatibility endpoint returns source records as well as counts.
+    // The insight grant alone must never bypass the permissions on that evidence.
+    for (const permission of ["requirement.view", "testcase.view", "suite.view", "run.view", "result.view", "feedback.view"]) {
+      await fastify.requirePermission(permission, { projectId: req.body.project_id })(req);
+    }
+    let includeAutomation = false;
+    try {
+      await fastify.requirePermission("automation.view", { projectId: req.body.project_id })(req);
+      await fastify.requirePermission("automation.analytics.view", { projectId: req.body.project_id })(req);
+      includeAutomation = true;
+    } catch (error) {
+      if (error?.statusCode !== 403) throw error;
+    }
+    const result = await analytics.explainQualityInsights({ userId: req.user.id, integrationId: req.body.integration_id, projectId: req.body.project_id, release: req.body.release, sprint: req.body.sprint });
+    if (!includeAutomation) delete result.metrics.automationCoverage;
+    return result;
+  });
 };

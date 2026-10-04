@@ -35,8 +35,9 @@ for (const [file, targets] of modules) dependencies(file, specifier => {
   else if (target && modules.has(target)) targets.add(target);
 }, true);
 // Composition roots use service manifests to load routes dynamically.
+// The durable worker is a separate executable declared by worker:durable and its Dockerfile.
 const manifest = createRequire(import.meta.url)(resolve(root, 'services/platform/backend/src/routes/manifest.js'));
-const entries = ['services/platform/frontend/src/main.tsx', 'services/platform/frontend/admin/main.tsx', 'services/platform/backend/src/server.js', 'services/platform/backend/src/migrate.js', 'testengine/backend/src/server.ts', 'local-run/mobile-engine/src/server.js', 'services/platform/backend/src/routes/manifest.js', ...manifest.serviceManifests.map(service => `services/${service.id}/backend/service.manifest.js`), ...manifest.serviceManifests.flatMap(service => [`services/${service.id}/backend/server.cjs`, `services/${service.id}/frontend/entry.ts`]), ...manifest.routeModules.map(route => route.source)].map(file => resolve(root, file));
+const entries = ['services/agentic/backend/workflows/temporal/worker.cjs', 'services/platform/frontend/src/main.tsx', 'services/platform/frontend/admin/main.tsx', 'services/platform/backend/src/server.js', 'services/platform/backend/src/migrate.js', 'testengine/backend/src/server.ts', 'local-run/mobile-engine/src/server.js', 'services/platform/backend/src/routes/manifest.js', ...manifest.serviceManifests.map(service => `services/${service.id}/backend/service.manifest.js`), ...manifest.serviceManifests.flatMap(service => [`services/${service.id}/backend/server.cjs`, `services/${service.id}/frontend/entry.ts`]), ...manifest.routeModules.map(route => route.source)].map(file => resolve(root, file));
 for (const html of readdirSync(resolve(root, 'services/platform/frontend')).filter(file => file.endsWith('.html'))) {
   for (const match of readFileSync(resolve(root, 'services/platform/frontend', html), 'utf8').matchAll(/src=["'](\/src\/[^"']+)["']/g)) entries.push(resolve(root, 'services/platform/frontend', match[1].slice(1)));
 }

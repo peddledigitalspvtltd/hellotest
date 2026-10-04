@@ -1,4 +1,5 @@
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
+const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiCaseAuthoringModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiCaseAuthoringModal")["AiCaseAuthoringModal"]> & {}>("ai", "AiCaseAuthoringModal", () => import("@hellotest/ai/frontend/components/AiCaseAuthoringModal"), "ai");
 const AiDesignStudioModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiDesignStudioModal")["AiDesignStudioModal"]> & {}>("ai", "AiDesignStudioModal", () => import("@hellotest/ai/frontend/components/AiDesignStudioModal"), "ai");
 const TestCaseChangeImpactDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/TestCaseChangeImpactDialog")["TestCaseChangeImpactDialog"]> & {}>("ai", "TestCaseChangeImpactDialog", () => import("@hellotest/ai/frontend/components/TestCaseChangeImpactDialog"), "ai");
@@ -11985,6 +11986,7 @@ export function TestCasesPage() {
                       reviewState={selectedReviewStatus === "accepted" ? "human-reviewed" : selectedReviewStatus === "pending" ? "pending-review" : "review-required"}
                       title="Test design & evidence analysis"
                     />
+                    {can("agentic_workflow.run") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: selectedTestCase.id }} integrations={integrations} features={["coverage-assurance", "impact-analysis", "quality-graph"]} title="Coverage, impact & traceability" />}
                   </div>
                 ) : null}
                 {!isCreating && activeTestCaseDetailTab === "suites" && selectedTestCase ? (

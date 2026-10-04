@@ -69,3 +69,8 @@
   .story-impact-footer { padding: 14px 18px; }
   .story-impact-footer > span { font-size: 11px; }
 }
+
+.story-impact-embedded .story-impact-dialog { width: 100%; max-height: none; min-height: 0; border: 0; border-radius: 12px; box-shadow: none; }
+.story-impact-embedded .story-impact-header { padding: 8px 0 18px; }
+.story-impact-embedded .story-impact-body { padding: 20px; overflow: visible; }
+.story-impact-embedded .story-impact-empty button { margin-top: 16px; }

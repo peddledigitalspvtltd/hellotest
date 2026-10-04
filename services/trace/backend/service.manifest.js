@@ -2,5 +2,5 @@ const { defineRoute } = require("@hellotest/platform/backend/src/routes/routeDef
 
 module.exports = {
   id: "trace",
-  routes: [defineRoute("trace", "trace", "opsTelemetry.routes.js"), defineRoute("trace", "ops-console", "opsConsole.routes.js")]
+  routes: [defineRoute("trace", "llm-traces", "llmTraces.routes.js"), defineRoute("trace", "trace", "opsTelemetry.routes.js"), defineRoute("trace", "ops-console", "opsConsole.routes.js")]
 };

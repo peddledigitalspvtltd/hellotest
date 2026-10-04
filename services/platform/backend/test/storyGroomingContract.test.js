@@ -328,7 +328,7 @@ test("AI Grooming preserves grounded fallback sections when a provider returns e
   assert.ok(normalized.grooming.review_evidence_refs.includes("requirement:story-empty-provider"));
 });
 
-test("AI Grooming deterministic analysis is limited to the exact disclosed description snapshot", async () => {
+test("AI Grooming model analysis is limited to the exact disclosed description snapshot", async t => {
   const db = require("../src/db");
   const aiLlmSelectionService = require("../../../integration/backend/services/aiLlmSelection.service");
   const originalPrepare = db.prepare;
@@ -349,7 +349,12 @@ test("AI Grooming deterministic analysis is limited to the exact disclosed descr
     all: async () => [],
     get: async () => ({ count: 0 })
   });
-  aiLlmSelectionService.resolveLlmIntegrationForUsage = async () => null;
+  aiLlmSelectionService.resolveLlmIntegrationForUsage = async () => ({ id: "model", name: "Test model", model: "test", is_active: true });
+  t.mock.method(aiLlmSelectionService, "recordSuccessfulLlmIntegration", async () => {});
+  t.mock.method(globalThis, "fetch", async (_url, request) => {
+    assert.ok(!request.body.includes(undisclosedText));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ layman: { explanation: "Review the supplied planning purpose.", evidence_refs: ["requirement:story-bounded-description"] } }) } }] }), { headers: { "content-type": "application/json" } });
+  });
 
   try {
     const result = await requirementWorkspaceService.previewGrooming({
@@ -368,7 +373,7 @@ test("AI Grooming deterministic analysis is limited to the exact disclosed descr
     assert.equal(externalSource.title, "https://docs.example.test/story-boundary");
     assert.match(externalSource.ref, /^external-reference:/);
     assert.equal(result.context.included.external_references, 1);
-    assert.equal(result.generation_mode, "deterministic");
+    assert.notEqual(result.generation_mode, "deterministic");
   } finally {
     db.prepare = originalPrepare;
     aiLlmSelectionService.resolveLlmIntegrationForUsage = originalResolve;

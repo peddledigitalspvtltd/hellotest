@@ -421,6 +421,7 @@ const requestProviderEmbeddings = async (runtime, texts, { signal, timeoutMs = I
         body: JSON.stringify({ model: runtime.model, input: batch }),
         signal: attemptSignal
       }, {
+        integration: runtime.integration,
         operation: "knowledge.embedding",
         timeoutMs,
         maxAttempts: 1,

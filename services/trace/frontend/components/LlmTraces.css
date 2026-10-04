@@ -1,0 +1,27 @@
+.llm-traces { min-width: 0; display: grid; gap: 16px; color: var(--text-primary, var(--text)); }
+.llm-traces-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.llm-traces-toolbar label { display: grid; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.llm-traces-toolbar label:first-child { flex: 1 1 240px; }
+.llm-traces-toolbar input, .llm-traces-toolbar select { width: 100%; min-height: 38px; color: var(--text-primary, var(--text)); background: var(--panel-strong); border-color: var(--border); }
+.llm-traces-metrics { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 10px; }
+.llm-traces-metrics article { display: grid; gap: 5px; padding: 14px; background: var(--surface-muted, var(--surface)); border: 1px solid var(--border); border-radius: 10px; }
+.llm-traces-metrics span, .llm-traces-metrics small, .llm-traces-note { color: var(--text-muted); font-size: 12px; }
+.llm-traces-metrics strong { font-size: 22px; }
+.llm-traces-note { margin: 0; line-height: 1.6; }
+.llm-traces-table { overflow: auto; max-height: 520px; }
+.llm-traces-table table { min-width: 700px; }
+.llm-traces-table td small { display: block; color: var(--text-muted); margin-top: 5px; }
+.llm-traces-open { border: 0; background: none; color: var(--accent, #6554c0); padding: 0; text-align: left; cursor: pointer; font-weight: 600; }
+.llm-traces-open:hover { text-decoration: underline; }
+.llm-traces-pagination, .llm-trace-detail header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.llm-traces-pagination { justify-content: flex-end; font-size: 12px; }
+.llm-trace-detail { display: grid; gap: 14px; border: 1px solid var(--border); padding: 18px; border-radius: 12px; min-width: 0; }
+.llm-trace-detail h3 { margin: 0; }
+.llm-trace-facts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 0; }
+.llm-trace-facts dt { color: var(--text-muted); font-size: 12px; }
+.llm-trace-facts dd { margin: 4px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.llm-trace-payloads { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.llm-trace-payloads details { min-width: 0; }
+.llm-trace-payloads summary { font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 0; }
+.llm-trace-payloads pre { max-height: 440px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-muted, var(--surface)); border: 1px solid var(--border); padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; margin: 0; }
+@media(max-width: 700px) { .llm-traces-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .llm-trace-payloads, .llm-trace-facts { grid-template-columns: minmax(0,1fr); } .llm-trace-detail { padding: 12px; } }

@@ -118,7 +118,7 @@ test("release evidence preserves outcomes, scopes requests and discards stale AI
 
   await page.getByRole("button", {name: "Open evidence brief", exact: true}).click();
   await page.getByRole("dialog").waitFor();
-  assert.match(await page.getByRole("dialog").innerText(), /AI scope: Autumn 2026 · all sprints/);
+  await expect(page.getByRole("dialog")).toContainText(/AI scope: Autumn 2026 · all sprints/);
   await page.getByRole("dialog").getByRole("button", {name: /Close/}).first().click();
   await page.getByLabel("Release / fix version", {exact: true}).selectOption("");
   await page.getByLabel("Sprint", {exact: true}).selectOption("Sprint 24");

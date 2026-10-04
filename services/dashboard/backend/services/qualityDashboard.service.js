@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const { randomUUID: uuid } = require("crypto");
 const crypto = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
@@ -278,14 +279,7 @@ const designPreviewWithAi = async ({ projectId, stakeholder = "executive", relea
       fallback: "project-then-global",
       allowMissing: true
     });
-    if (!integration) {
-      return {
-        ...fallback,
-        fallback_used: true,
-        fallback_reason: "No active LLM integration is configured.",
-        provenance: { ...fallback.provenance, fallback_used: true, fallback_reason: "No active LLM integration is configured." }
-      };
-    }
+    requireAiAssessment({ integration });
     const candidate = await requestAiDashboard({ integration, projectId, stakeholder, release, prompt, additionalContext: sanitizedContext.text });
     const dashboard = {
       id: "preview",
@@ -333,14 +327,9 @@ const designPreviewWithAi = async ({ projectId, stakeholder = "executive", relea
         smart_context_risk_flags: sanitizedContext.risk_flags || []
       }
     };
-  } catch {
-    const reason = "The configured LLM could not complete the bounded dashboard design; a deterministic review draft was returned.";
-    return {
-      ...fallback,
-      fallback_used: true,
-      fallback_reason: reason,
-      provenance: { ...fallback.provenance, fallback_used: true, fallback_reason: reason }
-    };
+  } catch (error) {
+    requireAiAssessment({ integration, failed: true });
+    throw error;
   }
 };
 

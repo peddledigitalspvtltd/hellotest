@@ -1,3 +1,6 @@
+import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
+import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
+import specialistProfiles from "../../shared/workflowSpecialists.json";
 import { useAiLlmAutoSelection, useAiLlmDefault } from "@hellotest/integration/frontend/hooks/useAiLlmDefault";
 import { smartContextKindsForScopes } from "@hellotest/ai/frontend/lib/smartContext";
 import { formatRecordKindLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
@@ -153,6 +156,7 @@ export function AiEvidenceButton({
 
 export type HelloTestAgent = {
   id: string;
+  agentVersion?: number;
   name: string;
   shortName: string;
   description: string;
@@ -162,108 +166,11 @@ export type HelloTestAgent = {
   icon: ReactNode;
 };
 
-export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = [
-  {
-    id: "quality-orchestrator",
-    name: "Quality Orchestrator",
-    shortName: "Orchestrator",
-    description: "Reviews quality evidence and recommends a prioritized plan and specialist handoffs.",
-    capabilities: ["Plan", "Coordinate", "Evaluate"],
-    contextScopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"],
-    prompt: "Build a release quality plan, identify the highest-risk gaps, and show which specialist should handle each one.",
-    icon: <IconRoute />
-  },
-  {
-    id: "story-architect",
-    name: "Story Architect",
-    shortName: "Story",
-    description: "Reviews story acceptance boundaries and proposes testable criteria and Gherkin examples.",
-    capabilities: ["Create", "Complete", "Groom"],
-    contextScopes: ["stories", "test-cases", "knowledge"],
-    prompt: "Review the current Stories for ambiguity, missing acceptance boundaries, risks, and testability gaps.",
-    icon: <IconSparkles />
-  },
-  {
-    id: "test-designer",
-    name: "Test Design Agent",
-    shortName: "Test design",
-    description: "Reviews test coverage and proposes traceable manual, Gherkin and automation scenarios.",
-    capabilities: ["Generate", "Improve", "Trace"],
-    contextScopes: ["stories", "test-cases", "runs", "bugs", "knowledge"],
-    prompt: "Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries.",
-    icon: <IconTargetArrow />
-  },
-  {
-    id: "automation-engineer",
-    name: "Automation Engineer",
-    shortName: "Automation",
-    description: "Plans resilient automation, reusable groups, test data, repository bindings, and recorder follow-up.",
-    capabilities: ["Build", "Review", "Repair"],
-    contextScopes: ["automation", "test-cases", "runs", "bugs", "knowledge"],
-    prompt: "Review automation readiness, reuse opportunities, and fragile bindings, then propose a bounded build plan.",
-    icon: <IconRobot />
-  },
-  {
-    id: "run-planner",
-    name: "Smart Run Planner",
-    shortName: "Smart run",
-    description: "Selects impacted tests using release scope, Story traceability, risk, and execution history.",
-    capabilities: ["Impact", "Select", "Prioritize"],
-    contextScopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
-    prompt: "Plan a Smart Run for the current delivery scope and explain why every selected Test Case matters.",
-    icon: <IconPlayerPlay />
-  },
-  {
-    id: "failure-analyst",
-    name: "Failure Analyst",
-    shortName: "Run analysis",
-    description: "Explains failed and blocked evidence, clusters symptoms, and separates facts from hypotheses.",
-    capabilities: ["Analyze", "Cluster", "Explain"],
-    contextScopes: ["runs", "bugs", "test-cases", "knowledge"],
-    prompt: "Analyze recent failed and blocked runs, separate product risk from environment noise, and cite the evidence.",
-    icon: <IconActivity />
-  },
-  {
-    id: "bug-reporter",
-    name: "Defect Reporter",
-    shortName: "Defect draft",
-    description: "Turns run, case, Story, and observed evidence into a concise review-ready Defect draft.",
-    capabilities: ["Draft", "Link", "Evidence"],
-    contextScopes: ["runs", "test-cases", "stories", "bugs", "knowledge"],
-    prompt: "Find the strongest recent failure evidence and prepare a review-ready Defect outline without creating it.",
-    icon: <IconMessageCircle />
-  },
-  {
-    id: "bug-triage",
-    name: "Defect Triage Agent",
-    shortName: "Defect triage",
-    description: "Classifies, prioritizes, and sequences Defects while leaving the final decision with a person.",
-    capabilities: ["Classify", "Prioritize", "Sequence"],
-    contextScopes: ["bugs", "runs", "test-cases", "stories", "knowledge"],
-    prompt: "Triage open Defects using severity, execution evidence, release scope, and traceability; explain every recommendation.",
-    icon: <IconUserCheck />
-  },
-  {
-    id: "quality-evaluator",
-    name: "Quality Evaluator",
-    shortName: "Evaluator",
-    description: "Challenges quality claims against cited evidence and identifies unresolved review gaps.",
-    capabilities: ["Score", "Challenge", "Guard"],
-    contextScopes: ["stories", "test-cases", "runs", "bugs", "automation", "knowledge"],
-    prompt: "Evaluate current AI-assisted artifacts for grounding, completeness, traceability, and review readiness.",
-    icon: <IconShieldCheck />
-  },
-  {
-    id: "repository-curator",
-    name: "Object Repository Curator",
-    shortName: "Repository",
-    description: "Reviews locator intent, reuse, stability, healing evidence, and approval-ready repository changes.",
-    capabilities: ["Inspect", "Reuse", "Heal"],
-    contextScopes: ["automation", "test-cases", "runs", "knowledge"],
-    prompt: "Review repository stability and duplication, then prioritize approval-ready locator improvements.",
-    icon: <IconDatabase />
-  }
-];
+export const HELLOTEST_AGENT_CATALOG: HelloTestAgent[] = Object.entries(specialistProfiles).map(([id, profile]) => ({
+  id, name: profile.name, shortName: profile.name, description: profile.description,
+  capabilities: profile.skills.map(skill => skill.name), contextScopes: profile.scopes, prompt: profile.prompt,
+  icon: id.includes("story") ? <IconSparkles /> : id.includes("test") || id.includes("coverage") ? <IconTargetArrow /> : id.includes("bug") ? <IconUserCheck /> : id.includes("failure") || id.includes("flaky") ? <IconActivity /> : id.includes("automation") ? <IconRobot /> : id.includes("repository") || id === "quality-graph" ? <IconDatabase /> : id === "run-planner" ? <IconPlayerPlay /> : <IconShieldCheck />
+}));
 
 export const AGENT_CONTEXT_OPTIONS = [
   { id: "stories", label: "Stories" },
@@ -1139,6 +1046,10 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <button className="ghost-button compact" type="button" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={15} aria-hidden="true" />Copy</button>
         <button className="ghost-button compact" type="button" onClick={() => { const blob = new Blob([briefText()], { type: "text/markdown;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={15} aria-hidden="true" />Download brief</button>
       </div>
+      {result.model_execution?.trace_id && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&llm_trace=${encodeURIComponent(result.model_execution.trace_id)}`}>View model call</a>}
+      {result.automation_repair&&<AutomationRepairReview summary={result.automation_repair}/>}
+      {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
+      {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
       {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
       {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
       {result.executive_summary ? (

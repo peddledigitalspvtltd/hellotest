@@ -35,6 +35,7 @@ const permissionSeedValues = PERMISSIONS
   .join(",\n      ");
 
 const statements = [
+  ...require("../obsDb/llmTraceSchema"),
   ...require('@hellotest/agentic/backend/agents/schema'),
   ...require('./projectDeletionSchema'),
   ...require('./instanceSetupSchema'),
@@ -2578,6 +2579,7 @@ const statements = [
   rebrandJsonColumn("integrations", "config"),
   rebrandJsonColumn("app_settings", "value"),
   rebrandJsonColumn("quality_dashboards", "gadgets"),
+  ...require('@hellotest/ai/backend/services/qualityRecordSchema'),
   ...require('./projectDeletionGuardSchema'),
   ...require('./requirementBacklogHistorySchema'),
   ...require('./releaseRelationsSchema'),

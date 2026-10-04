@@ -25,6 +25,7 @@ function fixture(initial = {}) {
         async getWorkspacePreferences() { return preferences; },
         async updateWorkspacePreferences(userId, next) { writes.push({ userId, next }); preferences = { ...preferences, ...next }; }
       };
+      if (id === "@hellotest/platform/backend/src/utils/llmTraceContext") return require("../src/utils/llmTraceContext");
       throw new Error(`Unexpected dependency ${id}`);
     }
   });

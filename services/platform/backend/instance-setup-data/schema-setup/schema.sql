@@ -1912,7 +1912,7 @@ CREATE TABLE IF NOT EXISTS agentic_workflow_runs (
   project_id TEXT NOT NULL,
   app_type_id TEXT,
   workflow_name TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'aborted')),
+  status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'needs_review', 'failed', 'aborted', 'cancelled', 'interrupted')),
   trigger_kind TEXT NOT NULL DEFAULT 'manual',
   input_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   output_payload JSONB,
@@ -2006,6 +2006,28 @@ CREATE INDEX IF NOT EXISTS idx_ai_requirement_generation_jobs_queue
   ON ai_requirement_generation_jobs (status, lease_expires_at, created_at ASC);
 
 -- Repository agent analysis and publication receipts
+CREATE TABLE IF NOT EXISTS ai_agent_definitions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  current_version INTEGER NOT NULL DEFAULT 0,
+  active_version INTEGER,
+  archived BOOLEAN NOT NULL DEFAULT false,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS ai_agent_versions (
+  agent_id TEXT NOT NULL REFERENCES ai_agent_definitions(id) ON DELETE CASCADE,
+  version INTEGER NOT NULL CHECK (version > 0),
+  definition JSONB NOT NULL,
+  definition_hash TEXT NOT NULL,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  activated_at TIMESTAMPTZ,
+  PRIMARY KEY (agent_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_definitions_scope ON ai_agent_definitions(project_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS repository_agent_runs (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -2065,3 +2087,264 @@ ALTER TABLE execution_case_snapshots ADD COLUMN IF NOT EXISTS test_data_options 
 ALTER TABLE execution_step_snapshots ADD COLUMN IF NOT EXISTS shared_parameter_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_step_snapshots ADD COLUMN IF NOT EXISTS shared_parameter_template_values JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE execution_step_snapshots ADD COLUMN IF NOT EXISTS shared_parameter_sensitive_names JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Versioned AI evidence and restricted model diagnostics.
+CREATE TABLE IF NOT EXISTS llm_request_traces (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, actor_id TEXT,
+    request_id TEXT, trace_id TEXT, run_id TEXT, node_id TEXT, session_id TEXT,
+    operation TEXT NOT NULL, feature TEXT, integration_id TEXT, integration_name TEXT,
+    provider_origin TEXT, requested_model TEXT, effective_model TEXT,
+    status TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','invalid','cancelled')),
+    attempt INTEGER NOT NULL DEFAULT 1, correction_of TEXT,
+    started_at TIMESTAMPTZ NOT NULL, completed_at TIMESTAMPTZ, duration_ms INTEGER,
+    http_status INTEGER, provider_request_id TEXT, usage JSONB,
+    request_payload JSONB, response_payload JSONB, request_hash TEXT,
+    capture JSONB NOT NULL DEFAULT '{}'::jsonb, error_code TEXT,
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '14 days')
+  );
+
+CREATE INDEX IF NOT EXISTS idx_llm_traces_project_time ON llm_request_traces(project_id, started_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_llm_traces_run ON llm_request_traces(project_id, run_id, node_id) WHERE run_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_llm_traces_session ON llm_request_traces(project_id, session_id) WHERE session_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_llm_traces_expiry ON llm_request_traces(expires_at);
+
+CREATE TABLE IF NOT EXISTS quality_assertion_reviews (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    story_id TEXT NOT NULL, obligation_id TEXT NOT NULL, story_revision TEXT NOT NULL,
+    test_case_id TEXT NOT NULL, test_revision TEXT NOT NULL, step_id TEXT NOT NULL, assertion_hash TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK (decision IN ('approved','rejected','revoked')),
+    rationale TEXT NOT NULL, reviewed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    verifier_version TEXT NOT NULL, request_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+CREATE INDEX IF NOT EXISTS idx_quality_assertion_review_scope ON quality_assertion_reviews(project_id, story_id, test_case_id);
+
+CREATE TABLE IF NOT EXISTS quality_graph_snapshots (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    scope_key TEXT NOT NULL, scope JSONB NOT NULL, captured_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    content_hash TEXT NOT NULL, observed_at TIMESTAMPTZ NOT NULL, complete BOOLEAN NOT NULL,
+    limitations JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(project_id,id)
+  );
+
+CREATE INDEX IF NOT EXISTS idx_quality_graph_snapshot_scope ON quality_graph_snapshots(project_id,scope_key,observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS quality_graph_nodes (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    entity_id TEXT NOT NULL, revision TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
+    first_observed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY(project_id,entity_id,revision)
+  );
+
+CREATE TABLE IF NOT EXISTS quality_graph_snapshot_nodes (
+    project_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, entity_id TEXT NOT NULL, revision TEXT NOT NULL,
+    PRIMARY KEY(snapshot_id,entity_id),
+    FOREIGN KEY(project_id,snapshot_id) REFERENCES quality_graph_snapshots(project_id,id) ON DELETE CASCADE,
+    FOREIGN KEY(project_id,entity_id,revision) REFERENCES quality_graph_nodes(project_id,entity_id,revision)
+  );
+
+CREATE TABLE IF NOT EXISTS quality_graph_edges (
+    project_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, id TEXT NOT NULL,
+    source_id TEXT NOT NULL, source_revision TEXT NOT NULL, target_id TEXT NOT NULL, target_revision TEXT NOT NULL,
+    relation_type TEXT NOT NULL, origin TEXT NOT NULL, validation_state TEXT NOT NULL,
+    evidence_ids JSONB NOT NULL, observed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY(snapshot_id,id),
+    FOREIGN KEY(project_id,snapshot_id) REFERENCES quality_graph_snapshots(project_id,id) ON DELETE CASCADE,
+    FOREIGN KEY(project_id,source_id,source_revision) REFERENCES quality_graph_nodes(project_id,entity_id,revision),
+    FOREIGN KEY(project_id,target_id,target_revision) REFERENCES quality_graph_nodes(project_id,entity_id,revision)
+  );
+
+CREATE INDEX IF NOT EXISTS idx_quality_graph_outgoing ON quality_graph_edges(project_id,source_id,source_revision,relation_type);
+
+CREATE INDEX IF NOT EXISTS idx_quality_graph_incoming ON quality_graph_edges(project_id,target_id,target_revision,relation_type);
+
+CREATE TABLE IF NOT EXISTS quality_graph_tombstones (
+    project_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, entity_id TEXT NOT NULL, previous_revision TEXT NOT NULL,
+    reason TEXT NOT NULL, observed_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY(snapshot_id,entity_id),
+    FOREIGN KEY(project_id,snapshot_id) REFERENCES quality_graph_snapshots(project_id,id) ON DELETE CASCADE
+  );
+
+-- External workflow operation identity and ambiguous outcomes.
+CREATE TABLE IF NOT EXISTS workflow_operation_receipts (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL, node_id TEXT NOT NULL, actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    request_hash TEXT NOT NULL, connection_id TEXT, state TEXT NOT NULL CHECK(state IN ('in_flight','response_received','outcome_unknown')),
+    response JSONB, error_code TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TIMESTAMPTZ,
+    UNIQUE(project_id,run_id,node_id)
+  );
+CREATE INDEX IF NOT EXISTS idx_workflow_operation_receipts_run ON workflow_operation_receipts(project_id,run_id);
+
+-- Durable workflow command delivery and immutable node receipts
+CREATE TABLE IF NOT EXISTS workflow_delivery_outbox (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL, command TEXT NOT NULL CHECK(command IN ('start','cancel')),
+    payload JSONB NOT NULL, delivered_at TIMESTAMPTZ, attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT, next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+CREATE INDEX IF NOT EXISTS idx_workflow_delivery_pending ON workflow_delivery_outbox(next_attempt_at) WHERE delivered_at IS NULL;
+CREATE TABLE IF NOT EXISTS workflow_node_receipts (
+    run_id TEXT NOT NULL, node_id TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    request_hash TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('in_flight','recorded')),
+    result JSONB, result_hash TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ, PRIMARY KEY(run_id,node_id)
+  );
+
+-- Transactional quality evidence invalidation
+ALTER TABLE quality_graph_snapshots ADD COLUMN IF NOT EXISTS invalidated_at TIMESTAMPTZ;
+CREATE TABLE IF NOT EXISTS quality_graph_change_outbox (
+    id BIGSERIAL PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    source_table TEXT NOT NULL, entity_id TEXT, operation TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),processed_at TIMESTAMPTZ
+  );
+CREATE INDEX IF NOT EXISTS idx_quality_graph_changes_pending ON quality_graph_change_outbox(project_id,id) WHERE processed_at IS NULL;
+ALTER TABLE quality_graph_change_outbox ADD COLUMN IF NOT EXISTS delivery_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quality_graph_change_delivery ON quality_graph_change_outbox(delivery_key) WHERE delivery_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_quality_graph_changes_processed ON quality_graph_change_outbox(project_id,processed_at) WHERE processed_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_quality_graph_changes_retention ON quality_graph_change_outbox(processed_at) WHERE processed_at IS NOT NULL;
+CREATE OR REPLACE FUNCTION record_quality_graph_change() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE row_data JSONB; project_key TEXT; entity_key TEXT;
+    BEGIN
+      IF TG_OP='UPDATE' AND to_jsonb(OLD)=to_jsonb(NEW) THEN RETURN NEW; END IF;
+      row_data := CASE WHEN TG_OP='DELETE' THEN to_jsonb(OLD) ELSE to_jsonb(NEW) END;
+      project_key := row_data->>'project_id';
+      IF TG_TABLE_NAME='requirements' THEN entity_key := 'story:'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME='test_cases' THEN
+        SELECT project_id INTO project_key FROM app_types WHERE id=row_data->>'app_type_id';
+        IF project_key IS NULL THEN SELECT project_id INTO project_key FROM requirements WHERE id=row_data->>'requirement_id'; END IF;
+        entity_key := 'test:'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME='test_steps' THEN
+        SELECT a.project_id INTO project_key FROM test_cases t JOIN app_types a ON a.id=t.app_type_id WHERE t.id=row_data->>'test_case_id';
+        entity_key := 'assertion:'||(row_data->>'test_case_id')||':'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME='executions' THEN entity_key := 'run:'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME='execution_results' THEN
+        SELECT project_id INTO project_key FROM executions WHERE id=row_data->>'execution_id';
+        entity_key := 'attempt:'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME IN ('execution_case_snapshots','execution_step_snapshots') THEN
+        SELECT project_id INTO project_key FROM executions WHERE id=row_data->>'execution_id';
+      ELSIF TG_TABLE_NAME='feedback' THEN entity_key := 'defect:'||(row_data->>'id');
+      ELSIF TG_TABLE_NAME='requirement_test_cases' THEN SELECT project_id INTO project_key FROM requirements WHERE id=row_data->>'requirement_id';
+      ELSIF TG_TABLE_NAME IN ('requirement_defects','test_case_defects') THEN SELECT project_id INTO project_key FROM feedback WHERE id=row_data->>'issue_id';
+      END IF;
+      IF project_key IS NOT NULL AND EXISTS(SELECT 1 FROM projects WHERE id=project_key) THEN
+        -- Coalesce bulk snapshot writes within a transaction. Delete events
+        -- retain individual entity identities for historical tombstones.
+        IF TG_OP<>'DELETE' THEN entity_key := NULL; END IF;
+        INSERT INTO quality_graph_change_outbox(project_id,source_table,entity_id,operation,delivery_key)
+          VALUES(project_key,TG_TABLE_NAME,entity_key,TG_OP,md5(jsonb_build_array(project_key,TG_TABLE_NAME,TG_OP,entity_key,txid_current())::text))
+          ON CONFLICT DO NOTHING;
+      END IF;
+      IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+    END
+  $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='requirements'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON requirements FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='test_cases'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON test_cases FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='test_steps'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON test_steps FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='executions'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON executions FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='execution_results'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON execution_results FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='execution_case_snapshots'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON execution_case_snapshots FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='execution_step_snapshots'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON execution_step_snapshots FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='feedback'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON feedback FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='requirement_test_cases'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON requirement_test_cases FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='requirement_defects'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON requirement_defects FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='test_case_defects'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON test_case_defects FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='requirement_releases'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON requirement_releases FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='quality_assertion_reviews'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON quality_assertion_reviews FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='project_members'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON project_members FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+
+-- Approved release policies and scoped evidence exceptions
+CREATE TABLE IF NOT EXISTS quality_release_policies (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, version INTEGER NOT NULL,
+    policy JSONB NOT NULL, policy_hash TEXT NOT NULL, approved_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    rationale TEXT NOT NULL, approved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(project_id,version)
+  );
+CREATE TABLE IF NOT EXISTS quality_release_waivers (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, policy_version INTEGER NOT NULL,
+    release_id TEXT NOT NULL, build TEXT NOT NULL, environment_id TEXT NOT NULL, gate_id TEXT NOT NULL,
+    evidence_hash TEXT NOT NULL, decision TEXT NOT NULL CHECK(decision IN ('approved','revoked')),
+    rationale TEXT NOT NULL, reference TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL,
+    approved_by TEXT REFERENCES users(id) ON DELETE SET NULL, approved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id,policy_version) REFERENCES quality_release_policies(project_id,version) ON DELETE CASCADE
+  );
+CREATE INDEX IF NOT EXISTS idx_quality_release_waiver_scope ON quality_release_waivers(project_id,policy_version,release_id,build,environment_id,gate_id,approved_at DESC);
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='quality_release_policies'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON quality_release_policies FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='quality_release_waivers'::regclass AND tgname='quality_graph_change') THEN
+      CREATE TRIGGER quality_graph_change BEFORE INSERT OR UPDATE OR DELETE ON quality_release_waivers FOR EACH ROW EXECUTE FUNCTION record_quality_graph_change();
+    END IF;
+  END $$;
+
+-- Typed automation repair proposals and validation receipts
+CREATE TABLE IF NOT EXISTS ai_automation_repairs (
+  id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  test_case_id TEXT NOT NULL,session_id TEXT NOT NULL,base JSONB NOT NULL,patch JSONB NOT NULL,
+  validation JSONB,verification JSONB,applied_at TIMESTAMPTZ,applied_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_automation_repairs_project ON ai_automation_repairs(project_id,test_case_id,created_at DESC);
+ALTER TABLE executions ADD COLUMN IF NOT EXISTS repair_validation JSONB;

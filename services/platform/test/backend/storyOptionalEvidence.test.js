@@ -113,7 +113,7 @@ test("Story optimization calls its configured model while disabled or denied Tes
 
 test("permitted linked Test Cases contribute evidence within the Story's project", async t => {
   accessFixture(t, { grants: ["testcase.view"] });
-  const { service, queries } = optimizationFixture({ permittedCases: true });
+  const { service, queries } = optimizationFixture({ permittedCases: true, provider: true });
   const result = await service.previewRequirementOptimization({ id: story.id, user: member });
   assert.equal(queries.length, 2);
   assert.ok(result.evidence.some(item => item.ref === "test-case:case-one" && item.title === "PERMITTED_CASE_SENTINEL"));
@@ -139,7 +139,8 @@ function groomingFixture(allowedSources = []) {
   } };
   const service = loadService("requirementWorkspace", {
     "../../backend/src/db": db,
-    "./aiLlmSelection.service": { resolveLlmIntegrationForUsage: async () => null }
+    "./aiLlmSelection.service": { resolveLlmIntegrationForUsage: async () => ({ id: "fixture", model: "fixture", is_active: true, type: "llm", base_url: "https://llm.invalid/v1" }) },
+    "../utils/llmHttpClient": { fetchLlmWithRetry: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ layman: { explanation: "Review the report before deciding its next state.", evidence_refs: [`requirement:${story.id}`] } }) } }] })) }
   });
   return { service, queries };
 }

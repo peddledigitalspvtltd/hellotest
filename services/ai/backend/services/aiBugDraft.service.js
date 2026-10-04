@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const crypto = require("crypto");
 const db = require("@hellotest/platform/backend/src/db");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
@@ -514,6 +515,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     providerError = error instanceof Error ? error.message : "LLM generation failed.";
     normalized = { ...deterministic, fallback_fields: [...DRAFT_FIELDS] };
   }
+  requireAiAssessment({ integration, failed: Boolean(providerError), accepted: normalized.fallback_fields.length < DRAFT_FIELDS.length });
   const generationMode = !integration || providerError ? "deterministic" : normalized.fallback_fields.length ? "hybrid" : "llm";
   const fallbackReason = providerError
     || (!integration ? "No active LLM integration is configured." : normalized.fallback_fields.length ? "Some model fields were missing, invalid, or lacked allowed evidence refs and were replaced with evidence-bound deterministic values." : null);

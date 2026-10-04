@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { traceApi } from "../api.client";
 import { Panel } from "@hellotest/platform/frontend/src/shared/components/Panel";
 
-import type { OpsPlatformSnapshot } from "@hellotest/platform/frontend/src/types";
 
 export function OpsPlatformPanel({ projectId }: { projectId: string }) {
   const query = useQuery({
@@ -13,7 +12,6 @@ export function OpsPlatformPanel({ projectId }: { projectId: string }) {
   });
   return <Panel title="Monitoring health" subtitle="Independent component checks. Monitoring outages do not block test execution."
     actions={<button className="ghost-button" type="button" disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? "Checking…" : "Refresh health"}</button>}>
-    <h3>Monitoring health</h3>
     {query.isError && <p role="status">Monitoring status is temporarily unavailable. Your test operations remain accessible. Retry using Refresh health.</p>}
     {query.isLoading && <p role="status">Checking monitoring services…</p>}
     {query.data && <>

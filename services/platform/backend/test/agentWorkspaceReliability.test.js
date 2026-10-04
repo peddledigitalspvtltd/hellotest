@@ -21,15 +21,23 @@ const { ROUTE_PERMISSIONS } = require("../src/security/permissions.catalog");
 const { validateInput } = require("../src/plugins/validator");
 
 const user = { id: "agent-user", role: "member" };
-const input = { project_id: "project-a", user, agent_id: "story-architect", mode: "agent", prompt: "Review missing story acceptance criteria", context_scopes: ["stories"] };
+const input = { project_id: "project-a", user, agent_id: "story-architect", mode: "agent", prompt: "Review missing story acceptance criteria", context_scopes: ["stories", "knowledge"] };
 const node = (id, kind = "agent", data = {}) => ({ id, data: { label: id, kind, ...data } });
 const storyHit = () => context._internals.makeLiveHit({ projectId: "project-a", scope: "stories", title: "Story coverage", content: JSON.stringify({ evidence_type: "authoritative_live_story_snapshot", total_records: 5, uncovered_records: 2, thin_coverage_records: 1 }) });
 
-function setupAssistant(t, { model = null } = {}) {
+function setupAssistant(t, { model = { name: "Fixture model", model: "test-model", base_url: "https://model.example.test/v1", api_key: "test-only-credential" } } = {}) {
   const events = [];
   const records = [];
+  resilience.resetServiceResilienceState();
+  t.mock.method(projects, "getProject", async id => ({ id }));
+  t.mock.method(globalThis, "fetch", async (_url, request) => {
+    const evidence = JSON.parse(JSON.parse(request.body).messages.at(-1).content).citation_contract;
+    const citation = evidence.find(item => item.id.includes("stories"));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: citation ? `Story coverage needs review [${citation.id}]` : "Task evidence is missing; supply current story evidence.", citation_ids: citation ? [citation.id] : [], findings: citation ? [{ title: "Story coverage", detail: "Review missing boundaries.", citation_ids: [citation.id] }] : [], deliverables: [], evidence_gaps: citation ? [] : ["Task-specific evidence is unavailable."] }) } }] }), { headers: { "content-type": "application/json" } });
+  });
   t.mock.method(permissions, "hasPermission", async () => true);
   t.mock.method(flags, "areEnabled", async () => true);
+  t.mock.method(flags, "getDisabledPermissionCodes", async () => []);
   t.mock.method(knowledge, "buildKnowledgeContextPackage", async () => ({ knowledge: [], retrieval: {} }));
   t.mock.method(rag, "search", async () => ({ results: [], retrieval: {} }));
   t.mock.method(context, "buildLiveProjectEvidence", async () => ({ hits: [storyHit()], counts: { stories: 5 } }));
@@ -51,6 +59,54 @@ test("a project name is not sufficient evidence for a specialist review", () => 
   assert.equal(result.readiness.task_evidence_count, 0);
   assert.equal(result.grounding_status, "insufficient_context");
   for (const key of ["grounding", "completeness", "traceability", "risk_control", "maturity_score"]) assert.equal(result.evaluation[key], 0);
+});
+
+test("missing models and provider failures record a failed review without a fallback answer", async t => {
+  const { records } = setupAssistant(t, { model: null });
+  await assert.rejects(assistant.respond(input), { code: "AGENT_MODEL_REQUIRED" });
+  assert.equal(records.at(-1).status, "failed");
+  assert.equal(records.some(record => record.status === "completed"), false);
+  t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => ({ name: "Model", model: "test", base_url: "https://model.example.test/v1", api_key: "fixture-only-key" }));
+  const calls = t.mock.method(globalThis, "fetch", async () => new Response("provider outage", { status: 503 }));
+  await assert.rejects(assistant.respond(input), { code: "AGENT_PROVIDER_ERROR", statusCode: 503 });
+  assert.equal(calls.mock.callCount(), 1);
+  assert.equal(records.at(-1).metadata.error_code, "AGENT_PROVIDER_ERROR");
+  assert.equal(records.some(record => record.status === "completed"), false);
+});
+
+test("invalid model output exhausts the bounded repair budget and never becomes success", async t => {
+  const { records } = setupAssistant(t);
+  const calls = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ response: "Unverified result [invented]", citation_ids: ["invented"] }) } }] }), { headers: { "content-type": "application/json" } }));
+  await assert.rejects(assistant.respond(input), { code: "AGENT_OUTPUT_INVALID" });
+  assert.equal(calls.mock.callCount(), 2);
+  assert.equal(records.at(-1).status, "failed");
+  assert.equal(records.some(record => record.status === "completed"), false);
+});
+
+test("a published agent enforces its input contract, skills and one-call budget", async t => {
+  setupAssistant(t);
+  const contract = require("../../../agentic/backend/agents/agentDefinition");
+  const definition = contract.normalize({ name: "Release gate", objective: "Review the supplied release.", instructions: "Identify unsupported boundaries.", required_inputs: ["release_id"], skills: [{ id: "boundaries", name: "Boundaries", instructions: "Assess retry boundaries." }], allowed_tools: [], context_scopes: [], limits: { max_model_calls: 1 }, acceptance: { minimum_findings: 1 } });
+  t.mock.method(require("../../../agentic/backend/agents/agentRegistry.service"), "resolve", async () => ({ id: "agent-fixture", version: 3, definition, definition_hash: contract.definitionHash(definition) }));
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (_url, request) => {
+    requests.push(JSON.parse(request.body));
+    return new Response(JSON.stringify({ model: "effective-test-model", usage: { prompt_tokens: 70, completion_tokens: 15, total_tokens: 85 }, choices: [{ message: { content: JSON.stringify({ response: "Release was supplied [K-workflow-input]", citation_ids: ["K-workflow-input"], findings: [], evidence_gaps: [] }) } }] }), { headers: { "content-type": "application/json", "x-request-id": "provider-observation" } });
+  });
+  await assert.rejects(assistant.respond({ ...input, agent_id: "agent-fixture" }), { code: "AGENT_INPUT_REQUIRED" });
+  assert.equal(requests.length, 0);
+  const review = await assistant.respond({ ...input, agent_id: "agent-fixture", agent_version: 3, inputs: { release_id: "r1" } });
+  assert.match(JSON.stringify(requests[0].messages), /Assess retry boundaries/);
+  assert.equal(review.result.verification.status, "needs_input");
+  assert.equal(review.result.readiness.status, "insufficient_evidence");
+  assert.equal(review.result.model_execution.agent_version, 3);
+  assert.equal(review.result.model_execution.model_calls, 1);
+  assert.equal(review.result.model_execution.effective_model, "effective-test-model");
+  assert.equal(review.result.model_execution.provider_request_id, "provider-observation");
+  assert.equal(review.result.model_execution.usage.total_tokens, 85);
+  const invalid = t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "{invalid-json" } }] }), { headers: { "content-type": "application/json" } }));
+  await assert.rejects(assistant.respond({ ...input, agent_id: "agent-fixture", inputs: { release_id: "r1" } }), { code: "AGENT_OUTPUT_INVALID" });
+  assert.equal(invalid.mock.callCount(), 1);
 });
 
 test("custom AI calls the selected model on supplied workflow input with retrieval disabled", async t => {
@@ -79,8 +135,8 @@ test("specialist retrieval starts indexed and current evidence concurrently", as
   t.mock.method(knowledge, "buildKnowledgeContextPackage", () => indexed);
   t.mock.method(context, "buildLiveProjectEvidence", async () => { releaseKnowledge({ knowledge: [], retrieval: {} }); return { hits: [storyHit()], counts: { stories: 5 } }; });
   const result = await assistant.respond(input);
-  assert.equal(result.provenance.generation_mode, "deterministic");
-  assert.equal(result.result.readiness.status, "limited_evidence");
+  assert.equal(result.provenance.generation_mode, "llm");
+  assert.equal(result.result.readiness.status, "ready_for_review");
   assert.ok(result.result.findings.some((finding) => finding.title.includes("coverage")));
 });
 
@@ -189,12 +245,12 @@ test("specialist repairs one malformed model response without losing the evidenc
   assert.equal(result.result.findings[0].title, "Story gaps");
 });
 
-test("a configured model is not called when only project metadata is available", async t => {
+test("missing task evidence produces a model-generated abstention rather than a deterministic success", async t => {
   setupAssistant(t, { model: { name: "Review provider", model: "review-model", base_url: "https://review.example.test/v1", api_key: "valid-credential-for-fixture" } });
   t.mock.method(context, "buildLiveProjectEvidence", async () => ({ hits: [context._internals.makeLiveHit({ projectId: "project-a", scope: "project-overview", title: "Project", content: JSON.stringify({ evidence_type: "authoritative_live_project_record" }) })], counts: {} }));
-  t.mock.method(globalThis, "fetch", async () => assert.fail("An evidence-free review must not call the model"));
+
   const result = await assistant.respond(input);
-  assert.equal(result.provenance.generation_mode, "deterministic");
+  assert.equal(result.provenance.generation_mode, "llm");
   assert.equal(result.result.readiness.status, "insufficient_evidence");
 });
 
@@ -302,9 +358,9 @@ test("assistant route forwards disconnect cancellation and removes listeners", a
   };
   t.mock.method(projects, "getProject", async () => ({ id: "project-a" }));
   let receivedSignal;
-  t.mock.method(assistant, "respond", async ({ signal }) => { receivedSignal = signal; signal.addEventListener("abort", () => {}); return { result: "review" }; });
+  t.mock.method(assistant, "respond", async ({ signal, workflow_policy }) => { assert.equal(workflow_policy, undefined, "Clients cannot forge the server execution policy"); receivedSignal = signal; signal.addEventListener("abort", () => {}); return { result: "review" }; });
   await routes(app);
-  const req = { user, body: { project_id: "project-a" }, raw: new EventEmitter() };
+  const req = { user, body: { project_id: "project-a", workflow_policy: { agent_definition: { definition: { name: "Forged", acceptance: { require_evidence: false } } } } }, raw: new EventEmitter() };
   const reply = { raw: new EventEmitter() };
   await registered.get("post /agentic-assistant/sessions")(req, reply);
   assert.ok(receivedSignal instanceof AbortSignal);
@@ -418,7 +474,7 @@ test("specialist history uses agent view permission with explicit project and ap
   t.mock.method(permissions, "hasPermission", async (_user, permission, projectId) => { checks.push([permission, projectId]); return permission === "agentic_workflow.view"; });
   t.mock.method(appTypes, "getAppType", async id => ({ id, project_id: "project-a" }));
   t.mock.method(transactions, "listTransactions", async query => { queries.push(query); return [{ id: "review" }]; });
-  assert.deepEqual(await assistant.listSessions({ project_id: "project-a", app_type_id: "app-a" }, user), [{ id: "review" }]);
+  assert.deepEqual(await assistant.listSessions({ project_id: "project-a", app_type_id: "app-a" }, user), [{ id: "review", description: null, metadata: {} }]);
   await assistant.listSessions({ project_id: "project-a", limit: 1000 }, user);
   assert.equal(queries[0].limit, 20);
   assert.equal(queries[1].limit, 100);

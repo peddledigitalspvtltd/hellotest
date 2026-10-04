@@ -2,6 +2,26 @@
 
 Agentic Studio is the workflow workspace at `/agentic-workflows`. Existing agent, repository analysis and execution links remain valid. The default view opens workflows; the Agent library and Recent work remain available through the workspace navigation.
 
+## Creating project agents
+
+Open **Agent library → Create agent**, or **Customize** on a built-in specialist. The builder retains the workspace's side-panel layout and has three sections:
+
+1. **Purpose**: name, objective, description, model connection and task instructions. A specialist can supply the initial configuration.
+2. **Skills & evidence**: choose or create reusable skills, order or pause them, allow evidence tools, select project scopes and knowledge sources, provide domain context and declare required run-input names.
+3. **Completion & limits**: require evidence references, stop for unresolved evidence gaps, set a minimum number of findings, and bound time, model calls and output tokens.
+
+**Save draft** stores an immutable version without publishing it. **Save and activate** validates the model connection configuration and makes that version available in the library, workbench, workflow node picker and specialist selector. Activation does not make a provider health request; the actual run must receive valid model output. Required fields appear in the agent workbench and are supplied through **Workflow input** for workflows. Agent definitions belong to the current project. Viewing requires `agentic_workflow.view`; authoring requires `agentic_workflow.manage`; execution requires `agentic_workflow.run`.
+
+Each workflow selection pins the activated version. Later drafts and activations do not silently replace it. Reselect an agent in the node inspector to adopt its current activated version. Runs store the server-resolved definition, version and hash together with the workflow snapshot; submitted definition snapshots are discarded. Workflow-specific task, skills and context changes are retained in that snapshot. Concurrent edits return a conflict instead of overwriting another saved version. Existing reviews remain inspectable.
+
+Every AI review—built-in specialist, project agent, Custom AI and AI loop item—requires an active LLM connection. Missing models, provider errors, exhausted budgets and invalid output fail explicitly. Repository source extraction is the exception: compilation and cached extraction work without a model. Selecting an optional model adds a fresh review that must succeed; a cached review is never represented as a new model call. Oversized source findings are sampled within a documented context limit and the result is marked partial with the reviewed count.
+
+The application controls evidence access, citation validation, completion checks and terminal workflow state. Model text cannot authorize tools or declare verified success. A failed completion check produces `needs_input` in the review and stops downstream workflow steps with **Needs review**. Supplied input is marked unverified. Reference checks establish traceability, not factual correctness; material decisions and artifact publication still require human review. The result exposes the effective model, prompt hash, provider request ID when available, response token usage, model-call count and agent version. Token usage describes the accepted response, not total billing across repair attempts.
+
+The contract permits 10–70 seconds, one or two model requests per node (including JSON compatibility, transport retries and repair), and 256–8,000 output tokens. Configured workflow retries share the same model-call ledger and node deadline; they cannot reset those limits. Each AI loop item has its own bounded ledger, inside the overall workflow limit. Agents use the existing structured review output and explicitly supplied history; arbitrary verifier code, persistent agent memory and model-directed write tools are not enabled. Workflow HTTP/MCP nodes retain their separate permission and execution policies.
+
+Agent/version, trace, coverage, graph and workflow receipt tables are additive and applied by the normal API schema bootstrap. Environments running schema verification must run the migration command before starting the updated API. Set `TEMPORAL_ADDRESS` and run the dedicated durable worker to enable Temporal execution. Without this explicit configuration, runs use the existing bounded local worker and become interrupted after a worker loss or deadline; there is no automatic fallback from Temporal to local execution.
+
 ## Authoring and inspecting a workflow
 
 Start with a review or source-analysis template, or choose **Start from scratch**. The blank canvas has a **+** that adds the manual trigger. Use **+** after an unconnected node or on an existing connection to open the searchable library and wire the selected node automatically. Condition ports have separate true/false insertion targets; inserting on one branch preserves the other branch and the original source handle. Adding an Error handler sets the parent’s error policy to route failures. Circular, duplicate and invalid trigger/output connections are rejected. Drag between handles to connect branches; select a connection to remove it. **Arrange** places nodes by dependency depth. Removing a node in a simple, linear chain reconnects its predecessor and successor; branch removal leaves the remaining graph for explicit review.
@@ -42,7 +62,7 @@ Every node offered in **Add a node** has an execution adapter:
 | Data and flow | Condition, For each, Edit fields, Aggregator | Selected branch, collected items, mapped data or merged outputs |
 | Results and recovery | Output, Log, Error handler | Inspectable result, log entry or explicit failure path |
 
-Custom AI uses your task, instructions, selected skills, connected data, model selection and permitted project context through the existing review contract. Supplied workflow input is explicitly marked unverified; custom tasks can call the configured model even when the project has no indexed evidence. Workspace specialists still require task-specific project evidence. It returns cited findings; it does not execute model-generated code. Repository evidence searches indexed source material; source analysis remains the dedicated GitHub pipeline. Run evidence retrieves permitted execution context rather than scheduling a test run.
+Custom AI uses your task, instructions, selected skills, connected data, model selection and permitted project context through the existing review contract. Supplied workflow input is explicitly marked unverified; custom tasks call the configured model even when the project has no indexed evidence. Specialists request a model review and must identify missing task evidence instead of fabricating a supported outcome. They return structured reviews; they do not execute model-generated code. Repository evidence searches indexed source material; source analysis remains the dedicated GitHub pipeline. Run evidence retrieves permitted execution context rather than scheduling a test run.
 
 Custom AI and specialist nodes offer **Choose or create skill**, using the existing prompt-template library with the isolated `workflow_skill` scope. Select an existing skill, save a new one, or edit a project skill. Nodes keep an editable snapshot of each selected skill (up to eight), so later library edits do not silently change saved workflows. Expand a skill card to edit, pause, reorder or remove it. Paused skills are retained in the definition and excluded from model guidance. A shared character budget covers the task, instructions, active skills and additional guardrails; the backend enforces the same 5,000-character limit. AI For each nodes expose the same skills, model, tools and context controls. Changing specialists populates their task, skills, retrieval tools and context scopes. Project evidence and Knowledge search can be disabled independently; execution respects those restrictions. Additional guardrails and context are editable; required permission, secret-redaction and untrusted-input boundaries remain enforced.
 
@@ -60,13 +80,13 @@ Scheduled/webhook starts and arbitrary expression/code execution remain unsuppor
 
 Open **Integrations → New Integration**, also available under **Admin Space → Integrations**. Choose **Integration type → Workflow connections**, then **Provider → MCP Server** or **HTTP API**. These providers appear in the same searchable tile/list catalog as LLM and other providers; there is no separate MCP tab. Existing connection records and workflow connection IDs are reused. New connections automatically belong to the current project; there is no separate project-access selector. Management APIs require the current `project_id` and project membership, and reject operations on connections outside that project. Changing projects resets the editor and loads that project's connections. Existing connections retain their previously configured scopes.
 
-**Test connection and discover tools** uses the current form, including unsaved endpoint, authentication and header changes. It initializes the server and reads its catalog without creating a connection, updating saved settings, enabling tools or invoking them. Select enabled tools during creation, inspect their input/output schemas and server annotations, then save once. An active MCP provider requires at least one selected tool in the UI; an incomplete connection can be kept inactive. Saved provider details retain the catalog, server identity, negotiated protocol and discovery time. The workflow MCP node loads enabled tool names and schemas directly from the saved provider; **Refresh server tools** checks the server again. Execution always revalidates the selected tool and its arguments against the live server catalog. Connections refresh when returning from Integrations; **Refresh connections** also reloads them immediately. Administrators can edit, disable or delete a connection; disabled connections cannot execute. Viewing these settings requires `integration.view`; mutations and administrator discovery require `integration.manage`.
+**Test connection and discover tools** uses the current form, including unsaved endpoint, authentication and header changes. It initializes the server and reads its catalog without creating a connection, updating saved settings, enabling tools or invoking them. Select enabled tools during creation, inspect their input/output schemas and server annotations, then save once. An active MCP provider requires at least one selected tool in the UI; an incomplete connection can be kept inactive. Saved provider details retain the catalog, server identity, negotiated protocol and discovery time. The workflow MCP node loads enabled tool names and schemas directly from the saved provider; **Refresh server tools** checks the server again. Execution pins the approved tool contract in the run snapshot and compares its name, input/output schemas, annotations and protocol revision against the live server catalog before dispatch. Changed contracts require discovery and saving in Integrations. Input arguments and declared structured output are schema-validated. A failed or invalid result after dispatch has an unknown external outcome and is never automatically replayed; schema validity does not verify the external postcondition. Connections refresh when returning from Integrations; **Refresh connections** also reloads them immediately. Administrators can edit, disable or delete a connection; disabled connections cannot execute. Viewing these settings requires `integration.view`; mutations and administrator discovery require `integration.manage`.
 
 Saved settings use the existing `app_settings` store and need no database migration. Entered credentials are encrypted with AES-256-GCM using `WORKFLOW_CREDENTIAL_KEY`, or an existing `SESSION_SECRET` of at least 32 characters. Configure a stable key consistently on every Agentic/combined API instance before saving credentials. Retain that key across restarts; rotating it requires replacing saved credentials. An `AGENTIC_SECRET_…` environment reference is also supported. Credential values are never returned by settings APIs.
 
 Deployment-managed `AGENTIC_HTTP_CONNECTIONS` catalogs remain supported alongside saved settings, scoped to explicit project IDs, and selected in the node inspector. Workflow definitions store the connection ID, never its secret. The shipped Compose files forward `AGENTIC_HTTP_CONNECTIONS`, `AGENTIC_SECRET_API` and `AGENTIC_SECRET_MCP` to the Agentic or combined API. Supply them through your deployment's secret/environment management, not committed files.
 
-Example connection catalog (replace project IDs and endpoints):
+Example connection catalog (replace project IDs and endpoints). For deployment-managed MCP entries, supply the exact approved tool definitions from discovery; names alone cannot authorize execution:
 
 ```json
 [
@@ -88,7 +108,8 @@ Example connection catalog (replace project IDs and endpoints):
     "projectIds": ["project-id"],
     "secretEnv": "AGENTIC_SECRET_MCP",
     "authType": "bearer",
-    "tools": ["read_status", "search_documents"]
+    "tools": ["read_status"],
+    "toolDefinitions": [{ "name": "read_status", "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } }]
   }
 ]
 ```
@@ -123,3 +144,107 @@ The design adopts the canvas/node-detail and saved-execution patterns described 
 Authoring references: [n8n connections](https://docs.n8n.io/build/understand-workflows/workflow-components/connect-nodes-together), [data flow](https://docs.n8n.io/build/work-with-data/understand-n8ns-data-structure), and [input mapping](https://docs.n8n.io/build/work-with-data/reference-data/use-the-ui-mapper). HelloTest uses its existing result envelopes and bounded adapters; it does not claim compatibility with n8n expressions or arbitrary n8n nodes.
 
 Execution design references: [n8n error handling](https://docs.n8n.io/build/flow-logic/handle-errors-gracefully) and [debugging saved executions](https://docs.n8n.io/build/understand-workflows/understand-executions/debug-executions).
+
+
+## AI lifecycle capabilities
+
+The shared specialist catalog supplies the same names, skills, context scopes and feature contracts to the Agent library and workflow picker. It contains 22 default review agents covering the document's 18 feature IDs. **Customize** copies a specialist into a versioned project agent; analytical clones retain their code-owned feature checks. A review agent proposes findings and next steps. It does not implicitly publish the business artifact or execute its recommendations.
+
+| Capability | Feature screen | Default review agent | Current behavior |
+| --- | --- | --- | --- |
+| F01 Story creation | Stories → AI creation | Story Architect | Cited model drafts, explicit acceptance |
+| F02 Story completion | Story details → AI completion | Story Completion | Current draft context, cited field proposals |
+| F03 Grooming | Story details → AI Groom Story | Story Grooming | Bounded business/technical review with source references |
+| F04 Story assurance | Story details → AI Story Assurance | Story Assurance | Deterministic baseline remains fixed; model explains cited findings |
+| F05 Test generation | Stories / Test Cases → AI generation | Test Design Agent | Model-generated structured drafts and reviewed acceptance |
+| F06 Test improvement | Test Case details → AI improvement | Test Improvement | Current authored steps and expected outcomes preserved for review |
+| F07 Smart Run | Runs → Smart Run | Smart Run Planner | Code selects allowed candidates; model supplies evidence-linked rationale |
+| F08 Failure analysis | Run results → Failure analysis | Failure Analyst | Recorded symptom groups, model hypotheses and discriminating checks |
+| F09 Bug creation | Bugs → AI creation | Defect Reporter | Model-generated draft; normal authoring acceptance |
+| F10 Bug triage | Bugs → AI triage | Defect Triage Agent | Cited review proposals; no silent deterministic substitute |
+| F11 Release readiness | Release readiness → AI release review | Release Readiness | Approved, versioned project policies and scoped exceptions; code computes gates and preserves unknown evidence |
+| F12 Impact analysis | AI Story Assurance → Impact analysis; Test Case assurance | Impact Analysis | Existing direct relationships plus bounded snapshot traversal in the agent |
+| F13 Coverage assurance | Story / Test Case assurance | Coverage Assurance | Reviewed criterion/assertion mappings, revision checks and exact-build observed assertion coverage |
+| F14 Risk prediction | Release readiness → AI release review | Risk Prediction | Transparent rule-based indicators; no calibrated probability claim |
+| F15 Flaky intelligence | Run case logs → Reliability investigation | Flaky Test Intelligence | Comparable attempt groups, descriptive intervals, suspect/insufficient states |
+| F16 Risk simulation | Release readiness → AI release review | Release Risk Simulation | Code-computed hypothetical gate scenarios; actual gates unchanged |
+| F17 Quality graph | Story/Test Case assurance; release/run reviews | AI Quality Graph | Persistent revision index, transactional invalidation, deletion tombstones and searchable evidence table |
+| F18 Automation repair | Automation build → AI Automation Repair | Automation Repair | Typed locator proposals, pinned validation Runs, original/neighbor/negative checks and guarded apply |
+
+Story assurance contains keyboard-accessible **Quality review** and **Impact analysis** tabs. Switching tabs preserves the current draft analysis without making another model request. The contextual lifecycle panels start collapsed, reuse theme tokens, and separate findings, code checks, next steps and provenance. Evidence tables render 30 rows initially with search and incremental expansion inside a bounded scroll area. Scope changes cancel the old request and discard late responses. Model errors have explicit retry guidance; existing authored work is preserved.
+
+The analytical evidence service reads one repeatable-read, read-only project snapshot, with an eight-second SQL statement timeout and at most 2,000 rows per source. It intersects source grants, feature flags and selected evidence scopes before queries. Release membership follows native release relationships; application context excludes unrelated records. Missing, denied, truncated or unlinked evidence is disclosed rather than interpreted as absence. Free-form metadata and execution configuration/data snapshots are removed or hashed before model packaging. The full bounded snapshot must fit 2 MB; the model receives a valid JSON projection below approximately 12,000 characters. Projection omissions are explicit. Assurance and structured diagnostic reviews share a 60-second deadline and at most one output repair, with hidden transport retries disabled.
+
+Release failure gates take precedence over unknowns. Execution completion, review readiness and publication are separate values. Passing retries do not erase observed failure records. Coverage links are only candidates. In Story coverage, open **Review criterion-to-assertion mappings** to select a criterion, linked Test Case and observable expected result, then approve, reject or withdraw the mapping with a rationale. Approval pins the Story, complete Test Case specification and assertion revisions. A changed criterion, step or test makes that mapping stale. Designed coverage counts current approvals; executable and observed coverage require matching saved assertion outcomes on the selected build and environment. Failed observations remain failures even after a passing retry; incomplete denominators remain unknown. Flakiness groups require the same test snapshot, build, environment, configuration and data; mixed outcomes are **suspect**, never automatically confirmed or quarantined. [Wilson intervals](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm) are descriptive and disclose the independence assumption.
+
+Saved agent reviews retain the source permissions required at generation; reading a full review checks them again. History summaries omit source contents. New source permissions or feature revocation cannot expose a previously saved evidence packet through history.
+
+### Model calls in TestOps
+
+**TestOps → AI calls** reads shared LLM transport records for features, agents, workflow nodes and project embedding calls. Each actual request captures its prepared model body, bounded response, provider status, effective model, duration and reported token usage. Request IDs, distributed trace IDs, agent session IDs and workflow run/node IDs connect the record to its originating task. Compatibility corrections have separate linked records. A transport response is not a business-verification verdict; node failures and completion checks remain in the execution log.
+
+The shared client excludes authentication headers, redacts credential fields and hidden provider reasoning, omits binary inputs and bounds captured text and structure. Records expire after 14 days; cleanup runs every five minutes. Calls abandoned by a worker become failed after 15 minutes. Capture failures are reported as `llm.trace_storage_unavailable` and do not replay or discard a generation. Calls made before this migration are not reconstructed.
+
+Access requires project membership and `ops.view`. Workspace administrators can inspect prompt and response bodies. Other authorized operators see metadata, usage and timing, without content. The API enforces this distinction and uses `Cache-Control: no-store`. This restriction also covers source material aggregated from private documents. Request/response capture adds two bounded database writes; latency reports measure provider transport, excluding those writes. No provider price or reasoning-quality estimate is inferred from tokens.
+
+TestOps has one **Dashboard** (Grafana), **Infrastructure logs**, **Distributed traces**, **Alerts**, **Service health**, and **AI calls**. The redundant TestGrid telemetry tab and second dashboard were removed. Test Engine jobs still retain their run details, and Test Engine service output remains searchable in infrastructure logs. The existing telemetry API remains available to clients.
+
+### Durable workflow deployment
+
+The Temporal workflow owns dependency ordering, branch selection, cancellation, the absolute run deadline and activity recovery. PostgreSQL holds UI projections, immutable node receipts and an atomic start/cancel delivery outbox. Full evidence and prompts stay in project storage; Temporal receives compact receipt hashes and control metadata. Successfully recorded nodes are reused after a lost activity acknowledgement without another model call. If a worker disappears after dispatch but before recording a result, that node fails with an explicit uncertain outcome; budgets and external effects are never silently reset.
+
+HTTP writes and MCP calls reserve stable operation IDs and request hashes before dispatch. Recorded responses can be reused; changed arguments under the same ID conflict. Missing responses or persistence failures require reconciliation. A provider response is recorded as `response_received`, with `postcondition_verified: false`; it is never presented as proof that the intended business effect occurred.
+
+Use an existing persistent Temporal deployment or Temporal Cloud. Configure the same address, namespace and task queue for the API and durable worker. The API must have applied the new schema first. The dedicated worker uses Debian/glibc because Temporal's native worker is not supported by the API's Alpine runtime.
+
+For a host process, install workspace dependencies, provide the normal database and workflow credential settings, then run:
+
+```sh
+export TEMPORAL_ADDRESS=temporal.example.internal:7233
+export TEMPORAL_NAMESPACE=default
+export TEMPORAL_TASK_QUEUE=hellotest-agentic-v1
+npm --prefix services/platform/backend run migrate
+npm --workspace @hellotest/agentic run worker:durable
+```
+
+Start the API with the same `TEMPORAL_ADDRESS`. For Docker, apply [docker-compose.agentic-durable.yml](../../docker-compose.agentic-durable.yml) on top of `docker-compose.platform.yml` or `docker-compose.full.yml`, using the deployment's existing environment/secrets file:
+
+```sh
+docker compose --env-file /path/to/deployment.env \
+  -f docker-compose.platform.yml -f docker-compose.agentic-durable.yml \
+  up -d --build api agentic-durable
+```
+
+The overlay connects to the configured Temporal server; it does not create an ephemeral development server. For Temporal Cloud, set `TEMPORAL_TLS=true` and `TEMPORAL_API_KEY`. Host deployments also support `TEMPORAL_TLS_CA`, `TEMPORAL_TLS_SERVER_NAME`, and the `TEMPORAL_TLS_CERT` / `TEMPORAL_TLS_KEY` pair. Mount certificate files and pass their container paths when using a custom Docker override. Back up the Temporal persistence store along with the application database. Run one outbox-delivering durable worker or multiple workers on the same queue; stable workflow IDs prevent duplicate starts.
+
+### Quality Graph freshness
+
+Each assessment stores revision-bound nodes, typed edges, provenance, evidence references and its source scope. Native Story, Test Case, assertion, run, result, Defect, relationship and membership changes write an outbox event in the same database transaction. The AI worker processes these events every five seconds, invalidates older assessments and appends deletion tombstones without rewriting historical edges. Consumers are idempotent. Processed delivery metadata expires after 30 days; historical graph snapshots remain. Pending changes and changes processed during capture prevent a snapshot from being shown as current. Reading a saved agent review checks current source permissions and refreshes its graph freshness status.
+
+Before deploying this revision, run `npm --prefix services/platform/backend run migrate` with the application and observation database URLs configured, then restart the relevant services. Main schema compatibility is version 5; observation schema compatibility is version 2. Verify-mode API and durable worker processes refuse to start against an older schema.
+
+### Approved release policies
+
+Release readiness exposes **Release policy and exceptions**. `quality_gate.view` reads the policy; `quality_gate.update` approves immutable versions using an expected-version check and a recorded rationale. Requirements include minimum completed attempts and maximum evidence age. Missing or future-dated execution timestamps remain unknown. Policy approvals and exception decisions invalidate earlier Quality Graph assessments.
+
+An exception needs exact release/build/environment scope, the current policy version, a known failed gate, its current evidence hash, a reference, rationale and expiry (at most 30 days). Only recorded critical Defects and execution failures can be eligible. Missing sources, unknown coverage, minimum samples and stale evidence cannot be waived. Withdrawing approval, changing evidence or policy, or reaching expiry restores the blocking result. The observed failure is retained, and even a ready assessment does not authorize deployment.
+
+### Typed automation repair
+
+Automation Repair accepts a Test Case ID and an optional failed Run ID (otherwise the latest recorded failure). The model returns a typed `replace_locator` proposal; code permits only a failed standalone web `click`, `fill`, `hover`, `check` or `uncheck` with literal arguments. Values, assertions, timeouts, step order and other code remain unchanged. The proposal pins the complete authored source hash and saves the prior action for review. It is available from the Automation screen, the default agent, and workflow agent output.
+
+Expand **Validate and apply repair**, select one to five neighboring Test Cases, a known-negative key/value fixture and an existing protected assertion, and document the fixture isolation/reset procedure. **Prepare validation Runs** creates separate snapshots without changing the authored Test Case. Start each check after preparing the application fixture: original failure reproduction, repaired Test Case plus neighbors, and the known-negative assertion check. The configured Test Engine uses fresh browser sessions, no attached browser and no healing. Execution settings and repository evidence must remain comparable. Shared-step, API, mobile, multi-row and arbitrary-code repairs require an authored change and are not auto-patched.
+
+Verification reads trusted Test Engine jobs from observation storage and pinned specifications from the application database. Missing receipts, changed snapshots, unexpected failures, failed neighbors, changed execution settings, or a negative case that fails before its protected assertion keep the proposal unverified. The API requires source and test-data read permissions, `run.create` to prepare, `run.execute` to start, and both `step.manage` and `testcase.update` to apply. Apply rechecks the source and all receipts under locks, records the verifier receipt hashes and approver, and changes only the proposed locator action. Application fixture isolation and the semantic meaning of the negative case still require the reviewer's documented judgment; the recorded runner checks do not prove these by themselves.
+
+### Blueprint scope and operational requirements
+
+The feature matrix describes implemented behavior, not production certification of either document. These boundaries remain explicit:
+
+- Durable execution applies to configured Agentic workflows. Standalone interactive AI requests remain request-bound. Existing local deployments need the Temporal configuration above to gain durable orchestration.
+- Generic MCP operation receipts prevent automatic duplicate dispatch; business-specific postcondition verifiers and an operator reconciliation workflow are still required for autonomous verified writes.
+- Coverage approvals are human-reviewed assertion mappings. They do not prove semantic oracle adequacy. Release approval authority is project-scoped through the existing Quality Gate permissions; deployment authorization remains separate.
+- Automation Repair supports the constrained locator patch class above. It does not execute arbitrary model-generated scripts or claim to verify fixture isolation or semantic adequacy automatically.
+- Risk indicators remain transparent rule bands. Calibrated probabilities and model semantic accuracy require representative labeled evaluations and a configured real provider.
+
+Verification includes backend/frontend suites and production builds, actual PostgreSQL agent/version, coverage, graph and trace persistence, Temporal lost-acknowledgement recovery, workflow-history replay and cancellation without an activity worker. Browser checks cover model request/response inspection, project/role restrictions, assertion review, policy exceptions, repair controls, stale revisions, light/dark themes and mobile overflow. An opt-in PostgreSQL/Chrome check runs the actual Test Engine browser adapter through original failure, repaired/neighbor success, and known-negative assertion failure before guarded apply (`AGENT_REPAIR_BROWSER=1`, with `PLAYWRIGHT_EXECUTABLE_PATH` where required). Model responses in automated checks are fixtures: they establish contracts, state and wiring, not a live model's reasoning quality.

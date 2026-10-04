@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const db = require("@hellotest/platform/backend/src/db");
 const { randomUUID: uuid } = require("crypto");
 const displayIdService = require("@hellotest/platform/backend/services/displayId.service");
@@ -728,10 +729,11 @@ exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) =>
     validation_summary: validationSummary
   };
   let narrative = deterministic;
+  let integration = null;
   let generationMode = "deterministic";
   try {
     if (!allow_ai) throw new Error("AI release-note composition is not available for this request");
-    const integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
+    integration = await aiLlmSelectionService.resolveLlmIntegrationForUsage({
       userId: user_id,
       usageKey: "ai.release.notes",
       projectId: release.project_id,
@@ -753,6 +755,7 @@ exports.generateReleaseNotes = async (id, { user_id, allow_ai = false } = {}) =>
   } catch {
     generationMode = "deterministic";
   }
+  if (allow_ai) requireAiAssessment({ integration, accepted: generationMode === "llm" });
   return {
     release_id: release.id,
     release_name: release.name,

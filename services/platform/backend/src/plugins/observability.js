@@ -358,6 +358,9 @@ const getEngineMetrics = async () => {
 };
 
 async function observabilityPlugin(fastify) {
+  fastify.addHook("onRequest", (request, _reply, done) => {
+    require("../utils/llmTraceContext").run({ request }, done);
+  });
   fastify.decorateRequest("traceId", null);
   fastify.decorateRequest("traceparent", null);
   fastify.decorateRequest("startedAtNs", null);

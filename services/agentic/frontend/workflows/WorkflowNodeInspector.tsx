@@ -16,6 +16,7 @@ import type {
 import { HELLOTEST_AGENT_CATALOG } from "../components/AgenticExperience";
 import { REPOSITORY_AGENTS } from "../agents/RepositoryAgents";
 import { SmartContextWorkbench } from "@hellotest/ai/frontend/components/SmartContextWorkbench";
+import { projectAgentNode, type ProjectAgent } from "../agents/agentDefinitions";
 import { WorkflowSkills } from "./WorkflowSkills";
 import { specialistDefaults } from "./specialistProfiles";
 import { WorkflowDataView } from "./WorkflowDataView";
@@ -38,6 +39,7 @@ export type WorkflowNodeInspectorProps = {
   expanded: boolean;
   stale?: boolean;
   projectId: string;
+  projectAgents?: ProjectAgent[];
   appTypeId: string;
   canKnowledge: boolean;
   providers: Array<{ value: string; label: string; modelLabel: string }>;
@@ -53,6 +55,7 @@ export type WorkflowNodeInspectorProps = {
 };
 export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
   const { node, result, run, editable, expanded, incoming } = props;
+  const registeredAgent = props.projectAgents?.find(agent => agent.id === node.data.agentId);
   const [tab, setTab] = useState<"parameters" | "input" | "output" | "logs">(
     "parameters",
   );
@@ -270,11 +273,14 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 <span>Specialist</span>
                 <select
                   value={String(node.data.agentId || "")}
-                  onChange={(event) =>
-                    props.onChange(specialistDefaults(event.target.value))
-                  }
+                  onChange={(event) => {
+                    const saved = props.projectAgents?.find(agent => agent.id === event.target.value);
+                    props.onChange(saved ? projectAgentNode(saved) : { ...specialistDefaults(event.target.value), agentVersion: undefined, agentSnapshot: undefined });
+                  }}
                 >
                   <option value="">Choose a specialist</option>
+                  {String(node.data.agentId || "").startsWith("agent-") && !props.projectAgents?.some(agent => agent.id === node.data.agentId) && <option value={String(node.data.agentId)}>Unavailable project agent · choose another</option>}
+                  {(props.projectAgents || []).map(agent => <option value={agent.id} key={agent.id}>{(agent.active_definition || agent.definition).name} · v{agent.active_version}</option>)}
                   {HELLOTEST_AGENT_CATALOG.map((agent) => (
                     <option value={agent.id} key={agent.id}>
                       {agent.name}
@@ -283,6 +289,8 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
                 </select>
               </label>
             )}
+            <p className="studio-caption">LLM required. Model failures stop this step; results include evidence and completion checks.{node.data.agentVersion ? ` This node uses saved agent version ${node.data.agentVersion}. Reselect the agent to adopt its latest active version.` : ""}</p>
+            {registeredAgent && registeredAgent.active_version !== node.data.agentVersion && <button type="button" className="ghost-button" onClick={() => props.onChange(projectAgentNode(registeredAgent))}>Use active version {registeredAgent.active_version}</button>}
             {field(
               "prompt",
               kind === "customAI" ? "Your AI task" : kind === "loop" ? "Task for each item" : "Task",
@@ -338,6 +346,7 @@ export function WorkflowNodeInspector(props: WorkflowNodeInspectorProps) {
         )}
         {kind === "repositoryAgent" && (
           <>
+            <label><span>LLM provider</span><select value={String(node.data.llmIntegrationId || "")} onChange={event => props.onChange({ llmIntegrationId: event.target.value })}>{props.providers.map(provider => <option key={provider.value} value={provider.value}>{provider.label}</option>)}</select><small>An active model must review the extracted source findings.</small></label>
             <label>
               <span>Source agent</span>
               <select

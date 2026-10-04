@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const { getCompletionContent } = require("@hellotest/platform/backend/src/utils/llmResponse");
 const { isDeepStrictEqual } = require("node:util");
 const { createHash, randomUUID: uuid } = require("crypto");
@@ -898,6 +899,7 @@ exports.previewGrooming = async ({ requirement, project, userId, integrationId, 
     grooming = fallback;
   }
 
+  requireAiAssessment({ integration, accepted: generationMode !== "deterministic" });
   const readinessChecks = grooming.readiness?.checks || fallback.readiness.checks;
   const groundedChecks = readinessChecks.filter((item) => item.status === "met").length;
   const partialChecks = readinessChecks.filter((item) => item.status === "partial").length;

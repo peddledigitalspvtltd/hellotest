@@ -29,9 +29,10 @@ test('source analysis follows real imports and exports without treating comments
     export * from './contracts';
     type Value = import('./types').Value;
     const lazy = import('./lazy');
+    const workerBundle = require.resolve('./workflow-bundle');
     const dynamic = require(variable);
   `);
-  assert.deepEqual(new Set(result.imports), new Set(['./component', './contracts', './types', './lazy']));
+  assert.deepEqual(new Set(result.imports), new Set(['./component', './contracts', './types', './lazy', './workflow-bundle']));
   assert.equal(result.dynamic.length, 1);
   assert.deepEqual(inspectSourceImports(ts, 'style.css', '@import url("./theme.css");').imports, ['./theme.css']);
 });

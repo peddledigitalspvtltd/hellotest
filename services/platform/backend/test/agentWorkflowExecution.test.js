@@ -11,9 +11,10 @@ const node = (id, kind, extra = {}) => ({ id, type: "agenticStep", data: { label
 const workflow = () => ({ id: "workflow-a", project_id: "project-a", app_type_id: "app-a", name: "Release readiness review", status: "draft", trigger_kind: "manual",
   nodes: [node("request", "trigger"), node("story", "agent", { agentId: "story-architect", prompt: "Review missing acceptance boundaries", knowledgeScope: "requirements,test-runs,knowledge" }), node("finish", "output")],
   edges: [{ id: "a", source: "request", target: "story" }, { id: "b", source: "story", target: "finish" }], settings: {} });
-const response = (status = "ready_for_review", id = "review-a") => ({ transaction: { id }, result: { response: "Coverage has a gap [K-stories-real]", citation_ids: ["K-stories-real"], readiness: { status, evidence_count: 1, task_evidence_count: 1, limitations: [] } }, provenance: { generation_mode: "deterministic", requires_human_review: true } });
+const response = (status = "ready_for_review", id = "review-a") => ({ transaction: { id }, result: { response: "Coverage has a gap [K-stories-real]", citation_ids: ["K-stories-real"], readiness: { status, evidence_count: 1, task_evidence_count: 1, limitations: [] } }, provenance: { generation_mode: "llm", requires_human_review: true } });
 
 function setup(t, review = async () => response()) {
+  t.mock.method(require("../../../agentic/backend/agents/agentRegistry.service"), "resolveModel", async () => ({ id: "model", model: "test-model" }));
   const rows = new Map();
   const requests = [];
   t.mock.method(permissions, "hasPermission", async (_user, _permission, project) => project === "project-a");
@@ -84,6 +85,32 @@ test("real review execution persists the snapshot, invokes the registered specia
   assert.deepEqual(saved.node_results[2].output.reviews[0].citation_ids, ["K-stories-real"]);
   assert.ok(saved.node_results.every(item => item.status === "completed" && item.attempts === 1));
   assert.equal(saved.output_payload.runtime_contract.project_changes_applied, false);
+});
+
+test("workflow execution replaces client agent snapshots with the published version and retains connected inputs", async t => {
+  const { requests } = setup(t);
+  const contract = require("../../../agentic/backend/agents/agentDefinition");
+  const registered = { id: "agent-11111111-1111-4111-8111-111111111111", version: 2, definition: contract.normalize({ name: "Release review", objective: "Review supplied evidence", required_inputs: ["release_id"] }), definition_hash: "published-hash" };
+  t.mock.method(require("../../../agentic/backend/agents/agentRegistry.service"), "resolve", async (id, version, project) => { assert.equal(id, registered.id); assert.equal(version, 2); assert.equal(project, "project-a"); return structuredClone(registered); });
+  const graph = workflow();
+  Object.assign(graph.nodes[1].data, { agentId: registered.id, agentVersion: 2, agentSnapshot: { version: 999, definition: { objective: "Forged contract" } } });
+  await assert.rejects(runtime.start(graph, {}, user), { code: "AGENT_INPUT_REQUIRED" });
+  const started = await runtime.start(graph, { input_payload: { release_id: "r1" } }, user);
+  registered.definition.objective = "Changed after run started";
+  const saved = await finished(started.id);
+  assert.equal(saved.status, "completed");
+  assert.equal(saved.workflow_snapshot.nodes[1].data.agentSnapshot.definition.objective, "Review supplied evidence");
+  assert.equal(requests[0].workflow_policy.agent_definition.version, 2);
+  assert.equal(requests[0].workflow_policy.connected_input.request.release_id, "r1");
+});
+
+test("AI nodes reject deterministic reviews and leave downstream nodes unexecuted", async t => {
+  setup(t, async () => ({ ...response(), provenance: { generation_mode: "deterministic" } }));
+  const run = await runtime.start(workflow(), {}, user);
+  const saved = await finished(run.id);
+  assert.equal(saved.status, "failed");
+  assert.equal(saved.node_results[1].error_details.code, "AGENT_OUTPUT_INVALID");
+  assert.equal(saved.node_results[2].status, "skipped");
 });
 
 test("simultaneous idempotent starts produce one persisted run and one specialist call", async t => {
@@ -191,6 +218,23 @@ test("safe transient step retries are counted and permission errors never retry"
   assert.doesNotMatch(JSON.stringify(failure), /Provider key hidden/);
 });
 
+test("AI retries share a single model-call budget for the node", async t => {
+  const budgets = [];
+  setup(t, async request => {
+    const budget = request.workflow_policy.model_budget;
+    budgets.push(budget);
+    budget.used++;
+    throw Object.assign(new Error("Unavailable"), { statusCode: 503 });
+  });
+  const graph = workflow(); graph.nodes[1].data.retryCount = 2; graph.nodes[1].data.retryDelayMs = 0;
+  const run = await runtime.start(graph, {}, user), saved = await finished(run.id);
+  assert.equal(saved.status, "failed");
+  assert.equal(saved.node_results[1].attempts, 2);
+  assert.equal(budgets.length, 2);
+  assert.equal(budgets[0], budgets[1]);
+  assert.equal(budgets[0].used, 2);
+});
+
 test("revoked permission stops subsequent steps and preserves the first review", async t => {
   let allowed = true;
   setup(t, async () => { allowed = false; return response(); });
@@ -257,14 +301,17 @@ test("source templates reuse repository analysis and preserve a link to its revi
   const sourceAgents = require("../../../agentic/backend/agents/repositoryAgents.service");
   const jobs = [];
   t.mock.method(sourceAgents, "createRun", async (input, actor, options) => { jobs.push({ input, actor, options }); return { id: "source-job" }; });
-  t.mock.method(sourceAgents, "getRun", async () => ({ id: "source-job", status: "completed", summary: "Found 12 API test drafts", source: { repository_url: "https://github.com/example/project" }, stages: [] }));
-  const graph = workflow(); graph.nodes[1].data = { label: "API source analysis", kind: "repositoryAgent", repositoryAgentType: "api_tests", timeoutMs: "180000" };
+  t.mock.method(sourceAgents, "getRun", async () => ({ id: "source-job", status: "completed", summary: "Found 12 API test drafts", result: { llm_review: { ...response().result, session_id: "source-model", provenance: response().provenance } }, source: { repository_url: "https://github.com/example/project" }, stages: [] }));
+  const graph = workflow(); graph.nodes[1].data = { label: "API source analysis", kind: "repositoryAgent", repositoryAgentType: "api_tests", llmIntegrationId: "source-model-connection", timeoutMs: "180000" };
   const source = { type: "github", repository_url: "https://github.com/example/project", ref: "main" };
   assert.equal(runtime.readiness(graph).ready, true);
   const run = await runtime.start(graph, { input_payload: { source } }, user);
   const saved = await finished(run.id);
   assert.equal(saved.status, "completed"); assert.equal(requests.length, 0);
   assert.equal(jobs.length, 1); assert.equal(jobs[0].input.project_id, "project-a");
+  assert.equal(jobs[0].input.llm_integration_id, "source-model-connection");
+  assert.equal(saved.node_results[1].output.session_id, "source-model");
+  assert.equal(saved.node_results[2].output.data.response, response().result.response);
   assert.deepEqual(jobs[0].input.source, source); assert.match(jobs[0].options.requestKey, /^workflow-/);
   assert.equal(saved.node_results[1].output.repository_run_id, "source-job");
   assert.equal(saved.node_results[1].output.requires_human_review, true);
@@ -296,7 +343,7 @@ test("partial source analysis completes as needs-review and parent cancellation 
   const graph = workflow(); graph.nodes[1].data = { kind: "repositoryAgent", repositoryAgentType: "api_tests" };
   const input = { input_payload: { source: { type: "github", repository_url: "https://github.com/example/project" } } };
   t.mock.method(sourceAgents, "createRun", async () => ({ id: "child-job" }));
-  t.mock.method(sourceAgents, "getRun", async () => ({ status: "partial", summary: { files_scanned: 3 }, stages: [], warnings: [] }));
+  t.mock.method(sourceAgents, "getRun", async () => ({ status: "partial", summary: { files_scanned: 3 }, result: { llm_review: { ...response().result, session_id: "source-model", provenance: response().provenance } }, stages: [], warnings: [] }));
   const partial = await runtime.start(graph, input, user); const saved = await finished(partial.id);
   assert.equal(saved.status, "needs_review"); assert.equal(typeof saved.node_results[1].output.response, "string");
   let started; const waiting = new Promise(resolve => { started = resolve; });

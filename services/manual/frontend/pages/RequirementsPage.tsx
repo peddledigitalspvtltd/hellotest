@@ -1,4 +1,5 @@
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
+const AiLifecycleReview = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiLifecycleReview")["AiLifecycleReview"]>>("ai", "AiLifecycleReview", () => import("@hellotest/ai/frontend/components/AiLifecycleReview"), "AI review");
 const AiDesignStudioModal = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/AiDesignStudioModal")["AiDesignStudioModal"]> & {}>("ai", "AiDesignStudioModal", () => import("@hellotest/ai/frontend/components/AiDesignStudioModal"), "ai");
 const StoryChangeImpactDialog = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/StoryChangeImpactDialog")["StoryChangeImpactDialog"]> & {}>("ai", "StoryChangeImpactDialog", () => import("@hellotest/ai/frontend/components/StoryChangeImpactDialog"), "ai");
 const StoryAiStudioShell = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/StoryAiStudioShell")["StoryAiStudioShell"]> & {}>("ai", "StoryAiStudioShell", () => import("@hellotest/ai/frontend/components/StoryAiStudioShell"), "ai");
@@ -860,7 +861,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const [requirementAiMode, setRequirementAiMode] = useState<RequirementAiMode>("improve");
   const [storyAiStudioNav, setStoryAiStudioNav] = useState<StoryAiStudioNavKey>("drafts");
   const [requirementAiDraftCount, setRequirementAiDraftCount] = useState(3);
-  const [isRequirementImpactPreviewOpen, setIsRequirementImpactPreviewOpen] = useState(false);
   const [optimizeRequirementIds, setOptimizeRequirementIds] = useState<string[]>([]);
   const [optimizeContext, setOptimizeContext] = useState("");
   const [optimizeExternalLinksText, setOptimizeExternalLinksText] = useState("");
@@ -5252,9 +5252,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     () => JSON.stringify(selectedRequirementAssuranceProposedChange),
     [selectedRequirementAssuranceProposedChange]
   );
-  useEffect(() => {
-    setIsRequirementImpactPreviewOpen(false);
-  }, [selectedRequirement?.id, selectedRequirementAssuranceFingerprint]);
   const requirementAssuranceRequestMatchesDraft = Boolean(
     selectedRequirement
     && previewRequirementImpact.variables?.requirementId === selectedRequirement.id
@@ -5283,9 +5280,8 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const selectedRequirementAssuranceSource = requirementAssurancePreviewMatchesDraft && previewRequirementImpact.data?.fallback_used
     ? "fallback"
     : requirementAssurancePreviewMatchesDraft && (previewRequirementImpact.data?.assurance_review || previewRequirementImpact.data?.assurance) ? "ai" : "local";
-  const runRequirementAssuranceAnalysis = (openImpactPreview = false) => {
+  const runRequirementAssuranceAnalysis = () => {
     if (!selectedRequirement || !projectId || !canUseRequirementAi || previewRequirementImpact.isPending || storyAssuranceContextBusy) return;
-    setIsRequirementImpactPreviewOpen(openImpactPreview);
     previewRequirementImpact.reset();
     previewRequirementImpact.mutate({
       requirementId: selectedRequirement.id,
@@ -5298,13 +5294,6 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         assurance_baseline: selectedRequirementLocalAssurance
       }
     });
-  };
-  const openRequirementImpactPreview = () => {
-    if (requirementAssurancePreviewMatchesDraft && previewRequirementImpact.data) {
-      setIsRequirementImpactPreviewOpen(true);
-      return;
-    }
-    runRequirementAssuranceAnalysis(true);
   };
   const storyGroomingMutationMatchesSelection = Boolean(
     selectedRequirement
@@ -6236,7 +6225,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     { value: "details", label: "Details", description: "Scope and ownership", icon: <PencilIcon /> },
                     { value: "related", label: "Related items", description: "Connected delivery work", icon: <IconLink />, count: selectedRequirement.related_items?.length || 0 },
                     { value: "comments", label: "Comments", description: "Team decisions", icon: <IconMessage /> },
-                    ...(canUseRequirementAi ? [{ value: "grounding" as const, label: "AI Assurance", description: "Evidence and risk", icon: <IconShieldCheck /> }] : []),
+                    ...(canUseRequirementAi ? [{ value: "grounding" as const, label: "AI Story Assurance", description: "Evidence and risk", icon: <IconShieldCheck /> }] : []),
                     ...(canUseRequirementAi
                       ? [{ value: "grooming" as const, label: "AI Grooming", description: "Readiness review", icon: <IconBolt /> }]
                       : []),
@@ -6518,7 +6507,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                 ) : null}
                 {canUseRequirementAi && activeTraceabilityTab === "grounding" ? (
                   <div className="detail-section-panel requirement-detail-wide-panel" role="tabpanel">
-                    <ArtifactAssuranceWorkspace
+                    <ArtifactAssuranceWorkspace key={`assurance-${selectedRequirement.id}`}
                       providerControl={<AiReviewControls key={`story-assurance-${projectId}-${selectedRequirement.id}`} usageKey="ai.quality.story_assurance" promptMaxLength={Math.max(0, 12_000 - getMetricCriteria("metric.assurance.story").length - 2)} projectId={projectId} appTypeId={appTypeId} integrations={integrations} integrationId={storyAssuranceIntegrationId} onIntegrationIdChange={setStoryAssuranceIntegrationId} promptGuidance={storyAssurancePromptGuidance} onPromptGuidanceChange={setStoryAssurancePromptGuidance} additionalContext={storyAssuranceContext} onAdditionalContextChange={setStoryAssuranceContext} artifactIds={[selectedRequirement.id]} artifactContext={JSON.stringify(selectedRequirementAssuranceProposedChange)} disabled={previewRequirementImpact.isPending} onBusyChange={setStoryAssuranceContextBusy} />}
                       analysis={selectedRequirementAssurance}
                       analysisDisabled={!canUseRequirementAi || !projectId || previewRequirementImpact.isPending || storyAssuranceContextBusy}
@@ -6529,11 +6518,24 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       generatedAt={requirementAssurancePreviewMatchesDraft ? previewRequirementImpact.data?.generated_at : null}
                       isAnalyzing={previewRequirementImpact.isPending && requirementAssuranceRequestMatchesDraft}
                       isDraftChanged={isRequirementAssuranceDraftChanged}
-                      onAnalyze={() => runRequirementAssuranceAnalysis(false)}
-                      onInspectImpact={openRequirementImpactPreview}
+                      onAnalyze={() => runRequirementAssuranceAnalysis()}
+                      impactContent={
+                        <StoryChangeImpactDialog
+                          error={previewRequirementImpact.error instanceof Error && requirementAssuranceRequestMatchesDraft ? previewRequirementImpact.error.message : null}
+                          loading={previewRequirementImpact.isPending && requirementAssuranceRequestMatchesDraft}
+                          onClose={() => {}}
+                          onRetry={() => runRequirementAssuranceAnalysis()}
+                          open
+                          embedded
+                          response={selectedRequirementImpactPreview}
+                          showAutomation={canUseAutomationWorkspace}
+                          storyTitle={selectedRequirementAssuranceProposedChange.title || selectedRequirement?.title || "Selected Story"}
+                        />
+                      }
                       reviewState="review-required"
                       title="Story quality & design analysis"
                     />
+                    {can("agentic_workflow.run") && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} inputs={{ story_id: selectedRequirement.id }} integrations={integrations} features={["coverage-assurance", "quality-graph"]} title="Acceptance coverage & quality graph" />}
                   </div>
                 ) : null}
                 {activeTraceabilityTab === "grooming" && canUseRequirementAi ? (
@@ -8371,16 +8373,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         />
       ) : null}
 
-      <StoryChangeImpactDialog
-        error={previewRequirementImpact.error instanceof Error && requirementAssuranceRequestMatchesDraft ? previewRequirementImpact.error.message : null}
-        loading={previewRequirementImpact.isPending && requirementAssuranceRequestMatchesDraft}
-        onClose={() => setIsRequirementImpactPreviewOpen(false)}
-        onRetry={() => runRequirementAssuranceAnalysis(true)}
-        open={canUseRequirementAi && isRequirementImpactPreviewOpen && requirementAssuranceRequestMatchesDraft}
-        response={selectedRequirementImpactPreview}
-        showAutomation={canUseAutomationWorkspace}
-        storyTitle={selectedRequirementAssuranceProposedChange.title || selectedRequirement?.title || "Selected Story"}
-      />
+
 
       {completionBlockedSprint ? (
         <DeliveryCompletionGuardDialog
@@ -8490,7 +8483,7 @@ function StoryDetailSectionContext({
     details: { eyebrow: "Definition", title: "Story scope and delivery intent", description: "Keep the outcome, ownership, delivery targets, and acceptance specification together in one authoring surface.", icon: <PencilIcon />, meta: "Core fields" },
     related: { eyebrow: "Traceability", title: "Related delivery work", description: "Review upstream and downstream Story relationships, then add connections without losing the current context.", icon: <OpenIcon />, meta: `${relatedCount} linked` },
     comments: { eyebrow: "Collaboration", title: "Decisions and discussion", description: "Capture durable team decisions and keep the conversation anchored to this Story.", icon: <IconNotes />, meta: "Team thread" },
-    grounding: { eyebrow: "AI assurance", title: "Evidence, ambiguity, and risk", description: "Inspect quality signals and analysis evidence before the Story moves deeper into delivery.", icon: <SparkIcon />, meta: "Review required" },
+    grounding: { eyebrow: "AI Story Assurance", title: "Evidence, ambiguity, and risk", description: "Inspect quality signals and analysis evidence before the Story moves deeper into delivery.", icon: <SparkIcon />, meta: "Review required" },
     grooming: { eyebrow: "AI grooming", title: "Readiness review", description: "Turn product, technical, and quality evidence into specific grooming actions.", icon: <SparkIcon />, meta: "Evidence-backed" },
     cases: { eyebrow: "Coverage", title: "Linked test cases", description: "Prioritize linked coverage first, then search and add reusable Test Cases from the same workspace.", icon: <LayersIcon />, meta: `${testCaseCount} linked` },
     defects: { eyebrow: "Quality", title: "Linked defects", description: "Track open quality findings and preserve the evidence path from failure to resolution.", icon: <BugIcon />, meta: `${bugCount} linked` },

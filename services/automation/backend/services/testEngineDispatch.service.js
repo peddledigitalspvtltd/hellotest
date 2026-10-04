@@ -1048,7 +1048,7 @@ const buildEngineEnvelope = async ({
     browser: resolvedBrowser,
     headless: integrationConfig.headless === true,
     max_repair_attempts:
-      integrationConfig.healing_enabled === false
+      execution.repair_validation || integrationConfig.healing_enabled === false
         ? 0
         : Math.max(0, normalizeInteger(integrationConfig.max_repair_attempts, 1) ?? 1),
     run_timeout_seconds: Math.max(60, normalizeInteger(integrationConfig.run_timeout_seconds, 1800) ?? 1800),
@@ -1060,10 +1060,10 @@ const buildEngineEnvelope = async ({
     },
     session_policy: {
       web: {
-        mode: normalizeSessionMode(integrationConfig.web_session_mode, "new"),
-        reuse_key: normalizeText(integrationConfig.web_session_reuse_key) || null,
-        connect_over_cdp_endpoint: normalizeText(integrationConfig.connect_over_cdp_endpoint || integrationConfig.playwright_cdp_endpoint) || null,
-        close_on_finish: integrationConfig.close_attached_web_session === true
+        mode: execution.repair_validation ? "new" : normalizeSessionMode(integrationConfig.web_session_mode, "new"),
+        reuse_key: execution.repair_validation ? null : normalizeText(integrationConfig.web_session_reuse_key) || null,
+        connect_over_cdp_endpoint: execution.repair_validation ? null : normalizeText(integrationConfig.connect_over_cdp_endpoint || integrationConfig.playwright_cdp_endpoint) || null,
+        close_on_finish: Boolean(execution.repair_validation) || integrationConfig.close_attached_web_session === true
       },
       mobile: {
         mode: normalizeSessionMode(integrationConfig.mobile_session_mode, "new"),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ActivityIcon, OpenIcon, SparkIcon, TrashIcon } from "../components/AppIcons";
 import { CatalogCardDescription } from "../../shared/components/CatalogCardDescription";
 import { CatalogSearchFilter } from "../../shared/components/CatalogSearchFilter";
@@ -36,7 +36,7 @@ import { hasPermission } from "../lib/permissions";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import { readDefaultCatalogViewMode } from "../../shared/lib/viewPreferences";
 import { transactionTileProgress } from "@hellotest/manual/frontend/lib/transactionTileProgress";
-import type { Integration, OpsTelemetryEvent, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../../types";
+import type { Integration, RecorderSessionResponse, TestCase, WorkspaceTransaction, WorkspaceTransactionArtifact } from "../../types";
 import "./TestOpsPage.rovo.css";
 
 type TestOpsView = "automation-builder" | "batch-process" | "ops-telemetry";
@@ -153,14 +153,6 @@ function truncateProcessName(value?: string | null, limit = 46) {
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
-function describeOpsEventScope(event: OpsTelemetryEvent) {
-  return event.execution?.name
-    || event.test_case?.title
-    || event.suite?.name
-    || event.step?.action
-    || "Project telemetry";
-}
-
 function resolveScopedIntegration(integrations: Integration[], type: Integration["type"], projectId: string) {
   const active = integrations.filter((integration) =>
     integration.type === type
@@ -200,7 +192,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const [startUrl, setStartUrl] = useState("");
   const [builderContext, setBuilderContext] = useState("");
   const [builderMessage, setBuilderMessage] = useState("");
-  const [opsTelemetrySearch, setOpsTelemetrySearch] = useState("");
   const watchedBatchStatusesRef = useRef<Map<string, string>>(new Map());
   const [recorderSession, setRecorderSession] = useState<RecorderSessionResponse | null>(null);
   const [recorderStartOptions, setRecorderStartOptions] = useState<RecorderStartOptions | null>(null);
@@ -229,7 +220,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const integrationsQuery = useQuery({
     queryKey: ["integrations", "testops"],
     queryFn: ({ signal }) => api.integrations.list({ is_active: true }, { signal }),
-    enabled: Boolean(session && (view === "automation-builder" || view === "ops-telemetry"))
+    enabled: Boolean(session && view === "automation-builder")
   });
   const transactionsQuery = useQuery({
     // Project-level batch jobs (including Story imports) do not always belong to
@@ -537,31 +528,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   }, [batchTransactions]);
   const testEngineIntegration = resolveScopedIntegration(integrations, "testengine", projectId);
   const llmIntegration = resolveScopedIntegration(integrations, "llm", projectId);
-  const opsIntegration = resolveScopedIntegration(integrations, "ops", projectId);
-  const opsTelemetryQuery = useQuery({
-    queryKey: ["ops-telemetry", projectId, session?.user.role === "admin"],
-    queryFn: ({ signal }) => api.opsTelemetry.snapshot({ project_id: projectId, limit: 150, include_workers: session?.user.role === "admin" }, { signal }),
-    enabled: Boolean(session && projectId && view === "ops-telemetry" && searchParams.get("monitoring") === "project" && (opsIntegration || testEngineIntegration)),
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
-    retry: false
-  });
-  const filteredOpsEvents = useMemo(() => {
-    const normalizedSearch = opsTelemetrySearch.trim().toLowerCase();
-    const events = opsTelemetryQuery.data?.events.items || [];
-    if (!normalizedSearch) return events;
-    return events.filter((event) => [
-      event.event_type,
-      event.service_name,
-      event.environment,
-      event.status,
-      event.summary,
-      event.execution?.id,
-      event.execution?.name,
-      event.test_case?.id,
-      event.test_case?.title
-    ].filter(Boolean).join(" ").toLowerCase().includes(normalizedSearch));
-  }, [opsTelemetryQuery.data?.events.items, opsTelemetrySearch]);
   const runningCount = batchTransactions.filter((transaction) => transaction.status === "queued" || transaction.status === "running").length;
   const failedCount = batchTransactions.filter((transaction) => transaction.status === "failed").length;
   const activeCase = testCases.find((testCase) => testCase.id === selectedCaseId) || manualCases[0] || null;
@@ -610,17 +576,6 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
     void queryClient.invalidateQueries({ queryKey: ["automation-learning-cache"] });
     void transactionsQuery.refetch();
-  };
-
-  const clearOpsTelemetry = useMutation({
-    mutationFn: () => api.opsTelemetry.clearLogs({ project_id: projectId }),
-    onSuccess: () => void opsTelemetryQuery.refetch(),
-    onError: (error) => setBuilderMessage(error instanceof Error ? error.message : "Unable to clear OPS telemetry logs.")
-  });
-
-  const requestClearOpsTelemetry = async () => {
-    if (!(await confirmDelete({ message: "Delete all captured OPS telemetry logs for this project?" }))) return;
-    clearOpsTelemetry.mutate();
   };
 
   const buildSingleAutomation = useMutation({
@@ -803,7 +758,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
     ? {
         eyebrow: "Quality operations",
         title: "OPS Telemetry",
-        description: "Inspect operational events, integration health, and Test Engine signals from the active workspace context."
+        description: "Trace AI calls, inspect infrastructure logs, and check service health."
       }
       : view === "automation-builder"
         ? {
@@ -827,7 +782,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
         meta={view === "ops-telemetry" ? undefined : [
           { label: "Batch records", value: batchTransactions.length },
           { label: "Running", value: runningCount },
-          { label: "OPS telemetry", value: opsTelemetryQuery.data ? `${opsTelemetryQuery.data.events.total} events` : (opsIntegration || testEngineIntegration) ? "Ready" : "Not configured" }
+          { label: "Failed", value: failedCount }
         ]}
       />
 
@@ -1370,116 +1325,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
           )}
         />
       ) : (
-        <OpsMonitoringWorkspace projectId={projectId}>
-        <Panel
-          className="testops-panel testops-telemetry-panel"
-          title="OPS telemetry"
-          subtitle={opsIntegration ? `Secure server-side connection through ${opsIntegration.name}` : "Using the active Test Engine telemetry endpoint through the HelloTest API."}
-          actions={
-            opsIntegration || testEngineIntegration ? (
-              <div className="testops-telemetry-actions">
-                <button className="ghost-button" disabled={opsTelemetryQuery.isFetching} onClick={() => void opsTelemetryQuery.refetch()} type="button">
-                  <ActivityIcon />
-                  <span>{opsTelemetryQuery.isFetching ? "Refreshing…" : "Refresh"}</span>
-                </button>
-                <button className="ghost-button danger" disabled={clearOpsTelemetry.isPending} onClick={() => void requestClearOpsTelemetry()} type="button">
-                  <TrashIcon />
-                  <span>{clearOpsTelemetry.isPending ? "Deleting…" : "Clear project events"}</span>
-                </button>
-              </div>
-            ) : undefined
-          }
-        >
-          <h2>TestGrid telemetry</h2>
-          <p>TestEngine worker activity and execution events. Full container logs are available in <Link to="/ops-telemetry?monitoring=logs">Infrastructure logs</Link>.</p>
-          {opsTelemetryQuery.isLoading ? (
-            <LoadingState label="Loading redacted OPS telemetry…" />
-          ) : opsTelemetryQuery.error ? (
-            <div className="empty-state compact">
-              {opsTelemetryQuery.error instanceof Error ? opsTelemetryQuery.error.message : "Unable to load OPS telemetry."}
-            </div>
-          ) : opsTelemetryQuery.data ? (
-            <div className="testops-telemetry-workspace">
-              {session?.user.role === "admin" && <section aria-label="TestGrid worker activity">
-                <h3>Worker polling activity</h3>
-                <p>Shared across projects · First successful poll, five-minute summaries, failures, and recovery. Latest 50 events.</p>
-                {opsTelemetryQuery.data.workers?.state === "available" ? (
-                  opsTelemetryQuery.data.workers.items.length ? <div className="testops-telemetry-events testops-worker-events">
-                    {opsTelemetryQuery.data.workers.items.map((event, index) => <article className="testops-telemetry-event" key={event.id || index}>
-                      <header><strong>{event.service_name || "TestEngine worker"}</strong><StatusBadge value={event.status || "received"} /></header>
-                      <p>{event.summary || event.event_type}</p>
-                      <footer><span>{event.event_type}</span><span>{formatTimestamp(event.received_at)}</span></footer>
-                    </article>)}
-                  </div> : <p role="status">No retained worker activity yet. A running queue worker records its first successful poll automatically.</p>
-                ) : <p role="status">Worker activity is unavailable from this engine version. Update TestEngine to enable polling summaries. Project execution events remain available below.</p>}
-              </section>}
-              <h3>Project execution events</h3>
-              <div className="testops-telemetry-metrics" aria-label="OPS telemetry summary">
-                <article><span>Captured Events</span><strong>{opsTelemetryQuery.data.events.total}</strong></article>
-                <article><span>Visible Events</span><strong>{filteredOpsEvents.length}</strong></article>
-                <article><span>Services</span><strong>{opsTelemetryQuery.data.services.items.length}</strong></article>
-                <article><span>Last Sync</span><strong>{new Date(opsTelemetryQuery.data.checked_at).toLocaleTimeString()}</strong></article>
-              </div>
-              <label className="testops-telemetry-search">
-                <span>Search telemetry</span>
-                <input
-                  onChange={(event) => setOpsTelemetrySearch(event.target.value)}
-                  placeholder="Event, service, execution, case, or status"
-                  type="search"
-                  value={opsTelemetrySearch}
-                />
-              </label>
-              {filteredOpsEvents.length ? (
-                <div className="testops-telemetry-events">
-                  {filteredOpsEvents.map((event, index) => (
-                    <article className="testops-telemetry-event" key={event.id || `${event.event_type || "event"}-${event.received_at || index}`}>
-                      <header>
-                        <div>
-                          <strong>{event.event_type || "Unknown event"}</strong>
-                          <span>{describeOpsEventScope(event)}</span>
-                        </div>
-                        <StatusBadge value={event.status || "received"} />
-                      </header>
-                      <p>{event.summary || "No event summary was provided."}</p>
-                      <footer>
-                        <span>{event.service_name || "Unlabeled service"}</span>
-                        <span>{event.environment || "Environment unavailable"}</span>
-                        <span>{formatTimestamp(event.received_at)}</span>
-                      </footer>
-                      {event.payload && Object.keys(event.payload).length ? (
-                        <details>
-                          <summary>Redacted payload</summary>
-                          <pre>{JSON.stringify(event.payload, null, 2)}</pre>
-                        </details>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state compact" role="status">
-                  {opsTelemetryQuery.data.events.total === 0 ? (
-                    <>
-                      <strong>Connected · No execution events for this project yet</strong>
-                      <p>A successful connection confirms TestEngine is reachable. Run a test through TestEngine for this project to capture execution events here. Older events may have expired under the configured retention limits.</p>
-                      <Link to="/executions">Go to executions</Link>
-                    </>
-                  ) : (
-                    <>
-                      <strong>No events match your search</strong>
-                      <p>Search covers the latest loaded events for this project.</p>
-                      <button className="ghost-button" type="button" onClick={() => setOpsTelemetrySearch("")}>Clear search</button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="empty-state compact">
-              Activate an OPS or Test Engine integration for this project to load telemetry securely.
-            </div>
-          )}
-        </Panel>
-        </OpsMonitoringWorkspace>
+        <OpsMonitoringWorkspace projectId={projectId} />
       )}
     </div>
   );

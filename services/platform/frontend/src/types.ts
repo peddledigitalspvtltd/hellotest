@@ -1335,7 +1335,7 @@ export type AiAssistedPreviewBase = {
   generated_at: string;
   request_id: string;
   input_fingerprint: string;
-  confidence: number;
+  confidence: number | null;
   fallback_used: boolean;
   fallback_reason?: string | null;
   fallback_sections?: string[];
@@ -1670,7 +1670,7 @@ export type ExecutionFailureClusterPreviewResponse = AiAssistedPreviewBase & {
     id: string;
     label: string;
     count: number;
-    confidence: number;
+    confidence: number | null;
     explanation: string;
     recommended_action: string;
     evidence_refs: string[];
@@ -2890,7 +2890,36 @@ export type AgenticAssistantEvaluation = {
   rationale: string;
 };
 
+export type QualityEvidenceReport = {
+  persistence?: { snapshot_id: string; content_hash: string; observed_at: string; mode: string; refresh: string; freshness?: 'current' | 'stale' | 'changes_pending' | 'unavailable'; invalidated_at?: string | null };
+  feature_id: string; verifier_version: string; snapshot_hash: string; as_of: string;
+  scope: Record<string, string | null>; execution_status: string; publication_status: string;
+  readiness: string; evidence_complete: boolean; limitations: string[];
+  data: {
+    status?: string; band?: string; method?: string; obligation_count?: number; unknown_weight?: number;
+    designed_percent?: number | null; executable_percent?: number | null; observed_percent?: number | null;
+    policy_version?: number | null;
+    approved_policy?: {name:string;version:number;hash:string;approved_by:string;approved_at:string;waivable_gates:string[]};
+    gates?: Array<{ id: string; label: string; status: string; detail: string; evidence: string[]; evidence_hash?:string; observed_status?:string; waiver_id?:string }>;
+    nodes?: Array<{ id: string; kind: string; title: string; revision: string }>;
+    edges?: Array<{ id: string; source: string; target: string; relation: string }>;
+    rows?: Array<Record<string, unknown>>; paths?: Array<{ node_id: string; edge_ids: string[] }>;
+    scenarios?: Array<{ gate_id: string; assumption: string; projected_status: string; required_evidence: string }>;
+    indicators?: Array<{ id: string; status: string; detail: string }>;
+    graph?: QualityEvidenceReport["data"]; limitations?: string[];
+    incomparable_attempt_count?: number; complete?: boolean; truncated?: boolean;
+  };
+};
+
+export type AutomationRepairSummary = {id?:string;project_id?:string;status:string;detail:string;patch?:{before:string;after:string;rationale:string;hash:string}};
 export type AgenticAssistantResult = {
+  automation_repair?: AutomationRepairSummary;
+  quality_assessment?: QualityEvidenceReport;
+  execution_status?: string;
+  publication_status?: string;
+  verification?: { verifier_version: string; status: "passed" | "needs_input"; checks: Array<{ id: string; passed: boolean; label: string }>; semantic_review: string; limitations: string[] };
+  model_execution?: { trace_id?: string | null; trace_capture?: string | null; effective_model: string; prompt_hash: string; model_calls: number; max_model_calls: number; agent_version: number; agent_definition_hash?: string; usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number } };
+
   readiness?: {
     status: "ready_for_review" | "limited_evidence" | "insufficient_evidence";
     evidence_count: number;

@@ -69,9 +69,7 @@ test("QA dashboard designer provides review-only widgets with explicit design pr
   const selection = require("../../../integration/backend/services/aiLlmSelection.service");
   let integration = null;
   t.mock.method(selection, "resolveLlmIntegrationForUsage", async () => integration);
-  const fallback = await dashboards.designPreviewWithAi({ projectId: "project-1" });
-  assert.equal(fallback.fallback_used, true);
-  assert.equal(fallback.provenance.design_method, "stakeholder_template");
+  await assert.rejects(dashboards.designPreviewWithAi({ projectId: "project-1" }), { code: "AI_MODEL_REQUIRED" });
 
   integration = { id: "model-fixture", name: "Fixture provider", type: "llm", model: "fixture-model" };
   t.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ name: "Review dashboard", gadgets: [{ title: "Cases", metric: "testCases", type: "metric" }] }) } }] }), { status: 200 }));

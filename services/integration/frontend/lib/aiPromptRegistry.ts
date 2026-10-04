@@ -119,7 +119,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
   {
     key: "ai.requirement.change_impact",
     label: "Story change impact",
-    surface: "Story AI Assurance",
+    surface: "AI Story Assurance",
     value: "Compare the current Story with the proposed draft and identify material changes to acceptance, scope, rules and dependencies. Map each change only to supplied linked cases, suites, runs and Defects, citing their IDs. Separate observed impact, suspected impact and missing evidence; recommend the smallest review or test update. Do not invent links, change locked metrics or imply previewed changes were saved. Return the supplied impact JSON schema."
   },
   {
@@ -137,7 +137,7 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
   {
     key: "ai.quality.story_assurance",
     label: "Story assurance narrative",
-    surface: "Story AI Assurance",
+    surface: "AI Story Assurance",
     value: "Review the current Story and proposed draft against the supplied maturity criteria and linked evidence. Explain each locked deterministic score without changing it. Identify concrete ambiguity, missing acceptance, scope or dependency gaps, and traceability risks; cite the affected field or supplied record ID. Distinguish missing evidence from a negative finding. Give concise, prioritized recommendations with an observable completion condition. Return only the supplied assurance JSON schema; do not invent metrics or approvals."
   },
   {
@@ -294,7 +294,7 @@ export const AI_METRIC_CRITERIA_REGISTRY: AiMetricCriteriaRegistryItem[] = [
   {
     key: "metric.assurance.story",
     label: "Story design maturity",
-    surface: "Story AI Assurance",
+    surface: "AI Story Assurance",
     aliases: ["story design maturity", "story maturity", "industry standards alignment", "user usefulness", "design maturity", "market comparison readiness"],
     formula: "Average of deterministic standards, usefulness, design-maturity, and market-pattern dimension scores, each derived from visible Story and traceability evidence.",
     criteria: "Assess testability, user outcome, measurable acceptance, risk and failure behavior, delivery context, standards signals, and source-grounded comparison. Never claim certification or unsupported competitor facts."

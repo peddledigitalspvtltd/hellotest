@@ -1,12 +1,34 @@
-# Engineering contribution guide
+# Contributing to HelloTest
 
-Use [CONTRIBUTE.md](CONTRIBUTE.md) for the numbered first-day setup and VS Code walkthrough. This reference covers terminal workflows, configuration ownership, architecture, implementation standards, verification and review. For operating the application, start with [README.md](README.md); for an incident or failed debug session, use the [debugging runbook](docs/development/debugging.md).
+Use this guide to set up a development environment, debug each runtime, implement a change and prepare it for review. The VS Code workflow runs Node and Vite on your workstation, with PostgreSQL and MinIO in Docker. For operating the complete application, start with [README.md](README.md); for failed startup, missing breakpoints or stuck executions, use the [debugging runbook](docs/development/debugging.md).
+
+- [Prerequisites and dependency installation](#prerequisites-and-dependency-installation)
+- [Private development configuration](#private-development-configuration)
+- [VS Code setup and service debugging](#vs-code-debugging)
+- [Terminal workflows](#choose-one-local-workflow)
+- [Configuration ownership](#configuration-ownership)
+- [Source ownership and implementation rules](#source-ownership-and-dependency-rules)
+- [Schema and capability releases](#schema-and-capability-releases)
+- [Tests and verification](#tests-and-verification)
+- [Repository hygiene and review](#repository-hygiene-and-review)
 
 <a id="5-prerequisites-and-first-setup"></a>
 
 ## Prerequisites and dependency installation
 
 Use Node.js **22.18+** for development. Package engines permit Node 20, but frontend tests import TypeScript directly using Node's native support. Use npm and Docker with Compose v2. Python is required for applicable agent tools and packaging; an Appium server and devices are required only for native execution.
+
+For VS Code debugging, also install Git, VS Code and Chrome, and keep Docker running. Check the tools in VS Code's integrated terminal:
+
+```sh
+git --version
+node --version
+npm --version
+docker info
+docker compose version
+```
+
+Open the **repository root**, containing `package.json`, `hellotest.sh` and `.vscode`. On Windows, open the checkout in VS Code's WSL2 environment and use WSL Node/npm with Docker's WSL integration; the supplied shell tasks require a POSIX shell. Keep Windows and WSL dependencies separate. Use a feature branch according to your team's naming policy and preserve existing local changes.
 
 Run commands from the repository root unless a block explicitly changes directory:
 
@@ -28,6 +50,171 @@ For browser execution, install the matching Playwright browser if it is missing:
 ```
 
 On Linux, the browser may also require system libraries; the TestEngine Docker image already supplies its browser runtime. Keep generated browser artifacts outside tracked source.
+
+## Private development configuration
+
+On first setup, copy the checked-in template. If the destination already exists, merge the required settings into it instead of overwriting it.
+
+```sh
+cp docs/development/development.env.example .env.development.local
+chmod 600 .env.development.local
+git check-ignore .env.development.local
+```
+
+**Checkpoint:** the last command prints `.env.development.local`. This file is private and ignored by Git. The [template](docs/development/development.env.example) contains public credentials for an isolated development machine; use your organization's secret management for shared environments.
+
+Review these relationships before starting:
+
+| Configuration | Required relationship |
+| --- | --- |
+| `POSTGRES_DB/USER/PASSWORD` and `PGDATABASE/PGUSER/PGPASSWORD` | The Compose initializer and host API must agree; `PGHOST=localhost` |
+| `MINIO_ROOT_USER/PASSWORD` and `MINIO_ACCESS_KEY/SECRET_KEY` | The object store and API storage client must agree |
+| `TESTENGINE_SHARED_SECRET` | Same value in the API and TestEngine |
+| `MOBILE_ENGINE_SHARED_SECRET` | Same value in the API, TestEngine and optional mobile provider |
+| `HELLOTEST_API_BASE_URL` / `ENGINE_PUBLIC_URL` | Host API `http://localhost:3000` / engine `http://localhost:4301` |
+| `MOBILE_ENGINE_URL` / `APPIUM_SERVER_URL` | Optional mobile worker `http://localhost:4312` / Appium `http://localhost:4723` |
+
+Leave a common `PORT` out of the file: each debug profile sets its own port. VS Code server profiles read `envFile`; ordinary Node commands need `--env-file` explicitly. The Vite tasks do not load this backend file. Their default `/api` proxy already reaches port 3000, so copying a frontend environment file is unnecessary. See [configuration ownership](#configuration-ownership) before overriding endpoints.
+
+Start VS Code from a terminal without stale application environment overrides. Shell values can override Compose and Node `--env-file` settings; `DATABASE_URL` or `POSTGRES_URL` overrides `PG*` configuration. Do not print a complete resolved environment into a bug report.
+
+An existing PostgreSQL volume retains its original users/passwords. Editing this file does not rotate them or reset the administrator. Use the matching existing credentials or an intentional database administration procedure. The backend development Compose file publishes 5432/9000/9001 on host interfaces; use this configuration on a private workstation with appropriate network controls. Inspector ports in the checked-in profiles bind only to loopback.
+
+## VS Code debugging
+
+Complete the dependency installation and private environment setup above before pressing F5. The three files in [.vscode](.vscode) are already checked in; keep them in the repository root so `${workspaceFolder}` resolves correctly. VS Code's built-in JavaScript/TypeScript debugger supports these profiles; a HelloTest extension is not required.
+
+| File | What to configure |
+| --- | --- |
+| [settings.json](.vscode/settings.json) | Workspace editor defaults: LF line endings, final newlines, and search/watcher exclusions for generated output. Existing `hellotest.*` entries belong to an optional extension; they do not configure application services. |
+| [tasks.json](.vscode/tasks.json) | Infrastructure preparation and the product/admin Vite commands. Run individual tasks with **Tasks: Run Task**. Tasks run on demand, not on opening the folder. |
+| [launch.json](.vscode/launch.json) | Runtime entry points, working directories, `envFile`, HTTP/inspector ports, frontend source maps and compounds selected in **Run and Debug**. |
+
+Put service credentials and endpoints in the ignored `.env.development.local`, not workspace settings. If you change a port, update the corresponding launch profile, Vite task/URL and API proxy or engine endpoint together. Restart affected sessions after environment changes.
+
+### Choose the service or UI to debug
+
+| Profile | Entry point / source | HTTP port | Inspector / prerequisites |
+| --- | --- | --- | --- |
+| **Backend API** | [Platform server](services/platform/backend/src/server.js), loading capability routes | 3000 | Loopback 9230; prepares PostgreSQL and MinIO before launch |
+| **Test Engine** | [Engine server](testengine/backend/src/server.ts) | 4301 | Loopback 9231; API ready, matching secret; Playwright for browser execution |
+| **Mobile Engine** | [Native provider](local-run/mobile-engine/src/server.js) | 4312 | Loopback 9232; configured Appium, driver and device for native execution |
+| **Frontend** | [Product shell](services/platform/frontend/src) and capability frontend sources | 5173 | Starts Vite and opens Chrome; API ready for requests |
+| **Admin Frontend** | [Administration UI](services/platform/frontend/admin) | 5174 (`/admin/`) | Starts admin Vite and opens Chrome; API ready for requests |
+| **Node Test (Current File)** | Active JavaScript Node test | — | Runs once at repository root with `NODE_ENV=test` |
+| **TypeScript Test (Current File)** | Active TypeScript Node test | — | Runs once from `testengine/backend` with the `tsx` loader |
+
+The development template sets `HELLOTEST_SERVICE_PROFILE=all` and `HELLOTEST_ENABLED_CAPABILITIES=all`. Under **Backend API**, you can debug **platform, testing, manual, dashboard, automation, ai, agentic, knowledge, chatbot, integration and trace** without launching eleven API processes. Use the [source ownership table](#source-ownership-and-dependency-rules) to find the service:
+
+- Backend: put breakpoints in `services/<owner>/backend/routes` or `services/<owner>/backend/services` and select the **Backend API** session.
+- Product UI: put breakpoints in `services/<owner>/frontend` and select the **Frontend** Chrome session. Shared shell controls live in `services/platform/frontend/src`.
+- For example, Chatbot's request handling is in [chatbot.routes.js](services/chatbot/backend/routes/chatbot.routes.js) and [knowledgeAssistant.service.js](services/chatbot/backend/services/knowledgeAssistant.service.js); its UI is [GroundedAssistant.tsx](services/chatbot/frontend/components/GroundedAssistant.tsx). Those use **Backend API** and **Frontend**, respectively.
+
+Separate capability deployments select a narrower service profile and require their gateway/dependencies; see [service deployment](services/README.md) before changing the combined development topology.
+
+**Backend API (Attach 9230)**, **Test Engine (Attach 9231)** and **Mobile Engine (Attach 9232)** connect to processes you have already started with the matching loopback inspector. They do not launch the service or provision infrastructure. Use the [terminal attach commands](docs/development/debugging.md#attach-a-debugger) for that workflow.
+
+### Example service settings: Backend API
+
+This is the existing **Backend API** object in `launch.json`'s `configurations` array; review or edit that object instead of replacing the whole file:
+
+```json
+{
+  "name": "Backend API",
+  "type": "pwa-node",
+  "request": "launch",
+  "cwd": "${workspaceFolder}/services/platform/backend",
+  "runtimeExecutable": "node",
+  "runtimeArgs": [
+    "--watch",
+    "--inspect=127.0.0.1:9230"
+  ],
+  "program": "${workspaceFolder}/services/platform/backend/src/server.js",
+  "console": "integratedTerminal",
+  "outputCapture": "std",
+  "autoAttachChildProcesses": true,
+  "skipFiles": [
+    "<node_internals>/**"
+  ],
+  "preLaunchTask": "postgres:up",
+  "envFile": "${workspaceFolder}/.env.development.local",
+  "env": {
+    "NODE_ENV": "development",
+    "PORT": "3000"
+  }
+}
+```
+
+`program` starts the shared API runtime, `cwd` resolves backend resources, and `envFile` supplies database/provider settings. `env.PORT` sets the HTTP listener independently of the inspector in `runtimeArgs`. `autoAttachChildProcesses` keeps the debugger connected through Node watch restarts. `preLaunchTask` runs `minio:prepare` followed by `postgres:up`; despite its name, the latter starts both PostgreSQL and MinIO.
+
+### 1. Start the API and confirm readiness
+
+Stop any previous Docker or host application instance using ports 3000, 4301, 5173 or 5174 before selecting this workflow. The complete stack and development infrastructure can also share container names; inspect existing containers before switching. For a root-managed local stack, `./hellotest.sh down --stack local` preserves its named volumes.
+
+1. Open **Run and Debug** in VS Code (`Ctrl+Shift+D`, or `Cmd+Shift+D` on macOS).
+2. Select **Backend API** and press **F5** / **Start Debugging**.
+3. Watch the Tasks terminal: `minio:prepare` prepares the pinned source image, then `postgres:up` starts **PostgreSQL and MinIO** and waits for their health checks. The first MinIO build needs network access and may take several minutes; later launches reuse the image. The historical task name `postgres:up` now covers both services.
+4. Watch the API terminal for initialization and its listener on port 3000. Compose initializes the base schema on a fresh PostgreSQL volume; the local `migrate` schema mode applies runtime compatibility updates. Do not interrupt startup with a breakpoint until the baseline is ready.
+5. In a separate terminal, verify both endpoints:
+
+```sh
+curl -i --max-time 5 http://localhost:3000/health/live
+curl -i --max-time 5 http://localhost:3000/health/ready
+```
+
+**Checkpoint:** both return HTTP 200. If readiness fails, inspect the API startup error and database configuration before launching more components. The task does not start Redis, Tika, monitoring, LLMs or Appium. Optional providers can appear degraded; use the complete Docker workflow when investigating those integrations.
+
+Select **Admin Frontend** and start another debug session. VS Code starts Vite on `http://localhost:5174/admin/` and opens Chrome. On a fresh database with unchanged template credentials, sign in with `admin` / `admin`, then replace the password in **Security**. Existing users/passwords are preserved. Install only the sample modules you need from **Administration → Instance setup**, or create your own development project through the workspace.
+
+### 2. Example: debug a Projects request
+
+Keep the API session running. Select **Frontend**, start it, and sign in at `http://localhost:5173`. Product login uses an **email address**: the bootstrap account is `bootstrap.admin@hellotest.local`, with the password you set in Administration. The administration and product UIs use separate browser session namespaces. This profile starts Vite with a strict port: if 5173 is occupied, fix the duplicate process instead of browsing an automatically changed port.
+
+Trace the Projects read flow without modifying project data:
+
+1. Open [ProjectsPage.tsx](services/platform/frontend/pages/ProjectsPage.tsx) and place a breakpoint on the `api.projects.catalog({ signal })` query function. Open [api.client.ts](services/platform/frontend/api.client.ts) and locate `projects.catalog` to see its `/projects/catalog?projection=summary` route.
+2. In [projects.routes.js](services/platform/backend/routes/projects.routes.js), place a breakpoint inside `fastify.get("/projects/catalog", ...)`, after authentication. In [project.service.js](services/platform/backend/services/project.service.js), place one inside `getProjectCatalog`.
+3. Open the workspace **Projects** view. Reload that view if an existing query cache prevents a new request. Chrome DevTools → **Network** should show `/api/projects/catalog?projection=summary` when using the default Vite proxy.
+4. At the frontend breakpoint, inspect the query arguments. Press **Continue** to let the request reach the API. At the API breakpoint inspect `req.id`, `req.query.projection` and the authenticated user's ID; do not copy session tokens or credentials.
+5. Use **Step Into** to enter the service or **Continue** to its breakpoint. Inspect the projection, scope and result, then continue so the response completes. Keep pauses short because request deadlines still run.
+6. Confirm the Network response is successful and the view displays the returned projects. An empty catalog on a fresh workspace can be valid. Capture the response `X-Request-ID` / `X-Trace-ID` when investigating an error.
+
+**Checkpoint:** a UI action stops in both frontend and API source, then completes successfully. Use **Call Stack** to select the right debug session; **Step Over** advances within it and **Continue** resumes it. Enable **Uncaught Exceptions** in the Breakpoints pane for an unexpected crash; enabling caught exceptions may pause on normal rejection paths.
+
+If a breakpoint stays hollow, follow the [breakpoint troubleshooting steps](docs/development/debugging.md#breakpoint-and-task-troubleshooting). Capability frontend sources live under `services/<owner>/frontend`, outside the shell's `src`; edit the TypeScript/TSX source rather than generated `dist` files.
+
+### 3. Debug executions and optional native providers
+
+For API/Web automation, keep the API running and launch **Test Engine**. The template enables development queue polling every second and makes unavailable queue configuration affect engine readiness:
+
+```sh
+curl -i --max-time 5 http://localhost:4301/health/ready
+```
+
+**Checkpoint:** readiness succeeds after a successful API connection. Configure the product's TestEngine integration with `http://localhost:4301` and the matching service secret. Use a small case against a development target, set the intended run configuration/data, and create a run. Break in `executeQueuedJob` in [queueWorker.ts](testengine/backend/src/lib/queueWorker.ts), then follow the API/Web adapter. Verify the saved result and configured evidence in the product after resuming. Queue execution and direct engine requests follow different entry points; see the [execution diagnosis guide](docs/development/debugging.md#diagnose-a-queued-execution).
+
+Pausing the worker does not stop lease expiry or other workers. Use only your isolated development queue; inspect job state before retrying. A unit test is a better place for a long pause while investigating a lease-sensitive function.
+
+For Android/iOS, configure Appium, its platform driver, the device/simulator and application first, then launch **Mobile Engine**. The template requires reachable provider readiness. Inspect `http://localhost:4312/health/ready`, then run a case with the matching platform/device configuration. Starting this profile does not install Appium or create a device. Use the [native setup instructions](#host-testengine-and-native-worker) and [local recorder guide](local-run/RECORDER_LOCAL_SETUP.md) when relevant.
+
+Once individual processes work, stop those debug sessions and select **Full Stack Debug** to launch API + TestEngine + product UI together, or **API + Test Engine Debug** for backend work. Compounds start their application sessions concurrently, so a frontend/worker may briefly report API unavailability during startup. Recheck readiness before reproducing a failure. Admin UI and native workers remain separately selectable.
+
+### 4. Debug a focused test
+
+1. Open the actual Node test file in the editor, such as [httpBoundaryRecovery.test.js](services/platform/backend/test/httpBoundaryRecovery.test.js).
+2. Set a breakpoint in the test or the code it calls.
+3. Select **Node Test (Current File)** and start debugging. It runs the active file once using Node's test runner with `NODE_ENV=test`.
+4. Use **TypeScript Test (Current File)** for a TypeScript Node test needing the TestEngine's `tsx` loader. Tests that import `dist` require `npm run build:testengine` first. The profile's working directory is `testengine/backend`; the JavaScript profile uses the repository root.
+
+These profiles do not provision a database or run a browser fixture harness. They load the local development environment: inspect a selected integration test's requirements before running it. PostgreSQL integration tests require a separate disposable database and explicit opt-in flags, described in [tests and verification](#tests-and-verification).
+
+### 5. Stop and restart the debugging environment
+
+Stop the debug session with **Stop** (`Shift+F5`). Stopping a compound stops its application debug sessions. Node watch mode restarts processes on source changes; restart a session after changing its environment file.
+
+Vite background tasks and Docker infrastructure have separate lifecycles. Run **Tasks: Terminate Task** for `frontend:dev` / `frontend:admin:dev` when finished. After stopping the API/worker, use **Tasks: Run Task → debug:infra:stop** to stop PostgreSQL and MinIO while retaining their volumes. Do not use volume deletion as routine cleanup.
+
+Continue with the [implementation rules](#source-ownership-and-dependency-rules), run the applicable [verification checks](#tests-and-verification), and follow the [review standards](#repository-hygiene-and-review) before handing off your change.
 
 ## Choose one local workflow
 
@@ -60,7 +247,7 @@ Do not start a host API on port 3000 while the Docker API owns that port. If you
 
 ### Host API with local infrastructure
 
-Create the ignored root `.env.development.local` from [development.env.example](docs/development/development.env.example), as described in [the configuration walkthrough](CONTRIBUTE.md#3-create-the-private-development-configuration). If that file exists, review and merge changes instead of overwriting it. This keeps Compose initializer credentials, API credentials and engine secrets consistent.
+Create the ignored root `.env.development.local` from [development.env.example](docs/development/development.env.example), as described in [private development configuration](#private-development-configuration). If that file exists, review and merge changes instead of overwriting it. This keeps Compose initializer credentials, API credentials and engine secrets consistent.
 
 For terminal-only development, prepare the configured MinIO image and start infrastructure with the same environment file:
 

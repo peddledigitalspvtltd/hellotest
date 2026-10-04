@@ -35,14 +35,19 @@
     "skills": [
       {
         "id": "builtin-story-architect",
-        "name": "Story review",
-        "instructions": "Reviews story acceptance boundaries and proposes testable criteria and Gherkin examples. Review the current Stories for ambiguity, missing acceptance boundaries, risks, and testability gaps."
+        "name": "AI Story Creation contract",
+        "instructions": "Produce a reviewable Story proposal with actor, objective, value, scope, exclusions, acceptance criteria, dependencies and open questions. Never invent policy or product behavior. Draft is separate from saved or approved."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F01",
+    "category": "design",
+    "destination": "/stories",
+    "destinationPermission": "requirement.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "test-designer": {
     "name": "Test Design Agent",
@@ -58,14 +63,19 @@
     "skills": [
       {
         "id": "builtin-test-designer",
-        "name": "Test design review",
-        "instructions": "Reviews test coverage and proposes traceable manual, Gherkin and automation scenarios. Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries."
+        "name": "AI Test Case Generation contract",
+        "instructions": "Build traceable obligation and scenario matrices. Propose tests with setup, steps and meaningful expected outcomes including negative, role and boundary cases. An unknown expected outcome is an open question. Generated does not mean compiled or executed."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F05",
+    "category": "design",
+    "destination": "/test-cases",
+    "destinationPermission": "testcase.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "automation-engineer": {
     "name": "Automation Engineer",
@@ -104,14 +114,19 @@
     "skills": [
       {
         "id": "builtin-run-planner",
-        "name": "Smart run review",
-        "instructions": "Selects impacted tests using release scope, Story traceability, risk, and execution history. Plan a Smart Run for the current delivery scope and explain why every selected Test Case matters."
+        "name": "AI Smart Run Creation contract",
+        "instructions": "Propose a constrained test selection, keeping mandatory tests first and explaining exclusions. Do not discard hard obligations to meet a time budget. Report infeasible or unknown when time or coverage cannot be met. Pin test versions, build and environment; a proposal is not an executed run."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F07",
+    "category": "planning",
+    "destination": "/executions",
+    "destinationPermission": "run.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "failure-analyst": {
     "name": "Failure Analyst",
@@ -126,14 +141,19 @@
     "skills": [
       {
         "id": "builtin-failure-analyst",
-        "name": "Run analysis review",
-        "instructions": "Explains failed and blocked evidence, clusters symptoms, and separates facts from hypotheses. Analyze recent failed and blocked runs, separate product risk from environment noise, and cite the evidence."
+        "name": "AI Run Failure Analysis contract",
+        "instructions": "Preserve the original failed attempts, logs, build and environment. Compare product, automation, environment, data, dependency and nondeterminism hypotheses. Cite observations and discriminating checks; keyword matches and passing retries do not establish root cause."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F08",
+    "category": "investigation",
+    "destination": "/executions",
+    "destinationPermission": "run.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "bug-reporter": {
     "name": "Defect Reporter",
@@ -149,14 +169,19 @@
     "skills": [
       {
         "id": "builtin-bug-reporter",
-        "name": "Defect draft review",
-        "instructions": "Turns run, case, Story, and observed evidence into a concise review-ready Defect draft. Find the strongest recent failure evidence and prepare a review-ready Defect outline without creating it."
+        "name": "AI Bug Creation contract",
+        "instructions": "Prepare an evidence-backed Defect draft with exact expected versus actual behavior, original attempt, reproduction steps and duplicate candidates. Missing oracle remains unknown. Draft creation is separate from publication; never claim a Defect was saved without a verified receipt."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F09",
+    "category": "investigation",
+    "destination": "/issues",
+    "destinationPermission": "feedback.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "bug-triage": {
     "name": "Defect Triage Agent",
@@ -172,14 +197,19 @@
     "skills": [
       {
         "id": "builtin-bug-triage",
-        "name": "Defect triage review",
-        "instructions": "Classifies, prioritizes, and sequences Defects while leaving the final decision with a person. Triage open Defects using severity, execution evidence, release scope, and traceability; explain every recommendation."
+        "name": "AI Bug Triage contract",
+        "instructions": "Explain severity separately from priority, using recorded impact and approved policy. Distinguish duplicate, related and regression candidates. Never invent ownership, confidence or impact. Field changes require review against the current Defect revision."
       }
     ],
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "featureId": "F10",
+    "category": "investigation",
+    "destination": "/issues",
+    "destinationPermission": "feedback.view",
+    "contractVersion": "quality-lifecycle/1"
   },
   "quality-evaluator": {
     "name": "Quality Evaluator",
@@ -226,5 +256,341 @@
       "project_evidence",
       "knowledge_search"
     ]
+  },
+  "story-completion": {
+    "name": "AI Story Completion",
+    "description": "Build a completeness matrix and propose minimal field patches against the saved Story revision.",
+    "prompt": "Build a completeness matrix and propose minimal field patches against the saved Story revision. Preserve existing criteria and intent. Each proposed patch must show prior value, proposed value, evidence and unresolved questions; never overwrite a stale revision.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-story-completion",
+        "name": "AI Story Completion contract",
+        "instructions": "Build a completeness matrix and propose minimal field patches against the saved Story revision. Preserve existing criteria and intent. Each proposed patch must show prior value, proposed value, evidence and unresolved questions; never overwrite a stale revision."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F02",
+    "category": "design",
+    "destination": "/stories",
+    "destinationPermission": "requirement.view",
+    "contractVersion": "quality-lifecycle/1"
+  },
+  "story-grooming": {
+    "name": "AI Grooming",
+    "description": "Identify ambiguous criteria, contradictions, dependencies, possible duplicates and useful splits.",
+    "prompt": "Identify ambiguous criteria, contradictions, dependencies, possible duplicates and useful splits. Preserve every obligation across split proposals. Partial search cannot prove no duplicate exists. Do not invent story point estimates.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-story-grooming",
+        "name": "AI Grooming contract",
+        "instructions": "Identify ambiguous criteria, contradictions, dependencies, possible duplicates and useful splits. Preserve every obligation across split proposals. Partial search cannot prove no duplicate exists. Do not invent story point estimates."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F03",
+    "category": "planning",
+    "destination": "/stories",
+    "destinationPermission": "requirement.view",
+    "contractVersion": "quality-lifecycle/1"
+  },
+  "story-assurance": {
+    "name": "AI Story Assurance",
+    "description": "Assess clarity, testability, scope and unresolved decisions.",
+    "prompt": "Assess clarity, testability, scope and unresolved decisions. Separate deterministic completeness checks from semantic judgments. Return needs_refinement or unknown for unresolved mandatory criteria. A quality score cannot approve a Story.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-story-assurance",
+        "name": "AI Story Assurance contract",
+        "instructions": "Assess clarity, testability, scope and unresolved decisions. Separate deterministic completeness checks from semantic judgments. Return needs_refinement or unknown for unresolved mandatory criteria. A quality score cannot approve a Story."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F04",
+    "category": "planning",
+    "destination": "/stories",
+    "destinationPermission": "requirement.view",
+    "contractVersion": "quality-lifecycle/1"
+  },
+  "test-improvement": {
+    "name": "AI Test Case Improvement",
+    "description": "Propose minimal typed changes with a base test revision, before/after assertions and retained coverage.",
+    "prompt": "Propose minimal typed changes with a base test revision, before/after assertions and retained coverage. Preserve negative cases and known-defect sensitivity. Never weaken assertions, remove cases or change expected values to match a failure. Semantic changes require review.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-test-improvement",
+        "name": "AI Test Case Improvement contract",
+        "instructions": "Propose minimal typed changes with a base test revision, before/after assertions and retained coverage. Preserve negative cases and known-defect sensitivity. Never weaken assertions, remove cases or change expected values to match a failure. Semantic changes require review."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F06",
+    "category": "design",
+    "destination": "/test-cases",
+    "destinationPermission": "testcase.view",
+    "contractVersion": "quality-lifecycle/1"
+  },
+  "release-readiness": {
+    "name": "AI Release Readiness",
+    "description": "Explain code-computed mandatory release gates for an exact release, build and environment.",
+    "prompt": "Explain code-computed mandatory release gates for an exact release, build and environment. Known failed gates mean not_ready; missing or stale mandatory evidence means unknown. Never average scores into ready or authorize deployment.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-release-readiness",
+        "name": "AI Release Readiness contract",
+        "instructions": "Explain code-computed mandatory release gates for an exact release, build and environment. Known failed gates mean not_ready; missing or stale mandatory evidence means unknown. Never average scores into ready or authorize deployment."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F11",
+    "category": "planning",
+    "destination": "/analytics?view=readiness",
+    "destinationPermission": "dashboard.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "impact-analysis": {
+    "name": "AI Impact Analysis",
+    "description": "Trace changed Story obligations through recorded versioned relationships to tests, runs and Defects.",
+    "prompt": "Trace changed Story obligations through recorded versioned relationships to tests, runs and Defects. Distinguish recorded paths from hypotheses, and disclose traversal limits and missing links. Unknown impact requires conservative regression; no link is not proof of no impact.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-impact-analysis",
+        "name": "AI Impact Analysis contract",
+        "instructions": "Trace changed Story obligations through recorded versioned relationships to tests, runs and Defects. Distinguish recorded paths from hypotheses, and disclose traversal limits and missing links. Unknown impact requires conservative regression; no link is not proof of no impact."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F12",
+    "category": "planning",
+    "destination": "/stories",
+    "destinationPermission": "requirement.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "coverage-assurance": {
+    "name": "AI Test Coverage Assurance",
+    "description": "Assess distinct Story obligations, separating designed, executable and observed coverage.",
+    "prompt": "Assess distinct Story obligations, separating designed, executable and observed coverage. A linked test alone does not establish assertion adequacy. Preserve unknown weight, missing or stale evidence, and the exact build/environment. Ratios must use code-computed denominators.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-coverage-assurance",
+        "name": "AI Test Coverage Assurance contract",
+        "instructions": "Assess distinct Story obligations, separating designed, executable and observed coverage. A linked test alone does not establish assertion adequacy. Preserve unknown weight, missing or stale evidence, and the exact build/environment. Ratios must use code-computed denominators."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F13",
+    "category": "planning",
+    "destination": "/test-cases",
+    "destinationPermission": "testcase.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "risk-prediction": {
+    "name": "AI Risk Prediction",
+    "description": "Explain observed risk indicators using rule-based bands.",
+    "prompt": "Explain observed risk indicators using rule-based bands. Do not invent probabilities, confidence or calibrated predictions. Disclose missing data and unvalidated thresholds. A low risk band cannot waive mandatory release gates.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-risk-prediction",
+        "name": "AI Risk Prediction contract",
+        "instructions": "Explain observed risk indicators using rule-based bands. Do not invent probabilities, confidence or calibrated predictions. Disclose missing data and unvalidated thresholds. A low risk band cannot waive mandatory release gates."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F14",
+    "category": "planning",
+    "destination": "/analytics?view=readiness",
+    "destinationPermission": "dashboard.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "flaky-test-intelligence": {
+    "name": "AI Flaky Test Intelligence",
+    "description": "Compare only attempts with identical test revision, build, environment, configuration and data.",
+    "prompt": "Compare only attempts with identical test revision, build, environment, configuration and data. Preserve first-attempt failures. Show sample size and uncertainty; mixed outcomes indicate suspect nondeterminism, not confirmed flakiness. A passing retry cannot clear a product failure or approve quarantine.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-flaky-test-intelligence",
+        "name": "AI Flaky Test Intelligence contract",
+        "instructions": "Compare only attempts with identical test revision, build, environment, configuration and data. Preserve first-attempt failures. Show sample size and uncertainty; mixed outcomes indicate suspect nondeterminism, not confirmed flakiness. A passing retry cannot clear a product failure or approve quarantine."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F15",
+    "category": "investigation",
+    "destination": "/executions",
+    "destinationPermission": "run.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "release-risk-simulation": {
+    "name": "AI Release Risk Simulation",
+    "description": "Explain deterministic what-if gate scenarios with explicit assumptions and required evidence.",
+    "prompt": "Explain deterministic what-if gate scenarios with explicit assumptions and required evidence. Hypothetical outcomes cannot modify actual readiness, approve waivers or authorize release. Do not invent Monte Carlo probabilities without calibrated inputs.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-release-risk-simulation",
+        "name": "AI Release Risk Simulation contract",
+        "instructions": "Explain deterministic what-if gate scenarios with explicit assumptions and required evidence. Hypothetical outcomes cannot modify actual readiness, approve waivers or authorize release. Do not invent Monte Carlo probabilities without calibrated inputs."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F16",
+    "category": "planning",
+    "destination": "/analytics?view=readiness",
+    "destinationPermission": "dashboard.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "quality-graph": {
+    "name": "AI Quality Graph",
+    "description": "Explain typed revision-bound Story, test, attempt and Defect relationships with provenance.",
+    "prompt": "Explain typed revision-bound Story, test, attempt and Defect relationships with provenance. Distinguish recorded relationships from LLM hypotheses. Disclose bounded traversal, stale or missing entities and permission gaps. Never promote inferred edges to authoritative facts.",
+    "scopes": [
+      "stories",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-quality-graph",
+        "name": "AI Quality Graph contract",
+        "instructions": "Explain typed revision-bound Story, test, attempt and Defect relationships with provenance. Distinguish recorded relationships from LLM hypotheses. Disclose bounded traversal, stale or missing entities and permission gaps. Never promote inferred edges to authoritative facts."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F17",
+    "category": "planning",
+    "destination": "/analytics?view=readiness",
+    "destinationPermission": "dashboard.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "quality-evidence/1"
+  },
+  "automation-repair": {
+    "name": "AI Automation Repair",
+    "description": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan.",
+    "prompt": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan. Forbid disabled tests, assertion removal, broad catch/ignore, arbitrary timeout inflation or expected-value changes to match failures. Repair requires isolated reproduction, neighbor checks and oracle preservation; unexecuted patches remain proposals.",
+    "scopes": [
+      "automation",
+      "test-cases",
+      "runs",
+      "bugs",
+      "knowledge"
+    ],
+    "skills": [
+      {
+        "id": "builtin-automation-repair",
+        "name": "AI Automation Repair contract",
+        "instructions": "Propose narrow locator, synchronization, fixture or contract patches with base commit, patch hash and verification plan. Forbid disabled tests, assertion removal, broad catch/ignore, arbitrary timeout inflation or expected-value changes to match failures. Repair requires isolated reproduction, neighbor checks and oracle preservation; unexecuted patches remain proposals."
+      }
+    ],
+    "allowedTools": [
+      "project_evidence",
+      "knowledge_search"
+    ],
+    "featureId": "F18",
+    "category": "design",
+    "destination": "/automation",
+    "destinationPermission": "automation.view",
+    "contractVersion": "quality-lifecycle/1",
+    "verifier": "automation-repair/1"
   }
 }

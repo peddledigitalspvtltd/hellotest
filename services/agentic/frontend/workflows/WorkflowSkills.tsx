@@ -3,9 +3,10 @@ import { IconArrowUp, IconArrowDown, IconBook2, IconChevronDown, IconShieldCheck
 import type { AgenticWorkflowNodeData } from "@hellotest/platform/frontend/src/types";
 import { nodeSkills, requiredGuardrails, workflowTools, specialistDefaults } from "./specialistProfiles";
 
-export function WorkflowSkills({ data, projectId, appTypeId, disabled, onChange }: {
+export function WorkflowSkills({ data, projectId, appTypeId, disabled, onChange, editingAgent = false }: {
   data: AgenticWorkflowNodeData; projectId: string; appTypeId: string; disabled: boolean;
   onChange: (patch: Partial<AgenticWorkflowNodeData>) => void;
+  editingAgent?: boolean;
 }) {
   const skills = nodeSkills(data);
   const active = skills.filter(skill => skill.enabled !== false);
@@ -19,7 +20,7 @@ export function WorkflowSkills({ data, projectId, appTypeId, disabled, onChange 
   return <>
     <section className="studio-skills" aria-label="Node skills">
       <header className="studio-skills-heading"><span className="studio-skills-icon"><IconBook2 size={19} /></span><div><h4>Skills</h4><p>{active.length} active · {skills.length}/8 selected</p></div></header>
-      <p className="studio-caption">Add reusable guidance, then tailor it to this task. Instructions are applied in the order below; edits stay in this workflow.</p>
+      <p className="studio-caption">Add reusable guidance, then tailor it to this task. Instructions are applied in the order below; edits stay in this {editingAgent ? "agent version" : "workflow"}.</p>
       <AiPromptTemplatePicker projectId={projectId} appTypeId={appTypeId} scope="workflow_skill" disabled={disabled || skills.length >= 8}
         onApply={(instructions, template) => onChange({ skills: [...skills.filter(skill => skill.id !== template.id), { id: template.id, name: template.name, instructions, enabled: true }] })} />
       {!skills.length && <div className="studio-skill-empty"><IconBook2 size={24} /><strong>No skills selected</strong><span>Choose a library skill or create guidance your team can reuse.</span></div>}

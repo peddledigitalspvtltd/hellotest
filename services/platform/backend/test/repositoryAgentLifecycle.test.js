@@ -43,6 +43,8 @@ const run = (patch = {}) => ({
 // an automatic queue poll or connect to the user's database.
 test.before(() => service.shutdown());
 function scope(t, { allow = true, appProject = 'project-a' } = {}) {
+  t.mock.method(require('../../../agentic/backend/agents/agentRegistry.service'), 'resolveModel', async () => ({ id: 'model', model: 'test-model' }));
+  t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async () => ({ transaction: { id: 'model-review' }, result: { response: 'Source findings reviewed.', verification: { status: 'passed' } }, provenance: { generation_mode: 'llm' } }));
   const accesses = [];
   t.mock.method(projects, 'getProject', async (id, actor) => { accesses.push(['project', id, actor]); return { id }; });
   t.mock.method(permissions, 'hasPermission', async (_user, permission, project) => { accesses.push(['permission', permission, project]); return typeof allow === 'function' ? allow(permission, project) : allow; });
@@ -235,6 +237,7 @@ test('compiler validation rejects missing evidence, duplicate identities and uns
 
 test('worker reuses matching cached analysis and preserves source evidence without recompiling', async t => {
   scope(t); const updates = []; const cached = result();
+  const review = t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async () => ({ transaction: { id: 'fresh-model-review' }, result: { response: 'Fresh source review.', verification: { status: 'passed' } }, provenance: { generation_mode: 'llm' } }));
   t.mock.method(storage, 'getObject', async () => Readable.from([zip]));
   t.mock.method(compiler, 'compileArchive', async () => assert.fail('Matching source and compiler version should reuse cache'));
   database(t, (sql, _method, args) => {
@@ -247,7 +250,31 @@ test('worker reuses matching cached analysis and preserves source evidence witho
   const complete = updates.find(update => update.sql.includes('result = ?'));
   assert.equal(complete.args[0], 'completed'); assert.equal(complete.args[6], 'cached-run');
   assert.equal(complete.args[2].findings.test_cases[0].evidence[0].line, 12);
+  assert.equal(review.mock.callCount(), 0, 'Repository extraction does not require a model');
+  assert.equal(complete.args[2].llm_review, undefined);
+  assert.equal(cached.llm_review, undefined, 'A new run must not mutate the cached result');
   assert.ok(complete.sql.includes("lease_token = ? AND status = 'running'"));
+});
+
+test('explicit model reviews validate their connection and cannot hide model failure', async t => {
+  scope(t);
+  const registry = require('../../../agentic/backend/agents/agentRegistry.service');
+  t.mock.method(registry, 'resolveModel', async () => { throw Object.assign(new Error('Configure an LLM.'), { code: 'AGENT_MODEL_REQUIRED', statusCode: 422 }); });
+  const calls = database(t, unreachable);
+  await assert.rejects(service.createRun({ project_id: 'project-a', app_type_id: 'app-a', agent_type: 'api_tests', llm_integration_id: 'missing', source }, user), { code: 'AGENT_MODEL_REQUIRED' });
+  assert.equal(calls.some(call => call.query.startsWith('INSERT')), false);
+  const updates = [];
+  t.mock.method(storage, 'getObject', async () => Readable.from([zip]));
+  t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async () => { throw Object.assign(new Error('Model unavailable.'), { publicMessage: 'Model unavailable.', statusCode: 503 }); });
+  database(t, (sql, _method, args) => {
+    if (sql.includes('FROM users')) return { ...user, status: 'active' };
+    if (sql.startsWith('SELECT id, result')) return { id: 'cache', result: result() };
+    if (sql.startsWith('UPDATE')) { updates.push({ sql, args }); return { changes: 1 }; }
+    return unreachable(sql);
+  });
+  await service._internals.performRun(run({ status: 'running', input: { archive: { bucket: 'private', objectName: 'source.zip' }, llm_integration_id: 'model' } }), new AbortController());
+  assert.ok(updates.some(update => update.sql.includes("status = 'failed'") && update.args[0] === 'Model unavailable.'));
+  assert.equal(updates.some(update => update.sql.includes('result = ?')), false);
 });
 
 test('worker respects compiler partial status and never overwrites a cancellation', async t => {

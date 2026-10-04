@@ -92,6 +92,8 @@ test("HTTP uses a scoped connection, pins destinations, redacts credentials, and
 test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and calls only enabled tools", async (t) => {
   const messages = [];
   let closed = 0;
+  let changedSchema = false, invalidOutput = false;
+  const outputSchema = { type: "object", properties: { id: { type: "string" }, status: { type: "string" } }, required: ["id", "status"] };
   const url = await server(t, async (req, res) => {
     if (req.method === "DELETE") {
       closed++;
@@ -132,9 +134,10 @@ test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and cal
               {
                 name: "read_status",
                 description: "Status",
+                outputSchema,
                 inputSchema: {
                   type: "object",
-                  properties: { id: { type: "string" } },
+                  properties: { id: { type: changedSchema ? "number" : "string" } },
                   required: ["id"],
                   additionalProperties: false,
                 },
@@ -144,7 +147,7 @@ test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and cal
           }
         : {
             content: [{ type: "text", text: "Status read" }],
-            structuredContent: { id: msg.params.arguments.id, status: "ready" },
+            structuredContent: { id: msg.params.arguments.id, status: invalidOutput ? 42 : "ready" },
           };
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     res.write(": heartbeat\n\n");
@@ -167,7 +170,13 @@ test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and cal
     (await mcp.discover(input)).map((t) => t.name),
     ["read_status"],
   );
+  const approved = JSON.parse(process.env.AGENTIC_HTTP_CONNECTIONS);
+  approved[0].toolDefinitions = [{ name: "read_status", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false }, outputSchema }];
+  approved[0].protocolVersion = "2025-11-25";
+  process.env.AGENTIC_HTTP_CONNECTIONS = JSON.stringify(approved);
   const result = await mcp.call(input, "read_status", { id: "case-1" });
+  assert.equal(result.output_schema_verified, true);
+  assert.equal(result.postcondition_verified, false);
   assert.equal(result.data.status, "ready");
   await assert.rejects(mcp.call(input, "read_status", { id: 12 }), /schema/);
   await assert.rejects(mcp.call(input, "delete_everything", {}), {
@@ -175,6 +184,12 @@ test("MCP negotiates sessions, reads JSON/SSE tools, validates arguments and cal
   });
   assert.equal(messages.filter((m) => m.method === "tools/call").length, 1);
   assert.equal(closed, 4);
+  changedSchema = true;
+  await assert.rejects(mcp.call(input, "read_status", { id: "case-1" }), { code: "MCP_SCHEMA_CHANGED" });
+  assert.equal(messages.filter(m => m.method === "tools/call").length, 1, "Changed schemas must fail before a tool call");
+  changedSchema = false; invalidOutput = true;
+  await assert.rejects(mcp.call(input, "read_status", { id: "case-1" }), { code: "MCP_OUTPUT_INVALID", outcome_unknown: true, retryable: false });
+  assert.equal(messages.filter(m => m.method === "tools/call").length, 2, "Ambiguous tool outcomes are never replayed");
 });
 test("data paths cannot access prototypes and mappings preserve literal values", () => {
   assert.throws(
@@ -219,4 +234,15 @@ test("metadata aliases are blocked even for managed private connections and quot
   t.after(() => {if(previous === undefined) delete process.env.AGENTIC_SECRET_ECHO; else process.env.AGENTIC_SECRET_ECHO=previous;});
   const result = connections.redact({echo:`server echoed ${secret}`, nested:{value:Buffer.from(secret).toString('base64')}}, {secretEnv:'AGENTIC_SECRET_ECHO'});
   assert.deepEqual(result,{echo:'server echoed [REDACTED]',nested:{value:'[REDACTED]'}});
+});
+
+
+test("MCP schemas default to JSON Schema 2020-12 and preserve draft-07 compatibility", () => {
+  const compile = require("../../backend/workflows/mcpClient")._internals.compileSchema;
+  const modern = compile({ type: "object", properties: { operation: { type: "string" }, receipt: { type: "string" } }, dependentRequired: { operation: ["receipt"] } }, "output");
+  assert.equal(modern({ operation: "saved" }), false);
+  assert.equal(modern({ operation: "saved", receipt: "receipt-1" }), true);
+  const legacy = compile({ $schema: "http://json-schema.org/draft-07/schema#", type: "object", required: ["id"], properties: { id: { type: "string" } } }, "input");
+  assert.equal(legacy({}), false);
+  assert.equal(legacy({ id: "item" }), true);
 });

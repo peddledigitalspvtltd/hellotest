@@ -124,18 +124,17 @@ test("revoking knowledge permission invalidates project-readable text evidence",
   assert.equal(replay.assistant_message.safety.evidence_access_changed, true);
 }));
 
-test("model connection failure returns authorized evidence with an actionable error and failed generation event", async (context) => fixture(async ({ input }) => {
+test("model connection failure rejects synthesis with an actionable error and failed generation event", async (context) => fixture(async ({ input }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://answer.invalid/v1", model: "test", config: {} }));
   context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ error: "PRIVATE_ACCOUNT_DETAIL" }), { status: 401 }));
   const events = [];
-  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => events.push(event) });
-  assert.equal(result.assistant_message.status, "provider_unavailable");
-  assert.match(result.assistant_message.content, /passing checkout test/);
-  assert.equal(result.citations.length, 1);
-  assert.equal(result.retrieval.provider_error_code, "MODEL_AUTHENTICATION_FAILED");
-  assert.match(result.retrieval.provider_error_message, /connection credentials/);
-  assert.ok(events.some((event) => event.stage === "GENERATION" && event.status === "FAILED" && event.error_code === "MODEL_AUTHENTICATION_FAILED"));
-  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_ACCOUNT_DETAIL/);
+  await assert.rejects(assistant.respond({ ...input, responseMode: "answer", onProgress: event => events.push(event) }), error => {
+    assert.equal(error.code, "MODEL_AUTHENTICATION_FAILED");
+    assert.match(error.message, /connection credentials/);
+    assert.doesNotMatch(error.message, /PRIVATE_ACCOUNT_DETAIL/);
+    return true;
+  });
+  assert.ok(events.some(event => event.stage === "GENERATION" && event.status === "FAILED" && event.error_code === "MODEL_AUTHENTICATION_FAILED"));
 }));
 
 test("intent planning runs once before scoped project reads and grounded synthesis", async (context) => fixture(async ({ input, state }) => {
@@ -187,10 +186,10 @@ test("provider-unavailable answers can retry and replace the same persisted turn
       : { status: "answered", supported_claims: [{ statement: "Release approval requires a passing checkout test.", citation_ids: ["K-chunk-1"] }] };
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(candidate) }, finish_reason: "stop" }] }));
   });
-  const failed = await assistant.respond({ ...input, responseMode: "answer" });
-  assert.equal(failed.assistant_message.status, "provider_unavailable");
-  const originalUserId = failed.user_message.id;
-  assert.equal(messages.length, 2);
+  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), { code: "MODEL_AUTHENTICATION_FAILED" });
+  const originalUserId = messages[0].id;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].status, "error");
   available = true;
   const retried = await assistant.respond({ ...input, responseMode: "answer", retryProvider: true });
   assert.equal(retried.assistant_message.status, "answered");
@@ -219,16 +218,11 @@ test("claim-only text-block LLM output is saved, rendered, and replayed as one g
   assert.equal(messages.length, 2);
 }));
 
-test("rejected model citation contracts return useful authorized passages instead of an empty answer", async (context) => fixture(async ({ input }) => {
+test("rejected model citation contracts fail without publishing invented claims", async (context) => fixture(async ({ input }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://invalid-citation.invalid/v1", model: "test", config: {} }));
   context.mock.method(llmSelection, "recordSuccessfulLlmIntegration", async () => {});
   context.mock.method(global, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ status: "answered", supported_claims: [{ statement: "Invented response", citation_ids: ["K-invented"] }] }) }, finish_reason: "stop" }] })));
-  const result = await assistant.respond({ ...input, responseMode: "answer" });
-  assert.equal(result.retrieval.provider_error_code, "MODEL_INVALID_RESPONSE");
-  assert.equal(result.assistant_message.status, "provider_unavailable");
-  assert.match(result.assistant_message.content, /passing checkout test/);
-  assert.doesNotMatch(result.assistant_message.content, /Invented response/);
-  assert.equal(result.answer_contract.claims[0].classification, "SUPPORTED");
+  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), { code: "MODEL_INVALID_RESPONSE" });
 }));
 
 test("a transient synthesis failure recovers into one saved answer and same-turn replay performs no new model calls", async (context) => fixture(async ({ input, messages }) => {
@@ -257,7 +251,7 @@ test("a transient synthesis failure recovers into one saved answer and same-turn
   assert.equal(messages.length, 2);
 }));
 
-test("exhausted synthesis retries save one grounded fallback with usable citations", async (context) => fixture(async ({ input, messages }) => {
+test("exhausted synthesis retries fail the turn without an AI fallback", async (context) => fixture(async ({ input, messages }) => {
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true, api_key: "test-credential", base_url: "https://turn-exhausted.invalid/v1", model: "test", config: {} }));
   let synthesisCalls = 0;
   context.mock.method(global, "fetch", async (_, init) => {
@@ -265,18 +259,17 @@ test("exhausted synthesis retries save one grounded fallback with usable citatio
     synthesisCalls++;
     return new Response("PRIVATE_PROVIDER_BODY", { status: 503, headers: { "retry-after": "0" } });
   });
-  const result = await assistant.respond({ ...input, responseMode: "answer" });
+  await assert.rejects(assistant.respond({ ...input, responseMode: "answer" }), error => {
+    assert.equal(error.code, "MODEL_UNAVAILABLE");
+    assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_BODY/);
+    return true;
+  });
   assert.equal(synthesisCalls, 3);
-  assert.equal(messages.length, 2);
-  assert.equal(result.assistant_message.status, "provider_unavailable");
-  assert.equal(result.retrieval.provider_error_code, "MODEL_UNAVAILABLE");
-  assert.equal(result.retrieval.model_budget.retries_used, 2);
-  assert.equal(result.citations.length, 1);
-  assert.match(result.assistant_message.content, /passing checkout test/);
-  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_PROVIDER_BODY/);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].status, "error");
 }));
 
-test("a late retrieval leaves a saved cited fallback instead of starting a model beyond the turn budget", async (context) => fixture(async ({ input, messages }) => {
+test("a late retrieval fails without starting a model beyond the turn budget", async (context) => fixture(async ({ input, messages }) => {
   context.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   context.mock.method(llmSelection, "resolveLlmIntegrationForUsage", async () => ({ id: "model", type: "llm", is_active: true,
     api_key: "test-credential", base_url: "https://turn-budget.invalid/v1", model: "test", config: {} }));
@@ -285,14 +278,12 @@ test("a late retrieval leaves a saved cited fallback instead of starting a model
     if (!JSON.parse(init.body).messages[0].content.includes("You plan evidence retrieval")) synthesisCalls++;
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"search_queries":[]}' } }] }));
   });
-  const result = await assistant.respond({ ...input, responseMode: "answer", onProgress: (event) => {
+  await assert.rejects(assistant.respond({ ...input, responseMode: "answer", onProgress: event => {
     if (event.stage === "GENERATION" && event.status === "IN_PROGRESS") context.mock.timers.tick(109_000);
-  } });
+  } }), { code: "MODEL_TIMEOUT" });
   assert.equal(synthesisCalls, 0);
-  assert.equal(messages.length, 2);
-  assert.equal(result.retrieval.provider_error_code, "MODEL_TIMEOUT");
-  assert.equal(result.citations.length, 1);
-  assert.match(result.assistant_message.content, /passing checkout test/);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].status, "error");
 }));
 
 test("the whole turn deadline bounds a stalled idempotency read and prevents late message writes", async (context) => fixture(async ({ input, messages }) => {

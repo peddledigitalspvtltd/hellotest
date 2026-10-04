@@ -124,6 +124,7 @@ const deleteProjectData = async ({ client, projectId, onProgress, batchSize = 10
   const moduleScope = `target.module_id IN (SELECT id FROM test_case_modules WHERE ${inSet('app_type_id', 'apps')})`;
 
   await mutate('automation_generator_jobs', `target.project_id = $1 OR (target.project_id IS NULL AND (${appScope} OR ${caseScope} OR ${inSet('target.transaction_id', 'transactions')}))`);
+  await owned('llm_request_traces');
   await owned('ai_test_case_generation_jobs');
   await owned('ai_requirement_generation_jobs');
   await owned('agentic_workflow_runs');

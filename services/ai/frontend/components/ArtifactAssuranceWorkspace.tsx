@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ChevronDownIcon, SparkIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { useAiPromptRegistry } from "@hellotest/integration/frontend/hooks/useAiPromptRegistry";
@@ -36,6 +36,7 @@ export function ArtifactAssuranceWorkspace({
   providerControl,
   onAnalyze,
   onInspectImpact,
+  impactContent,
   criteriaKey
 }: {
   analysis: AiArtifactAssuranceAnalysis;
@@ -51,9 +52,11 @@ export function ArtifactAssuranceWorkspace({
   providerControl?: ReactNode;
   onAnalyze?: () => void;
   onInspectImpact?: () => void;
+  impactContent?: ReactNode;
   criteriaKey?: "metric.assurance.story" | "metric.assurance.test_case";
 }) {
   const instanceId = useId();
+  const [activeTab, setActiveTab] = useState<"quality" | "impact">("quality");
   const titleId = `artifact-assurance-title-${instanceId}`;
   const insightsTitleId = `artifact-assurance-insights-title-${instanceId}`;
   const normalizedScore = Math.max(0, Math.min(100, Math.round(analysis.overall_score)));
@@ -73,6 +76,11 @@ export function ArtifactAssuranceWorkspace({
 
   return (
     <section aria-busy={isAnalyzing} aria-labelledby={titleId} className="artifact-assurance-workspace">
+      {impactContent ? <div className="artifact-assurance-tabs" role="tablist" aria-label="AI Story Assurance">
+        {(["quality", "impact"] as const).map((tab, index) => <button key={tab} type="button" role="tab" id={`${instanceId}-${tab}-tab`} aria-controls={`${instanceId}-${tab}-panel`} aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onClick={() => setActiveTab(tab)} onKeyDown={event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "quality" : event.key === "End" ? "impact" : index === 0 ? "impact" : "quality"; setActiveTab(next); document.getElementById(`${instanceId}-${next}-tab`)?.focus(); } }}>{tab === "quality" ? "Quality review" : "Impact analysis"}</button>)}
+      </div> : null}
+      {impactContent ? <div id={`${instanceId}-impact-panel`} role="tabpanel" aria-labelledby={`${instanceId}-impact-tab`} hidden={activeTab !== "impact"}>{impactContent}</div> : null}
+      <div id={`${instanceId}-quality-panel`} role={impactContent ? "tabpanel" : undefined} aria-labelledby={impactContent ? `${instanceId}-quality-tab` : undefined} hidden={activeTab !== "quality"}>
       <span aria-atomic="true" aria-live="polite" className="artifact-assurance-live" role="status">
         {isAnalyzing
           ? "AI assurance analysis is in progress."
@@ -99,7 +107,7 @@ export function ArtifactAssuranceWorkspace({
 
         <div className="artifact-assurance-overview-copy">
           <span className="artifact-assurance-eyebrow">
-            <SparkIcon /> AI Assurance · Evidence-led analysis
+            <SparkIcon /> {criteriaKey === "metric.assurance.story" ? "AI Story Assurance" : "AI Test Coverage Assurance"} · Evidence-led analysis
             <InfoTooltip
               className="artifact-assurance-methodology-info"
               content={(
@@ -127,7 +135,7 @@ export function ArtifactAssuranceWorkspace({
               <span>{isAnalyzing ? "Analyzing…" : analysisSource === "fallback" ? "Retry AI analysis" : analysisSource === "local" ? "Analyze with AI" : "Refresh analysis"}</span>
             </button>
           ) : null}
-          {onInspectImpact ? (
+          {onInspectImpact && !impactContent ? (
             <button className="artifact-assurance-impact-button" disabled={analysisDisabled || isAnalyzing} onClick={onInspectImpact} type="button">
               Inspect impact
             </button>
@@ -232,6 +240,7 @@ export function ArtifactAssuranceWorkspace({
           <p>Numeric scores and evidence are rules-based anchors. AI can refine concise explanations and recommendations, but cannot approve the artifact or change connected work items.</p>
         </div>
       </details>
+      </div>
     </section>
   );
 }

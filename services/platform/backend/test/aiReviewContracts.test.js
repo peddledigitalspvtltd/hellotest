@@ -35,10 +35,9 @@ function fixture(content, finishReason = 'stop') {
 const story = { id: 'story', project_id: 'project', title: 'Invoice approval', description: 'An approver verifies an invoice.', acceptance_criteria: ['Approval records the approver.'] };
 
 for (const artifactType of ['story', 'test-case']) {
-  test(`${artifactType} assurance reads content blocks and retains the first valid cited dimension`, async () => {
+  test(`${artifactType} assurance reads content blocks and keeps a valid cited dimension`, async () => {
     const id = artifactType === 'story' ? 'industry-standards' : 'scenario-coverage';
     const content = JSON.stringify({ summary: 'Verify the approval outcome.', dimensions: [
-      { id, explanation: 'Unsupported duplicate', evidence: ['invented:source'] },
       { id, explanation: 'Verify the recorded approver.', evidence: [`draft:${artifactType}:story`] }
     ] });
     const provider = fixture([{ type: 'text', text: content.slice(0, 60) }, { type: 'text', text: content.slice(60) }]);
@@ -84,7 +83,8 @@ test('assurance repairs a usable review whose first response omitted citation fi
   assert.deepEqual(result.assurance_review.dimensions[0].evidence, ['draft:story:story']);
   assert.equal(calls.length, 2);
   assert.match(calls[1].body.messages[1].content, /Allowed evidence refs/);
-  assert.equal(calls[1].policy.timeoutMs, 60000);
+  assert.ok(calls[1].policy.timeoutMs > 0 && calls[1].policy.timeoutMs <= calls[0].policy.timeoutMs);
+  assert.ok(calls.every(call => call.policy.maxAttempts === 1 && call.policy.compatibility === false));
 });
 
 function groomingOverrides(provider) {
@@ -102,13 +102,14 @@ test('Grooming accepts content blocks without losing grounded model output', asy
   assert.equal(provider.calls.length, 1);
 });
 
-test('Grooming exposes actionable timeout fallback without leaking provider internals', async () => {
+test('Grooming rejects a failed model without leaking provider internals', async () => {
   const provider = fixture(Object.assign(new Error('PRIVATE_PROVIDER_DETAIL'), { statusCode: 504 }));
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
-  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
-  assert.equal(result.fallback_used, true);
-  assert.match(result.fallback_reason, /timed out/);
-  assert.doesNotMatch(result.fallback_reason, /PRIVATE_PROVIDER_DETAIL/);
+  await assert.rejects(service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } }), error => {
+    assert.equal(error.code, 'AI_ASSESSMENT_FAILED');
+    assert.doesNotMatch(error.message, /PRIVATE_PROVIDER_DETAIL/);
+    return true;
+  });
   assert.equal(provider.calls.length, 1);
 });
 
@@ -136,7 +137,7 @@ test('Smart Run reserves sufficient response space and reads structured content 
 });
 
 test('Grooming reviews unsaved draft content while preserving persisted scope and identity', async () => {
-  const provider = fixture('{}');
+  const provider = fixture(JSON.stringify({ layman: { explanation: 'Review the current draft.', evidence_refs: ['requirement:story'] } }));
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
   const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' }, proposedChange: {
     id: 'other-story', project_id: 'other-project', title: 'Current draft', description: 'UNSAVED_DRAFT_SENTINEL', acceptance_criteria: ['UNSAVED_ACCEPTANCE_SENTINEL'], specification_content: 'UNSAVED_SPEC_SENTINEL'
@@ -151,11 +152,24 @@ test('Grooming reviews unsaved draft content while preserving persisted scope an
   assert.doesNotMatch(prompt, /An approver verifies an invoice|other-story|other-project/);
 });
 
-test('An empty Grooming object stays a deterministic review instead of claiming model refinement', async () => {
+test('An empty Grooming object fails instead of claiming model refinement', async () => {
   const provider = fixture('{}');
   const service = load('requirementWorkspace.service', groomingOverrides(provider));
-  const result = await service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } });
-  assert.equal(result.generation_mode, 'deterministic');
-  assert.equal(result.fallback_used, true);
-  assert.equal(result.integration.direct_model_invocation, true);
+  await assert.rejects(service.previewGrooming({ requirement: story, project: { id: 'project' }, user: { id: 'user' } }), { code: 'AI_ASSESSMENT_FAILED' });
+});
+
+test('assurance rejects forged references after exactly one repair', async () => {
+  const provider = fixture(JSON.stringify({ dimensions: [{ id: 'industry-standards', explanation: 'Invented finding', evidence: ['invented:source'] }] }));
+  const service = load('artifactAssurance.service', provider.overrides);
+  await assert.rejects(service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project', user: { id: 'user' } }), { code: 'AI_ASSURANCE_REVIEW_INVALID' });
+  assert.equal(provider.calls.length, 2);
+  assert.ok(provider.calls.every(call => call.policy.maxAttempts === 1 && call.policy.contextFallback === false && call.policy.compatibility === false));
+});
+
+test('assurance requires a configured model before making a request', async () => {
+  const provider = fixture('{}');
+  provider.overrides['./aiLlmSelection.service'].resolveLlmIntegrationForUsage = async () => null;
+  const service = load('artifactAssurance.service', provider.overrides);
+  await assert.rejects(service.reviewArtifact({ artifactType: 'story', savedArtifact: story, projectId: 'project' }), { code: 'AI_MODEL_REQUIRED' });
+  assert.equal(provider.calls.length, 0);
 });

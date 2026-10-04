@@ -178,7 +178,10 @@
     "./frontend/src/shared/lib/viewPreferences": "./frontend/src/shared/lib/viewPreferences.ts",
     "./frontend/src/types": "./frontend/src/types.ts",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./backend/src/utils/requireAiAssessment": "./backend/src/utils/requireAiAssessment.js",
+    "./backend/src/utils/llmTraceContext": "./backend/src/utils/llmTraceContext.js",
+    "./backend/src/db/schemaReadiness": "./backend/src/db/schemaReadiness.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

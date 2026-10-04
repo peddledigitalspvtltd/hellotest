@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-test('repository agents persist four analyses, publish into real stores and replay safely', { skip: !process.env.REPOSITORY_AGENTS_POSTGRES, timeout: 120000 }, async () => {
+test('repository agents persist four analyses, publish into real stores and replay safely', { skip: !process.env.REPOSITORY_AGENTS_POSTGRES, timeout: 120000 }, async t => {
   const databaseName = new URL(process.env.DATABASE_URL).pathname.slice(1);
   assert.match(databaseName, /^agent_verify_[a-z0-9_]+$/);
   assert.equal(process.env.KNOWLEDGE_VECTOR_STORE, 'postgresql', 'Keep index validation inside the disposable database');
@@ -14,6 +14,8 @@ test('repository agents persist four analyses, publish into real stores and repl
   const agents = require('../../../../agentic/backend/agents/repositoryAgents.service');
   const { publishRun } = require('../../../../agentic/backend/agents/publish');
   const storage = require('../../src/services/objectStorage.service');
+  t.mock.method(require('../../../../agentic/backend/agents/agentRegistry.service'), 'resolveModel', async () => ({ id: 'fixture-model', model: 'test-model' }));
+  t.mock.method(require('../../../../agentic/backend/services/agenticAssistant.service'), 'respond', async () => ({ transaction: { id: 'fixture-model-review' }, result: { response: 'Source findings reviewed.', verification: { status: 'passed' } }, provenance: { generation_mode: 'llm' } }));
   try {
     await db.query(fs.readFileSync(process.env.REPOSITORY_AGENT_SCHEMA_PATH, 'utf8'));
     await require('../../src/db/bootstrap').ensureRuntimeSchema();

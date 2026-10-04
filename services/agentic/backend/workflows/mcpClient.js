@@ -1,6 +1,6 @@
 // Bounded Streamable HTTP client (MCP 2025-11-25 / 2025-06-18 / 2025-03-26).
 // No local process launching, automatic tool choice, OAuth token forwarding or retries of tool calls.
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const Ajv2020 = require("ajv/dist/2020");
 const Ajv = require("ajv");
 const connections = require("./connections");
@@ -154,8 +154,14 @@ const toolCatalog = tools => tools.map((tool) => ({
     }));
 const discover = input => withServer(input, async ({ tools }) => toolCatalog(tools));
 const inspect = input => withServer({ ...input, discoverAll: true }, async ({ tools, serverInfo, protocolVersion }) => ({ tools: toolCatalog(tools), serverInfo, protocolVersion, discovered_at: new Date().toISOString() }));
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const schemaHash = tool => createHash("sha256").update(JSON.stringify(canonical({ name: tool.name, inputSchema: tool.inputSchema, outputSchema: tool.outputSchema || null, annotations: tool.annotations || {} }))).digest("hex");
+function compileSchema(schema, label) {
+  try { return new (/draft-0[467]/.test(String(schema?.$schema || "")) ? Ajv : Ajv2020)({ strict: false, allErrors: false, validateFormats: false }).compile(schema); }
+  catch { throw connections.fail(`The MCP tool ${label} schema is unsupported or invalid.`, 422); }
+}
 const call = (input, name, args) =>
-  withServer({ ...input, discoverAll: false }, async ({ rpc, tools }) => {
+  withServer({ ...input, discoverAll: false }, async ({ rpc, tools, connection, protocolVersion }) => {
     const tool = tools.find((item) => item.name === name);
     if (!tool)
       throw connections.fail(
@@ -164,37 +170,27 @@ const call = (input, name, args) =>
       );
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw connections.fail("MCP arguments must be a JSON object.");
-    // Validate locally as well as remotely. Never load external schema references.
-    let validate;
-    try {
-      validate = new (String(tool.inputSchema?.$schema || "").includes(
-        "2020-12",
-      )
-        ? Ajv2020
-        : Ajv)({
-        strict: false,
-        allErrors: false,
-        validateFormats: false,
-      }).compile(tool.inputSchema || { type: "object" });
-    } catch {
-      throw connections.fail(
-        "The MCP tool input schema is unsupported or invalid.",
-        422,
-      );
-    }
+    const approved = connection.toolDefinitions?.find(item => item.name === name);
+    if (!approved) throw Object.assign(connections.fail("Discover and save this server's tool catalog in Integrations before calling it.", 422), { code: "MCP_CATALOG_REQUIRED" });
+    const toolHash = schemaHash(tool);
+    if (toolHash !== schemaHash(approved) || input.expectedToolHash && input.expectedToolHash !== toolHash) throw Object.assign(connections.fail("The MCP tool contract changed. Refresh its catalog in Integrations and review the workflow before running it again.", 409), { code: "MCP_SCHEMA_CHANGED" });
+    if (connection.protocolVersion && connection.protocolVersion !== protocolVersion) throw Object.assign(connections.fail("The MCP protocol revision changed. Refresh the connection catalog before execution.", 409), { code: "MCP_PROTOCOL_CHANGED" });
+    // Compile both schemas before dispatch. Never load external schema references.
+    const validate = compileSchema(tool.inputSchema || { type: "object" }, "input");
+    const validateOutput = tool.outputSchema ? compileSchema(tool.outputSchema, "output") : null;
     if (!validate(args))
       throw connections.fail(
         "Tool arguments do not match the server input schema. Review required fields and types.",
         422,
       );
-    const result = await rpc("tools/call", { name, arguments: args });
+    let result;
+    try { result = await rpc("tools/call", { name, arguments: args }); }
+    catch (error) { error.outcome_unknown = true; error.retryable = false; throw error; }
+    if (!result.isError && validateOutput && !validateOutput(result.structuredContent)) throw Object.assign(connections.fail("The MCP tool returned data that violates its approved output schema. Review the server outcome before trying again.", 502), { code: "MCP_OUTPUT_INVALID", outcome_unknown: true, retryable: false });
     if (result.isError)
-      throw connections.fail(
-        "The MCP tool reported an error. Check its input and server status.",
-        502,
-      );
+      throw Object.assign(connections.fail("The MCP tool reported an error. Inspect the server outcome before trying again.", 502), { code: "MCP_TOOL_FAILED", outcome_unknown: true, retryable: false });
     return {
-      tool: name,
+      tool: name, schema_hash: toolHash, protocol_version: protocolVersion, output_schema_verified: Boolean(validateOutput), postcondition_verified: false,
       data: result.structuredContent ?? (result.content || []).filter(item => item.type === "text").map(item => { try { return JSON.parse(item.text); } catch { return String(item.text || ""); } }),
       content: (result.content || [])
         .filter((item) => item.type === "text")
@@ -204,4 +200,4 @@ const call = (input, name, args) =>
       ).length,
     };
   });
-module.exports = { discover, inspect, call, _internals: { parseResponse } };
+module.exports = { discover, inspect, call, _internals: { parseResponse, schemaHash, compileSchema } };

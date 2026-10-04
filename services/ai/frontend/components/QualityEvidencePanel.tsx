@@ -1,0 +1,39 @@
+import { useMemo, useState } from "react";
+import type { QualityEvidenceReport } from "@hellotest/platform/frontend/src/types";
+import "./QualityEvidencePanel.css";
+import { CoverageMappingReview } from "./CoverageMappingReview";
+
+import { ReleasePolicyReview } from "./ReleasePolicyReview";
+
+const label = (value: unknown) => String(value ?? "Unknown").replace(/_/g, " ");
+const titles: Record<string, string> = { F11: "Release gates", F12: "Change impact", F13: "Acceptance coverage", F14: "Risk indicators", F15: "Comparable test outcomes", F16: "Release scenarios", F17: "AI Quality Graph" };
+export function QualityEvidencePanel({ report }: { report: QualityEvidenceReport }) {
+  const [query, setQuery] = useState("");
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const [limit, setLimit] = useState(30);
+  const data = report.data;
+  const graph = data.graph || data;
+  const nodes = useMemo(() => new Map((graph.nodes || []).map(node => [node.id, node])), [graph.nodes]);
+  const edges = (graph.edges || []).filter(edge => [nodes.get(edge.source)?.title, nodes.get(edge.target)?.title, edge.relation].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const rows = (data.rows || []).filter(row => [row.text, row.test_case_id, row.reason, row.status].join(" ").toLowerCase().includes(query.toLowerCase()));
+  return <section className="quality-evidence-panel" aria-label={titles[report.feature_id] || "Verified evidence"}>
+    <header><div><span className="quality-evidence-eyebrow">Calculated from recorded evidence</span><h3>{titles[report.feature_id] || "Quality review"}</h3></div><span className={`quality-evidence-status is-${data.status || report.readiness}`}>{label(data.status || report.readiness)}</span></header>
+    <div className="quality-evidence-meta"><span>{report.evidence_complete ? "Requested sources loaded" : "Evidence gaps remain"}</span><span>{new Date(report.as_of).toLocaleString()}</span><span>Review only · No changes applied</span></div>
+    {data.gates?.length ? <ul className="quality-evidence-checks">{data.gates.map(gate => <li key={gate.id}><span className={`quality-evidence-status is-${gate.status}`}>{label(gate.status)}</span><div><strong>{gate.label}</strong><p>{gate.detail}</p></div></li>)}</ul> : null}
+    {typeof data.obligation_count === "number" ? <div className="quality-evidence-metrics"><div><strong>{data.obligation_count}</strong><span>Acceptance obligations</span></div><div><strong>{data.unknown_weight ?? "—"}</strong><span>Unverified weight</span></div>{(["designed", "executable", "observed"] as const).map(key => <div key={key}><strong>{data[`${key}_percent`] == null ? "—" : `${data[`${key}_percent`]}%`}</strong><span>{label(key)} coverage</span></div>)}</div> : null}
+    {data.band ? <p><strong>{label(data.band)}</strong> · {data.method}. A calibrated failure probability is not available.</p> : null}
+    {data.indicators?.length ? <ul className="quality-evidence-checks">{data.indicators.map(item => <li key={item.id}><span className={`quality-evidence-status is-${item.status}`}>{label(item.status)}</span><p>{item.detail}</p></li>)}</ul> : null}
+    {data.scenarios?.length ? <div className="quality-evidence-table-wrap"><table><caption>Hypothetical outcomes · Actual release gates stay unchanged</caption><thead><tr><th>Assumption</th><th>Projected state</th><th>Evidence needed</th></tr></thead><tbody>{data.scenarios.map(scenario => <tr key={scenario.gate_id}><td>{scenario.assumption}</td><td>{label(scenario.projected_status)}</td><td>{scenario.required_evidence}</td></tr>)}</tbody></table></div> : null}
+    {data.paths ? <p>{data.paths.length} reachable records in the bounded change-impact traversal.{data.truncated ? " The traversal limit was reached; wider impact remains unknown." : ""}</p> : null}
+    {data.rows || graph.edges ? <label className="quality-evidence-search"><span>Find evidence</span><input type="search" placeholder="Search records, obligations or relationships" value={query} onChange={event => { setQuery(event.target.value); setLimit(30); }} /></label> : null}
+    {data.rows ? <div className="quality-evidence-table-wrap"><table><caption>{rows.length} evidence rows</caption><thead><tr><th>{report.feature_id === "F15" ? "Test Case" : "Obligation"}</th><th>Assessment</th><th>Evidence / next check</th></tr></thead><tbody>{rows.slice(0, limit).map((row, index) => <tr key={String(row.obligation_id || row.comparison_key || index)}><td>{label(row.text || row.test_case_id)}</td><td>{label(row.status || row.observed)}{typeof row.sample_size === "number" ? ` · ${row.failed}/${row.sample_size} failed` : ""}</td><td>{label(row.reason || row.limitation)}{Array.isArray(row.wilson_95_interval) ? <small>Descriptive 95% interval: {row.wilson_95_interval.map(value => `${Math.round(Number(value) * 100)}%`).join(" – ")}</small> : null}</td></tr>)}</tbody></table>{!rows.length ? <p className="quality-evidence-empty">No comparable evidence in this scope. This does not establish coverage or reliability.</p> : null}</div> : null}
+    {typeof data.incomparable_attempt_count === "number" ? <p>{data.incomparable_attempt_count} attempts excluded because comparable execution context or finalized outcomes were missing.</p> : null}
+    {graph.edges ? <div className="quality-evidence-table-wrap"><table><caption>{graph.nodes?.length || 0} records · {edges.length} recorded relationships</caption><thead><tr><th>Source</th><th>Relationship</th><th>Target</th></tr></thead><tbody>{edges.slice(0, limit).map(edge => <tr key={edge.id}><td>{nodes.get(edge.source)?.title || edge.source}</td><td>{label(edge.relation)}</td><td>{nodes.get(edge.target)?.title || edge.target}</td></tr>)}</tbody></table>{!edges.length ? <p className="quality-evidence-empty">No recorded relationships match. Missing links do not prove no impact.</p> : null}</div> : null}
+    {Math.max(rows.length, edges.length) > limit ? <button type="button" className="ghost-button" onClick={() => setLimit(value => value + 30)}>Show more evidence</button> : null}
+    {report.feature_id === "F13" && report.scope.project_id && report.scope.story_id ? <details className="quality-evidence-details" onToggle={event => setMappingOpen(event.currentTarget.open)}><summary>Review criterion-to-assertion mappings</summary>{mappingOpen && <CoverageMappingReview key={report.scope.story_id} projectId={report.scope.project_id} storyId={report.scope.story_id} />}</details> : null}
+    {report.feature_id === "F11" && report.scope.project_id ? <details className="quality-evidence-details" onToggle={event=>setPolicyOpen(event.currentTarget.open)}><summary>Release policy and exceptions</summary>{policyOpen&&<ReleasePolicyReview report={report}/>}</details>:null}
+    {report.persistence && <><p className="quality-evidence-meta">Graph revision saved · {report.persistence.snapshot_id}</p>{report.persistence.freshness && report.persistence.freshness !== 'current' ? <p role="status" className="quality-evidence-meta">Source records changed or freshness is unavailable. This is a historical assessment; run a new review before using it for a current decision.</p> : null}</>}
+    <details className="quality-evidence-details"><summary>Scope, provenance and limitations</summary><p>{Object.entries(report.scope).filter(([, value]) => value).map(([key, value]) => `${label(key)}: ${value}`).join(" · ")}</p><ul>{[...new Set([...report.limitations, ...(data.limitations || []), ...(data.graph?.limitations || [])])].map(item => <li key={item}>{item}</li>)}</ul><p>Verifier {report.verifier_version} · Snapshot {report.snapshot_hash}</p><p>Evidence references and calculations do not establish factual correctness, semantic adequacy, or release authorization.</p></details>
+  </section>;
+}

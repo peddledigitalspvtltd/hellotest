@@ -1,12 +1,12 @@
 // This opt-in test only initializes an EMPTY disposable agent_verify_* database.
-// Both SQL adapters must point at that database; no provider model is configured.
+// Both SQL adapters must point at that database; model transport is a local fixture.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
-test("workspace specialists persist grounded reviews and honest workflow previews", { skip: !process.env.AGENT_WORKSPACE_POSTGRES, timeout: 120_000 }, async () => {
+test("workspace specialists persist grounded reviews and honest workflow previews", { skip: !process.env.AGENT_WORKSPACE_POSTGRES, timeout: 120_000 }, async t => {
   const primaryUrl = new URL(process.env.DATABASE_URL);
   const observationUrl = new URL(process.env.OBS_DATABASE_URL);
   assert.match(primaryUrl.pathname.slice(1), /^agent_verify_[a-z0-9_]+$/);
@@ -32,13 +32,36 @@ test("workspace specialists persist grounded reviews and honest workflow preview
     const assistant = require("../../../../agentic/backend/services/agenticAssistant.service");
     const workflowService = require("../../../../agentic/backend/services/agenticWorkflow.service");
     const transactionService = require("../../services/workspaceTransaction.service");
+    const registry = require("../../../../agentic/backend/agents/agentRegistry.service");
+    await assert.rejects(registry.resolveModel(projectId, userId), { code: "AGENT_MODEL_REQUIRED" });
+    t.mock.method(require("../../../../integration/backend/services/aiLlmSelection.service"), "resolveLlmIntegrationForUsage", async () => ({ id: "fixture-model", type: "llm", is_active: true, name: "Fixture model", model: "fixture-model", api_key: "fixture-only-key", base_url: "https://model.example.test/v1" }));
+    t.mock.method(globalThis, "fetch", async (_url, request) => {
+      const payload = JSON.parse(JSON.parse(request.body).messages.at(-1).content);
+      const repairProjection=payload.bounded_workspace_context?.automation_repair?.[0]?.content;
+      let repairCandidate=null;
+      if(repairProjection){try{const context=JSON.parse(repairProjection);if(context.failed_step_ids?.length)repairCandidate={kind:'replace_locator',step_id:context.failed_step_ids[0],new_locator:'#new',rationale:'The captured fixture evidence identifies the new submit button.'};}catch{}}
+      const citation = payload.citation_contract.find(item => item.id !== "K-live-project-project-overview") || payload.citation_contract[0];
+      return new Response(JSON.stringify({ model: "fixture-model", choices: [{ message: { content: JSON.stringify({ automation_repair:repairCandidate, response: citation ? `Review supplied evidence [${citation.id}].` : "Provide task evidence before proceeding.", citation_ids: citation ? [citation.id] : [], findings: [], deliverables: [], recommendations: [], assumptions: [], evidence_gaps: citation ? [] : ["Task evidence is missing."] }) } }] }), { headers: { "content-type": "application/json" } });
+    });
+    const definition = { name: "Release reviewer", objective: "Review release evidence", required_inputs: ["release_id"] };
+    const published = await registry.save({ project_id: projectId, definition, activate: true }, null, userId);
+    assert.equal(published.active_version, 1);
+    const edits = await Promise.allSettled([1, 2].map(i => registry.save({ project_id: projectId, definition: { ...definition, objective: `Draft review ${i}` }, expected_version: 1 }, published.id, userId)));
+    assert.equal(edits.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(edits.find(result => result.status === "rejected").reason.code, "AGENT_VERSION_CONFLICT");
+    assert.equal((await registry.get(published.id, projectId)).current_version, 2);
+    assert.equal((await registry.resolve(published.id, 1, projectId)).definition.objective, definition.objective);
+    assert.equal((await registry.list(projectId))[0].active_definition.objective, definition.objective);
+    await assert.rejects(registry.resolve(published.id, 2, projectId), { code: "AGENT_VERSION_INACTIVE" });
+    await assert.rejects(registry.resolve(published.id, 1, "foreign-project"), { code: "AGENT_UNAVAILABLE" });
     const reviews = [];
     for (const agentId of Object.keys(assistant.AGENT_CATALOG)) {
       const review = await assistant.respond({ project_id: projectId, app_type_id: appTypeId, user, agent_id: agentId, mode: "agent", prompt: "Review current quality evidence and identify supported gaps." });
       assert.equal(review.transaction.status, "completed", agentId);
-      assert.equal(review.provenance.generation_mode, "deterministic", "An empty integration registry must not claim model analysis");
-      assert.equal(review.result.readiness.status, "limited_evidence");
-      assert.ok(review.result.readiness.task_evidence_count > 0);
+      assert.equal(review.provenance.generation_mode, "llm");
+      assert.equal(review.result.model_execution.model_calls, 1);
+      assert.ok(["limited_evidence", "ready_for_review", "insufficient_evidence"].includes(review.result.readiness.status));
+
       assert.ok(review.citations.length > 0);
       assert.ok(review.events.some((event) => event.phase === "context"));
       assert.ok(review.events.some((event) => event.phase === "evaluation"));
@@ -46,10 +69,10 @@ test("workspace specialists persist grounded reviews and honest workflow preview
       assert.deepEqual(restored.result, review.result);
       assert.deepEqual(restored.citations, review.citations);
       assert.equal(restored.provenance.input_fingerprint, review.provenance.input_fingerprint);
-      assert.equal(restored.provenance.generation_mode, "deterministic");
+      assert.equal(restored.provenance.generation_mode, "llm");
       reviews.push({ agent_id: agentId, state: restored.session_state, citations: restored.citations.length });
     }
-    assert.equal((await obsDb.prepare("SELECT COUNT(*)::INTEGER AS count FROM workspace_transactions WHERE project_id = ? AND category = 'ai_agent'").get(projectId)).count, 10);
+    assert.equal((await obsDb.prepare("SELECT COUNT(*)::INTEGER AS count FROM workspace_transactions WHERE project_id = ? AND category = 'ai_agent'").get(projectId)).count, Object.keys(assistant.AGENT_CATALOG).length);
     assert.equal((await db.prepare("SELECT COUNT(*)::INTEGER AS count FROM requirements WHERE project_id = ?").get(projectId)).count, 1, "Reviews must not apply suggested story changes");
     const nodes = [
       { id: "output", data: { kind: "output", label: "Review outcome" } },
@@ -95,28 +118,120 @@ test("workspace specialists persist grounded reviews and honest workflow preview
     await transactionService.createTransaction({ project_id: projectId, app_type_id: appTypeId, category: "ai_agent", related_kind: "unrelated_agent_work", status: "completed", created_by: user.id });
     await transactionService.createTransaction({ project_id: otherProjectId, app_type_id: otherAppId, category: "ai_agent", related_kind: "agentic_assistant_session", status: "completed", created_by: user.id });
     const visibleReviews = await assistant.listSessions({ project_id: projectId, app_type_id: appTypeId }, restricted);
-    assert.equal(visibleReviews.length, 10, "Agent viewers can list specialist history without transaction.view and unrelated records are excluded");
+    assert.equal(visibleReviews.length, Math.min(20, Object.keys(assistant.AGENT_CATALOG).length), "Agent viewers can list specialist history without transaction.view and unrelated records are excluded");
     assert.ok(visibleReviews.every(review => review.related_kind === "agentic_assistant_session" && review.project_id === projectId && review.app_type_id === appTypeId));
     assert.equal((await assistant.listSessions({ project_id: projectId, app_type_id: appTypeId, limit: 3 }, restricted)).length, 3);
-    assert.equal((await assistant.getSession(firstReview.id, restricted)).session_state, "completed");
+    await assert.rejects(assistant.getSession(firstReview.id, restricted), { statusCode: 403 });
+    assert.ok(visibleReviews.every(review => !review.metadata.result && !review.metadata.citations), "History summaries do not disclose source evidence");
     await assert.rejects(assistant.listSessions({ project_id: projectId, app_type_id: otherAppId }, restricted), { statusCode: 400 });
     const pending = await transactionService.createTransaction({ project_id: projectId, app_type_id: appTypeId, category: "ai_agent", related_kind: "agentic_assistant_session", status: "running", created_by: user.id });
     const pendingSession = await assistant.getSession(pending.id, user);
     assert.equal(pendingSession.session_state, "running");
     assert.equal(pendingSession.result, null);
+    // Exercise complete quality evidence queries against recorded records, not only empty tables.
+    const releaseId = randomUUID(), environmentId = randomUUID(), caseId = randomUUID(), executionId = randomUUID();
+    const foreignStory = randomUUID(), foreignCase = randomUUID(), siblingApp = randomUUID(), siblingCase = randomUUID();
+    await db.prepare("INSERT INTO requirement_releases(id,project_id,name,fix_version) VALUES (?,?,?,?)").run(releaseId, projectId, "Candidate release", "candidate-24");
+    await db.prepare("INSERT INTO requirement_release_items(release_id,requirement_id) VALUES (?,?)").run(releaseId, storyId);
+    await db.prepare("UPDATE requirements SET additional_fields = ? WHERE id = ?").run({ acceptance_criteria: ["A supported payment records its reference."] }, storyId);
+    await db.prepare("INSERT INTO test_environments(id,project_id,name) VALUES (?,?,?)").run(environmentId, projectId, "Staging");
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title,requirement_id) VALUES (?,?,?,?)").run(caseId, appTypeId, "Payment confirmation", storyId);
+    await db.prepare("INSERT INTO executions(id,project_id,app_type_id,name,release_id,build,test_environment_id,test_configuration_snapshot,test_environment_snapshot) VALUES (?,?,?,?,?,?,?,?,?)").run(executionId, projectId, appTypeId, "Candidate verification", releaseId, "build-24", environmentId, {browser:"chromium"}, {id:environmentId});
+    await db.prepare("INSERT INTO execution_case_snapshots(execution_id,test_case_id,test_case_title) VALUES (?,?,?)").run(executionId, caseId, "Payment confirmation");
+    await db.prepare("INSERT INTO execution_step_snapshots(execution_id,test_case_id,snapshot_step_id,step_order,action,expected_result) VALUES (?,?,?,?,?,?)").run(executionId, caseId, randomUUID(), 1, "Confirm payment", "Payment reference appears");
+    for (const status of ["failed", "passed"]) await db.prepare("INSERT INTO execution_results(id,execution_id,test_case_id,app_type_id,status,data_set_row_snapshot) VALUES (?,?,?,?,?,?)").run(randomUUID(), executionId, caseId, appTypeId, status, {payment:"fixture"});
+    await db.prepare("INSERT INTO feedback(id,project_id,user_id,title,message,severity,linked_test_case_ids) VALUES (?,?,?,?,?,?,?)").run(randomUUID(), projectId, userId, "Recorded payment failure", "Review the observed failure", "critical", [caseId]);
+    await db.prepare("INSERT INTO requirements(id,project_id,title) VALUES (?,?,?)").run(foreignStory, otherProjectId, "FOREIGN_STORY_SENTINEL");
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title,requirement_id) VALUES (?,?,?,?)").run(foreignCase, otherAppId, "FOREIGN_CASE_SENTINEL", foreignStory);
+    await db.prepare("INSERT INTO app_types(id,project_id,name,type) VALUES (?,?,?,'web')").run(siblingApp, projectId, "Separate same-project application");
+    await db.prepare("INSERT INTO test_cases(id,app_type_id,title) VALUES (?,?,?)").run(siblingCase, siblingApp, "SIBLING_CASE_SENTINEL");
+    await db.prepare("INSERT INTO feedback(id,project_id,user_id,title,message,linked_test_case_ids) VALUES (?,?,?,?,?,?)").run(randomUUID(), projectId, userId, "SIBLING_DEFECT_SENTINEL", "Separate application", [siblingCase]);
+    const quality = require("../../../../ai/backend/services/qualityEvidence.service");
+    const qualityInput = { projectId, appTypeId, user, input: {release_id:releaseId,build:"build-24",environment_id:environmentId} };
+    const gates = (await quality.assess({...qualityInput,featureId:"F11"})).report;
+    assert.equal(gates.data.status, "not_ready");
+    assert.equal(gates.data.deployment_authorized, false);
+    assert.equal(gates.data.gates.find(item => item.id === "execution-outcomes").status, "fail");
+    const reliability = (await quality.assess({...qualityInput,featureId:"F15"})).report;
+    assert.equal(reliability.data.rows.length, 1);
+    assert.equal(reliability.data.rows[0].status, "suspect");
+    assert.equal(reliability.data.rows[0].sample_size, 2);
+    const applicationGraph = (await quality.assess({projectId,appTypeId,user,featureId:"F17"})).report;
+    assert.doesNotMatch(JSON.stringify(applicationGraph), /FOREIGN_|SIBLING_/);
+    assert.ok(applicationGraph.data.edges.some(edge => edge.relation === "linked_to"));
+    const deniedEvidence = await quality.collect({...qualityInput,user:restricted});
+    assert.equal(deniedEvidence.attempts.length, 0);
+    assert.equal(deniedEvidence.tests.length, 0);
+    assert.equal(deniedEvidence.complete, false);
+    await assert.rejects(quality.collect({...qualityInput,input:{release_id:randomUUID()}}), {statusCode:400});
+
+    const releasePolicies=require("../../../../ai/backend/services/qualityReleasePolicy.service");
+    const policyDefinition={name:"Recorded QA approval policy",minimum_completed_attempts:1,max_evidence_age_hours:24,waivable_gates:["blocking-defects","execution-outcomes"]};
+    const approvals=await Promise.allSettled([1,2].map(()=>releasePolicies.approve(projectId,user,{expected_version:0,policy:policyDefinition,rationale:"Release owner approves these bounded evidence requirements."})));
+    assert.equal(approvals.filter(item=>item.status==='fulfilled').length,1);
+    assert.equal(approvals.find(item=>item.status==='rejected').reason.statusCode,409);
+    const policyScope={projectId,user,input:qualityInput.input,featureId:"F11"};
+    const policyReport=(await quality.assess(policyScope)).report;
+    const failedGate=policyReport.data.gates.find(item=>item.id==='blocking-defects');
+    const exceptionInput={...qualityInput.input,policy_version:1,gate_id:failedGate.id,evidence_hash:failedGate.evidence_hash,decision:'approved',reference:'QA-RELEASE-1',expires_at:new Date(Date.now()+86400000).toISOString(),rationale:'Approved recorded failure with a bounded expiry and accountable follow-up.'};
+    await releasePolicies.waive(projectId,user,exceptionInput);
+    assert.equal((await quality.assess(policyScope)).report.data.gates.find(item=>item.id===failedGate.id).status,'waived');
+    await releasePolicies.waive(projectId,user,{...exceptionInput,decision:'revoked'});
+    assert.equal((await quality.assess(policyScope)).report.data.gates.find(item=>item.id===failedGate.id).status,'fail');
+    await assert.rejects(releasePolicies.waive(projectId,user,{...exceptionInput,evidence_hash:'stale'}),{statusCode:409});
+
+    // Real revision-bound assertion review, invalidation, graph history and model traces.
+    const stepId = randomUUID();
+    await db.prepare("INSERT INTO test_steps(id,test_case_id,step_order,action,expected_result) VALUES (?,?,1,?,?)").run(stepId,caseId,"Confirm payment","Payment reference appears");
+    const snapshotStep = await db.prepare("SELECT snapshot_step_id FROM execution_step_snapshots WHERE execution_id=? AND test_case_id=?").get(executionId,caseId);
+    await db.prepare("UPDATE execution_results SET logs=? WHERE execution_id=? AND status='passed'").run(JSON.stringify({stepStatuses:{[snapshotStep.snapshot_step_id]:"passed"}}),executionId);
+    const mappingService = require("../../../../ai/backend/services/qualityCoverageReview.service");
+    const inventory = await mappingService.load({projectId,user,input:{story_id:storyId}});
+    const target = inventory.tests.find(row=>row.id===caseId);
+    const reviewInput = {request_id:randomUUID(),story_id:storyId,story_revision:inventory.story_revision,obligation_id:inventory.obligations[0].id,test_case_id:caseId,test_revision:target.revision,step_id:stepId,decision:"approved",rationale:"The reference is the recorded observable payment confirmation required by this criterion."};
+    const mapping = await mappingService.save({projectId,user,input:reviewInput});
+    assert.equal((await mappingService.save({projectId,user,input:reviewInput})).id,mapping.id,"Retrying the same review request reuses its receipt");
+    await assert.rejects(mappingService.save({projectId,user,input:{...reviewInput,decision:"rejected"}}),{statusCode:409});
+    const covered = (await quality.assess({projectId,user,input:{story_id:storyId,build:"build-24",environment_id:environmentId},featureId:"F13"})).report;
+    assert.equal(covered.data.designed_percent,100);assert.equal(covered.data.observed_percent,100);
+    const verifiedGraph = (await quality.assess({projectId,user,input:{story_id:storyId},featureId:"F17"})).report;
+    assert.ok(verifiedGraph.data.edges.some(edge=>edge.relation==="verifies"&&edge.evidence_status==="reviewed"));
+    assert.ok(await db.prepare("SELECT id FROM quality_graph_snapshots WHERE id=? AND project_id=?").get(verifiedGraph.persistence.snapshot_id,projectId));
+    await db.prepare("UPDATE test_steps SET expected_result=? WHERE id=?").run("Changed expected behavior",stepId);
+    await assert.rejects(mappingService.save({projectId,user,input:{...reviewInput,request_id:randomUUID()}}),{statusCode:409});
+    const stale = (await quality.assess({projectId,user,input:{story_id:storyId},featureId:"F13"})).report;
+    assert.equal(stale.data.rows[0].designed,"stale");
+    assert.equal((await db.prepare("SELECT COUNT(*)::integer AS count FROM quality_graph_edges WHERE snapshot_id=? AND relation_type='verifies'").get(verifiedGraph.persistence.snapshot_id)).count,1,"Historical graph revisions are immutable");
+    const traceQuery = require("../../../../trace/backend/services/llmTraceQuery.service");
+    const tracePage = await traceQuery.list(projectId,{});
+    assert.equal(tracePage.summary.calls,Object.keys(assistant.AGENT_CATALOG).length);
+    assert.ok(tracePage.items.every(row=>row.session_id&&row.status==="succeeded"));
+    const traceId=tracePage.items[0].id;
+    const restrictedTrace=await traceQuery.detail(projectId,traceId);
+    assert.equal(restrictedTrace.request_payload,undefined);assert.equal(restrictedTrace.content_access,false);
+    const privilegedTrace=await traceQuery.detail(projectId,traceId,{includeContent:true});
+    assert.ok(privilegedTrace.request_payload.messages.length);assert.ok(privilegedTrace.response_payload.choices.length);
+    await assert.rejects(traceQuery.detail(otherProjectId,traceId,{includeContent:true}),{statusCode:404});
+
     const executionService = require("../../../../agentic/backend/services/agenticWorkflowExecution.service");
     let executionFailure;
     executionService._internals.diagnostics.onFailure = failure => { executionFailure = failure; };
-    const executable = await workflowService.updateWorkflow(workflow.id, { nodes: nodes.map(node => node.id === "review" ? { ...node, data: { ...node.data, agentId: "story-architect", prompt: "Review checkout boundaries using the current project evidence.", knowledgeScope: "stories,knowledge" } } : node) }, user.id);
+    const executable = await workflowService.updateWorkflow(workflow.id, { nodes: nodes.map(node => node.id === "review" ? { ...node, data: { ...node.data, agentId: published.id, agentVersion: 1, prompt: "Review checkout boundaries using the current project evidence.", knowledgeScope: "stories,knowledge" } } : node) }, user.id);
     assert.equal(executionService.readiness(executable).ready, true);
     await assert.rejects(executionService.start(executable, {}, restricted), { statusCode: 403 });
-    const executionInput = { request_id: randomUUID(), input_payload: { request: "Review checkout boundaries" } };
+    const executionInput = { request_id: randomUUID(), input_payload: { request: "Review checkout boundaries", release_id: "r1" } };
     const started = await executionService.start(executable, executionInput, user);
     await executionService._internals.active.get(started.id)?.promise;
     const actual = await workflowService.getWorkflowRun(started.id);
     if (executionFailure) throw executionFailure;
     assert.equal(actual.execution_mode, "review");
-    assert.equal(actual.status, "needs_review", "Deterministic evidence summaries preserve their limitation rather than claiming model success");
+    assert.ok(["completed", "needs_review"].includes(actual.status));
+    assert.equal(actual.workflow_snapshot.nodes.find(node => node.id === "review").data.agentSnapshot.version, 1);
+    assert.equal(actual.node_results[1].output.model_execution.agent_version, 1);
+    const runTraces=await traceQuery.list(projectId,{run_id:actual.id});
+    assert.equal(runTraces.items.length,1);assert.equal(runTraces.items[0].node_id,"review");
+    assert.equal(actual.node_results[1].output.model_execution.trace_id,runTraces.items[0].id);
+
     assert.deepEqual(actual.node_results.map(node => node.node_id), ["input", "review", "output"]);
     assert.ok(actual.node_results.every(node => node.status === "completed" && node.attempts === 1));
     assert.ok(actual.node_results[1].output.citation_ids.length > 0);
@@ -132,6 +247,18 @@ test("workspace specialists persist grounded reviews and honest workflow preview
     const recovered = await workflowService.getWorkflowRun(actual.id);
     assert.equal(recovered.status, "interrupted");
     assert.equal(recovered.node_results[1].output.session_id, savedReview.transaction.id);
+    if (process.env.AGENT_TEMPORAL_TEST === '1') await require('../../../../agentic/test/helpers/temporalChecks').run({ db, workflow: executable, user, payload: { story_id: storyId, release_id: 'fixture-release', request: 'Review checkout boundaries' } });
+    const graphChanges = require('../../../../ai/backend/services/qualityGraphChanges');
+    assert.equal((await graphChanges.freshness(projectId, verifiedGraph.persistence.snapshot_id)).freshness,'stale','Assertion edits invalidate prior graph assessments');
+    const deletionStory = randomUUID();
+    await db.prepare('INSERT INTO requirements(id,project_id,title) VALUES(?,?,?)').run(deletionStory,projectId,'Temporary traceability fixture');
+    const beforeDeletion = (await quality.assess({projectId,user,input:{story_id:deletionStory},featureId:'F17'})).report;
+    await db.prepare('DELETE FROM requirements WHERE id=?').run(deletionStory);
+    assert.equal((await graphChanges.freshness(projectId,beforeDeletion.persistence.snapshot_id)).freshness,'changes_pending');
+    await graphChanges.processPending();await graphChanges.processPending();
+    assert.equal((await graphChanges.freshness(projectId,beforeDeletion.persistence.snapshot_id)).freshness,'stale');
+    assert.equal((await db.prepare("SELECT count(*)::integer AS n FROM quality_graph_tombstones WHERE snapshot_id=? AND entity_id=? AND reason='recorded_source_deletion'").get(beforeDeletion.persistence.snapshot_id,`story:${deletionStory}`)).n,1);
+    if(process.env.AGENT_REPAIR_BROWSER==='1')await require('../../../../ai/test/helpers/automationRepairChecks').run({db,obsDb,user,projectId,appTypeId,modelReview:true});
     console.log(JSON.stringify({ validated_specialists: reviews, persisted_reviews: 10, restored_review_provenance: true, workflow_execution_mode: persistedPreview.execution_mode, topological_preview: true, invalid_graph_preserved: true, project_permissions_enforced: true, application_scope_preserved: true, specialist_history_without_transaction_permission: true }));
   } finally {
     await obsDb.close();

@@ -3,6 +3,7 @@ const DEFAULT_MAX_ATTEMPTS = Math.max(1, Math.min(4, Number.parseInt(process.env
 const { cloneWithBoundedBody } = require("./boundedResponse");
 const { isContextSizeRejection, buildContextFallbackBody } = require("./llmContextFallback");
 const { resilientHttpRequest } = require("./resilientHttpClient");
+const traces = require("./llmTraceCapture");
 const { prepareChatRequest, compatibleChatRequest, validateChatResponse } = require("./llmRequestPolicy");
 
 const bufferResponseWithinDeadline = (response, controller, maxBytes) => cloneWithBoundedBody(response, {
@@ -21,7 +22,15 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   const prepared = prepareChatRequest(init, { ...options, operation });
   init = prepared.init;
   const startedAt = Date.now();
-  const request = (init, remainingMs = timeoutMs) => resilientHttpRequest(url, init, {
+  let lastTrace = null, lastResponse = null, attempts = 1;
+  const request = async (init, remainingMs = timeoutMs) => {
+    if (lastTrace) await traces.finish(lastTrace, { response: lastResponse, attempts });
+    lastTrace = await traces.begin({ url, init, options: { ...options, operation }, correctionOf: lastTrace?.id });
+    attempts = 1;
+    lastResponse = null;
+    remainingMs = Math.min(remainingMs, timeoutMs - (Date.now() - startedAt));
+    if (remainingMs <= 0) throw Object.assign(new Error("The model request deadline elapsed before dispatch."), { code: "DEADLINE_EXCEEDED", statusCode: 504 });
+    lastResponse = await resilientHttpRequest(url, init, {
     dependency: "llm-provider",
     operation,
     deadlineMs: remainingMs,
@@ -35,8 +44,13 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     // LLM generation uses POST and can incur duplicate work or billing. It is
     // single-attempt unless a caller explicitly supplies a replay-safe contract.
     idempotent: options.idempotent === true,
-    onEvent: (event) => console.warn(JSON.stringify(event))
-  });
+    onEvent: (event) => { attempts = Math.max(attempts, Number(event.attempt || 0) + 1); console.warn(JSON.stringify(event)); }
+    });
+    if (lastTrace) lastTrace.received = Date.now();
+    return lastResponse;
+  };
+  let failure = null;
+  try {
   let response = await request(init);
   let contextReduced = false;
   // At most two compatibility/size corrections, under the original deadline.
@@ -65,6 +79,8 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
     try { await require("@hellotest/integration/backend/services/aiLlmSelection.service").recordSuccessfulLlmIntegration(options.integration); } catch { /* best effort */ }
   }
   return response;
+  } catch (error) { failure = error; throw error; }
+  finally { await traces.finish(lastTrace, { response: lastResponse, error: failure, invalid: Boolean(failure && lastResponse?.ok), attempts }); }
 };
 
 exports._internals = {

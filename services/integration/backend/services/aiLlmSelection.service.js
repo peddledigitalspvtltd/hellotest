@@ -84,7 +84,10 @@ exports.resolveLlmIntegrationForUsage = async ({
   const context = { userId: normalizeText(userId), usageKey: normalizeText(usageKey), projectId: normalizeText(projectId) };
   const remember = (integration) => {
     const validated = validateLlmIntegration(integration);
-    if (validated) selectionContexts.set(validated, context);
+    if (validated) {
+      selectionContexts.set(validated, context);
+      require("@hellotest/platform/backend/src/utils/llmTraceContext").bindIntegration(validated, context);
+    }
     return validated;
   };
   if (explicitIntegrationId) {

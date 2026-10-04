@@ -8,7 +8,7 @@ const DIMENSIONS = {
   story: ["industry-standards", "usefulness", "design-maturity", "market-patterns"],
   "test-case": ["scenario-coverage", "execution-clarity", "data-reliability", "trace-maintainability"]
 };
-const ASSURANCE_REQUEST_TIMEOUT_MS = 105_000;
+const ASSURANCE_REQUEST_TIMEOUT_MS = 60_000;
 const ASSURANCE_REPAIR_TIMEOUT_MS = 60_000;
 const ASSURANCE_MAX_OUTPUT_TOKENS = 6_144;
 
@@ -37,7 +37,8 @@ const normalizeReview = (value, dimensionIds, allowedRefs) => {
         ? item
         : text(item?.ref || item?.evidence_ref || item?.evidence_id || item?.citation_id || item?.source_ref || item?.id, 255);
       const cleaned = text(candidate, 255).replace(/^[\s`'"\[]+|[\s`'"\]]+$/g, "");
-      return allowedByLowerCase.has(cleaned.toLowerCase()) ? [allowedByLowerCase.get(cleaned.toLowerCase())] : [];
+      if (!allowedByLowerCase.has(cleaned.toLowerCase())) throw Object.assign(new Error("AI assurance response cited unsupported evidence."), { code: "AI_ASSURANCE_REVIEW_INVALID" });
+      return [allowedByLowerCase.get(cleaned.toLowerCase())];
     }))].slice(0, 6);
   };
   const itemEvidence = item => evidence(item?.evidence || item?.evidence_refs || item?.citation_ids || item?.citations || item?.source_refs || item?.sources);
@@ -108,18 +109,25 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     `Locked deterministic score context: ${JSON.stringify(lockedScores)}`,
     `Bounded draft and source snapshot: ${JSON.stringify(sources)}`
   ].join("\n");
+  const deadline = Date.now() + ASSURANCE_REQUEST_TIMEOUT_MS;
+  let modelCalls = 0;
   let integration;
   try {
     integration = await selection.resolveLlmIntegrationForUsage({ integrationId, userId: user?.id, projectId,
       usageKey: artifactType === "story" ? "ai.quality.story_assurance" : "ai.quality.test_case_assurance", fallback: "project-then-global", allowMissing: true });
-    if (!integration) return { fallback_used: true, fallback_reason: "No active LLM integration is configured; deterministic evidence and scores remain available." };
+    if (!integration) throw Object.assign(new Error("Configure an active LLM to run AI assurance."), { code: "AI_MODEL_REQUIRED", statusCode: 422 });
     const baseUrl = String(integration.base_url || "https://api.openai.com/v1").replace(/\/+$/, "");
     const url = /\/chat\/completions$/i.test(baseUrl) ? baseUrl : `${baseUrl}/chat/completions`;
     const headers = { "Content-Type": "application/json" };
     if (integration.api_key) headers.Authorization = `Bearer ${integration.api_key}`;
-    const request = (messages, { operation, timeoutMs, maxOutputTokens }) => fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
+    const request = (messages, { operation, timeoutMs, maxOutputTokens }) => {
+      const remaining = deadline - Date.now();
+      if (remaining < 1000 || modelCalls >= 2) throw Object.assign(new Error("AI assurance exhausted its request budget."), { code: "AI_BUDGET_EXCEEDED", statusCode: 504 });
+      modelCalls += 1;
+      return fetchLlmWithRetry(url, { method: "POST", headers, body: JSON.stringify({
       model: integration.model, temperature: 0.1, response_format: { type: "json_object" }, messages
-    }) }, { integration, operation, timeoutMs, maxOutputTokens, contextFallback: false });
+    }) }, { integration, operation, timeoutMs: Math.min(timeoutMs, remaining), maxOutputTokens, maxAttempts: 1, compatibility: false, contextFallback: false });
+    };
     const allowedRefs = new Set(sources.map(item => item.ref));
     let review;
     let repaired = false;
@@ -153,9 +161,13 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
     }
     return { assurance_review: review, generation_mode: "hybrid", fallback_used: false, fallback_reason: null,
       response_repaired: repaired,
+      execution_status: "completed", publication_status: "proposal",
+      verification: { status: "passed", verifier_version: "artifact-assurance/2", checks: ["output_shape", "evidence_references"], limitations: ["Citation matching does not verify factual correctness or readiness."] },
+      model_execution: { model_calls: modelCalls, max_model_calls: 2, deadline_ms: ASSURANCE_REQUEST_TIMEOUT_MS },
       integration: { id: integration.id, name: integration.name, type: integration.type, model: integration.model, generation_mode: "hybrid", direct_model_invocation: true } };
   } catch (error) {
     const reasons = {
+      AI_MODEL_REQUIRED: "Configure an active LLM in Integrations to run AI assurance.",
       AI_INPUT_BUDGET_EXCEEDED: "The review input exceeds the provider budget. Shorten the draft or guidance and retry.",
       AI_OUTPUT_TRUNCATED: "The provider stopped before completing its review. Retry with a smaller draft or shorter guidance.",
       AI_INVALID_JSON: "The provider returned an invalid review format. Check that the selected model supports JSON responses.",
@@ -167,7 +179,7 @@ async function reviewArtifact({ artifactType, savedArtifact, proposedChange, bas
       || ([502, 503, 504].includes(error?.statusCode) || error?.name === "AbortError" ? "The AI provider is unavailable or timed out. Check its connection and retry." : null)
       || (error instanceof SyntaxError || /evidence-grounded review/.test(error?.message || "") ? "The provider returned a review without usable cited evidence. Retry or select another configured model." : null)
       || "The configured AI provider could not complete an evidence-grounded review.";
-    return { fallback_used: true, fallback_reason: `${reason} Deterministic evidence and scores remain available.` };
+    throw Object.assign(new Error(reason), { code: error?.code || "AI_REVIEW_FAILED", statusCode: error?.statusCode || 502, publicMessage: reason, cause: error });
   }
 }
 

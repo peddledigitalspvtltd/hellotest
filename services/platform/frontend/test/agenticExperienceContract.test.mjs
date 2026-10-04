@@ -24,7 +24,8 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
     "Quality Evaluator",
     "Object Repository Curator"
   ]) {
-    assert.match(component, new RegExp(specialist));
+    const catalog = await readSource("../../../agentic/shared/workflowSpecialists.json");
+    assert.match(catalog, new RegExp(specialist));
   }
 
   assert.match(component, /aria-label="Review format"/);
@@ -37,7 +38,7 @@ test("agent workbench exposes every governed QA specialist as a first-class acti
   assert.match(page, /<AgenticOutcomePanel/);
   assert.match(page, /Create workflow draft/);
   assert.match(page, /setAssistantContextScopes\(agent\.contextScopes\)/);
-  assert.match(component, /contextScopes: \["stories", "test-cases", "knowledge"\]/);
+  assert.match(component, /contextScopes: profile.scopes/);
 });
 
 test("AI Agents has a dedicated sidebar catalog and opens a focused specialist Workbench", async () => {

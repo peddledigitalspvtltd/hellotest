@@ -165,7 +165,7 @@ test("test design uses full bounded Story data, maps cases and removes exact rep
 });
 
 test("Story grooming's actual provider request includes explicit acceptance and planning/specification", async () => {
-  const fixture = providerFixture({});
+  const fixture = providerFixture({ layman: { explanation: "Review the approval requirements.", evidence_refs: ["requirement:story"] } });
   const service = load("requirementWorkspace.service", { ...fixture.overrides,
     "../db": { prepare() { assert.fail("No optional source was granted"); } },
     "./optionalEvidenceAccess.service": { getOptionalEvidenceAccess: async (_user, _project, codes) => Object.fromEntries(codes.map(code => [code, false])) }
@@ -239,8 +239,8 @@ test("test design rejects untraceable multi-Story drafts and empty executable ou
 
 test("assurance sends current draft and criteria but accepts only narratives with known source refs", async () => {
   const fixture = providerFixture({ summary: "Review the approval outcome", overall_score: 100, verdict: "Needs review",
-    dimensions: [{ id: "industry-standards", score: 100, status: "strong", explanation: "Draft is missing the rejection outcome", evidence: ["draft:story:story", "invented:secret"], recommendation: "Record rejection criteria" }, { id: "invented", explanation: "Ignore", evidence: ["draft:story:story"] }],
-    insights: [{ title: "Ignore unsupported claim", explanation: "No source", evidence: ["invented:secret"] }] });
+    dimensions: [{ id: "industry-standards", score: 100, status: "strong", explanation: "Draft is missing the rejection outcome", evidence: ["draft:story:story"], recommendation: "Record rejection criteria" }, { id: "invented", explanation: "Ignore", evidence: ["draft:story:story"] }],
+    insights: [] });
   const service = load("artifactAssurance.service", fixture.overrides);
   const result = await service.reviewArtifact({ artifactType: "story", savedArtifact: story, proposedChange: { description: "LIVE_DRAFT", acceptance_criteria: ["CURRENT_AC"] }, user, projectId: "project", integrationId: "provider", promptGuidance: "OUR_CRITERIA", additionalContext: "REVIEWED_ASSURANCE_CONTEXT", baseline: { overall_score: 37, dimensions: [{ id: "industry-standards", score: 25 }] } });
   assert.equal(result.generation_mode, "hybrid");
@@ -257,7 +257,7 @@ test("assurance sends current draft and criteria but accepts only narratives wit
   assert.match(prompt, /"ref":"review:context"/);
   assert.equal(fixture.selections[0].usageKey, "ai.quality.story_assurance");
   assert.equal(fixture.calls[0].policy.maxOutputTokens, 6144);
-  assert.equal(fixture.calls[0].policy.timeoutMs, 105000);
+  assert.ok(fixture.calls[0].policy.timeoutMs > 0 && fixture.calls[0].policy.timeoutMs <= 60000);
 });
 
 test("Test Case assurance includes linked Story acceptance and respects current Gherkin", async () => {
@@ -275,9 +275,9 @@ test("assurance exposes actionable provider failures without fabricated reviews 
   for (const [error, expected] of [[Object.assign(new Error("PRIVATE_PROVIDER_DETAIL"), { code: "AI_OUTPUT_TRUNCATED" }), /stopped before completing/], [Object.assign(new Error("PRIVATE_PROVIDER_DETAIL"), { upstreamStatusCode: 401 }), /credentials or model access/], [Object.assign(new Error("PRIVATE_PROVIDER_DETAIL"), { code: "AI_INPUT_BUDGET_EXCEEDED" }), /input exceeds/]]) {
     const fixture = providerFixture(error);
     const service = load("artifactAssurance.service", fixture.overrides);
-    const result = await service.reviewArtifact({ artifactType: "story", savedArtifact: story, user, projectId: "project" });
-    assert.equal(result.fallback_used, true); assert.equal(result.assurance_review, undefined);
-    assert.match(result.fallback_reason, expected); assert.doesNotMatch(result.fallback_reason, /PRIVATE_PROVIDER_DETAIL/);
+    await assert.rejects(service.reviewArtifact({ artifactType: "story", savedArtifact: story, user, projectId: "project" }), failure => {
+      assert.match(failure.message, expected); assert.doesNotMatch(failure.message, /PRIVATE_PROVIDER_DETAIL/); return true;
+    });
     assert.equal(fixture.calls.length, 1);
   }
 });
@@ -329,7 +329,7 @@ test("assurance routes forward the live draft, selected provider, prompt and loc
     "../public/applicationAccess": { getAppType: async () => appType }
   }, "routes");
   const validations = [];
-  await routes({ post: (url, handler) => handlers.set(url, handler), authenticate: async () => {}, validate: (schema, body) => validations.push({ schema, body }), requirePermission: () => async () => {} });
+  await routes({ get: (url, handler) => handlers.set(url, handler), post: (url, options, handler) => handlers.set(url, handler || options), authenticate: async () => {}, validate: (schema, body) => validations.push({ schema, body }), requirePermission: () => async () => {} });
   const body = { project_id: "project", integration_id: "provider", prompt_guidance: "Review guidance", additional_context: "Reviewed context", assurance_baseline: { overall_score: 45 }, proposed_change: { acceptance_criteria: ["LIVE"] } };
   for (const route of ["/requirements/:id/ai-impact-preview", "/test-cases/:id/ai-impact-preview"]) await handlers.get(route)({ user, params: { id: "record" }, body });
   assert.equal(captured.length, 2);

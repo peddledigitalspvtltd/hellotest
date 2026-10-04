@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const db = require("@hellotest/platform/backend/src/db");
 const { readBoundedResponseJson, readBoundedResponseText } = require("@hellotest/platform/backend/src/utils/boundedResponse");
 const { createHash, randomUUID: uuid } = require("crypto");
@@ -1857,6 +1858,7 @@ exports.previewRequirementOptimization = async ({ id, integration_id, user_id, u
     };
   }
 
+  requireAiAssessment({ integration, failed: fallbackUsed });
   if (fallbackUsed) {
     evidence.filter((item) => item.type === "reference-image").forEach((item) => {
       item.citation_allowed = false;
@@ -2110,6 +2112,7 @@ exports.previewRequirementCreation = async ({
     requirements = normalizeCandidates(rawCandidates);
   }
 
+  requireAiAssessment({ integration, failed: fallbackUsed, accepted: requirements.length > 0 });
   const limitations = storyEvidenceLimitations(evidence, fallbackReason);
   const unsupportedDraftCount = requirements.filter((candidate) => candidate.unsupported_fields.length).length;
   if (unsupportedDraftCount) limitations.push(`${unsupportedDraftCount} draft${unsupportedDraftCount === 1 ? " had" : "s had"} unsupported acceptance criteria removed before review.`);

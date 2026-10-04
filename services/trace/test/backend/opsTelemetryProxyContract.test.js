@@ -21,8 +21,9 @@ test("OPS telemetry browser reads stay project-scoped and provider credentials r
   assert.match(service, /OPS_READ_MAX_BYTES/);
   assert.match(service, /OPS_READ_MAX_EVENTS/);
   assert.doesNotMatch(frontend, /src=\{opsBoardUrl\}/);
-  assert.match(frontend, /api\.opsTelemetry\.snapshot/);
-  assert.match(frontend, /Redacted payload/);
+  assert.doesNotMatch(frontend, /api\.opsTelemetry\.snapshot/);
+  assert.doesNotMatch(frontend, /TestGrid telemetry/);
+  assert.match(frontend, /<OpsMonitoringWorkspace projectId=\{projectId\} \/>/);
 });
 
 test("OpenAPI documents the server-authenticated OPS snapshot", async () => {

@@ -191,7 +191,7 @@ test("both decision brief AI placements open the scoped explanation and revoke i
   await expect(actions).toBeVisible();
   await assist.click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  assert.match(await page.getByRole("dialog").innerText(), /AI scope: Autumn 2026 · all sprints/);
+  await expect(page.getByRole("dialog")).toContainText(/AI scope: Autumn 2026 · all sprints/);
   await page.getByRole("dialog").getByRole("button", { name: /Close/ }).first().click();
   await page.evaluate(() => window.finishReadinessAi());
   await actions.click();
@@ -201,7 +201,7 @@ test("both decision brief AI placements open the scoped explanation and revoke i
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.evaluate(() => window.finishReadinessAi());
   await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByRole("button", { name: "Open Defects", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Open Defects", exact: true })).toHaveCount(0);
 }));
 
 test("unavailable sources stay unavailable in the new layout and shortcuts", { timeout: 90000 }, async () => withPage(async (page, base) => {
@@ -211,7 +211,7 @@ test("unavailable sources stay unavailable in the new layout and shortcuts", { t
     ["restricted", "bugs", "Open Defects"],
   ]) {
     await openReadiness(page, base, `?scenario=${scenario}`);
-    await expect(page.getByRole("button", { name: shortcut, exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: shortcut, exact: true })).toHaveCount(0);
     assert.equal((await page.evaluate(source => window.readinessCalls.filter(call => call.kind === source), deniedSource)).length, 0, `${deniedSource} is never fetched without access`);
     await mainTab(page, "Traceability").click();
     await assertFitsViewport(page, 390);
@@ -224,4 +224,23 @@ test("unavailable sources stay unavailable in the new layout and shortcuts", { t
   await page.getByRole("combobox", { name: "Release / fix version", exact: true }).selectOption("");
   await expect.poll(() => new URL(page.url()).searchParams.get("release_id")).toBe(null);
   await page.waitForFunction(() => window.readinessCalls.some(call => call.kind === "stories"));
+}));
+
+
+test("release AI review loads named environments and models and sends the exact release scope", {timeout:60000}, async () => withPage(async (page, base) => {
+  await openReadiness(page, base, "?scenario=native");
+  await expect(page.locator(".rr-layout-panel.is-ai .ai-lifecycle-shell")).toHaveCount(1);
+  assert.doesNotMatch(await page.locator(".rr-layout-footer").innerText(), /\{defects\}/);
+  await page.locator(".ai-lifecycle-shell > summary").click();
+  const review = page.getByRole("region", {name:"AI release review",exact:true});
+  await review.getByLabel("Environment",{exact:true}).selectOption("staging");
+  await review.getByLabel("Exact build",{exact:true}).fill("build-24");
+  await review.getByLabel("LLM",{exact:true}).selectOption("review-model");
+  await review.getByRole("button",{name:"Run AI review",exact:true}).click();
+  await review.getByText("Recorded release review",{exact:true}).waitFor();
+  const input = await page.evaluate(()=>window.lifecycleInput);
+  assert.equal(input.inputs.release_id,"native-release");
+  assert.equal(input.inputs.environment_id,"staging");
+  assert.equal(input.inputs.build,"build-24");
+  assert.equal(input.integration_id,"review-model");
 }));

@@ -6,13 +6,13 @@ const { isRouteEnabledFor } = require('../src/runtime/serviceProfile');
 const source = fs.readFileSync(require.resolve('../src/plugins/backgroundTasks'), 'utf8');
 
 const expected = {
-  platform: ['instanceSetup', 'projectDeletion'],
+  platform: ['instanceSetup', 'projectDeletion', 'llmTraceRetention'],
   testing: ['executionSchedule', 'batchProcess'],
   manual: [],
   knowledge: ['knowledgeRag'], chatbot: [],
   automation: ['aiAutomationBuilder'],
   agentic: ['repositoryAgents'],
-  dashboard: [], ai: ['aiTestCaseGeneration', 'requirementWorkspace'], trace: [], integration: ['projectSync']
+  dashboard: [], ai: ['aiTestCaseGeneration', 'requirementWorkspace', 'qualityGraphChanges'], trace: [], integration: ['projectSync']
 };
 
 for (const profile of [...Object.keys(expected), 'all']) {

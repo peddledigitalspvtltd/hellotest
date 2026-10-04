@@ -1,3 +1,4 @@
+const { requireAiAssessment } = require("@hellotest/platform/backend/src/utils/requireAiAssessment");
 const crypto = require("crypto");
 const aiLlmSelectionService = require("@hellotest/integration/backend/services/aiLlmSelection.service");
 const { sanitizeAiText } = require("@hellotest/platform/backend/src/security/aiTextPolicy");
@@ -126,20 +127,14 @@ exports.preview = async ({ projectId, appTypeId, prompt, fieldContext, sampleCou
       fallback: "project-then-global",
       allowMissing: true
     });
-    if (!integration) return buildResponse({ prompt: normalizedPrompt, fieldContext: normalizedFieldContext, values: fallbackValues, integration: null, fallbackReason: "No active LLM integration is configured.", contextSafety });
+    requireAiAssessment({ integration });
     const candidate = await requestValues({ integration, prompt: normalizedPrompt, fieldContext: normalizedFieldContext, count, promptInstruction: instructionSafety.text, reviewedContext: contextSafety.text });
     const values = [...new Set((Array.isArray(candidate?.values) ? candidate.values : []).map((value) => normalizeText(value, 500)).filter(isSafeSyntheticValue))].slice(0, count);
     if (values.length !== count) throw new Error("The model output did not pass synthetic-data safety and count validation.");
     return buildResponse({ prompt: normalizedPrompt, fieldContext: normalizedFieldContext, values, summary: normalizeText(candidate.summary, 500), integration, fallbackReason: null, contextSafety });
   } catch (error) {
-    return buildResponse({
-      prompt: normalizedPrompt,
-      fieldContext: normalizedFieldContext,
-      values: fallbackValues,
-      integration,
-      fallbackReason: error instanceof Error ? error.message : "The configured LLM could not generate safe synthetic values.",
-      contextSafety
-    });
+    requireAiAssessment({ integration, failed: true });
+    throw error;
   }
 };
 

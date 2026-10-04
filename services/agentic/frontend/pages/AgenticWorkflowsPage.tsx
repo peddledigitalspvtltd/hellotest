@@ -8,6 +8,9 @@ import { useAuth } from "@hellotest/platform/frontend/src/auth/AuthContext";
 import { useLocalization } from "@hellotest/platform/frontend/src/context/LocalizationContext";
 import { RepositoryAgents, REPOSITORY_AGENTS, isRepositoryAgentType } from "../agents/RepositoryAgents";
 import { AgentDirectory } from "../agents/AgentDirectory";
+import { AgentDefinitionEditor } from "../agents/AgentDefinitionEditor";
+import { agentFromSpecialist, projectAgentNode, type AgentDefinition, type ProjectAgent } from "../agents/agentDefinitions";
+import { specialistDefaults } from "../workflows/specialistProfiles";
 import { AgentActivityCenter } from "../agents/AgentActivityCenter";
 import { AGENT_EXPERIENCES } from "../agents/agentExperience";
 import type { RepositoryAgentType } from "../agents/agentTypes";
@@ -68,6 +71,15 @@ export function AgenticWorkflowsPage() {
   const canRunAgenticWorkflows = can("agentic_workflow.run");
   const canViewIntegrations = can("integration.view");
   const canUseKnowledge = can("knowledge.view");
+  const projectAgentsQuery = useQuery({ queryKey: ["project-agents", projectId, session?.user.id], queryFn: ({ signal }) => api.agentDefinitions.list(projectId, { signal }), enabled: Boolean(projectId) && canViewAgenticWorkflows && isAgenticWorkflowsEnabled });
+  const projectAgents = asArray(projectAgentsQuery.data);
+  const agentCatalog = useMemo(() => [...HELLOTEST_AGENT_CATALOG, ...projectAgents.filter(item => item.active_version && !item.archived).map(item => {
+    const definition = item.active_definition || item.definition;
+    return { id: item.id, agentVersion: item.active_version!, name: definition.name, shortName: definition.name, description: definition.description, capabilities: ["Custom task"], contextScopes: definition.context_scopes, prompt: definition.objective, icon: <IconShieldCheck /> };
+  })], [projectAgentsQuery.data]);
+  const [agentEditor, setAgentEditor] = useState<{ agent?: ProjectAgent; initial?: AgentDefinition } | null>(null);
+  const [agentEditorError, setAgentEditorError] = useState("");
+  const [agentInputs, setAgentInputs] = useState<Record<string, unknown>>({});
   const requestedSurface = searchParams.get("view");
   const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
     || requestedSurface === "activity"
@@ -131,6 +143,8 @@ export function AgenticWorkflowsPage() {
   const assistantRequestId = useRef(0);
   const workspaceScopeKey = `${projectId}:${appTypeId}`;
   const currentWorkspaceScope = useRef(workspaceScopeKey);
+  const currentProjectId = useRef(projectId);
+  currentProjectId.current = projectId;
   const previousWorkspaceScope = useRef(workspaceScopeKey);
   currentWorkspaceScope.current = workspaceScopeKey;
   const assistantScopeKey = `${projectId}:${appTypeId}:${activeSurface}:${assistantAgentId}`;
@@ -144,21 +158,28 @@ export function AgenticWorkflowsPage() {
   useEffect(() => {
     if (activeSurface !== "workbench") return;
     const requestedAgentId = searchParams.get("agent") || "";
-    const requestedAgent = HELLOTEST_AGENT_CATALOG.find((agent) => agent.id === requestedAgentId);
+    const requestedAgent = agentCatalog.find((agent) => agent.id === requestedAgentId);
     if (!requestedAgent || requestedAgent.id === assistantAgentId) return;
     setAssistantAgentId(requestedAgent.id);
     setAssistantPrompt(requestedAgent.prompt);
     setAssistantContextScopes(requestedAgent.contextScopes);
     setAssistantSmartContext(null);
-  }, [activeSurface, assistantAgentId, searchParams]);
+    setAgentInputs({});
+    setAssistantIntegrationId(projectAgents.find(agent => agent.id === requestedAgent.id)?.active_definition?.integration_id || "");
+  }, [activeSurface, assistantAgentId, searchParams, agentCatalog]);
 
   useEffect(() => {
     setAssistantSmartContext(null);
     setAssistantIntegrationId("");
+    setAgentEditor(null); setAgentEditorError(""); setAgentInputs({});
   }, [appTypeId, projectId]);
 
   useEffect(() => {
     if (previousWorkspaceScope.current === workspaceScopeKey) return;
+    if (assistantAgentId.startsWith("agent-")) {
+      setAssistantAgentId(HELLOTEST_AGENT_CATALOG[0].id); setAssistantPrompt(HELLOTEST_AGENT_CATALOG[0].prompt); setAssistantContextScopes(HELLOTEST_AGENT_CATALOG[0].contextScopes);
+      setSearchParams(current => { const next = new URLSearchParams(current); next.delete("agent"); next.delete("session"); return next; }, { replace: true });
+    }
     setDraft(null); setInspectedRun(null); setSelectedNodeId(""); setReviewReadiness(null); setReviewStartError(""); reviewRequest.current = null;
     setRunInput(DEFAULT_RUN_INPUT);
     setNodes([]); setEdges([]); setTestingApiNodeId(""); setSelectedActionWorkflowIds([]); setSelectedActionRunIds([]);
@@ -222,7 +243,7 @@ export function AgenticWorkflowsPage() {
   const llmIntegrationsQuery = useWorkspaceResource(
     ["integrations", "agentic-workflows", "llm", projectId, appTypeId],
     signal => api.integrations.list({ type: "llm" }, { signal }),
-    canViewIntegrations, activeSurface === "workbench" || activeSurface === "workflows"
+    canViewIntegrations, activeSurface === "workbench" || activeSurface === "workflows" || Boolean(agentEditor)
   );
 
   const projects = asArray(projectsQuery.data);
@@ -307,8 +328,9 @@ export function AgenticWorkflowsPage() {
   const runs = asArray(runsQuery.data);
   const assistantSessions = asArray(assistantSessionsQuery.data) as WorkspaceTransaction[];
   const selectedRun = selectedRunQuery.data?.id === selectedRunId ? selectedRunQuery.data : runs.find((run) => run.id === selectedRunId) || null;
-  const selectedAssistantAgent = HELLOTEST_AGENT_CATALOG.find((agent) => agent.id === assistantAgentId) || HELLOTEST_AGENT_CATALOG[0];
-  const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id];
+  const selectedAssistantAgent = agentCatalog.find((agent) => agent.id === assistantAgentId) || HELLOTEST_AGENT_CATALOG[0];
+  const selectedProjectAgent = projectAgents.find(item => item.id === assistantAgentId);
+  const specialistExperience = AGENT_EXPERIENCES[selectedAssistantAgent.id] || { category: "planning", outcome: selectedAssistantAgent.description || selectedAssistantAgent.prompt, inputs: "Configured project evidence and supplied inputs", output: "Structured AI review", destination: "/agentic-workflows?view=agents", destinationLabel: "Agent library", destinationPermission: "agentic_workflow.view", starters: [selectedAssistantAgent.prompt] };
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
   const workflowCredentials = useMemo(() => {
     const credentials = draft?.settings?.agenticCredentials;
@@ -316,7 +338,7 @@ export function AgenticWorkflowsPage() {
   }, [draft?.settings]);
   const llmProviderOptions = useMemo(() => {
     const providers = llmIntegrations
-      .filter((integration) => integration.type === "llm")
+      .filter((integration) => integration.type === "llm" && (!integration.config?.project_id || integration.config.project_id === projectId))
       .sort((left, right) => Number(right.is_active) - Number(left.is_active) || left.name.localeCompare(right.name))
       .map((integration: Integration) => ({
         value: integration.id,
@@ -328,7 +350,17 @@ export function AgenticWorkflowsPage() {
       { value: "", label: "Default workspace LLM", modelLabel: "Default workspace LLM" },
       ...providers
     ];
-  }, [llmIntegrations]);
+  }, [llmIntegrations, projectId]);
+  const saveAgentMutation = useMutation({
+    mutationFn: (submission: { project_id: string; definition: AgentDefinition; activate: boolean; id?: string; expected_version?: number }) => api.agentDefinitions.save(submission, submission.id),
+    onSuccess: (saved, submission) => {
+      void queryClient.invalidateQueries({ queryKey: ["project-agents", submission.project_id] });
+      if (submission.project_id !== currentProjectId.current) return;
+      setAgentEditor(null); setAgentEditorError(""); setToastTone("success");
+      setToastMessage(submission.activate ? `${saved.definition.name} is active and available in workflows.` : "Agent draft saved. Activate it when ready.");
+    },
+    onError: (failure, submission) => { if (submission.project_id === currentProjectId.current) setAgentEditorError(failure instanceof Error ? failure.message : "Unable to save this agent."); }
+  });
   const invalidateWorkflowData = () => {
     void queryClient.invalidateQueries({ queryKey: ["agentic-workflows"] });
     void queryClient.invalidateQueries({ queryKey: ["agentic-workflow-runs"] });
@@ -364,7 +396,7 @@ export function AgenticWorkflowsPage() {
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
     assistantMutation.mutate({ scope: assistantScopeKey, requestId, signal: controller.signal, input: {
       project_id: projectId, app_type_id: appTypeId || undefined, mode: assistantMode,
-      agent_id: assistantAgentId, prompt: assistantPrompt, context_scopes: assistantContextScopes,
+      agent_id: assistantAgentId, agent_version: selectedAssistantAgent.agentVersion, inputs: agentInputs, prompt: assistantPrompt, context_scopes: assistantContextScopes,
       smart_context: canUseKnowledge && assistantSmartContext ? { query: assistantSmartContext.query, source_ids: assistantSmartContext.sourceIds, source_kinds: assistantSmartContext.sourceKinds, reviewed_context: assistantSmartContext.contextText } : undefined,
       integration_id: canViewIntegrations ? assistantIntegrationId || undefined : undefined
     } });
@@ -621,6 +653,8 @@ export function AgenticWorkflowsPage() {
 
   const selectAssistantAgent = (agent: HelloTestAgent) => {
     setAssistantAgentId(agent.id);
+    setAgentInputs({});
+    setAssistantIntegrationId(projectAgents.find(item => item.id === agent.id)?.active_definition?.integration_id || "");
     setAssistantPrompt(agent.prompt);
     setAssistantContextScopes(agent.contextScopes);
     setAssistantSmartContext(null);
@@ -677,6 +711,7 @@ export function AgenticWorkflowsPage() {
         type: "agenticStep",
         position: { x: 370, y: 90 },
         data: {
+          ...(selectedProjectAgent ? projectAgentNode(selectedProjectAgent) : specialistDefaults(specialist.id)),
           label: specialist.name,
           kind: "agent",
           agentId: specialist.id,
@@ -684,6 +719,7 @@ export function AgenticWorkflowsPage() {
           intent: reviewPrompt,
           prompt: reviewPrompt,
           model: "Default workspace LLM",
+          llmIntegrationId: assistantIntegrationId,
           knowledgeScope: reviewScopes.join(","),
           knowledgeQuery: reviewSmartContext?.query || reviewPrompt,
           knowledgeSourceIds: reviewSmartContext?.sourceIds || [],
@@ -752,7 +788,7 @@ export function AgenticWorkflowsPage() {
     };
     setSelectedAssistantSessionId("");
     setSelectedRunId("");
-    setRunInput(JSON.stringify({ request: reviewPrompt, source_review_id: reviewTransaction?.id || null, reviewed_outcome: activeAssistantResult?.response || "" }, null, 2));
+    setRunInput(JSON.stringify({ ...agentInputs, request: reviewPrompt, source_review_id: reviewTransaction?.id || null, reviewed_outcome: activeAssistantResult?.response || "" }, null, 2));
     setActiveTab("workflows");
     setDraft(nextDraft);
     setNodes(nextNodes);
@@ -781,7 +817,7 @@ export function AgenticWorkflowsPage() {
     setEdges([]);
   };
 
-  const addWorkflowNode = (kind: WorkflowNodeKind, insertion?: NodeInsertion) => {
+  const addWorkflowNode = (kind: WorkflowNodeKind, insertion?: NodeInsertion, agent?: ProjectAgent) => {
     try {
       let target = insertion;
       if (!target && selectedNode) {
@@ -794,6 +830,7 @@ export function AgenticWorkflowsPage() {
         target = leaf ? { sourceId: leaf.id, sourceHandle: leaf.data.kind === "condition" ? "true" : null } : { edgeId: edges.find(edge => nodes.find(node => node.id === edge.target)?.data.kind === "output")?.id };
       }
       const next = insertWorkflowNode(nodes, edges, kind, target);
+      if (agent) next.node.data = { ...next.node.data, ...projectAgentNode(agent) };
       setNodes(next.nodes); setEdges(next.edges); setSelectedNodeId(next.node.id);
     } catch (failure) {
       setReviewStartError(failure instanceof Error ? failure.message : "Unable to add this node.");
@@ -980,7 +1017,7 @@ export function AgenticWorkflowsPage() {
   const savedAssistantMessage = assistantSavedSessionQuery.error instanceof Error ? assistantSavedSessionQuery.error.message : savedAssistant?.message || "Only reviews belonging to this project, application and specialist can be opened here.";
   const specialistSessions = assistantSessions.filter(item => item.project_id === projectId && (!appTypeId || item.app_type_id === appTypeId) && item.metadata.agent_id === assistantAgentId);
   const openAssistantSession = (agentId: string, id: string) => {
-    const agent = HELLOTEST_AGENT_CATALOG.find(item => item.id === agentId);
+    const agent = agentCatalog.find(item => item.id === agentId);
     if (!agent) return;
     assistantController.current?.abort(); assistantRequestId.current += 1;
     setAssistantStartedAt(null); setAssistantNotice(""); setAssistantTaskExpanded(false);
@@ -1014,7 +1051,7 @@ export function AgenticWorkflowsPage() {
               : "Design reusable evidence reviews, execute registered specialists and inspect their saved outcomes."}
         meta={activeSurface === "agents"
           ? [
-              { label: "Agents", value: HELLOTEST_AGENT_CATALOG.length + REPOSITORY_AGENTS.length },
+              { label: "Agents", value: agentCatalog.length + REPOSITORY_AGENTS.length },
               { label: "Review gate", value: "Required" },
               { label: "Scope", value: selectedAppType?.name || selectedProject?.name || "Not selected" }
             ]
@@ -1040,7 +1077,9 @@ export function AgenticWorkflowsPage() {
         <button type="button" aria-current={activeSurface === "workflows" ? "page" : undefined} onClick={() => openHubSurface("workflows")}><IconRoute size={17} aria-hidden="true" />Workflows</button>
         <button type="button" aria-current={activeSurface === "runs" ? "page" : undefined} onClick={() => openHubSurface("runs")}><IconHistory size={17} aria-hidden="true" />Workflow history</button>
       </nav>}
-      {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={session?.user.id} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench} /> : null}
+      {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={`${session?.user.id}:${projectId}`} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench}
+        projectAgents={projectAgents} canManage={Boolean(projectId) && canManageAgenticWorkflows} loading={projectAgentsQuery.isLoading} error={projectAgentsQuery.error instanceof Error ? projectAgentsQuery.error.message : undefined} onRetry={() => void projectAgentsQuery.refetch()}
+        onCreate={() => { setAgentEditorError(""); setAgentEditor({}); }} onEdit={agent => { setAgentEditorError(""); setAgentEditor({ agent }); }} onCustomize={agent => { setAgentEditorError(""); setAgentEditor({ initial: agentFromSpecialist(agent.id, agent.name) }); }} /> : null}
       {!draft && !selectedRun && activeSurface === "activity" ? <AgentActivityCenter key={`${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} enabled={canViewAgenticWorkflows} onOpenRepository={openRepositoryAgent} onOpenSession={openAssistantSession} /> : null}
       {!draft && !selectedRun && activeSurface === "repository" ? (
         <RepositoryAgents
@@ -1064,9 +1103,9 @@ export function AgenticWorkflowsPage() {
                 {activeAssistantResult && !assistantTaskExpanded && <p className="agent-task-receipt">{(mutationSessionIsSelected ? assistantReply?.transaction.description : savedAssistant?.transaction.description) || assistantPrompt}</p>}
                 <div hidden={Boolean(activeAssistantResult) && !assistantTaskExpanded}>
                 <AgenticCommandComposer
-                  agentId={assistantAgentId} appTypeId={appTypeId} contextScopes={assistantContextScopes}
+                  agents={agentCatalog} agentId={assistantAgentId} appTypeId={appTypeId} contextScopes={assistantContextScopes}
                   disabled={!projectId || !canRunAgenticWorkflows} integrationId={canViewIntegrations ? assistantIntegrationId : ""} integrations={llmIntegrations.filter(item => item.is_active)} mode={assistantMode}
-                  onAgentChange={agentId => { const agent = HELLOTEST_AGENT_CATALOG.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
+                  onAgentChange={agentId => { const agent = agentCatalog.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
                   onContextScopesChange={setAssistantContextScopes} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onModeChange={setAssistantMode} onPromptChange={setAssistantPrompt}
                   onSmartContextChange={canUseKnowledge ? selection => { setAssistantSmartContext(selection); setAssistantContextScopes(current => current.includes("knowledge") ? current : [...current, "knowledge"]); } : undefined}
                   onSubmit={startAssistantReview} prompt={assistantPrompt} projectId={projectId} running={assistantMutation.isPending}
@@ -1074,6 +1113,8 @@ export function AgenticWorkflowsPage() {
                 />
                 </div>
               </section>
+              {["release-readiness", "coverage-assurance", "impact-analysis", "risk-prediction", "flaky-test-intelligence", "release-risk-simulation", "quality-graph", "automation-repair"].includes(assistantAgentId) && <details className="agent-definition-editor agent-task-inputs"><summary>Evidence scope</summary><p>Set exact identifiers when narrowing the review. Missing scope remains unknown.</p>{[["release_id", "Release ID"], ["build", "Exact build"], ["environment_id", "Environment ID"], ["story_id", "Story ID"], ["test_case_id", "Test Case ID"], ["execution_id", "Failed Run ID (repair)"]].map(([key, name]) => <label key={key}><span>{name}</span><input disabled={assistantMutation.isPending} maxLength={255} value={String(agentInputs[key] ?? "")} onChange={event => setAgentInputs(current => ({ ...current, [key]: event.target.value }))} /></label>)}</details>}
+              {selectedProjectAgent && (selectedProjectAgent.active_definition || selectedProjectAgent.definition).required_inputs.length > 0 && <section className="agent-definition-editor agent-task-inputs" aria-label="Agent task inputs"><h3>Task inputs</h3>{(selectedProjectAgent.active_definition || selectedProjectAgent.definition).required_inputs.map(key => <label key={key}><span>{key}</span><input disabled={assistantMutation.isPending} value={String(agentInputs[key] ?? "")} onChange={event => setAgentInputs(current => ({ ...current, [key]: event.target.value }))} /></label>)}</section>}
               {!canRunAgenticWorkflows && <p className="agent-specialist-error">{!projectId ? "Select a project to start a review." : "Starting reviews requires agent run permission and the Agents feature to be enabled. Saved reviews remain available within your access."}</p>}
               {assistantMutation.isPending && <div className="agent-specialist-progress" role="status"><LoadingState label="Review in progress" /><div><strong>Review in progress · {assistantElapsed}s</strong><p>{assistantElapsed >= 20 ? "The specialist is still working. If a source or model is unavailable, the result will explain any evidence gaps." : "Gathering the evidence available for this task and preparing its review."}</p></div><button type="button" className="ghost-button" onClick={() => assistantController.current?.abort()}>Stop review</button></div>}
               {assistantNotice && <div role="alert" className="agent-specialist-error">{assistantNotice}</div>}
@@ -1277,6 +1318,7 @@ export function AgenticWorkflowsPage() {
       ) : null}
 
       {draft && <WorkflowStudio
+        projectAgents={projectAgents.filter(agent => agent.active_version && !agent.archived)} onAddAgent={(agent, insertion) => addWorkflowNode("agent", insertion, agent)}
         draft={draft} nodes={nodes} edges={edges} selectedNodeId={selectedNodeId}
         editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows}
         busy={saveMutation.isPending || checkingReview || executeReviewMutation.isPending || runMutation.isPending}
@@ -1294,11 +1336,11 @@ export function AgenticWorkflowsPage() {
           stale: Boolean(inspectedRun && !runMatchesDraft(inspectedRun, draft, nodes, edges, runInput)),
           onOpenReview: (agent, session) => { closeDraft(); openAssistantSession(agent, session); },
           onOpenSource: (agent, run) => { if (isRepositoryAgentType(agent)) { closeDraft(); openRepositoryAgent(agent, run); } },
-          canKnowledge: canUseKnowledge, providers: llmProviderOptions,
+          canKnowledge: canUseKnowledge, providers: llmProviderOptions, projectAgents: projectAgents.filter(agent => agent.active_version && !agent.archived),
           onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: testSelectedApiAgent, testingApi: Boolean(testingApiNodeId) }}
       />}
       {selectedRunId && !selectedRun && <section className="studio-notice" role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? <><p>{selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : "Unable to load execution."}</p><button type="button" onClick={() => void selectedRunQuery.refetch()}>Retry execution details</button><button type="button" onClick={closeRun}>Back</button></> : "Loading execution…"}</section>}
-      {selectedRun && <WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows}
+      {selectedRun && <WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}
@@ -1308,6 +1350,8 @@ export function AgenticWorkflowsPage() {
       />}
       </div>
 
+      {agentEditor && <AgentDefinitionEditor key={`${projectId}:${agentEditor.agent?.id || "new"}`} agent={agentEditor.agent} initial={agentEditor.initial} projectId={projectId} appTypeId={appTypeId} providers={llmProviderOptions} busy={saveAgentMutation.isPending} error={agentEditorError}
+        onClose={() => setAgentEditor(null)} onSave={(definition, activate) => saveAgentMutation.mutate({ project_id: projectId, definition, activate, id: agentEditor.agent?.id, expected_version: agentEditor.agent?.current_version })} />}
       <ToastMessage message={toastMessage} onDismiss={() => setToastMessage("")} tone={toastTone} />
     </div>
   );
