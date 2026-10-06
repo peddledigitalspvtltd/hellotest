@@ -10,8 +10,14 @@ const permissions = require("../services/permission.service");
 const projects = require("../services/project.service");
 const llmSelection = require("../../../integration/backend/services/aiLlmSelection.service");
 
+const gateway = require("../src/mcp/gateway");
+const retrieval = require("../../../knowledge/backend/services/knowledgeRetrieval.service");
+
 const fixture = async (task) => {
-  const saved = { prepare: db.prepare, search: rag.searchMany, permissions: rag.resolveAllowedSourcePermissions, parents: rag.expandEvidence, relations: rag.expandRelationships, access: auth.getEvidenceAccess, live: orchestrator.buildLiveProjectEvidence, integrations: integrations.getIntegrations, hasPermission: permissions.hasPermission, project: projects.getProject };
+  const saved = { retrieve: gateway.retrieveContext, prepare: db.prepare, search: rag.searchMany, permissions: rag.resolveAllowedSourcePermissions, parents: rag.expandEvidence, relations: rag.expandRelationships, access: auth.getEvidenceAccess, live: orchestrator.buildLiveProjectEvidence, integrations: integrations.getIntegrations, hasPermission: permissions.hasPermission, project: projects.getProject };
+  // This suite isolates turn orchestration; MCP authentication/transport are
+  // exercised against PostgreSQL in integration/mcp.postgres.test.js.
+  gateway.retrieveContext = input => retrieval.retrieveContextDirect(input);
   const session = { id: "session-1", project_id: "project-1", created_by: "user-1", status: "active", filters: {} };
   const messages = [];
   const state = { revoked: false, searches: 0, models: 0, liveRequests: [] };
@@ -63,6 +69,7 @@ const fixture = async (task) => {
   const input = { sessionId: session.id, message: "What is the release approval requirement?", clientTurnId: "turn-123456", responseMode: "evidence", user: { id: "user-1" } };
   try { await task({ input, messages, state }); }
   finally {
+    gateway.retrieveContext = saved.retrieve;
     db.prepare = saved.prepare; rag.searchMany = saved.search; rag.resolveAllowedSourcePermissions = saved.permissions;
     rag.expandEvidence = saved.parents; rag.expandRelationships = saved.relations; auth.getEvidenceAccess = saved.access;
     orchestrator.buildLiveProjectEvidence = saved.live; integrations.getIntegrations = saved.integrations;

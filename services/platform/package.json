@@ -181,7 +181,10 @@
     "./ui": "./frontend/entry.ts",
     "./backend/src/utils/requireAiAssessment": "./backend/src/utils/requireAiAssessment.js",
     "./backend/src/utils/llmTraceContext": "./backend/src/utils/llmTraceContext.js",
-    "./backend/src/db/schemaReadiness": "./backend/src/db/schemaReadiness.js"
+    "./backend/src/db/schemaReadiness": "./backend/src/db/schemaReadiness.js",
+    "./backend/src/mcp/gateway": "./backend/src/mcp/gateway.js",
+    "./backend/src/mcp/server": "./backend/src/mcp/server.js",
+    "./backend/src/mcp/auth": "./backend/src/mcp/auth.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",

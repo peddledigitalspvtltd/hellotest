@@ -65,6 +65,7 @@ export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const AGENTIC_WORKFLOW_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: WORKSPACE_ROUTES.mcpServers, label: "MCP Servers", shortLabel: "MCP", icon: "agents", featureKeys: ["hellotest.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=agents`, label: "AI Agents", shortLabel: "Agents", icon: "agents", featureKeys: ["hellotest.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=workflows`, label: "Workflows", shortLabel: "Flows", icon: "traces", featureKeys: ["hellotest.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=runs`, label: "Workflow Runs", shortLabel: "Runs", icon: "executions", featureKeys: ["hellotest.ai.agentic_workflows"] }
@@ -81,6 +82,7 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/projects": "Projects",
   "/stories": "Stories",
   "/agentic-workflows": "Agentic Studio",
+  "/mcp-servers": "MCP Servers",
   "/knowledge-repo": "Knowledge Repo",
   "/requirements": "Backlog",
   "/backlog": "Backlog",

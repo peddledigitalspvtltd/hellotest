@@ -17,6 +17,14 @@ type AgenticApiAgentTestInput = {
 };
 
 export const agenticApi = {
+  mcp: {
+    server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;tools:Array<{name:string;description:string;read_only:boolean}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
+    credentials: (projectId:string) => request<Array<{id:string;client_id:string;expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
+    issue: (projectId:string) => request<{id:string;token:string;expires_at:string}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host"})}),
+    revoke: (projectId:string,id:string) => request(`/agentic-workflows/mcp/credentials/${encodeURIComponent(id)}${toQueryString({project_id:projectId})}`,{method:"DELETE"}),
+    plans: (projectId:string) => request<Array<{id:string;client_id:string;operation_id:string;operation:{method:string;path:string;permission:string};arguments:Record<string,unknown>;digest:string;state:string;expires_at:string;receipt?:Record<string,unknown>}>>(`/agentic-workflows/mcp/plans${toQueryString({project_id:projectId})}`),
+    authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
+  },
   agentDefinitions: {
     list: (projectId: string, options?: { signal?: AbortSignal }) => request<ProjectAgent[]>(`/agentic-workflows/agents${toQueryString({ project_id: projectId })}`, { signal: options?.signal }),
     save: (input: { project_id: string; definition: AgentDefinition; activate: boolean; expected_version?: number }, id?: string) => request<ProjectAgent>(`/agentic-workflows/agents${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
@@ -161,7 +169,7 @@ agenticWorkflows: {
   }
 };
 
-export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
+export type WorkflowConnection = { id: string; name: string; kind: "http" | "mcp"; url: string; authenticated: boolean; builtin?: boolean; authenticationMode?: "current-user" | "managed-credential"; methods: string[]; tools: string[]; toolDefinitions?: McpToolDefinition[]; timeoutMs?: number; transport?: string; serverInfo?: { name: string; version: string }; discovered_at?: string };
 export type WorkflowConnectionSettingsInput = {
   name: string; kind: "mcp" | "http"; url: string; project_id: string; tools: string[]; methods: string[];
   authType: "none" | "bearer" | "basic" | "header"; header: string; secretEnv: string; secret?: string;

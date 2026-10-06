@@ -27,7 +27,8 @@
     "./frontend/pages/AgenticWorkflowsPage": "./frontend/pages/AgenticWorkflowsPage.tsx",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",
-    "./frontend/workflows/WorkflowConnectionSettings": "./frontend/workflows/WorkflowConnectionSettings.tsx"
+    "./frontend/workflows/WorkflowConnectionSettings": "./frontend/workflows/WorkflowConnectionSettings.tsx",
+    "./frontend/pages/McpServersPage": "./frontend/pages/McpServersPage.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs agentic",

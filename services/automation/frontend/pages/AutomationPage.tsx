@@ -1,6 +1,9 @@
 import { parseApiRequestSource } from "../lib/apiRequestSource";
 import { ExecutionHookResults } from "@hellotest/testing/frontend/components/ExecutionHookResults";
 import { AutomationRuntimeGuide } from "../components/AutomationRuntimeGuide";
+import { AutomationIconButton, AutomationOverlay } from "../components/AutomationOverlay";
+import { summarizeAutomationInstruction } from "../lib/automationInstructionSummary";
+import { handoverAutomationRun, type AutomationRunMode } from "../lib/automationExecution";
 import { AutomationBuildContext } from "../components/AutomationBuildContext";
 import { AUTOMATION_RUNTIMES, getAutomationRuntimeTypes, getDefaultAutomationStepType, getRecorderPlatform } from "../lib/automationRuntime";
 import { capabilityView } from "@hellotest/platform/frontend/src/platform/capabilities/CapabilityView";
@@ -9,7 +12,7 @@ const AiAssurancePanel = capabilityView<import("react").ComponentProps<typeof im
 import { mapRunHooksToExecutionHooks } from "@hellotest/testing/frontend/lib/runHooks";
 import { type ChangeEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
+import { IconArrowUp, IconArrowDown, IconArrowRight, IconBraces, IconCheck, IconCircleDot, IconCode, IconCpu, IconDeviceDesktop, IconSettings, IconWand, IconDots, IconShieldCheck, IconTargetArrow } from "@tabler/icons-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AddIcon, CopyIcon, ExportIcon, ImportIcon, LayersIcon, MousePointerIcon, OpenIcon, PauseIcon, PencilIcon, PlayIcon, RefreshIcon, SelectionToggleIcon, SparkIcon, TrashIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 
@@ -1134,6 +1137,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [selectedAutomatedCaseId, setSelectedAutomatedCaseId] = useState("");
   const [selectedManualCaseId, setSelectedManualCaseId] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
+  const closingCaseRouteRef = useRef("");
   const [automationCatalogViewMode, setAutomationCatalogViewMode] = useState<"tile" | "list">(() => readDefaultCatalogViewMode());
   const [automationCaseSearch, setAutomationCaseSearch] = useState("");
   const [selectedAutomationCaseIds, setSelectedAutomationCaseIds] = useState<string[]>([]);
@@ -1163,6 +1167,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [caseModuleIds, setCaseModuleIds] = useState<string[]>([]);
   const [caseDataSetId, setCaseDataSetId] = useState("");
   const [newStepIsPrecondition, setNewStepIsPrecondition] = useState(false);
+  const [isNewSectionOpen, setIsNewSectionOpen] = useState(false);
+  const [isExecutionContextOpen, setIsExecutionContextOpen] = useState(false);
+  const [runDraft, setRunDraft] = useState<{ mode: AutomationRunMode; caseIds: string[] } | null>(null);
+  useEffect(() => {
+    setIsNewSectionOpen(false);
+    setIsExecutionContextOpen(false);
+    setRunDraft(null);
+  }, [projectId, appTypeId, selectedCaseId]);
   const [buildMethod, setBuildMethod] = useState<"agent" | "record">("agent");
   useEffect(() => {
     if (!canUseAutomationAi && canUseRecorder) setBuildMethod("record");
@@ -2102,6 +2114,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
   useEffect(() => {
     const requestedCaseId = searchParams.get("case") || "";
+    if (!requestedCaseId) closingCaseRouteRef.current = "";
+    if (requestedCaseId && closingCaseRouteRef.current === requestedCaseId) return;
     const requestedCase = findByRoutableId(automatedCases, requestedCaseId);
 
     if (
@@ -2509,6 +2523,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const selectAutomationCase = useCallback((testCaseId: string) => {
+    closingCaseRouteRef.current = "";
     const targetCase = automatedCases.find((testCase) => testCase.id === testCaseId) || null;
 
     setIsParameterDialogOpen(false);
@@ -2784,6 +2799,8 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const closeAutomationCaseWorkspace = () => {
+    // Route updates can arrive after local state; do not reopen the old case.
+    closingCaseRouteRef.current = searchParams.get("case") || "";
     setIsParameterDialogOpen(false);
     setAutomationStudioStep(null);
     setActiveAutomationWorkspaceTab("details");
@@ -2818,7 +2835,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   };
 
   const toggleAutomationStep = (stepId: string) => {
-    setExpandedAutomationStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId]);
+    setExpandedAutomationStepIds((current) => current.includes(stepId) ? [] : [stepId]);
   };
 
   const showSuccess = (text: string) => {
@@ -3410,9 +3427,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         (cached) => cacheCreatedAutomationStep(cached || previousSteps, created));
       if (currentAutomationSelectionRef.current.selectedCaseId === created.test_case_id) {
         syncAutomationStepDrafts(created);
-        setExpandedAutomationStepIds((current) => current.includes(created.id) ? current : [...current, created.id]);
+        setExpandedAutomationStepIds([created.id]);
         setNewStepDraft(emptyAutomationStepDraft(created.step_type));
         setNewStepIsPrecondition(false);
+        setIsNewSectionOpen(false);
         setNewStepPlacement({ mode: "end", stepId: "" });
       }
       const result = await refreshCreatedAutomationStep(created,
@@ -3620,109 +3638,39 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     onError: (error) => showError(error, "Unable to remove the plan step.")
   });
 
-	  const runCase = useMutation({
-	    mutationFn: async ({ testCase }: { testCase: TestCase }) => {
-	      if (!canRunLocalAutomation) {
-	        throw new Error("Permission required: automation.run.local");
-	      }
+  const openAutomationRun = (mode: AutomationRunMode, caseIds?: string[]) => {
+    const fallbackCaseId = activeCase?.id || activeAutomatedCase?.id;
+    const targets = caseIds || (selectedAutomationCaseIds.length ? selectedAutomationCaseIds : fallbackCaseId ? [fallbackCaseId] : []);
+    if (targets.length) setRunDraft({ mode, caseIds: targets });
+  };
 
-	      if (!projectId || !appTypeId || !session?.user.id) {
-	        throw new Error("Select project and app type before running a case.");
-	      }
-
-      return api.executions.createLocalRun({
-        project_id: projectId,
-        app_type_id: appTypeId,
-        test_case_ids: [testCase.id],
-        name: `Automation run - ${testCase.title}`,
+  const runSelectedAutomationCases = useMutation({
+    mutationFn: async () => {
+      if (!runDraft) throw new Error("Select an execution target.");
+      const { mode, caseIds } = runDraft;
+      if (mode === "local" && !canRunLocalAutomation) throw new Error("Permission required: automation.run.local");
+      if (mode === "remote" && !canRunRemoteAutomation) throw new Error("Permission required: automation.run.remote");
+      if (!projectId || !appTypeId || !session?.user.id) throw new Error("Select project and app type before running automation.");
+      const response = await handoverAutomationRun(api.executions, mode, {
+        project_id: projectId, app_type_id: appTypeId, test_case_ids: caseIds,
+        name: caseIds.length === 1 ? `${automatedCases.find(item => item.id === caseIds[0])?.title || activeCase?.title || "Automation"} ${mode === "local" ? "Local" : "Remote"} Run` : `Automation ${mode === "local" ? "Local" : "Remote"} Run · ${caseIds.length} cases`,
         created_by: session.user.id,
         test_environment_id: selectedExecutionEnvironmentId || undefined,
         test_configuration_id: selectedExecutionConfigurationId || undefined,
         test_data_set_id: selectedExecutionDataSetId || undefined,
-        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
-        engine_base_url: "http://localhost:4311"
+        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined
       });
+      return { id: response.id, mode, count: caseIds.length };
     },
-    onSuccess: (response) => {
-      showSuccess(`Local Test Engine run started as ${response.id}.`);
+    onSuccess: ({ id, mode, count }) => {
+      setRunDraft(null);
       void queryClient.invalidateQueries({ queryKey: ["executions"] });
       void queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] });
-      navigate(`/executions?view=local-runs&execution=${response.id}`);
-    },
-    onError: (error) => showError(error, "Unable to run case.")
-  });
-
-	  const runSelectedAutomationCases = useMutation({
-	    mutationFn: async (mode: "local" | "remote") => {
-	      if (mode === "local" && !canRunLocalAutomation) {
-	        throw new Error("Permission required: automation.run.local");
-	      }
-
-	      if (mode === "remote" && !canRunRemoteAutomation) {
-	        throw new Error("Permission required: automation.run.remote");
-	      }
-
-	      if (!projectId || !appTypeId || !session?.user.id) {
-	        throw new Error("Select project and app type before running automation.");
-	      }
-
-      const fallbackCaseId = activeCase?.id || activeAutomatedCase?.id || "";
-      const testCaseIds = selectedAutomationCaseIds.length ? selectedAutomationCaseIds : fallbackCaseId ? [fallbackCaseId] : [];
-
-      if (!testCaseIds.length) {
-        throw new Error("Select at least one automation case before running.");
-      }
-
-      const selectedTitles = automatedCases
-        .filter((testCase) => testCaseIds.includes(testCase.id))
-        .map((testCase) => testCase.title);
-      const runName = selectedTitles.length === 1
-        ? `${selectedTitles[0]} ${mode === "local" ? "Local Run" : "Remote Run"}`
-        : `Automation ${mode === "local" ? "Local" : "Remote"} Run - ${selectedTitles.length} cases`;
-
-      if (mode === "local") {
-        const response = await api.executions.createLocalRun({
-          project_id: projectId,
-          app_type_id: appTypeId,
-          test_case_ids: testCaseIds,
-          name: runName,
-          created_by: session.user.id,
-          test_environment_id: selectedExecutionEnvironmentId || undefined,
-          test_configuration_id: selectedExecutionConfigurationId || undefined,
-          test_data_set_id: selectedExecutionDataSetId || undefined,
-          execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
-          engine_base_url: "http://localhost:4311"
-        });
-
-        return { id: response.id, mode, count: testCaseIds.length };
-      }
-
-      const response = await api.executions.create({
-        project_id: projectId,
-        app_type_id: appTypeId,
-        test_case_ids: testCaseIds,
-        name: runName,
-        created_by: session.user.id,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
-        execution_hooks: executionHookDraft.length ? mapRunHooksToExecutionHooks(executionHookDraft) : undefined,
-        execution_mode: "remote"
-      });
-
-      await api.executions.start(response.id, { execution_mode: "remote" });
-      return { id: response.id, mode, count: testCaseIds.length };
-    },
-    onSuccess: async ({ id, mode, count }) => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["executions"] }),
-        queryClient.invalidateQueries({ queryKey: ["workspace-transactions"] })
-      ]);
       setSelectedAutomationCaseIds([]);
       navigate(`/executions?view=${mode === "local" ? "local-runs" : "suite-runs"}&execution=${id}`);
-      showSuccess(`${mode === "local" ? "Local" : "Remote"} automation run started with ${count} case${count === 1 ? "" : "s"}.`);
+      showSuccess(`Handed ${count} case${count === 1 ? "" : "s"} to the ${mode === "local" ? "local" : "remote"} Test Engine.`);
     },
-    onError: (error) => showError(error, "Unable to run selected automation cases.")
+    onError: (error) => showError(error, "Unable to hand off the automation run.")
   });
 
   const focusInspectField = (field: RepositoryExtractedField) => {
@@ -5120,6 +5068,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   }, [projectId, view, canInspectRepository, session?.user.id]);
 
   const batchAgentDialogRef = useDialogFocus<HTMLDivElement>({ active: isBatchAgentOpen, closeDisabled: scheduleAiAutomation.isPending, onClose: () => setIsBatchAgentOpen(false) });
+  const activeAgentBuildStatus = agentBuildTracking?.projectId === projectId && agentBuildTracking.caseIds.includes(selectedCaseId) ? agentBuildStatus : "idle";
+  const activeAgentBuildReceipt = activeAgentBuildStatus === "idle" ? "" : agentBuildReceipt;
+
   const automationPageHeader = view === "repository"
     ? {
         eyebrow: "Automation assets",
@@ -5129,16 +5080,16 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     : {
         eyebrow: "Automation",
         title: "Automation",
-        description: "Build, record and run Web, API, Android and iOS tests with shared steps, test data and execution evidence."
+        description: "Design a plan. Build with AI. Run with evidence."
       };
 
   return (
     <div className="page-content page-content--automation">
       <PageHeader
-        className={view === "repository" ? "object-repository-page-header" : undefined}
+        className={view === "repository" ? "object-repository-page-header" : selectedCaseId ? "automation-detail-page-header" : undefined}
         eyebrow={automationPageHeader.eyebrow}
         title={automationPageHeader.title}
-        description={automationPageHeader.description}
+        description={view === "cases" && selectedCaseId ? undefined : automationPageHeader.description}
         actions={view === "repository" && canInspectRepository ? <RepositoryAgentStatus connection={inspectAgent} /> : undefined}
         meta={[
           { label: "Automation cases", value: testCasesQuery.data ? automatedCases.length : "—" },
@@ -5157,7 +5108,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           browseView={(
           <Panel
             title="Automation cases"
-            subtitle="Create independent, executable automation cases and optionally link each one to its source manual case."
+            subtitle="Your executable plans and their latest outcomes."
             actions={(
               <div className="design-list-toolbar catalog-command-toolbar automation-catalog-toolbar">
                 <div className="catalog-toolbar-discovery" aria-label="Automation case views, search, and selection">
@@ -5196,11 +5147,11 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   />
                 </div>
                 <div className="catalog-toolbar-actions" aria-label="Automation case actions">
-                  {canUseAutomationAi ? (<button className="ghost-button automation-ai-catalog-action" disabled={!automationActionTargetIds.length || !appTypeId || !canUseAutomationBuilder || !canUseAutomationAi || scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(true)} title="Review the agent brief, then build now or choose a scheduled time" type="button"><SparkIcon /><span>Build with automation agent</span></button>) : null}
+                  {canUseAutomationAi ? (<button className="ghost-button automation-ai-catalog-action" disabled={!automationActionTargetIds.length || !appTypeId || !canUseAutomationBuilder || !canUseAutomationAi || scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(true)} title="Review the agent brief, then build now or choose a scheduled time" type="button"><SparkIcon /><span>AI build</span></button>) : null}
                   {canRunLocalAutomation ? (<button
                     className="ghost-button catalog-run-button"
                     disabled={(!selectedAutomationCaseIds.length && !activeAutomatedCase) || !canRunLocalAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
-                    onClick={() => runSelectedAutomationCases.mutate("local")}
+                    onClick={() => openAutomationRun("local")}
                     title={!selectedAutomationCaseIds.length && !activeAutomatedCase ? "Select an automation case to run" : "Run selected automation locally"}
                     type="button"
                   >
@@ -5210,12 +5161,13 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                   {canRunRemoteAutomation ? (<button
                     className="ghost-button catalog-run-button"
                     disabled={(!selectedAutomationCaseIds.length && !activeAutomatedCase) || !canRunRemoteAutomation || !projectId || !appTypeId || runSelectedAutomationCases.isPending}
-                    onClick={() => runSelectedAutomationCases.mutate("remote")}
+                    onClick={() => openAutomationRun("remote")}
                     title={!selectedAutomationCaseIds.length && !activeAutomatedCase ? "Select an automation case to run" : "Run selected automation remotely"}
+                    aria-label="Run remote"
                     type="button"
                   >
                     <OpenIcon />
-                    <span>Run remote</span>
+
                   </button>) : null}
                   {canCreateAutomationDraft ? <button className="primary-button automation-choose-manual-toolbar-button" disabled={!appTypeId} onClick={() => setIsCreateAutomationOpen(true)} type="button">
                     <AddIcon />
@@ -5362,22 +5314,24 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
           <Panel
             title="Automation case workspace"
             subtitle={activeCase
-              ? "Switch between case details and keyword step editing without losing the selected context."
+              ? undefined
               : selectedCaseSummary
                 ? `Loading complete details for ${selectedCaseSummary.title}.`
                 : "Select an automation case."}
             actions={selectedCaseId ? (
-              <div className="testops-action-row">
+              <div className="testops-action-row automation-case-commandbar">
                 <WorkspaceBackButton label="Back to automation case tiles" onClick={closeAutomationCaseWorkspace} />
                 {activeCase ? (
                   <>
-	                  {canRunLocalAutomation ? (<button className="primary-button" disabled={!isAutomationCaseDetailReady || !canRunLocalAutomation || runCase.isPending || activeCase.automated !== "yes" || automationCaseMappingStatus(automatedSteps) !== "ready"} onClick={() => runCase.mutate({ testCase: activeCase })} type="button">
+	                  {canRunLocalAutomation ? (<button className="primary-button" disabled={!isAutomationCaseDetailReady || !canRunLocalAutomation || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || automationCaseMappingStatus(automatedSteps) !== "ready"} onClick={() => openAutomationRun("local", [activeCase.id])} type="button">
 	                    <PlayIcon />
-	                    <span>{runCase.isPending ? "Starting..." : "Run automated"}</span>
+	                    <span>{runSelectedAutomationCases.isPending ? "Starting..." : "Run local"}</span>
 	                  </button>) : null}
-	                  {canUseAutomationAi ? (<button className="ghost-button" disabled={!isAutomationCaseDetailReady || !canUseAutomationAi || optimizeAutomationCase.isPending} onClick={() => { setBuildMethod("agent"); setActiveAutomationWorkspaceTab("build"); }} type="button">
+                  {canRunRemoteAutomation ? <AutomationIconButton label="Run remote" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || automationCaseMappingStatus(automatedSteps) !== "ready"} onClick={() => openAutomationRun("remote", [activeCase.id])}><OpenIcon size={17} /></AutomationIconButton> : null}
+                  <AutomationIconButton label="Execution context" disabled={!isAutomationCaseDetailReady} onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17} /></AutomationIconButton>
+	                  {canUseAutomationAi ? (<button aria-label="AI build" title="AI build" className="ghost-button automation-ai-header-action" disabled={!isAutomationCaseDetailReady || !canUseAutomationAi || optimizeAutomationCase.isPending} onClick={() => { setBuildMethod("agent"); setActiveAutomationWorkspaceTab("build"); }} type="button">
                       <SparkIcon />
-                      <span>Build with automation agent</span>
+                      <span>AI build</span>
                     </button>) : null}
                   </>
                 ) : null}
@@ -5414,6 +5368,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     activeTab={activeAutomationWorkspaceTab}
                     ariaLabel="Automation case sections"
                     className="automation-detail-navigation"
+                    presentation="inline"
                     items={[
                       { value: "details", label: "Details", description: "Metadata & links", icon: <PencilIcon /> },
                       { value: "steps", label: "Plan", description: "Actions & results", icon: <SelectionToggleIcon checked={false} />, count: automatedSteps.length },
@@ -5613,28 +5568,34 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
                 {activeAutomationWorkspaceTab === "build" && (canUseAutomationAi || canRecordCurrentPlan) ? (
                   <section className="automation-agent-workspace" aria-label="Automation build tools">
-                    <header><h3>Build your automation</h3><p>Start from your test cases, record a flow, or author instructions and code in the plan.</p></header>
-                    {canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }} features={["automation-repair"]} title="AI Automation Repair" />}
+                    <header className="automation-build-header"><div><span className="automation-command-eyebrow">Automation studio</span><h3>{buildMethod === "agent" ? "Turn your plan into automation" : "Capture a real flow"}</h3></div><AutomationIconButton label="Execution context" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={18} /></AutomationIconButton></header>
                     <div className="automation-build-methods" aria-label="Build method">
-                      {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />Build with automation agent</button> : null}
+                      {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />AI agent</button> : null}
                       {canRecordCurrentPlan ? <button aria-pressed={buildMethod === "record"} onClick={() => setBuildMethod("record")} type="button"><MousePointerIcon size={15} />Record & playback{recorderSession?.status === "running" ? " · Recording" : ""}</button> : null}
                     </div>
-                    {buildMethod === "agent" && canUseAutomationAi ? <div className="automation-agent-brief">
+                    {buildMethod === "agent" && canUseAutomationAi ? <div className="automation-ai-layout"><div className="automation-ai-studio">
+                      <div className="automation-ai-intro"><span className="automation-ai-avatar"><IconWand size={23} /></span><div><strong>Automation agent</strong><p>Builds your saved plan into editable instructions.</p></div><span className={`automation-ai-status is-${activeAgentBuildStatus}`} role="status"><IconCircleDot size={13} />{buildSingleAutomation.isPending ? "Submitting" : activeAgentBuildStatus === "idle" ? "Ready" : activeAgentBuildStatus === "running" ? "Building" : activeAgentBuildStatus === "completed" ? "Built" : activeAgentBuildStatus[0].toUpperCase() + activeAgentBuildStatus.slice(1)}</span></div>
                       <AutomationBuildContext stepCount={automatedSteps.length} expectedResultCount={automatedSteps.filter((step) => richTextToPlainText(step.expected_result || "").trim()).length} manualCaseCount={linkedManualCases.length} repositoryCount={allObjectMembers.length} runtimes={automationRuntimeTypes} />
-                      <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} placeholder="The agent uses the saved actions and expected results. Add priorities or constraints here." rows={4} value={agentMission} /></label>
-                      <div className="automation-plan-behavior-fields">
-                        {automationRuntimeTypes.some((type) => type === "web" || type === "api") ? <label className="form-field"><span>Start URL</span><input aria-label="Agent start URL" type="url" onChange={(event) => setStartUrl(event.target.value)} placeholder="https://app.example.com" value={startUrl} /><small>Enter a literal URL, or leave blank to use the selected environment.</small></label> : <p className="muted">Select the device, app and Appium connection in execution context below.</p>}
-                        <label className="form-field"><span>Build time</span><input aria-label="Schedule agent build" min={new Date().toLocaleString("sv-SE").slice(0,16).replace(" ", "T")} onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small className="muted">Leave empty to queue now.</small></label>
+                      <div className="automation-ai-composer">
+                        <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="What should the agent focus on? Add an edge case, assertion or constraint…" rows={5} value={agentMission} /></label>
+                        <div className="automation-ai-prompt-tools"><span>Uses your saved actions and expected results</span><AutomationIconButton label="Execution context" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17} /></AutomationIconButton></div>
                       </div>
-                      <details><summary>Additional guidance & execution context</summary><div className="stack-list">
-                        <label className="form-field"><span>Additional guidance</span><textarea rows={3} onChange={(event) => setBuilderContext(event.target.value)} value={builderContext} placeholder="Authentication, edge cases, and constraints" /></label>{automationRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow the automation agent to interact with this application while building (may submit forms)</span></label> : null}
-                        <ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} />
+                      <div className="automation-ai-suggestions" aria-label="Agent instruction suggestions">{["Prioritize assertions", "Reuse repository objects", "Cover edge cases"].map((suggestion) => <button type="button" key={suggestion} onClick={() => setAgentMission(current => [current.trim(), suggestion + "."].filter(Boolean).join("\n"))}><AddIcon size={12} />{suggestion}</button>)}</div>
+                      <details className="automation-ai-options"><summary><IconSettings size={15} />Build settings{agentScheduledAt ? <span>Scheduled</span> : null}</summary><div className="automation-ai-options-body">
+                        <div className="automation-plan-behavior-fields">
+                          {automationRuntimeTypes.some(type => type === "web" || type === "api") ? <label className="form-field"><span>Start URL</span><input aria-label="Agent start URL" type="url" onChange={(event) => setStartUrl(event.target.value)} placeholder="Use selected environment" value={startUrl} /></label> : <p className="muted">The execution context supplies the device, app and Appium connection.</p>}
+                          <label className="form-field"><span>Build time</span><input aria-label="Schedule agent build" min={new Date().toLocaleString("sv-SE").slice(0,16).replace(" ", "T")} onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small>Leave empty to build now.</small></label>
+                        </div>
+                        <label className="form-field"><span>Additional guidance</span><textarea rows={3} onChange={(event) => setBuilderContext(event.target.value)} value={builderContext} placeholder="Authentication, edge cases and constraints" /></label>
+                        {automationRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow browser interactions while building (may submit forms)</span></label> : null}
+                        <button className="ghost-button compact" type="button" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={15} />Execution context</button>
+                        <p className="muted">{automationRuntimeTypes.map(type => AUTOMATION_RUNTIMES[type].agent).join(" ")}</p>
                       </div></details>
-                      <p className="muted">{automationRuntimeTypes.map((type) => AUTOMATION_RUNTIMES[type].agent).join(" ")}</p>
-                      {!automatedSteps.length ? <p className="muted">Add the actions and expected results to the plan before starting the agent.</p> : null}
-                      <div className="automation-plan-actions">{canUseAutomationAi ? (<button className="primary-button" disabled={!canUseAutomationAi || !automatedSteps.length || buildSingleAutomation.isPending} onClick={() => buildSingleAutomation.mutate()} type="button"><SparkIcon size={15} />{buildSingleAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule build" : "Build step plan"}</button>) : null}<button className="ghost-button" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Open plan</button></div>
-                      {agentBuildReceipt ? <div className="automation-agent-result" role="status"><span>{agentBuildReceipt}</span><button className="ghost-button compact" onClick={() => navigate("/testops")} type="button">View build jobs</button><button className="ghost-button compact" onClick={() => { invalidateAutomationData(); selectAutomationWorkspaceTab("steps"); }} type="button">View step plan</button></div> : null}
-                    </div> : <div className="automation-agent-brief">
+                      {!automatedSteps.length ? <p className="muted">Add a section to your plan to start building.</p> : null}
+                      {buildSingleAutomation.isError ? <p role="alert" className="automation-overlay-error">{buildSingleAutomation.error instanceof Error ? buildSingleAutomation.error.message : "The build could not be queued."}</p> : null}
+                      <div className="automation-ai-footer"><span><IconShieldCheck size={15} />Review before running</span><button className="primary-button automation-ai-submit" disabled={!automatedSteps.length || buildSingleAutomation.isPending || activeAgentBuildStatus === "queued" || activeAgentBuildStatus === "running"} onClick={() => buildSingleAutomation.mutate()} type="button"><SparkIcon size={16} />{buildSingleAutomation.isPending ? "Queueing…" : agentScheduledAt ? "Schedule build" : "Build step plan"}<IconArrowRight size={15} /></button></div>
+                      {activeAgentBuildReceipt ? <div className="automation-ai-activity" role="status"><div><span className={`automation-ai-activity-dot is-${activeAgentBuildStatus}`} /><strong>{activeAgentBuildStatus === "completed" ? "Your plan is ready to review" : activeAgentBuildStatus === "failed" ? "Build needs attention" : activeAgentBuildStatus === "running" ? "Building your implementation" : activeAgentBuildStatus === "paused" ? "Build paused" : "Build queued"}</strong></div><p>{activeAgentBuildReceipt}</p><div className="automation-plan-actions"><button className="ghost-button compact" onClick={() => navigate("/testops")} type="button">View build jobs<OpenIcon size={13} /></button><button className="ghost-button compact" onClick={() => { invalidateAutomationData(); selectAutomationWorkspaceTab("steps"); }} type="button">Review plan<IconArrowRight size={13} /></button></div></div> : null}
+                    </div><aside className="automation-ai-plan" aria-label="Plan included in AI build"><header><span className="automation-command-eyebrow">Working context</span><h4>Plan in focus</h4><span>{automatedSteps.length} saved sections</span></header><ol>{automatedSteps.slice(0, 8).map((step, index) => <li key={step.id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong><StepParameterizedText text={richTextToPlainText(step.action || "Untitled section")} values={mergedParameterValues} /></strong><small>{step.step_type?.toUpperCase()} · {isAutomationStepMapped(step) ? "Implemented" : "To build"}</small></div>{isAutomationStepMapped(step) ? <IconCheck size={14} /> : <IconCircleDot size={14} />}</li>)}</ol>{!automatedSteps.length ? <p>Add actions and expected results to give the agent a plan.</p> : null}<button className="ghost-button compact" type="button" onClick={() => selectAutomationWorkspaceTab("steps")}>Review {automatedSteps.length > 8 ? "all sections" : "plan"}<IconArrowRight size={14} /></button><div className="automation-ai-plan-note"><IconShieldCheck size={17} /><span>Generated instructions stay editable. A test run verifies the outcome.</span></div></aside></div> : <div className="automation-agent-brief">
                       <div><strong>Record a flow</strong><p className="muted">Capture browser or mobile actions, then inspect their keywords, repository fields, and data in the plan.</p></div>
                       <div className="automation-plan-behavior-fields">
                         {recorderPlatform === "web" || recorderPlatform === "unified" ? <label className="form-field"><span>Start URL</span><input disabled={Boolean(recorderSession)} onChange={(event) => setStartUrl(event.target.value)} placeholder="Uses the selected environment when blank" value={startUrl} /></label> : <p className="muted">The selected configuration supplies the device and app for this recording.</p>}
@@ -5644,16 +5605,17 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <RecorderStartControls platform={recorderPlatform} disabled={!canRecordCurrentPlan || !activeCase} hasSession={Boolean(recorderSession)} isStarting={startRecorder.isPending} mobileAppiumEnabled={canUseMobileAppium} mobileRemoteEnabled={mobileRemoteRecorderEnabled} onStart={(options) => startRecorder.mutate(options)} primaryAction={recorderSession ? <button className="primary-button recorder-stop-button" disabled={finishRecorder.isPending} onClick={() => finishRecorder.mutate()} type="button"><PauseIcon />{finishRecorder.isPending ? "Saving recording…" : "Save recording to plan"}</button> : undefined} moreActions={recorderSession?.live_view_url ? <a className="ghost-button compact" href={recorderSession.live_view_url} rel="noreferrer" target="_blank"><OpenIcon size={14} />Open live view</a> : undefined} />
                       {recorderSession?.live_view_url ? <iframe allow="clipboard-read; clipboard-write" className="recorder-live-frame" src={recorderSession.live_view_url} title="HelloTest automation recorder" /> : null}
                       <RecorderSessionInsights session={recorderSession} />
-                      <div className="automation-plan-actions"><button className="ghost-button" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Review step plan</button>{canRunLocalAutomation ? (<button className="primary-button" disabled={!canRunLocalAutomation || Boolean(recorderSession) || !automatedSteps.length || automationCaseMappingStatus(automatedSteps) !== "ready" || runCase.isPending} onClick={() => runCase.mutate({ testCase: activeCase })} type="button"><PlayIcon />{runCase.isPending ? "Starting playback…" : "Play saved plan"}</button>) : null}</div>
+                      <div className="automation-plan-actions"><button className="ghost-button" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Review step plan</button>{canRunLocalAutomation ? (<button className="primary-button" disabled={!canRunLocalAutomation || Boolean(recorderSession) || !automatedSteps.length || automationCaseMappingStatus(automatedSteps) !== "ready" || runSelectedAutomationCases.isPending} onClick={() => openAutomationRun("local", [activeCase.id])} type="button"><PlayIcon />{runSelectedAutomationCases.isPending ? "Starting playback…" : "Play saved plan"}</button>) : null}</div>
                     </div>}
+                    <div className="automation-build-repair">{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) && <AiLifecycleReview projectId={projectId} appTypeId={appTypeId} inputs={{ test_case_id: activeCase.id }} features={["automation-repair"]} title="AI Automation Repair" />}</div>
                   </section>
                 ) : null}
                 {activeAutomationWorkspaceTab === "steps" ? (
                   <section className="automation-plan-workspace automation-program-workspace" aria-label="Automation step plan">
                     <div className="automation-plan-heading"><div><h3>Implementation</h3><span>{automatedSteps.length} {automatedSteps.length === 1 ? "section" : "sections"} · {automatedSteps.filter(isAutomationStepMapped).length} ready</span></div><div className="automation-plan-actions">
                       <div className="automation-build-methods"><button aria-pressed={automationStepView === "keyword"} onClick={() => setAutomationStepView("keyword")} type="button">Instructions</button>{canViewAutomationCode ? (<button aria-pressed={automationStepView === "code"} disabled={!canViewAutomationCode} onClick={() => setAutomationStepView("code")} type="button">Source</button>) : null}</div>
-                      {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} type="button"><LayersIcon size={14} />Shared Step Group</button>) : null}
-                      <button className="ghost-button compact" onClick={() => setIsParameterDialogOpen(true)} type="button">Parameters</button>{canViewAutomationCode ? (<button className="ghost-button compact" disabled={!canViewAutomationCode || !automatedSteps.length} onClick={() => setIsAutomationCodePreviewOpen(true)} type="button">Full source</button>) : null}
+                      {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => setIsSharedGroupLibraryOpen(true)} aria-label="Shared Step Group" title="Shared Step Group" type="button"><LayersIcon size={16} /></button>) : null}
+                      <AutomationIconButton label="Parameters" onClick={() => setIsParameterDialogOpen(true)}><IconBraces size={17} /></AutomationIconButton>{canViewAutomationCode ? (<button className="ghost-button compact" disabled={!canViewAutomationCode || !automatedSteps.length} onClick={() => setIsAutomationCodePreviewOpen(true)} aria-label="Full source" title="Full source" type="button"><IconCode size={17} /></button>) : null}
                     </div></div>
                     {linkedManualCases.length ? <div className="automation-program-origin"><span>Linked test cases</span>{linkedManualCases.map((item) => <span key={item.id}>{item.display_id || item.id} · {item.title}</span>)}</div> : null}
                     {selectedAutomationStepIds.length ? <div className="automation-program-selection">
@@ -5665,7 +5627,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                     {automatedStepsQuery.isError ? <div className="empty-state compact" role="alert">Unable to load the plan.<button className="ghost-button" onClick={() => void automatedStepsQuery.refetch()} type="button">Retry</button></div> : null}
                     {automationStepView === "code" && canViewAutomationCode ? <details className="automation-agent-brief"><summary>Complete automation code</summary><pre className="automation-code-block automation-code-block--complete">{completeAutomationCode}</pre><button className="ghost-button compact" onClick={() => navigator.clipboard?.writeText(completeAutomationCode)} type="button">Copy code</button></details> : null}
                     {[true, false].map((precondition) => <section className="automation-program-flow" key={String(precondition)} aria-label={precondition ? "Preconditions" : "Test steps"}>
-                      <div className="automation-plan-heading"><h3>{precondition ? "Preconditions" : "Steps"}</h3>{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); document.getElementById("automation-new-step-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button>) : null}</div>
+                      <div className="automation-plan-heading"><h3>{precondition ? "Preconditions" : "Steps"}</h3>{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "end", stepId: "" }); setIsNewSectionOpen(true); }} type="button"><AddIcon size={14} />{precondition ? "Add precondition" : "Add section"}</button>) : null}</div>
                       {!automatedSteps.some((step) => isAutomationPrecondition(step) === precondition) ? <p className="muted">{precondition ? "No preconditions." : "Add a named section, insert a Shared Step Group, or record a flow."}</p> : null}
                       {automationStepGroups.filter((group) => isAutomationPrecondition(group.steps[0]) === precondition).map((group) => {
                         const rows = group.steps.map((step) => {
@@ -5691,6 +5653,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                             if (editorStep.automation_code?.trim() && (editorStep.automation_code !== sourceCode || optionsChanged)) {
                               editorStep.automation_code = applyAutomationStepOptions(editorStep.automation_code, options);
                             }
+                            setExpandedAutomationStepIds([]);
                             setAutomationStudioStep(editorStep);
                           };
                           const updateDraft = (change: Partial<AutomationStepDraft>) => setStepDrafts((current) => ({ ...current, [step.id]: { ...draft, ...change } }));
@@ -5703,15 +5666,28 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 <span className={`automation-plan-state${isAutomationStepMapped(step) ? " is-ready" : ""}`}>{isAutomationStepMapped(step) ? "Ready" : "Not implemented"}</span>
                               </button>
                             </div>
-                            {canViewAutomationCode ? <AutomationInstructionPreview code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={() => toggleAutomationStep(step.id)} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
-                            {!expanded && isAutomationStepMapped(step) && canEditAutomationCode ? <div className="automation-section-tools"><button className="ghost-button compact" onClick={() => toggleAutomationStep(step.id)} type="button"><PencilIcon size={13} />Edit</button><button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button></div> : null}
+                            {canViewAutomationCode ? <AutomationInstructionPreview view={automationStepView === "code" ? "source" : "instructions"} formatInstruction={summarizeAutomationInstruction} renderArgument={argument => <StepParameterizedText text={argument} values={mergedParameterValues} />} code={step.step_type === "api" ? "" : sourceCode} apiRequest={step.step_type === "api" ? step.api_request : null} sectionName={sectionName} emptyAction={canEditAutomationCode ? <button className="ghost-button compact" onClick={openInstructionEditor} type="button"><AddIcon size={13} />Add instruction</button> : undefined} /> : null}
+                            {canEditAutomationCode ? <div className="automation-section-tools">
+                              <span>{isAutomationStepMapped(step) ? "" : "Add an implementation"}</span>
+                              <AutomationIconButton label="Move up" disabled={reorderAutomationStep.isPending || automatedSteps.findIndex(item => item.id === step.id) === 0 || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex(item => item.id === step.id) - 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })}><IconArrowUp size={15} /></AutomationIconButton>
+                              <AutomationIconButton label="Move down" disabled={reorderAutomationStep.isPending || automatedSteps.findIndex(item => item.id === step.id) === automatedSteps.length - 1 || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex(item => item.id === step.id) + 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })}><IconArrowDown size={15} /></AutomationIconButton>
+                              <AutomationIconButton label="Edit" onClick={() => toggleAutomationStep(step.id)}><PencilIcon size={15} /></AutomationIconButton>
+                              <AutomationIconButton label="Add instruction" onClick={openInstructionEditor}><AddIcon size={15} /></AutomationIconButton>
+                              <CatalogActionMenu label={`${sectionName} actions`} actions={[
+                                { label: "Insert after", icon: <AddIcon size={15} />, onClick: () => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "after", stepId: step.id }); setIsNewSectionOpen(true); } },
+                                ...(canUseRecorder && step.step_type !== "api" && (!["android", "ios"].includes(step.step_type || "") || canUseMobileAppium) ? [{ label: "Replace with recording", icon: <MousePointerIcon size={15} />, disabled: Boolean(recorderSession) || startRecorder.isPending, onClick: () => { setRecordingTargetStepId(step.id); setBuildMethod("record"); selectAutomationWorkspaceTab("build"); } }] : []),
+                                ...(canUseAutomationAi ? [{ label: "Improve wording", icon: <SparkIcon size={15} />, disabled: rephraseAutomationStep.isPending, onClick: () => rephraseAutomationStep.mutate(step) }] : []),
+                                { label: "Clear implementation", icon: <RefreshIcon size={15} />, tone: "danger", disabled: deleteAutomationStep.isPending, onClick: () => deleteAutomationStep.mutate(step) },
+                                { label: "Remove section", icon: <TrashIcon size={15} />, tone: "danger", disabled: removeAutomationPlanStep.isPending, onClick: () => removeAutomationPlanStep.mutate(step) }
+                              ]} />
+                            </div> : null}
                             {step.step_type === "api" && !programNeedsEditor && step.api_request?.query_params?.length ? <div className="automation-plan-api-parameters" aria-label={`Step ${step.step_order} query parameters`}>{step.api_request.query_params.filter((parameter) => parameter.key).map((parameter, index) => <span key={`${parameter.key}:${index}`}><code>{parameter.key}</code><span>=</span>{/password|secret|token|api.?key/i.test(parameter.key) ? <span>Hidden value</span> : <StepParameterizedText text={parameter.value} values={mergedParameterValues} fallback="Empty value" />}</span>)}</div> : null}
                             {step.step_type === "api" && !programNeedsEditor ? <AutomationReferencedParameters parameters={collectStepParameters([step]).map((parameter) => detectedStepParameters.find((available) => available.name === parameter.name) || parameter)} values={mergedParameterValues} /> : null}
-                            {expanded ? <fieldset disabled={!canEditAutomationCode} className="automation-plan-editor" id={`automation-plan-step-${step.id}`} style={{ border: 0, margin: 0, minWidth: 0 }}>
-                              <details className="automation-section-details"><summary>Section details</summary><div className="automation-plan-behavior-fields">
+                            {expanded ? <AutomationOverlay title="Edit section" subtitle={`${String(step.step_order).padStart(2, "0")} · ${sectionName}`} icon={<PencilIcon size={20} />} onClose={() => toggleAutomationStep(step.id)} closeDisabled={updateAutomationStep.isPending || updateAutomationStepCode.isPending}><fieldset disabled={!canEditAutomationCode} className="automation-plan-editor" id={`automation-plan-step-${step.id}`} style={{ border: 0, margin: 0, minWidth: 0 }}>
+                              <div className="automation-section-details"><div className="automation-plan-behavior-fields">
                                 <label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} action`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => updateDraft({ name })} value={draft.name} /></label>
                                 <label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel={`Step ${step.step_order} expected result`} availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => updateDraft({ expected_result })} value={draft.expected_result} /></label>
-                              </div></details>
+                              </div></div>
                               {automationStepView === "code" && step.step_type === "api" ? <label className="form-field"><span>API request JSON</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={12} spellCheck={false} value={apiSourceDrafts[step.id] ?? JSON.stringify(step.api_request || { method: "GET", url: "", validations: [{ kind: "status", expected: "200" }] }, null, 2)} onChange={(event) => setApiSourceDrafts((current) => ({ ...current, [step.id]: event.target.value }))} /><small>Requests, assertions and captures execute through the API runner.</small></label> : automationStepView === "code" ? <label className="form-field"><span>Executable code</span><textarea className="automation-code-input" disabled={!canEditAutomationCode} rows={8} spellCheck={false} onChange={(event) => setStepCodeDrafts((current) => ({ ...current, [step.id]: event.target.value }))} value={stepCodeDrafts[step.id] ?? step.automation_code ?? ""} /></label> : programNeedsEditor ? <div className="automation-program-preserved"><span>Recorded or custom instructions</span><button className="ghost-button compact" onClick={openInstructionEditor} type="button">Edit instructions</button></div> : <div className="automation-plan-mapping automation-instruction-composer">
                                 <label className="form-field"><span>Platform</span><select disabled={!canEditAutomationCode} onChange={(event) => { const nextType = event.target.value as TestStepType; updateDraft({ step_type: nextType, keyword: AUTOMATION_KEYWORDS_BY_TYPE[nextType][0], objectRef: "", value: "" }); }} value={draft.step_type}>{[...new Set([...allowedStepTypes, draft.step_type])].map((type) => <option key={type} value={type}>{type === "ios" ? "iOS" : type.toUpperCase()}</option>)}</select></label>
                                 <label className="form-field"><span>Keyword</span><select disabled={!canEditAutomationCode} onChange={(event) => updateDraft({ keyword: event.target.value, objectRef: "", value: "" })} value={draft.keyword}>{AUTOMATION_KEYWORDS_BY_TYPE[draft.step_type].map((keyword) => <option key={keyword} value={keyword}>{formatKeywordDisplay(keyword)}</option>)}</select></label>
@@ -5730,27 +5706,15 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                                 {canEditAutomationCode ? (<button className="primary-button compact" disabled={!canEditAutomationCode || updateAutomationStep.isPending || updateAutomationStepCode.isPending} onClick={() => automationStepView === "code" ? updateAutomationStepCode.mutate(step) : updateAutomationStep.mutate(step)} type="button">{updateAutomationStep.isPending || updateAutomationStepCode.isPending ? "Saving…" : "Save section"}</button>) : null}
                                 {draft.step_type !== "api" ? (canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={openInstructionEditor} type="button">Add / edit instructions</button>) : null) : null}
                                 {canUseRecorder && step.step_type !== "api" && (!["android", "ios"].includes(step.step_type || "") || canUseMobileAppium) ? (<button className="ghost-button compact" disabled={!canUseRecorder || Boolean(recorderSession) || startRecorder.isPending} onClick={() => { setRecordingTargetStepId(step.id); setBuildMethod("record"); selectAutomationWorkspaceTab("build"); }} type="button">Replace with recording</button>) : null}
-                                <details className="automation-plan-more"><summary>More actions</summary><div className="automation-plan-actions">
-                                  {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || reorderAutomationStep.isPending || step.step_order <= 1 || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex((item) => item.id === step.id) - 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "up" })} type="button">Move up</button>) : null}
-                                  {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || reorderAutomationStep.isPending || step.step_order >= automatedSteps.length || isAutomationPrecondition(automatedSteps[automatedSteps.findIndex((item) => item.id === step.id) + 1] || step) !== precondition} onClick={() => reorderAutomationStep.mutate({ stepId: step.id, direction: "down" })} type="button">Move down</button>) : null}
-                                  {canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(precondition); setNewStepPlacement({ mode: "after", stepId: step.id }); document.getElementById("automation-new-step-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }); }} type="button">Insert after</button>) : null}
-                                  {canUseAutomationAi ? ((canEditAutomationCode && canUseAutomationAi ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || !canUseAutomationAi || rephraseAutomationStep.isPending} onClick={() => rephraseAutomationStep.mutate(step)} type="button">Improve wording</button>) : null)) : null}
-                                  {canEditAutomationCode ? (<button className="ghost-button compact danger" disabled={!canEditAutomationCode || deleteAutomationStep.isPending} onClick={() => deleteAutomationStep.mutate(step)} type="button">Clear implementation</button>) : null}
-                                  {canEditAutomationCode ? (<button className="ghost-button compact danger" disabled={!canEditAutomationCode || removeAutomationPlanStep.isPending} onClick={() => removeAutomationPlanStep.mutate(step)} type="button">Remove section</button>) : null}
-                                </div></details>
+
                               </div>
-                            </fieldset> : null}
+                            </fieldset></AutomationOverlay> : null}
                           </article>;
                         });
-                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Step Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Step Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => ungroupAutomationSteps.mutate(group.steps[0].group_id as string)} type="button">Ungroup</button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); document.getElementById("automation-new-step-composer")?.scrollIntoView({ behavior: "smooth", block: "center" }); }} type="button">Add section to group</button>) : null}</div>{rows}</details>;
+                        return group.isStandalone || precondition ? <div className="automation-program-sections" key={group.id}>{rows}</div> : <details className="automation-plan-group automation-program-group" open key={group.id}><summary><strong>{group.title}</strong><span>{group.steps.length} sections{group.steps[0]?.group_kind === "reusable" ? " · Shared Step Group" : ""}</span></summary><div className="automation-plan-actions">{group.steps[0]?.reusable_group_id ? <span className="muted">Edits also update the Shared Step Group.</span> : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode || ungroupAutomationSteps.isPending} onClick={() => ungroupAutomationSteps.mutate(group.steps[0].group_id as string)} aria-label="Ungroup" title="Ungroup" type="button"><LayersIcon size={15} /></button>) : null}{canEditAutomationCode ? (<button className="ghost-button compact" disabled={!canEditAutomationCode} onClick={() => { setNewStepIsPrecondition(false); setNewStepPlacement({ mode: "after", stepId: group.steps[group.steps.length - 1].id }); setIsNewSectionOpen(true); }} aria-label="Add section to group" title="Add section to group" type="button"><AddIcon size={15} /></button>) : null}</div>{rows}</details>;
                       })}
                     </section>)}
-                    {canEditAutomationCode ? <section className="automation-new-section" id="automation-new-step-composer" aria-label="Add plan section">
-                      <div className="automation-plan-heading"><strong>{newStepIsPrecondition ? "New precondition" : "New section"}</strong><select aria-label="New step section" onChange={(event) => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition">Precondition</option></select></div>
-                      {newStepPlacementLabel ? <span className="muted">{richTextToPlainText(newStepPlacementLabel)} <button className="ghost-button compact" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">Reset placement</button></span> : null}
-                      <div className="automation-plan-behavior-fields"><label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel="New step action" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => setNewStepDraft((current) => ({ ...current, name }))} placeholder="For example, sign in with valid credentials" value={newStepDraft.name} /></label><label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel="New step expected result" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => setNewStepDraft((current) => ({ ...current, expected_result }))} placeholder="Describe the outcome" value={newStepDraft.expected_result} /></label></div>
-                      <div className="automation-plan-actions"><select aria-label="New step type" onChange={(event) => setNewStepDraft((current) => ({ ...emptyAutomationStepDraft(event.target.value as TestStepType), name: current.name, expected_result: current.expected_result }))} value={newStepDraft.step_type}>{allowedStepTypes.map((type) => <option key={type} value={type}>{type.toUpperCase()}</option>)}</select><button className="primary-button compact" disabled={!newStepDraft.name.trim() || createAutomationStep.isPending} onClick={() => createAutomationStep.mutate()} type="button"><AddIcon size={14} />{createAutomationStep.isPending ? "Adding…" : newStepIsPrecondition ? "Add precondition" : "Add section"}</button></div>
-                    </section> : null}
+
                   </section>
                 ) : null}
                 {activeAutomationWorkspaceTab === "repository" && canViewObjectRepository ? (
@@ -6592,6 +6556,28 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
         </div>
       ) : null}
 
+      {isExecutionContextOpen ? <AutomationOverlay title="Execution context" subtitle="Environment, configuration and data for the next build or run." icon={<IconSettings size={20} />} onClose={() => setIsExecutionContextOpen(false)}>
+        <ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} />
+        <div className="automation-overlay-footer"><button className="primary-button" onClick={() => setIsExecutionContextOpen(false)} type="button">Done</button></div>
+      </AutomationOverlay> : null}
+      {runDraft ? <AutomationOverlay title="Run automation" subtitle={`${runDraft.caseIds.length} case${runDraft.caseIds.length === 1 ? "" : "s"} · Test Engine execution`} icon={<PlayIcon size={20} />} closeDisabled={runSelectedAutomationCases.isPending} onClose={() => setRunDraft(null)}>
+        <div className="automation-run-targets" aria-label="Execution target">
+          {canRunLocalAutomation ? <button type="button" aria-pressed={runDraft.mode === "local"} onClick={() => setRunDraft({ ...runDraft, mode: "local" })} disabled={runSelectedAutomationCases.isPending}><IconDeviceDesktop size={20} /><strong>Local</strong><span>Connected local Test Engine</span></button> : null}
+          {canRunRemoteAutomation ? <button type="button" aria-pressed={runDraft.mode === "remote"} onClick={() => setRunDraft({ ...runDraft, mode: "remote" })} disabled={runSelectedAutomationCases.isPending}><IconCpu size={20} /><strong>Remote</strong><span>Configured Test Engine workers</span></button> : null}
+        </div>
+        <ExecutionContextSelector appTypeId={appTypeId} projectId={projectId} onConfigurationChange={setSelectedExecutionConfigurationId} onDataSetChange={setSelectedExecutionDataSetId} onEnvironmentChange={setSelectedExecutionEnvironmentId} selectedConfigurationId={selectedExecutionConfigurationId} selectedDataSetId={selectedExecutionDataSetId} selectedEnvironmentId={selectedExecutionEnvironmentId} />
+        <div className="automation-run-scope"><strong>Run scope</strong>{runDraft.caseIds.map(id => <span key={id}>{automatedCases.find(item => item.id === id)?.title || activeCase?.title || id}</span>)}{executionHookDraft.length ? <small>{executionHookDraft.length} setup / teardown hooks included</small> : null}</div>
+        {runSelectedAutomationCases.isError ? <p className="automation-overlay-error" role="alert">{runSelectedAutomationCases.error instanceof Error ? runSelectedAutomationCases.error.message : "Unable to start the run."}</p> : null}
+        <div className="automation-overlay-footer"><button className="ghost-button" disabled={runSelectedAutomationCases.isPending} onClick={() => setRunDraft(null)} type="button">Cancel</button><button className="primary-button" disabled={runSelectedAutomationCases.isPending} onClick={() => runSelectedAutomationCases.mutate()} type="button"><PlayIcon size={16} />{runSelectedAutomationCases.isPending ? "Handing off…" : "Start run"}</button></div>
+      </AutomationOverlay> : null}
+
+      {isNewSectionOpen && canEditAutomationCode ? <AutomationOverlay title={newStepIsPrecondition ? "Add precondition" : "Add section"} subtitle={newStepPlacementLabel ? richTextToPlainText(newStepPlacementLabel) : "Describe the action and expected outcome."} icon={<AddIcon size={20} />} closeDisabled={createAutomationStep.isPending} onClose={() => setIsNewSectionOpen(false)} variant="dialog"><section className="automation-new-section" id="automation-new-step-composer" aria-label="Add plan section">
+                      <div className="automation-plan-heading"><strong>{newStepIsPrecondition ? "New precondition" : "New section"}</strong><select aria-label="New step section" onChange={(event) => { setNewStepIsPrecondition(event.target.value === "precondition"); setNewStepPlacement({ mode: "end", stepId: "" }); }} value={newStepIsPrecondition ? "precondition" : "step"}><option value="step">Test section</option><option value="precondition">Precondition</option></select></div>
+                      {newStepPlacementLabel ? <span className="muted">{richTextToPlainText(newStepPlacementLabel)} <button className="ghost-button compact" onClick={() => setNewStepPlacement({ mode: "end", stepId: "" })} type="button">Reset placement</button></span> : null}
+                      <div className="automation-plan-behavior-fields"><label className="form-field"><span>Section name</span><GherkinStepTextField ariaLabel="New step action" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(name) => setNewStepDraft((current) => ({ ...current, name }))} placeholder="For example, sign in with valid credentials" value={newStepDraft.name} /></label><label className="form-field"><span>Expected result</span><GherkinStepTextField ariaLabel="New step expected result" availableParameters={detectedStepParameters} parameterValues={mergedParameterValues} onChange={(expected_result) => setNewStepDraft((current) => ({ ...current, expected_result }))} placeholder="Describe the outcome" value={newStepDraft.expected_result} /></label></div>
+                      <div className="automation-plan-actions"><select aria-label="New step type" onChange={(event) => setNewStepDraft((current) => ({ ...emptyAutomationStepDraft(event.target.value as TestStepType), name: current.name, expected_result: current.expected_result }))} value={newStepDraft.step_type}>{allowedStepTypes.map((type) => <option key={type} value={type}>{type.toUpperCase()}</option>)}</select><button className="primary-button compact" disabled={!newStepDraft.name.trim() || createAutomationStep.isPending} onClick={() => createAutomationStep.mutate()} type="button"><AddIcon size={14} />{createAutomationStep.isPending ? "Adding…" : newStepIsPrecondition ? "Add precondition" : "Add section"}</button></div>
+                    </section></AutomationOverlay> : null}
+
       {isBatchAgentOpen ? <div className="modal-backdrop" onClick={() => { if (!scheduleAiAutomation.isPending) setIsBatchAgentOpen(false); }}>
         <div aria-label="Build with automation agent" aria-modal="true" className="modal-card resource-modal-card automation-batch-agent-dialog" onClick={(event) => event.stopPropagation()} ref={batchAgentDialogRef} role="dialog" tabIndex={-1}>
           <div className="modal-header"><div><h2>Build with automation agent</h2><p>{automationActionTargetIds.length} selected cases · Each result returns to its step plan.</p></div><DialogCloseButton disabled={scheduleAiAutomation.isPending} onClick={() => setIsBatchAgentOpen(false)} /></div>
@@ -6611,9 +6597,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
             <div className="resource-modal-header">
               <div className="resource-modal-title">
                 <h2 className="dialog-title" id="automation-create-dialog-title">Create automation case</h2>
-                <p>Define the case, link its coverage, and prepare the behavior to automate.</p>
+                <p>Choose how to build, then define your plan.</p>
               </div>
-              <button aria-label="Close create automation case" className="ghost-button compact" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Close</button>
+              <DialogCloseButton label="Close create automation case" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} />
             </div>
             <form className="resource-form" onSubmit={(event) => { event.preventDefault(); createAutomationCase.mutate(); }}>
               <div className="resource-form-body">
@@ -6626,26 +6612,27 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                         onChange={updateAutomationCreateMetadata}
                         value={{ ...automationCreateMetadata, manualCaseIds: automationCreateManualCaseIds }}
                       />
-                      <section className="stack-list" aria-label="Creation method">
+                      <section className="automation-creation-method" aria-label="Creation method">
                         <strong>How would you like to build it?</strong>
                         <div className="automation-build-methods">
-                          {canUseAutomationAi ? (<button aria-pressed={automationCreationMode === "ai"} disabled={!canUseAutomationAi} onClick={() => setAutomationCreationMode("ai")} type="button"><SparkIcon />Build with automation agent</button>) : null}
+                          {canUseAutomationAi ? (<button aria-pressed={automationCreationMode === "ai"} disabled={!canUseAutomationAi} onClick={() => setAutomationCreationMode("ai")} type="button"><SparkIcon />AI agent</button>) : null}
                           {canRecordCreation ? (<button aria-pressed={automationCreationMode === "record"} disabled={!canUseRecorder} onClick={() => setAutomationCreationMode("record")} type="button"><MousePointerIcon />Record flow</button>) : null}
                           <button aria-pressed={automationCreationMode === "blank"} onClick={() => setAutomationCreationMode("blank")} type="button"><PencilIcon />Author steps</button>
                         </div>
                         {automationCreationMode !== "blank" ? <label className="form-field"><span>Start URL</span><input onChange={(event) => setStartUrl(event.target.value)} placeholder="https://app.example.com" value={startUrl} /></label> : null}
                         {automationCreationMode === "ai" ? (
-                          <div className="automation-agent-brief">
+                          <div className="automation-agent-brief automation-create-ai">
                             <label className="form-field"><span>Build instructions (optional)</span><textarea onChange={(event) => setAgentMission(event.target.value)} placeholder="The linked cases and behavior plan are included. Add any priorities or constraints." rows={3} value={agentMission} /></label>
-                            <label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>{automationCreateRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow the automation agent to interact with this application while building (may submit forms)</span></label> : null}
+                            <details className="automation-ai-options"><summary><IconSettings size={14} />Build settings</summary><div className="automation-ai-options-body"><label className="form-field"><span>Additional guidance</span><textarea onChange={(event) => setBuilderContext(event.target.value)} placeholder="Authentication, important assertions, edge cases, and repository preferences." rows={2} value={builderContext} /></label>{automationCreateRuntimeTypes.includes("web") ? <label className="repository-field-check"><input type="checkbox" checked={allowBrowserActions} onChange={(event) => setAllowBrowserActions(event.target.checked)} /><span>Allow the automation agent to interact with this application while building (may submit forms)</span></label> : null}
                             <label className="form-field"><span>Schedule build (optional)</span><input onChange={(event) => setAgentScheduledAt(event.target.value)} type="datetime-local" value={agentScheduledAt} /><small>Leave blank to queue the build after the case is saved.</small></label>
+                            </div></details>
                             {!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()) ? <p className="muted">Link a source Test Case or add a step so the AI has behavior to build.</p> : null}
                           </div>
                         ) : <p className="muted">{automationCreationMode === "record" ? "The saved case opens in Build with Record flow selected." : "The saved case opens with its preconditions and steps ready to edit."}</p>}
                       </section>
                     </div>
                     <div className="automation-create-plan-panel">
-                      <div><strong>Behavior plan</strong><p className="muted">All linked Test Cases contribute their preconditions, steps, and Shared Step Groups. Add any extra behavior below.</p></div>
+                      <div><strong>Behavior plan</strong><p className="muted">Linked cases include their preconditions, steps and Shared Step Groups.</p></div>
                       {automationCreateManualCaseIds.length && createSourcesQuery.isPending ? <LoadingState label="Loading source Test Case plans" /> : null}
                       {automationCreateManualCaseIds.length && createSourcesQuery.isError ? <div className="empty-state compact" role="alert"><span>Source steps could not be loaded.</span><button className="ghost-button compact" onClick={() => void createSourcesQuery.refetch()} type="button">Retry source plans</button></div> : null}
                       {automationCreateManualCaseIds.map((sourceId) => {
@@ -6669,7 +6656,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <div className="resource-form-footer">
                 <button className="ghost-button" disabled={createAutomationCase.isPending} onClick={closeCreateAutomation} type="button">Cancel</button>
                 {canCreateAutomationCase ? (<button className="primary-button" disabled={!automationCreateMetadata.title.trim() || createAutomationCase.isPending || (automationCreationMode === "record" && !canUseRecorder) || Boolean(automationCreateManualCaseIds.length && (createSourcesQuery.isPending || createSourcesQuery.isError)) || (automationCreationMode === "ai" && (!canUseAutomationAi || (!automationCreateManualCaseIds.length && !automationCreateSteps.some((step) => step.action.trim() || step.expected_result.trim()))))} type="submit">
-                  <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : automationCreationMode === "ai" ? agentScheduledAt ? "Create and schedule build" : "Create and build with automation agent" : automationCreationMode === "record" ? "Create and open recorder" : "Create automation case"}</span>
+                  <AddIcon /><span>{createAutomationCase.isPending ? "Creating..." : automationCreationMode === "ai" ? agentScheduledAt ? "Create & schedule" : "Create & build" : automationCreationMode === "record" ? "Create & record" : "Create case"}</span>
                 </button>) : null}
               </div>
             </form>

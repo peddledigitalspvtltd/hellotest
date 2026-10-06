@@ -110,6 +110,7 @@ const navigation = [
       },
       {
         id: "agentic-workflows",
+        matchPaths: [WORKSPACE_ROUTES.agenticWorkflows, WORKSPACE_ROUTES.mcpServers],
         to: WORKSPACE_ROUTES.agenticWorkflows,
         label: "Agentic Studio",
         shortLabel: "Agents",

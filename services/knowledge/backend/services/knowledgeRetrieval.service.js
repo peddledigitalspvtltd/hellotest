@@ -244,7 +244,7 @@ const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, u
   }
 };
 
-const retrieve = (input) => execution.run({ signal: input.signal, onProgress: input.onProgress }, async () => {
+const retrieveDirect = (input) => execution.run({ signal: input.signal, onProgress: input.onProgress }, async () => {
   const filters = await normalizeAssistantFilters({ projectId: input.projectId, appTypeId: input.appTypeId, base: input.filters });
   const request = knowledgeContracts.buildRetrievalRequest({ projectId: input.projectId, query: input.query, filters, budgets: input.budgets });
   execution.current().searchMode = input.budgets?.max_query_cost_usd != null || input.budgets?.max_cost_usd != null ? "keyword" : "hybrid";
@@ -258,4 +258,6 @@ const retrieve = (input) => execution.run({ signal: input.signal, onProgress: in
   return result.packet;
 });
 
-module.exports = { authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };
+const retrieve = (input) => require("@hellotest/platform/backend/src/mcp/gateway").retrievePacket(input);
+
+module.exports = { retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };

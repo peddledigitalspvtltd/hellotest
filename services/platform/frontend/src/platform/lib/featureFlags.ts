@@ -27,6 +27,7 @@ const PATH_FEATURE_FLAGS: Record<string, string[]> = {
   "/local-playwright": ["hellotest.automation.workspace"],
   "/automation-assets": ["hellotest.automation.workspace", "hellotest.automation.assets"],
   "/object-repository": ["hellotest.automation.workspace", "hellotest.automation.object_repository"],
+  "/mcp-servers": ["hellotest.ai.agentic_workflows"],
   "/agentic-workflows": ["hellotest.ai.agentic_workflows"],
   "/executions": ["hellotest.manual.runs"],
   "/testops": ["hellotest.ops.background_jobs"],

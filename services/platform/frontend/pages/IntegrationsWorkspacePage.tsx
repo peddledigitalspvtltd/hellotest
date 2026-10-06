@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { capabilityView } from "../src/platform/capabilities/CapabilityView";
 import { useFeatureFlags } from "../src/platform/hooks/useFeatureFlags";
@@ -28,14 +28,15 @@ export function useWorkflowProviderConnections(active = true) {
 export function IntegrationsWorkspacePage({ embedded = false }: { embedded?: boolean }) {
   const [params] = useSearchParams();
   const { projectId, enabled, connections } = useWorkflowProviderConnections();
-  const providers = useMemo<IntegrationProviderExtension[]>(() => !enabled ? [] : (["mcp", "http"] as const).map(kind => ({
-    definition: { value: kind, label: kind === "mcp" ? "MCP Server" : "HTTP API", description: kind === "mcp" ? "Connect server tools to AI workflows" : "Connect HTTP endpoints to workflows" },
+  const providers = useMemo<IntegrationProviderExtension[]>(() => !enabled ? [] : (["http"] as const).map(kind => ({
+    definition: { value: kind, label: "HTTP API", description: "Connect HTTP endpoints to workflows" },
     records: (connections.data || []).filter(row => row.kind === kind).map(row => ({ id: connectionPrefix + row.id, type: kind, name: row.name, base_url: row.url, is_active: row.enabled, api_key: null, model: null, username: null, project_key: null, config: { tools: row.tools, methods: row.methods }, updated_at: row.updated_at } satisfies Integration)),
     loading: Boolean(projectId && connections.isLoading),
-    error: kind === "mcp" && connections.isError ? "Workflow providers could not be loaded." : undefined,
+    error: connections.isError ? "HTTP credentials could not be loaded." : undefined,
     retry: () => { void connections.refetch(); },
     renderEditor: ({ integrationId, onSaved, onClose }) => <ConnectionEditor kind={kind} connectionId={integrationId?.slice(connectionPrefix.length)} onSaved={id => onSaved(connectionPrefix + id)} onClose={onClose} />,
   })), [enabled, projectId, connections.data, connections.isLoading, connections.isError]);
-  const initialProvider = enabled && (params.get("integration") === "mcpServers" || params.get("provider") === "mcp") ? "mcp" : enabled && params.get("provider") === "http" ? "http" : undefined;
+  if (params.get("integration") === "mcpServers" || params.get("provider") === "mcp") return <Navigate to="/mcp-servers" replace />;
+  const initialProvider = enabled && params.get("provider") === "http" ? "http" : undefined;
   return <Providers key={`${projectId}:${initialProvider || "all"}`} embedded={embedded} additionalProviders={providers} initialProvider={initialProvider} />;
 }

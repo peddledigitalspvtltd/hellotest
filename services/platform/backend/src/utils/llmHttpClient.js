@@ -19,6 +19,7 @@ exports.fetchLlmWithRetry = async (url, init = {}, options = {}) => {
   const timeoutMs = Math.max(1_000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS));
   const maxAttempts = Math.max(1, Math.min(4, Number(options.maxAttempts || DEFAULT_MAX_ATTEMPTS)));
   const operation = String(options.operation || "llm.request");
+  init = await require("../mcp/gateway").enrichChatRequest(init, options);
   const prepared = prepareChatRequest(init, { ...options, operation });
   init = prepared.init;
   const startedAt = Date.now();

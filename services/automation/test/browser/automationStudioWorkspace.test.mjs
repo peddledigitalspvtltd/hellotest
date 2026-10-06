@@ -1,0 +1,143 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, writeFile, rm, mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
+import { createRequire } from 'node:module';
+const require = createRequire(new URL('../../../../testengine/backend/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const { expect } = require('playwright/test');
+const root = new URL('../../../platform/frontend/', import.meta.url);
+
+test('automation studio preserves section drafts, precondition order, AI scope and a single execution handoff', {timeout: 90000}, async () => {
+  const template = await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs', import.meta.url), 'utf8');
+  let fixture = runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
+  fixture = fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>', 'element:<AutomationPage/>');
+  fixture = fixture.replace("const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>}]", "const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>},{path:'/executions',element:<div>Execution destination</div>}]" );
+  fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
+    window.calls=[];window.failRun=false;
+    api.testEnvironments.list=async()=>[{id:'qa',project_id:'p',app_type_id:'a',name:'QA'}];
+    api.testConfigurations.list=async()=>[{id:'chrome',project_id:'p',app_type_id:'a',name:'Chrome'}];
+    api.testSteps.create=async input=>{window.calls.push({kind:'step',input});const result={...input,id:'new-step'};steps.splice(input.step_order-1,0,result);steps.forEach((step,index)=>step.step_order=index+1);return result;};
+    api.testSteps.update=async(id,input)=>{window.calls.push({kind:'update',id,input});const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
+    api.testCases.queueAutomationGenerator=async(id,input)=>{window.calls.push({kind:'build',id,input});return {transaction_id:'build-job'};};
+    api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run'};};
+    api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run'};};
+    api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};
+    const client=new QueryClient`);
+  const name = 'automation-studio-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
+  let browser, page;
+  try {
+    await writeFile(tsx, fixture);
+    await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    browser = await chromium.launch({headless:true, executablePath:process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
+    page = await browser.newPage({viewport:{width:1440,height:1000}});
+    page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(15000);
+    const errors = [];page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/api/**', route => { errors.push('Unexpected API: ' + route.request().url());return route.abort(); });
+    await page.goto(`${process.env.VITE_TEST_URL || 'http://127.0.0.1:5197'}/${name}.html`);
+    await page.getByRole('tab',{name:/^Plan/}).click();
+    await expect(page.getByRole('tab',{name:/^Plan/})).toHaveAttribute('aria-selected','true');
+    assert.equal(await page.getByLabel('New step action',{exact:true}).count(),0,'creation is off the canvas');
+    const first = page.locator('.automation-program-section').first();
+    await expect(first.getByRole('button',{name:'Move up',exact:true})).toBeDisabled();
+    await first.getByRole('button',{name:'Edit',exact:true}).click();
+    let editor = page.getByRole('dialog',{name:'Edit section',exact:true});
+    await expect(editor.getByRole('button',{name:'Edit Step 1 action',exact:true})).toBeVisible();
+    await editor.getByRole('button',{name:'Edit Step 1 expected result',exact:true}).click();
+    await editor.getByLabel('Step 1 expected result',{exact:true}).fill('Draft outcome');
+    await page.keyboard.press('Escape');await expect(editor).toBeHidden();
+    await expect(first.getByRole('button',{name:'Edit',exact:true})).toBeFocused();
+    await first.getByRole('button',{name:'Edit',exact:true}).click();
+    await expect(editor.getByLabel('Step 1 expected result',{exact:true})).toHaveValue('Draft outcome');
+    await editor.getByRole('button',{name:'Save section',exact:true}).click();
+    await page.waitForFunction(()=>window.calls.some(call=>call.kind==='update'&&call.input.expected_result==='Draft outcome'),null,{timeout:5000});
+    await page.keyboard.press('Escape');
+    await first.getByRole('button',{name:'Edit',exact:true}).click();
+    await editor.getByRole('button',{name:'Add / edit instructions',exact:true}).click();
+    await expect(page.getByRole('dialog',{name:'Step 1 automation studio',exact:true})).toBeVisible();
+    await expect(editor).toBeHidden();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button',{name:'Add precondition',exact:true}).click();
+    const add = page.getByRole('dialog',{name:'Add precondition',exact:true});
+    await expect(add.getByLabel('New step section')).toHaveValue('precondition');
+    await add.getByLabel('New step action',{exact:true}).fill('Prepare account');
+    await add.getByLabel('New step expected result',{exact:true}).fill('Account exists');
+    await add.getByRole('button',{name:'Add precondition',exact:true}).click();
+    await page.waitForFunction(()=>window.calls.some(call=>call.kind==='step'),null,{timeout:5000});
+    const created = await page.evaluate(()=>window.calls.find(call=>call.kind==='step').input);
+    assert.equal(created.step_order,1);assert.equal(created.group_name,'Preconditions');
+    await page.keyboard.press('Escape');
+    const screenshotRoot='/tmp/automation-redesign';await mkdir(screenshotRoot,{recursive:true});
+    if(await page.getByRole('button',{name:'Dismiss message',exact:true}).count()) {await page.getByRole('button',{name:'Dismiss message',exact:true}).click();await expect(page.locator('.toast-message')).toBeHidden();}
+    await page.screenshot({path:screenshotRoot+'/studio-plan-desktop.png',fullPage:true});
+    await page.getByRole('tab',{name:/Build tools/}).click();
+    await page.locator('.automation-ai-composer').getByRole('button',{name:'Execution context',exact:true}).click();
+    const context=page.getByRole('dialog',{name:'Execution context',exact:true});
+    await context.getByLabel('Test environment',{exact:true}).selectOption('qa');
+    await context.getByLabel('Test configuration',{exact:true}).selectOption('chrome');
+    await context.getByRole('button',{name:'Done',exact:true}).click();
+    await page.getByRole('button',{name:'Prioritize assertions',exact:true}).click();
+    await expect(page.getByLabel('Build instructions (optional)',{exact:true})).toHaveValue('Prioritize assertions.');
+    await page.screenshot({path:screenshotRoot+'/studio-ai-desktop.png',fullPage:true});
+    for(const width of [768,390]) {
+      await page.setViewportSize({width,height:844});
+      await expect(page.locator('.automation-ai-studio')).toBeVisible();
+      assert.ok(await page.locator('.automation-ai-studio').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'AI studio fits '+width);
+      assert.ok(await page.locator('.automation-case-commandbar').evaluate(el=>el.getBoundingClientRect().height<80),'compact commands at '+width);
+      assert.ok(await page.locator('.automation-ai-layout').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'AI columns fit '+width);
+      await page.screenshot({path:screenshotRoot+'/studio-ai-'+width+'.png',fullPage:true});
+    }
+    await page.getByRole('button',{name:'Build step plan',exact:true}).click();
+    await page.waitForFunction(()=>window.calls.some(call=>call.kind==='build'),null,{timeout:5000});
+    const build=await page.evaluate(()=>window.calls.find(call=>call.kind==='build'));
+    assert.equal(build.id,'case1');assert.match(build.input.additional_context,/Prioritize assertions/);assert.equal(build.input.ai_requested,true);assert.equal(build.input.test_environment_id,'qa');assert.equal(build.input.test_configuration_id,'chrome');
+    await expect(page.locator('.automation-ai-status')).toHaveText('Queued');
+    await page.setViewportSize({width:1440,height:1000});
+    // Use a fresh saved plan to exercise both dispatch paths independently.
+    for(const mode of ['local','remote']) {
+      await page.reload();
+      await page.getByRole('button',{name:mode==='local'?'Run local':'Run remote',exact:true}).click();
+      const run = page.getByRole('dialog',{name:'Run automation',exact:true});
+      await expect(run.getByRole('button',{name:mode==='local'?/^Local/:/^Remote/})).toHaveAttribute('aria-pressed','true');
+      await run.getByLabel('Test environment',{exact:true}).selectOption('qa');
+      await run.getByLabel('Test configuration',{exact:true}).selectOption('chrome');
+      await page.setViewportSize({width:390,height:844});
+      assert.ok(await run.evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+      await run.screenshot({path:screenshotRoot+'/studio-run-'+mode+'-mobile.png'});
+      if(mode==='local') {
+        await page.evaluate(()=>window.failRun=true);
+        await run.getByRole('button',{name:'Start run',exact:true}).click();
+        await expect(run.getByRole('alert')).toHaveText('Local Test Engine unavailable');
+        await page.evaluate(()=>window.failRun=false);
+      }
+      await run.getByRole('button',{name:'Start run',exact:true}).click();
+      await page.getByText('Execution destination',{exact:true}).waitFor();
+      const calls=await page.evaluate(mode=>window.calls.filter(call=>call.kind===('local'===mode?'local':'remote')), mode);
+      assert.equal(calls.length,mode==='local'?2:1);assert.deepEqual(calls.at(-1).input.test_case_ids,['case1']);
+      assert.equal('engine_base_url' in calls.at(-1).input,false);
+      assert.equal(calls.at(-1).input.test_environment_id,'qa');assert.equal(calls.at(-1).input.test_configuration_id,'chrome');
+      if(mode==='remote')assert.equal(calls[0].input.execution_mode,'remote');
+      await page.setViewportSize({width:1440,height:1000});
+    }
+    await page.reload();
+    await page.getByRole('button',{name:'Back to automation case tiles',exact:true}).click();
+    await page.screenshot({path:screenshotRoot+'/studio-catalog-desktop.png',fullPage:true});
+    await page.getByRole('button',{name:'Create automation case',exact:true}).click();
+    const create=page.getByRole('dialog',{name:'Create automation case',exact:true});
+    await create.getByLabel('Automation case name',{exact:true}).fill('Checkout flow');
+    await create.getByRole('button',{name:'Author steps',exact:true}).click();
+    await create.getByRole('button',{name:'Add precondition',exact:true}).click();
+    await create.getByLabel('Draft precondition 1 action',{exact:true}).fill('Prepare customer');
+    await create.getByRole('button',{name:'AI agent',exact:true}).click();
+    await expect(create.getByLabel('Automation case name',{exact:true})).toHaveValue('Checkout flow');
+    await expect(create.getByLabel('Draft precondition 1 action',{exact:true})).toHaveValue('Prepare customer');
+    await create.screenshot({path:screenshotRoot+'/studio-create-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    assert.ok(await create.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'creation modal fits phone');
+    await create.screenshot({path:screenshotRoot+'/studio-create-mobile.png'});
+    await page.keyboard.press('Escape');await expect(create).toBeHidden();
+    assert.deepEqual(errors,[]);
+  } catch(error) { throw new Error(`${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error}); }
+  finally { await browser?.close();await Promise.all([rm(html,{force:true}),rm(tsx,{force:true})]); }
+});

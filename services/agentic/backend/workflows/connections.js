@@ -22,22 +22,25 @@ async function configured() {
     throw fail("Workflow connections must be a configured list.", 503);
   const saved = await settings.all();
   const savedIds = new Set(saved.map(row => row.id));
-  return [...rows.filter(row => !savedIds.has(row?.id)), ...saved].filter(row => row.enabled !== false).filter(
+  return [...rows.filter(row => !savedIds.has(row?.id)), ...saved].filter(row=>row?.id!=='hellotest').filter(row => row.enabled !== false).filter(
     (row) => row && typeof row.id === "string" && typeof row.url === "string",
   );
 }
 const scoped = (connection, projectId) =>
   Array.isArray(connection.projectIds) &&
   connection.projectIds.includes(projectId);
+const builtin = projectId => ({id:'hellotest',name:'HelloTest',kind:'mcp',builtin:true,url:process.env.HELLOTEST_MCP_PUBLIC_URL||'http://api:3000/mcp',projectIds:[projectId],enabled:true,tools:require('@hellotest/platform/backend/src/mcp/server').toolDefinitions().map(tool=>tool.name),toolDefinitions:require('@hellotest/platform/backend/src/mcp/server').toolDefinitions(),transport:'streamable-http',protocolVersion:'2026-07-28',timeoutMs:30000,serverInfo:{name:'HelloTest',version:'1.0.0'}});
 const list = async (projectId) =>
-  (await configured())
+  [builtin(projectId),...(await configured())]
     .filter((row) => scoped(row, projectId))
     .map((row) => ({
       id: row.id,
+      builtin: Boolean(row.builtin),
       name: row.name || row.id,
       kind: row.kind === "mcp" ? "mcp" : "http",
       url: cleanUrl(row.url).toString(),
-      authenticated: Boolean(row.secretEnv || row.encryptedSecret || row.encryptedHeaders),
+      authenticated: Boolean(row.builtin || row.secretEnv || row.encryptedSecret || row.encryptedHeaders),
+      authenticationMode: row.builtin ? "current-user" : "managed-credential",
       methods: row.methods || ["GET", "HEAD"],
       tools: row.tools || [],
       toolDefinitions: (row.toolDefinitions || []).filter(tool => row.tools?.includes(tool.name)),
@@ -47,7 +50,7 @@ const list = async (projectId) =>
       discovered_at: row.discovered_at,
     }));
 async function resolve(id, projectId, endpoint, kind = "http") {
-  const connection = id
+  const connection = id === 'hellotest' && kind === 'mcp' ? builtin(projectId) : id
     ? (await configured()).find((row) => row.id === id && scoped(row, projectId))
     : null;
   if (id && !connection)
@@ -294,7 +297,7 @@ async function callHttp({ projectId, data, signal }) {
     connection,
   );
 }
-module.exports = {
+module.exports = { builtin,
   list,
   resolve,
   request,

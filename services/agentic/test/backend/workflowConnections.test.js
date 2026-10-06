@@ -63,7 +63,7 @@ test("HTTP uses a scoped connection, pins destinations, redacts credentials, and
     JSON.stringify(await connections.list("p")),
     /connection-fixture-secret|secretEnv/,
   );
-  assert.deepEqual(await connections.list("other"), []);
+  assert.deepEqual((await connections.list("other")).filter(row=>row.id!=="hellotest"), []);
   await assert.rejects(
     connections.callHttp({ projectId: "other", data: { connectionId: "api" } }),
     { statusCode: 403 },
@@ -245,4 +245,10 @@ test("MCP schemas default to JSON Schema 2020-12 and preserve draft-07 compatibi
   const legacy = compile({ $schema: "http://json-schema.org/draft-07/schema#", type: "object", required: ["id"], properties: { id: { type: "string" } } }, "input");
   assert.equal(legacy({}), false);
   assert.equal(legacy({ id: "item" }), true);
+});
+
+test('default HelloTest MCP is authenticated through the verified current user without a shared credential',async()=>{
+ const rows=await connections.list('p');const builtin=rows.find(row=>row.id==='hellotest');
+ assert.equal(builtin.builtin,true);assert.equal(builtin.authenticated,true);assert.equal(builtin.authenticationMode,'current-user');assert.ok(builtin.tools.includes('hellotest_context_build'));
+ assert.equal(builtin.secret,undefined);assert.equal(builtin.encryptedSecret,undefined);
 });

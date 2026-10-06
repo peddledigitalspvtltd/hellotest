@@ -1072,6 +1072,7 @@ export function AgenticWorkflowsPage() {
 
       <div className="agentic-page-stage">
       {!draft && !selectedRun && <nav className="agent-hub-nav" aria-label="Agent workspace navigation">
+        <Link className="ghost-button" to="/mcp-servers">MCP Servers</Link>
         <button type="button" aria-current={activeSurface === "agents" ? "page" : undefined} onClick={() => openHubSurface("agents")}><IconLayoutGrid size={17} aria-hidden="true" />Agent library</button>
         <button type="button" aria-current={activeSurface === "activity" ? "page" : undefined} onClick={() => openHubSurface("activity")}><IconClock size={17} aria-hidden="true" />Recent work</button>
         <button type="button" aria-current={activeSurface === "workflows" ? "page" : undefined} onClick={() => openHubSurface("workflows")}><IconRoute size={17} aria-hidden="true" />Workflows</button>

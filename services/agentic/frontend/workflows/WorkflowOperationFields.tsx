@@ -157,7 +157,7 @@ export function WorkflowOperationFields({
               ? "Only tools enabled for this project can run."
               : "Authenticated and private APIs require a managed connection."}
           </p>
-          <Link to={`/integrations?provider=${kind === "mcpTool" ? "mcp" : "http"}`} target="_blank" rel="noreferrer" className="studio-caption">Manage this provider in Integrations</Link>
+          <Link to={kind === "mcpTool" ? "/mcp-servers" : "/integrations?provider=http"} target="_blank" rel="noreferrer" className="studio-caption">Manage this provider in Integrations</Link>
           {data.credentialId || data.apiAuth ? (
             <p className="studio-notice">
               This node has a legacy credential binding. Select a managed

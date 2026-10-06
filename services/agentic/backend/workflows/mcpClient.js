@@ -152,7 +152,7 @@ const toolCatalog = tools => tools.map((tool) => ({
       ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       ...(tool.annotations ? { annotations: tool.annotations } : {}),
     }));
-const discover = input => withServer(input, async ({ tools }) => toolCatalog(tools));
+const discover = input => input.connectionId === 'hellotest' ? Promise.resolve(require('@hellotest/platform/backend/src/mcp/server').toolDefinitions()) : withServer(input, async ({ tools }) => toolCatalog(tools));
 const inspect = input => withServer({ ...input, discoverAll: true }, async ({ tools, serverInfo, protocolVersion }) => ({ tools: toolCatalog(tools), serverInfo, protocolVersion, discovered_at: new Date().toISOString() }));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const schemaHash = tool => createHash("sha256").update(JSON.stringify(canonical({ name: tool.name, inputSchema: tool.inputSchema, outputSchema: tool.outputSchema || null, annotations: tool.annotations || {} }))).digest("hex");
@@ -160,8 +160,17 @@ function compileSchema(schema, label) {
   try { return new (/draft-0[467]/.test(String(schema?.$schema || "")) ? Ajv : Ajv2020)({ strict: false, allErrors: false, validateFormats: false }).compile(schema); }
   catch { throw connections.fail(`The MCP tool ${label} schema is unsupported or invalid.`, 422); }
 }
-const call = (input, name, args) =>
-  withServer({ ...input, discoverAll: false }, async ({ rpc, tools, connection, protocolVersion }) => {
+const call = (input, name, args) => {
+  if(input.connectionId === 'hellotest') return (async()=>{
+    if(!input.user?.id)throw connections.fail('Verified workflow user required.',403);
+    const server=require('@hellotest/platform/backend/src/mcp/server');
+    const tool=server.toolDefinitions().find(item=>item.name===name);
+    if(!tool||input.expectedToolHash&&schemaHash(tool)!==input.expectedToolHash)throw connections.fail('Built-in tool changed or unavailable. Review the workflow.',409);
+    const actor=await require('@hellotest/platform/backend/src/mcp/auth').principal(input.user.id,input.projectId,'hellotest-workflow');
+    const data=await server.callLocal(actor,name,args,input.signal);
+    return {tool:name,data,content:[JSON.stringify(data)],schema_hash:schemaHash(tool),protocol_version:'2026-07-28',postcondition_verified:false};
+  })();
+  return withServer({ ...input, discoverAll: false }, async ({ rpc, tools, connection, protocolVersion }) => {
     const tool = tools.find((item) => item.name === name);
     if (!tool)
       throw connections.fail(
@@ -171,9 +180,9 @@ const call = (input, name, args) =>
     if (!args || typeof args !== "object" || Array.isArray(args))
       throw connections.fail("MCP arguments must be a JSON object.");
     const approved = connection.toolDefinitions?.find(item => item.name === name);
-    if (!approved) throw Object.assign(connections.fail("Discover and save this server's tool catalog in Integrations before calling it.", 422), { code: "MCP_CATALOG_REQUIRED" });
+    if (!approved) throw Object.assign(connections.fail("Discover and save this server's tool catalog in Agent Studio → MCP Servers before calling it.", 422), { code: "MCP_CATALOG_REQUIRED" });
     const toolHash = schemaHash(tool);
-    if (toolHash !== schemaHash(approved) || input.expectedToolHash && input.expectedToolHash !== toolHash) throw Object.assign(connections.fail("The MCP tool contract changed. Refresh its catalog in Integrations and review the workflow before running it again.", 409), { code: "MCP_SCHEMA_CHANGED" });
+    if (toolHash !== schemaHash(approved) || input.expectedToolHash && input.expectedToolHash !== toolHash) throw Object.assign(connections.fail("The MCP tool contract changed. Refresh its catalog in Agent Studio → MCP Servers and review the workflow before running it again.", 409), { code: "MCP_SCHEMA_CHANGED" });
     if (connection.protocolVersion && connection.protocolVersion !== protocolVersion) throw Object.assign(connections.fail("The MCP protocol revision changed. Refresh the connection catalog before execution.", 409), { code: "MCP_PROTOCOL_CHANGED" });
     // Compile both schemas before dispatch. Never load external schema references.
     const validate = compileSchema(tool.inputSchema || { type: "object" }, "input");
@@ -200,4 +209,5 @@ const call = (input, name, args) =>
       ).length,
     };
   });
+};
 module.exports = { discover, inspect, call, _internals: { parseResponse, schemaHash, compileSchema } };

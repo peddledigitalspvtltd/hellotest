@@ -145,7 +145,7 @@ const INTEGRATION_CATEGORY_DEFINITIONS: Array<{
   description: string;
   defaultProvider: Integration["type"];
 }> = [
-  { value: "workflow", label: "Workflow connections", description: "Project MCP servers and HTTP APIs used by workflow nodes.", defaultProvider: "mcp" },
+  { value: "workflow", label: "Credentials", description: "Project HTTP API endpoints and managed credentials.", defaultProvider: "http" },
   { value: "ai", label: "AI Providers", description: "Direct LLM providers used by HelloTest AI flows.", defaultProvider: "llm" },
   { value: "testgrid", label: "TestGrid", description: "Local, remote, and cloud execution grid providers.", defaultProvider: "testengine" },
   { value: "repository", label: "Repository", description: "Source control providers for automation code sync.", defaultProvider: "github" },

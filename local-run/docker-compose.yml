@@ -122,6 +122,7 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080,http://localhost:5173}
       ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
       ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
+      HELLOTEST_LOCAL_RUN_ENGINE_URL: ${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://testengine:4301}
       HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}

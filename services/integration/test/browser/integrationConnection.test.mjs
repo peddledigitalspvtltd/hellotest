@@ -112,3 +112,24 @@ test('all integration forms test saved/draft settings, show outcomes, and discar
   assert.deepEqual(errors, []);
  } finally { await browser?.close(); await Promise.allSettled([unlink(html), unlink(tsx)]); }
 });
+
+test('Credentials creation selects HTTP only and keeps MCP management in Agent Studio', { timeout: 60000 }, async () => {
+ const setup = `
+agenticApi.workflowConnections.list = async () => [];
+window.httpCredentialWrites=[];
+agenticApi.workflowConnections.create = async input => { window.httpCredentialWrites.push(input); return {...input,id:'created-http'}; };
+const httpExtension = {definition:{value:'http',label:'HTTP API',description:'Managed HTTP credentials'},records:[],renderEditor:({onSaved,onClose})=><WorkflowConnectionSettings kind="http" onSaved={onSaved} onClose={onClose}/>};
+`;
+ const variant=fixture.replace("import { IntegrationsPage } from '/services/integration/frontend/pages/IntegrationsPage';", "import { IntegrationsPage } from '/services/integration/frontend/pages/IntegrationsPage';\nimport {WorkflowConnectionSettings} from '/services/agentic/frontend/workflows/WorkflowConnectionSettings';\nimport {agenticApi} from '/services/agentic/frontend/api.client';")
+  .replace('createRoot(document.getElementById', setup+'\ncreateRoot(document.getElementById')
+  .replace('<IntegrationsPage />','<IntegrationsPage additionalProviders={[httpExtension]} />');
+ const name='http-credentials-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser;
+ try {
+  await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);await writeFile(tsx,variant);
+  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html`);await page.getByRole('button',{name:'New Integration',exact:true}).click();await page.getByLabel('Integration type',{exact:true}).selectOption('workflow');
+  assert.deepEqual(await page.getByLabel('Provider',{exact:true}).locator('option').allTextContents(),['HTTP API']);assert.equal(await page.getByRole('option',{name:'Workflow connections',exact:true}).count(),0);assert.equal(await page.getByRole('option',{name:'Credentials',exact:true}).count(),1);
+  await page.getByLabel('Connection name').fill('HTTP credential');await page.getByLabel('Server endpoint').fill('https://api.example.test/v1');await page.getByRole('button',{name:'Save connection',exact:true}).click();await page.waitForFunction(()=>window.httpCredentialWrites.length===1);
+  const written=await page.evaluate(()=>window.httpCredentialWrites[0]);assert.equal(written.kind,'http');assert.equal(written.project_id,'project');assert.deepEqual(written.tools,[]);assert.deepEqual(errors,[]);
+ } finally {await browser?.close();await Promise.all([unlink(html).catch(()=>{}),unlink(tsx).catch(()=>{})]);}
+});

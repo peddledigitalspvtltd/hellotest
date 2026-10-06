@@ -81,8 +81,8 @@ fastify.register(cors, {
     }
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "X-HelloTest-Recorder-Token", "traceparent", "tracestate"],
-  exposedHeaders: ["X-Request-ID", "X-Trace-ID", "Location", "Retry-After", "traceparent"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "X-HelloTest-Recorder-Token", "traceparent", "tracestate", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"],
+  exposedHeaders: ["X-Request-ID", "X-Trace-ID", "Location", "Retry-After", "traceparent", "MCP-Protocol-Version", "Mcp-Session-Id"],
   credentials: true,
   maxAge: 86400
 });
@@ -101,6 +101,7 @@ fastify.register(require("./plugins/observability"));
 fastify.register(require("./plugins/validator"));
 fastify.register(require("./plugins/accessControl"));
 fastify.register(require("./plugins/capabilityUi"));
+fastify.register(require("./plugins/mcp"));
 fastify.register(require("./routes"));
 fastify.addHook("onReady", async function bootstrapRuntime() {
   const ownsAdministration = routeEnabled({ service: "platform" });

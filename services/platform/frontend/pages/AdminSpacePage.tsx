@@ -58,7 +58,7 @@ export function AdminSpacePage() {
   const activeSection = visibleSections.includes(requestedSection) ? requestedSection : (visibleSections[0] || "settings");
   const users = asArray(usersQuery.data);
   const roles = asArray(rolesQuery.data);
-  const integrations = [...asArray(integrationsQuery.data), ...(workflowProviders.enabled ? workflowProviders.connections.data || [] : []).map(connection => ({ is_active: connection.enabled }))];
+  const integrations = [...asArray(integrationsQuery.data), ...(workflowProviders.enabled ? (workflowProviders.connections.data || []).filter(connection => connection.kind === "http") : []).map(connection => ({ is_active: connection.enabled }))];
   const activeIntegrations = integrations.filter((integration) => integration.is_active).length;
   const adminUsers = users.filter((user) => user.role === "admin").length;
 
@@ -142,7 +142,7 @@ export function AdminSpacePage() {
   };
 
   if (searchParams.get("section") === "health") return <Navigate to="/ops-telemetry?monitoring=health" replace />;
-  if (searchParams.get("section") === "settings" && searchParams.get("settings") === "mcpServers") return <Navigate to="/admin-space?section=integrations&integration=mcpServers" replace />;
+  if (searchParams.get("settings") === "mcpServers" || searchParams.get("integration") === "mcpServers") return <Navigate to="/mcp-servers" replace />;
 
   if (!visibleSections.length) {
     return (

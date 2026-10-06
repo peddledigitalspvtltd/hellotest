@@ -223,6 +223,7 @@ async function execute({
       {
         projectId: run.project_id,
         connectionId: data.connectionId,
+        user,
         expectedToolHash: data.mcpToolHash,
         signal,
         timeoutMs: Number(data.timeoutMs) || 30000,

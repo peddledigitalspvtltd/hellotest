@@ -1,0 +1,5511 @@
+{
+  "version": 1,
+  "source": "Controller-declared validators; domain services enforce additional business rules.",
+  "schemas": {
+    "DELETE /requirement-iterations/:id/requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "DELETE /test-case-modules/:id/test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /agentic-assistant/sessions": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "app_type_id": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /execution-results": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "test_case_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "run_limit": {
+            "type": "string"
+          },
+          "projection": {
+            "enum": [
+              "summary",
+              "detail"
+            ]
+          },
+          "limit": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "GET /execution-results/release-readiness": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "run_limit": {
+            "type": "string"
+          },
+          "result_limit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /executions/history": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "test_case_id": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /knowledge/assistant/integrations": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirement-defects": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "issue_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "GET /requirement-releases": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirement-releases/readiness": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirement-test-cases": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "test_case_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "GET /requirements/ai-create-jobs": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "limit": {
+            "type": "string",
+            "maxLength": 3
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirements/ai-create-jobs/:jobId": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirements/alm/projects": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirements/alm/requirements": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          },
+          "alm_project_key": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "integration_id",
+          "alm_project_key"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /requirements/metrics": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "GET /shared-step-groups/metrics": {
+      "querystring": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PATCH /knowledge/assistant/sessions/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /admin-portal/auth/login": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /admin-portal/setup/sample-data": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /admin-portal/users": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "role_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "name",
+          "role_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-assistant/sessions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_version": {
+            "type": "number"
+          },
+          "inputs": {
+            "type": "object"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "context_scopes": {
+            "type": "array"
+          },
+          "smart_context": {
+            "type": "object"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "history": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "prompt"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger_kind": {
+            "type": "string"
+          },
+          "nodes": {
+            "type": "array"
+          },
+          "edges": {
+            "type": "array"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "n8n_payload": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/:id/executions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "target_node_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "input_payload": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/:id/runs": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "trigger_kind": {
+            "type": "string"
+          },
+          "input_payload": {
+            "type": "object"
+          },
+          "payload": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/api-agent-test": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "auth": {
+            "type": "string"
+          },
+          "responseStyle": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "url"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/connections/http-test": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id",
+          "data"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /agentic-workflows/connections/mcp-tools": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "connection_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "connection_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /ai-prompt-templates": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "test_type": {
+            "type": "string"
+          },
+          "test_format": {
+            "type": "string"
+          },
+          "test_count": {
+            "type": "number"
+          },
+          "prompt_text": {
+            "type": "string",
+            "minLength": 2
+          },
+          "applies_to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "prompt_text"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /ai/quality-insights": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /ai/rich-text-rephrase": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "content_html": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "entity_title": {
+            "type": "string"
+          },
+          "field_label": {
+            "type": "string"
+          },
+          "aria_label": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          }
+        },
+        "required": [
+          "project_id",
+          "content"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /api/engine/runs/:runId/heartbeat": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "engine_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engine_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /api/engine/runs/claim": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "engine_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "engine_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /api/testengine/callbacks/runs": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "engine_run_id": {
+            "type": "string"
+          },
+          "hellotest_run_id": {
+            "type": "string"
+          },
+          "hellotest_execution_id": {
+            "type": "string"
+          },
+          "hellotest_test_case_id": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "emitted_at": {
+            "type": "string"
+          },
+          "case_result": {
+            "type": "object"
+          },
+          "artifact_bundle": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "engine_run_id",
+          "hellotest_test_case_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /app-types": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "type": {
+            "enum": [
+              "web",
+              "api",
+              "android",
+              "ios",
+              "unified"
+            ]
+          },
+          "is_unified": {}
+        },
+        "required": [
+          "project_id",
+          "name",
+          "type"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/forgot-password/request-code": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "newPassword"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/forgot-password/verify": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "code": {
+            "type": "string",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/login": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/login/google": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "idToken": {
+            "type": "string",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "idToken"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/signup/request-code": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /auth/signup/verify": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "code": {
+            "type": "string",
+            "minLength": 6
+          }
+        },
+        "required": [
+          "email",
+          "code"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /automation-generator/internal/jobs/:id/run": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          },
+          "agent_plan": {
+            "type": "string"
+          },
+          "llm_model": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /automation-generator/internal/jobs/lease": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          },
+          "lease_seconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /comments": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "entity_type": {
+            "type": "string"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "project_id",
+          "entity_type",
+          "entity_id",
+          "body"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /execution-results": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "test_case_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "paused",
+              "passed",
+              "failed",
+              "blocked",
+              "aborted",
+              "skipped"
+            ]
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "logs": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_set_name": {
+            "type": "string"
+          },
+          "data_set_iteration_index": {
+            "type": "number"
+          },
+          "data_set_iteration_key": {
+            "type": "string"
+          },
+          "data_set_row_snapshot": {
+            "type": "object"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "executed_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "execution_id",
+          "test_case_id",
+          "app_type_id",
+          "status"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /execution-schedules": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cadence": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "acceptance_token": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "request_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "input_fingerprint": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "selected_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 30
+          }
+        },
+        "required": [
+          "acceptance_token",
+          "request_id",
+          "input_fingerprint",
+          "selected_test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/cases/:testCaseId/ai-analysis": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "instruction": {
+            "type": "string"
+          },
+          "interaction_mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/cases/:testCaseId/share-report": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "recipients"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/cases/:testCaseId/steps/:stepId/run": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "data_set_iteration_index": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/complete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "completed",
+              "failed",
+              "blocked",
+              "partially_completed",
+              "aborted"
+            ]
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/rerun": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "failed_only": {
+            "type": "boolean"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_by"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/:id/share-report": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "recipients"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/local-run": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "engine_base_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "app_type_id",
+          "test_case_ids",
+          "created_by"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/manual-run-suggestion": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "selected_suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/parameter-plan": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "data_scope": {
+            "type": "string",
+            "enum": [
+              "suite",
+              "run"
+            ]
+          },
+          "suite_context_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /executions/smart-plan-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "app_type_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "release": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "sprint": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "build": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "scope_description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "release_scope": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "impacted_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          },
+          "test_environment_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "test_configuration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "test_data_set_id": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "project_id",
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /integrations": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "jira",
+              "email",
+              "google_auth",
+              "google_drive",
+              "github",
+              "testengine",
+              "local-desktop",
+              "cloudrun",
+              "ops"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /integrations/import": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "integrations": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "integrations"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /integrations/test-connection": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "jira",
+              "email",
+              "google_auth",
+              "google_drive",
+              "github",
+              "testengine",
+              "local-desktop",
+              "cloudrun",
+              "ops"
+            ]
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /knowledge/assistant/sessions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /knowledge/collections": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /knowledge/ingestions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "collection_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array"
+          },
+          "selected_records": {
+            "type": "object"
+          },
+          "chunking": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /knowledge/search": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "query"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /local-agent/start": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /project-members": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "user_id",
+          "role_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /projects": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public"
+            ]
+          },
+          "members": {
+            "type": "array"
+          },
+          "app_types": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /quality-dashboards/:id/share-report": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "recipients"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirement-iterations": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "future",
+              "active",
+              "closed"
+            ]
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "effort_points": {
+            "type": "number"
+          },
+          "original_dev_id": {
+            "type": "string"
+          },
+          "original_qa_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirement-iterations/:id/requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirement-releases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "name": {},
+          "fix_version": {}
+        },
+        "required": [
+          "project_id",
+          "name",
+          "fix_version"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirement-releases/:id/scope": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          },
+          "gherkin_scenarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "additional_fields": {
+            "type": "object"
+          },
+          "ai_review": {
+            "type": "object"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "dev_completion_target_date": {
+            "type": "string"
+          },
+          "qa_completion_target_date": {
+            "type": "string"
+          },
+          "scrum_team": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "specification_format": {
+            "type": "string",
+            "enum": [
+              "gherkin",
+              "speckit"
+            ]
+          },
+          "specification_content": {
+            "type": "string",
+            "maxLength": 40000
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "related_requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "project_id",
+          "title"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/:id/ai-groom-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "proposed_change": {
+            "type": "object"
+          },
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/:id/ai-optimize-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_context": {
+            "type": "object"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 6000
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 6
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/:id/design-test-cases-accept": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "cases": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "cases"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/:id/design-test-cases-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "max_cases": {
+            "type": "number"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/:id/generate-test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "max_cases": {
+            "type": "number"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/ai-create-jobs": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 6000
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4
+          },
+          "max_requirements": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/ai-create-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "prompt_guidance": {
+            "type": "string",
+            "maxLength": 6000
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 4
+          },
+          "max_requirements": {
+            "type": "number"
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/ai-description-rephrase": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "description_html": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "requirement": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/ai-gherkin-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "requirements": {
+            "type": "array",
+            "maxItems": 20
+          }
+        },
+        "required": [
+          "project_id",
+          "requirements"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/export": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "json"
+            ]
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/import": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 10000
+          }
+        },
+        "required": [
+          "project_id",
+          "rows"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /requirements/import/alm": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "alm_project_key": {
+            "type": "string"
+          },
+          "requirement_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "project_id",
+          "integration_id",
+          "alm_project_key",
+          "requirement_keys"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /roles": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "permission_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /settings/api-keys": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /shared-step-groups": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "authoring_mode": {
+            "type": "string"
+          },
+          "gherkin_document": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array"
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_row_index": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-case-modules": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "app_type_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-case-modules/:id/test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "automated": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "automation_status": {
+            "type": "string"
+          },
+          "manual_test_case_id": {
+            "type": "string"
+          },
+          "manual_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_issue_id": {
+            "type": "string"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "test_case_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "gherkin_document": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draft",
+              "ready",
+              "retired"
+            ]
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suite_id": {
+            "type": "string"
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_data_set_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "author_id": {
+            "type": "string"
+          },
+          "reviewer_id": {
+            "type": "string"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "pending",
+              "accepted",
+              "changes_requested"
+            ]
+          },
+          "review_history": {
+            "type": "array"
+          },
+          "ai_generation_source": {
+            "type": "string",
+            "enum": [
+              "interactive"
+            ]
+          },
+          "ai_quality_score": {
+            "type": "number"
+          },
+          "steps": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/automation/build": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          },
+          "allow_browser_actions": {
+            "type": "boolean"
+          },
+          "start_url": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "captured_actions": {
+            "type": "array"
+          },
+          "captured_network": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/automation/generator-jobs": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          },
+          "allow_browser_actions": {
+            "type": "boolean"
+          },
+          "start_url": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "scheduled_at": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/automation/recorder-session": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "start_url": {
+            "type": "string"
+          },
+          "recorder_mode": {
+            "type": "string"
+          },
+          "recorder_target": {
+            "type": "string"
+          },
+          "engine_base_url": {
+            "type": "string"
+          },
+          "recorder_public_base_url": {
+            "type": "string"
+          },
+          "reuse_existing": {
+            "type": "boolean"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "target_step_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/automation/recorder-session/:sessionId/finish": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "recorder_mode": {
+            "type": "string"
+          },
+          "recorder_target": {
+            "type": "string"
+          },
+          "engine_base_url": {
+            "type": "string"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "target_step_id": {
+            "type": "string"
+          },
+          "included_action_indices": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/review": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "changes_requested"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          },
+          "expected_updated_at": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "review_status"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/:id/versions/:revision/restore": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/ai-authoring-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 6
+          },
+          "test_case": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "requirement_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/ai-generation-jobs": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "max_cases_per_requirement": {
+            "type": "number"
+          },
+          "parallel_requirement_limit": {
+            "type": "number"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array"
+          },
+          "images": {
+            "type": "array"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          }
+        },
+        "required": [
+          "app_type_id",
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/ai-step-rephrase": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "test_case": {
+            "type": "object"
+          },
+          "step": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "step"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/build-batch": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "allow_browser_actions": {
+            "type": "boolean"
+          },
+          "start_url": {
+            "type": "string"
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "failure_threshold": {
+            "type": "number"
+          },
+          "scheduled_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/learning-cache": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "page_url": {
+            "type": "string"
+          },
+          "page_key": {
+            "type": "string"
+          },
+          "locator_intent": {
+            "type": "string"
+          },
+          "locator": {
+            "type": "string"
+          },
+          "locator_kind": {
+            "type": "string"
+          },
+          "screen_name": {
+            "type": "string"
+          },
+          "object_name": {
+            "type": "string"
+          },
+          "object_role": {
+            "type": "string"
+          },
+          "dom_structure": {
+            "type": "string"
+          },
+          "screenshot_url": {
+            "type": "string"
+          },
+          "fallback_strategy": {
+            "type": "string"
+          },
+          "screen_dom_compressed": {
+            "type": "string"
+          },
+          "screen_screenshot_url": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "locator"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/learning-cache/:id/ai-improve": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "integration_id": {
+            "type": "string"
+          },
+          "guidance": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/learning-cache/extract-fields": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "screen_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "page_url": {
+            "type": "string"
+          },
+          "dom_structure": {
+            "type": "string"
+          },
+          "screenshot_url": {
+            "type": "string"
+          },
+          "business_meaning": {
+            "type": "string"
+          },
+          "candidate_fields": {
+            "type": "array"
+          },
+          "integration_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "screen_name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/automation/learning-cache/import": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "import_source": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "entries"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/design-test-cases-accept": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draft",
+              "ready",
+              "retired"
+            ]
+          },
+          "cases": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "requirement_ids",
+          "cases"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/design-test-cases-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "integration_id": {
+            "type": "string"
+          },
+          "max_cases": {
+            "type": "number"
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "additional_context": {
+            "type": "string"
+          },
+          "external_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/export": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/import": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "import_source": {
+            "type": "string"
+          },
+          "batches": {
+            "type": "array"
+          },
+          "rows": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "app_type_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-cases/resolve-requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "app_type_id",
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-configurations": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "mobile_os": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 100
+          },
+          "variables": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-data-sets": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "table",
+              "key_value"
+            ]
+          },
+          "columns": {
+            "type": "array"
+          },
+          "rows": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "mode"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-data-sets/ai-generate-preview": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          },
+          "field_context": {
+            "type": "string"
+          },
+          "sample_count": {
+            "type": "number"
+          },
+          "prompt_instruction": {
+            "type": "string"
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "additional_context": {
+            "type": "string",
+            "maxLength": 12000
+          }
+        },
+        "required": [
+          "project_id",
+          "prompt"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-environments": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_order": {
+            "type": "number"
+          },
+          "action": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "step_type": {
+            "type": "string",
+            "enum": [
+              "web",
+              "api",
+              "android",
+              "ios"
+            ]
+          },
+          "automation_code": {
+            "type": "string"
+          },
+          "api_request": {
+            "type": "object"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "group_kind": {
+            "enum": [
+              "local",
+              "reusable"
+            ]
+          },
+          "reusable_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "step_order"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/bulk": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "insertion_index": {
+            "type": "number"
+          },
+          "steps": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "insertion_index",
+          "steps"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/bulk-delete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "test_case_id",
+          "step_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/duplicate": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "insert_after_step_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "step_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/group": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "kind": {
+            "enum": [
+              "local",
+              "reusable"
+            ]
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "reusable_group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "step_ids",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/insert-shared-group": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "shared_step_group_id": {
+            "type": "string"
+          },
+          "insert_after_step_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "shared_step_group_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/move-automation": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "source_step_id": {
+            "type": "string"
+          },
+          "target_step_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_step_id",
+          "target_step_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/run-api-request": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "api_request": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "api_request"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-steps/ungroup": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "group_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-suites": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000
+          },
+          "parallel_enabled": {
+            "type": "boolean"
+          },
+          "parallel_count": {
+            "type": "number"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "app_type_id",
+          "name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /test-suites/:id/assign-test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/:id/complete": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "deterministic_attempted": {
+            "type": "boolean"
+          },
+          "healing_attempted": {
+            "type": "boolean"
+          },
+          "healing_succeeded": {
+            "type": "boolean"
+          },
+          "artifact_bundle": {
+            "type": "object"
+          },
+          "patch_proposals": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/:id/fail": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/:id/start": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/:id/steps/:stepId/report": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "object"
+          },
+          "api_detail": {
+            "type": "object"
+          },
+          "web_detail": {
+            "type": "object"
+          },
+          "automation_detail": {
+            "type": "object"
+          },
+          "captures": {
+            "type": "object"
+          },
+          "recovery_attempted": {
+            "type": "boolean"
+          },
+          "recovery_succeeded": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /testengine/internal/jobs/lease": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          },
+          "engine_host": {
+            "type": "string"
+          },
+          "engine_class": {
+            "type": "string"
+          },
+          "lease_seconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "POST /users": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "role_id"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "POST /users/import": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array"
+          },
+          "default_role_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /admin-portal/dropdowns/:key": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "number"
+          },
+          "options": {
+            "type": "array",
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "expected_revision",
+          "options"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /admin-portal/feature-flags": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "flags": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "flags"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /admin-portal/security/password": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /admin-portal/users/:id/status": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /agentic-workflows/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger_kind": {
+            "type": "string"
+          },
+          "nodes": {
+            "type": "array"
+          },
+          "edges": {
+            "type": "array"
+          },
+          "settings": {
+            "type": "object"
+          },
+          "n8n_payload": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /ai-prompt-templates/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "test_type": {
+            "type": "string"
+          },
+          "test_format": {
+            "type": "string"
+          },
+          "test_count": {
+            "type": "number"
+          },
+          "prompt_text": {
+            "type": "string"
+          },
+          "applies_to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /app-types/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "is_unified": {}
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /execution-results/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "paused",
+              "passed",
+              "failed",
+              "blocked",
+              "aborted",
+              "skipped"
+            ]
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "logs": {
+            "type": "string"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "defects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /execution-results/:id/defect-links": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "step_id": {
+            "type": "string"
+          },
+          "defect_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "step_id",
+          "defect_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /execution-schedules/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cadence": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /executions/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "start_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "end_date": {
+            "type": "string",
+            "maxLength": 10
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_environment_id": {
+            "type": "string"
+          },
+          "test_configuration_id": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "parallel_enabled": {
+            "type": "boolean"
+          },
+          "parallel_count": {
+            "type": "number"
+          },
+          "execution_mode": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "remote",
+              "local"
+            ]
+          },
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "release": {
+            "type": "string"
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /executions/:id/:level/:scopeId/assignment": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /executions/:id/cases/:testCaseId/assignment": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "assigned_to": {
+            "type": "string"
+          },
+          "assigned_to_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /feature-flags": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "flags": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "flags"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /integrations/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "jira",
+              "email",
+              "google_auth",
+              "google_drive",
+              "github",
+              "testengine",
+              "local-desktop",
+              "cloudrun",
+              "ops"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "project_key": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /project-members/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirement-defects/replace": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "requirement_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirement-iterations/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "future",
+              "active",
+              "closed"
+            ]
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "effort_points": {
+            "type": "number"
+          },
+          "original_dev_id": {
+            "type": "string"
+          },
+          "original_qa_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirement-iterations/:id/requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirement-test-cases/replace": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "requirement_id",
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirements/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100
+          },
+          "gherkin_scenarios": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20
+          },
+          "additional_fields": {
+            "type": "object"
+          },
+          "ai_review": {
+            "type": "object"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint": {
+            "type": "string"
+          },
+          "fix_version": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "release_id": {
+            "type": "string"
+          },
+          "iteration_id": {
+            "type": "string"
+          },
+          "dev_completion_target_date": {
+            "type": "string"
+          },
+          "qa_completion_target_date": {
+            "type": "string"
+          },
+          "scrum_team": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "specification_format": {
+            "type": "string",
+            "enum": [
+              "gherkin",
+              "speckit"
+            ]
+          },
+          "specification_content": {
+            "type": "string",
+            "maxLength": 40000
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirements/:id/readiness": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "number"
+          },
+          "checks": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "checks"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /requirements/:id/related-requirements": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "requirement_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /roles/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "permission_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /roles/:id/permissions": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "permission_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "permission_codes"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /settings/localization": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "strings": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "strings"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /settings/workspace-preferences": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "preferences": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "preferences"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /shared-step-groups/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "authoring_mode": {
+            "type": "string"
+          },
+          "gherkin_document": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array"
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_row_index": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /suite-test-cases/reorder": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "suite_id": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "suite_id",
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-case-defects/replace": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "issue_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "test_case_id",
+          "issue_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-case-modules/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-case-modules/:id/test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-cases/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "external_references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "automated": {
+            "type": "string",
+            "enum": [
+              "no",
+              "yes"
+            ]
+          },
+          "automation_status": {
+            "type": "string"
+          },
+          "manual_test_case_id": {
+            "type": "string"
+          },
+          "manual_test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authoring_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "gherkin"
+            ]
+          },
+          "test_case_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "gherkin_document": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "draft",
+              "ready",
+              "retired"
+            ]
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "requirement_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suite_id": {
+            "type": "string"
+          },
+          "suite_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_data_set_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "author_id": {
+            "type": "string"
+          },
+          "reviewer_id": {
+            "type": "string"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "pending",
+              "accepted",
+              "changes_requested"
+            ]
+          },
+          "review_history": {
+            "type": "array"
+          },
+          "ai_quality_score": {
+            "type": "number"
+          },
+          "steps": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-cases/:id/test-steps/reorder": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "step_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "step_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-cases/automation/learning-cache/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "page_url": {
+            "type": "string"
+          },
+          "page_key": {
+            "type": "string"
+          },
+          "locator_intent": {
+            "type": "string"
+          },
+          "locator": {
+            "type": "string"
+          },
+          "locator_kind": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "source": {
+            "type": "string"
+          },
+          "screen_name": {
+            "type": "string"
+          },
+          "object_name": {
+            "type": "string"
+          },
+          "object_role": {
+            "type": "string"
+          },
+          "target_criteria": {
+            "type": "array"
+          },
+          "dom_structure": {
+            "type": "string"
+          },
+          "dom_path": {
+            "type": "string"
+          },
+          "screenshot_url": {
+            "type": "string"
+          },
+          "screenshot_path": {
+            "type": "string"
+          },
+          "fallback_strategy": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "url_pattern_type": {
+            "type": "string"
+          },
+          "url_pattern_value": {
+            "type": "string"
+          },
+          "screen_fingerprint": {
+            "type": "string"
+          },
+          "accessibility_tree": {
+            "type": "string"
+          },
+          "fallback_locators": {
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "business_meaning": {
+            "type": "string"
+          },
+          "usage_keywords": {
+            "type": "array"
+          },
+          "stability_score": {
+            "type": "number"
+          },
+          "last_validated_at": {
+            "type": "string"
+          },
+          "validation_history": {
+            "type": "array"
+          },
+          "ancestor_dom": {
+            "type": "string"
+          },
+          "ancestor_screenshot_url": {
+            "type": "string"
+          },
+          "element_screenshot_url": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-cases/automation/learning-cache/:id/ai-improve/apply": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "confirmed": {
+            "type": "boolean"
+          },
+          "locator": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "strategy": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "expected_locator": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "request_id": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "confirmed",
+          "locator",
+          "strategy",
+          "expected_locator"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-cases/automation/learning-cache/screens/:screenName": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "app_type_id": {
+            "type": "string"
+          },
+          "new_name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "new_name"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-configurations/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "mobile_os": {
+            "type": "string"
+          },
+          "platform_version": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "maxItems": 100
+          },
+          "variables": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-data-sets/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "table",
+              "key_value"
+            ]
+          },
+          "columns": {
+            "type": "array"
+          },
+          "rows": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-environments/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "app_type_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "description": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-steps/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_order": {
+            "type": "number"
+          },
+          "action": {
+            "type": "string"
+          },
+          "expected_result": {
+            "type": "string"
+          },
+          "step_type": {
+            "type": "string",
+            "enum": [
+              "web",
+              "api",
+              "android",
+              "ios"
+            ]
+          },
+          "automation_code": {
+            "type": "string"
+          },
+          "api_request": {
+            "type": "object"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "group_kind": {
+            "enum": [
+              "local",
+              "reusable"
+            ]
+          },
+          "reusable_group_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-steps/reorder": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_id": {
+            "type": "string"
+          },
+          "step_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "test_case_id",
+          "step_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-suites/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parameter_values": {
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "test_data_set_id": {
+            "type": "string"
+          },
+          "test_data_options": {
+            "type": "object"
+          },
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000
+          },
+          "parallel_enabled": {
+            "type": "boolean"
+          },
+          "parallel_count": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /test-suites/:id/assign-test-cases": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "test_case_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_revision": {
+            "type": "number"
+          },
+          "append": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "test_case_ids"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "PUT /users/:id": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          },
+          "avatar_data_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "PUT /users/:id/password": {
+      "body": {
+        "type": "object",
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -14,7 +14,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "Schedule builds",
     "Record flow",
     "Author steps",
-    "Build your automation",
+    "AutomationOverlay",
     "Complete automation code",
     "Insert Shared Step Group",
     "Edit instructions"

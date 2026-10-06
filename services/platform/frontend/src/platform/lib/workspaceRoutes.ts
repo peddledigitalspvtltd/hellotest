@@ -12,6 +12,7 @@ export const WORKSPACE_ROUTES = {
   executions: "/executions",
   automation: "/automation",
   objectRepository: "/object-repository",
+  mcpServers: "/mcp-servers",
   agenticWorkflows: "/agentic-workflows",
   localPlaywright: "/local-playwright",
   testOps: "/testops",

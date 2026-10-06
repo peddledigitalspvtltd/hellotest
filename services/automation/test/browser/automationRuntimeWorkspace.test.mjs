@@ -27,17 +27,21 @@ test('actual automation workspace presents runtime-specific authoring and record
     const guide=page.locator('.automation-runtime-guide');await guide.waitFor();await guide.locator('summary').click();
     assert.match(await guide.innerText(),new RegExp(runtime==='ios'?'XCUITest':runtime==='android'?'UiAutomator2':runtime==='api'?'HTTP request runner':'Playwright'));
     await page.getByRole('tab',{name:/^Plan/}).click();
-    await expect(page.getByLabel('New step type',{exact:true})).toHaveValue(runtime);
+    await page.getByRole('button',{name:'Add section',exact:true}).click();
+    await expect(page.getByRole('dialog',{name:'Add section',exact:true}).getByLabel('New step type',{exact:true})).toHaveValue(runtime);
+    await page.keyboard.press('Escape');
     if(runtime==='api'){
       await page.getByRole('button',{name:'Source',exact:true}).click();
       const section=page.locator('.automation-program-section').first();
       await section.getByRole('button',{name:'Edit',exact:true}).click();
-      await section.getByLabel('API request JSON').fill(JSON.stringify({method:'POST',url:'https://app.test/orders',body_mode:'json',body:'{"name":"Test"}',validations:[{kind:'status',expected:'201'}]}));
-      await section.getByText('Execution options',{exact:true}).click();
-      await section.getByRole('checkbox',{name:'Optional step',exact:true}).check();
-      await section.getByRole('button',{name:'Save section',exact:true}).click();
+      const editor=page.getByRole('dialog',{name:'Edit section',exact:true});
+      await editor.getByLabel('API request JSON').fill(JSON.stringify({method:'POST',url:'https://app.test/orders',body_mode:'json',body:'{"name":"Test"}',validations:[{kind:'status',expected:'201'}]}));
+      await editor.getByText('Execution options',{exact:true}).click();
+      await editor.getByRole('checkbox',{name:'Optional step',exact:true}).check();
+      await editor.getByRole('button',{name:'Save section',exact:true}).click();
       await page.waitForFunction(()=>window.stepUpdates.some(input=>input.api_request?.url==='https://app.test/orders'));
       const saved=await page.evaluate(()=>window.stepUpdates.at(-1));assert.equal(saved.api_request.validations[0].expected,'201');assert.match(saved.automation_code,/@hellotest-options optional/);
+      await page.keyboard.press('Escape');
     }
     await page.getByRole('tab',{name:/Build tools/}).click();
     await expect(page.getByRole('button',{name:'Build step plan',exact:true})).toBeEnabled();

@@ -330,6 +330,7 @@ const PAGE_ACCESS_RULES = [
   ["/automation", ["automation.view"]],
   ["/automation-assets", ["automation.view"]],
   ["/object-repository", ["automation.view"]],
+  ["/mcp-servers", ["agentic_workflow.view"]],
   ["/agentic-workflows", ["agentic_workflow.view"]],
   ["/executions", ["run.view"]],
   ["/testops", ["transaction.view", "ops.view"]],

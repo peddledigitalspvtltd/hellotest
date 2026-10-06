@@ -29,7 +29,7 @@ test('admin connections persist encrypted credentials, mask responses, preserve 
   assert.doesNotMatch(JSON.stringify(saved),/a-test-token|ciphertext|encryptedSecret/);
   assert.doesNotMatch(JSON.stringify(rows.get(saved.id)),/a-test-token/);
   assert.equal(settings.credential(rows.get(saved.id)),'a-test-token');
-  assert.equal((await connections.list('p')).length,1);
+  assert.equal((await connections.list('p')).filter(row=>row.id!=="hellotest").length,1);
   assert.equal((await settings.list('p'))[0].project_id,'p');
   assert.deepEqual(await settings.list('other'),[]);
   assert.deepEqual(rows.get(saved.id).projectIds,['p']);
@@ -37,14 +37,14 @@ test('admin connections persist encrypted credentials, mask responses, preserve 
   await assert.rejects(settings.get(saved.id,'other'),{statusCode:404});
   await assert.rejects(settings.save({...saved,project_id:'other'},saved.id,'admin'),{statusCode:404});
   await assert.rejects(settings.remove(saved.id,'other'),{statusCode:404});
-  assert.deepEqual(await connections.list('other'),[]);
+  assert.deepEqual((await connections.list('other')).filter(row=>row.id!=="hellotest"),[]);
   await assert.rejects(connections.resolve(saved.id,'other',null,'mcp'),{statusCode:403});
   await settings.save({...saved,secret:''},saved.id,'admin');
   assert.equal(settings.credential(rows.get(saved.id)),'a-test-token');
   await settings.save({...saved,secret:'new-test-token'},saved.id,'admin');
   assert.equal(settings.credential(rows.get(saved.id)),'new-test-token');
   await settings.save({...saved,enabled:false},saved.id,'admin');
-  assert.deepEqual(await connections.list('p'),[]);
+  assert.deepEqual((await connections.list('p')).filter(row=>row.id!=="hellotest"),[]);
   await settings.remove(saved.id,'p');
   assert.equal(rows.size,0);
 });
@@ -143,7 +143,7 @@ test('saved MCP settings discover tools without granting them, then execute the 
   assert.deepEqual(await mcp.discover(binding),[]);
   assert.deepEqual((await mcp.discover({...binding,discoverAll:true})).map(tool=>tool.name),['read_status','delete_all']);
   await settings.save({...saved,tools:['read_status']},saved.id,'admin');
-  const cached=(await connections.list('p'))[0];
+  const cached=(await connections.list('p')).find(row=>row.id!=="hellotest");
   assert.deepEqual(cached.toolDefinitions.map(tool=>tool.name),['read_status']);
   assert.equal(cached.toolDefinitions[0].inputSchema.required[0],'id');
   const result=await operations.execute({run:{project_id:'p',input_payload:{}},node:{data:{kind:'mcpTool',connectionId:saved.id,mcpTool:'read_status',mcpArguments:'{"id":"$input.id"}'}},sources:[{node_id:'request',output:{data:{id:'case-A'}}}],signal:new AbortController().signal});
@@ -188,9 +188,9 @@ test('connection management routes bind CRUD and discovery to an accessible curr
   const tools=await fastify.inject({method:'POST',url:path+'/discover?project_id=p'});
   assert.equal(tools.statusCode,200);assert.equal(tools.json()[0].project,'p');
   const available=await fastify.inject({method:'GET',url:'/agentic-workflows/connections?project_id=p'});
-  assert.equal(available.statusCode,200);assert.equal(available.json()[0].id,row.id);
+  assert.equal(available.statusCode,200);assert.equal(available.json().find(item=>item.id!=="hellotest").id,row.id);
   assert.equal((await fastify.inject({method:'PUT',url:path,payload:{...row,enabled:false}})).statusCode,200);
-  assert.deepEqual((await fastify.inject({method:'GET',url:'/agentic-workflows/connections?project_id=p'})).json(),[]);
+  assert.deepEqual((await fastify.inject({method:'GET',url:'/agentic-workflows/connections?project_id=p'})).json().filter(item=>item.id!=="hellotest"),[]);
   assert.equal((await fastify.inject({method:'DELETE',url:path+'?project_id=p'})).statusCode,200);
 });
 

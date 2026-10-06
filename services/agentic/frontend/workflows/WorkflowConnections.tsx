@@ -12,10 +12,10 @@ export function WorkflowConnections({ projectId }: { projectId: string }) {
     refetchOnMount: "always",
   });
   return (
-    <section className="studio-connections" aria-label="Project connections">
+    <section className="studio-connections" aria-label="HTTP credentials">
       <h3>
         <IconPlugConnected size={18} />
-        Project connections
+        Credentials
       </h3>
       {query.isPending ? (
         <p className="studio-caption">Loading connections…</p>
@@ -30,14 +30,14 @@ export function WorkflowConnections({ projectId }: { projectId: string }) {
             Retry
           </button>
         </p>
-      ) : query.data?.length ? (
+      ) : query.data?.some(item => item.kind === "http") ? (
         <ul>
-          {query.data.map((item) => (
+          {query.data.filter(item => item.kind === "http").map((item) => (
             <li key={item.id}>
               <span>
                 <strong>{item.name}</strong>
                 <small>
-                  {item.kind === "mcp" ? "MCP server" : "HTTP API"} ·{" "}
+                  HTTP API ·{" "}
                   {item.authenticated
                     ? "Managed credential"
                     : "No authentication"}
@@ -49,12 +49,13 @@ export function WorkflowConnections({ projectId }: { projectId: string }) {
         </ul>
       ) : (
         <p className="studio-caption">
-          No managed connections are configured for this project. Public HTTP
+          No HTTP credentials are configured for this project. Public HTTP
           GET requests can run without authentication. Ask your administrator to
-          add an API or MCP connection.
+          add an HTTP credential.
         </p>
       )}
-      <Link to="/admin-space?section=integrations&integration=mcpServers" target="_blank" rel="noreferrer">Manage connections in Integrations</Link>
+      <Link to="/integrations?provider=http" target="_blank" rel="noreferrer">Manage HTTP credentials</Link>
+      <Link to="/mcp-servers" target="_blank" rel="noreferrer">Manage MCP servers</Link>
     </section>
   );
 }
