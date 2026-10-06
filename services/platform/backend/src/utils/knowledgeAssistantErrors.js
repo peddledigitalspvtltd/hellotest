@@ -33,10 +33,15 @@ const modelFailureMessage = (code) => ({
   MODEL_INVALID_RESPONSE: "Sources were found, but the model's answer could not be validated. The retrieved evidence is available below."
 })[code] || "Sources were found, but the answer model is currently unavailable. The retrieved evidence is available below.";
 
-const publicKnowledgeError = (error) => ({
+const publicKnowledgeError = (error) => {
+  if (/^MODEL_[A-Z_]+$/.test(error?.code || "")) {
+    return modelFailureMessage(error.code).replace("The retrieved evidence is available below.", "Try again or select another configured model.").replace("the evidence is available below.", "try again shortly.");
+  }
+  return ({
   ASSISTANT_SETUP_TIMEOUT: "The conversation could not be prepared in time. Try again with the same question.",
   ANSWER_AUTHORIZATION_TIMEOUT: "The source access check took too long. Try again to verify current access before showing an answer.",
   DEADLINE_EXCEEDED: "The request took too long. Try again or narrow the selected sources."
 })[error?.code] || (error?.statusCode && error.statusCode < 500 ? error.message : "The knowledge request could not be completed. Try again.");
+};
 
 module.exports = { modelHttpError, modelFailureCode, modelFailureMessage, publicKnowledgeError };

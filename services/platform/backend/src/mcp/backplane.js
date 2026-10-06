@@ -15,7 +15,14 @@ function sanitize(value, depth=0) {
  if(Buffer.isBuffer(value))return '[Binary omitted]';
  if(typeof value==='string')return require('../security/aiTextPolicy').sanitizeAiText(value).text.slice(0,12000);
  if(Array.isArray(value))return value.slice(0,100).map(item=>sanitize(item,depth+1));
- if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).filter(([key])=>!sensitive.test(key)).slice(0,80).map(([key,item])=>[key,sanitize(item,depth+1)]));
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).flatMap(([key,item])=>{
+  // ContextPacket authorization is provenance, not an HTTP credential. Preserve
+  // only its declared fields so the model input can validate its ACL guarantees.
+  if(key==='authorization'&&item&&typeof item.project_scope_enforced==='boolean'&&typeof item.source_acl_enforced==='boolean')return [[key,sanitize({project_scope_enforced:item.project_scope_enforced,source_acl_enforced:item.source_acl_enforced,allowed_record_permissions:Array.isArray(item.allowed_record_permissions)?item.allowed_record_permissions:[]},depth+1)]];
+  if(key==='authorization_partial'&&typeof item==='boolean')return [[key,item]];
+  if(key==='authorization_coverage'&&item&&typeof item==='object')return [[key,sanitize(Object.fromEntries(['fully_visible_objects','partially_visible_objects','unavailable_objects'].filter(field=>typeof item[field]==='number').map(field=>[field,item[field]])),depth+1)]];
+  return sensitive.test(key)?[]:[[key,sanitize(item,depth+1)]];
+ }).slice(0,80));
  return value;
 }
 function bounded(value) {

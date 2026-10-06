@@ -348,3 +348,22 @@ test("a stalled final access check saves no answer and the same turn can be retr
   assert.equal(result.assistant_message.status, "answered");
   assert.equal(messages.length, 2);
 }));
+
+test('uncited synthesis is regenerated once with the original MCP evidence and exact citation contract',async(context)=>fixture(async({input,messages})=>{
+ context.mock.method(llmSelection,'resolveLlmIntegrationForUsage',async()=>({id:'model',type:'llm',is_active:true,api_key:'test-credential',base_url:'https://citation-repair.invalid/v1',model:'test',config:{}}));
+ context.mock.method(llmSelection,'recordSuccessfulLlmIntegration',async()=>{});
+ let synthesisCalls=0;
+ context.mock.method(global,'fetch',async(_,init)=>{
+  const body=JSON.parse(init.body),data=JSON.parse(body.messages.at(-1).content);
+  const planning=!data.context_packet?.evidence?.length;
+  let answer;
+  if(planning)answer={information_needs:['release approval'],source_kinds:['text'],search_queries:['release approval'],stop_if_sufficient:true};
+  else {
+   synthesisCalls++;
+   if(synthesisCalls===1)answer={status:'answered',supported_claims:[{statement:'Uncited draft',citation_ids:[]}]};
+   else {assert.match(body.messages[0].content,/nonempty citation_ids/);assert.ok(data.context_packet.evidence.some(item=>item.evidence_id==='K-chunk-1'));answer={status:'answered',supported_claims:[{statement:'Release approval requires a passing checkout test.',citation_ids:['K-chunk-1']}]};}
+  }
+  return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(answer)},finish_reason:'stop'}]}));
+ });
+ const result=await assistant.respond({...input,responseMode:'answer'});assert.equal(result.assistant_message.status,'answered');assert.equal(synthesisCalls,2);assert.ok(!result.assistant_message.content.includes('Uncited draft'));assert.equal(messages.length,2);
+}));

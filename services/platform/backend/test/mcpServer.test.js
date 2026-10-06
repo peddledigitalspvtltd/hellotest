@@ -49,3 +49,9 @@ test('bounded context preserves token budgets and provenance while removing cred
  assert.equal(result.max_context_tokens,2000);assert.equal(result.token_count,24);assert.equal(result.citation.source_id,'source-a');assert.equal(result.citation.observed_at,'2026-10-06T00:00:00.000Z');assert.ok(!JSON.stringify(result).includes('private'));
  assert.throws(()=>real.bounded(Array.from({length:100},()=>({content:'a'.repeat(12000)}))),{code:'MCP_RESULT_TOO_LARGE'});
 });
+
+test('MCP redaction retains ContextPacket ACL provenance without retaining credential headers',()=>{
+ const real=load('backplane',{'../db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
+ const safe=real.bounded({authorization:{project_scope_enforced:true,source_acl_enforced:true,allowed_record_permissions:['testcase.view'],token:'private',headers:{Authorization:'private'}},authorization_coverage:{fully_visible_objects:2,partially_visible_objects:0,unavailable_objects:1,secret:'private'},headers:{authorization:'Bearer private'}});
+ assert.deepEqual(safe.authorization,{project_scope_enforced:true,source_acl_enforced:true,allowed_record_permissions:['testcase.view']});assert.equal(safe.authorization_coverage.fully_visible_objects,2);assert.ok(!JSON.stringify(safe).includes('private'));
+});

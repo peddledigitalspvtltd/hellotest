@@ -551,11 +551,17 @@ const requestGroundedAnswer = async ({ integration, question, hits, history = []
       // 30-second attempt previously cancelled otherwise valid completions.
       attemptTimeoutMs: remainingMs,
       messages: repair ? [
-        { ...request.messages[0], content: `${request.messages[0].content} The previous completion did not satisfy the output contract. Return a compact JSON object with status and at most 8 supported_claims; each claim needs statement and citation_ids. Omit presentation. Include only claims supported by the original evidence. Do not repeat the invalid response.` },
+        { ...request.messages[0], content: `${request.messages[0].content} The previous completion did not satisfy the output contract. Return a compact JSON object with status and at most 8 supported_claims; each claim needs statement and nonempty citation_ids copied exactly from context_packet.evidence[].evidence_id. Never set status to answered with uncited claims. If the evidence cannot support an answer, use insufficient_context and explain the missing evidence. Omit presentation. Include only claims supported by the original evidence. Do not repeat the invalid response.` },
         request.messages[1]
       ] : request.messages
     });
-    return knowledgeContracts.validateModelAnswer(candidate);
+    const validated = knowledgeContracts.validateModelAnswer(candidate);
+    const groundingHits = hits || contextPacket.evidence.map(item => ({ citation: { id: item.evidence_id, source_id: item.source_id, title: item.title } }));
+    const grounded = normalizeModelAnswer(validated, groundingHits);
+    if (grounded.safety?.invented_citations_rejected || grounded.safety?.citation_required) {
+      throw Object.assign(new Error("The answer did not satisfy the evidence citation contract."), { code: "MODEL_INVALID_RESPONSE" });
+    }
+    return validated;
   };
   try {
     return await complete();
