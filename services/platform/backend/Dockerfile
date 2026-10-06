@@ -8,6 +8,8 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY scripts/build ./scripts/build
 ARG HELLOTEST_CAPABILITY=all
 ENV CAPABILITY_UI_OUTPUT_ROOT=/capability-ui
+ARG HELLOTEST_DEBUG_SOURCEMAPS=false
+ENV HELLOTEST_DEBUG_SOURCEMAPS=$HELLOTEST_DEBUG_SOURCEMAPS
 RUN node scripts/build/capability-ui.mjs "$HELLOTEST_CAPABILITY"
 
 FROM node:20-alpine AS runtime

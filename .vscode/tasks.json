@@ -160,6 +160,151 @@
         "panel": "dedicated",
         "group": "hellotest-debug"
       }
+    },
+    {
+      "label": "debug:local:platform",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/platform.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "debug:local:testengine-api-worker",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/testengine-api-worker.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "debug:local:testengine-web-worker",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/testengine-web-worker.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "debug:local:testengine-android-worker",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/testengine-android-worker.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "debug:local:mobile-engine",
+      "type": "process",
+      "command": "sh",
+      "args": [
+        "${workspaceFolder}/scripts/debug/mobile-engine.sh"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "local-debug",
+        "pattern": {
+          "regexp": "^(never-match-debug-error)$",
+          "file": 1,
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^DEBUG STARTING",
+          "endsPattern": "^DEBUG READY"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     }
   ]
 }

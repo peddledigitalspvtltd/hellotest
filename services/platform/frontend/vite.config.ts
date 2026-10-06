@@ -9,6 +9,7 @@ declare const process: {
 export default defineConfig({
   resolve: featureSourceConfig.resolve,
   plugins: [react()],
+  build: { sourcemap: process.env.HELLOTEST_DEBUG_SOURCEMAPS === "true" ? "inline" : false },
   server: {
     fs: featureSourceConfig.fs,
     port: 5173,

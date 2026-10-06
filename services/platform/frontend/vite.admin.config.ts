@@ -34,6 +34,7 @@ export default defineConfig({
     }
   },
   build: {
+    sourcemap: process.env.HELLOTEST_DEBUG_SOURCEMAPS === "true" ? "inline" : false,
     outDir: "dist-admin",
     emptyOutDir: true,
     rollupOptions: { input: "admin.html" }

@@ -2,6 +2,22 @@
 
 For development setup, VS Code configuration, engineering standards and terminal startup commands, use [CONTRIBUTING.md](../../CONTRIBUTING.md). Use this runbook to choose a debugger, trace a failure and recover without losing data. Commands below assume that dependencies, infrastructure and the private root `.env.development.local` are configured.
 
+## Debug the existing Docker local stack
+
+Run your normal startup command once:
+
+```sh
+TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
+```
+
+Select **Local Docker: Chatbot UI + Backend** in VS Code's Run and Debug dropdown and press F5. This opens the existing Docker UI on `http://localhost:8080` and attaches to the API already running in Docker. It does not restart containers, launch another API or start Vite. Sign in in the debugger's browser, select a project, open Ask HelloTest, and send a message.
+
+Set breakpoints in `services/chatbot/frontend/components/GroundedAssistant.tsx` at `submitPrompt` and the response normalization; in `services/chatbot/frontend/api.client.ts` at `fetch`; and in `services/chatbot/backend/routes/chatbot.routes.js` at `prepareTurn(req, reply)` inside the `/messages/stream` handler. For retrieval and LLM calls, use `retrieveContext` and `response = await request()` in `services/chatbot/backend/services/knowledgeAssistant.service.js`. Continue with F5 between UI and backend sessions; F10 steps over, F11 steps into. Long pauses can exhaust the existing 120-second turn deadline.
+
+Local Docker builds include inline browser source maps. Other Docker builds keep them disabled by default. Images built before this change can attach backend debugging immediately, but frontend TypeScript breakpoints need the normal build command above to pick up source maps. No extra container recreation command is required.
+
+For other services, select their **Local Docker: <service>** profile. Capability backend profiles all attach to the combined `api` process. Workers and mobile attach to their own existing processes. PostgreSQL, Redis, Qdrant, MinIO, Tika, Nginx and HAProxy do not have a Node inspector. See [debug scripts](../../scripts/debug/README.md) for standalone attachment, replica selection, ports and cleanup. Older host launch profiles below remain available for host development.
+
 ## Establish the process and topology
 
 Record the commit, browser URL, selected project/application, capability profile and failing operation. Determine whether the API and TestEngine are host processes, the combined local stack, or separate capability profiles.

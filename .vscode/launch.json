@@ -174,9 +174,260 @@
       "env": {
         "NODE_ENV": "test"
       }
+    },
+    {
+      "name": "Local Docker: platform",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: testing",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: knowledge",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: manual",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: dashboard",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: automation",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: agentic",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: chatbot",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: ai",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: trace",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: integration",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9240,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:platform",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: testengine-api-worker",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9241,
+      "localRoot": "${workspaceFolder}/testengine/backend",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:testengine-api-worker",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/testengine/backend/dist/**/*.js"
+      ],
+      "sourceMapPathOverrides": {
+        "../src/*": "${workspaceFolder}/testengine/backend/src/*"
+      }
+    },
+    {
+      "name": "Local Docker: testengine-web-worker",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9242,
+      "localRoot": "${workspaceFolder}/testengine/backend",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:testengine-web-worker",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/testengine/backend/dist/**/*.js"
+      ],
+      "sourceMapPathOverrides": {
+        "../src/*": "${workspaceFolder}/testengine/backend/src/*"
+      }
+    },
+    {
+      "name": "Local Docker: testengine-android-worker",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9243,
+      "localRoot": "${workspaceFolder}/testengine/backend",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:testengine-android-worker",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/testengine/backend/dist/**/*.js"
+      ],
+      "sourceMapPathOverrides": {
+        "../src/*": "${workspaceFolder}/testengine/backend/src/*"
+      }
+    },
+    {
+      "name": "Local Docker: mobile-engine",
+      "type": "pwa-node",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9244,
+      "localRoot": "${workspaceFolder}/local-run/mobile-engine",
+      "remoteRoot": "/app",
+      "preLaunchTask": "debug:local:mobile-engine",
+      "skipFiles": [
+        "<node_internals>/**",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Local Docker: UI",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:8080",
+      "webRoot": "${workspaceFolder}/services/platform/frontend",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "*services/*": "${workspaceFolder}/services/*",
+        "../../src/*": "${workspaceFolder}/services/platform/frontend/src/*",
+        "../../admin/*": "${workspaceFolder}/services/platform/frontend/admin/*",
+        "../../pages/*": "${workspaceFolder}/services/platform/frontend/pages/*",
+        "../../../../*": "${workspaceFolder}/services/*"
+      }
     }
   ],
   "compounds": [
+    {
+      "name": "Local Docker: Chatbot UI + Backend",
+      "configurations": [
+        "Local Docker: chatbot",
+        "Local Docker: UI"
+      ],
+      "stopAll": true
+    },
     {
       "name": "Full Stack Debug",
       "configurations": [

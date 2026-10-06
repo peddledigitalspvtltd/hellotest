@@ -74,7 +74,7 @@ const result = await build({
     }
   }],
   build: {
-    outDir, emptyOutDir: true, sourcemap: false, cssCodeSplit: false,
+    outDir, emptyOutDir: true, sourcemap: process.env.HELLOTEST_DEBUG_SOURCEMAPS === 'true' ? 'inline' : false, cssCodeSplit: false,
     lib: { entry: resolve(packageRoot, 'frontend/entry.ts'), formats: ['es'] },
     rollupOptions: { output: { entryFileNames: 'entry-[hash].js', chunkFileNames: 'assets/[name]-[hash].js', assetFileNames: 'assets/[name]-[hash][extname]' } }
   }

@@ -98,6 +98,8 @@ services:
     build:
       context: ..
       dockerfile: services/platform/backend/Dockerfile
+      args:
+        HELLOTEST_DEBUG_SOURCEMAPS: "true"
     container_name: hellotest-local-api
     ports:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
@@ -166,6 +168,8 @@ services:
     build:
       context: ..
       dockerfile: services/platform/frontend/Dockerfile
+      args:
+        HELLOTEST_DEBUG_SOURCEMAPS: "true"
     container_name: hellotest-local-frontend
     ports:
       - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-8080}:80"

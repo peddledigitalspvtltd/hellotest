@@ -9,6 +9,8 @@ COPY services/platform/frontend .
 COPY services /app/services
 COPY package.json package-lock.json /app/
 RUN npm ci --prefix /app --ignore-scripts --no-audit --no-fund
+ARG HELLOTEST_DEBUG_SOURCEMAPS=false
+ENV HELLOTEST_DEBUG_SOURCEMAPS=$HELLOTEST_DEBUG_SOURCEMAPS
 RUN npm run build:all
 
 FROM nginx:1.27-alpine
