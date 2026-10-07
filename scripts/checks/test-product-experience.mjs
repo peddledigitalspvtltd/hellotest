@@ -16,6 +16,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const frontend = join(root, 'services/platform/frontend');
 const suite = [
   'services/platform/frontend/test/browser/appStartup.test.mjs',
+  'services/platform/frontend/test/browser/sessionQueryIsolation.test.mjs',
   'services/platform/frontend/test/browser/productInteraction.test.mjs',
   'services/platform/frontend/test/browser/workspaceDiscoveryFlow.test.mjs',
   'services/platform/frontend/test/browser/projectControls.test.mjs',

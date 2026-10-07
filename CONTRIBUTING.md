@@ -484,3 +484,21 @@ Before moving/deleting a file, inspect static/dynamic imports, HTML and route ma
 Keep `node_modules`, builds, private environments, database dumps, logs and generated evidence out of commits. Existing `.gitignore` rules do not automatically untrack previously committed artifacts. Run `git diff --check` and inspect the actual changed files.
 
 A reviewable PR states the concrete problem and resulting behavior, affected owner/contracts, meaningful test results, migration/deployment needs and any unverified external dependency. Distinguish measured performance from an expected improvement. State the remaining shared-database or provider limitations plainly. Documentation should describe implemented commands and behavior, with examples checked against the current scripts and runtime.
+
+## Session, performance and refactoring checks
+
+Keep authentication lifecycle, cache ownership, transport and domain policy separate. `AuthProvider` owns verified identity and login intent; `SessionQueryBoundary` owns private query lifecycle; capability components own their forms and domain actions. Shared infrastructure must not choose a user, project or permission on a caller's behalf. Prefer narrow ports such as the workspace scroll adapter over passing whole UI/service objects.
+
+When changing session handling, run:
+
+```sh
+node --test services/platform/frontend/test/authRefreshIsolation.test.mjs services/platform/frontend/test/requestSessionIsolation.test.mjs services/platform/frontend/test/workspaceScroll.test.mjs
+npm run test:product-ux -- --filter sessionQueryIsolation
+npm run test:product-ux -- --filter workspaceDiscoveryFlow
+```
+
+Preserve foreground drafts on transient session-check failures. Test logout during a pending login, competing logins, cross-tab logout/account replacement, permission changes, and delayed old-user query completion. Never share private query data across an access revision. Signing in changes neither server authorization nor MCP delegation rules.
+
+For performance work, record the page, data volume, viewport, network conditions, and observed timings. Use bounded page requests, lazy detail queries, shared cancellation/deadlines and serial polling. Avoid synchronous scroll-event layout reads and competing nested scroll owners. Do not trade away readiness checks, fresh permission checks or execution snapshots to improve a benchmark.
+
+Run architecture/module audits after browser fixtures have cleaned up temporary entries. Clone reports identify candidates, not safe automatic deletions: semantically different capability callbacks may have identical syntax. Delete truly unreachable sources with their obsolete tests and imports; retain externally supported protocol contracts. Update runtime packaging and these runbooks when ownership changes.

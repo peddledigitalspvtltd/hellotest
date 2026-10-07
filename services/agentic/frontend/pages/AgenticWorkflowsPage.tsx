@@ -43,7 +43,7 @@ import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionG
 import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
 import { isRovoIntegrationId } from "@hellotest/integration/frontend/lib/rovo";
 import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/shared/lib/viewPreferences";
-import type { AgenticWorkflow, AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticWorkflowEdge, AgenticWorkflowNode, AgenticWorkflowNodeData, AgenticWorkflowRun, AgenticWorkflowReadiness, Integration, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
+import type { AgenticWorkflow, AgenticAssistantSessionResponse, AgenticWorkflowEdge, AgenticWorkflowNode, AgenticWorkflowNodeData, AgenticWorkflowRun, AgenticWorkflowReadiness, Integration, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
 import "./AgenticWorkflowsPage.css";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
@@ -128,7 +128,6 @@ export function AgenticWorkflowsPage() {
   const [checkingReview, setCheckingReview] = useState(false);
   const [reviewStartError, setReviewStartError] = useState("");
   const reviewRequest = useRef<{ key: string; id: string } | null>(null);
-  const [assistantMode, setAssistantMode] = useState<AgenticAssistantMode>("agent");
   const [assistantAgentId, setAssistantAgentId] = useState("quality-orchestrator");
   const [assistantPrompt, setAssistantPrompt] = useState(HELLOTEST_AGENT_CATALOG[0].prompt);
   const [assistantContextScopes, setAssistantContextScopes] = useState<string[]>(["stories", "test-cases", "automation", "runs", "bugs", "knowledge"]);
@@ -397,7 +396,7 @@ export function AgenticWorkflowsPage() {
     setAssistantNotice(""); setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantResultTab("brief"); setAssistantStartedAt(Date.now());
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
     assistantMutation.mutate({ scope: assistantScopeKey, requestId, signal: controller.signal, input: {
-      project_id: projectId, app_type_id: appTypeId || undefined, mode: assistantMode,
+      project_id: projectId, app_type_id: appTypeId || undefined, mode: "agent",
       agent_id: assistantAgentId, agent_version: selectedAssistantAgent.agentVersion, inputs: agentInputs, prompt: assistantPrompt, context_scopes: assistantContextScopes,
       smart_context: canUseKnowledge && assistantSmartContext ? { query: assistantSmartContext.query, source_ids: assistantSmartContext.sourceIds, source_kinds: assistantSmartContext.sourceKinds, reviewed_context: assistantSmartContext.contextText } : undefined,
       integration_id: canViewIntegrations ? assistantIntegrationId || undefined : undefined
@@ -1099,9 +1098,9 @@ export function AgenticWorkflowsPage() {
                 <div hidden={Boolean(activeAssistantResult) && !assistantTaskExpanded}>
                 <AgenticCommandComposer
                   agents={agentCatalog} agentId={assistantAgentId} appTypeId={appTypeId} contextScopes={assistantContextScopes}
-                  disabled={!projectId || !canRunAgenticWorkflows} integrationId={canViewIntegrations ? assistantIntegrationId : ""} integrations={llmIntegrations.filter(item => item.is_active)} mode={assistantMode}
+                  disabled={!projectId || !canRunAgenticWorkflows} integrationId={canViewIntegrations ? assistantIntegrationId : ""} integrations={llmIntegrations.filter(item => item.is_active)}
                   onAgentChange={agentId => { const agent = agentCatalog.find(item => item.id === agentId); if (agent) openAgentWorkbench(agent); }}
-                  onContextScopesChange={setAssistantContextScopes} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onModeChange={setAssistantMode} onPromptChange={setAssistantPrompt}
+                  onContextScopesChange={setAssistantContextScopes} onIntegrationChange={canViewIntegrations ? setAssistantIntegrationId : undefined} onPromptChange={setAssistantPrompt}
                   onSmartContextChange={canUseKnowledge ? selection => { setAssistantSmartContext(selection); setAssistantContextScopes(current => current.includes("knowledge") ? current : [...current, "knowledge"]); } : undefined}
                   onSubmit={startAssistantReview} prompt={assistantPrompt} projectId={projectId} running={assistantMutation.isPending}
                   scopeLabel={selectedAppType?.name || selectedProject?.name || "Select a project"} smartContext={assistantSmartContext}

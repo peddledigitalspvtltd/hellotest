@@ -336,3 +336,15 @@ test("disconnecting before SSE aborts preflight and prevents work after a late r
   assert.equal(calls.retrieve.length, 0);
   assert.equal(calls.respond.length, 0);
 });
+
+test("Smart Context dispatches intent-aware retrieval with server identity and bounded scope", async t => {
+  const { app } = await createFixture(t);
+  let received;
+  t.mock.method(knowledgeRetrievalService, "retrieveSearch", async input => { received = input; return { results: [], retrieval: { context_transport: "mcp", intent_planning_mode: "llm" } }; });
+  const response = await app.inject({ method: "POST", url: "/knowledge/search", headers: AUTH_HEADERS,
+    payload: { project_id: CONTEXT_BODY.project_id, query: "Which payment Stories need tests?", intent_aware: true,
+      integration_id: "selected-model", limit: 500, user: { id: "forged-admin" } } });
+  assert.equal(response.statusCode, 200); assert.equal(received.user.id, SERVER_USER.id);
+  assert.equal(received.projectId, CONTEXT_BODY.project_id); assert.equal(received.integrationId, "selected-model");
+  assert.equal(received.budgets.max_evidence_items, 20); assert.equal(response.json().retrieval.context_transport, "mcp");
+});

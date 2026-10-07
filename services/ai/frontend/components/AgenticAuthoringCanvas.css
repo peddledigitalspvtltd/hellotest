@@ -221,3 +221,29 @@ html body .ai-command-studio .ai-test-generator-footer { position:static; margin
 html body .ai-command-studio :is(.ai-artifact-detail,.story-studio-inspector-scroll) { height:auto; max-height:none; overflow:visible; }
 html body .ai-command-studio .ai-test-generator-workspace__header { position:static; min-height:48px; height:auto; padding-block:8px; }
 html body .ai-command-studio .story-studio-queue { grid-template-rows:auto auto; }
+
+/* Keep output in normal flow, below headings, with one workbench scroll owner. */
+html body .ai-command-studio .ai-test-generator-workspace {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-block: 16px 32px;
+}
+html body .ai-command-studio .ai-test-generator-workspace > * { flex-shrink: 0; }
+html body .ai-command-studio :is(.story-studio-output-workspace, .ai-test-generator-drafts, .ai-artifact-detail) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  scroll-margin-block: 16px;
+}
+/* Edge shadows signal more content without masking or clipping the text. */
+html body .ai-command-studio .ai-test-generator-workspace {
+  --ai-scroll-surface: var(--app-surface-muted, #f5f8f7);
+  background-image:
+    linear-gradient(var(--ai-scroll-surface) 40%, transparent),
+    linear-gradient(transparent, var(--ai-scroll-surface) 60%),
+    radial-gradient(farthest-side at 50% 0, rgb(15 35 45 / .12), transparent),
+    radial-gradient(farthest-side at 50% 100%, rgb(15 35 45 / .12), transparent);
+  background-size: 100% 32px, 100% 32px, 100% 12px, 100% 12px;
+  background-position: top, bottom, top, bottom;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}

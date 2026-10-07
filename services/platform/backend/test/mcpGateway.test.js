@@ -25,3 +25,23 @@ test('invalid or foreign-project MCP context fails closed for chatbot, Smart Con
  await assert.rejects(instance.retrieveContext({user:{id:'a'},request:{project_id:'p',query:'help'}}),{code:'MCP_CONTEXT_SCOPE_MISMATCH'});
  const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('help')));assert.ok(!result.body.includes('private foreign evidence'));assert.match(result.body,/missing evidence as a gap/);
 });
+
+test('project-bound AI feature operations always use authenticated MCP context with the selected model', async () => {
+ const operations = ['ai.story.create','ai.story.complete','ai.case.generate','ai.case.improve','ai.defect.report','ai.defect.improve','ai.run.smart','ai.defect.triage','agent.review','chat.assistance'];
+ const previous = process.env.HELLOTEST_MCP_AI_CONTEXT; process.env.HELLOTEST_MCP_AI_CONTEXT = 'false';
+ const calls = [];
+ const instance = gateway(async (actor, name, args) => {
+  calls.push({actor, name, args});
+  return {packet:{project_id:actor.projectId,evidence:[{evidence_id:'evidence-1',content:'Authorized source'}],retrieval:{intent_planning_mode:'llm',model_context_plan:{information_needs:['acceptance coverage']}}}};
+ });
+ try {
+  for (const operation of operations) {
+   const result = await traces.run({actor_id:'reviewer',project_id:'project'}, () => instance.enrichChatRequest(request('Review payment coverage'),{operation,integration:{id:'selected-model'}}));
+   const messages = JSON.parse(result.body).messages;
+   assert.match(messages[1].content,/Authorized source/); assert.match(messages[1].content,/intent_planning_mode/);
+   assert.equal(messages[0].content,'Trusted system policy');
+  }
+  assert.equal(calls.length,operations.length);
+  calls.forEach(call => {assert.equal(call.actor.user.id,'reviewer');assert.equal(call.actor.projectId,'project');assert.equal(call.name,'hellotest_context_build');assert.equal(call.args.integration_id,'selected-model');});
+ } finally { if(previous === undefined) delete process.env.HELLOTEST_MCP_AI_CONTEXT; else process.env.HELLOTEST_MCP_AI_CONTEXT=previous; }
+});

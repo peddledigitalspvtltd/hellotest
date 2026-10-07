@@ -26,11 +26,11 @@ test("workspace and catalog navigation preserve scroll without synchronous scrol
     readSource("../../../platform/frontend/src/shared/components/TileBrowserPane.tsx")
   ]);
 
-  assert.match(shell, /useWorkspaceScrollRestoration\(\)/);
+  assert.match(shell, /useWorkspaceScrollRestoration\(/);
   assert.match(restoration, /scrollRestoration = "manual"/);
   assert.match(restoration, /navigationTypeRef\.current === "POP"/);
   assert.match(restoration, /ResizeObserver/);
-  assert.match(restoration, /\}, \[location\.pathname\]\)/);
+  assert.match(restoration, /\}, \[location\.pathname, scopeKey\]\)/);
   assert.match(pane, /scrollKey\?: string/);
   assert.match(pane, /requestAnimationFrame/);
   assert.match(pane, /\{ passive: true \}/);

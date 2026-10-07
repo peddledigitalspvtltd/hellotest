@@ -89,6 +89,7 @@ const getStoredToken = () => readRequestSession().token;
 
 export const isSessionAuthFailure = (path: string, message: string) => {
   if (path.startsWith("/auth/")) return path === "/auth/session";
+  const canonicalMessage = message.toLowerCase().replace(/\s+\(support reference:[^)]*\)$/, "").trim();
   return [
     "missing bearer token",
     "invalid token",
@@ -97,7 +98,7 @@ export const isSessionAuthFailure = (path: string, message: string) => {
     "invalid token signature",
     "token expired",
     "token verification failed"
-  ].some((needle) => message.toLowerCase().includes(needle));
+  ].includes(canonicalMessage);
 };
 
 export class HelloTestApiError extends Error {

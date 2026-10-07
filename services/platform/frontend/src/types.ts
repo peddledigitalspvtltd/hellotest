@@ -3311,6 +3311,10 @@ export type KnowledgeAnswerContract = {
 };
 
 export type KnowledgeRetrievalSummary = {
+  intent_planning_mode?: "llm" | "standard";
+  intent_planning_model_used?: boolean;
+  intent_plan_error_code?: string | null;
+  context_transport?: string;
   mode?: KnowledgeSearchMode | string;
   query?: string;
   candidate_count?: number;

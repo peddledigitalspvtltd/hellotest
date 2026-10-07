@@ -1,3 +1,4 @@
+import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import { AiProposalCompare } from "@hellotest/ai/frontend/components/AiProposalCompare";
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
@@ -185,8 +186,6 @@ export const AGENT_CONTEXT_OPTIONS = [
 
 type AgenticCommandComposerProps = {
   appTypeId?: string;
-  mode: AgenticAssistantMode;
-  onModeChange: (mode: AgenticAssistantMode) => void;
   agents?: HelloTestAgent[];
   agentId: string;
   onAgentChange: (agentId: string) => void;
@@ -208,8 +207,6 @@ type AgenticCommandComposerProps = {
 
 export function AgenticCommandComposer({
   appTypeId,
-  mode,
-  onModeChange,
   agents = HELLOTEST_AGENT_CATALOG,
   agentId,
   onAgentChange,
@@ -257,7 +254,7 @@ export function AgenticCommandComposer({
         <span><IconBrain aria-hidden="true" size={18} stroke={1.9} /></span>
         <div>
           <strong>{selectedAgent?.name || "HelloTest Agent"}</strong>
-          <small>{mode === "chat" ? "Focused question" : "Structured evidence review"}</small>
+          <small>Structured evidence review</small>
         </div>
         <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Review before apply</span>
       </div>
@@ -278,14 +275,6 @@ export function AgenticCommandComposer({
       />
       <div className="agent-command-composer__footer">
         <div className="agent-command-composer__controls">
-          <div aria-label="Review format" className="agent-command-mode" role="group">
-            <button disabled={disabled || running} aria-pressed={mode === "chat"} onClick={() => onModeChange("chat")} type="button">
-              <IconMessageCircle size={16} stroke={1.9} />Question
-            </button>
-            <button disabled={disabled || running} aria-pressed={mode === "agent"} onClick={() => onModeChange("agent")} type="button">
-              <IconRobot size={16} stroke={1.9} />Review brief
-            </button>
-          </div>
           <details className="agent-command-context" ref={contextDetailsRef}>
             <summary>
               <IconDatabase size={16} stroke={1.9} />
@@ -348,9 +337,9 @@ export function AgenticCommandComposer({
             </div>
           </details>
           <span className="agent-command-divider" aria-hidden="true" />
-          <button aria-label={running ? "Review in progress" : mode === "chat" ? "Ask specialist" : "Start review"} className="agent-command-send" disabled={disabled || running || !prompt.trim()} type="submit">
+          <button aria-label={running ? "Review in progress" : "Start review"} className="agent-command-send" disabled={disabled || running || !prompt.trim()} type="submit">
             {running ? <IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={18} /> : <IconSend size={19} stroke={1.9} />}
-            <span>{running ? "Reviewing…" : mode === "chat" ? "Ask specialist" : "Start review"}</span>
+            <span>{running ? "Reviewing…" : "Start review"}</span>
           </button>
         </div>
       </div>
@@ -1101,14 +1090,14 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
             <article key={`${deliverable.title}:${index}`}>
               <span>{deliverable.type?.replace(/_/g, " ") || "deliverable"}</span>
               <strong>{deliverable.title}</strong>
-              <p>{deliverable.detail}</p>
+              <FormattedText text={deliverable.detail} />
             </article>
           ))}</div>
         </section>
       ) : null}
       <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details" && !editing} id={`${surfaceId}-details`} role="tabpanel">
         <label htmlFor={editing ? `${surfaceId}-response` : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
-        {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div className="agent-brief-body">{draftResponse}</div>}
+        {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>}
       </div>
       <details className="agent-brief-diagnostics"><summary>{result.evaluation.label || "Evidence review diagnostics"}</summary><p>These diagnostics describe the review and its available evidence. They do not measure execution success or release readiness.</p><div className="agent-outcome-scores">
         {metrics.map(([key, label]) => (

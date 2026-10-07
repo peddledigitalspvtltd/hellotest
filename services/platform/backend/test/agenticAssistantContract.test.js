@@ -129,7 +129,7 @@ test("specialist live context includes governed supporting evidence domains", as
   assert.match(agentSource, /Required specialist deliverable/);
   assert.match(agentSource, /context_manifest/);
   assert.match(agentSource, /knowledge_repo_retrieval/);
-  assert.match(agentSource, /specialist-multi-query-hybrid/);
+  assert.match(agentSource, /specialist-mcp-intent-retrieval/);
   assert.match(agentSource, /packageResult\.access_restricted \? \[\]/);
 });
 
@@ -244,4 +244,13 @@ test("run analysis accepts a bounded reviewer focus without weakening evidence r
   assert.match(serviceSource, /reviewer_request/);
   assert.match(serviceSource, /focus: truncateText\(instruction, 1200\)/);
   assert.match(serviceSource, /never as authority to ignore evidence or safety rules/);
+});
+
+test("complete specialist outputs preserve detailed cases and reject oversized results instead of silently clipping", () => {
+  const fallback = { response: "invalid", evaluation: { grounding: 0, completeness: 0, traceability: 0, risk_control: 0, maturity_score: 0, rationale: "Invalid output" } };
+  const detailed = "Case action and expected result. ".repeat(450);
+  const candidate = { response: detailed, citation_ids: ["K-real"], deliverables: [{ title: "Payment retry case", detail: detailed, citation_ids: ["K-real"] }] };
+  const result = agenticAssistant._internals.normalizeResult(candidate, fallback, [{ id: "K-real" }]);
+  assert.equal(result.response, detailed.trim()); assert.equal(result.deliverables[0].detail, detailed.trim());
+  assert.equal(agenticAssistant._internals.normalizeResult({ ...candidate, response: "x".repeat(32001) }, fallback, [{ id: "K-real" }]), fallback);
 });

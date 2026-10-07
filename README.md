@@ -1,6 +1,6 @@
 # HelloTest
 
-This improved build includes a modern AI workspace, focused forms, recovered automation flows and five executable browser quality agents. Start with the [agentic V2 release guide](docs/redesign-v2-2026-10/README.md) for setup, screenshots and validation results.
+HelloTest combines project planning, test authoring, automation, execution evidence, knowledge retrieval, and AI Agent Studio. The [agentic V2 release guide](docs/redesign-v2-2026-10/README.md) describes the imported feature baseline; current behavior and verification are recorded in the [architecture review](docs/architecture/refactor-review.md).
 
 HelloTest is a QA workspace for stories, manual and automated cases, reusable steps, test data, suites, runs and evidence. Its React workspace and administration portal use a Fastify API. TestEngine executes structured API requests, Playwright browser automation and Android/iOS flows through a native provider.
 
@@ -158,3 +158,11 @@ Before a shared deployment, assign and record these responsibilities:
 - **Verifier:** readiness, sign-in/access checks and representative execution/results/evidence, with live-provider coverage and remaining gaps stated explicitly.
 
 The bundled stack does not establish a production availability, capacity or disaster-recovery guarantee. Choose deployment/storage/monitoring arrangements and acceptance checks for the actual environment before release.
+
+## Session isolation and responsive workspaces
+
+Authenticated workspace data is cleared and in-flight reads are cancelled when the signed-in identity or permission profile changes. Account changes in another browser tab require server verification before the protected workspace renders. Logout invalidates pending login and refresh results. Display-name updates and transient API outages preserve open forms when identity and permissions remain valid.
+
+Catalogs retain bounded pagination and lazy detail loading. Scroll restoration follows the document or focused workspace container, remembers at most 30 user/project route positions, and stops deferred restoration when the user interacts. Recorder telemetry uses a shared sequential poller: hidden tabs skip requests, each response has a five-second deadline, and unmount cancels pending work.
+
+For reproducible checks run `npm run test:product-ux -- --filter sessionQueryIsolation`, `npm run test:product-ux -- --filter workspaceDiscoveryFlow`, and the checks in [CONTRIBUTING.md](CONTRIBUTING.md). These are behavior checks, not a promise of instant loading under all network or provider conditions.

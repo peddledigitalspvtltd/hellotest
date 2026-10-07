@@ -1,3 +1,4 @@
+import { useRecorderStatus } from "@hellotest/platform/frontend/src/shared/hooks/useRecorderStatus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -534,42 +535,7 @@ export function TestOpsPage({ initialView = "batch-process" }: { initialView?: T
   const learningCache = asArray(learningCacheQuery.data);
   const recorderLiveUrl = recorderSession?.live_view_url || "";
 
-  useEffect(() => {
-    if (!recorderSession?.status_url || recorderSession.status !== "running") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    let timer: number | undefined;
-    const controller = new AbortController();
-    const refreshRecorderSession = async () => {
-      try {
-        if (document.hidden) return;
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store", signal: controller.signal });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const next = await response.json() as Partial<RecorderSessionResponse>;
-
-        if (!cancelled) {
-          setRecorderSession((current) => current?.id === recorderSession.id ? { ...current, ...next } : current);
-        }
-      } catch {
-        // Live recorder counters are best-effort and should not interrupt the recorder.
-      } finally {
-        if (!cancelled) timer = window.setTimeout(() => void refreshRecorderSession(), 1000);
-      }
-    };
-
-    void refreshRecorderSession();
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
+  useRecorderStatus(recorderSession, setRecorderSession);
 
   const invalidateAutomationViews = () => {
     void queryClient.invalidateQueries({ queryKey: ["test-cases"] });

@@ -48,7 +48,7 @@ const RETRIEVAL_EMBEDDING_TIMEOUT_MS = 2_000;
 // provider batch and retry. Canonical lexical/local indexes do not wait on it.
 const INGESTION_EMBEDDING_TIMEOUT_MS = 8_000;
 const embeddingProviderCooldowns = new Map();
-const KNOWLEDGE_PROCESSING_VERSION = "2026.09-structure-v2";
+const KNOWLEDGE_PROCESSING_VERSION = "2026.10-intent-enrichment-v3";
 const KNOWLEDGE_WORKER_ID = `knowledge-${process.pid}-${uuid()}`;
 const SOURCE_KINDS = new Set(["requirement", "test_case", "execution", "bug", "knowledge_item", "text", "chat", "file", "url"]);
 const SOURCE_PERMISSION_BY_KIND = Object.freeze({
@@ -71,15 +71,7 @@ const createError = (message, statusCode = 400, code) => {
   return error;
 };
 
-const assertLlmIntegrationProjectScope = (integration, projectId) => {
-  if (!integration) return null;
-  if (integration.type !== "llm" || !integration.is_active) throw createError("Selected integration is not an active LLM integration.", 400);
-  const configuredProjectId = normalizeId(asObject(integration.config).project_id);
-  if (configuredProjectId && configuredProjectId !== projectId) {
-    throw createError("Selected LLM integration belongs to another project.", 403, "LLM_PROJECT_SCOPE_MISMATCH");
-  }
-  return integration;
-};
+const { assertLlmIntegrationProjectScope } = require("./knowledgeIntegrationScope.service");
 
 const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
 const asArray = (value) => Array.isArray(value) ? value : [];
@@ -1427,6 +1419,7 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
   // PostgreSQL already contains FTS and deterministic local vectors, so readers
   // can use the current source during enrichment or a provider outage.
   await activateDocumentVersion();
+  const semanticProfile = await require("./knowledgeEnrichment.service").enrichDocument({ projectId, source, chunks, signal });
   const runtime = typeof embeddingRuntime === "function" ? await embeddingRuntime() : embeddingRuntime;
   embeddingResult = await embedTexts(runtime || { configured: false }, retrievalTexts, { signal });
   if (signal?.aborted) throw createError("Knowledge indexing lease was lost.", 409, "KNOWLEDGE_LEASE_LOST");
@@ -1443,6 +1436,16 @@ const persistDocument = async ({ projectId, source, content, chunking, embedding
   };
   await db.transaction(async () => {
     await assertCurrentEnrichment();
+    await db.prepare(`UPDATE ai_knowledge_documents SET metadata = metadata || ?::jsonb
+      WHERE id = ? AND project_id = ? AND is_active = TRUE`).run({ llm_context_profile: semanticProfile }, documentId, projectId);
+    for (const section of semanticProfile.sections) {
+      const index = chunks.findIndex(chunk => chunk.index === section.chunk_index);
+      if (index < 0) continue;
+      await db.prepare(`UPDATE ai_knowledge_chunks SET metadata = metadata || ?::jsonb,
+        search_vector = to_tsvector('simple', ?) WHERE id = ? AND document_id = ?`).run(
+          { llm_context_hint: { ...section, generated: true, authoritative: false } },
+          `${retrievalTexts[index]}\n${section.excerpt}`, persistedChunks[index].id, documentId);
+    }
     if (embeddingResult.model !== LOCAL_EMBEDDING_MODEL) {
       for (let index = 0; index < persistedChunks.length; index += 1) {
         await db.prepare(`UPDATE ai_knowledge_chunks SET embedding = ?, embedding_model = ?

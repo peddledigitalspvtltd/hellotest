@@ -25,7 +25,7 @@ function fixture({browser=false}={}){
   new Function('require','exports','window','document',compiled)(name=>name==='react'?react:name==='react/jsx-runtime'?{jsx:(type,props)=>({type,props})}:{api,sessionStorage},exports,window,document);
   const render=()=>{cursor=0;return exports.AuthProvider({children:null}).props.value;};
   render();effects.splice(0).forEach(effect=>effect());
-  return {render,refreshes,logins,stored:()=>stored,clearStored:()=>sessionStorage.clear(),focus:()=>windowListeners.get('focus')?.(),setVisible:value=>{document.visibilityState=value?'visible':'hidden';documentListeners.get('visibilitychange')?.();},tick:()=>intervals.forEach(item=>item.handler()),intervals};
+  return {render,refreshes,logins,stored:()=>stored,clearStored:()=>sessionStorage.clear(),writeStored:value=>stored=value,storage:key=>windowListeners.get("storage")?.({key}),focus:()=>windowListeners.get('focus')?.(),setVisible:value=>{document.visibilityState=value?'visible':'hidden';documentListeners.get('visibilitychange')?.();},tick:()=>intervals.forEach(item=>item.handler()),intervals};
 }
 
 for(const outcome of ['success','failure']){
@@ -121,4 +121,24 @@ test('focus and the visible polling interval refresh actual grants without a loa
   assert.deepEqual(view.render().session.user.project_permissions,{project:['feedback.view']});
   view.tick();assert.equal(view.refreshes.length,4);assert.equal(view.render().isLoading,false);
   view.refreshes[3].resolve(view.render().session);await flush();
+});
+
+test('logout wins over a pending login response',async()=>{
+ const view=fixture();const pending=view.render().login({email:'new@example.test',password:'isolated'});
+ view.render().logout();view.logins[0].resolve(makeSession('new'));await pending;
+ assert.equal(view.stored(),null);assert.equal(view.render().session,null);
+});
+test('only the latest login intent may commit',async()=>{
+ const view=fixture();const first=view.render().login({email:'one',password:'isolated'});const second=view.render().login({email:'two',password:'isolated'});
+ view.logins[1].resolve(makeSession('two'));await second;view.logins[0].resolve(makeSession('one'));await first;
+ assert.equal(view.render().session.user.id,'two');
+});
+test('cross-tab logout is immediate and invalidates pending refreshes',async()=>{
+ const view=fixture({browser:true});view.clearStored();view.storage('hellotest.session');
+ assert.equal(view.render().session,null);view.refreshes[0].resolve(makeSession('original'));await flush();assert.equal(view.stored(),null);
+});
+test('cross-tab identity changes wait for server verification',async()=>{
+ const view=fixture({browser:true});view.writeStored(makeSession('replacement'));view.storage('hellotest.session');
+ assert.equal(view.render().session,null);assert.equal(view.render().isLoading,true);
+ view.refreshes[1].resolve(makeSession('replacement'));await flush();assert.equal(view.render().session.user.id,'replacement');
 });

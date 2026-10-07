@@ -50,7 +50,7 @@ const retrieve = async ({ request, user, history = [], smartContext = {}, integr
     : Promise.resolve({ allowed: [], denied_ids: [], partial: false });
   const filters = request.filters || {};
   const pinned = array(filters.source_ids).length || array(filters.collection_ids).length;
-  const requestedScopes = array(filters.source_kinds).map((kind) => ({ requirement: "stories", test_case: "test-cases", execution: "runs", bug: "bugs" }[kind])).filter(Boolean);
+  const requestedScopes = unique(array(filters.source_kinds).map(kind => PLAN_SCOPE_BY_SOURCE_KIND[kind]).filter(Boolean));
   const route = planContext({ prompt: request.query, mode: "chat", history, requestedScopes });
   const plannedKinds = unique(array(intentPlan?.source_kinds).map((kind) => String(kind || "").trim().toLowerCase()).filter((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));
   const plannedScopes = unique(plannedKinds.map((kind) => PLAN_SCOPE_BY_SOURCE_KIND[kind]));

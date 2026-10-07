@@ -128,6 +128,7 @@ export function SmartContextWorkbench({
         project_id: projectId,
         query: normalizedQuery,
         mode: "hybrid",
+        intent_aware: true,
         limit: 16,
         filters: {
           app_type_id: appTypeId || null,
@@ -227,6 +228,7 @@ export function SmartContextWorkbench({
             <span><IconShieldCheck size={15} /> Project ACL enforced</span>
             <span>{retrieval?.vector_mode || "Hybrid retrieval"}</span>
             <span>{retrieval?.candidate_count ?? 0} candidates</span>
+            {retrieval?.intent_planning_mode ? <span>{retrieval.intent_planning_mode === "llm" ? "LLM intent retrieval · MCP" : "Standard retrieval · LLM unavailable"}</span> : null}
             {retrieval?.embedding_model ? <span>{retrieval.embedding_model}</span> : null}
           </div>
 

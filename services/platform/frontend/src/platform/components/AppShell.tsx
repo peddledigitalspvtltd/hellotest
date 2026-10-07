@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { useLocalization } from "../../context/LocalizationContext";
 import { AppErrorBoundary } from "./AppErrorBoundary";
-import { DatabaseConfigurationIcon, AiAgentStudioIcon, TestAutomationIcon, ProjectOverviewIcon, TestPlanIcon, TestRunsResultsIcon, AiAgentsIcon, BacklogIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
+import { AiKnowledgeBaseIcon, DatabaseConfigurationIcon, AiAgentStudioIcon, TestAutomationIcon, ProjectOverviewIcon, TestPlanIcon, TestRunsResultsIcon, AiAgentsIcon, BacklogIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
 import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
@@ -80,6 +80,17 @@ const navigation = [
     label: "Build",
     items: [
       {
+        id: "agentic-workflows",
+        matchPaths: [WORKSPACE_ROUTES.agenticWorkflows, WORKSPACE_ROUTES.mcpServers],
+        to: WORKSPACE_ROUTES.agenticWorkflows,
+        label: "Agentic AI Studio",
+        shortLabel: "Agentic AI Studio",
+        icon: AiAgentStudioIcon,
+        featureKeys: ["hellotest.ai.agentic_workflows"],
+        disabledWhenNoProjects: true
+      },
+      { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "AI Knowledge Base", shortLabel: "AI Knowledge Base", icon: AiKnowledgeBaseIcon, featureKeys: ["hellotest.ai.knowledge"] },
+      {
         id: "product-management",
         to: WORKSPACE_ROUTES.stories,
         label: "Product Management",
@@ -120,17 +131,8 @@ const navigation = [
         featureKeys: ["hellotest.manual.environments"],
         disabledWhenNoProjects: true
       },
-      { id: "test-plan", to: WORKSPACE_ROUTES.design, label: "Test Plan", shortLabel: "Test Plan", icon: TestPlanIcon, matchPaths: ["/design"], featureKeys: ["hellotest.manual.suites", "hellotest.manual.runs"], featureMatch: "any", disabledWhenNoProjects: true },
-      {
-        id: "agentic-workflows",
-        matchPaths: [WORKSPACE_ROUTES.agenticWorkflows, WORKSPACE_ROUTES.mcpServers],
-        to: WORKSPACE_ROUTES.agenticWorkflows,
-        label: "AI Agent Studio",
-        shortLabel: "AI Agent Studio",
-        icon: AiAgentStudioIcon,
-        featureKeys: ["hellotest.ai.agentic_workflows"],
-        disabledWhenNoProjects: true
-      }
+      { id: "test-plan", to: WORKSPACE_ROUTES.design, label: "Test Plan", shortLabel: "Test Plan", icon: TestPlanIcon, matchPaths: ["/design"], featureKeys: ["hellotest.manual.suites", "hellotest.manual.runs"], featureMatch: "any", disabledWhenNoProjects: true }
+
     ]
   },
   {
@@ -159,7 +161,7 @@ const navigation = [
         disabledWhenNoProjects: true
       },
 
-      { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["hellotest.ai.knowledge"] }
+
     ]
   },
   {
@@ -211,7 +213,6 @@ function WorkspaceLocalizationLoader() {
 function ReadyAppShell() {
   const location = useLocation();
   const queryClient = useQueryClient();
-  useWorkspaceScrollRestoration();
   const routeNavigation = useNavigation();
   const { session, error, clearError, logout } = useAuth();
   const { t } = useLocalization();
@@ -228,6 +229,7 @@ function ReadyAppShell() {
   });
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const [sidebarProjectId, setSidebarProjectId] = useCurrentProject();
+  useWorkspaceScrollRestoration(`${session?.user.id || "anonymous"}:${sidebarProjectId}`);
   const { can } = useCapabilityAccess(sidebarProjectId);
   const canViewNotifications = can("notification.view");
   const serverUnreadNotificationCountQuery = optionalQueryView(useQuery({
@@ -568,17 +570,6 @@ function ReadyAppShell() {
         <nav className="nav-list" aria-label="Main navigation" ref={sidebarNavigationRef}>
           {navigation.map((group) => (
             <div className="nav-group" key={group.label}>
-              {!shouldCollapseSidebar ? (
-                <p className="nav-group-label">
-                  {group.label === "Workspace"
-                    ? t("nav.section.main", group.label)
-                    : group.label === "Connect"
-                      ? t("nav.section.administration", group.label)
-                      : group.label === "Settings"
-                        ? t("nav.section.settings", group.label)
-                        : t(`nav.section.${group.label.toLowerCase()}`, group.label)}
-                </p>
-              ) : null}
               <div className="nav-group-items">
                 {group.items.map((item) => {
                   if (!hasAnyPermission(session, getNavigationItemPermissions(item, pageAccess), sidebarProjectId)) {
@@ -782,19 +773,6 @@ function FlaskIcon() {
 
 function ProductManagementIcon() {
   return <svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5" /><path d="M12 12l8 -4.5" /><path d="M12 12l0 9" /><path d="M12 12l-8 -4.5" /></svg>;
-}
-
-function OpenBookIcon() {
-  return (
-    <IconFrame>
-      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11a2 2 0 0 1 2 2v16a2 2 0 0 0-2-2H6.5A2.5 2.5 0 0 1 4 16.5z" />
-      <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13a2 2 0 0 0-2 2v16a2 2 0 0 1 2-2h4.5a2.5 2.5 0 0 0 2.5-2.5z" />
-      <path d="M8 7h2" />
-      <path d="M15 7h2" />
-      <path d="M8 11h2" />
-      <path d="M15 11h2" />
-    </IconFrame>
-  );
 }
 
 function LayersIcon() {

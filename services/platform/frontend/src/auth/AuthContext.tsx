@@ -25,6 +25,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const sessionRequestVersion = useRef(0);
+  const authenticationIntentVersion = useRef(0);
+  const providerActive = useRef(true);
   const pendingSessionRefresh = useRef<{ snapshot: string; promise: Promise<void> } | null>(null);
 
   const refreshSession = (): Promise<void> => {
@@ -34,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return pendingSessionRefresh.current.promise;
     }
     const requestVersion = ++sessionRequestVersion.current;
-    const isCurrentRefresh = () => requestVersion === sessionRequestVersion.current && JSON.stringify(sessionStorage.read()) === storedSnapshot;
+    const isCurrentRefresh = () => providerActive.current && requestVersion === sessionRequestVersion.current && JSON.stringify(sessionStorage.read()) === storedSnapshot;
 
     if (!stored) {
       setSession(null);
@@ -53,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // The API may already have cleared this same session after a 401. That
         // expiration still needs to reach React, while a replacement session wins.
         const current = sessionStorage.read();
-        if (requestVersion !== sessionRequestVersion.current || (current !== null && JSON.stringify(current) !== storedSnapshot)) return;
+        if (!providerActive.current || requestVersion !== sessionRequestVersion.current || (current !== null && JSON.stringify(current) !== storedSnapshot)) return;
         const errorMessage = err instanceof Error ? err.message : "Session verification failed";
         setError(errorMessage);
         const status = Number((err as { status?: number })?.status);
@@ -65,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(null);
         }
       } finally {
-        if (requestVersion === sessionRequestVersion.current) setIsLoading(false);
+        if (providerActive.current && requestVersion === sessionRequestVersion.current) setIsLoading(false);
       }
     })();
     pendingSessionRefresh.current = { snapshot: storedSnapshot, promise };
@@ -76,16 +78,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    providerActive.current = true;
     void refreshSession();
     if (typeof window === "undefined" || typeof document === "undefined") return;
     const refreshVisibleSession = () => {
       if (document.visibilityState !== "hidden" && sessionStorage.read()) void refreshSession();
     };
     const interval = window.setInterval(refreshVisibleSession, 60_000);
+    const synchronizeStoredSession = (event: StorageEvent) => {
+      if (event.key !== "hellotest.session" && event.key !== null) return;
+      authenticationIntentVersion.current += 1;
+      sessionRequestVersion.current += 1;
+      pendingSessionRefresh.current = null;
+      setSession(null);
+      setError(null);
+      setIsLoading(Boolean(sessionStorage.read()));
+      void refreshSession();
+    };
+    window.addEventListener("storage", synchronizeStoredSession);
     window.addEventListener("focus", refreshVisibleSession);
     document.addEventListener("visibilitychange", refreshVisibleSession);
     return () => {
+      providerActive.current = false;
       window.clearInterval(interval);
+      window.removeEventListener("storage", synchronizeStoredSession);
       window.removeEventListener("focus", refreshVisibleSession);
       document.removeEventListener("visibilitychange", refreshVisibleSession);
     };
@@ -99,31 +115,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   };
 
+  const authenticate = async (request: () => Promise<SessionPayload>, fallback: string) => {
+    const intentVersion = ++authenticationIntentVersion.current;
+    sessionRequestVersion.current += 1;
+    pendingSessionRefresh.current = null;
+    try {
+      setError(null);
+      const next = await request();
+      if (!providerActive.current || intentVersion !== authenticationIntentVersion.current) return;
+      setAuthenticatedSession(next);
+    } catch (err) {
+      if (!providerActive.current || intentVersion !== authenticationIntentVersion.current) return;
+      setError(err instanceof Error ? err.message : fallback);
+      throw err;
+    }
+  };
+
   const value = useMemo<AuthContextValue>(() => ({
     session,
     isLoading,
     error,
-    async login(input) {
-      try {
-        setError(null);
-        const next = await api.auth.login(input);
-        setAuthenticatedSession(next);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Login failed";
-        setError(errorMessage);
-        throw err;
-      }
+    login(input) {
+      return authenticate(() => api.auth.login(input), "Login failed");
     },
-    async loginWithGoogle(input) {
-      try {
-        setError(null);
-        const next = await api.auth.loginWithGoogle(input);
-        setAuthenticatedSession(next);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Google sign-in failed";
-        setError(errorMessage);
-        throw err;
-      }
+    loginWithGoogle(input) {
+      return authenticate(() => api.auth.loginWithGoogle(input), "Google sign-in failed");
     },
     async requestSignupCode(input) {
       try {
@@ -166,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     logout() {
+      authenticationIntentVersion.current += 1;
       void api.opsTelemetry.endGrafanaSession().catch(() => undefined);
       sessionRequestVersion.current += 1;
       pendingSessionRefresh.current = null;

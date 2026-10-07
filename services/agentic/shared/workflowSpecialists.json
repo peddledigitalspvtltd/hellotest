@@ -21,7 +21,8 @@
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "outputInstructions": "Produce a quality decision brief with an evidence table, ranked risks, coverage gaps, owners or specialist handoffs, and measurable exit criteria. State which decisions remain blocked. A recommendation is not a release approval."
   },
   "story-architect": {
     "name": "Story Architect",
@@ -47,12 +48,13 @@
     "category": "design",
     "destination": "/stories",
     "destinationPermission": "requirement.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Deliver a usable Story draft: title, actor, objective, value, scope, exclusions, dependencies, numbered acceptance criteria, Given/When/Then examples, and open questions. Explain the acceptance design rationale and cite the supporting product rules."
   },
   "test-designer": {
     "name": "Test Design Agent",
     "description": "Reviews test coverage and proposes traceable manual, Gherkin and automation scenarios.",
-    "prompt": "Propose the smallest high-value Test Case set that covers current Story risks and missing boundaries.",
+    "prompt": "Design risk-based coverage for the requested Stories. Explain the testing rationale and techniques, then generate complete traceable Test Cases with concrete data, numbered actions, expected results and coverage gaps.",
     "scopes": [
       "stories",
       "test-cases",
@@ -75,7 +77,8 @@
     "category": "design",
     "destination": "/test-cases",
     "destinationPermission": "testcase.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Explain the testing mindset as a short design rationale: obligations, risk priorities, chosen techniques (equivalence partitions, boundaries, state transitions, roles and negative paths), and tradeoffs. Then generate actual reviewable Test Cases, not just suggestions: case title, Story/acceptance link, priority, preconditions, concrete test data, numbered actions with expected results, cleanup, and automation suitability. Include a traceability matrix and missing expected behavior. Provide enough cases to cover the requested scope; do not force a minimal list when distinct risks need distinct tests."
   },
   "automation-engineer": {
     "name": "Automation Engineer",
@@ -98,7 +101,8 @@
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "outputInstructions": "Deliver an implementation-ready automation plan with candidate cases, prerequisites, reusable steps, locator contracts, data isolation, setup/cleanup, assertions, execution context, failure evidence and ordered implementation tasks. Separate generated guidance from compiled or executed automation."
   },
   "run-planner": {
     "name": "Smart Run Planner",
@@ -126,7 +130,8 @@
     "category": "planning",
     "destination": "/executions",
     "destinationPermission": "run.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Produce a ranked Test Case selection table with exact existing IDs, risk and change rationale, required environment/configuration/data, dependencies, exclusions, execution budget and exit criteria. Keep missing resource or coverage information explicit. A proposed plan is not a submitted run."
   },
   "failure-analyst": {
     "name": "Failure Analyst",
@@ -153,7 +158,8 @@
     "category": "investigation",
     "destination": "/executions",
     "destinationPermission": "run.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Provide observed failures with run/case/step IDs, expected versus actual, clusters, environment/build differences, hypotheses with supporting and contradicting evidence, and ordered diagnostic steps. Do not label a hypothesis as a confirmed root cause."
   },
   "bug-reporter": {
     "name": "Defect Reporter",
@@ -181,7 +187,8 @@
     "category": "investigation",
     "destination": "/issues",
     "destinationPermission": "feedback.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Deliver a complete Defect draft: precise title, impact, prerequisites, concrete reproduction steps, expected versus actual, severity/priority rationale, environment/build, related case/run/Story IDs, evidence and duplicate candidates. Label missing fields explicitly rather than inventing reproduction."
   },
   "bug-triage": {
     "name": "Defect Triage Agent",
@@ -209,7 +216,8 @@
     "category": "investigation",
     "destination": "/issues",
     "destinationPermission": "feedback.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Return a Defect-by-Defect triage table with exact IDs, severity, priority, rationale, reproduction confidence, affected scope, duplicate relationships, suggested routing, required evidence and the next decision. Do not claim severity, ownership or status was saved."
   },
   "quality-evaluator": {
     "name": "Quality Evaluator",
@@ -233,7 +241,8 @@
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "outputInstructions": "Evaluate each artifact against correctness, completeness, testability, traceability, evidence freshness and risk controls. Provide concrete defects in the artifact, before/after improvements, review blockers and an evidence-based recommendation. Scores are diagnostics, not proof."
   },
   "repository-curator": {
     "name": "Object Repository Curator",
@@ -255,7 +264,8 @@
     "allowedTools": [
       "project_evidence",
       "knowledge_search"
-    ]
+    ],
+    "outputInstructions": "Return a repository object review with exact object IDs/names, locator intent, duplicate candidates, platform and application scope, proposed stable bindings, validation steps and affected automation. Do not replace a locator without supporting page evidence."
   },
   "story-completion": {
     "name": "AI Story Completion",
@@ -281,7 +291,8 @@
     "category": "design",
     "destination": "/stories",
     "destinationPermission": "requirement.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Deliver the completed Story content, including actor/value, scope, acceptance criteria, concrete examples, dependencies and open questions. Show what was added or clarified and why; distinguish source-supported additions from proposals requiring confirmation."
   },
   "story-grooming": {
     "name": "AI Grooming",
@@ -307,7 +318,8 @@
     "category": "planning",
     "destination": "/stories",
     "destinationPermission": "requirement.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Produce a grooming review with ambiguity findings, conflicting rules, boundary/role/state examples, proposed acceptance wording, coverage implications, dependencies and a prioritized question list. Provide ready-to-review wording, not just advice to improve the Story."
   },
   "story-assurance": {
     "name": "AI Story Assurance",
@@ -333,7 +345,8 @@
     "category": "planning",
     "destination": "/stories",
     "destinationPermission": "requirement.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Return an acceptance obligation matrix linking each criterion to existing coverage, missing tests, contradictions, evidence and readiness blockers. Include specific repaired criteria or test proposals with a review checklist."
   },
   "test-improvement": {
     "name": "AI Test Case Improvement",
@@ -359,7 +372,8 @@
     "category": "design",
     "destination": "/test-cases",
     "destinationPermission": "testcase.view",
-    "contractVersion": "quality-lifecycle/1"
+    "contractVersion": "quality-lifecycle/1",
+    "outputInstructions": "Deliver an improved Test Case with preconditions, concrete data, numbered actions and expected results, cleanup and traceability. Include a before/after change summary and the rationale for new boundary, negative and role coverage. Preserve valid intent and flag unsupported product behavior."
   },
   "release-readiness": {
     "name": "AI Release Readiness",
@@ -388,7 +402,8 @@
     "destination": "/analytics?view=readiness",
     "destinationPermission": "dashboard.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Produce a release decision brief with required gates, actual run/defect/coverage evidence, unmet criteria, residual risks, accountable follow-up and go/watch/no-go recommendation. Missing evidence is not a passing gate."
   },
   "impact-analysis": {
     "name": "AI Impact Analysis",
@@ -417,7 +432,8 @@
     "destination": "/stories",
     "destinationPermission": "requirement.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Produce an impact matrix connecting changed Stories/components to cases, automation, runs and defects with exact IDs and relationship evidence. Rank regression coverage, identify uncertain dependencies, and provide a concrete verification plan."
   },
   "coverage-assurance": {
     "name": "AI Test Coverage Assurance",
@@ -446,7 +462,8 @@
     "destination": "/test-cases",
     "destinationPermission": "testcase.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Deliver a criterion-to-Test-Case matrix separating linked coverage from verified coverage, inadequate assertions, untested roles/boundaries and execution gaps. Generate concrete missing case drafts with expected results when product evidence supports them."
   },
   "risk-prediction": {
     "name": "AI Risk Prediction",
@@ -475,7 +492,8 @@
     "destination": "/analytics?view=readiness",
     "destinationPermission": "dashboard.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Provide evidence-backed risk signals, impacted scope, assumptions, contradictory evidence and mitigation/verification actions. Separate historical observations from forecasts; do not invent numerical probabilities or certainty."
   },
   "flaky-test-intelligence": {
     "name": "AI Flaky Test Intelligence",
@@ -504,7 +522,8 @@
     "destination": "/executions",
     "destinationPermission": "run.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Provide a case/run evidence table of intermittent outcomes, environment/data/timing patterns, suspected causes, supporting and contradicting evidence, repeatability experiments and stabilization actions. Do not call a test flaky from a single unexplained failure."
   },
   "release-risk-simulation": {
     "name": "AI Release Risk Simulation",
@@ -533,7 +552,8 @@
     "destination": "/analytics?view=readiness",
     "destinationPermission": "dashboard.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Define explicit scenario assumptions, scope, evidence baseline, best/expected/worst-case consequences, sensitivity and mitigation options. Clearly label simulated outcomes; they are not actual runs or predictions with calibrated probabilities."
   },
   "quality-graph": {
     "name": "AI Quality Graph",
@@ -562,7 +582,8 @@
     "destination": "/analytics?view=readiness",
     "destinationPermission": "dashboard.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "quality-evidence/1"
+    "verifier": "quality-evidence/1",
+    "outputInstructions": "Produce a relationship witness table for Stories, cases, automation, runs and defects, followed by traceability gaps, disconnected evidence, contradictions and proposed links to review. Missing graph edges do not prove no dependency."
   },
   "automation-repair": {
     "name": "AI Automation Repair",
@@ -591,6 +612,7 @@
     "destination": "/automation",
     "destinationPermission": "automation.view",
     "contractVersion": "quality-lifecycle/1",
-    "verifier": "automation-repair/1"
+    "verifier": "automation-repair/1",
+    "outputInstructions": "Explain the observed broken binding, exact step/object IDs, source-supported replacement and validation procedure. Return only the allowed typed repair contract. Preserve assertions and timeouts; never claim a repair was applied or passed before verification."
   }
 }

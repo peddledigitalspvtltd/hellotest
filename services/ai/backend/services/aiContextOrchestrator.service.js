@@ -26,8 +26,8 @@ const AGENT_CONTEXT_POLICIES = Object.freeze({
     priority_scopes: ["stories", "test-cases", "runs", "bugs", "knowledge"],
     retrieval_focus: "Story risks, existing coverage, reusable steps, data boundaries, historical failures, and defect regressions",
     outcome_sections: ["coverage objective", "proposed scenarios", "data and preconditions", "reuse opportunities", "traceability"],
-    decision_question: "What is the smallest risk-based Test Case set that closes the identified coverage gaps?",
-    deliverable_contract: "A prioritized scenario matrix with preconditions, actions, expected outcomes, data boundaries, reuse candidates, and Story links."
+    decision_question: "Which risk-based Test Cases adequately cover the requested obligations, and why are those techniques and boundaries appropriate?",
+    deliverable_contract: "An evidence-based test design rationale, prioritized obligation/coverage matrix, and complete Test Case drafts with concrete preconditions, data, actions, expected results, cleanup, reuse candidates and Story links."
   },
   "automation-engineer": {
     priority_scopes: ["automation", "test-cases", "runs", "bugs", "knowledge"],

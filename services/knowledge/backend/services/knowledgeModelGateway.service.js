@@ -43,7 +43,7 @@ const reserveAttempt = (input, maxOutputTokens, context) => {
 const request = async (input) => {
   execution.assertActive();
   const protocol = input.integration.config?.protocol || "openai_compatible";
-  const adapter = adapters.get(protocol);
+  const adapter = adapters.get(protocol) || (protocol === "openai_compatible" ? require("./knowledgeJsonCompletion.service") : null);
   if (!adapter) throw Object.assign(new Error(`Unsupported model protocol: ${protocol}`), { code: "MODEL_PROTOCOL_UNSUPPORTED" });
   const context = execution.current();
   const maxOutputTokens = Math.max(1, Math.min(4096, Number.parseInt(input.maxOutputTokens, 10) || 4096));
@@ -51,12 +51,12 @@ const request = async (input) => {
     const active = execution.current();
     reserveAttempt(input, maxOutputTokens, active);
     if (attempt > 1) active.modelStats.retries = Number(active.modelStats.retries || 0) + 1;
-    return adapter({ ...input, maxOutputTokens, timeoutMs, signal });
+    return adapter({ ...input, maxOutputTokens, timeoutMs, signal, recordUsage });
   }, {
     timeoutMs: input.timeoutMs ?? 45_000,
     attemptTimeoutMs: input.attemptTimeoutMs,
     signal: input.signal ?? context?.signal,
-    stage: input.operation?.includes("plan-retrieval") ? "RETRIEVAL_PLANNING" : "GENERATION",
+    stage: (input.operation?.includes("plan-retrieval") || input.operation?.includes("plan-intent")) ? "RETRIEVAL_PLANNING" : "GENERATION",
     canRetry: () => !Number.isFinite(context?.modelBudget?.max_tool_calls) || Number(context.modelStats.calls || 0) < context.modelBudget.max_tool_calls
   });
 };

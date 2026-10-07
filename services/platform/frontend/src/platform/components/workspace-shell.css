@@ -103,7 +103,7 @@ body:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([a
 :root body .workspace-experience-v2 .sidebar.is-collapsed { padding: 22px 13px 14px !important; }
 :root body .workspace-experience-v2 .sidebar.is-collapsed .sidebar-brand-row { flex-direction: column; gap: 10px; }
 :root body .workspace-experience-v2 .sidebar.is-collapsed .sidebar-top { gap: 18px; padding-bottom: 18px !important; }
-:root body .workspace-experience-v2 .sidebar.is-collapsed .nav-list { gap: 12px; }
+:root body .workspace-experience-v2 .sidebar.is-collapsed .nav-list { gap: 12px; justify-content: flex-start !important; }
 :root body .workspace-experience-v2 .sidebar.is-collapsed .nav-link { justify-content: center; width: 50px; min-height: 40px; padding: 10px !important; }
 :root body .workspace-experience-v2 .sidebar.is-collapsed .nav-link-label { display: none !important; }
 :root body .workspace-experience-v2 .sidebar.is-collapsed .sidebar-signout { justify-content: center; padding: 10px; }
@@ -181,3 +181,6 @@ body:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([a
 @media(max-width:768px) {
   :root body .workspace-experience-v2 .workspace-preferences-popover { width: min(240px, calc(100vw - 24px)); }
 }
+
+/* Keep the first navigation items below the scope selectors when the rail overflows. */
+:root body .workspace-experience-v2 .nav-list > .nav-group { flex-shrink: 0; }

@@ -342,3 +342,19 @@
 .repository-agent-upload.is-dragging { border-style: solid; border-color: var(--agent-accent); background: color-mix(in srgb, var(--agent-accent) 12%, var(--panel-strong, #fff)); }
 .repository-agent-upload > .text-button { font-size: .7rem; color: var(--text-secondary, #5d6b82); }
 @media (prefers-reduced-motion: reduce) { .repository-agent-upload { transition: none; } }
+
+.repository-agent-artifacts > .repository-agent-model-output {
+  display: block;
+  min-width: 0;
+  max-height: min(65dvh, 720px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  margin-block: 14px;
+  padding: 14px;
+  border: 1px solid var(--line, var(--app-border));
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.75;
+}
+.repository-agent-model-output .knowledge-formatted-text p { font-size: inherit; }

@@ -67,7 +67,7 @@ const specialists = [
 const result = {
   headline: 'Checkout coverage needs one targeted review',
   executive_summary: 'The retry boundary is documented; the duplicate-order outcome needs confirmation.',
-  response: 'Review the checkout retry behavior against the linked story before adding a case.',
+  response: 'Review the checkout retry behavior against the linked story before adding a case.\n\n## Design rationale\nUse negative paths and retry boundaries to verify one order.\n\n| Action | Expected result |\n| --- | --- |\n| Submit again | One order |\n\n' + Array.from({length:35},(_,index)=>`Review obligation ${index+1}: preserve the approved retry behavior.`).join('\n\n') + '\n\nFinal verification: one order remains.',
   recommendations: ['Review the retry acceptance boundary.', 'Add a duplicate-order scenario after confirming the contract.'],
   assumptions: ['The selected story is the current approved revision.'],
   evidence_gaps: ['No runtime retry trace was supplied.'],
@@ -154,7 +154,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await page.getByRole('button', { name: 'Open Test Design Agent', exact: true }).click();
     const task = page.getByLabel('Ask or delegate to HelloTest AI', { exact: true });
     await task.fill('Review checkout retry coverage and identify one useful scenario.');
-    await page.getByRole('group', { name: 'Review format' }).getByRole('button', { name: 'Review brief', exact: true }).click();
+    assert.equal(await page.getByRole('group', { name: 'Review format', exact: true }).count(), 0);
     await page.locator('.agent-command-options > summary').click();
     await page.getByRole('combobox', { name: 'AI provider', exact: true }).selectOption('model');
     await page.keyboard.press('Escape');
@@ -177,6 +177,8 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(requests[0].headers.authorization, 'Bearer specialist-fixture');
     assert.equal(requests[0].body.project_id, 'project'); assert.equal(requests[0].body.app_type_id, 'app');
     assert.equal(requests[0].body.agent_id, 'test-designer'); assert.equal(requests[0].body.integration_id, 'model');
+    assert.equal(await page.getByRole('button', {name:'Question',exact:true}).count(),0);
+    assert.equal(await page.getByRole('group', {name:'Review format',exact:true}).count(),0);
     assert.equal(requests[0].body.mode, 'agent'); assert.ok(!requests[0].body.context_scopes.includes('bugs'));
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
@@ -187,6 +189,14 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await outcome.getByText(result.findings[0].detail,{exact:true}).waitFor();assert.equal(await outcome.getByRole('tabpanel').count(),1,'One output section is presented at a time');
     await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Next actions/}).evaluate(element=>element===document.activeElement),true);
     const nextAction=outcome.locator('.agent-brief-action-selection input').first();await nextAction.uncheck();assert.equal(await nextAction.isChecked(),false,'Next actions can be selected before entering editing');await nextAction.check();
+    await outputTabs.getByRole('tab',{name:'Full brief',exact:true}).click();
+    const completeOutput = outcome.getByRole('region',{name:'Complete specialist output'});
+    await completeOutput.getByRole('heading',{name:'Design rationale'}).waitFor();
+    assert.equal(await completeOutput.getByRole('table').count(),1,'Markdown matrices render as readable tables');
+    assert.equal(await completeOutput.evaluate(element=>element.scrollHeight>element.clientHeight),true,'Long outputs have a bounded scroll region');
+    await completeOutput.evaluate(element=>element.scrollTop=element.scrollHeight);
+    await completeOutput.getByText('Final verification: one order remains.',{exact:true}).waitFor();
+    assert.equal(await completeOutput.evaluate(element=>element.scrollWidth<=element.clientWidth+1),true);
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).click();
     await capture(page, screenshots + '/04-specialist-result.png');
     await page.getByRole('button', { name: 'Edit brief', exact: true }).click();
@@ -224,7 +234,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     await capture(page, screenshots + '/08-specialist-context-dark-390.png');
     await page.locator('.agent-command-context > summary').click();
     const darkContrast = await page.evaluate(() => {
-      const element = document.querySelector('.agent-command-mode button[aria-pressed="true"]');
+      const element = document.querySelector('.agent-command-context > summary');
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1; const context = canvas.getContext('2d');
       const luminance = rgb => rgb.slice(0, 3).map(value => { value /= 255; return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4; }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
       const ancestors = []; for (let node = element; node; node = node.parentElement) ancestors.push(node);

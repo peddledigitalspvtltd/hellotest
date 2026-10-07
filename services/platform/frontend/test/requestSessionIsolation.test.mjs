@@ -102,3 +102,10 @@ test('knowledge stream late 401 also preserves the replacement session',async()=
   view.requests[0].reply({message:'Token expired'},401);await assert.rejects(old,/Token expired/);
   assert.equal(view.sessionStorage.read().token,'replacement');assert.deepEqual(view.redirects,[]);
 });
+
+test('a provider invalid-token message does not expire the browser session',async()=>{
+ const view=fixture();view.sessionStorage.write(session());const pending=list(view);
+ view.requests[0].reply({message:'LLM provider returned an invalid token for this integration'},401);
+ await assert.rejects(pending,/LLM provider/);
+ assert.ok(view.sessionStorage.read());assert.deepEqual(view.redirects,[]);
+});

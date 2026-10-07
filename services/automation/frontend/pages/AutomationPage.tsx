@@ -1,3 +1,4 @@
+import { useRecorderStatus } from "@hellotest/platform/frontend/src/shared/hooks/useRecorderStatus";
 import { parseApiRequestSource } from "../lib/apiRequestSource";
 import { ExecutionHookResults } from "@hellotest/testing/frontend/components/ExecutionHookResults";
 import { AutomationIconButton, AutomationOverlay } from "../components/AutomationOverlay";
@@ -2455,42 +2456,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
     });
   }, [automatedSteps]);
 
-  useEffect(() => {
-    if (!recorderSession?.status_url || recorderSession.status !== "running") {
-      return undefined;
-    }
-
-    let cancelled = false;
-    let timer: number | undefined;
-    const controller = new AbortController();
-    const refreshRecorderSession = async () => {
-      try {
-        if (document.hidden) return;
-        const response = await fetch(recorderSession.status_url as string, { cache: "no-store", signal: controller.signal });
-
-        if (!response.ok) {
-          return;
-        }
-
-        const next = await response.json() as Partial<RecorderSessionResponse>;
-
-        if (!cancelled) {
-          setRecorderSession((current) => current?.id === recorderSession.id ? { ...current, ...next } : current);
-        }
-      } catch {
-        // Recorder counters are non-critical; the backend finish call is authoritative.
-      } finally {
-        if (!cancelled) timer = window.setTimeout(() => void refreshRecorderSession(), 1000);
-      }
-    };
-
-    void refreshRecorderSession();
-    return () => {
-      cancelled = true;
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-	  }, [recorderSession?.id, recorderSession?.status, recorderSession?.status_url]);
+  useRecorderStatus(recorderSession, setRecorderSession);
 
   useEffect(() => {
     if (!canViewAutomationCode && automationStepView === "code") {

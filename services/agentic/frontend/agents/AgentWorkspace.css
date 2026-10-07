@@ -226,7 +226,6 @@
 [data-theme="dark"] .agent-specialist-workspace .agent-outcome-panel > header > .agent-brief-readiness { color: #ecd39d !important; }
 [data-theme="dark"] .agent-specialist-workspace .agent-outcome-panel > header > .agent-brief-readiness[data-readiness="ready_for_review"] { color: #9cddbc !important; }
 
-[data-theme="dark"] .agent-specialist-workspace .agent-command-mode button[aria-pressed="true"] { color: #b7e9f3 !important; background: #234655 !important; }
 
 .page-agentic-workflows .agentic-playground-sidebar .rovo-provider-status { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
 .page-agentic-workflows .agentic-playground-sidebar .rovo-provider-copy { grid-column: 2; grid-row: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -251,3 +250,16 @@
 .agent-start { border-radius: 18px; background: color-mix(in srgb, var(--accent, #167f88) 4%, var(--agent-panel)); }
 .agent-start-actions button { border-radius: 12px; }
 @media (prefers-reduced-motion: reduce) { .agent-library-card, .agent-start-actions button { transition: none; } }
+
+.agent-outcome-panel .agent-brief-body {
+  max-height: min(65dvh, 720px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 14px;
+  border: 1px solid var(--agent-line, var(--app-border));
+  border-radius: 8px;
+  white-space: normal;
+}
+.agent-outcome-panel :is(.agent-outcome-deliverables, .agent-outcome-findings) article { min-width: 0; overflow-wrap: anywhere; }
+.agent-outcome-panel .knowledge-answer-table-scroll { margin-block: 12px; }

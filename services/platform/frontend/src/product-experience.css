@@ -143,7 +143,7 @@
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link.is-active::before { background: var(--app-accent) !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link.is-active { background: var(--app-surface-muted) !important; color: var(--app-accent) !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { color: var(--app-text-muted) !important; font-size: 10px !important; letter-spacing: .08em; }
-:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-color: var(--app-border) transparent; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; overscroll-behavior-y: contain; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu::before { background: var(--app-border) !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar-footer { border-color: var(--app-border) !important; }
 :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-badge { background: var(--app-surface-muted) !important; color: var(--app-text-muted) !important; }
@@ -407,4 +407,27 @@ body #root .mcp-server-catalog .agent-library-icon {
 :root:not(:has(.auth-page)) body #root .create-run-action-button :is(.run-action-main, .run-action-toggle) > :is(span, svg),
 :root:not(:has(.auth-page)) body .run-action-dropdown button > :is(span, strong, svg) {
   color: inherit !important;
+}
+
+/* One rhythm and icon canvas for every sidebar destination. */
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { gap: 4px; justify-content: flex-start !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group { gap: 0; padding: 0 !important; margin: 0; border: 0 !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-items { gap: 4px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link { min-height: 44px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon { width: 24px !important; height: 24px !important; flex: 0 0 24px !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-icon svg { width: 24px !important; height: 24px !important; max-width: none; color: inherit !important; }
+
+/* Quiet, compact sidebar scrollbar in both expanded and collapsed navigation. */
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list::-webkit-scrollbar { width: 4px; height: 4px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list::-webkit-scrollbar-track { background: transparent; border: 0; margin-block: 8px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 999px;
+  border-block: 6px solid transparent;
+  background-clip: padding-box;
+  box-shadow: none;
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+@supports selector(::-webkit-scrollbar) {
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-width: auto; scrollbar-color: auto; }
 }

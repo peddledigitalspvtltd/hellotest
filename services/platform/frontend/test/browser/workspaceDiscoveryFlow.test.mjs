@@ -36,7 +36,7 @@ test("workspace discovery supports keyboard navigation, private recents, non-des
     for(const icon of await page.locator('.workspace-scope-trigger__icon').all()) {
       const style=await icon.evaluate(node=>({foreground:getComputedStyle(node).color,opacity:getComputedStyle(node).opacity}));assert.equal(style.opacity,'1');assert.equal(style.foreground,'rgb(8, 126, 131)','Scope icons use the readable light-theme accent');
     }
-    for (const name of ['Project Overview', 'Test Runs & Results', 'Test Plan', 'AI Agent Studio', 'Test Automation', 'Test Data & Configuration']) {
+    for (const name of ['Project Overview', 'Test Runs & Results', 'Test Plan', 'Agentic AI Studio', 'AI Knowledge Base', 'Test Automation', 'Test Data & Configuration']) {
       const link = page.locator('#app-sidebar').getByRole('link', {name,exact:true});
       await link.waitFor();
       assert.equal(await link.locator('svg').count(),1, `${name} has its icon`);
@@ -48,7 +48,11 @@ test("workspace discovery supports keyboard navigation, private recents, non-des
     assert.ok((await dataLink.boundingBox()).y < (await planningLink.boundingBox()).y, 'Test Data & Configuration appears before Test Plan');
     const planningIcon = await page.locator('[data-nav-identity="test-plan"] .nav-link-icon svg').boundingBox();
     const standardIcon = await page.locator('[data-nav-identity="projects"] .nav-link-icon svg').boundingBox();
-    assert.ok(Math.abs(planningIcon.width - standardIcon.width) < 1, 'Planning icon matches the standard sidebar icon size');
+    assert.equal(planningIcon.width, 24, 'Detailed planning icon uses the larger reference canvas');
+    assert.equal(planningIcon.width, standardIcon.width, 'Sidebar icons share the same canvas');
+    assert.equal(await page.locator('#app-sidebar .nav-group-label').count(), 0, 'Sidebar has no section labels');
+    const order = await page.locator('#app-sidebar .nav-link').evaluateAll(nodes => nodes.map(node => node.dataset.navIdentity));
+    assert.deepEqual(order.slice(0, 5), ['overview', 'projects', 'agentic-workflows', 'knowledge', 'product-management']);
     const sidebarBox = await page.locator('#app-sidebar').boundingBox();assert.ok(Math.abs(sidebarBox.width-280)<2,'expanded desktop sidebar is readable at 280px');
     assert.equal(await page.locator('#app-sidebar .nav-link-label').first().evaluate(node=>getComputedStyle(node).fontSize),'14px');
     await page.locator('.nav-list').evaluate(node=>node.scrollTop=node.scrollHeight);
@@ -57,6 +61,15 @@ test("workspace discovery supports keyboard navigation, private recents, non-des
     const dashboardIcon=page.locator('[data-nav-identity="overview"] .nav-link-icon svg');assert.equal(await dashboardIcon.isVisible(),true);
     const iconBounds=await dashboardIcon.boundingBox();const collapsedBounds=await page.locator('#app-sidebar').boundingBox();assert.ok(iconBounds.width>0&&iconBounds.x>=collapsedBounds.x&&iconBounds.x+iconBounds.width<=collapsedBounds.x+collapsedBounds.width,'Dashboard icon fits the collapsed rail');
     const navigationBounds=await page.locator('.nav-list').boundingBox();assert.ok(iconBounds.y>=navigationBounds.y&&iconBounds.y+iconBounds.height<=navigationBounds.y+navigationBounds.height,'Dashboard remains visible after collapsing a scrolled sidebar');
+    const scopeBounds = await page.locator('.workspace-project-switcher').boundingBox();
+    for (const id of ['overview', 'projects']) {
+      const link = page.locator(`#app-sidebar [data-nav-identity="${id}"]`);
+      const bounds = await link.boundingBox();
+      assert.ok(bounds.y >= scopeBounds.y + scopeBounds.height, `${id} stays below the project and app selectors`);
+      assert.ok(bounds.y >= navigationBounds.y && bounds.y + bounds.height <= navigationBounds.y + navigationBounds.height, `${id} stays inside the collapsed navigation viewport`);
+      const clickable = await link.evaluate(node => { const r = node.getBoundingClientRect(); return node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); });
+      assert.equal(clickable, true, `${id} is not covered by another sidebar control`);
+    }
     await page.getByRole('button',{name:'Expand sidebar',exact:true}).click();
     const options = page.getByRole("button", { name: "Workspace options", exact: true });
     await options.click();

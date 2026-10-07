@@ -1,3 +1,4 @@
+import { SessionQueryBoundary } from "./auth/SessionQueryBoundary";
 import { capabilityView } from "./platform/capabilities/CapabilityView";
 import {
   Navigate,
@@ -230,11 +231,13 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeBootstrap />
       <AuthProvider>
+        <SessionQueryBoundary>
         <PersonalLocalization>
           <Suspense fallback={<div className="splash-screen">Loading workspace…</div>}>
             <RouterProvider router={router} />
           </Suspense>
         </PersonalLocalization>
+        </SessionQueryBoundary>
       </AuthProvider>
     </QueryClientProvider>
   );

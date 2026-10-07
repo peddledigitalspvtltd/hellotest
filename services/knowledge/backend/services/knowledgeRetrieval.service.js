@@ -244,20 +244,51 @@ const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, u
   }
 };
 
-const retrieveDirect = (input) => execution.run({ signal: input.signal, onProgress: input.onProgress }, async () => {
+const retrieveDirect = (input) => execution.run({ signal: input.signal || execution.current()?.signal, onProgress: input.onProgress || execution.current()?.onProgress }, async () => {
   const filters = await normalizeAssistantFilters({ projectId: input.projectId, appTypeId: input.appTypeId, base: input.filters });
   const request = knowledgeContracts.buildRetrievalRequest({ projectId: input.projectId, query: input.query, filters, budgets: input.budgets });
+  execution.current().modelBudget = { ...request.budgets,
+    ...(input.budgets?.max_query_cost_usd != null || input.budgets?.max_cost_usd != null
+      ? { max_query_cost_usd: request.budgets.max_cost_usd } : {}) };
   execution.current().searchMode = input.budgets?.max_query_cost_usd != null || input.budgets?.max_cost_usd != null ? "keyword" : "hybrid";
   execution.current().queryId = request.query_id;
   execution.current().requestId = request.request_id;
   execution.current().traceId = request.trace_id;
   execution.emit("QUERY_RECEIVED", "completed");
   if (filters.as_of) await knowledgeAuthorization.assertHistoricalAccess(input.user, input.projectId);
-  const result = await retrieveContext({ request, user: input.user });
+  const started = Date.now();
+  const planning = await require("./knowledgeIntentPlanning.service").planIntent({ request, user: input.user,
+    integration: input.integration, integrationId: input.integrationId, history: input.history, signal: input.signal || execution.current()?.signal });
+  const intentModelCalls = Number(execution.current().modelStats.calls || 0);
+  const retrievalRequest = { ...request, budgets: { ...request.budgets,
+    max_tool_calls: Math.max(0, request.budgets.max_tool_calls - intentModelCalls),
+    max_cost_usd: Math.max(0, request.budgets.max_cost_usd - Number(execution.current().modelStats.reservedCostUsd || 0)),
+    deadline_ms: Math.max(1, request.budgets.deadline_ms - (Date.now() - started)) } };
+  const result = await retrieveContext({ request: retrievalRequest, user: input.user, intentPlan: planning.plan });
+  const { context_packet, ...diagnostics } = result.retrieval;
+  result.packet.retrieval = { ...diagnostics, ...result.packet.retrieval, intent_planning_mode: planning.mode,
+    intent_planning_model_used: planning.mode === "llm", intent_model_calls: intentModelCalls, intent_plan_error_code: planning.reason,
+    model_context_plan: planning.plan ? { source_kinds: planning.plan.source_kinds, information_needs: planning.plan.information_needs } : null };
   execution.emit("COMPLETED", "completed");
   return result.packet;
 });
 
 const retrieve = (input) => require("@hellotest/platform/backend/src/mcp/gateway").retrievePacket(input);
 
-module.exports = { retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };
+// Adapt one authorized packet for existing search consumers without losing citation identity.
+const retrieveSearch = async input => {
+  const packet = await retrieve(input);
+  const results = (packet.evidence || []).map(item => ({
+    source_id: item.source_id, source_kind: item.source_kind, source_ref_id: item.source_ref_id,
+    document_id: item.document_id, chunk_id: item.chunk_id || item.evidence_id, title: item.title,
+    content: item.content, excerpt: item.content, score: item.scores?.fused || 0,
+    citation: { ...item, id: item.evidence_id, label: item.title,
+      current: item.freshness?.current, source_version: item.freshness?.source_version }
+  }));
+  return { project_id: input.projectId, query: input.query, results,
+    retrieval: { ...packet.retrieval, returned_count: results.length, grounded_result_count: results.length,
+      context_packet_id: packet.packet_id, context_transport: "mcp", model_context_plan: packet.retrieval?.model_context_plan },
+    guardrails: knowledgeRagService.ASSISTANT_GUARDRAILS };
+};
+
+module.exports = { retrieveSearch, retrieveDirect, retrieveContextDirect: retrieveContext, authorizeFreshEvidence, MAX_GROUNDED_HITS, MAX_HITS_PER_SOURCE, MIN_GROUNDED_SCORE, asArray, asObject, assessEvidenceSufficiency, buildDeterministicRetrievalQueries, createError, mergeRetrievalResults, normalizeAssistantFilters, normalizeId, retrieve, retrieveContext, runRagSearchBatch };

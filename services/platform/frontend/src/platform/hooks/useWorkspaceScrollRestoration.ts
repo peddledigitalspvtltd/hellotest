@@ -1,3 +1,4 @@
+import { createWorkspaceScrollPort } from "../lib/workspaceScroll";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 
@@ -14,7 +15,7 @@ const rememberRoutePosition = (path: string, position: number) => {
   }
 };
 
-export function useWorkspaceScrollRestoration() {
+export function useWorkspaceScrollRestoration(scopeKey = "") {
   const location = useLocation();
   const navigationType = useNavigationType();
   const navigationTypeRef = useRef(navigationType);
@@ -29,16 +30,17 @@ export function useWorkspaceScrollRestoration() {
   }, []);
 
   useLayoutEffect(() => {
-    const path = location.pathname;
+    const path = `${scopeKey}:${location.pathname}`;
+    const scroll = createWorkspaceScrollPort(document, window);
     const target = navigationTypeRef.current === "POP" ? routeScrollPositions.get(path) || 0 : 0;
     let frame = 0;
     let restorationCancelled = false;
     let resizeObserver: ResizeObserver | undefined;
     const restore = () => {
       if (restorationCancelled) return;
-      const maximum = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-      window.scrollTo({ top: Math.min(target, maximum), left: 0, behavior: "auto" });
-      if (Math.abs(window.scrollY - target) <= 1) resizeObserver?.disconnect();
+      const maximum = scroll.maximum();
+      scroll.restore(Math.min(target, maximum));
+      if (Math.abs(scroll.position() - target) <= 1) resizeObserver?.disconnect();
     };
     const cancelPendingRestoration = () => {
       restorationCancelled = true;
@@ -47,8 +49,11 @@ export function useWorkspaceScrollRestoration() {
 
     frame = window.requestAnimationFrame(restore);
     if (target > 0 && typeof ResizeObserver !== "undefined") {
-      resizeObserver = new ResizeObserver(restore);
-      resizeObserver.observe(document.documentElement);
+      resizeObserver = new ResizeObserver(() => {
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(restore);
+      });
+      scroll.observe.forEach(element => resizeObserver?.observe(element));
       window.addEventListener("wheel", cancelPendingRestoration, { passive: true, once: true });
       window.addEventListener("touchstart", cancelPendingRestoration, { passive: true, once: true });
       window.addEventListener("pointerdown", cancelPendingRestoration, { passive: true, once: true });
@@ -62,10 +67,10 @@ export function useWorkspaceScrollRestoration() {
       window.removeEventListener("touchstart", cancelPendingRestoration);
       window.removeEventListener("pointerdown", cancelPendingRestoration);
       window.removeEventListener("keydown", cancelPendingRestoration);
-      rememberRoutePosition(path, window.scrollY);
+      rememberRoutePosition(path, scroll.position());
     };
   // Query-string changes drive catalog selection and filters. They must not reset
   // the page position, so restoration is deliberately scoped to pathname changes.
   // navigationType is sampled for that path transition rather than used as a trigger.
-  }, [location.pathname]);
+  }, [location.pathname, scopeKey]);
 }

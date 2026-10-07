@@ -221,3 +221,18 @@ test("revocation during enrichment removes both live evidence and its aggregate 
   assert.deepEqual(result.retrieval.live_context_counts, {});
   assert.equal(result.packet.limitations.authorization_partial, true);
 });
+
+test("explicit file scope stays knowledge-only even when the LLM suggests live Story evidence", async () => {
+  const orchestrator = require("@hellotest/ai/backend/services/aiContextOrchestrator.service");
+  let selectedScopes;
+  const request = contracts.buildRetrievalRequest({ projectId: "project-1", query: "release checklist", filters: { source_kinds: ["file"] } });
+  const result = await execution.run({}, () => engine.retrieve({ request, user: { id: "user-1" },
+    intentPlan: { source_kinds: ["requirement", "test_case"], queries: ["release tests"] },
+    dependencies: fixtures({
+      planContext: input => { selectedScopes = input.requestedScopes; return orchestrator.planContext(input); },
+      search: async input => { assert.deepEqual(input.filters.source_kinds, ["file"]); return { results: [], errors: [] }; },
+      liveEvidence: async input => { assert.deepEqual(input.contextRoute.live_scopes, []); return { hits: [], counts: {} }; }
+    })
+  }));
+  assert.deepEqual(selectedScopes, ["knowledge"]); assert.deepEqual(result.route.live_scopes, []);
+});

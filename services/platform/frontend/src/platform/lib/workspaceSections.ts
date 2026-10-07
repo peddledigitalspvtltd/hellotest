@@ -81,7 +81,7 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/stories": "Stories",
   "/agentic-workflows": "AI Agent Studio",
   "/mcp-servers": "MCP Servers",
-  "/knowledge-repo": "Knowledge Repo",
+  "/knowledge-repo": "AI Knowledge Base",
   "/requirements": "Backlog",
   "/backlog": "Backlog",
   "/sprints": "Sprints",

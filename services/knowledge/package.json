@@ -19,6 +19,8 @@
     "./backend/services/knowledgeEvaluation.service": "./backend/services/knowledgeEvaluation.service.js",
     "./backend/services/knowledgeExecution.service": "./backend/services/knowledgeExecution.service.js",
     "./backend/services/knowledgeModelGateway.service": "./backend/services/knowledgeModelGateway.service.js",
+    "./backend/services/knowledgeJsonCompletion.service": "./backend/services/knowledgeJsonCompletion.service.js",
+    "./backend/services/knowledgeIntentPlanning.service": "./backend/services/knowledgeIntentPlanning.service.js",
     "./backend/services/knowledgeRag.service": "./backend/services/knowledgeRag.service.js",
     "./backend/services/knowledgeRetrieval.service": "./backend/services/knowledgeRetrieval.service.js",
     "./backend/services/knowledgeVectorStore.service": "./backend/services/knowledgeVectorStore.service.js",

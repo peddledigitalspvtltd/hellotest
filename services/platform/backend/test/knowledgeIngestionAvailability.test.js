@@ -170,3 +170,43 @@ test("cancelled cold vector setup aborts its transport before creating indexes o
   assert.equal(calls.length, 1);
   assert.equal(vector.getStatus().circuit_open, false);
 });
+
+test("LLM enrichment starts after canonical activation and provider failure retains the standard revision", async context => {
+  const state = canonicalStore(context);
+  context.mock.method(selection, "resolveLlmIntegrationForUsage", async () => ({ id: "model-1", type: "llm", is_active: true, model: "fixture", config: { project_id: "project-1" } }));
+  const modelGateway = require("../../../knowledge/backend/services/knowledgeModelGateway.service");
+  context.mock.method(modelGateway, "request", async () => {
+    assert.equal(state.active, true, "Standard search is already usable while enrichment runs.");
+    throw Object.assign(new Error("provider unavailable"), { code: "MODEL_TIMEOUT" });
+  });
+  const result = await rag._internals.persistDocument(persistInput({ source: { id: "source-1", title: "Checkout", revision_token: "revision-1", created_by: "reviewer" } }));
+  assert.equal(result.document.is_active, true); assert.equal(state.model, "hellotest-hash-v1"); assert.ok(result.chunks.length);
+});
+
+test("successful LLM enrichment stores source-anchored hints without replacing canonical content", async context => {
+  const state = canonicalStore(context);
+  const prepare = db.prepare.bind(db);
+  let profile, hint, canonicalContent;
+  context.mock.method(db, "prepare", sql => {
+    const statement = prepare(sql);
+    const run = statement.run;
+    statement.run = async (...args) => {
+      if (sql.includes("INSERT INTO ai_knowledge_documents")) canonicalContent = args[4];
+      if (sql.includes("UPDATE ai_knowledge_documents SET metadata")) profile = args[0].llm_context_profile;
+      if (sql.includes("UPDATE ai_knowledge_chunks SET metadata")) hint = args[0].llm_context_hint;
+      return run(...args);
+    };
+    return statement;
+  });
+  context.mock.method(selection, "resolveLlmIntegrationForUsage", async () => ({ id: "model-1", type: "llm", is_active: true, model: "fixture", config: { project_id: "project-1" } }));
+  const modelGateway = require("../../../knowledge/backend/services/knowledgeModelGateway.service");
+  context.mock.method(modelGateway, "request", async request => {
+    assert.equal(state.active, true);
+    const chunk = JSON.parse(request.messages[1].content).chunks[0];
+    return { sections: [{ chunk_index: chunk.chunk_index, excerpt: chunk.content.slice(0, 100).trim(), information_needs: ["How does checkout recover after decline?"] }] };
+  });
+  await rag._internals.persistDocument(persistInput({ source: { id: "source-1", title: "Checkout", revision_token: "revision-1", created_by: "reviewer" } }));
+  assert.equal(profile.mode, "llm"); assert.ok(canonicalContent.includes(profile.sections[0].excerpt));
+  assert.equal(hint.authoritative, false); assert.equal(hint.generated, true);
+  assert.ok(canonicalContent.includes("A declined payment preserves the basket."));
+});

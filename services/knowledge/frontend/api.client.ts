@@ -22,6 +22,8 @@ search: (input: {
       project_id: string;
       query: string;
       mode?: KnowledgeSearchMode;
+      intent_aware?: boolean;
+      integration_id?: string;
       limit?: number;
       filters?: KnowledgeSearchFilters;
     }, options?: { signal?: AbortSignal }) => request<KnowledgeSearchResponse>("/knowledge/search", {

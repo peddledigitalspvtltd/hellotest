@@ -5,7 +5,6 @@ const agentContract = require("../agents/agentDefinition");
 const { policy: specialistPolicy } = require("../workflows/specialistPolicy");
 const aiKnowledgeService = require("@hellotest/knowledge/backend/services/aiKnowledge.service");
 const integrationService = require("@hellotest/integration/backend/services/integration.service");
-const knowledgeRagService = require("@hellotest/knowledge/backend/services/knowledgeRag.service");
 const permissionService = require("@hellotest/platform/backend/services/permission.service");
 const featureFlagService = require("@hellotest/platform/backend/services/featureFlag.service");
 const projectService = require("@hellotest/platform/backend/public/projectAccess");
@@ -68,20 +67,15 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
   let knowledgeRetrieval = null;
   if (scopes.includes("knowledge") && user && await permissionService.hasPermission(user, "knowledge.view", projectId)
     && await featureFlagService.areEnabled(featureFlagService.getFeatureKeysForPermission("knowledge.view"), { user })) {
-    const retrievalQueries = [...new Map([
-      smartContext.query,
-      normalizeText(prompt, 2_000),
-      contextRoute?.retrieval_query
-    ].filter(Boolean).map((query) => [String(query).trim().toLowerCase(), String(query).trim()])).values()].slice(0, 3);
     const packageResult = await execution.bounded(() => aiKnowledgeService.buildKnowledgeContextPackage(projectId, {
       app_type_id: appTypeId || undefined,
-      query: retrievalQueries[0] || normalizeText(prompt, 2_000),
+      query: normalizeText(`${prompt}\n${smartContext.query || ""}\n${contextRoute?.retrieval_focus || ""}`, 4000),
       limit: 10,
       source_ids: smartContext.source_ids,
       source_kinds: smartContext.source_kinds,
       user
-    }), { timeoutMs: 8_000 });
-    const primaryKnowledge = (packageResult.knowledge || []).map((item) => ({
+    }), { timeoutMs: 12_000 });
+    const primaryKnowledge = (packageResult.access_restricted ? [] : packageResult.knowledge || []).map((item) => ({
       id: item.metadata?.chunk_id || item.id,
       title: item.title,
       asset_type: item.asset_type,
@@ -91,53 +85,11 @@ const loadWorkspaceContext = async ({ projectId, appTypeId, scopes, prompt, smar
       score: item.metadata?.retrieval_score || null,
       citation: item.metadata?.citation || null
     }));
-    const supplementalSettled = packageResult.access_restricted ? [] : await Promise.allSettled(retrievalQueries.slice(1).map(async (query) => ({
-      query,
-      result: await execution.bounded(() => knowledgeRagService.search({
-        projectId,
-        query,
-        mode: "hybrid",
-        limit: 8,
-        filters: {
-          app_type_id: appTypeId || undefined,
-          source_ids: smartContext.source_ids,
-          source_kinds: smartContext.source_kinds
-        },
-        user
-      }), { timeoutMs: 3_000 })
-    })));
-    const supplemental = supplementalSettled.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
-    const supplementalKnowledge = supplemental.flatMap((entry) => (entry.result.results || []).map((hit) => ({
-      id: hit.chunk_id || hit.id,
-      title: hit.title,
-      asset_type: hit.source_kind,
-      source: "rag_retrieval",
-      description: normalizeText(hit.excerpt, 700),
-      content: normalizeText(hit.content, 1_500),
-      score: hit.score || null,
-      citation: hit.citation || null
-    })));
-    const knowledgeByChunk = new Map();
-    [...primaryKnowledge, ...supplementalKnowledge].forEach((item) => {
-      const key = item.citation?.chunk_id || item.id;
-      const existing = knowledgeByChunk.get(key);
-      if (!existing || Number(item.score || 0) > Number(existing.score || 0)) knowledgeByChunk.set(key, item);
-    });
-    context.knowledge = [...knowledgeByChunk.values()]
-      .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
-      .slice(0, 12);
-    const retrievalSummaries = [packageResult.retrieval, ...supplemental.map((entry) => entry.result.retrieval)].filter(Boolean);
-    knowledgeRetrieval = {
-      ...(packageResult.retrieval || {}),
-      chain_strategy: "specialist-multi-query-hybrid",
-      query_chain: retrievalQueries,
-      query_count: retrievalQueries.length,
-      candidate_count: retrievalSummaries.reduce((total, summary) => total + Number(summary.candidate_count || 0), 0),
-      result_count: context.knowledge.length,
-      returned_count: context.knowledge.length,
-      degraded: retrievalSummaries.some((summary) => summary.degraded) || supplementalSettled.some((entry) => entry.status === "rejected"),
-      supplemental_error_count: supplementalSettled.filter((entry) => entry.status === "rejected").length
-    };
+    const knowledgeByChunk = new Map(primaryKnowledge.map(item => [item.citation?.chunk_id || item.id, item]));
+    context.knowledge = [...knowledgeByChunk.values()];
+    knowledgeRetrieval = { ...(packageResult.retrieval || {}),
+      chain_strategy: "specialist-mcp-intent-retrieval", result_count: context.knowledge.length,
+      returned_count: context.knowledge.length };
     const distinctKnowledgeSources = new Set(context.knowledge.map((item) => item.citation?.source_id || item.id)).size;
     const strongestKnowledgeScore = context.knowledge.reduce((best, item) => Math.max(best, Number(item.score || 0)), 0);
     const evidenceScore = Math.min(100, Math.round(Math.min(55, context.knowledge.length * 5) + Math.min(25, distinctKnowledgeSources * 7) + strongestKnowledgeScore * 20));
@@ -217,8 +169,12 @@ const normalizeResult = (candidate, fallback, citations = [], { allowUncited = f
   const requestedCitationIds = collectCandidateCitationIds(candidate);
   const mentionedCitationIds = [...new Set((JSON.stringify(candidate || {}).match(/K-[A-Za-z0-9-]+/g) || []))];
   const allRequestedCitationIds = [...new Set([...requestedCitationIds, ...mentionedCitationIds])];
-  const findings = normalizeCitedItems(candidate?.findings);
-  const deliverables = normalizeCitedItems(candidate?.deliverables, { maxItems: 6, maxContent: 4_000 });
+  const findings = normalizeCitedItems(candidate?.findings, { maxItems: 20, maxContent: 8000 });
+  const deliverables = normalizeCitedItems(candidate?.deliverables, { maxItems: 20, maxContent: 16_000 });
+  const oversized = String(candidate?.response || "").length > 32000
+    || (Array.isArray(candidate?.findings) && (candidate.findings.length > 20 || candidate.findings.some(item => String(item?.detail || item?.content || item?.summary || "").length > 8000)))
+    || (Array.isArray(candidate?.deliverables) && (candidate.deliverables.length > 20 || candidate.deliverables.some(item => String(item?.detail || item?.content || item?.summary || "").length > 16000)));
+  if (oversized) return fallback;
   const uncitedClaim = [...findings, ...deliverables].some((item) => !item.citation_ids.length);
   if (!candidate || typeof candidate !== "object" || (!allowUncited && (!allowedCitationIds.size || !requestedCitationIds.length))
     || allRequestedCitationIds.some((id) => !allowedCitationIds.has(id)) || uncitedClaim
@@ -229,7 +185,7 @@ const normalizeResult = (candidate, fallback, citations = [], { allowUncited = f
   return {
     headline: normalizeText(candidate?.headline, 300) || "Specialist review",
     executive_summary: normalizeText(candidate?.executive_summary || candidate?.summary, 2_400) || "",
-    response: normalizeText(candidate?.response, 12_000) || "",
+    response: normalizeText(candidate?.response, 32_000) || "",
     activity_summary: normalizeText(candidate?.activity_summary, 2_000) || "",
     findings,
     deliverables,
@@ -518,6 +474,8 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
         "Do not reveal hidden reasoning or chain of thought. Provide concise decision summaries and evidence-backed recommendations.",
         "Place exact supplied citation IDs in square brackets after factual claims and return every used ID in citation_ids. Never invent an ID.",
         "Make the output decision-ready and easy to scan. Separate observed facts from recommendations and from assumptions.",
+        agent.outputInstructions || "Provide complete, actionable artifacts and an evidence-based design rationale. Match depth to the task rather than forcing a short answer.",
+        "Use Markdown headings, numbered steps, and tables inside response and deliverable.detail where appropriate. Include a design rationale, not private chain of thought. Never abbreviate executable test steps or expected results merely to make the answer short.",
         "Return strict JSON with headline, executive_summary, response, activity_summary, findings, deliverables, recommendations, assumptions, evidence_gaps, suggested_handoffs, citation_ids, and evaluation.",
         ...(context.automation_repair ? ["For automation repair, additionally return automation_repair: {kind:'replace_locator',step_id,new_locator,rationale} matching the pinned contract, or null when unsupported. Only typed literal locator replacements are allowed. Never return executable patch code, modified assertions, retry policies or timeout changes."] : []),
         "findings items require title, detail, priority (critical|high|medium|low|info), and citation_ids. deliverables items require type, title, detail, and citation_ids.",
@@ -577,6 +535,7 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
   }
   if (!response.ok) throw agentContract.fail(`LLM provider returned ${response.status}. Check Integrations.`, "AGENT_PROVIDER_ERROR", response.status === 429 || response.status >= 500 ? response.status : 422);
   const payload = await response.json();
+  if (payload.choices?.[0]?.finish_reason === "length") throw agentContract.fail("The model output limit was reached. Reduce the requested scope or increase this agent's output limit.", "AGENT_OUTPUT_TRUNCATED", 422);
   const content = completionContent(payload);
   if (!content) throw new Error("Configured LLM returned an empty completion payload");
   const candidate = extractJson(content);
@@ -714,8 +673,9 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
   const policy = workflow_policy || specialistPolicy({ agentId: normalizedAgentId });
   workflow_policy = policy;
   const agent = { ...(definition ? { name: definition.name, objective: definition.objective } : workflow_policy?.custom_task ? { name: "Custom AI", objective: "Perform the configured task and selected skills using supplied input. Preserve input provenance." } : AGENT_CATALOG[normalizedAgentId]),
+    outputInstructions: (definition?.feature_id ? Object.values(specialistProfiles).find(profile => profile.featureId === definition.feature_id)?.outputInstructions : specialistProfiles[normalizedAgentId]?.outputInstructions) || "",
     instructions: definition?.instructions || "", skills: policy.skills, guardrails: policy.guardrails,
-    acceptance: definition?.acceptance || { require_evidence: true }, limits: definition?.limits || { max_model_calls: 2, max_output_tokens: 4000 } };
+    acceptance: definition?.acceptance || { require_evidence: true }, limits: definition?.limits || { max_model_calls: 2, max_output_tokens: 6000 } };
   const scopes = normalizeScopes(definition ? policy.context_scopes : context_scopes || policy.context_scopes);
   const contextRoute = aiContextOrchestrator.planContext({
     prompt: `${normalizedPrompt}\nSelected task identifiers: ${JSON.stringify(runtimeInputs).slice(0, 2000)}`,

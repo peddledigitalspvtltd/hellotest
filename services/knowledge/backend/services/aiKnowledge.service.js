@@ -420,7 +420,7 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
   let retrievalSummary = null;
   let retrievalGuardrails = knowledgeRagService.ASSISTANT_GUARDRAILS;
   if (normalizeSearchText(options.query)) {
-    const retrieval = await knowledgeRagService.search({
+    const retrieval = await require("./knowledgeRetrieval.service").retrieveSearch({
       projectId,
       query: options.query,
       limit: Math.min(12, Number(options.limit || 12)),
@@ -431,7 +431,9 @@ exports.buildKnowledgeContextPackage = async (projectId, options = {}) => {
         source_kinds: options.source_kinds
       },
       user: options.user,
-      allowedSourcePermissions: options.allowed_source_permissions
+      integrationId: options.integration_id,
+      signal: options.signal,
+      budgets: { max_evidence_items: Math.min(12, Number(options.limit || 12)), deadline_ms: 12000, max_context_tokens: 5000 }
     });
     retrievalSummary = retrieval.retrieval;
     retrievalGuardrails = retrieval.guardrails;

@@ -2,6 +2,33 @@
 
 Reviewed against the working tree on 28 September 2026. This is a folder-level architecture assessment and a record of implemented changes, not a claim that every source file has been rewritten or security audited. Existing automation work in the checkout was preserved.
 
+## 7 October 2026 follow-up
+
+This pass reviewed module ownership, dependency boundaries, exact clone candidates, authentication lifecycle, query-cache identity isolation, scroll ownership and recorder polling. The initial strict source/module audits found no orphaned production files or unresolved imports; deletion was not justified solely by file size or a clone report.
+
+Implemented changes:
+
+- Login intent generations reject delayed results after logout or a newer login. Cross-tab storage changes clear the rendered identity and require fresh session verification.
+- `SessionQueryBoundary` cancels pending workspace reads, clears queries/mutations and remounts the protected workspace when the existing transport access revision changes. Its render gate prevents old cached data from flashing under a new identity. Display-only profile changes do not trigger a reset.
+- The scroll port separates DOM ownership from restoration policy. Focused containers and document-scrolling catalogs use their correct scroll owner; history is scoped to user/project, bounded to 30 routes, and resize writes are animation-frame scheduled.
+- Duplicate recorder polling effects in Automation and TestOps now share one hook. Polling remains sequential and visible-only, has a response-consumption deadline, rejects a mismatched session ID, and aborts on cleanup. Backend recorder completion remains authoritative.
+
+Existing permission-aware MCP, automation readiness, immutable execution snapshots and durable dispatch recovery were retained. Browser tokens remain localStorage bearer credentials with a 12-hour lifetime and no server-side logout revocation. These are explicit remaining security design constraints, not claims of a complete security audit. Physical-device/production-provider performance is not established by mocked browser fixtures.
+
+Verification: 1,417 backend tests passed (two intentionally skipped), 690 frontend tests, 33 architecture tests, 12 MCP tests and 82 Test Engine tests passed. Browser checks covered startup, account/cache isolation, workspace discovery, Automation authoring/execution handoff and TestOps monitoring. Workspace/admin builds and strict source, module, service and package-boundary checks passed. Debug builds retain inline source maps and report large chunks; bundle transfer/parse cost remains a performance limitation. Contributor and debugging instructions describe the new boundaries. Similar capability callbacks are not automatically merged when their domain permissions or persistence semantics differ.
+
+## AI context and output follow-up — 7 October 2026
+
+The review found that Smart Context's UI still called plain hybrid search and generic MCP context retrieval did not plan intent with an LLM. Both now use the shared MCP ContextPacket path, with project-safe model selection and LLM planning before retrieval. Explicit source filters remain authoritative. Planning consumes the request's model/tool, cost and deadline budgets; the remaining budget goes to hybrid/live retrieval. Standard fallback is labeled rather than reported as successful LLM planning. Project-bound feature enrichment cannot be disabled through the legacy environment flag, and missing identity never produces guessed access.
+
+Knowledge builds activate full canonical text, lexical search and local vectors before optional provider work. The versioned enrichment pipeline samples up to eight sections across a document and accepts only exact source excerpts with valid chunk identities. Generated hints remain nonauthoritative and source/version/ACL bound. Standard search survives provider failure. Rebuilding existing sources remains a separate authorized action, rather than a bulk migration performed by this review.
+
+The model JSON adapter and project-scope validator moved into shared knowledge services without introducing dependency cycles. Specialist knowledge loading now uses one intent-aware MCP retrieval instead of separate keyword-search loops. All 22 specialist profiles and four repository agents define outputs suited to their intent; Test Design includes a design rationale, concrete case drafts, data, numbered actions, expected results and traceability. Optional repository-knowledge model review failure preserves validated standard source findings as a partial, review-required result. Other permission, cancellation and compiler failures retain their existing failure semantics.
+
+A shared React text renderer formats headings, lists, tables and code without executing model HTML. Complete specialist and repository reviews have accessible scroll regions. Authoring output stays below headings in normal flow, with scroll-edge shading that does not mask text. Oversized specialist fields and provider output-limit termination are rejected rather than silently clipped. The five executable browser agents keep typed, observed findings and artifact formats with their existing limitations.
+
+Validation includes full backend/frontend and architecture suites, workspace/admin builds, MCP protocol and disposable PostgreSQL integration checks, and browser regressions for Story assistance, long specialist output, chatbot, Defect assistance, Test Case improvement, Knowledge Repository and Quality Lab. Final verification: 1,430 backend tests passed (two skipped), 690 frontend tests, 33 architecture tests, 13 focused MCP tests, the real disposable PostgreSQL/MCP integration, and 10 browser regression tests passed. Both builds and strict source/module/package checks passed. Model/provider behavior in intent and enrichment regressions is mocked; real LLM response quality, latency and cost are not benchmarked by this pass. Citation validity establishes traceability, not certainty that every model interpretation is correct.
+
 ## Architectural decision
 
 Retain the capability packages, shared runtime and current deployment contracts. Extract responsibilities where there is a concrete correctness, ownership or testing benefit. Each extraction keeps its caller-facing operation while separating policy, orchestration and side effects. Do not introduce an interface for every function or move files solely to shorten a directory listing.

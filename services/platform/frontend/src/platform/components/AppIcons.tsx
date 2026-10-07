@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -60,11 +60,13 @@ export function AiAgentsIcon({ size = 18 }: IconProps) {
 function IconFrame({
   children,
   size = 16,
-  strokeWidth = 1.9
+  strokeWidth = 1.9,
+  viewBox = "0 0 24 24"
 }: {
   children: ReactNode;
   size?: number;
   strokeWidth?: number;
+  viewBox?: string;
 }) {
   return (
     <svg
@@ -75,7 +77,7 @@ function IconFrame({
       strokeLinecap="round"
       strokeLinejoin="round"
       strokeWidth={strokeWidth}
-      viewBox="0 0 24 24"
+      viewBox={viewBox}
       width={size}
     >
       {children}
@@ -663,32 +665,92 @@ export function MoveIcon({ size, strokeWidth }: IconProps) {
 export function TestRunsResultsIcon({size=20}: IconProps) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4.1a1.5 1.5 0 0 1 2.25-1.3l13 7.9a1.5 1.5 0 0 1 0 2.6l-13 7.9A1.5 1.5 0 0 1 5 19.9Z"/></svg>;
 }
-export function TestPlanIcon({size=20}: IconProps) {
- return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-  <rect x="1.5" y="2" width="7" height="6" rx="1"/><path d="M1.5 4h7M3.5 1v2m3-2v2M4 6h2"/>
-  <path d="m17 2-2 2 2 2m4-4 2 2-2 2m-2-4-1 4"/>
-  <rect x="9" y="9" width="9" height="13" rx="1"/><path d="m11 13 1 1 2-2m-3 6 1 1 2-2M16 13h.1"/>
-  <circle cx="4.5" cy="16" r="2.5"/><path d="M4.5 11v2m0 6v2M0 16h2m5 0h2M1 12.5l1.7 1.7m4 4 1.3 1.3M1 19.5l1.7-1.7m4-4L8 12.5"/>
-  <path d="M21 10v9l-1 2-1-2v-9Z"/>
- </svg>;
+/** Reference clipboard, pencil and clock, enlarged without the outer frame. */
+export function TestPlanIcon({ size = 24, strokeWidth = 2.6 }: IconProps) {
+  const clockMaskId = useId();
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth} viewBox="12 11 40 40">
+      <defs>
+        <mask id={clockMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64" stroke="none">
+          <rect width="64" height="64" fill="white" />
+          <circle cx="23" cy="45" r="5.5" fill="black" />
+        </mask>
+      </defs>
+      <g mask={`url(#${clockMaskId})`}>
+        <path d="M30.5 18.5h-6v31h21.5v-31h-6M26.5 18.5V47h17V18.5" />
+        <path d="m28.5 26 1.5 1.5 2-2.5m-3.5 8 1.5 1.5 2-2.5m-3.5 8 1.5 1.5 2-2.5M33 27h9m-9 7h9m-9 7h9" />
+      </g>
+      <path d="M30.5 16.5h3v-1.7a1.4 1.4 0 0 1 2.8 0v1.7h3v4h-8.8Z" />
+      <path d="M33.5 16.5v.5a1.4 1.4 0 0 0 2.8 0v-.5" />
+      <path d="M18 33V18a2 2 0 0 1 4 0v15l-2 4ZM18 18.5h4M18 33h4" />
+      <circle cx="23" cy="45" r="4.8" />
+      <path d="M23 43v2l1.8 1.8" />
+    </IconFrame>
+  );
 }
 export function ProjectOverviewIcon({size=20}: IconProps) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 2h20v15H2ZM2 5h20M12 17v5m-5 0 5-5 5 5"/><path d="M8 7v4h4a4 4 0 1 1-4-4ZM15 8h4m-4 3h4m-4 3 1 1 3-3"/></svg>;
 }
 
-export function AiAgentStudioIcon({size=20}: IconProps) {
- return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-  <rect x="2" y="4" width="8" height="8" rx="2"/><path d="M6 4V2M0 8h2m8 0h2M4 10h4"/><circle cx="4" cy="7" r=".6" fill="currentColor" stroke="none"/><circle cx="8" cy="7" r=".6" fill="currentColor" stroke="none"/>
-  <rect x="15" y="2" width="7" height="4" rx=".7"/><path d="M18.5 6v3m-3 0h6m-6 0v2m6-2v2"/><rect x="13" y="11" width="4" height="4" rx=".7"/><rect x="19" y="11" width="4" height="4" rx=".7"/>
-  <path d="M6 12v6h3"/><rect x="9" y="18" width="13" height="5" rx="1"/><path d="M12 20.5h7"/>
- </svg>;
+function StudioReferenceAgent({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle cx="8" cy="-4" r="2" />
+      <path d="M8-2v2M0 4h-1a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h1m16-6h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1" />
+      <rect width="16" height="12" rx="5" />
+      <circle cx="5" cy="5" r=".9" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="5" r=".9" fill="currentColor" stroke="none" />
+      <path d="M5 9h6M-1 18a9 6 0 0 1 18 0Z" />
+    </g>
+  );
 }
-export function TestAutomationIcon({size=20}: IconProps) {
- return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-  <path d="M7 2h7l4 4v15H7Z M14 2v5h4m-8 3-2 2 2 2m4-4 2 2-2 2M10 18h5"/>
-  <circle cx="3.5" cy="12" r="2"/><path d="M3.5 8v2m0 4v2M0 12h1.5m4 0H7M1 9.5l1 1m2.5 3 1 1M1 14.5l1-1"/>
-  <path d="M21 7h1v12l-.5 2-.5-2Z"/>
- </svg>;
+
+/** The three-agent triangle from the supplied illustration, without its text. */
+export function AiAgentStudioIcon({ size = 24, strokeWidth = 3 }: IconProps) {
+  const triangleMaskId = useId();
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth} viewBox="0 0 64 64">
+      <defs>
+        <mask id={triangleMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64" stroke="none">
+          <rect width="64" height="64" fill="white" />
+          <g fill="black">
+            <rect x="24" y="9" width="16" height="12" rx="5" />
+            <rect x="4" y="39" width="16" height="12" rx="5" />
+            <rect x="44" y="39" width="16" height="12" rx="5" />
+            <path d="M23 27a9 6 0 0 1 18 0ZM3 57a9 6 0 0 1 18 0Zm40 0a9 6 0 0 1 18 0Z" />
+          </g>
+        </mask>
+      </defs>
+      <path d="M32 21 12 46h40Z" mask={`url(#${triangleMaskId})`} />
+      <StudioReferenceAgent x={24} y={9} />
+      <StudioReferenceAgent x={4} y={39} />
+      <StudioReferenceAgent x={44} y={39} />
+    </IconFrame>
+  );
+}
+
+/** Full reference composition: clockwise arrow, four-line document and pencil. */
+export function TestAutomationIcon({ size = 24, strokeWidth = 3.8 }: IconProps) {
+  const pencilMaskId = useId();
+  const pencilOutline = "M27 44l4.5-8.5L54.5 15a4.5 4.5 0 0 1 6.5 6.5L36 42Z";
+  return (
+    <IconFrame size={size} strokeWidth={strokeWidth} viewBox="0 0 64 64">
+      <defs>
+        <mask id={pencilMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+          <rect width="64" height="64" fill="white" stroke="none" />
+          <path d={pencilOutline} fill="black" stroke="black" strokeWidth="3.5" />
+        </mask>
+      </defs>
+      <path d="M54 39A26 26 0 1 1 35 8" />
+      <path d="M35 3l7 7-9 3Z" fill="currentColor" stroke="none" />
+      <g mask={`url(#${pencilMaskId})`}>
+        <rect x="16.5" y="19" width="26" height="30.5" rx=".5" />
+        <path d="M21 24h9m-9 4h15m-15 4h13m-13 4h12" strokeWidth="3" strokeLinecap="butt" />
+      </g>
+      <path d={pencilOutline} />
+      <path d="m31.5 35.5 4.5 6.5M51 18l6.5 6.5m-7.8-5.3 6.5 6.5" strokeWidth="2.2" />
+    </IconFrame>
+  );
 }
 
 export function DatabaseConfigurationIcon({size=20}: IconProps) {
@@ -696,4 +758,14 @@ export function DatabaseConfigurationIcon({size=20}: IconProps) {
   <ellipse cx="9" cy="5" rx="7" ry="3"/><path d="M2 5v12c0 2 3 3 7 3m7-15v4M2 10c0 2 3 3 7 3h2M2 15c0 2 3 3 7 3"/>
   <path d="m16 11 3 0 .5 2 1.5 1 1.5-.5 1 2-1.5 1v2l1.5 1-1 2-1.5-.5-1.5 1-.5 2h-3l-.5-2-1.5-1-1.5.5-1-2 1.5-1v-2l-1.5-1 1-2 1.5.5 1.5-1Z"/><circle cx="17.5" cy="17.5" r="2.5"/>
  </svg>;
+}
+
+/** Head and connected processor from the supplied AI knowledge illustration. */
+export function AiKnowledgeBaseIcon({ size = 24, strokeWidth = 2.3 }: IconProps) {
+  return <IconFrame size={size} strokeWidth={strokeWidth} viewBox="0 0 48 48">
+    <path d="M16 8C8 11 6 18 6 24l-4 7h4v7a3 3 0 0 0 3 3h6v5h19v-6c5-4 8-9 9-15M15 41h8a3 3 0 0 0 3-3" />
+    <rect x="18" y="18" width="12" height="12" rx="2" />
+    <path d="M21 21h6v4h-3v2h-3v-3M18 21h-4m4 4h-5m5 4h-3m6 1v4m5-4v5M22 18v-7l-3-3V5m8 13v-5m0-3V8l5-5M18 18v-4h-3m15 7h5m-5 6h5l4-4m-8 9h5l5-5m-9 6v4m1-23 4 3h4m-5-5-2-3" />
+    <g fill="none"><circle cx="19" cy="3" r="1.8" /><circle cx="33" cy="2.5" r="1.8" /><circle cx="27" cy="11" r="1.8" /><circle cx="13" cy="14" r="1.8" /><circle cx="37" cy="8" r="1.8" /><circle cx="43" cy="17" r="1.8" /><circle cx="37" cy="21" r="1.8" /><circle cx="37" cy="27" r="1.8" /><circle cx="44" cy="25" r="1.8" /><circle cx="32" cy="39" r="1.8" /></g>
+  </IconFrame>;
 }

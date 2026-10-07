@@ -194,7 +194,7 @@ export function KnowledgeRepoPage() {
       <div className="knowledge-repo-content">
         <PageHeader
           eyebrow="Project context"
-          title="Knowledge Repo"
+          title="AI Knowledge Base"
           description="The evidence behind your AI answers."
         />
 

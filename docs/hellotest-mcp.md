@@ -75,7 +75,6 @@ This supplies grounded inputs; it does not guarantee an LLM's correctness. Exist
 | `HELLOTEST_MCP_INTERNAL_URL` | Fixed API MCP endpoint for a separate durable worker; worker defaults to `http://api:3000/mcp`, or the configured public endpoint |
 | `HELLOTEST_MCP_DATABASE_URL` | Optional dedicated SELECT-only projection database connection |
 | `HELLOTEST_MCP_MAX_CONCURRENT` | MCP HTTP concurrency per API process; default 16, capped at 64 |
-| `HELLOTEST_MCP_AI_CONTEXT` | Set `false` to disable additional shared-client enrichment; chatbot and Smart Context still use their grounded retrieval path |
 
 Run normal migrations before production verification mode. Keep TLS at the trusted ingress and pass the correct allowed host. HTTP requests have a 128KiB body limit, a 30-second cancellation signal and capacity backpressure. Reads return bounded sanitized JSON, at most 50 projection rows, and at most 180KB per tool result. Knowledge retrieval has its own execution budgets. Cancellation is cooperative: it must not be interpreted as proof that an already accepted mutation had no effect.
 
@@ -98,3 +97,17 @@ The PostgreSQL check reads the local environment configuration, creates an isola
 Browser verification uses the actual MCP Servers component with controlled API fixtures for search, creation/discovery, credentials, exact-plan review, project switching and mobile layout. It verifies UI behavior, not an external LLM provider or public TLS deployment.
 
 Architecture skill: `~/.codex/skills/hellotest-mcp-architecture/SKILL.md`, with the complete extracted reference guide under `references/implementation-guide.txt`.
+
+## Intent planning and knowledge enrichment
+
+Project-bound AI generation always uses the shared MCP enrichment boundary; the legacy `HELLOTEST_MCP_AI_CONTEXT=false` bypass is no longer honored. Calls without verified user/project scope are never given guessed credentials. The selected generation integration ID is passed as a retrieval preference and checked against the same project. MCP failures remain explicit context gaps, not claims that missing evidence was read.
+
+Smart Context requests `/knowledge/search` with `intent_aware: true`. The route retains project/knowledge permissions and delegates to the MCP ContextPacket path. That path asks the configured project-safe LLM for information needs, source kinds and anchored query variants before authorized hybrid/live retrieval. Source filters and source ACLs remain authoritative. An unavailable or invalid planner returns `intent_planning_mode: standard` and a safe reason code; it never claims LLM planning succeeded. Plain repository search remains a direct hybrid/keyword search for explicit search use.
+
+Knowledge ingestion publishes canonical extracted text, lexical indexes and local vectors first. Optional LLM enrichment selects exact source excerpts and information needs; invented/paraphrased excerpts and unknown chunk IDs are rejected. Generated hints are tagged nonauthoritative in metadata, stored under the same document/source ACL and revision, and cannot replace source content. A model outage leaves the standard index ready. The ingestion processing fingerprint is versioned as `2026.10-intent-enrichment-v3`. Existing sources gain enrichment on their next authorized refresh/reindex that rebuilds the source; this code change does not silently reindex all projects or send their content to a provider.
+
+Each of the 22 built-in specialist profiles defines an artifact format suited to its intent. Test Design includes a design rationale, test techniques, actual cases with data/actions/expected results and a traceability matrix. Agents support longer bounded outputs and reject provider output-limit termination. Shared text rendering supports headings, lists, tables and code as React text without executing HTML. These contracts improve usefulness and traceability; source citation validation does not prove every model interpretation correct.
+
+Intent planning consumes the context request’s model/tool, cost and wall-clock budgets. Planner calls are reported as `intent_model_calls`, and retrieval receives the remaining budget. This is separate from the specialist generation/correction call limit. Knowledge enrichment samples up to eight sections across the document; the full canonical source is still indexed.
+
+The four repository agents also have separate source-review formats for objects/locators, API case drafts, repository documentation and component cases. Their model reviews use the same Agent Studio/MCP path. Repository Knowledge Builder retains validated standard compiler findings if optional model review fails; the run is marked partial and requires human review, with no fake model success. Permission failures, cancellation and source/compiler failures still stop the run. The five executable browser agents retain their measured, typed findings and artifacts; model planning never substitutes for observed execution evidence.

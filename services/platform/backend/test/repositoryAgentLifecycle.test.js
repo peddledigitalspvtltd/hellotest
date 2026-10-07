@@ -661,3 +661,30 @@ test('mobile publication route enforces mobile API-key scope before invoking pub
     assert.ok(state.events.some(event => Array.isArray(event) && event[0] === 'mobile.manage' && event[1] === 'project-a'));
   }
 });
+
+test('repository knowledge retains standard source findings when optional model review fails', async t => {
+  scope(t); const updates = []; const cached = result('repository_knowledge');
+  t.mock.method(require('../../../agentic/backend/services/agenticAssistant.service'), 'respond', async input => {
+    assert.match(input.prompt, /documentation outline/);
+    assert.equal(input.workflow_policy.connected_input.findings[0].method, 'GET');
+    throw Object.assign(new Error('private provider failure'), { code: 'MODEL_TIMEOUT', statusCode: 503 });
+  });
+  t.mock.method(storage, 'getObject', async () => Readable.from([zip]));
+  t.mock.method(compiler, 'compileArchive', async () => assert.fail('Reuse the validated source snapshot'));
+  database(t, (sql, _method, args) => {
+    if (sql.includes('FROM users')) return { ...user, status: 'active' };
+    if (sql.startsWith('SELECT id, result')) return { id: 'cached-run', result: cached };
+    if (sql.startsWith('UPDATE')) { updates.push({sql,args}); return {changes:1}; }
+    return unreachable(sql);
+  });
+  const current = run({status:'running',agent_type:'repository_knowledge'});
+  current.input.llm_integration_id = 'model';
+  await service._internals.performRun(current, new AbortController());
+  const final = updates.find(update => update.sql.includes('result = ?'));
+  assert.equal(final.args[0], 'partial');
+  assert.equal(final.args[2].summary.generation_mode, 'deterministic');
+  assert.equal(final.args[2].findings.knowledge.length, 1);
+  assert.equal(final.args[2].llm_review, undefined);
+  assert.ok(final.args[2].warnings.some(warning => warning.code === 'MODEL_REVIEW_UNAVAILABLE'));
+  assert.ok(!JSON.stringify(final.args[2]).includes('private provider failure'));
+});
