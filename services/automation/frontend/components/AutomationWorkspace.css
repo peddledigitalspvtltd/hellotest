@@ -1,23 +1,11 @@
 .page-content--automation { --automation-muted: var(--app-text-muted); color: var(--app-text); }
 .page-content--automation .automation-case-detail { min-width: 0; }
-.automation-workflow-rail { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
-.automation-workflow-rail > button { display: flex; align-items: center; text-align: left; gap: 10px; padding: 17px 16px; border: 1px solid var(--app-border); border-radius: var(--app-radius); background: var(--app-surface); color: var(--app-text); min-width: 0; transition: border-color .15s, background .15s; }
-.automation-workflow-rail > button:hover { border-color: var(--app-accent); background: var(--app-accent-soft); }
-.automation-workflow-rail > button[aria-current="step"] { border-color: var(--app-accent); background: var(--app-accent-soft); }
-.automation-workflow-rail > button > svg { color: var(--app-accent); width: 20px; height: 20px; flex-shrink: 0; }
-.automation-workflow-rail > button > span:first-of-type { display: grid; gap: 3px; min-width: 0; }
-.automation-workflow-rail strong { font-size: 14px; font-weight: 650; }
-.automation-workflow-rail small { color: var(--app-text-muted); font-size: 11px; font-weight: 400; }
-.automation-workflow-rail > button > span:last-child { margin-left: auto; color: var(--app-text-muted); }
 .automation-selection-hint { color: var(--app-text-muted); font-size: 12px; align-self: center; }
 .page-content--automation .automation-catalog-toolbar { gap: 14px; padding: 8px 0 16px; }
 .page-content--automation .automation-catalog-toolbar .catalog-toolbar-actions { margin-left: auto; flex-wrap: wrap; }
 .page-content--automation .automation-case-tile .tile-card-kicker { color: var(--app-text-muted); font-size: 10px; letter-spacing: .04em; }
 .page-content--automation .automation-case-tile .tile-card-title-group > strong { font-size: 17px; line-height: 1.45; }
 .page-content--automation .automation-case-tile .tile-card-facts { padding-top: 12px; border-top: 1px solid var(--app-border); }
-.page-content--automation .automation-runtime-guide { background: var(--app-surface-muted); color: var(--app-text); border-color: var(--app-border); margin: 0 0 20px; }
-.page-content--automation .automation-runtime-guide > summary { padding: 10px 14px; }
-.page-content--automation .automation-runtime-guide-title { font-size: 12px; }
 .page-content--automation .automation-runtime-chips > span { background: var(--app-surface); border: 1px solid var(--app-border); }
 .page-content--automation .automation-workspace-navigation { gap: 18px; margin-bottom: 24px; }
 .page-content--automation .automation-workspace-identity { background: transparent; padding: 0 0 14px; border: 0; box-shadow: none; }
@@ -124,18 +112,12 @@
 .page-content--automation .repository-field-check { white-space: normal; align-items: flex-start; font-size: 12px; line-height: 1.6; }
 .page-content--automation .repository-field-check input { margin-top: 3px; }
 @keyframes automation-live { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .automation-live-dot { animation: none; } .automation-workflow-rail > button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .automation-live-dot { animation: none; } }
 @media (max-width: 900px) {
-  .automation-workflow-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-content--automation .automation-quality-launch { float: none; margin-top: 0; margin-bottom: 14px; }
   .page-content--automation .automation-create-columns { grid-template-columns: 1fr; gap: 24px; }
 }
 @media (max-width: 640px) {
-  .automation-workflow-rail { gap: 8px; margin-bottom: 16px; }
-  .automation-workflow-rail > button { padding: 12px; gap: 8px; }
-  .automation-workflow-rail > button > svg { width: 17px; height: 17px; }
-  .automation-workflow-rail > button > span:last-child { display: none; }
-  .automation-workflow-rail small { font-size: 10px; }
   .page-content--automation .automation-agent-workspace { padding: 18px; }
   .page-content--automation .automation-agent-workspace > header h3 { font-size: 21px; }
   .page-content--automation .automation-build-methods { flex-wrap: wrap; }
@@ -153,4 +135,18 @@
   .page-content--automation .automation-catalog-toolbar .catalog-toolbar-actions { width: 100%; margin-left: 0; justify-content: flex-end; }
   .automation-selection-hint { margin-right: auto; font-size: 10px; }
   .page-content--automation .automation-authoring-create { width: calc(100vw - 20px); }
+}
+
+.automation-case-commandbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.automation-workspace-identity .automation-case-title {
+  font-size: 1.1rem;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }

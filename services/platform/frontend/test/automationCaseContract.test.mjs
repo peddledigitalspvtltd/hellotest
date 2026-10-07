@@ -27,10 +27,10 @@ test("automation authoring is a dedicated case workflow with complete build surf
   assert.match(page, /manual_test_case_ids: metadata\.manualCaseIds/);
   assert.match(page, /seedAutomationPlan\(sources/);
   assert.match(page, /Build instructions \(optional\)/);
-  assert.match(page, /target_step_id: recorderOriginRef\.current\?\.targetStepId \|\| undefined/);
+  assert.match(page, /target_step_id: origin\.targetStepId \|\| undefined/);
   assert.match(page, /code=\{completeAutomationCode\}/);
   assert.match(page, /Automation mapping needed/);
-  assert.match(page, /<AutomationWorkflowRail/);
+  assert.match(page, /<DetailSectionTabs/);
   assert.match(page, /<AutomationRunReviewDialog/);
   assert.match(page, /const automationActionTargetIds = selectedAutomationActionTargetIds;/);
   assert.match(page, /inspectSavedPlans\(request\.caseIds\)/);

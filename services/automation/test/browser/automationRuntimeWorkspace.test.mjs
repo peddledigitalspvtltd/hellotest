@@ -27,8 +27,7 @@ test('actual automation workspace presents runtime-specific authoring and record
   const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/api/**',route=>{errors.push('Unexpected API: '+route.request().url());return route.abort();});
   for(const runtime of ['web','api','android','ios']){
     await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5197'}/${name}.html?runtime=${runtime}`);
-    const guide=page.locator('.automation-runtime-guide');await guide.waitFor();await guide.locator('summary').click();
-    assert.match(await guide.innerText(),new RegExp(runtime==='ios'?'XCUITest':runtime==='android'?'UiAutomator2':runtime==='api'?'HTTP request runner':'Playwright'));
+    assert.equal(await page.locator('.automation-runtime-guide').count(),0,'Informational setup panel is removed');
     await page.getByRole('tab',{name:/^Plan/}).click();
     await page.getByRole('button',{name:'Add section',exact:true}).click();
     await expect(page.getByRole('dialog',{name:'Add section',exact:true}).getByLabel('New step type',{exact:true})).toHaveValue(runtime);
@@ -57,9 +56,8 @@ test('actual automation workspace presents runtime-specific authoring and record
         assert.equal(await page.getByRole('button',{name:'Local Playwright',exact:true}).count(),0);
       }else await page.getByRole('button',{name:'Local Playwright',exact:true}).waitFor();
     }
-    await guide.locator('summary').click();
     await mkdir('/tmp/hellotest-automation-screenshots',{recursive:true});await page.screenshot({animations:'disabled',path:`/tmp/hellotest-automation-screenshots/runtime-${runtime}.png`,fullPage:true});
-    await page.setViewportSize({width:390,height:844});assert.ok(await guide.evaluate(el=>el.scrollWidth<=el.clientWidth+1));await page.waitForFunction(()=>{const active=document.querySelector('.automation-detail-navigation [aria-selected="true"]');const box=active.getBoundingClientRect(),parent=active.parentElement.getBoundingClientRect();return box.left>=parent.left-1&&box.right<=parent.right+1;});await page.screenshot({animations:'disabled',path:`/tmp/hellotest-automation-screenshots/runtime-${runtime}-mobile.png`,fullPage:true});await page.setViewportSize({width:1440,height:1000});
+    await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.waitForFunction(()=>{const active=document.querySelector('.automation-detail-navigation [aria-selected="true"]');const box=active.getBoundingClientRect(),parent=active.parentElement.getBoundingClientRect();return box.left>=parent.left-1&&box.right<=parent.right+1;});await page.screenshot({animations:'disabled',path:`/tmp/hellotest-automation-screenshots/runtime-${runtime}-mobile.png`,fullPage:true});await page.setViewportSize({width:1440,height:1000});
   }
   assert.deepEqual(errors,[]);
  }catch(error){throw new Error(`${error.message}\n${await page?.locator('body').innerText().catch(()=> '')}`,{cause:error});}

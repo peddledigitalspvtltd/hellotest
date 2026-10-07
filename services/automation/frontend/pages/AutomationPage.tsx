@@ -1,10 +1,8 @@
 import { parseApiRequestSource } from "../lib/apiRequestSource";
 import { ExecutionHookResults } from "@hellotest/testing/frontend/components/ExecutionHookResults";
-import { AutomationRuntimeGuide } from "../components/AutomationRuntimeGuide";
 import { AutomationIconButton, AutomationOverlay } from "../components/AutomationOverlay";
 import { handoverAutomationRun } from "../lib/automationExecution";
 import { summarizeAutomationInstruction } from "../lib/automationInstructionSummary";
-import { AutomationWorkflowRail } from "../components/AutomationWorkflowRail";
 import { AutomationBuildEvidence, type AutomationBuildChange } from "../components/AutomationBuildEvidence";
 import { AutomationRunReviewDialog, type AutomationRunReviewRequest } from "../components/AutomationRunReviewDialog";
 import { inspectAutomationTargets, requireReadyAutomation, type AutomationReadiness } from "../lib/automationReadiness";
@@ -1198,7 +1196,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   const [agentBuildStatus, setAgentBuildStatus] = useState<"idle" | "queued" | "running" | "completed" | "failed" | "paused">("idle");
   const [agentBuildTracking, setAgentBuildTracking] = useState<{ transactionId: string; projectId: string; caseIds: string[]; scheduledAt: string | null; startedAt: number } | null>(null);
   const automationBuildDraftBaselineRef = useRef<{ steps: Record<string, AutomationStepDraft>; options: Record<string, AutomationStepOptions>; code: Record<string, string>; evidence: Record<string, string> }>({ steps: {}, options: {}, code: {}, evidence: {} });
-  const recorderOriginRef = useRef<{ caseId: string; projectId: string; targetStepId: string } | null>(null);
+  const recorderOriginRef = useRef<{ caseId: string; projectId: string; appTypeId: string; targetStepId: string; environmentId: string; configurationId: string; dataSetId: string } | null>(null);
   const currentAutomationSelectionRef = useRef({ projectId, selectedCaseId, workspaceTab: activeAutomationWorkspaceTab });
   currentAutomationSelectionRef.current = { projectId, selectedCaseId, workspaceTab: activeAutomationWorkspaceTab };
   const [isBatchAgentOpen, setIsBatchAgentOpen] = useState(false);
@@ -3698,6 +3696,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
   });
 
   const requestAutomationRun = (mode: "local" | "remote", caseIds: string[]) => {
+    if (recorderSession || startRecorder.isPending || finishRecorder.isPending) { showError(new Error("Finish the recording before running the saved plan."), "Recording in progress."); return; }
     const targets = [...new Set(caseIds)].filter(id => automatedCases.some(testCase => testCase.id === id));
     if (!targets.length) { showError(new Error("Select at least one automation case."), "Selection required."); return; }
     setPendingRemoteRun(null); setRunReviewError("");
@@ -4605,8 +4604,10 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	        throw new Error("Select an automation case first.");
 	      }
 
+      if (recorderSession) throw new Error("Finish the current recording before starting another.");
+      if (!canRecordCurrentPlan) throw new Error("Recording is unavailable for this case’s runtime or your permissions.");
       rememberAutomationBuildDrafts();
-      recorderOriginRef.current = { caseId: activeCase.id, projectId, targetStepId: recordingTargetStepId };
+      recorderOriginRef.current = { caseId: activeCase.id, projectId, appTypeId, targetStepId: recordingTargetStepId, environmentId: selectedExecutionEnvironmentId, configurationId: selectedExecutionConfigurationId, dataSetId: selectedExecutionDataSetId };
       return api.testCases.startRecorderSession(activeCase.id, {
         start_url: startUrl || undefined,
         recorder_mode: options.recorder_mode,
@@ -4641,16 +4642,18 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 	        throw new Error("Start a recorder session before finishing it.");
 	      }
 
-      return api.testCases.finishRecorderSession(recorderOriginRef.current?.caseId || activeCase.id, recorderSession.id, {
+      const origin = recorderOriginRef.current;
+      if (!origin || origin.projectId !== projectId || origin.appTypeId !== appTypeId) throw new Error("Return to the recording’s original project and application before saving it.");
+      return api.testCases.finishRecorderSession(origin.caseId, recorderSession.id, {
         transaction_id: recorderSession.transaction_id,
         additional_context: builderContext || undefined,
         recorder_mode: recorderStartOptions?.recorder_mode,
         recorder_target: recorderStartOptions?.recorder_target,
         engine_base_url: recorderStartOptions?.engine_base_url,
-        test_environment_id: selectedExecutionEnvironmentId || undefined,
-        test_configuration_id: selectedExecutionConfigurationId || undefined,
-        test_data_set_id: selectedExecutionDataSetId || undefined,
-        target_step_id: recorderOriginRef.current?.targetStepId || undefined
+        test_environment_id: origin.environmentId || undefined,
+        test_configuration_id: origin.configurationId || undefined,
+        test_data_set_id: origin.dataSetId || undefined,
+        target_step_id: origin.targetStepId || undefined
       });
     },
     onSuccess: async (response) => {
@@ -5411,13 +5414,9 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                 <WorkspaceBackButton label="Back to automation case tiles" onClick={closeAutomationCaseWorkspace} />
                 {activeCase ? (
                   <>
-	                  {canRunLocalAutomation || canRunRemoteAutomation ? (<button className="primary-button" disabled={!isAutomationCaseDetailReady || (!canRunLocalAutomation && !canRunRemoteAutomation) || runSelectedAutomationCases.isPending || activeCase.automated !== "yes"} onClick={() => requestAutomationRun(canRunLocalAutomation ? "local" : "remote", [activeCase.id])} type="button">
-	                    <PlayIcon />
-	                    <span>{runSelectedAutomationCases.isPending ? "Starting…" : "Review & run"}</span>
-	                  </button>) : null}
-                  {canRunRemoteAutomation ? <AutomationIconButton label="Run remote" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending} onClick={() => requestAutomationRun("remote", [activeCase.id])}><OpenIcon size={17} /></AutomationIconButton> : null}
-                  <AutomationIconButton label="Execution context" disabled={!isAutomationCaseDetailReady} onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17} /></AutomationIconButton>
-                  {canUseAutomationAi ? <AutomationIconButton label="AI build" disabled={!isAutomationCaseDetailReady || optimizeAutomationCase.isPending} onClick={() => {setBuildMethod("agent");setActiveAutomationWorkspaceTab("build");}}><SparkIcon size={17}/></AutomationIconButton> : null}
+                  {canRunLocalAutomation ? <button className="primary-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("local", [activeCase.id])} type="button"><PlayIcon/><span>Run local</span></button> : null}
+                  {canRunRemoteAutomation ? <button className="ghost-button" disabled={!isAutomationCaseDetailReady || runSelectedAutomationCases.isPending || activeCase.automated !== "yes" || Boolean(recorderSession)} onClick={() => requestAutomationRun("remote", [activeCase.id])} type="button"><OpenIcon size={17}/><span>Run remote</span></button> : null}
+                  <AutomationIconButton label="Execution context" disabled={!isAutomationCaseDetailReady} onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17}/></AutomationIconButton>
                   </>
                 ) : null}
               </div>
@@ -5439,19 +5438,14 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
               <TileCardSkeletonGrid />
             ) : (
               <div className="automation-case-detail editor-accordion">
-                <AutomationWorkflowRail active={activeAutomationWorkspaceTab === "build" ? buildMethod === "record" ? "capture" : "generate" : activeAutomationWorkspaceTab === "runs" ? "run" : "review"} stepCount={automatedSteps.length} mappedCount={automatedSteps.filter(isAutomationStepMapped).length} canCapture={canRecordCurrentPlan} canGenerate={canUseAutomationAi} canRun={canRunLocalAutomation || canRunRemoteAutomation} busy={runSelectedAutomationCases.isPending}
-                  onCapture={() => { setBuildMethod("record"); selectAutomationWorkspaceTab("build"); }} onGenerate={() => { setBuildMethod("agent"); selectAutomationWorkspaceTab("build"); }} onReview={() => selectAutomationWorkspaceTab("steps")} onRun={() => requestAutomationRun(canRunLocalAutomation ? "local" : "remote", [activeCase.id])} />
                 {unsavedAutomationStepIds.length ? <div className="automation-unsaved-state" role="status"><span>{unsavedAutomationStepIds.length} unsaved section{unsavedAutomationStepIds.length === 1 ? "" : "s"}</span><button className="ghost-button compact" onClick={() => selectAutomationWorkspaceTab("steps")} type="button">Review changes</button></div> : null}
                 <AutomationBuildEvidence status={agentBuildStatus} receipt={agentBuildReceipt} changes={canViewAutomationCode ? agentBuildChanges : []} retryCount={agentBuildRetryIds.length} onOpenJobs={() => navigate("/testops")} onReview={() => selectAutomationWorkspaceTab("steps")} onRetry={() => { setBatchBuildTargetIds([...agentBuildRetryIds]); setIsBatchAgentOpen(true); }} />
-                <AutomationRuntimeGuide steps={automatedSteps} fallback={selectedRuntimeType} />
                 <div className="automation-workspace-navigation">
                   <div className="automation-workspace-identity">
                     <div>
                       <DisplayIdBadge value={automationDisplayIdByCaseId[activeCase.id] || activeCase.display_id || activeCase.id} />
-                      <span className="automation-step-type-chip">Automation Case</span>
+                      <strong className="automation-case-title">{activeCase.title}</strong>
                     </div>
-                    <strong>{activeCase.title}</strong>
-                    <span>{automatedSteps.filter(isAutomationStepMapped).length}/{automatedSteps.length} steps mapped · {selectedExecutionIterationCount} data iteration{selectedExecutionIterationCount === 1 ? "" : "s"}</span>
                   </div>
                   <DetailSectionTabs
                     activeTab={activeAutomationWorkspaceTab}
@@ -5657,7 +5651,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
 
                 {activeAutomationWorkspaceTab === "build" && (canUseAutomationAi || canRecordCurrentPlan) ? (
                   <section className="automation-agent-workspace" aria-label="Automation build tools">
-                    <header className="automation-build-header"><div><span className="automation-command-eyebrow">Automation studio</span><h3>{buildMethod === "agent" ? "Generate from your saved behavior" : "Capture a real flow"}</h3></div><div className="automation-build-header-actions"><AutomationIconButton label="Execution context" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={18} /></AutomationIconButton>{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button compact automation-quality-launch" onClick={() => navigate(`/agentic-workflows?surface=quality&test_case=${activeCase.id}`)} type="button"><IconShieldCheck size={16} />Open quality agents <span aria-hidden="true">↗</span></button> : null}</div></header>
+                    <header className="automation-build-header"><div><span className="automation-command-eyebrow">Automation studio</span><h3>{buildMethod === "agent" ? "Generate from your saved behavior" : "Capture a real flow"}</h3></div><div className="automation-build-header-actions">{canUseAutomationAi && hasPermission(session, "agentic_workflow.run", projectId) && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]) ? <button className="ghost-button compact automation-quality-launch" onClick={() => navigate(`/agentic-workflows?surface=quality&test_case=${activeCase.id}`)} type="button"><IconShieldCheck size={16} />Open quality agents <span aria-hidden="true">↗</span></button> : null}</div></header>
                     <div className="automation-build-methods" aria-label="Build method">
                       {canUseAutomationAi ? <button aria-pressed={buildMethod === "agent"} onClick={() => setBuildMethod("agent")} type="button"><SparkIcon size={15} />AI agent</button> : null}
                       {canRecordCurrentPlan ? <button aria-pressed={buildMethod === "record"} onClick={() => setBuildMethod("record")} type="button"><MousePointerIcon size={15} />Record & playback{recorderSession?.status === "running" ? " · Recording" : ""}</button> : null}
@@ -5667,7 +5661,7 @@ export function AutomationPage({ initialView = "cases" }: { initialView?: Automa
                       <AutomationBuildContext stepCount={automatedSteps.length} expectedResultCount={automatedSteps.filter((step) => richTextToPlainText(step.expected_result || "").trim()).length} manualCaseCount={linkedManualCases.length} repositoryCount={allObjectMembers.length} runtimes={automationRuntimeTypes} />
                       <div className="automation-ai-composer">
                         <label className="form-field"><span>Build instructions (optional)</span><textarea aria-label="Build instructions (optional)" onChange={(event) => setAgentMission(event.target.value)} placeholder="What should the agent focus on? Add an edge case, assertion or constraint…" rows={5} value={agentMission} /></label>
-                        <div className="automation-ai-prompt-tools"><span>Uses your saved actions and expected results</span><AutomationIconButton label="Execution context" onClick={() => setIsExecutionContextOpen(true)}><IconSettings size={17} /></AutomationIconButton></div>
+                        <div className="automation-ai-prompt-tools"><span>Uses your saved actions and expected results</span></div>
                       </div>
                       <div className="automation-ai-suggestions" aria-label="Agent instruction suggestions">{["Prioritize assertions", "Reuse repository objects", "Cover edge cases"].map((suggestion) => <button type="button" key={suggestion} onClick={() => setAgentMission(current => [current.trim(), suggestion + "."].filter(Boolean).join("\n"))}><AddIcon size={12} />{suggestion}</button>)}</div>
                       <details className="automation-ai-options"><summary><IconSettings size={15} />Build settings{agentScheduledAt ? <span>Scheduled</span> : null}</summary><div className="automation-ai-options-body">

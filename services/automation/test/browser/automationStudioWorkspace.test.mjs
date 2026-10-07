@@ -17,11 +17,14 @@ test('automation studio preserves section drafts, precondition order, AI scope a
   fixture = fixture.replace("const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>}]", "const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>},{path:'/executions',element:<div>Execution destination</div>}]" );
   fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
     window.calls=[];window.failRun=false;
+    api.testSteps.list=async()=>steps.map(step=>structuredClone(step));
     api.testEnvironments.list=async()=>[{id:'qa',project_id:'p',app_type_id:'a',name:'QA'}];
     api.testConfigurations.list=async()=>[{id:'chrome',project_id:'p',app_type_id:'a',name:'Chrome'}];
     api.testSteps.create=async input=>{window.calls.push({kind:'step',input});const result={...input,id:'new-step'};steps.splice(input.step_order-1,0,result);steps.forEach((step,index)=>step.step_order=index+1);return result;};
     api.testSteps.update=async(id,input)=>{window.calls.push({kind:'update',id,input});const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
     api.testCases.queueAutomationGenerator=async(id,input)=>{window.calls.push({kind:'build',id,input});return {transaction_id:'build-job'};};
+    api.testCases.startRecorderSession=async(id,input)=>{window.calls.push({kind:'record-start',id,input});return {id:'record-session',status:'running',recorder_mode:'remote'};};
+    api.testCases.finishRecorderSession=async(id,sessionId,input)=>{window.calls.push({kind:'record-finish',id,sessionId,input});return {test_case_id:id,generated_step_count:0,learned_locator_count:0};};
     api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run'};};
     api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run'};};
     api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};api.executions.get=async id=>({id,project_id:'p',app_type_id:'a',status:'running'});
@@ -68,12 +71,13 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await page.waitForFunction(()=>window.calls.some(call=>call.kind==='step'),null,{timeout:5000});
     const created = await page.evaluate(()=>window.calls.find(call=>call.kind==='step').input);
     assert.equal(created.step_order,1);assert.equal(created.group_name,'Preconditions');
+    await expect(page.locator('.automation-program-flow[aria-label="Preconditions"]').getByText('Prepare account',{exact:true})).toBeVisible();
     await page.keyboard.press('Escape');
     const screenshotRoot='/tmp/automation-redesign';await mkdir(screenshotRoot,{recursive:true});
     if(await page.getByRole('button',{name:'Dismiss message',exact:true}).count()) {await page.getByRole('button',{name:'Dismiss message',exact:true}).click();await expect(page.locator('.toast-message')).toBeHidden();}
     await page.screenshot({path:screenshotRoot+'/studio-plan-desktop.png',fullPage:true});
     await page.getByRole('tab',{name:/Build tools/}).click();
-    await page.locator('.automation-ai-composer').getByRole('button',{name:'Execution context',exact:true}).click();
+    await page.getByRole('button',{name:'Execution context',exact:true}).click();
     const context=page.getByRole('dialog',{name:'Execution context',exact:true});
     await context.getByLabel('Test environment',{exact:true}).selectOption('qa');
     await context.getByLabel('Test configuration',{exact:true}).selectOption('chrome');
@@ -95,10 +99,31 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     assert.equal(build.id,'case1');assert.match(build.input.additional_context,/Prioritize assertions/);assert.equal(build.input.ai_requested,true);assert.equal(build.input.test_environment_id,'qa');assert.equal(build.input.test_configuration_id,'chrome');
     await expect(page.locator('.automation-ai-status')).toHaveText('Queued');
     await page.setViewportSize({width:1440,height:1000});
+    await page.reload();
+    await page.getByRole('button',{name:'Execution context',exact:true}).click();
+    let recordingContext=page.getByRole('dialog',{name:'Execution context',exact:true});
+    await recordingContext.getByLabel('Test environment',{exact:true}).selectOption('qa');
+    await recordingContext.getByLabel('Test configuration',{exact:true}).selectOption('chrome');
+    await page.keyboard.press('Escape');
+    await page.getByRole('tab',{name:/Build tools/}).click();
+    await page.getByRole('button',{name:/Record & playback/}).click();
+    await page.getByRole('button',{name:'Remote browser',exact:true}).click();
+    await page.getByRole('button',{name:'Save recording to plan',exact:true}).waitFor();
+    await expect(page.getByRole('button',{name:'Run local',exact:true})).toBeDisabled();
+    await expect(page.getByRole('button',{name:'Run remote',exact:true})).toBeDisabled();
+    await page.getByRole('button',{name:'Execution context',exact:true}).click();
+    recordingContext=page.getByRole('dialog',{name:'Execution context',exact:true});
+    await recordingContext.getByLabel('Test environment',{exact:true}).selectOption('');
+    await recordingContext.getByLabel('Test configuration',{exact:true}).selectOption('');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button',{name:'Save recording to plan',exact:true}).click();
+    await page.waitForFunction(()=>window.calls.some(call=>call.kind==='record-finish'));
+    const recorded=await page.evaluate(()=>window.calls.find(call=>call.kind==='record-finish'));
+    assert.equal(recorded.id,'case1');assert.equal(recorded.input.test_environment_id,'qa');assert.equal(recorded.input.test_configuration_id,'chrome');
     // Use a fresh saved plan to exercise both dispatch paths independently.
     for(const mode of ['local','remote']) {
       await page.reload();
-      await page.getByRole('button',{name:mode==='local'?'Review & run':'Run remote',exact:true}).click();
+      await page.getByRole('button',{name:mode==='local'?'Run local':'Run remote',exact:true}).click();
       const run = page.getByRole('dialog',{name:'Ready to execute?',exact:true});
       await expect(run.getByRole('button',{name:`Start ${mode} run`,exact:true})).toBeVisible();await run.getByText('Execution profile',{exact:true}).click();
       await run.getByLabel('Test environment',{exact:true}).selectOption('qa');
