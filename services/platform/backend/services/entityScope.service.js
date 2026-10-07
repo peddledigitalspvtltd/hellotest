@@ -2,6 +2,15 @@ const db = require("../src/db");
 const permissionService = require("./permission.service");
 
 const ENTITY_SCOPES = {
+  app_type: {
+    query: "SELECT id, project_id FROM app_types WHERE id = ?"
+  },
+  environment: {
+    query: "SELECT id, project_id FROM test_environments WHERE id = ?"
+  },
+  configuration: {
+    query: "SELECT id, project_id FROM test_configurations WHERE id = ?"
+  },
   project: {
     query: "SELECT id, id AS project_id FROM projects WHERE id = ?"
   },

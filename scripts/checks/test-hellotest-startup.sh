@@ -239,4 +239,15 @@ reset_case
 assert_trace 'ps
 ops ps' 'local status includes monitoring'
 
+reset_case
+HELLOTEST_OPS_ENABLED=false HELLOTEST_MCP_PUBLIC_URL=https://qa.example.test/api/mcp \
+  HELLOTEST_MCP_ALLOWED_HOSTS=qa.example.test,api \
+  WORKFLOW_CREDENTIAL_KEY=fixture-credential-encryption-key-32-characters \
+  "$ROOT_DIR/hellotest.sh" up --stack local redis > "$TEST_DIR/output" 2>&1
+"$ROOT_DIR/hellotest.sh" status --stack local > "$TEST_DIR/output" 2>&1
+grep -Fx 'WORKFLOW_CREDENTIAL_KEY=fixture-credential-encryption-key-32-characters' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'credential key must survive subsequent launcher commands'
+grep -Fx 'HELLOTEST_MCP_PUBLIC_URL=https://qa.example.test/api/mcp' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'public MCP endpoint must survive subsequent launcher commands'
+grep -Fx 'HELLOTEST_MCP_ALLOWED_HOSTS=qa.example.test,api' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'MCP allowed hosts must survive subsequent launcher commands'
+printf 'PASS: credential encryption key and MCP deployment settings persist across launcher commands\n'
+
 printf 'Startup regression checks completed without contacting Docker or starting services.\n'

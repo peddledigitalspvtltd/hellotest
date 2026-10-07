@@ -213,6 +213,10 @@ resolve_defaults() {
   POSTGRES_USER="${POSTGRES_USER:-hellotest}"
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$(secure_default POSTGRES_PASSWORD hellotest)}"
   SESSION_SECRET="${SESSION_SECRET:-$(secure_default SESSION_SECRET hellotest-dev-secret)}"
+  WORKFLOW_CREDENTIAL_KEY="${WORKFLOW_CREDENTIAL_KEY:-$(generated_env_value WORKFLOW_CREDENTIAL_KEY || true)}"
+  if [ -z "$WORKFLOW_CREDENTIAL_KEY" ]; then
+    WORKFLOW_CREDENTIAL_KEY="$(random_secret)"
+  fi
   HELLOTEST_TESTENGINE_SECRET="${HELLOTEST_TESTENGINE_SECRET:-$(secure_default HELLOTEST_TESTENGINE_SECRET hellotest-testengine-dev-secret)}"
   TESTENGINE_SHARED_SECRET="${TESTENGINE_SHARED_SECRET:-$HELLOTEST_TESTENGINE_SECRET}"
   MOBILE_ENGINE_SHARED_SECRET="${MOBILE_ENGINE_SHARED_SECRET:-$(secure_default MOBILE_ENGINE_SHARED_SECRET hellotest-mobile-engine-dev-secret)}"
@@ -325,6 +329,14 @@ resolve_defaults() {
 }
 
 write_env_file() {
+  # Read retained MCP settings before the generated file is opened for writing.
+  for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
+    mcp_value="$(printenv "$mcp_setting" || true)"
+    if [ -z "$mcp_value" ]; then
+      mcp_value="$(generated_env_value "$mcp_setting" || true)"
+    fi
+    export "$mcp_setting=$mcp_value"
+  done
   mkdir -p "$ENV_DIR"
   chmod 700 "$ENV_DIR"
   RESOLVED_ENV_FILE="$ENV_DIR/${STACK}.env"
@@ -348,6 +360,13 @@ write_env_file() {
     printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
     printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
     printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+    printf 'WORKFLOW_CREDENTIAL_KEY=%s\n' "$WORKFLOW_CREDENTIAL_KEY"
+    for mcp_setting in HELLOTEST_MCP_PUBLIC_URL HELLOTEST_MCP_ALLOWED_HOSTS HELLOTEST_MCP_SIGNING_KEY HELLOTEST_MCP_DATABASE_URL HELLOTEST_MCP_MAX_CONCURRENT; do
+      mcp_value="$(printenv "$mcp_setting" || true)"
+      if [ -n "$mcp_value" ]; then
+        printf '%s=%s\n' "$mcp_setting" "$mcp_value"
+      fi
+    done
     printf 'CORS_ORIGIN=%s\n' "$CORS_ORIGIN"
     printf 'HELLOTEST_TESTENGINE_SECRET=%s\n' "$HELLOTEST_TESTENGINE_SECRET"
     printf 'TESTENGINE_SHARED_SECRET=%s\n' "$TESTENGINE_SHARED_SECRET"

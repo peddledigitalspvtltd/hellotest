@@ -11,6 +11,7 @@ const next={version:1,generated_from:'services/*/package.json#hellotest',depende
 for(const name of ordered) {
  const pkg=JSON.parse(readFileSync(resolve(root,'services',name,'package.json'),'utf8'));
  if(pkg.name!==`@hellotest/${name}`||pkg.hellotest?.id!==name)throw new Error(`Invalid capability package: ${name}`);
+ if(pkg.hellotest.kind==='infrastructure')continue;
  next.dependencies[name]=pkg.hellotest.requires;
  for(const dependency of next.dependencies[name])if(!names.includes(dependency))throw new Error(`Unknown required capability: ${dependency}`);
  for(const feature of pkg.hellotest.features) {

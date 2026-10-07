@@ -1,0 +1,33 @@
+{
+  "name": "@hellotest/mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HelloTest MCP transport and permission-aware context backplane, mounted by the API",
+  "files": [
+    "backend",
+    "package.json"
+  ],
+  "exports": {
+    "./backend/plugin": "./backend/plugin.js",
+    "./backend/server": "./backend/mcpServer.js",
+    "./backend/auth": "./backend/auth.js",
+    "./backend/gateway": "./backend/gateway.js",
+    "./backend/registry": "./backend/registry.js",
+    "./backend/schema": "./backend/mcpSchema.js"
+  },
+  "scripts": {
+    "test": "node --test test/backend/*.test.js"
+  },
+  "hellotest": {
+    "id": "mcp",
+    "kind": "infrastructure"
+  },
+  "dependencies": {
+    "@hellotest/platform": "^1.0.0",
+    "@hellotest/knowledge": "^1.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
+    "fastify-plugin": "^6.0.0",
+    "zod": "4.3.6",
+    "ajv": "8.20.0"
+  }
+}

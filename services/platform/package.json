@@ -186,9 +186,9 @@
     "./backend/src/utils/requireAiAssessment": "./backend/src/utils/requireAiAssessment.js",
     "./backend/src/utils/llmTraceContext": "./backend/src/utils/llmTraceContext.js",
     "./backend/src/db/schemaReadiness": "./backend/src/db/schemaReadiness.js",
-    "./backend/src/mcp/gateway": "./backend/src/mcp/gateway.js",
-    "./backend/src/mcp/server": "./backend/src/mcp/mcpServer.js",
-    "./backend/src/mcp/auth": "./backend/src/mcp/auth.js"
+    "./backend/src/db/createPostgresAdapter": "./backend/src/db/createPostgresAdapter.js",
+    "./backend/src/utils/token": "./backend/src/utils/token.js",
+    "./backend/src/security/permissions.catalog": "./backend/src/security/permissions.catalog.js"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs platform",
@@ -220,6 +220,7 @@
     "@hellotest/knowledge": "^1.0.0",
     "@hellotest/manual": "^1.0.0",
     "@hellotest/testing": "^1.0.0",
-    "@hellotest/trace": "^1.0.0"
+    "@hellotest/trace": "^1.0.0",
+    "@hellotest/mcp": "^1.0.0"
   }
 }

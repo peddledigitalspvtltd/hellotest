@@ -18,7 +18,7 @@ function literal(node){
 function rulesSchema(rules){const properties={},required=[];for(const [name,rule] of Object.entries(rules||{})){
  if(!rule||typeof rule!=='object')continue;
  const field={};if(rule.type)field.type=rule.type==='number'?'number':rule.type;
- for(const key of ['minLength','maxLength','minimum','maximum','enum'])if(rule[key]!==undefined)field[key]=rule[key];
+ for(const key of ['minLength','maxLength','minItems','minimum','maximum','enum'])if(rule[key]!==undefined)field[key]=rule[key];
  if(rule.items)field.items=typeof rule.items==='string'?{type:rule.items}:rule.items;
  if(rule.maxItems||rule.maxItem)field.maxItems=rule.maxItems||rule.maxItem;
  properties[name]=field;if(rule.required)required.push(name);
@@ -38,6 +38,6 @@ for(const service of readdirSync(resolve(root,'services'),{withFileTypes:true}).
  for(const name of names.filter(name=>name.endsWith('.js'))){const source=ts.createSourceFile(name,readFileSync(resolve(directory,name),'utf8'),ts.ScriptTarget.Latest,true);walk(source,source);}
 }
 const output=JSON.stringify({version:1,source:'Controller-declared validators; domain services enforce additional business rules.',schemas:Object.fromEntries(Object.entries(schemas).sort(([a],[b])=>a.localeCompare(b)))},null,2)+'\n';
-const target=resolve(root,'services/platform/backend/src/mcp/contracts.json');
+const target=resolve(root,'services/mcp/backend/contracts.json');
 if(process.argv.includes('--check')){if(readFileSync(target,'utf8')!==output)throw new Error('MCP contracts are stale. Run node scripts/build/mcp-contracts.mjs.');}else writeFileSync(target,output);
 console.log(`MCP contracts: ${Object.keys(schemas).length} validated controller schemas.`);

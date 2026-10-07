@@ -65,6 +65,10 @@ async function withServer(
         /text\/event-stream/i.test(incoming["content-type"] || "") &&
         Boolean(parseResponse(body, incoming["content-type"], id)),
     });
+    if (response.status === 401)
+      throw Object.assign(connections.fail("MCP authentication failed (HTTP 401). For HelloTest, create a fresh host credential in HelloTest → Connect & inspect and enter only the mcp1. token in the Bearer credential field. Login tokens and API keys are not MCP credentials.", 502), {code:"MCP_UNAUTHORIZED"});
+    if (response.status === 403)
+      throw Object.assign(connections.fail("MCP access denied (HTTP 403). Check the server's allowed hostname and Origin, and the credential user's project access.", 502), {code:"MCP_ACCESS_DENIED"});
     if (response.status < 200 || response.status >= 300)
       throw connections.fail(
         `MCP server returned HTTP ${response.status}. Check the connection.`,
@@ -152,8 +156,14 @@ const toolCatalog = tools => tools.map((tool) => ({
       ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       ...(tool.annotations ? { annotations: tool.annotations } : {}),
     }));
-const discover = input => input.connectionId === 'hellotest' ? Promise.resolve(require('@hellotest/platform/backend/src/mcp/server').toolDefinitions()) : withServer(input, async ({ tools }) => toolCatalog(tools));
-const inspect = input => withServer({ ...input, discoverAll: true }, async ({ tools, serverInfo, protocolVersion }) => ({ tools: toolCatalog(tools), serverInfo, protocolVersion, discovered_at: new Date().toISOString() }));
+const discover = input => input.connectionId === 'hellotest' ? Promise.resolve(require('@hellotest/mcp/backend/server').toolDefinitions()) : withServer(input, async ({ tools }) => toolCatalog(tools));
+const inspect = input => input.connectionId === 'hellotest' ? (async()=>{
+  if(!input.user?.id)throw connections.fail('Verified workflow user required.',403);
+  const server=require('@hellotest/mcp/backend/server');
+  const actor=await require('@hellotest/mcp/backend/auth').principal(input.user.id,input.projectId,'hellotest-workflow');
+  await server.callLocal(actor,'hellotest_capabilities',{limit:1},input.signal);
+  return {tools:server.toolDefinitions(),serverInfo:{name:'HelloTest',version:'1.0.0'},protocolVersion:'2026-07-28',discovered_at:new Date().toISOString()};
+ })() : withServer({ ...input, discoverAll: true }, async ({ tools, serverInfo, protocolVersion }) => ({ tools: toolCatalog(tools), serverInfo, protocolVersion, discovered_at: new Date().toISOString() }));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const schemaHash = tool => createHash("sha256").update(JSON.stringify(canonical({ name: tool.name, inputSchema: tool.inputSchema, outputSchema: tool.outputSchema || null, annotations: tool.annotations || {} }))).digest("hex");
 function compileSchema(schema, label) {
@@ -163,10 +173,10 @@ function compileSchema(schema, label) {
 const call = (input, name, args) => {
   if(input.connectionId === 'hellotest') return (async()=>{
     if(!input.user?.id)throw connections.fail('Verified workflow user required.',403);
-    const server=require('@hellotest/platform/backend/src/mcp/server');
+    const server=require('@hellotest/mcp/backend/server');
     const tool=server.toolDefinitions().find(item=>item.name===name);
     if(!tool||input.expectedToolHash&&schemaHash(tool)!==input.expectedToolHash)throw connections.fail('Built-in tool changed or unavailable. Review the workflow.',409);
-    const actor=await require('@hellotest/platform/backend/src/mcp/auth').principal(input.user.id,input.projectId,'hellotest-workflow');
+    const actor=await require('@hellotest/mcp/backend/auth').principal(input.user.id,input.projectId,'hellotest-workflow');
     const data=await server.callLocal(actor,name,args,input.signal);
     return {tool:name,data,content:[JSON.stringify(data)],schema_hash:schemaHash(tool),protocol_version:'2026-07-28',postcondition_verified:false};
   })();

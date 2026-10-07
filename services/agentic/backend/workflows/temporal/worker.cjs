@@ -6,7 +6,7 @@ async function main() {
   if (!control.enabled()) throw new Error('Set TEMPORAL_ADDRESS before starting the durable agent worker.');
   await require('@hellotest/platform/backend/src/db/schemaReadiness').verifySchema(db,'main');
   process.env.HELLOTEST_MCP_INTERNAL_URL ||= process.env.HELLOTEST_MCP_PUBLIC_URL || 'http://api:3000/mcp';
-  const mcp = require('@hellotest/platform/backend/src/mcp/server');
+  const mcp = require('@hellotest/mcp/backend/server');
   const connection = await NativeConnection.connect(require('./connection').connectionOptions());
   const worker = await Worker.create({ connection, namespace:process.env.TEMPORAL_NAMESPACE || 'default', taskQueue:control.queue(),
     workflowsPath:require.resolve('./workflows'), activities:require('./activities'), maxConcurrentActivityTaskExecutions:2,

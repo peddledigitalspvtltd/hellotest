@@ -1,8 +1,8 @@
 // Trusted composition-root configuration for a separate durable worker.
 // The model cannot choose this endpoint or forward an application credential.
 const {issue,fail}=require('./auth');
-const db=require('../db');
-const {readBoundedResponseJson}=require('../utils/boundedResponse');
+const db=require('@hellotest/platform/backend/src/db');
+const {readBoundedResponseJson}=require('@hellotest/platform/backend/src/utils/boundedResponse');
 async function call(actor,name,args,signal){
  const url=new URL(process.env.HELLOTEST_MCP_INTERNAL_URL);
  if(!['http:','https:'].includes(url.protocol)||url.username||url.password||url.search||url.hash||!url.pathname.endsWith('/mcp'))throw fail('Configure a fixed internal MCP endpoint.',500,'MCP_CONFIGURATION');

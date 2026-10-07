@@ -10,7 +10,7 @@ const permissions = require("../services/permission.service");
 const projects = require("../services/project.service");
 const llmSelection = require("../../../integration/backend/services/aiLlmSelection.service");
 
-const gateway = require("../src/mcp/gateway");
+const gateway = require("@hellotest/mcp/backend/gateway");
 const retrieval = require("../../../knowledge/backend/services/knowledgeRetrieval.service");
 
 const fixture = async (task) => {

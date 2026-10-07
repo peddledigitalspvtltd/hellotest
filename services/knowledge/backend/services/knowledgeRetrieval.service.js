@@ -213,7 +213,9 @@ const assessEvidenceSufficiency = (hits = [], { contextRoute, question } = {}) =
   };
 };
 
-const retrieveContext = ({ request, user, history, smartContext, integration, intentPlan }) => contextEngine.retrieve({
+const retrieveContext = ({ request, user, history, smartContext, integration, intentPlan, signal }) => execution.run({
+  ...execution.current(), signal: signal && execution.current()?.signal ? AbortSignal.any([signal,execution.current().signal]) : signal || execution.current()?.signal
+}, () => contextEngine.retrieve({
   request, user, history, smartContext, integration, intentPlan,
   dependencies: {
     search: runRagSearchBatch, liveEvidence: aiContextOrchestrator.buildLiveProjectEvidence,
@@ -224,7 +226,7 @@ const retrieveContext = ({ request, user, history, smartContext, integration, in
     authorize: (hits, { signal } = {}) => authorizeFreshEvidence({ projectId: request.project_id, user, hits, asOf: request.filters?.as_of, signal }),
     expandParents: knowledgeRagService.expandEvidence, expandRelationships: knowledgeRagService.expandRelationships
   }
-});
+}));
 
 const runRagSearchBatch = async ({ queries, projectId, filters, integrationId, user, signal, timeoutMs, maxCandidates, mode = "hybrid" }) => {
   try {
@@ -273,7 +275,7 @@ const retrieveDirect = (input) => execution.run({ signal: input.signal || execut
   return result.packet;
 });
 
-const retrieve = (input) => require("@hellotest/platform/backend/src/mcp/gateway").retrievePacket(input);
+const retrieve = (input) => require("@hellotest/mcp/backend/gateway").retrievePacket(input);
 
 // Adapt one authorized packet for existing search consumers without losing citation identity.
 const retrieveSearch = async input => {

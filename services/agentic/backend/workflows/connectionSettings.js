@@ -60,6 +60,10 @@ function normalize(input, previous = {}) {
   if (!["none", "bearer", "basic", "header"].includes(authType)) throw fail("Choose a supported authentication method.");
   if (!/^[A-Za-z0-9-]+$/.test(header) || /^(host|connection|content-length|transfer-encoding|cookie|set-cookie|accept|content-type|mcp-session-id|mcp-protocol-version|proxy-authorization)$/i.test(header)) throw fail("Choose a valid credential header.");
   const secretEnv = String(input.secretEnv || "").trim();
+  if (authType === "bearer" && typeof input.secret === "string") {
+    input = {...input, secret: input.secret.trim()};
+    if (/^Bearer\s/i.test(input.secret)) throw fail("Enter only the token in the Bearer credential field; the Authorization prefix is added automatically.");
+  }
   if (secretEnv && !/^AGENTIC_SECRET_[A-Z0-9_]+$/.test(secretEnv)) throw fail("Secret environment references must begin with AGENTIC_SECRET_.");
   if (input.secret && (typeof input.secret !== "string" || input.secret.length > 8192 || /[\r\n]/.test(input.secret))) throw fail("Use a credential up to 8 KB without line breaks.");
   if (input.secret && secretEnv) throw fail("Choose a saved credential or an environment reference.");

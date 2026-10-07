@@ -35,7 +35,7 @@
     "doctor": "node scripts/dev/doctor.mjs",
     "build:minio": "sh scripts/build/minio.sh",
     "check:mcp": "node scripts/build/mcp-contracts.mjs --check",
-    "test:mcp": "node --test services/platform/backend/test/mcpServer.test.js services/platform/backend/test/mcpGateway.test.js",
+    "test:mcp": "npm test --workspace @hellotest/mcp",
     "test:mcp:postgres": "node scripts/checks/test-mcp-postgres.mjs",
     "test:product-ux": "node scripts/checks/test-product-experience.mjs"
   },

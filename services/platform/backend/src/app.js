@@ -101,7 +101,7 @@ fastify.register(require("./plugins/observability"));
 fastify.register(require("./plugins/validator"));
 fastify.register(require("./plugins/accessControl"));
 fastify.register(require("./plugins/capabilityUi"));
-fastify.register(require("./plugins/mcp"));
+fastify.register(require("@hellotest/mcp/backend/plugin"));
 fastify.register(require("./routes"));
 fastify.addHook("onReady", async function bootstrapRuntime() {
   const ownsAdministration = routeEnabled({ service: "platform" });

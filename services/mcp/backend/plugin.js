@@ -1,15 +1,19 @@
 const fp=require('fastify-plugin');
-const db=require('../db');
-const registry=require('../mcp/registry');
-const auth=require('../mcp/auth');
-const backplane=require('../mcp/backplane');
+const db=require('@hellotest/platform/backend/src/db');
+const registry=require('./registry');
+const auth=require('./auth');
+const backplane=require('./backplane');
 module.exports=fp(async function mcpPlugin(app){
  backplane.configure(app);
  app.addHook('onRoute',registry.register);
- const {handler,tools}=require('../mcp/mcpServer');
+ const {handler,tools}=require('./mcpServer');
  const publicUrl=process.env.HELLOTEST_MCP_PUBLIC_URL;
  if(process.env.HELLOTEST_MCP_SIGNING_KEY&&Buffer.byteLength(process.env.HELLOTEST_MCP_SIGNING_KEY)<32)throw new Error('HELLOTEST_MCP_SIGNING_KEY must contain at least 32 bytes.');
- if(publicUrl&&(!/^https:\/\//.test(publicUrl)&&process.env.NODE_ENV==='production'))throw new Error('HELLOTEST_MCP_PUBLIC_URL must use HTTPS in production.');
+ if(publicUrl){
+  const endpoint=new URL(publicUrl);
+  if(!['http:','https:'].includes(endpoint.protocol)||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||!endpoint.pathname.endsWith('/mcp'))throw new Error('HELLOTEST_MCP_PUBLIC_URL must be an HTTP(S) MCP endpoint without credentials, query or fragment.');
+  if(endpoint.protocol!=='https:'&&process.env.NODE_ENV==='production')throw new Error('HELLOTEST_MCP_PUBLIC_URL must use HTTPS in production.');
+ }
  const hosts=new Set((process.env.HELLOTEST_MCP_ALLOWED_HOSTS||'localhost,127.0.0.1,api,hellotest-local-api').split(',').map(value=>value.trim()));
  if(publicUrl)hosts.add(new URL(publicUrl).hostname);
  const origins=new Set((process.env.CORS_ORIGIN||'http://localhost:8080,http://localhost:5173').split(',').map(value=>value.trim()));
@@ -18,11 +22,9 @@ module.exports=fp(async function mcpPlugin(app){
   if(!hosts.has(req.hostname)||req.headers.origin&&!origins.has(req.headers.origin))return reply.code(403).send({error:'MCP origin or host denied.'});
   if(req.method!=='POST')return reply.code(405).header('Allow','POST').send({error:'This stateless MCP endpoint accepts POST only.'});
   if(inFlight>=capacity)return reply.code(429).header('Retry-After','2').send({error:'MCP capacity reached.'});
-  let actor;try{actor=await auth.authenticate(/^Bearer (.+)$/i.exec(req.headers.authorization||'')?.[1]);}catch(error){return reply.code(error.statusCode||401).header('WWW-Authenticate','Bearer realm="HelloTest MCP"').send({error:error.publicMessage||'MCP authentication required.'});}
-  // Authentication awaits database reads; check again before claiming capacity.
-  if(inFlight>=capacity)return reply.code(429).header('Retry-After','2').send({error:'MCP capacity reached.'});
   inFlight++;const controller=new AbortController();const disconnected=()=>{if(!reply.raw.writableEnded)controller.abort();};req.raw.once('aborted',disconnected);reply.raw.once('close',disconnected);
   try{
+  let actor;try{actor=await auth.authenticate(/^Bearer\s+([^\s]+)\s*$/i.exec(req.headers.authorization||'')?.[1]);}catch(error){return reply.code(error.statusCode||401).header('WWW-Authenticate','Bearer realm="HelloTest MCP"').send({code:error.code||'MCP_UNAUTHORIZED',error:error.publicMessage||'MCP authentication required.'});}
    const headers=new Headers();for(const [name,value] of Object.entries(req.headers))if(typeof value==='string'&&!['content-length','host'].includes(name))headers.set(name,value);
    const response=await handler.fetch(new Request(publicUrl||'http://localhost/mcp',{method:'POST',headers,body:JSON.stringify(req.body),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(30000)])}),{authInfo:{token:'verified-resource-credential',clientId:actor.clientId,scopes:[],extra:{actor}}});
    reply.code(response.status);for(const [name,value] of response.headers)if(!['content-length','transfer-encoding'].includes(name))reply.header(name,value);
@@ -33,6 +35,14 @@ module.exports=fp(async function mcpPlugin(app){
  app.get('/agentic-workflows/mcp/server',async(req)=>{
   const actor=await access(req,req.query.project_id);await auth.permit(actor,'project.view');
   return {id:'hellotest',name:'HelloTest',builtin:true,transport:'streamable-http',protocol_versions:['2026-07-28','2025-11-25','2025-06-18','2025-03-26'],endpoint:publicUrl||'/api/mcp',tools:Object.entries(tools).map(([name,item])=>({name,description:item.description,read_only:!item.write})),catalog_revision:registry.revision(),operation_count:registry.all().length,authentication:'Project-bound, revocable MCP credentials. OAuth federation requires deployment identity configuration.'};
+ });
+ app.get('/agentic-workflows/mcp/status',async(req,reply)=>{
+  reply.header('Cache-Control','no-store');
+  return require('./mcpDeadline').withDeadline(async signal=>{
+   const actor=await access(req,req.query.project_id);
+   const tools=await require('./mcpServer').inspectLocal(actor,signal);
+   return {status:'connected',transport:'streamable-http',protocol_version:'2026-07-28',tool_count:tools.length,catalog_revision:registry.revision(),checked_at:new Date().toISOString()};
+  },{timeoutMs:8000,timeoutMessage:'The built-in MCP status check timed out. Retry.'});
  });
  app.get('/agentic-workflows/mcp/credentials',async(req)=>{const actor=await access(req,req.query.project_id);return db.prepare('SELECT id,client_id,expires_at,revoked_at,created_at FROM mcp_credentials WHERE user_id=? AND project_id=? ORDER BY created_at DESC LIMIT 50').all(actor.user.id,actor.projectId);});
  app.post('/agentic-workflows/mcp/credentials',async(req,reply)=>{const actor=await access(req,req.body?.project_id);const client=String(req.body?.client_id||'external-host');if(!/^[A-Za-z0-9._ -]{1,80}$/.test(client))throw auth.fail('Enter a valid host label.',400);reply.header("Cache-Control","no-store");return auth.issue(actor.user,actor.projectId,client+'-'+require('node:crypto').randomUUID());});
@@ -49,5 +59,5 @@ module.exports=fp(async function mcpPlugin(app){
    return {plan_id:row.id,state:'authorized',digest:row.digest};
   })();
  });
- app.addHook('onClose',async()=>{await handler.close();await require('../mcp/readDatabase').close();});
+ app.addHook('onClose',async()=>{await handler.close();await require('./readDatabase').close();});
 });

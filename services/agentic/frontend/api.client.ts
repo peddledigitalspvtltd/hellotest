@@ -19,6 +19,7 @@ type AgenticApiAgentTestInput = {
 
 export const agenticApi = {
   mcp: {
+    status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
     server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;tools:Array<{name:string;description:string;read_only:boolean}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
     credentials: (projectId:string) => request<Array<{id:string;client_id:string;expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
     issue: (projectId:string) => request<{id:string;token:string;expires_at:string}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host"})}),

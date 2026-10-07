@@ -1,21 +1,23 @@
 const { createHmac, randomUUID, timingSafeEqual } = require('node:crypto');
-const { resolveSessionSecret } = require('../security/runtimeSecrets');
-const db = require('../db');
-const projectService = require('../../public/projectAccess');
-const permissionService = require('../../services/permission.service');
+const { resolveSessionSecret } = require('@hellotest/platform/backend/src/security/runtimeSecrets');
+const db = require('@hellotest/platform/backend/src/db');
+const projectService = require('@hellotest/platform/backend/public/projectAccess');
+const permissionService = require('@hellotest/platform/backend/services/permission.service');
 const fail = (message, statusCode = 403, code = 'MCP_ACCESS_DENIED') => Object.assign(new Error(message), { statusCode, code, publicMessage: message });
 const key = () => process.env.HELLOTEST_MCP_SIGNING_KEY || createHmac('sha256', resolveSessionSecret()).update('hellotest-mcp-resource-v1').digest('base64');
 const sign = encoded => createHmac('sha256', key()).update(encoded).digest('base64url');
 async function principal(userId, projectId, clientId = 'hellotest-internal') {
  if(typeof userId!=='string'||!userId||typeof projectId!=='string'||!projectId||typeof clientId!=='string'||!clientId)throw fail('Verified user and project scope are required.',400,'MCP_INVALID_SCOPE');
- const user = await require('../../services/user.service').getUser(userId);
+ const user = await require('@hellotest/platform/backend/services/user.service').getUser(userId);
  if (!user || !['active', 'enabled'].includes(user.status || 'active')) throw fail('This account is unavailable.');
  await projectService.getProject(projectId, user.id);
  return { user, projectId, clientId };
 }
 async function permit(actor, permission) {
- await projectService.getProject(actor.projectId, actor.user.id);
- const flags=require('../../services/featureFlag.service');
+ // Internal callers also need fresh account state; a cached actor is not authority.
+ const current = await principal(actor.user.id, actor.projectId, actor.clientId);
+ actor.user = current.user;
+ const flags=require('@hellotest/platform/backend/services/featureFlag.service');
  const required=flags.getFeatureKeysForPermission(permission);
  if(required.length && !await flags.areEnabled(required,{user:actor.user}))throw fail('This feature is disabled.',403,'FEATURE_DISABLED');
  if (!(await permissionService.hasPermission(actor.user, permission, actor.projectId))) throw fail(`Permission required: ${permission}`);
@@ -30,7 +32,7 @@ async function issue(user, projectId, clientId = 'external-host') {
  return { id, token: `mcp1.${encoded}.${sign(encoded)}`, expires_at: new Date(payload.exp*1000).toISOString(), audience: payload.aud };
 }
 function decode(token) {
- if (typeof token !== 'string' || token.length > 8192) throw fail('Invalid MCP credential.',401,'MCP_UNAUTHORIZED');
+ if (typeof token !== 'string' || token.length > 8192) throw fail('Use a HelloTest MCP host credential created in Connect & inspect.',401,'MCP_UNAUTHORIZED');
  const [prefix,encoded,signature,extra] = token.split('.');
  const expected = encoded ? sign(encoded) : '';
  if(prefix !== 'mcp1' || extra || !signature || Buffer.byteLength(signature) !== Buffer.byteLength(expected) || !timingSafeEqual(Buffer.from(signature),Buffer.from(expected))) throw fail('Invalid MCP credential.',401,'MCP_UNAUTHORIZED');

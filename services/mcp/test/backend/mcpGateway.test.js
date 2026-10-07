@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module');
-const filename=path.resolve(__dirname,'../src/mcp/gateway.js'),original=createRequire(filename),traces=original('../utils/llmTraceContext');
+const filename=path.resolve(__dirname,'../../backend/gateway.js'),original=createRequire(filename),traces=original('@hellotest/platform/backend/src/utils/llmTraceContext');
 function gateway(callLocal){const module={exports:{}};new Function('require','module','exports',fs.readFileSync(filename,'utf8'))(id=>id==='./auth'?{principal:async(userId,projectId)=>({user:{id:userId},projectId})}:id==='./server'?{callLocal}:original(id),module,module.exports);module.exports.installTransport(callLocal);return module.exports;}
 const request=question=>({body:JSON.stringify({messages:[{role:'system',content:'Trusted system policy'},{role:'user',content:question}]})});
 test('shared AI gateway keeps simultaneous actor/project contexts isolated and preserves provenance',async()=>{
@@ -27,7 +27,7 @@ test('invalid or foreign-project MCP context fails closed for chatbot, Smart Con
 });
 
 test('project-bound AI feature operations always use authenticated MCP context with the selected model', async () => {
- const operations = ['ai.story.create','ai.story.complete','ai.case.generate','ai.case.improve','ai.defect.report','ai.defect.improve','ai.run.smart','ai.defect.triage','agent.review','chat.assistance'];
+ const operations = ['ai.story.create','ai.story.complete','case-authoring.generate','case-authoring.step-rephrase','bug-draft.generate','bug-triage.refine-category','rich-text.rephrase','test-data.synthetic','automation.generate','execution-planning.generate','execution-analysis.generate','execution-report.generate','quality-dashboard.generate','quality-assurance.test_case','agentic-assistant.respond','agentic-quality.plan','agent.review','chat.assistance'];
  const previous = process.env.HELLOTEST_MCP_AI_CONTEXT; process.env.HELLOTEST_MCP_AI_CONTEXT = 'false';
  const calls = [];
  const instance = gateway(async (actor, name, args) => {
@@ -44,4 +44,37 @@ test('project-bound AI feature operations always use authenticated MCP context w
   assert.equal(calls.length,operations.length);
   calls.forEach(call => {assert.equal(call.actor.user.id,'reviewer');assert.equal(call.actor.projectId,'project');assert.equal(call.name,'hellotest_context_build');assert.equal(call.args.integration_id,'selected-model');});
  } finally { if(previous === undefined) delete process.env.HELLOTEST_MCP_AI_CONTEXT; else process.env.HELLOTEST_MCP_AI_CONTEXT=previous; }
+});
+
+test('image authoring requests retrieve MCP evidence from text while preserving images and message order',async()=>{
+ let question;
+ const instance=gateway(async(_actor,_name,args)=>{question=args.question;return {packet:{project_id:'p',evidence:[{content:'Authorized image authoring evidence'}]}};});
+ const content=[{type:'text',text:'Generate checkout cases'},{type:'image_url',image_url:{url:'data:image/png;base64,private-image'}}];
+ const init={body:JSON.stringify({messages:[{role:'system',content:'policy'},{role:'user',content},{role:'assistant',content:'Draft'}]})};
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(init));
+ assert.match(question,/Generate checkout cases/);assert.ok(!question.includes('private-image'));
+ const messages=JSON.parse(result.body).messages;assert.match(messages[1].content,/Authorized image authoring evidence/);assert.deepEqual(messages[2].content,content);assert.equal(messages[3].content,'Draft');
+});
+
+test('a stalled MCP read returns a context gap within its budget and cancels the read',async()=>{
+ let signal;
+ const instance=gateway(async(_actor,_name,_args,activeSignal)=>{signal=activeSignal;return new Promise(()=>{});});
+ const result=await traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest(request('help'),{mcpContextTimeoutMs:20}));
+ assert.equal(signal.aborted,true);assert.match(JSON.parse(result.body).messages[1].content,/missing evidence as a gap/);
+});
+
+test('user cancellation stops enrichment instead of proceeding to the model with a gap',async()=>{
+ let entered;const started=new Promise(resolve=>entered=resolve);
+ const instance=gateway(async()=>{entered();return new Promise(()=>{});});
+ const controller=new AbortController();
+ const result=traces.run({actor_id:'a',project_id:'p'},()=>instance.enrichChatRequest({...request('help'),signal:controller.signal}));
+ await started;controller.abort();await assert.rejects(result,{name:'AbortError'});
+});
+
+test('background model integrations bind their verified identity without an ambient HTTP request or host token',async()=>{
+ const integration={id:'model'};traces.bindIntegration(integration,{userId:'worker-user',projectId:'worker-project',usageKey:'execution-report.generate'});
+ let called;
+ const instance=gateway(async actor=>{called=actor;return {packet:{project_id:actor.projectId,evidence:[{content:'Verified worker evidence'}]}};});
+ const result=await instance.enrichChatRequest(request('Explain this execution'),{integration});
+ assert.equal(called.user.id,'worker-user');assert.equal(called.projectId,'worker-project');assert.match(result.body,/Verified worker evidence/);
 });

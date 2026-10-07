@@ -231,3 +231,25 @@ test('draft discovery requires integration management and project access before 
   assert.equal((await fastify.inject({method:'POST',url,payload:{...input(),connection_id:'missing'}})).statusCode,404);
   assert.equal(inspect.mock.callCount(),1);
 });
+
+test('Bearer credentials trim copy whitespace and reject duplicated authorization prefixes',async t=>{
+ const rows=setup(t);
+ const saved=await settings.save({...input(),secret:'  mcp1.test.signature  '},null,'admin');
+ assert.equal(settings.credential(rows.get(saved.id)),'mcp1.test.signature');
+ await assert.rejects(settings.preview({...input(),secret:'Bearer mcp1.test.signature'}),/only the token/);
+});
+
+test('MCP authentication diagnostics explain remediation without echoing remote secrets',async t=>{
+ setup(t);
+ for(const status of [401,403]){
+  const server=http.createServer((req,res)=>{req.resume();res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'private-upstream-token'}));});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+   const preview=await settings.preview({...input(),url:`http://127.0.0.1:${server.address().port}/mcp`,allowPrivateNetwork:true});
+   await assert.rejects(mcp.inspect({projectId:'p',draftConnection:preview}),error=>{
+    assert.match(error.message,new RegExp(`HTTP ${status}`));assert.ok(!error.message.includes('private-upstream-token'));
+    assert.equal(error.code,status===401?'MCP_UNAUTHORIZED':'MCP_ACCESS_DENIED');return true;
+   });
+  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+ }
+});

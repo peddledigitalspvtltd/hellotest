@@ -57,6 +57,7 @@
     "@hellotest/chatbot": "^1.0.0",
     "@hellotest/integration": "^1.0.0",
     "@hellotest/platform": "^1.0.0",
-    "@hellotest/testing": "^1.0.0"
+    "@hellotest/testing": "^1.0.0",
+    "@hellotest/mcp": "^1.0.0"
   }
 }

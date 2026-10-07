@@ -208,11 +208,29 @@ test("context retrieval accepts v1 compatibility spelling and forwards only serv
     });
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().context_packet_id, "packet-fixture");
-    assert.deepEqual(calls.retrieve.at(-1), {
+    const {signal,...retrievalInput}=calls.retrieve.at(-1);
+    assert.ok(signal instanceof AbortSignal);
+    assert.equal(signal.aborted,false);
+    assert.deepEqual(retrievalInput, {
       projectId: CONTEXT_BODY.project_id, appTypeId: undefined, query: CONTEXT_BODY.query,
       budgets: { max_candidate_documents: 10 }, filters: { asset_type: "Requirement" }, user: SERVER_USER
     });
   }
+});
+
+test("disconnecting during JSON Smart Context retrieval cancels its MCP-bound read",async t=>{
+  const {app}=await createFixture(t);
+  let notifyStarted,notifyAborted;
+  const started=new Promise(resolve=>notifyStarted=resolve);
+  const aborted=new Promise(resolve=>notifyAborted=resolve);
+  t.mock.method(knowledgeRetrievalService,'retrieve',async input=>{
+    notifyStarted();
+    return new Promise((_,reject)=>input.signal.addEventListener('abort',()=>{notifyAborted();reject(execution.abortError());},{once:true}));
+  });
+  const address=await app.listen({host:'127.0.0.1',port:0});
+  const request=http.request(`${address}/v1/context/retrieve`,{method:'POST',headers:{...AUTH_HEADERS,'Content-Type':'application/json'}});
+  request.on('error',()=>{});request.end(JSON.stringify(CONTEXT_BODY));
+  await started;request.destroy();await aborted;
 });
 
 test("an invalid response mode is rejected before creating either JSON or streamed turns", async (t) => {

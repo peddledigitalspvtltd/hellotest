@@ -23,6 +23,7 @@ RUN npm ci --prefix services/platform/backend --omit=dev --no-audit --no-fund &&
 
 COPY package.json package-lock.json ./
 COPY services/platform/package.json ./services/platform/package.json
+COPY services/mcp/package.json ./services/mcp/package.json
 COPY services/testing/package.json ./services/testing/package.json
 COPY services/knowledge/package.json ./services/knowledge/package.json
 COPY services/manual/package.json ./services/manual/package.json
@@ -37,6 +38,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 COPY --chown=node:node services/capabilities.json ./services/capabilities.json
 COPY --chown=node:node services/platform/backend ./services/platform/backend
+COPY --chown=node:node services/mcp/backend ./services/mcp/backend
 COPY --chown=node:node services/testing/backend ./services/testing/backend
 COPY --chown=node:node services/knowledge/backend ./services/knowledge/backend
 COPY --chown=node:node services/manual/backend ./services/manual/backend

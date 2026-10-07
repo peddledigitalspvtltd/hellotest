@@ -2,6 +2,7 @@ const db=require('./readDatabase');
 const {permit,fail}=require('./auth');
 const {bounded}=require('./backplane');
 const entities={
+ applications:{table:'app_types',permission:'app_type.view',scope:'t.project_id = ?',fields:['id','project_id','name','type','description','created_at','updated_at']},
  projects:{table:'projects',permission:'project.view',scope:'t.id = ?',fields:['id','name','description','status','updated_at']},
  requirements:{table:'requirements',permission:'requirement.view',scope:'t.project_id = ?',fields:['id','title','description','status','priority','updated_at']},
  test_cases:{table:'test_cases',permission:'testcase.view',scope:'EXISTS (SELECT 1 FROM app_types a WHERE a.id=t.app_type_id AND a.project_id=?)',fields:['id','app_type_id','title','status','priority','automation_status','revision','updated_at']},
@@ -18,7 +19,8 @@ async function schema(actor){
   try{await permit(actor,def.permission);}catch(error){if(error.statusCode===403)continue;throw error;}
   visible.push({entity:name,table:def.table,permission:def.permission,fields:await columns(def),isolation:'Verified principal and fixed project projection; no caller-supplied SQL or joins.'});
  }
- const knowledge=await require('../../services/permission.service').hasPermission(actor.user,'knowledge.view',actor.projectId);
+ let knowledge=false;
+ try{await permit(actor,'knowledge.view');knowledge=true;}catch(error){if(error.statusCode!==403)throw error;}
  return {database:'PostgreSQL',entities:visible,relationships:[{from:'test_cases.app_type_id',to:'app_types.id',scope:'app_types.project_id'},{from:'test_suites.app_type_id',to:'app_types.id',scope:'app_types.project_id'}].filter(rel=>visible.some(item=>rel.from.startsWith(item.entity+'.'))),knowledge:knowledge?{sources:'ai_knowledge_sources',versions:'ai_knowledge_documents',chunks:'ai_knowledge_chunks',access:'Use knowledge retrieval tools so source ACLs and versions are checked.'}:null,query_language:{filters:['eq','contains'],pagination:'offset and bounded limit',raw_sql:false}};
 }
 async function query(actor,{entity,fields,filters=[],limit=25,offset=0}){

@@ -1161,6 +1161,7 @@
           },
           "selected_test_case_ids": {
             "type": "array",
+            "minItems": 1,
             "items": {
               "type": "string"
             },
@@ -1721,7 +1722,18 @@
             "type": "string"
           },
           "query": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 8000
+          },
+          "intent_aware": {
+            "type": "boolean"
+          },
+          "integration_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "filters": {
+            "type": "object"
           }
         },
         "required": [
@@ -2383,6 +2395,7 @@
           },
           "rows": {
             "type": "array",
+            "minItems": 1,
             "maxItems": 10000
           }
         },
@@ -3318,6 +3331,7 @@
           },
           "requirement_ids": {
             "type": "array",
+            "minItems": 1,
             "items": {
               "type": "string"
             },

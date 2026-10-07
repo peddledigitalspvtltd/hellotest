@@ -29,7 +29,7 @@ async function configured() {
 const scoped = (connection, projectId) =>
   Array.isArray(connection.projectIds) &&
   connection.projectIds.includes(projectId);
-const builtin = projectId => ({id:'hellotest',name:'HelloTest',kind:'mcp',builtin:true,url:process.env.HELLOTEST_MCP_PUBLIC_URL||'http://api:3000/mcp',projectIds:[projectId],enabled:true,tools:require('@hellotest/platform/backend/src/mcp/server').toolDefinitions().map(tool=>tool.name),toolDefinitions:require('@hellotest/platform/backend/src/mcp/server').toolDefinitions(),transport:'streamable-http',protocolVersion:'2026-07-28',timeoutMs:30000,serverInfo:{name:'HelloTest',version:'1.0.0'}});
+const builtin = projectId => ({id:'hellotest',name:'HelloTest',kind:'mcp',builtin:true,url:process.env.HELLOTEST_MCP_PUBLIC_URL||'http://api:3000/mcp',projectIds:[projectId],enabled:true,tools:require('@hellotest/mcp/backend/server').toolDefinitions().map(tool=>tool.name),toolDefinitions:require('@hellotest/mcp/backend/server').toolDefinitions(),transport:'streamable-http',protocolVersion:'2026-07-28',timeoutMs:30000,serverInfo:{name:'HelloTest',version:'1.0.0'}});
 const list = async (projectId) =>
   [builtin(projectId),...(await configured())]
     .filter((row) => scoped(row, projectId))

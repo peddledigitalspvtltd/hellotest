@@ -13,6 +13,14 @@ const { parseJsonField, validateAppTypeScope, getIdempotencyKey, prepareKnowledg
 
 module.exports = async function (fastify) {
   const ensureProjectAccess = createProjectAccess(fastify);
+  const retrieveConnected = async (req,reply,input,search=false) => {
+    const controller=new AbortController();
+    const disconnect=()=>{if(!reply.raw.writableEnded)controller.abort();};
+    req.raw.once('aborted',disconnect);reply.raw.once('close',disconnect);
+    if(req.raw.aborted||reply.raw.destroyed)controller.abort();
+    try{return await knowledgeRetrievalService[search?'retrieveSearch':'retrieve']({...input,signal:controller.signal});}
+    finally{req.raw.removeListener('aborted',disconnect);reply.raw.removeListener('close',disconnect);}
+  };
   const refresh = require("../services/knowledgeRefresh.service");
   fastify.get("/projects/:project_id/knowledge/refresh", async req => {
     await fastify.authenticate(req);
@@ -183,16 +191,16 @@ module.exports = async function (fastify) {
     return accepted;
   });
 
-  fastify.post("/knowledge/search", async (req) => {
+  fastify.post("/knowledge/search", async (req,reply) => {
     await fastify.authenticate(req);
     fastify.validate({ project_id: { required: true, type: "string" }, query: { required: true, type: "string", maxLength: 8000 }, intent_aware: { required: false, type: "boolean" }, integration_id: { required: false, type: "string", maxLength: 255 }, filters: { required: false, type: "object" } }, req.body || {});
     await ensureProjectAccess(req, req.body.project_id, "knowledge.view");
     if (req.body.intent_aware === true) {
       await validateAppTypeScope(req.body.project_id, req.body.filters?.app_type_id);
-      return knowledgeRetrievalService.retrieveSearch({ projectId: req.body.project_id, query: req.body.query,
+      return retrieveConnected(req,reply,{ projectId: req.body.project_id, query: req.body.query,
         appTypeId: req.body.filters?.app_type_id, filters: req.body.filters, user: req.user,
         integrationId: req.body.integration_id, signal: execution.current()?.signal,
-        budgets: { max_evidence_items: Math.max(1, Math.min(20, Number(req.body.limit) || 16)), max_context_tokens: 6000, deadline_ms: 20000 } });
+        budgets: { max_evidence_items: Math.max(1, Math.min(20, Number(req.body.limit) || 16)), max_context_tokens: 6000, deadline_ms: 20000 } },true);
     }
     return knowledgeRagService.search({
       projectId: req.body.project_id,
@@ -328,7 +336,7 @@ module.exports = async function (fastify) {
     return { projectId: req.body.project_id, appTypeId, query: req.body.query, filters: req.body.filters, budgets: req.body.budgets, user: req.user };
   });
 
-  fastify.post("/v1/context/retrieve", async (req, reply) => knowledgeRetrievalService.retrieve(await prepareContext(req, reply)));
+  fastify.post("/v1/context/retrieve", async (req, reply) => retrieveConnected(req,reply,await prepareContext(req, reply)));
 
   fastify.post("/v1/context/retrieve-stream", async (req, reply) => {
     const input = await prepareContext(req, reply);

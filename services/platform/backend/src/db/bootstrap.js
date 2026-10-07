@@ -35,7 +35,7 @@ const permissionSeedValues = PERMISSIONS
   .join(",\n      ");
 
 const statements = [
-  ...require("../mcp/mcpSchema"),
+  ...require("@hellotest/mcp/backend/schema"),
   ...require("../obsDb/llmTraceSchema"),
   ...require('@hellotest/agentic/backend/agents/schema'),
   ...require('./projectDeletionSchema'),
