@@ -11,7 +11,7 @@ async function verifyHelloTestFeatureSamples(db, actorId) {
   const releases = await db.prepare("SELECT * FROM requirement_releases WHERE project_id='sample-project' AND id LIKE 'sample-v3-ht-release-%' ORDER BY id").all();
   const links = await db.prepare("SELECT * FROM requirement_release_items WHERE requirement_id LIKE 'sample-v3-feature-%'").all();
   const relations = await db.prepare("SELECT * FROM requirement_relations WHERE requirement_id LIKE 'sample-v3-feature-%'").all();
-  assert.equal(stories.length, 59);
+  assert.equal(stories.length, blueprint.features.length);
   assert.equal(sprints.length, 7);
   assert.equal(releases.length, 3);
   assert.equal(stories.filter(story => story.iteration_id === null && story.sprint === null).length, 10, 'Ten stories remain in the unscheduled backlog');
@@ -95,7 +95,7 @@ async function verifyHelloTestFeatureSamples(db, actorId) {
   assert.equal(transaction.project_id, 'sample-project');
   assert.equal(transaction.created_by, actorId);
   assert.equal(transaction.metadata.sample, true);
-  assert.equal(transaction.metadata.feature_count, 59);
+  assert.equal(transaction.metadata.feature_count, blueprint.features.length);
   const artifactList = await transactionService.listTransactionArtifacts(transaction.id);
   assert.equal(artifactList.length, 2, 'Both reusable artifacts are available through the native activity download service');
   const jsonArtifact = await transactionService.getTransactionArtifact('sample-v3-artifact-hellotest-json');

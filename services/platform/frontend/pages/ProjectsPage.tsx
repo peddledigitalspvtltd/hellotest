@@ -2347,9 +2347,9 @@ export function ProjectsPage() {
       <PageHeader
         className={["projects-page-header", focusedProject ? "page-header--workspace-context" : ""].filter(Boolean).join(" ")}
         eyebrow="Portfolio"
-        title="Projects"
+        title="Project Overview"
         description="Create and govern project workspaces, application scope, membership, traceability, and portfolio quality from one place."
-        textAside={!focusedProject && portfolioAnalyticsQuery.data ? (
+        actions={!focusedProject && portfolioAnalyticsQuery.data ? (
           <section className="projects-command-card projects-command-card--evidence" aria-label="Portfolio health evidence">
             <div className="projects-command-insight">
               <EvidenceFlipCard
@@ -3453,7 +3453,6 @@ export function ProjectsPage() {
                           <FormField label="Platform Type">
                             <AppTypeDropdown
                               ariaLabel={`Select platform type for application ${index + 1}`}
-                              inlineMenu
                               onChange={(value) => updateProjectAppType(appType.id, {
                                 type: value as AppType["type"],
                                 is_unified: value === "unified"

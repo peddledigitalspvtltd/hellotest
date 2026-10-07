@@ -223,3 +223,29 @@ test("import progress is limited to the creating user and project", async t => {
   const response=await app.inject({method:'GET',url:'/feedback/imports/own?project_id=project-a',headers});
   assert.equal(response.statusCode,200,response.body);assert.equal(response.json().metadata.progress_percent,50);
 });
+
+test("Defect improvement previews enforce target permissions and allow only selected Test Case context", async (t) => {
+  const { app, grants, writes, previews } = await fixture(t, { permissions: ["feedback.view", "feedback.manage", "testcase.view"] });
+  const input = { project_id: "project-a", issue_id: "existing-bug", intent: "Improve checkout Defect", evidence: "Recorded payment failure", linked_test_case_ids: ["case-a"], linked_test_run_id: "ignored-run", linked_requirement_ids: ["ignored-story"] };
+  for (const base of ["/issues", "/feedback"]) {
+    const response = await app.inject({ method: "POST", url: base + "/ai-improve-preview", headers, payload: input });
+    assert.equal(response.statusCode, 200, response.body);
+  }
+  assert.equal(previews.length, 2);
+  assert.deepEqual(previews[0].linked_test_case_ids, ["case-a"]);
+  assert.equal(previews[0].linked_test_run_id, undefined);
+  assert.equal(previews[0].linked_requirement_ids, undefined);
+  assert.equal(previews[0].user.id, reporter.id);
+  assert.equal(previews[0].require_case_context, true);
+  const request = payload => app.inject({ method: "POST", url: "/feedback/ai-improve-preview", headers, payload });
+  assert.equal((await request({ ...input, issue_id: "foreign-bug" })).statusCode, 403);
+  assert.equal((await request({ ...input, linked_test_case_ids: [] })).statusCode, 400);
+  assert.equal((await request({ ...input, linked_test_case_ids: Array.from({length:11},(_,index)=>`case-${index}`) })).statusCode, 400);
+  assert.equal((await request({ ...input, evidence: "x".repeat(12001) })).statusCode, 400);
+  grants.delete("testcase.view"); assert.equal((await request(input)).statusCode, 403);
+  grants.add("testcase.view"); grants.delete("feedback.manage"); assert.equal((await request(input)).statusCode, 403);
+  grants.add("feedback.create"); const unsaved = { ...input }; delete unsaved.issue_id;
+  assert.equal((await request(unsaved)).statusCode, 200);
+  assert.equal((await request(input)).statusCode, 403, "Creation permission cannot improve a saved Defect");
+  assert.deepEqual(writes, [], "Improvement never writes until the normal reviewed form is saved");
+});

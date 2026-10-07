@@ -2049,7 +2049,7 @@ export function DesignPage() {
       {confirmationDialog}
       <PageHeader
         className={selectedSuiteId ? "page-header--workspace-context" : ""}
-        eyebrow="Test Authoring"
+        eyebrow="Test Plan"
         title="Test Suites"
         description="Organize executable coverage into reusable Suites, manage linked Test Cases, and keep run handoff governed and ready."
         meta={[
@@ -2873,19 +2873,6 @@ function TestCaseList({
 
     return (
       <div className="suite-module-group-header">
-        <button
-          aria-expanded={isExpanded}
-          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${module.name}`}
-          className="ghost-button compact module-toggle-button"
-          onClick={() => toggleModuleGroup(module.name)}
-          type="button"
-        >
-          <CollapseExpandIcon isExpanded={isExpanded} />
-        </button>
-        <span className="suite-module-group-icon"><ModuleIcon /></span>
-        <span className="suite-module-group-copy">
-          <strong>{module.name}</strong>
-          <small>{module.count} cases · {module.automated} automated · {module.withRequirements} traced</small>
           {options.includeSelection && canUnlinkCases ? (
             <label className="data-table-header-checkbox" onClick={(event) => event.stopPropagation()}>
               <input
@@ -2901,6 +2888,20 @@ function TestCaseList({
               />
             </label>
           ) : null}
+        <button
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${module.name}`}
+          className="ghost-button compact module-toggle-button"
+          onClick={() => toggleModuleGroup(module.name)}
+          type="button"
+        >
+          <CollapseExpandIcon isExpanded={isExpanded} />
+        </button>
+        <span className="suite-module-group-icon"><ModuleIcon /></span>
+        <span className="suite-module-group-copy">
+          <strong>{module.name}</strong>
+          <small>{module.count} cases · {module.automated} automated · {module.withRequirements} traced</small>
+
         </span>
         {selectedSuite ? (
           <span className="suite-module-group-actions" role="group" aria-label={`Actions for ${module.name}`}>

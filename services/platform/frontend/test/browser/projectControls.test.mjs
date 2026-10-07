@@ -6,9 +6,9 @@ import { createRequire } from 'node:module';
 const require = createRequire(new URL('../../../../../testengine/backend/package.json', import.meta.url));
 const { chromium } = require('playwright');
 const root = new URL('../../', import.meta.url);
-const source = await readFile(new URL('projectMetrics.test.mjs', import.meta.url), 'utf8');
+const source = await readFile(new URL('../../../test/browser/projectMetrics.test.mjs', import.meta.url), 'utf8');
 const baseFixture = source.match(/const fixture = `([\s\S]*?)`;/)[1];
-const fixture = baseFixture.replace('const client=new QueryClient', `
+const fixture = (baseFixture + "\nimport '/src/product-experience.css';").replace('const client=new QueryClient', `
 const roles=[{id:'admin-role',name:'admin'},{id:'jira-admin',name:'Jira Administrator'},{id:'qa-member',name:'QA Member'},{id:'owner-role',name:'Product Owner'},{id:'automation-role',name:'Automation Engineer'},{id:'custom-role',name:'Delivery Reviewer'}];
 const users=[{id:'reviewer',name:'Reviewer',email:'reviewer@example.test',role:'admin'},{id:'collaborator',name:'Ada Tester',email:'ada@example.test'}];
 window.createInputs=[];window.memberUpdates=[];window.projectDetailRequests=[];
@@ -29,12 +29,15 @@ test('project filters, required fields, available role parity and attention disc
     await writeFile(new URL(name + '.tsx', root), fixture);
     await writeFile(new URL(name + '.html', root), '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/' + name + '.tsx"></script></body></html>');
     browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1100 }, reducedMotion:'reduce' });
     page.setDefaultTimeout(8000);
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
     await page.goto((process.env.VITE_TEST_URL || 'http://127.0.0.1:5189') + '/' + name + '.html');
     const tile = title => page.locator('article.project-catalog-card').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
     await tile('Commerce platform').waitFor();
+    const attentionCard=page.locator('.projects-command-card--evidence');await attentionCard.waitFor();
+    const headerBounds=await page.locator('.projects-page-header').boundingBox();const attentionBounds=await attentionCard.boundingBox();assert.ok(attentionBounds.x>=headerBounds.x+headerBounds.width/2,'Attention card stays in the right corner');
+    await mkdir('/tmp/qaira-project-controls',{recursive:true});await page.screenshot({path:'/tmp/qaira-project-controls/portfolio-desktop.png'});
     assert.equal(await tile('Private project').count(),0,'locked projects are hidden by default');
     await page.getByRole('button',{name:/^Open filters/}).click();
     const accessibleOnly=page.getByRole('checkbox',{name:'Accessible projects only',exact:true});
@@ -77,6 +80,13 @@ test('project filters, required fields, available role parity and attention disc
     await page.getByRole('button',{name:'Create New Project',exact:true}).click();
     const dialog=page.getByRole('dialog',{name:'Create Project',exact:true});
     await dialog.waitFor();
+    const sectionHeight=await dialog.locator('.project-app-type-list').count()?await dialog.locator('.project-app-type-list').evaluate(node=>node.offsetHeight):await dialog.evaluate(node=>node.offsetHeight);
+    await dialog.getByRole('button',{name:'Select platform type for application 1',exact:true}).click();
+    const platformMenu=page.getByRole('listbox',{name:'Select platform type for application 1',exact:true});await platformMenu.waitFor();
+    assert.equal(await platformMenu.evaluate(node=>getComputedStyle(node).position),'fixed');
+    const menuBounds=await platformMenu.boundingBox();assert.ok(menuBounds.x>=0&&menuBounds.y>=0&&menuBounds.x+menuBounds.width<=1441&&menuBounds.y+menuBounds.height<=1101,'Platform menu stays in the viewport');
+    const openHeight=await dialog.locator('.project-app-type-list').count()?await dialog.locator('.project-app-type-list').evaluate(node=>node.offsetHeight):await dialog.evaluate(node=>node.offsetHeight);assert.equal(openHeight,sectionHeight,'Overlay does not stretch the application section');
+    await page.keyboard.press('Escape');assert.equal(await dialog.isVisible(),true,'Escape closes the picker before the dialog');
     const appField=dialog.locator('.form-field').filter({has:page.getByText('App Name',{exact:true})});
     const projectField=dialog.locator('.form-field').filter({has:page.getByText('Project name',{exact:true})});
     assert.match(await appField.locator('label').innerText(),/\*/);

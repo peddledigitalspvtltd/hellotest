@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useWorkflowHistory } from "../hooks/useWorkflowHistory";
+import { validateWorkflowInput, type WorkflowGraphSnapshot } from "./workflowHistory";
 import { executionDuration } from "./WorkflowExecutionLog";
 import {
   IconArrowLeft,
@@ -7,6 +9,9 @@ import {
   IconPlayerPlay,
   IconDeviceFloppy,
   IconLayoutGrid,
+  IconArrowBackUp,
+  IconArrowForwardUp,
+  IconBraces,
   IconX,
 } from "@tabler/icons-react";
 import type { OnNodesChange, OnEdgesChange, OnConnect } from "@xyflow/react";
@@ -63,6 +68,7 @@ type Props = {
   onEdgesChange: OnEdgesChange<AgenticWorkflowEdge>;
   onConnect: OnConnect;
   onLayout: () => void;
+  onRestoreGraph: (snapshot: WorkflowGraphSnapshot) => void;
   inspector: Omit<
     WorkflowNodeInspectorProps,
     | "node"
@@ -82,6 +88,10 @@ type Props = {
   onRetryHistory: () => void;
 };
 export function WorkflowStudio(props: Props) {
+  const root = useRef<HTMLElement>(null);
+  const inputId = useId();
+  const inputValidation = validateWorkflowInput(props.input);
+  const graphHistory = useWorkflowHistory(props.nodes, props.edges, props.onRestoreGraph);
   const [tab, setTab] = useState<"editor" | "executions" | "settings">(
     "editor",
   );
@@ -102,9 +112,20 @@ export function WorkflowStudio(props: Props) {
   }, [props.error, props.readiness]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
+      // Shortcuts belong to this editor; nested dialogs and text fields keep theirs.
+      if (!root.current?.contains(event.target as Node) || (event.target as Element)?.closest('[role="dialog"]')) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         if (props.editable && !props.busy) props.onSave();
+      }
+      const typing = (event.target as Element)?.closest('input, textarea, select, [contenteditable="true"]');
+      if (!typing && props.editable && !props.busy && (event.metaKey || event.ctrlKey)) {
+        if (event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (event.shiftKey) graphHistory.redo(); else graphHistory.undo();
+        } else if (event.key.toLowerCase() === "y") {
+          event.preventDefault(); graphHistory.redo();
+        }
       }
       if (event.key === "Escape" && !expanded) {
         setLibrary(false);
@@ -113,9 +134,9 @@ export function WorkflowStudio(props: Props) {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [props.onSave, props.editable, props.busy, expanded]);
+  }, [props.onSave, props.editable, props.busy, expanded, graphHistory.undo, graphHistory.redo]);
   return (
-    <section className="workflow-studio" aria-label="Workflow editor">
+    <section ref={root} className="workflow-studio" aria-label="Workflow editor" tabIndex={-1}>
       <header className="studio-header">
         <button
           type="button"
@@ -147,7 +168,7 @@ export function WorkflowStudio(props: Props) {
             <button
               type="button"
               className="primary-button"
-              onClick={() => props.onExecute()}
+              onClick={() => inputValidation.error ? setInputOpen(true) : props.onExecute()}
               disabled={props.busy}
             >
               <IconPlayerPlay size={16} />
@@ -175,8 +196,10 @@ export function WorkflowStudio(props: Props) {
             type="button"
             onClick={() => setInputOpen((value) => !value)}
             aria-expanded={inputOpen}
+            aria-controls={inputId}
+            data-invalid={Boolean(inputValidation.error)}
           >
-            Workflow input
+            <IconBraces size={15} aria-hidden="true" /> Workflow input{inputValidation.error ? " · check JSON" : ""}
           </button>
           <button
             type="button"
@@ -192,13 +215,12 @@ export function WorkflowStudio(props: Props) {
         </div>
       </div>
       {inputOpen && (
-        <section className="studio-input-drawer">
+        <section id={inputId} className="studio-input-drawer" aria-label="Workflow input">
           <header>
             <div>
               <strong>Workflow input</strong>
               <p>
-                JSON request passed to the trigger. Source templates expect a
-                GitHub URL in source.repository_url.
+                A JSON object passed to the trigger.
               </p>
             </div>
             <button
@@ -217,8 +239,16 @@ export function WorkflowStudio(props: Props) {
               onChange={(event) => props.onInput(event.target.value)}
               spellCheck={false}
               rows={6}
+              disabled={props.busy}
+              aria-invalid={Boolean(inputValidation.error)}
+              aria-describedby={`${inputId}-feedback`}
             />
           </label>
+          <div className="studio-input-feedback" id={`${inputId}-feedback`}>
+            <span role={inputValidation.error ? "alert" : "status"}>{inputValidation.error || `${Object.keys(inputValidation.value || {}).length} input fields · valid JSON`}</span>
+            <button type="button" className="ghost-button compact" disabled={Boolean(inputValidation.error) || props.busy} onClick={() => props.onInput(JSON.stringify(inputValidation.value, null, 2))}>Format JSON</button>
+          </div>
+          <details className="studio-input-help"><summary>Repository source input</summary><p>Source agents expect <code>source.repository_url</code>. Add <code>source.ref</code> or <code>source.integration_id</code> when needed.</p></details>
         </section>
       )}
       {readinessOpen && (
@@ -295,6 +325,7 @@ export function WorkflowStudio(props: Props) {
                   aria-label="Search nodes"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  autoFocus
                 />
               </label>
               <div className="studio-library-list">
@@ -346,6 +377,10 @@ export function WorkflowStudio(props: Props) {
           )}
           <div className="studio-canvas-workspace">
             <div className="studio-canvas-actions">
+              {props.editable && <div className="studio-history-actions" role="group" aria-label="Edit history">
+                <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canUndo} onClick={graphHistory.undo} aria-label="Undo graph edit" title="Undo graph edit (⌘/Ctrl Z)"><IconArrowBackUp size={18} /></button>
+                <button type="button" className="studio-icon-button" disabled={props.busy || !graphHistory.canRedo} onClick={graphHistory.redo} aria-label="Redo graph edit" title="Redo graph edit (⌘/Ctrl Shift Z)"><IconArrowForwardUp size={18} /></button>
+              </div>}
               {props.editable && (
                 <button
                   type="button"
@@ -438,7 +473,7 @@ export function WorkflowStudio(props: Props) {
               {props.canRun && (
                 <button
                   type="button"
-                  onClick={props.onPreview}
+                  onClick={() => inputValidation.error ? setInputOpen(true) : props.onPreview()}
                   disabled={props.busy}
                 >
                   Preview graph

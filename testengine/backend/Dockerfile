@@ -17,6 +17,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4301
 ENV ARTIFACT_ROOT=/artifacts
+ENV QUALITY_AGENT_DATA_DIR=/quality-data
+RUN mkdir -p /quality-data && chmod 700 /quality-data
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

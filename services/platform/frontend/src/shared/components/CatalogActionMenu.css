@@ -1,0 +1,2 @@
+/* Body portals must clear every dialog layer, including legacy menu rules. */
+body .catalog-action-menu-panel[data-dialog-popover-owner] { position: fixed; z-index: 2400 !important; }

@@ -1,0 +1,24 @@
+.context-select { display: inline-flex; position: relative; max-width: 100%; min-width: 0; }
+.context-select-native { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap; border: 0 !important; }
+.context-select .context-select-trigger { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-height: 34px; padding: 6px 9px; background: var(--app-surface, #fff); border: 1px solid var(--app-border, #dce5e8); border-radius: 8px; color: var(--app-text, #182b35); font: inherit; font-size: 12px; box-shadow: none; cursor: pointer; }
+.context-select .context-select-trigger:hover:not(:disabled), .context-select.is-open .context-select-trigger { border-color: var(--app-accent, #087e83); background: var(--app-accent-soft, #e7f5f3); }
+.context-select-trigger > svg, .context-select-icon { flex: 0 0 auto; color: var(--app-text-muted, #5d6f79); }
+.context-select-icon { display: inline-flex; }
+.context-select-label { color: var(--app-text-muted, #5d6f79); }
+.context-select-value { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-select-popover { box-sizing: border-box; position: fixed; z-index: 2100; display: flex; flex-direction: column; overflow: hidden; padding: 5px; border: 1px solid var(--app-border, #dce5e8); border-radius: 12px; background: var(--app-surface, #fff); color: var(--app-text, #182b35); box-shadow: 0 12px 38px #122e3b24; font-family: Inter, system-ui, sans-serif; font-size: 12px; }
+.context-select-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px 10px; flex: 0 0 auto; border-bottom: 1px solid var(--app-border, #dce5e8); color: var(--app-text-muted, #5d6f79); }
+.context-select-popover .context-select-search input { width: 100%; min-width: 0; min-height: 28px; margin: 0; padding: 4px 0; border: 0; border-radius: 0; background: transparent; color: var(--app-text, #182b35); font: inherit; outline: 0; box-shadow: none; }
+.context-select-search input:focus-visible { outline: none !important; box-shadow: none !important; }
+.context-select-options { overflow-y: auto; min-height: 0; padding-top: 4px; scroll-padding: 4px; }
+.context-select-popover .context-select-options button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 34px; padding: 8px 9px; border: 0; border-radius: 7px; color: inherit; background: transparent; font: inherit; text-align: left; box-shadow: none; cursor: pointer; }
+.context-select-options button.is-active, .context-select-options button:hover:not(:disabled) { background: var(--app-surface-muted, #f1f5f6); }
+.context-select-options button[aria-selected=true] { color: var(--app-accent, #087e83); }
+.context-select-options button:disabled { opacity: .45; cursor: not-allowed; }
+.context-select-options button > span { display: grid; min-width: 0; gap: 5px; overflow-wrap: anywhere; }
+.context-select-options small { color: var(--app-text-muted, #5d6f79); font-size: 10px; }
+.context-select-empty { padding: 12px 8px; color: var(--app-text-muted, #5d6f79); }
+.authoring-property-field > .form-field-label { position: absolute !important; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.authoring-property-field { display: inline-flex !important; min-width: 0; margin: 0 !important; }
+@media (max-width: 640px) { .context-select .context-select-trigger { min-height: 40px; } .context-select-popover .context-select-options button { min-height: 40px; } .context-select-popover .context-select-search input { font-size: 16px; } }
+:root body .form-field.authoring-property-field > .form-field-label { position: absolute !important; width: 1px !important; height: 1px !important; min-height: 0 !important; padding: 0 !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; }

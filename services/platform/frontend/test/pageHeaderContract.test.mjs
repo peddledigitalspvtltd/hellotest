@@ -52,7 +52,7 @@ test("the shared page header remains visible in the final stylesheet authority",
 test("Projects expands its title and description in the canonical page header", async () => {
   const projects = await readSource("../pages/ProjectsPage.tsx");
 
-  assert.match(projects, /<PageHeader[\s\S]{0,300}projects-page-header[\s\S]{0,300}title="Projects"[\s\S]{0,300}description="Create and govern project workspaces/);
+  assert.match(projects, /<PageHeader[\s\S]{0,300}projects-page-header[\s\S]{0,300}title="Project Overview"[\s\S]{0,300}description="Create and govern project workspaces/);
   assert.match(projects, /<PageHeader[\s\S]*<section className="projects-command-card projects-command-card--evidence"/);
   assert.doesNotMatch(projects, /<PageHeaderText/);
 });
@@ -91,7 +91,8 @@ test("Product Management, Test Authoring, Test Environment, and Defects expose m
   ]);
 
   assert.match(product, /eyebrow="Product Management"/);
-  for (const source of [cases, sharedSteps, suites]) assert.match(source, /eyebrow="Test Authoring"/);
+  assert.match(suites, /eyebrow="Test Plan"/);
+  for (const source of [cases, sharedSteps]) assert.match(source, /eyebrow="Test Authoring"/);
   assert.match(environments, /const currentViewEyebrow = "Test Environment"/);
   assert.match(bugs, /title="Defects"[\s\S]{0,180}description="Capture, reproduce, triage, and resolve Defects/);
 });

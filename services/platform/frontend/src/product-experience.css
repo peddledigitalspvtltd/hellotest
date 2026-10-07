@@ -1,0 +1,410 @@
+/* Product-wide design contract. Feature layouts own geometry; this layer owns
+   color, typography, controls and interaction affordances. */
+:root:not(:has(.auth-page)) {
+  color-scheme: light;
+  --app-canvas: #f6f8fa;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f1f5f6;
+  --app-text: #182b35;
+  --app-text-muted: #5d6f79;
+  --app-border: #dce5e8;
+  --app-accent: #087e83;
+  --app-accent-hover: #05666b;
+  --app-accent-soft: #e7f5f3;
+  --app-primary: var(--app-accent);
+  --app-surface-secondary: var(--app-surface-muted);
+  --app-surface-hover: color-mix(in srgb, var(--app-accent) 5%, var(--app-surface));
+  --app-radius-lg: 20px;
+  --app-ease: cubic-bezier(.2,.7,.2,1);
+  --app-radius: 12px;
+  --app-shadow: 0 2px 8px #172b3506, 0 16px 48px #172b3510;
+  --app-focus: 0 0 0 3px #087e8324;
+  --ds-surface: var(--app-surface);
+  --ds-surface-raised: var(--app-surface);
+  --ds-surface-overlay: var(--app-surface);
+  --ds-text: var(--app-text);
+  --ds-text-subtle: var(--app-text-muted);
+  --ds-text-subtlest: var(--app-text-muted);
+  --ds-text-brand: var(--app-accent);
+  --ds-text-selected: var(--app-accent);
+  --ds-background-selected: var(--app-accent-soft);
+  --ds-background-selected-hovered: #d5eeeb;
+  --ds-background-brand-bold: var(--app-accent);
+  --ds-background-brand-bold-hovered: var(--app-accent-hover);
+  --ds-background-neutral: var(--app-surface-muted);
+  --ds-background-neutral-subtle-hovered: var(--app-surface-muted);
+  --ds-background-neutral-hovered: #e6edef;
+  --ds-border: var(--app-border);
+  --ds-border-selected: var(--app-accent);
+  --ds-border-focused: var(--app-accent);
+  --ds-icon: var(--app-text-muted);
+  --background: var(--app-canvas);
+  --bg: var(--app-canvas);
+  --card-bg: var(--app-surface);
+  --surface: var(--app-surface);
+  --surface-strong: var(--app-surface);
+  --panel: var(--app-surface);
+  --panel-strong: var(--app-surface);
+  --text: var(--app-text);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-text-muted);
+  --text-muted: var(--app-text-muted);
+  --muted: var(--app-text-muted);
+  --border: var(--app-border);
+  --line: var(--app-border);
+  --primary: var(--app-accent);
+  --primary-hover: var(--app-accent-hover);
+  --accent: var(--app-accent);
+  --accent-strong: var(--app-accent-hover);
+  --dialog-canvas: var(--app-surface-muted);
+  --dialog-surface: var(--app-surface);
+  --dialog-surface-subtle: var(--app-surface-muted);
+  --dialog-ink: var(--app-text);
+  --dialog-text: var(--app-text);
+  --dialog-muted: var(--app-text-muted);
+  --dialog-border: var(--app-border);
+  --dialog-divider: var(--app-border);
+  --dialog-primary: var(--app-accent);
+  --dialog-primary-hover: var(--app-accent-hover);
+  --dialog-focus: var(--app-accent);
+  --dialog-focus-ring: var(--app-focus);
+  --dialog-shadow: var(--app-shadow);
+  font-family: Inter, system-ui, sans-serif;
+}
+:root:not(:has(.auth-page))[data-theme="dark"] {
+  color-scheme: dark;
+  --app-canvas: #101a22;
+  --app-surface: #172630;
+  --app-surface-muted: #1e303b;
+  --app-text: #e5edf0;
+  --app-text-muted: #a5b8c2;
+  --app-border: #344852;
+  --app-accent: #77d9cc;
+  --app-accent-hover: #9de6dd;
+  --app-accent-soft: #224641;
+  --app-shadow: 0 16px 60px #0005;
+  --app-focus: 0 0 0 3px #77d9cc30;
+  --ds-background-selected-hovered: #2b5550;
+  --ds-background-neutral-hovered: #2a404c;
+}
+:root:not(:has(.auth-page)) body { font-family: Inter, system-ui, sans-serif; color: var(--app-text); }
+:root:not(:has(.auth-page)) body :is(button, input, textarea, select) { font-family: inherit; }
+:root:not(:has(.auth-page)) body :is(h1,h2,h3,h4) { text-wrap: balance; }
+:root:not(:has(.auth-page)) body :is(p,li,dd) { overflow-wrap: anywhere; }
+:root:not(:has(.auth-page)) body :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible {
+  outline: 2px solid var(--app-accent) !important;
+  outline-offset: 3px;
+}
+:root:not(:has(.auth-page)) body button:disabled { cursor: not-allowed; }
+:root:not(:has(.auth-page)) body :is(.primary-button,.ghost-button,.run-button) {
+  min-height: 38px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  transform: none !important;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+:root:not(:has(.auth-page)) body .primary-button:not(.is-danger):not(.danger-button):not(.test-case-review-approve):not(.test-case-review-reject):not(.recorder-stop-button) {
+  border-color: var(--app-accent) !important;
+  background: var(--app-accent) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 2px #10252e10 !important;
+}
+:root:not(:has(.auth-page)) body .primary-button:not(.is-danger):not(.danger-button):not(.test-case-review-approve):not(.test-case-review-reject):not(.recorder-stop-button):not(:disabled):hover { background: var(--app-accent-hover) !important; }
+:root:not(:has(.auth-page))[data-theme="dark"] body .primary-button:not(.is-danger):not(.danger-button):not(.test-case-review-approve):not(.test-case-review-reject):not(.recorder-stop-button) { color: #12332f !important; }
+:root:not(:has(.auth-page)) body .ghost-button {
+  border-color: var(--app-border);
+  background: transparent;
+  color: var(--app-text-muted);
+  box-shadow: none;
+}
+:root:not(:has(.auth-page)) body .ghost-button:not(:disabled):hover { background: var(--app-surface-muted); color: var(--app-text); }
+/* Calm chrome: one pale rail, one compact context bar, one clear page title. */
+:root:not(:has(.auth-page)) body #root .app-shell.workspace-experience-v2 {
+  --workspace-canvas: var(--app-canvas);
+  --workspace-panel: var(--app-surface);
+  --workspace-ink: var(--app-text);
+  --workspace-muted: var(--app-text-muted);
+  --workspace-border: var(--app-border);
+}
+:root:not(:has(.auth-page)) body #root .app-shell.workspace-experience-v2 > .sidebar {
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  border-inline-end: 1px solid var(--app-border) !important;
+  padding-top: 20px !important;
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-q { background: var(--app-accent-soft) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-icon :is(circle,path) { stroke: var(--app-accent) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .hellotest-brand-copy strong span { color: var(--app-text) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar :is(.nav-link,.nav-submenu-link,.sidebar-signout,.sidebar-collapse-button,.sidebar-mobile-close) { color: var(--app-text-muted) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar :is(.nav-link,.nav-submenu-link,.sidebar-signout):hover { background: var(--app-surface-muted) !important; color: var(--app-text) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link.is-active { background: var(--app-accent-soft) !important; color: var(--app-accent) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link.is-active::before { background: var(--app-accent) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link.is-active { background: var(--app-surface-muted) !important; color: var(--app-accent) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { color: var(--app-text-muted) !important; font-size: 10px !important; letter-spacing: .08em; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-list { scrollbar-color: var(--app-border) transparent; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu::before { background: var(--app-border) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar-footer { border-color: var(--app-border) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-badge { background: var(--app-surface-muted) !important; color: var(--app-text-muted) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label { font-size: 12px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-context-bar { min-height: 64px !important; height: 64px !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-header-icon { color: var(--app-text-muted) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-search-trigger { min-width: 160px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-project-switcher :is(.workspace-project-trigger,.workspace-project-switcher-trigger) { background: var(--app-surface-muted) !important; border-color: var(--app-border) !important; color: var(--app-text) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-project-switcher :is(.workspace-project-name,.workspace-project-label) { color: var(--app-text) !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-project-switcher { border-color: var(--app-border); background: var(--app-surface-muted); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-project-switcher .workspace-scope-trigger { color: var(--app-text); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-scope-trigger__copy > span,
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-scope-trigger__chevron { color: var(--app-text-muted); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-scope-trigger:hover { background: var(--app-accent-soft); }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .page-header {
+  min-height: 74px;
+  gap: 16px;
+  padding-block: 20px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+:root:not(:has(.auth-page)) body .page-header-title-row { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; gap: 9px !important; }
+:root:not(:has(.auth-page)) body .page-header-title-row > .page-header-title { flex: 0 1 auto; width: auto !important; margin: 0 !important; min-width: 0; }
+:root:not(:has(.auth-page)) body .page-header-title { font-family: "Hanken Grotesk", Inter, sans-serif !important; font-size: clamp(22px,2vw,28px) !important; line-height: 1.2 !important; font-weight: 650 !important; letter-spacing: -.035em !important; color: var(--app-text) !important; }
+:root:not(:has(.auth-page)) body .page-header-help { flex: 0 0 auto; opacity: .75; }
+:root:not(:has(.auth-page)) body .page-header .eyebrow { font-size: 10px !important; color: var(--app-text-muted) !important; letter-spacing: .06em; }
+:root:not(:has(.auth-page)) body .page-actions { gap: 8px !important; flex-wrap: wrap; }
+:root:not(:has(.auth-page)) body :is(.panel.card,.tile-browser-pane,.catalog-surface) {
+  border-color: var(--app-border);
+  border-radius: var(--app-radius);
+  background-image: none;
+  box-shadow: none;
+}
+:root:not(:has(.auth-page)) body :is(.catalog-action-menu-panel,.info-tooltip-popover,.workspace-preferences-popover) {
+  border: 1px solid var(--app-border) !important;
+  border-radius: 12px !important;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  box-shadow: var(--app-shadow) !important;
+}
+:root:not(:has(.auth-page)) body .catalog-action-menu-panel { padding: 6px; overflow-y: auto; }
+:root:not(:has(.auth-page)) body .catalog-action-menu-panel .step-card-menu-item { min-height: 38px; border-radius: 7px; }
+:root:not(:has(.auth-page)) body .catalog-action-menu-panel .step-card-menu-item:focus { background: var(--app-surface-muted); }
+:root:not(:has(.auth-page)) body .catalog-action-menu-panel .step-card-menu-item-label-row { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+:root:not(:has(.auth-page)) body .catalog-action-description { color: var(--app-text-muted); font-size: 10px; font-weight: 400; line-height: 1.45; }
+:root:not(:has(.auth-page)) body .info-tooltip-popover { padding: 16px; font-size: 12px; line-height: 1.65; }
+/* Forms keep their own layout and one useful level of field contrast. */
+:root:not(:has(.auth-page)) body .form-field-label { color: var(--app-text) !important; font-size: 12px; font-weight: 600; }
+:root:not(:has(.auth-page)) body .form-field-hint { color: var(--app-text-muted); font-size: 11px; line-height: 1.5; }
+:root:not(:has(.auth-page)) body .form-field :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),textarea,select) {
+  border-color: var(--app-border) !important;
+  border-radius: 8px;
+  background: var(--app-surface) !important;
+  color: var(--app-text) !important;
+  font-size: 13px;
+  line-height: 1.5;
+}
+:root:not(:has(.auth-page)) body .form-field :is(input,textarea,select):focus { border-color: var(--app-accent) !important; box-shadow: var(--app-focus) !important; }
+:root:not(:has(.auth-page)) body .form-field :is(input,textarea,select)[aria-invalid="true"] { border-color: var(--error,#cd3658) !important; }
+:root:not(:has(.auth-page)) body .form-field :is(input,textarea,select):disabled { background: var(--app-surface-muted) !important; opacity: .7; }
+:root:not(:has(.auth-page)) body input::placeholder,:root:not(:has(.auth-page)) body textarea::placeholder { color: var(--app-text-muted); opacity: .8; }
+:root:not(:has(.auth-page)) body .modal-backdrop { background: #10253060 !important; backdrop-filter: blur(3px) !important; }
+:root:not(:has(.auth-page)) body .modal-backdrop > [role="dialog"][aria-modal="true"] {
+  border-color: var(--app-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--app-shadow) !important;
+}
+:root:not(:has(.auth-page)) body .workspace-dialog {
+  --wx-bg: var(--app-surface);
+  --wx-soft: var(--app-surface-muted);
+  --wx-text: var(--app-text);
+  --wx-muted: var(--app-text-muted);
+  --wx-border: var(--app-border);
+}
+:root:not(:has(.auth-page)) body .workspace-dialog h2 { font-family: "Hanken Grotesk",Inter,sans-serif; font-size: 24px; letter-spacing: -.035em; }
+:root:not(:has(.auth-page)) body .navigator-groups button[aria-pressed="true"] { background: var(--app-accent-soft); color: var(--app-accent); border-color: var(--app-border); }
+:root:not(:has(.auth-page)) body .navigator-glyph { background: var(--app-accent-soft); color: var(--app-accent); }
+:root:not(:has(.auth-page)) body .navigator-result p { font-size: 12px; }
+:root:not(:has(.auth-page)) body .data-table td { border-color: var(--app-border); }
+:root:not(:has(.auth-page)) body .data-table thead th { background: var(--app-surface-muted); color: var(--app-text-muted); }
+:root:not(:has(.auth-page)) body .data-table tbody tr:hover { background: color-mix(in srgb,var(--app-accent-soft) 40%,var(--app-surface)); }
+:root:not(:has(.auth-page)) body .data-table-primary-title { color: var(--app-text); font-weight: 600; }
+:root:not(:has(.auth-page)) body .status-badge { white-space: nowrap; }
+:root:not(:has(.auth-page)) body .subnav-tabs { gap: 4px; }
+:root:not(:has(.auth-page)) body :is(.status-badge,.entity-id-badge,.display-id-badge) { box-shadow: none; font-variant-numeric: tabular-nums; }
+@media (max-width:768px) {
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-context-bar { min-height: 58px !important; height: 58px !important; }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .page-header { padding-block: 16px !important; }
+  :root:not(:has(.auth-page)) body #root .workspace-experience-v2 .workspace-search-trigger { min-width: 0; }
+  :root:not(:has(.auth-page)) body .page-header-title { font-size: 23px !important; }
+  :root:not(:has(.auth-page)) body .page-actions { width: 100%; }
+  :root:not(:has(.auth-page)) body .form-field :is(input,textarea,select) { font-size: 16px; }
+  :root:not(:has(.auth-page)) body .modal-backdrop > [role="dialog"][aria-modal="true"] { border-radius: 12px !important; }
+  :root:not(:has(.auth-page)) body .catalog-action-menu-panel .step-card-menu-item { min-height: 44px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  :root:not(:has(.auth-page)) body *, :root:not(:has(.auth-page)) body *::before, :root:not(:has(.auth-page)) body *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media (forced-colors:active) {
+  :root:not(:has(.auth-page)) body :is(button,input,select,textarea,.status-badge) { border: 1px solid ButtonText !important; }
+}
+
+/* Readable navigation without changing the compact or mobile modes. */
+@media (min-width: 1101px) {
+  :root:not(:has(.auth-page)):not([data-sidebar="collapsed"]) body #root .app-shell.workspace-experience-v2 { --workspace-sidebar-width: 280px; }
+}
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar:not(.is-collapsed) .nav-link { min-height: 44px; padding: 11px 13px !important; font-size: 14px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-link-label { font-size: 14px; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-group-label { font-size: 11px !important; }
+:root:not(:has(.auth-page)) body #root .workspace-experience-v2 .sidebar .nav-submenu-link { min-height: 38px; padding: 9px 11px !important; font-size: 13px; }
+
+/* Scope icons keep a readable foreground in both themes. */
+:root:not(:has(.auth-page)) body .workspace-scope-trigger__icon { color:var(--app-accent) !important; background:var(--app-accent-soft) !important; opacity:1; }
+:root:not(:has(.auth-page)) body .workspace-scope-trigger__icon svg { opacity:1; stroke-width:2; }
+:root:not(:has(.auth-page)) body .projects-page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+:root:not(:has(.auth-page)) body .projects-page-header .page-actions { margin-left:auto; justify-content:flex-end; }
+:root:not(:has(.auth-page)) body .page-automation .page-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+:root:not(:has(.auth-page)) body .page-automation .page-actions { margin-left:auto; }
+:root:not(:has(.auth-page)) body :is(.story-create-backdrop,.report-bug-modal-backdrop) { justify-content:center !important; align-items:center !important; }
+:root:not(:has(.auth-page)) body :is(.story-studio-primary-action,.ai-test-generator-primary,.ai-smart-context-button) { color:var(--app-accent-contrast,#fff) !important; background:var(--app-accent) !important; border-color:var(--app-accent) !important; }
+@media(max-width:720px){:root:not(:has(.auth-page)) body .projects-page-header{flex-wrap:wrap}:root:not(:has(.auth-page)) body .projects-page-header .page-actions{margin-left:0;justify-content:flex-start}}
+:root:not(:has(.auth-page)) body .object-repository-page-header { align-items:center; }
+:root:not(:has(.auth-page)) body .object-repository-page-header .page-header-meta { grid-column:1 / -1; grid-row:2; }
+:root:not(:has(.auth-page)) body .knowledge-repo-content { display:grid; gap:18px; min-width:0; }
+:root:not(:has(.auth-page)) body .knowledge-repo-workspace { display:grid; gap:18px; min-width:0; }
+:root:not(:has(.auth-page)) body :is(.story-grooming-refresh,.story-grooming-primary,.artifact-assurance-analyze-button) { color:var(--app-accent-contrast,#fff); background:var(--app-accent); border-color:var(--app-accent); box-shadow:none; border-radius:9px; }
+:root:not(:has(.auth-page)) { --app-accent-contrast:#fff; }
+:root[data-theme="dark"]:not(:has(.auth-page)) { --app-accent-contrast:#103a35; }
+@media(min-width:601px) {
+  :root:not(:has(.auth-page)) body #root .object-repository-page-header { display:grid !important; grid-template-columns:minmax(0,1fr) auto; align-items:end; }
+  :root:not(:has(.auth-page)) body #root .object-repository-page-header > .page-actions { grid-column:2; grid-row:1; align-self:end; padding-bottom:3px; }
+}
+@media(min-width:901px) {
+  :root:not(:has(.auth-page)) body #root .projects-page-header { display:grid !important; grid-template-columns:minmax(0,1fr) minmax(280px,440px); align-items:start; }
+  :root:not(:has(.auth-page)) body #root .projects-page-header > .page-header-text { grid-column:1; grid-row:1; }
+  :root:not(:has(.auth-page)) body #root .projects-page-header > .page-actions { grid-column:2; grid-row:1; width:100% !important; min-width:0; margin:0 !important; }
+}
+/* Shared hierarchy controls occupy the same centered title row. */
+:root:not(:has(.auth-page)) body #root .test-case-module-header > .checkbox-field,
+:root:not(:has(.auth-page)) body #root .test-case-module-header > .module-toggle-button { grid-row:1; align-self:center !important; display:flex !important; align-items:center !important; justify-content:center; height:28px; min-height:28px; margin:0 !important; padding:0 !important; }
+:root:not(:has(.auth-page)) body #root .test-case-module-header > .checkbox-field { grid-column:1; }
+:root:not(:has(.auth-page)) body #root .test-case-module-header:has(> .checkbox-field) > .module-toggle-button { grid-column:2; }
+:root:not(:has(.auth-page)) body #root .test-case-module-header > .checkbox-field input { margin:0 !important; width:16px; height:16px; min-height:16px; }
+:root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-icon { display:grid !important; visibility:visible !important; opacity:1 !important; flex:0 0 20px !important; width:20px !important; overflow:visible !important; }
+:root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-badge { display:none !important; }
+:root:not(:has(.auth-page)) body #root .sidebar.is-collapsed .nav-link-icon svg { display:block !important; visibility:visible !important; opacity:1 !important; flex-shrink:0; }
+:root:not(:has(.auth-page)) body #root :is(.mcp-server-page .agent-directory-toolbar,.agentic-workflows-toolbar) { display:flex; justify-content:flex-start !important; align-items:center; flex-wrap:wrap; gap:10px; }
+:root:not(:has(.auth-page)) body #root :is(.mcp-server-page,.page-agentic-workflows) .catalog-toolbar-discovery { flex:0 1 auto; display:flex; align-items:center; gap:10px; }
+:root:not(:has(.auth-page)) body #root .mcp-server-page .agent-library-search { width:clamp(180px,28vw,420px); }
+:root:not(:has(.auth-page)) body #root .agentic-workflows-toolbar .catalog-toolbar-actions { margin-left:0 !important; }
+:root:not(:has(.auth-page)) body #root [data-component="report-bug-split-action"].issue-report-split,
+:root:not(:has(.auth-page)) body #root [data-component="report-bug-split-action"].issue-report-split button { background:var(--app-accent) !important; color:var(--app-accent-contrast) !important; border-color:var(--app-accent) !important; background-image:none !important; box-shadow:none !important; }
+.defect-ai-form-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:0 0 14px; flex-wrap:wrap; }
+.ai-defect-field-review { display:flex; gap:10px 16px; flex-wrap:wrap; border:1px solid var(--app-border); border-radius:10px; padding:14px; margin:14px 0; }
+.ai-defect-field-review label { display:inline-flex; align-items:center; gap:6px; font-size:12px; }
+.ai-defect-field-review input { width:16px; height:16px; min-height:16px; accent-color:var(--app-accent); }
+:root:not(:has(.auth-page)) body #root :is(.report-bug-modal-save-button,.issue-detail-save-button) { background:var(--app-accent) !important; color:var(--app-accent-contrast) !important; border-color:var(--app-accent) !important; background-image:none !important; }
+:root:not(:has(.auth-page)) body .report-bug-modal .report-bug-modal-save-button { background:var(--app-accent) !important; color:var(--app-accent-contrast) !important; border-color:var(--app-accent) !important; background-image:none !important; box-shadow:none !important; }
+:root:not(:has(.auth-page)) body .suite-module-group-header { align-items:center; }
+:root:not(:has(.auth-page)) body .suite-module-group-header > :is(.data-table-header-checkbox,.module-toggle-button) { align-self:center; display:inline-flex; align-items:center; justify-content:center; margin:0; }
+:root:not(:has(.auth-page)) body .suite-module-group-header:has(> .data-table-header-checkbox) { grid-template-columns:auto auto auto minmax(0,1fr) auto; }
+@media(max-width:760px) { :root:not(:has(.auth-page)) body .suite-module-group-header:has(> .data-table-header-checkbox) > .suite-module-group-actions { grid-column:1 / -1; grid-row:2; } }
+
+/* Consistent action colors in authoring, including portalled editors. */
+body .create-run-action-button .run-action-main,
+body .create-run-action-button .run-action-toggle {
+  background: var(--app-accent);
+  color: var(--app-accent-contrast);
+  border-color: var(--app-accent);
+  background-image: none;
+  box-shadow: none;
+}
+body .defect-ai-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+}
+body .defect-ai-form-actions > button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--app-accent);
+  border-radius: 8px;
+  background: var(--app-accent);
+  color: var(--app-accent-contrast);
+}
+body .create-run-action-button {
+  background: var(--app-accent) !important;
+  background-image: none !important;
+  border-color: var(--app-accent) !important;
+  box-shadow: none !important;
+}
+body .create-run-action-button :is(.run-action-main, .run-action-toggle) {
+  background: var(--app-accent) !important;
+  color: var(--app-accent-contrast) !important;
+  border-color: var(--app-accent) !important;
+}
+body #root .page-agentic-workflows .agentic-workflows-toolbar .catalog-toolbar-discovery {
+  flex-wrap: nowrap;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+body #root .page-agentic-workflows .agentic-workflows-toolbar .catalog-search-filter { flex: 0 1 340px; min-width: 120px; }
+body #root .mcp-server-catalog .agent-library-card {
+  border: 1px solid var(--app-border, var(--border));
+  border-radius: 16px;
+  background: var(--app-surface, var(--surface));
+}
+body #root .mcp-server-catalog .agent-library-icon {
+  border-radius: 50%;
+  border: 1px solid var(--app-border, var(--border));
+}
+
+/* Catalog split actions share the primary button palette, including AI actions. */
+:root:not(:has(.auth-page)) body #root .create-run-action-button,
+:root:not(:has(.auth-page)) body #root .create-run-action-button:is(.tone-ai, .is-explorer-compact) {
+  background: var(--app-accent) !important;
+  border-color: var(--app-accent) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+:root:not(:has(.auth-page)) body #root .create-run-action-button :is(.run-action-main, .run-action-toggle),
+:root:not(:has(.auth-page)) body #root .create-run-action-button:is(.tone-ai, .is-explorer-compact) :is(.run-action-main, .run-action-toggle) {
+  background: var(--app-accent) !important;
+  color: var(--app-accent-contrast) !important;
+  border-color: var(--app-accent) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+:root:not(:has(.auth-page)) body #root .create-run-action-button .run-action-toggle {
+  border-left: 1px solid color-mix(in srgb, var(--app-accent-contrast) 30%, transparent) !important;
+}
+:root:not(:has(.auth-page)) body #root .create-run-action-button :is(.run-action-main, .run-action-toggle):hover:not(:disabled) {
+  background: var(--app-accent-hover) !important;
+}
+/* Split menus are portalled, so their palette must also work outside #root. */
+:root:not(:has(.auth-page)) body .run-action-dropdown {
+  background: var(--app-surface) !important;
+  border-color: var(--app-border) !important;
+  color: var(--app-text) !important;
+}
+:root:not(:has(.auth-page)) body .run-action-dropdown button {
+  background: transparent !important;
+  color: var(--app-text) !important;
+  border-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+:root:not(:has(.auth-page)) body .run-action-dropdown button:hover:not(:disabled) {
+  background: var(--app-accent-soft) !important;
+  color: var(--app-accent) !important;
+}
+:root:not(:has(.auth-page)) body #root .create-run-action-button :is(.run-action-main, .run-action-toggle) > :is(span, svg),
+:root:not(:has(.auth-page)) body .run-action-dropdown button > :is(span, strong, svg) {
+  color: inherit !important;
+}

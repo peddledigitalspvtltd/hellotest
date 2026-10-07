@@ -75,21 +75,18 @@ test("People management exposes user CRUD and role editors without Jira-specific
 });
 
 test("Product Management replaces Requirements Management and separates Stories, Backlog, Sprints, and Releases", async () => {
-  const [shell, sections, navigationStyles, icons, productManagementArtwork] = await Promise.all([
+  const [shell, sections, navigationStyles, icons] = await Promise.all([
     readSource("../src/platform/components/AppShell.tsx"),
     readSource("../src/platform/lib/workspaceSections.ts"),
     readSource("../src/platform/components/module-navigation.css"),
-    readSource("../src/platform/components/AppIcons.tsx"),
-    readBinary("../src/assets/product-management-icon.png")
+    readSource("../src/platform/components/AppIcons.tsx")
   ]);
 
   assert.match(shell, /id: "product-management"/);
   assert.match(shell, /label: "Product Management"/);
   assert.match(shell, /icon: ProductManagementIcon/);
-  assert.match(shell, /import productManagementIcon from "\.\.\/\.\.\/assets\/product-management-icon\.png"/);
-  assert.match(shell, /function ProductManagementIcon[\s\S]*product-management-entity-icon[\s\S]*src=\{productManagementIcon\}/);
   assert.doesNotMatch(shell, /IconTargetArrow/);
-  assert.equal(createHash("sha256").update(productManagementArtwork).digest("hex"), "2ad79ac0fab87d0674bb87ecf81ee239ad0cf1353baa54d1838d3bc32a09c865");
+  assert.match(shell, /function ProductManagementIcon[\s\S]*stroke="currentColor"[\s\S]*M12 3l8 4\.5l0 9/);
   assert.doesNotMatch(shell, /label: "Requirements Management"/);
   assert.ok(shell.indexOf('label: "Product Management"') < shell.indexOf('id: "authoring"'));
   assert.match(sections, /PRODUCT_MANAGEMENT_SECTION_ITEMS[\s\S]*label: "Stories"[\s\S]*label: "Backlog"[\s\S]*label: "Sprints"[\s\S]*label: "Releases"/);

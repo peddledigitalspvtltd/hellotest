@@ -236,6 +236,10 @@
     {
       "module_id": "sample-v7-ht-module-platform",
       "requirement_id": "sample-v3-feature-support-guidance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "requirement_id": "sample-v3-feature-browser-quality-agents"
     }
   ]
 }

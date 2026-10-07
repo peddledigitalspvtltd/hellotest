@@ -1420,6 +1420,13 @@ async function planExecutionDispatch(execution, options = {}) {
       continue;
     }
 
+    const executableIssues = require("./automationReadiness.service").inspectExecutablePlan(normalizedSteps);
+    if (executableIssues.length) {
+      unsupportedAutomatedCaseCount += 1;
+      warnings.push(...executableIssues.map(issue => `${caseSnapshot.test_case_title}: ${issue}`));
+      continue;
+    }
+
     for (const dataSetIteration of dataSetIterations) {
       eligibleCases.push({
         engine_run_id: uuid(),

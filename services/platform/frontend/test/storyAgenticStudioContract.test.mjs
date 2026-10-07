@@ -13,12 +13,9 @@ test("Story creation and completion use the shared focused agent process with ba
 
   assert.match(shell, /processing\?: AgenticProcessingSnapshot/);
   assert.match(shell, /processing=\{processing\}/);
-  assert.match(shell, /profile=\{processProfile \|\| \(mode === "create" \? "story-create" : "story-complete"\)\}/);
-  assert.match(shell, /orientation="vertical"/);
-  assert.match(shell, /presentation="focused"/);
+  assert.match(shell, /<AiGenerationProgress/);
   assert.match(shell, /Proposal ready · review required/);
   assert.match(shell, /Processing complete · no proposal/);
-  assert.match(shell, /Processing is complete; edit and accept only what you want to keep/);
 
   assert.match(page, /const storyAiProcessing = storyAiEnvelope\?\.processing/);
   assert.match(page, /processing=\{storyAiProcessing\}/);

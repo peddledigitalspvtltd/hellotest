@@ -1,10 +1,3 @@
-.mcp-server-page .agent-hub-nav a { padding: 10px 14px; color: var(--text-secondary); text-decoration: none; border-radius: 7px; font-size: 12px; }
-.mcp-server-page .agent-hub-nav a[aria-current] { color: var(--primary); background: color-mix(in srgb,var(--primary) 7%,transparent); }
-.mcp-server-page .agent-directory-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:20px 0; }
-.mcp-server-page .agent-library-search { display:flex; align-items:center; gap:8px; max-width:480px; width:100%; }
-.mcp-server-page .agent-library-search input { flex:1; min-width:0; }
-.mcp-server-page .agent-library-copy p { overflow-wrap:anywhere; }
-.mcp-builtin-card { border-color:color-mix(in srgb,var(--primary) 25%,var(--border)); }
 .mcp-server-dialog { width:min(850px,calc(100vw - 24px)); max-height:calc(100dvh - 24px); display:flex; flex-direction:column; overflow:hidden; }
 .mcp-server-dialog > header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px; border-bottom:1px solid var(--border); }
 .mcp-server-dialog h2 { margin:0; font-size:18px; }
@@ -18,9 +11,103 @@
 .mcp-tool-row,.mcp-plan { padding:12px 0; border-top:1px solid var(--border); }
 .mcp-tool-row small { color:var(--text-secondary); font-size:10px; }
 .mcp-credential-row { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px; }
-@media(max-width:600px){.mcp-server-page .agent-directory-toolbar{flex-wrap:wrap}.mcp-server-dialog > header,.mcp-server-dialog-body{padding:16px}.mcp-server-dialog .workflow-connection-form{padding:16px}}
-.mcp-server-page .agent-library-card dl > div { grid-template-columns:90px minmax(0,1fr); }
-.mcp-server-page .agent-hub-nav a { flex:0 0 auto; white-space:nowrap; }
-.mcp-server-page .agent-library-search { min-width:0; }
-
+@media(max-width:600px){.mcp-server-dialog > header,.mcp-server-dialog-body{padding:16px}.mcp-server-dialog .workflow-connection-form{padding:16px}}
 .mcp-credential-row span { min-width:0; overflow-wrap:anywhere; }
+.mcp-server-card .tile-card-description p { overflow-wrap:anywhere; }
+
+/* Keep the heading and catalog together rather than stretching to viewport height. */
+body #root .mcp-server-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 0;
+}
+body #root .mcp-server-page > .page-header {
+  flex: 0 0 auto;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding-block: 16px !important;
+}
+body #root .mcp-server-page > .mcp-catalog-panel {
+  flex: 0 0 auto;
+  min-height: 0 !important;
+  height: auto !important;
+  grid-template-rows: none !important;
+  grid-auto-rows: auto;
+  align-content: start;
+  gap: 12px;
+  margin: 0 !important;
+}
+body #root .mcp-server-page .mcp-server-catalog {
+  height: auto !important;
+  align-self: start;
+  width: 100%;
+}
+body #root .mcp-server-page .mcp-server-catalog[data-view="list"] :is(.data-table, .catalog-data-table) {
+  min-width: max(100%, 720px) !important;
+}
+body #root .mcp-server-page {
+  width: 100% !important;
+  max-width: none !important;
+  align-items: stretch !important;
+}
+body #root .mcp-server-page > :is(.page-header, .mcp-catalog-panel) {
+  width: 100% !important;
+  max-width: none !important;
+  align-self: stretch !important;
+}
+body #root .mcp-server-card .tile-card-facts strong {
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+body #root .mcp-server-page {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
+}
+
+/* Size tiles independently of the number of configured servers. */
+body #root .mcp-server-page .mcp-server-catalog[data-view="tile"] .agentic-workflow-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 320px)) !important;
+  justify-content: start;
+}
+/* One dialog scroll surface keeps long discovery forms and Save reachable. */
+body .modal-card.mcp-server-dialog {
+  max-height: calc(100dvh - 32px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+body .mcp-server-dialog > header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  background: var(--app-surface, var(--surface, #fff));
+}
+body .mcp-server-dialog :is(.workflow-connection-form, .mcp-server-dialog-body) {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+@media (max-width: 380px) {
+  body #root .mcp-server-page .mcp-server-catalog[data-view="tile"] .agentic-workflow-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+:root body #root .mcp-server-page .modal-card.mcp-server-dialog {
+  max-height: calc(100dvh - 32px) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+:root body #root .mcp-server-page .mcp-server-dialog :is(.workflow-connection-form, .mcp-server-dialog-body) {
+  flex: 0 0 auto !important;
+  max-height: none !important;
+  height: auto !important;
+  overflow: visible !important;
+}

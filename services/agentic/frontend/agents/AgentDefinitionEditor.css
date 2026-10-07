@@ -33,3 +33,15 @@ body:has(.ai-evidence-flyout .agent-definition-editor) :is(.ai-prompt-template-b
 :root[data-theme="dark"] .ai-evidence-flyout:has(.agent-definition-editor) :is(.ghost-button, .dialog-close-button) { color: #e0e9f5 !important; background: #24364e !important; border-color: #425773 !important; }
 :root[data-theme="dark"] .agent-editor-error { background: #3d242b; border-color: #7b414b; color: #ffbcc3; }
 @media (max-width: 600px) { .agent-limit-grid, .agent-scope-grid { grid-template-columns: 1fr; } .agent-library-controls { width: 100%; } .agent-library-controls .agent-library-search { width: 100%; } .agent-definition-editor nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } .agent-definition-editor nav button { white-space: normal; padding: 9px 5px; font-size: .78rem; line-height: 1.4; } }
+.agent-editor-validation { text-align: left; font: inherit; font-size: .76rem; line-height: 1.5; padding: 0; border: 0; background: transparent; color: var(--warning, #8a6426); cursor: pointer; }
+.agent-editor-validation:focus-visible { outline: 2px solid var(--accent, #318aab); outline-offset: 4px; }
+.agent-editor-footer .primary-button { min-width: 160px; justify-content: center; }
+.agent-model-contract { background: color-mix(in srgb, var(--accent, #5068dd) 4%, var(--surface-strong, #fff)); }
+.agent-definition-editor nav { gap: 8px; }
+.agent-definition-editor textarea { line-height: 1.7; }
+@media (max-width: 600px) { .agent-editor-footer > div { display: grid; grid-template-columns: 1fr 1fr; } .agent-editor-footer .primary-button { grid-column: 1 / -1; } }
+/* Three steps must fit the flyout itself, including on wide-screen desktops. */
+.agent-definition-editor { --studio-accent: var(--accent, #5068dd); }
+.agent-definition-editor nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+.agent-definition-editor nav button { white-space: normal; font-size: .75rem; padding: 9px 6px; line-height: 1.4; }
+.agent-model-contract svg { color: var(--accent, #5068dd); }

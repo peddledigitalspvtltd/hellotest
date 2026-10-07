@@ -15,6 +15,7 @@ test("automation authoring is a dedicated case workflow with complete build surf
     "Record flow",
     "Author steps",
     "AutomationOverlay",
+    "Generate from your saved behavior",
     "Complete automation code",
     "Insert Shared Step Group",
     "Edit instructions"
@@ -29,6 +30,11 @@ test("automation authoring is a dedicated case workflow with complete build surf
   assert.match(page, /target_step_id: recorderOriginRef\.current\?\.targetStepId \|\| undefined/);
   assert.match(page, /code=\{completeAutomationCode\}/);
   assert.match(page, /Automation mapping needed/);
+  assert.match(page, /<AutomationWorkflowRail/);
+  assert.match(page, /<AutomationRunReviewDialog/);
+  assert.match(page, /const automationActionTargetIds = selectedAutomationActionTargetIds;/);
+  assert.match(page, /inspectSavedPlans\(request\.caseIds\)/);
+  assert.match(page, /retrySavedAutomationRun\(pendingRemoteRun/);
 });
 
 test("manual cases expose linked automation without merging the records", async () => {

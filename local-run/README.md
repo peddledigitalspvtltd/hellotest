@@ -114,6 +114,18 @@ and can be scaled without changing the browser/API URL:
 - `testengine-web-worker` leases jobs with web steps, including Web+API unified flows.
 - `testengine-android-worker` leases native Android and iOS jobs; each authored platform uses its own device session.
 
+Browser quality agents use a separate `testengine-quality-worker` at one replica.
+The gateway routes `/api/v1/quality-agents` exclusively to this worker so run
+polling, cancellation, artifacts and reviewed baselines keep their owning
+runtime. Its `hellotest-local-quality-data` named volume survives container
+recreation; it does not poll ordinary automation queues or participate in the
+autoscaler. In `.env`, `QUALITY_AGENT_ALLOWED_PRIVATE_HOSTS` permits exact private
+QA hosts and `QUALITY_AGENT_ALLOWED_ORIGINS` permits additional exact resource
+origins. Both are empty by default. To test a host application from the
+container, use `host.docker.internal` and explicitly allow that private hostname.
+See [the engine guide](../docs/architecture/quality-agent-engine.md) for actual agent
+scopes, evidence limits and baseline review.
+
 The local Test Engine defaults to:
 
 - `TESTENGINE_API_REPLICAS=0`

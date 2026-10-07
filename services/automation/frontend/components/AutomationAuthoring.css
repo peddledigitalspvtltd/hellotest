@@ -402,3 +402,7 @@
 .automation-authoring-create .resource-modal-header { display: flex; flex-direction: row; align-items: flex-start; gap: 16px; }
 .automation-authoring-create .resource-modal-header > .resource-modal-title { flex: 1; min-width: 0; }
 .automation-authoring-create .resource-modal-header > .dialog-close-button { flex: 0 0 auto; width: 32px; }
+
+.automation-build-header-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.page-content--automation .automation-build-header .automation-quality-launch { float:none; margin:0; width:auto; }
+@media(max-width:600px){.automation-build-header{flex-wrap:wrap;align-items:flex-start}.automation-build-header-actions{width:100%}}

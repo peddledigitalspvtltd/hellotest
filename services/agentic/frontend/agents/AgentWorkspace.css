@@ -234,3 +234,20 @@
 .agent-specialist-workspace .agent-command-context__menu { max-height: min(380px, 65vh); overflow-y: auto; }
 .agent-specialist-workspace .agent-command-context__menu label { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; justify-content: start; text-align: left; }
 .agent-specialist-workspace .agent-command-context__menu input[type="checkbox"] { width: 16px; height: 16px; min-width: 16px; max-width: 16px; padding: 0; margin: 0; }
+
+/* Details remain close to the task without competing with the primary action. */
+.agent-library-card { border-radius: 16px; padding: 22px; }
+.agent-library-card > header { margin-bottom: 16px; }
+.agent-library-details { margin: 18px 0; color: var(--agent-muted); font-size: .73rem; }
+.agent-library-details > summary { cursor: pointer; width: fit-content; padding: 4px 0; }
+.agent-library-details > summary:hover { color: var(--agent-ink); }
+.agent-library-details dl { margin: 12px 0 0; padding: 12px; border: 1px solid var(--agent-line); border-radius: 9px; background: var(--agent-soft); }
+.agent-library-details dd { color: var(--agent-ink); }
+.agent-directory summary:focus-visible { outline: 2px solid var(--accent, #318aab); outline-offset: 3px; }
+.agent-library-card .agent-card-actions > button:last-child { color: var(--card-accent); font-weight: 600; border-color: color-mix(in srgb, var(--card-accent) 25%, var(--agent-line)); }
+.agent-library-card .agent-card-actions > button:disabled { cursor: not-allowed; opacity: .5; }
+.agent-library-card footer { flex-wrap: wrap; }
+.agent-library-card footer .agent-card-actions { margin-left: auto; }
+.agent-start { border-radius: 18px; background: color-mix(in srgb, var(--accent, #167f88) 4%, var(--agent-panel)); }
+.agent-start-actions button { border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { .agent-library-card, .agent-start-actions button { transition: none; } }

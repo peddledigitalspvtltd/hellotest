@@ -5,18 +5,21 @@ import { randomUUID } from 'node:crypto';
 import { runInNewContext } from 'node:vm';
 import { createRequire } from 'node:module';
 const require=createRequire(new URL('../../../../testengine/backend/package.json',import.meta.url));
-const {chromium}=require('playwright');
-const {expect}=require('playwright/test');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+const {expect}=createRequire(require.resolve(process.env.PLAYWRIGHT_MODULE||'playwright'))('playwright/test');
 const root=new URL('../../../platform/frontend/',import.meta.url);
 test('actual automation workspace presents runtime-specific authoring and recording for all four platforms',{timeout:90000},async()=>{
  const template=await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs',import.meta.url),'utf8');
  let fixture=runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
  fixture=fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>','element:<AutomationPage/>');
+ fixture=fixture.replace("import '/src/catalog-list.css';", "import '/src/catalog-list.css';import '/src/product-experience.css';");
  fixture=fixture.replace('const client=new QueryClient',`const runtime=new URLSearchParams(location.search).get('runtime')||'web';
  api.appTypes.list=async()=>[{id:'a',project_id:'p',name:runtime,type:runtime}];item.automated='yes';item.automation_status='ready';
  steps.forEach(step=>{step.step_type=runtime;step.automation_code=runtime==='api'?'':runtime==='web'?'await page.goto("https://app.test");':'await '+runtime+'.tap("~login");';step.api_request=runtime==='api'?{method:'GET',url:'https://app.test/status',validations:[{kind:'status',expected:'200'}]}:null;});
  window.stepUpdates=[];api.testSteps.update=async(id,input)=>{window.stepUpdates.push(input);const target=steps.find(step=>step.id===id);Object.assign(target,input);return {...target};};
  const client=new QueryClient`);
+  fixture=fixture.replace(/import '\/src\/[^']+\.css';/g,'');
+  fixture="import '/src/styles.css';import '/src/dark-theme.css';import '/src/modal-system.css';import '/src/workspace-layout.css';import '/src/catalog-list.css';import '/src/product-experience.css';\n"+fixture;
  const name='automation-runtimes-'+randomUUID(),html=new URL(name+'.html',root),tsx=new URL(name+'.tsx',root);let browser,page;
  try{
   await writeFile(tsx,fixture);await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);

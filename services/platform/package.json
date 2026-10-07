@@ -133,6 +133,8 @@
     "./frontend/src/platform/lib/userDisplay": "./frontend/src/platform/lib/userDisplay.ts",
     "./frontend/src/services/shared": "./frontend/src/services/shared.ts",
     "./frontend/src/shared/components/CatalogActionMenu": "./frontend/src/shared/components/CatalogActionMenu.tsx",
+    "./frontend/src/shared/components/AuthoringContextMenu": "./frontend/src/shared/components/AuthoringContextMenu.tsx",
+    "./frontend/src/shared/components/ContextSelect": "./frontend/src/shared/components/ContextSelect.tsx",
     "./frontend/src/shared/components/CatalogCardDescription": "./frontend/src/shared/components/CatalogCardDescription.tsx",
     "./frontend/src/shared/components/CatalogSearchFilter": "./frontend/src/shared/components/CatalogSearchFilter.tsx",
     "./frontend/src/shared/components/CatalogSelectionControls": "./frontend/src/shared/components/CatalogSelectionControls.tsx",
@@ -183,7 +185,7 @@
     "./backend/src/utils/llmTraceContext": "./backend/src/utils/llmTraceContext.js",
     "./backend/src/db/schemaReadiness": "./backend/src/db/schemaReadiness.js",
     "./backend/src/mcp/gateway": "./backend/src/mcp/gateway.js",
-    "./backend/src/mcp/server": "./backend/src/mcp/server.js",
+    "./backend/src/mcp/server": "./backend/src/mcp/mcpServer.js",
     "./backend/src/mcp/auth": "./backend/src/mcp/auth.js"
   },
   "scripts": {

@@ -1,4 +1,5 @@
 import { registerAutomationMcp } from "./lib/automationMcp.js";
+import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
 import Fastify from "fastify";
 import { randomUUID } from "node:crypto";
 import { buildAcceptedRun, buildCapabilities } from "./lib/pipeline.js";
@@ -329,6 +330,7 @@ const startServer = async () => {
   await opsTelemetry.register(app);
   await registerRecorderRoutes(app);
   await registerAutomationMcp(app, privilegedRunGuard);
+  await registerQualityAgentRoutes(app, privilegedRunGuard);
   queueWorker = startQueueWorker(app.log, opsTelemetry);
   app.addHook("onClose", async () => {
     shuttingDown = true;

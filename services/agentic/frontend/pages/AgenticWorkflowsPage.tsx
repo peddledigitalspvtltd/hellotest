@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { IconArrowLeft, IconArrowRight, IconClock, IconHistory, IconLayoutGrid, IconRoute, IconShieldCheck } from "@tabler/icons-react";
@@ -11,7 +12,6 @@ import { AgentDirectory } from "../agents/AgentDirectory";
 import { AgentDefinitionEditor } from "../agents/AgentDefinitionEditor";
 import { agentFromSpecialist, projectAgentNode, type AgentDefinition, type ProjectAgent } from "../agents/agentDefinitions";
 import { specialistDefaults } from "../workflows/specialistProfiles";
-import { AgentActivityCenter } from "../agents/AgentActivityCenter";
 import { AGENT_EXPERIENCES } from "../agents/agentExperience";
 import type { RepositoryAgentType } from "../agents/agentTypes";
 import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
@@ -26,6 +26,7 @@ import {
   HELLOTEST_AGENT_CATALOG,
   type HelloTestAgent
 } from "../components/AgenticExperience";
+import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { PageHeader } from "@hellotest/platform/frontend/src/shared/components/PageHeader";
 import { Panel } from "@hellotest/platform/frontend/src/shared/components/Panel";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
@@ -47,10 +48,11 @@ import "./AgenticWorkflowsPage.css";
 import { WorkflowStudio } from "../workflows/WorkflowStudio";
 import { WorkflowExecutionView } from "../workflows/WorkflowExecutionView";
 import { WORKFLOW_TEMPLATES, draftFromTemplate } from "../workflows/workflowTemplates";
+import { QualityAgentLab } from "../quality/QualityAgentLab";
 
 type WorkflowViewMode = "tile" | "list";
 type WorkflowTab = "workflows" | "runs";
-type AgenticPageSurface = "agents" | "activity" | "workbench" | "repository" | WorkflowTab;
+type AgenticPageSurface = "quality" | "agents" | "workbench" | "repository" | WorkflowTab;
 import { WorkflowNodeKind, WorkflowDraft, AgenticCredential, AgenticApiResponseStyle, DEFAULT_RUN_INPUT, runMatchesDraft, layoutWorkflow, compactCount, safeJsonParse, prettyJson, buildNodeDefaults, createNodeId, createFlowEdge, insertWorkflowNode, canConnectWorkflow, type NodeInsertion, decorateFlowEdge, reviewDefinitionKey, normalizeWorkflowNodeDirectLlm, createWorkflowDraft, buildN8nPayload } from "../workflows/workflowGraph";
 
 export function AgenticWorkflowsPage() {
@@ -80,15 +82,15 @@ export function AgenticWorkflowsPage() {
   const [agentEditor, setAgentEditor] = useState<{ agent?: ProjectAgent; initial?: AgentDefinition } | null>(null);
   const [agentEditorError, setAgentEditorError] = useState("");
   const [agentInputs, setAgentInputs] = useState<Record<string, unknown>>({});
-  const requestedSurface = searchParams.get("view");
+  const requestedSurface = searchParams.get("view") || searchParams.get("surface");
   const activeSurface: AgenticPageSurface = requestedSurface === "workbench"
-    || requestedSurface === "activity"
     || requestedSurface === "repository"
     || requestedSurface === "agents"
     || requestedSurface === "workflows"
     || requestedSurface === "runs"
+    || requestedSurface === "quality"
     ? requestedSurface
-    : "workflows";
+    : "agents";
   const activeTab: WorkflowTab = activeSurface === "runs" ? "runs" : "workflows";
   const repositoryAgentType = isRepositoryAgentType(searchParams.get("agent")) ? searchParams.get("agent") as RepositoryAgentType : "object_repository";
   const selectedRepositoryAgent = REPOSITORY_AGENTS.find((agent) => agent.id === repositoryAgentType)!;
@@ -183,12 +185,12 @@ export function AgenticWorkflowsPage() {
     setDraft(null); setInspectedRun(null); setSelectedNodeId(""); setReviewReadiness(null); setReviewStartError(""); reviewRequest.current = null;
     setRunInput(DEFAULT_RUN_INPUT);
     setNodes([]); setEdges([]); setTestingApiNodeId(""); setSelectedActionWorkflowIds([]); setSelectedActionRunIds([]);
-    if (previousWorkspaceScope.current !== workspaceScopeKey) setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); return next; }, { replace: true });
+    if (previousWorkspaceScope.current !== workspaceScopeKey) setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); next.delete("quality_run"); return next; }, { replace: true });
     previousWorkspaceScope.current = workspaceScopeKey;
   }, [workspaceScopeKey, setNodes, setEdges, setSearchParams]);
 
   useEffect(() => {
-    setSelectedRunId(activeSurface === "runs" ? searchParams.get("workflow_run") || "" : "");
+    setSelectedRunId(searchParams.get("workflow_run") || "");
   }, [activeSurface, searchParams]);
 
   useEffect(() => {
@@ -797,17 +799,13 @@ export function AgenticWorkflowsPage() {
   };
 
   const openRun = (run: AgenticWorkflowRun) => {
-    setDraft(null);
-    setSelectedNodeId("");
-    setNodes([]);
-    setEdges([]);
     setSelectedRunId(run.id);
-    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "runs"); next.set("workflow_run", run.id); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", draft ? "workflows" : "runs"); next.set("workflow_run", run.id); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
   };
 
   const closeRun = () => {
     setSelectedRunId("");
-    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); return next; }, { replace: true });
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("workflow_run"); next.delete("quality_run"); next.set("view", "workflows"); return next; }, { replace: true });
   };
 
   const closeDraft = () => {
@@ -1025,22 +1023,25 @@ export function AgenticWorkflowsPage() {
     setAssistantReply(null); setSelectedAssistantSessionId(id); setAssistantResultTab("brief");
     setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "workbench"); next.set("agent", agent.id); next.set("session", id); next.delete("run"); return next; });
   };
-  const openHubSurface = (view: "agents" | "activity" | "workflows" | "runs") => {
-    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", view); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
+  const openHubSurface = (view: "quality" | "agents" | "workflows" | "runs") => {
+    setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", view); next.delete("surface"); next.delete("agent"); next.delete("run"); next.delete("session"); return next; });
   };
+  const workflowHistoryRef = useDialogFocus<HTMLDivElement>({ active: activeSurface === "runs" && !selectedRun && !draft, onClose: () => openHubSurface("workflows") });
+  const workflowRunRef = useDialogFocus<HTMLDivElement>({ active: Boolean(selectedRun), onClose: closeRun });
   const newSpecialistReview = () => {
     setAssistantReply(null); setSelectedAssistantSessionId(""); setAssistantNotice(""); setAssistantResultTab("brief");
     setSearchParams(current => { const next = new URLSearchParams(current); next.delete("session"); return next; }, { replace: true });
   };
 
-  if (!canViewAgenticWorkflows || !isAgenticWorkflowsEnabled) return <div className="empty-state">Agentic Studio is not available with your current workspace access.</div>;
+  const renderCatalog = (content: ReactNode) => activeSurface === "runs" ? createPortal(content, document.body) : content;
+  if (!canViewAgenticWorkflows || !isAgenticWorkflowsEnabled) return <div className="empty-state">AI Agent Studio is not available with your current workspace access.</div>;
 
   return (
     <div className="page page-agentic-workflows">
-      {!draft && !selectedRun && <PageHeader
+      {!draft && !selectedRun && activeSurface !== "quality" && <PageHeader
         eyebrow={activeSurface === "repository" ? "Repository agents" : activeSurface === "agents" ? "AI specialists" : activeSurface === "workbench" ? "Agent Workbench" : "Agentic automation"}
-        title={activeSurface === "activity" ? "Recent agent work" : activeSurface === "repository" ? selectedRepositoryAgent.name : activeSurface === "agents" ? "AI Agents" : activeSurface === "workbench" ? selectedAssistantAgent.name : activeTab === "runs" ? "Execution history" : "Agentic Studio"}
-        description={activeSurface === "activity" ? "Resume source analyses and revisit your evidence-based reviews." : activeSurface === "agents"
+        title={activeSurface === "repository" ? selectedRepositoryAgent.name : activeSurface === "agents" ? "AI Agents" : activeSurface === "workbench" ? selectedAssistantAgent.name : "Workflows"}
+        description={activeSurface === "agents"
           ? "Turn repository source and project evidence into useful quality work."
           : activeSurface === "repository"
             ? selectedRepositoryAgent.outcome
@@ -1071,17 +1072,10 @@ export function AgenticWorkflowsPage() {
       />}
 
       <div className="agentic-page-stage">
-      {!draft && !selectedRun && <nav className="agent-hub-nav" aria-label="Agent workspace navigation">
-        <Link className="ghost-button" to="/mcp-servers">MCP Servers</Link>
-        <button type="button" aria-current={activeSurface === "agents" ? "page" : undefined} onClick={() => openHubSurface("agents")}><IconLayoutGrid size={17} aria-hidden="true" />Agent library</button>
-        <button type="button" aria-current={activeSurface === "activity" ? "page" : undefined} onClick={() => openHubSurface("activity")}><IconClock size={17} aria-hidden="true" />Recent work</button>
-        <button type="button" aria-current={activeSurface === "workflows" ? "page" : undefined} onClick={() => openHubSurface("workflows")}><IconRoute size={17} aria-hidden="true" />Workflows</button>
-        <button type="button" aria-current={activeSurface === "runs" ? "page" : undefined} onClick={() => openHubSurface("runs")}><IconHistory size={17} aria-hidden="true" />Workflow history</button>
-      </nav>}
+      {!draft && !selectedRun && activeSurface === "quality" ? <QualityAgentLab key={`${session?.user.id}:${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} scopeLabel={[selectedProject?.name, selectedAppType?.name].filter(Boolean).join(" · ")} userId={session?.user.id || ""} canRun={canRunAgenticWorkflows} canManage={canManageAgenticWorkflows} canCreateDefect={can("feedback.create")} /> : null}
       {!draft && !selectedRun && activeSurface === "agents" ? <AgentDirectory key={`${session?.user.id}:${projectId}`} userId={session?.user.id || "anonymous"} onOpenRepository={openRepositoryAgent} onOpenSpecialist={openAgentWorkbench}
         projectAgents={projectAgents} canManage={Boolean(projectId) && canManageAgenticWorkflows} loading={projectAgentsQuery.isLoading} error={projectAgentsQuery.error instanceof Error ? projectAgentsQuery.error.message : undefined} onRetry={() => void projectAgentsQuery.refetch()}
         onCreate={() => { setAgentEditorError(""); setAgentEditor({}); }} onEdit={agent => { setAgentEditorError(""); setAgentEditor({ agent }); }} onCustomize={agent => { setAgentEditorError(""); setAgentEditor({ initial: agentFromSpecialist(agent.id, agent.name) }); }} /> : null}
-      {!draft && !selectedRun && activeSurface === "activity" ? <AgentActivityCenter key={`${projectId}:${appTypeId}`} projectId={projectId} appTypeId={appTypeId} enabled={canViewAgenticWorkflows} onOpenRepository={openRepositoryAgent} onOpenSession={openAssistantSession} /> : null}
       {!draft && !selectedRun && activeSurface === "repository" ? (
         <RepositoryAgents
           key={`${projectId}:${appTypeId}:${repositoryAgentType}:${searchParams.get("run") || "new"}`}
@@ -1136,13 +1130,16 @@ export function AgenticWorkflowsPage() {
         <header><div><span className="studio-caption">START FROM A TEMPLATE</span><h2>A useful workflow in a few steps</h2></div><button className="ghost-button" type="button" onClick={() => { openDraft(); setDraft(current => current ? { ...current, name: "Untitled workflow", description: "", nodes: [], edges: [] } : current); setNodes([]); setEdges([]); setSelectedNodeId(""); }}>Start from scratch</button></header>
         <div>{WORKFLOW_TEMPLATES.map(template => <button className="studio-template-card" key={template.id} type="button" onClick={() => { const value = draftFromTemplate(template); openDraft(); setDraft(value.draft); setNodes(value.draft.nodes); setEdges(value.draft.edges.map(decorateFlowEdge)); setSelectedNodeId(value.draft.nodes[0]?.id || ""); setRunInput(value.input || DEFAULT_RUN_INPUT); }}><span>{template.category}</span><strong>{template.name}</strong><p>{template.description}</p><small>Use template →</small></button>)}</div>
       </section>}
-      {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? (
+      {!draft && !selectedRun && (activeSurface === "workflows" || activeSurface === "runs") ? renderCatalog(
+        <div className={activeSurface === "runs" ? "modal-backdrop workflow-history-backdrop" : "workflow-catalog-container"}><div className={activeSurface === "runs" ? "modal-card workflow-history-dialog page-agentic-workflows" : "workflow-catalog-container"} role={activeSurface === "runs" ? "dialog" : undefined} aria-modal={activeSurface === "runs" ? true : undefined} aria-label={activeSurface === "runs" ? "Workflow executions" : undefined} ref={activeSurface === "runs" ? workflowHistoryRef : undefined} tabIndex={activeSurface === "runs" ? -1 : undefined}>
+        {activeSurface === "runs" ? <button className="ghost-button workflow-history-close" aria-label="Close workflow executions" onClick={() => openHubSurface("workflows")} type="button">Close</button> : null}
         <Panel
           className="agentic-workflows-panel"
           title={activeTab === "workflows" ? "Saved workflows" : "Workflow history"}
           titleVariant="eyebrow"
           subtitle={activeTab === "workflows" ? "Browse saved workflow definitions in the current project and app type." : "Inspect real executions, saved results and graph previews."}
         >
+      {selectedRunId && !selectedRun && <section className="studio-notice" role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? <><p>{selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : "Unable to load execution."}</p><button type="button" onClick={() => void selectedRunQuery.refetch()}>Retry execution details</button><button type="button" onClick={closeRun}>Back</button></> : "Loading execution…"}</section>}
           <div className="design-list-toolbar catalog-command-toolbar agentic-workflows-toolbar">
             <div className="catalog-toolbar-discovery" aria-label="Workflow views, search, and selection">
               <CatalogViewToggle onChange={setViewMode} value={viewMode} />
@@ -1163,7 +1160,6 @@ export function AgenticWorkflowsPage() {
                 </div>
               </CatalogSearchFilter>
               <CatalogSelectionControls
-                showLabels
                 clearLabel="Clear all"
                 allSelected={areAllFilteredActionItemsSelected}
                 canSelectAll={Boolean(visibleActionIds.length)}
@@ -1315,10 +1311,11 @@ export function AgenticWorkflowsPage() {
               </div>
             )}
           </div>
-        </Panel>
+        </Panel></div></div>
       ) : null}
 
       {draft && <WorkflowStudio
+        key={`${workspaceScopeKey}:${draft.id || "new"}`}
         projectAgents={projectAgents.filter(agent => agent.active_version && !agent.archived)} onAddAgent={(agent, insertion) => addWorkflowNode("agent", insertion, agent)}
         draft={draft} nodes={nodes} edges={edges} selectedNodeId={selectedNodeId}
         editable={canManageAgenticWorkflows} canRun={canRunAgenticWorkflows}
@@ -1330,6 +1327,7 @@ export function AgenticWorkflowsPage() {
         readiness={reviewReadiness?.report} readinessCurrent={readinessMatchesDraft}
         onSelect={setSelectedNodeId} onAdd={addWorkflowNode} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         onConnect={onConnect} onLayout={() => setNodes(current => layoutWorkflow(current, edges))}
+        onRestoreGraph={snapshot => { setNodes(snapshot.nodes); setEdges(snapshot.edges); setSelectedNodeId(current => snapshot.nodes.some(node => node.id === current) ? current : ""); }}
         runs={asArray(workflowHistoryQuery.data).filter(run => run.workflow_id === draft.id)} onOpenRun={openRun}
         historyLoading={workflowHistoryQuery.isFetching} historyError={workflowHistoryQuery.error instanceof Error ? workflowHistoryQuery.error.message : undefined}
         onRetryHistory={() => void workflowHistoryQuery.refetch()}
@@ -1340,15 +1338,17 @@ export function AgenticWorkflowsPage() {
           canKnowledge: canUseKnowledge, providers: llmProviderOptions, projectAgents: projectAgents.filter(agent => agent.active_version && !agent.archived),
           onChange: updateSelectedNodeFields, onDelete: deleteSelectedNode, onTestApi: testSelectedApiAgent, testingApi: Boolean(testingApiNodeId) }}
       />}
-      {selectedRunId && !selectedRun && <section className="studio-notice" role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? <><p>{selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : "Unable to load execution."}</p><button type="button" onClick={() => void selectedRunQuery.refetch()}>Retry execution details</button><button type="button" onClick={closeRun}>Back</button></> : "Loading execution…"}</section>}
-      {selectedRun && <WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
+
+      {draft && selectedRunId && !selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog" role="dialog" aria-modal="true" aria-label="Workflow execution details"><p role={selectedRunQuery.isError ? "alert" : "status"}>{selectedRunQuery.isError ? "Execution details could not be loaded." : "Loading execution…"}</p>{selectedRunQuery.isError ? <button className="ghost-button" type="button" onClick={() => void selectedRunQuery.refetch()}>Retry</button> : null}<button className="ghost-button" type="button" onClick={closeRun}>Back to workflow</button></div></div>, document.body)}
+
+      {selectedRun && createPortal(<div className="modal-backdrop"><div className="modal-card workflow-history-dialog page-agentic-workflows" role="dialog" aria-modal="true" aria-label="Workflow execution details" ref={workflowRunRef} tabIndex={-1}><WorkflowExecutionView run={selectedRun} onBack={closeRun} canRun={canRunAgenticWorkflows} canViewTraces={can("ops.view")}
         stopping={cancelReviewMutation.isPending} onStop={() => cancelReviewMutation.mutate(selectedRun.id)}
         error={selectedRunQuery.error instanceof Error ? selectedRunQuery.error.message : undefined}
         onRefresh={() => void selectedRunQuery.refetch()}
         onRetry={selectedRun.workflow_id ? () => { const workflow = workflows.find(item => item.id === selectedRun.workflow_id); if (workflow) { setRunInput(prettyJson(selectedRun.input_payload)); openDraft(workflow, selectedRun); } else { setToastTone("error"); setToastMessage("The original workflow is no longer available in this workspace."); } } : undefined}
         onOpenReview={(agent, session) => { closeRun(); openAssistantSession(agent, session); }}
         onOpenSource={(agent, run) => { if (isRepositoryAgentType(agent)) { closeRun(); setSearchParams(current => { const next = new URLSearchParams(current); next.set("view", "repository"); next.set("agent", agent); next.set("run", run); return next; }); } }}
-      />}
+      /></div></div>, document.body)}
       </div>
 
       {agentEditor && <AgentDefinitionEditor key={`${projectId}:${agentEditor.agent?.id || "new"}`} agent={agentEditor.agent} initial={agentEditor.initial} projectId={projectId} appTypeId={appTypeId} providers={llmProviderOptions} busy={saveAgentMutation.isPending} error={agentEditorError}

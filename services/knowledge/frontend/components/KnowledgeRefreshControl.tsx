@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconRefresh,
@@ -24,7 +25,11 @@ export function KnowledgeRefreshControl({
     queryKey: ["knowledge-refresh", projectId],
     queryFn: () => knowledgeApi.knowledgeRepo.refresh.get(projectId),
     enabled: Boolean(projectId),
-    refetchInterval: 5000,
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const value = query.state.data;
+      return value?.requested && !["failed", "blocked"].includes(value.status) || ["scanning", "queued", "waiting"].includes(value?.status || "") ? 3_000 : value?.enabled ? 30_000 : false;
+    },
   });
   const changed = () => {
     void cache.invalidateQueries({
@@ -55,6 +60,8 @@ export function KnowledgeRefreshControl({
     closeDisabled: configure.isPending,
   });
   const state = query.data;
+  const presets = [{ value: "60000", label: "Every minute" }, { value: "300000", label: "Every 5 minutes" }, { value: "900000", label: "Every 15 minutes" }, { value: "1800000", label: "Every 30 minutes" }, { value: "3600000", label: "Every hour" }];
+  const periodLabel = presets.find((option) => option.value === String(state?.interval_ms))?.label || (state?.interval_ms ? state.interval_ms < 60_000 ? `Every ${Math.round(state.interval_ms / 1_000)} seconds` : state.interval_ms < 3_600_000 ? `Every ${Number((state.interval_ms / 60_000).toFixed(1))} minutes` : `Every ${Number((state.interval_ms / 3_600_000).toFixed(1))} hours` : "On demand");
   // Discover jobs created after the initial request so the existing processing
   // poller starts, and refresh source counts without polling the entire catalog.
   useEffect(() => {
@@ -72,7 +79,7 @@ export function KnowledgeRefreshControl({
       <div className="knowledge-refresh-copy">
         <IconRefresh size={19} stroke={1.7} />
         <div>
-          <strong>Project context refresh</strong>
+          <strong>Keep project context current</strong>
           <span>
             Stories, test cases and defects · only new or changed records are
             indexed
@@ -87,7 +94,7 @@ export function KnowledgeRefreshControl({
               ? "Waiting for indexing"
               : "Refreshing context…"
             : state?.enabled
-              ? `Every ${state.interval_ms.toLocaleString()} ms`
+              ? periodLabel
               : "On demand"}
         </span>
         {canManage ? (
@@ -120,14 +127,14 @@ export function KnowledgeRefreshControl({
         ) : null}
       </div>
       {state?.last_result?.scanned !== undefined ? (
-        <small className="knowledge-refresh-result">
+        <details className="knowledge-refresh-details"><summary>Last refresh{state.last_completed_at ? ` · ${new Date(state.last_completed_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}</summary><small className="knowledge-refresh-result">
           Last scan: {state.last_result.scanned} checked ·{" "}
           {state.last_result.queued || 0} queued for indexing ·{" "}
           {state.last_result.unchanged || 0} unchanged
           {state.last_result.inaccessible
             ? ` · ${state.last_result.inaccessible} outside refresh owner's access`
             : ""}
-        </small>
+        </small></details>
       ) : null}
       {error || state?.last_error ? (
         <p role="alert" className="knowledge-refresh-error">
@@ -141,8 +148,8 @@ export function KnowledgeRefreshControl({
           </button>
         </p>
       ) : null}
-      {open && canManage ? (
-        <div className="knowledge-refresh-backdrop">
+      {open && canManage ? createPortal(
+        <div className="knowledge-refresh-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !configure.isPending) setOpen(false); }}>
           <div
             ref={dialog}
             className="knowledge-refresh-dialog"
@@ -164,9 +171,7 @@ export function KnowledgeRefreshControl({
               </button>
             </div>
             <p>
-              Keep all project stories, test cases and defects searchable.
-              Unchanged and archived sources are skipped. Runs use your current
-              permissions.
+              Index new and changed project records using your current access.
             </p>
             <form
               onSubmit={(event) => {
@@ -183,6 +188,10 @@ export function KnowledgeRefreshControl({
                 Refresh automatically
               </label>
               <label>
+                Frequency
+                <select aria-label="Automatic refresh frequency" onChange={(event) => setPeriod(event.target.value)} value={presets.some((option) => option.value === period) ? period : "custom"}>{presets.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}<option value="custom" disabled>Custom interval</option></select>
+              </label>
+              <details><summary>Custom interval</summary><label>
                 Interval in milliseconds
                 <input
                   aria-label="Refresh interval in milliseconds"
@@ -194,10 +203,11 @@ export function KnowledgeRefreshControl({
                   value={period}
                   onChange={(event) => setPeriod(event.target.value)}
                 />
-              </label>
+              </label></details>
               <small>
-                5,000–86,400,000 ms. Small batches run without overlapping;
-                indexing finishes before the next batch starts.
+                New batches start after indexing completes.
+                <span className="sr-only">5,000–86,400,000 ms. Small batches run without overlapping;
+                indexing finishes before the next batch starts.</span>
               </small>
               {configure.error ? (
                 <p role="alert">
@@ -215,7 +225,7 @@ export function KnowledgeRefreshControl({
               </button>
             </form>
           </div>
-        </div>
+        </div>, document.body
       ) : null}
     </div>
   );

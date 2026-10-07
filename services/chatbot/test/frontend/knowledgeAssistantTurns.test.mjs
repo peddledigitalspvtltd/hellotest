@@ -22,7 +22,7 @@ function fixture({ failure, cancel = false, changeScope = false } = {}) {
     sourceKinds: ["text"], apiSourceKinds: ["text", "knowledge_item", "product_help"], DEFAULT_ASSISTANT_SOURCE_KINDS: ["requirement", "test_case", "execution", "bug", "file", "text", "chat"], RETRIEVAL_ONLY_INTEGRATION: "__retrieval_only__",
     smartContext: { query: "Scope", sourceIds: ["source-1"], sourceKinds: ["text"], contextText: "Reviewed evidence" },
     scopeGenerationRef, requestControllerRef, projectId: "project-1", appTypeId: "app-1", sessionId: "conversation-1", createClientTurnId: () => "turn-1",
-    setActiveRequestIntegrationId() {}, setProgressEvents() {}, setPrompt() {}, setSessionId() {}, setRequestStartedAt() {}, setTurnNotices() {},
+    setActiveRequestIntegrationId() {}, setProgressEvents() {}, setPrompt() {}, setSessionId() {}, setRequestStartedAt() {}, setTurnNotices() {}, setAnswerDelivery() {}, setShowLatest() {}, followConversationRef: { current: true },
     setMessages: (updater) => { messages = updater(messages); }, setRetryTurns: (updater) => { retries = updater(retries); },
     createSessionMutation: { mutateAsync: async () => ({ id: "conversation-1" }) }, safeSession: (item) => item,
     sendMessageMutation: { mutateAsync: async (input) => { calls.push(input); if (changeScope) scopeGenerationRef.current += 1; if (cancel) { requestControllerRef.current.abort(); throw new DOMException("Stopped", "AbortError"); } if (failure) throw failure; return { assistant_message: { id: "answer", content: "Evidence answer" } }; } },

@@ -1,10 +1,10 @@
 import type { KnowledgeAssistantIntegration, KnowledgeAssistantMessageResponse, KnowledgeAssistantSession, KnowledgeSearchFilters, KnowledgeRetrievalEvent } from "@hellotest/platform/frontend/src/types";
-import { consumeKnowledgeAssistantStream, KnowledgeStreamError } from "./lib/knowledgeAssistantStream";
+import { consumeKnowledgeAssistantStream, KnowledgeStreamError, type KnowledgeAnswerDelta } from "./lib/knowledgeAssistantStream";
 import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/lib/serviceEndpoints";
 import { appendCurrentProjectScope } from "@hellotest/platform/frontend/src/platform/lib/currentScope";
 import { API_BASE_URL, clientGetResponseCache, isSessionAuthFailure, parseApiError, readRequestSession, request, sessionStorage, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
-async function requestKnowledgeStream(path: string, input: unknown, options: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void } = {}) {
+async function requestKnowledgeStream(path: string, input: unknown, options: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void; onAnswerDelta?: (delta: KnowledgeAnswerDelta) => void } = {}) {
   const scopedPath = appendCurrentProjectScope(path);
   const serviceBase = resolveServiceBase(scopedPath, API_BASE_URL);
   const requestSession = readRequestSession();
@@ -57,7 +57,7 @@ assistant: {
         }),
       getSession: (id: string) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`),
       updateSession: (id: string, input: { title?: string; status?: "archived" | "active" }) => request<KnowledgeAssistantSession>(`/knowledge/assistant/sessions/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
-      streamMessage: (id: string, input: { message: string; client_turn_id: string; retry_provider?: boolean; filters?: KnowledgeSearchFilters; integration_id?: string; response_mode?: "answer" | "evidence"; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void }) =>
+      streamMessage: (id: string, input: { message: string; client_turn_id: string; retry_provider?: boolean; filters?: KnowledgeSearchFilters; integration_id?: string; response_mode?: "answer" | "evidence"; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal; onProgress?: (event: KnowledgeRetrievalEvent) => void; onAnswerDelta?: (delta: KnowledgeAnswerDelta) => void }) =>
         requestKnowledgeStream(`/knowledge/assistant/sessions/${id}/messages/stream`, input, options),
       sendMessage: (id: string, input: { message: string; client_turn_id: string; retry_provider?: boolean; filters?: KnowledgeSearchFilters; integration_id?: string; smart_context?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string } }, options?: { signal?: AbortSignal }) =>
         request<KnowledgeAssistantMessageResponse>(`/knowledge/assistant/sessions/${id}/messages`, {
@@ -67,4 +67,3 @@ assistant: {
         }, 210_000)
     }
 };
-

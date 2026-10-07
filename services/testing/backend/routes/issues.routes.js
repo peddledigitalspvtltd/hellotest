@@ -117,6 +117,37 @@ function registerFeedbackRoutes(fastify, basePath) {
     return workspace.bulkDelete({ projectId: req.body.project_id, issueIds: req.body.issue_ids });
   });
 
+  fastify.post(`${basePath}/ai-improve-preview`, { schema: { body: {
+    type: "object", additionalProperties: true,
+    required: ["project_id", "intent", "evidence", "linked_test_case_ids"],
+    properties: {
+      project_id: { type: "string" }, issue_id: { type: "string" },
+      intent: { type: "string", minLength: 2, maxLength: 4000 },
+      evidence: { type: "string", maxLength: 12000 },
+      linked_test_case_ids: { type: "array", minItems: 1, maxItems: 10, items: { type: "string" } },
+      integration_id: { type: "string" }, prompt_guidance: { type: "string", maxLength: 4000 }
+    }
+  } } }, async (req) => {
+    await fastify.authenticate(req);
+    await projectService.getProject(req.body.project_id, req.user.id);
+    await fastify.requirePermission(req.body.issue_id ? "feedback.manage" : "feedback.create", { projectId: req.body.project_id })(req);
+    if (req.body.issue_id) {
+      const issue = await service.getIssueItem(req.body.issue_id);
+      if (issue.project_id !== req.body.project_id) throw Object.assign(new Error("Defect does not belong to this project"), { statusCode: 403 });
+    }
+    if (!await featureFlagService.isEnabled("hellotest.ai.bug_triage", { user: req.user })) throw Object.assign(new Error("AI Defect improvement is disabled"), { statusCode: 403 });
+    if (!req.body.linked_test_case_ids.length) throw Object.assign(new Error("Select at least one Test Case as context"), { statusCode: 400 });
+    await fastify.requirePermission("testcase.view", { projectId: req.body.project_id })(req);
+    // Deliberately allow only Test Case context. Preview never saves a defect.
+    return aiBugDraftService.preview({
+      user: req.user, project_id: req.body.project_id,
+      intent: req.body.intent, evidence: req.body.evidence,
+      linked_test_case_ids: req.body.linked_test_case_ids, require_case_context: true,
+      integration_id: req.body.integration_id,
+      prompt_guidance: "Improve the supplied existing Defect using only its recorded facts and the selected Test Cases. Preserve observed behavior and intent. Clarify reproduction and expected/actual results. Flag missing evidence; never invent observations. Return an editable proposal for explicit field review. " + (req.body.prompt_guidance || "")
+    });
+  });
+
   fastify.post(`${basePath}/ai-draft-preview`, async (req) => {
     await fastify.authenticate(req);
     fastify.validate({

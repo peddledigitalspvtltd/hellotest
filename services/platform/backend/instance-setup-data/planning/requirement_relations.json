@@ -90,6 +90,11 @@
       "requirement_id": "sample-v3-feature-release-readiness",
       "related_requirement_id": "sample-v3-feature-release-scope",
       "relation": "depends on"
+    },
+    {
+      "requirement_id": "sample-v3-feature-browser-quality-agents",
+      "related_requirement_id": "sample-v3-feature-workflow-canvas",
+      "relation": "depends on"
     }
   ]
 }

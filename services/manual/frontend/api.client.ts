@@ -148,9 +148,10 @@ requirements: {
       request<AiRequirementGenerationJobResponse>(`/requirements/ai-create-jobs/${id}${toQueryString(query)}`),
     listGenerationJobs: (query?: { project_id?: string; status?: string; limit?: number }) =>
       request<AiRequirementGenerationJobResponse[]>(`/requirements/ai-create-jobs${toQueryString(query)}`),
-    previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
+    previewDesignedTestCases: (id: string, input: { app_type_id: string; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }, options?: { signal?: AbortSignal }) =>
       requestAiPreview<AiDesignPreviewResponse>(`/requirements/${id}/design-test-cases-preview`, {
         method: "POST",
+        signal: options?.signal,
         body: JSON.stringify(input)
       }),
     acceptDesignedTestCases: (id: string, input: { app_type_id: string; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>

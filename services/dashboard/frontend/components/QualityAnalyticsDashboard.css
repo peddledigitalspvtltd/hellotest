@@ -40,6 +40,15 @@
 .quality-analytics a:hover {
   text-decoration: underline;
 }
+.qa-next-action { display: flex; align-items: center; gap: 16px; margin: 0 0 24px; padding: 18px 22px; border: 1px solid var(--qa-border); border-radius: 12px; background: var(--qa-surface); }
+.qa-next-action-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--qa-soft); color: var(--qa-accent); flex-shrink: 0; }
+.qa-next-action > div { flex: 1; min-width: 0; }
+.qa-next-action .qa-eyebrow { font-size: 9px; }
+.qa-next-action h2 { margin: 4px 0; font-size: 15px; font-weight: 600; letter-spacing: -.015em; }
+.qa-next-action p { margin: 0; color: var(--qa-muted); font-size: 12px; line-height: 1.6; }
+.qa-next-action .button { flex-shrink: 0; }
+.quality-analytics .qa-ai-review { background: var(--qa-soft); color: var(--qa-accent); border: 1px solid var(--qa-border); }
+@media(max-width: 640px) { .qa-next-action { flex-wrap: wrap; padding: 16px; gap: 12px; } .qa-next-action > div { flex-basis: calc(100% - 50px); } .qa-next-action .button { margin-inline-start: 50px; } }
 .qa-header {
   display: flex;
   align-items: center;

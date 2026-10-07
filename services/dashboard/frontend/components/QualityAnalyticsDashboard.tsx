@@ -24,7 +24,7 @@ import { useCurrentProject } from "@hellotest/platform/frontend/src/platform/hoo
 import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks/useFeatureFlags";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
 import { api } from "@hellotest/platform/frontend/src/lib/api";
-import { areFeatureFlagsEnabled } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
+import { areFeatureFlagsEnabled, requiredFeatureFlagsForPath } from "@hellotest/platform/frontend/src/platform/lib/featureFlags";
 import { canAccessPath, hasPermission } from "@hellotest/platform/frontend/src/platform/lib/permissions";
 import {
   analyticsCsv,
@@ -37,6 +37,7 @@ import {
 } from "../lib/qualityAnalytics";
 
 import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
+import { qualityNextActions } from "../lib/qualityNextActions";
 import "./QualityAnalyticsDashboard.css";
 
 function AnalyticsDialog({
@@ -185,7 +186,8 @@ export function QualityAnalyticsDashboard() {
       : formatNumber(ratio, { style: "percent", maximumFractionDigits: 0 });
   };
   const canOpen = (to: string) =>
-    canAccessPath(session, to, undefined, projectId);
+    canAccessPath(session, to, undefined, projectId) && areFeatureFlagsEnabled(flags.data, requiredFeatureFlagsForPath(to));
+  const nextAction = data ? qualityNextActions(data).find(action => canOpen(action.to) && (!action.permission || hasPermission(session, action.permission, projectId))) : undefined;
   const destination = (to: string, label: string) =>
     canOpen(to) ? (
       <Link className="qa-text-link" to={to}>
@@ -634,6 +636,7 @@ export function QualityAnalyticsDashboard() {
           <p>{tr("subtitle")}</p>
         </div>
         <div className="qa-header-actions">
+          {canReview && <button className="button qa-ai-review" disabled={review.isPending || !data} onClick={() => { setReviewOpen(true); review.mutate(String(projectId)); }}><IconSparkles size={17} aria-hidden="true" />{tr("review")}</button>}
           {canReadiness && (
             <Link className="button qa-readiness-link" to="/?view=readiness">
               <IconShieldCheck size={17} />
@@ -782,6 +785,11 @@ export function QualityAnalyticsDashboard() {
               inv!.open_defects ? "warning" : "neutral",
             )}
           </div>
+          {nextAction && <section className="qa-next-action" aria-labelledby="qa-next-action-title">
+            <span className="qa-next-action-icon" aria-hidden="true"><IconArrowRight size={19} /></span>
+            <div><span className="qa-eyebrow">{tr("nextStep")}</span><h2 id="qa-next-action-title">{tr(nextAction.title, { count: count(nextAction.count) })}</h2><p>{tr(nextAction.detail)}</p></div>
+            <Link className="button secondary" to={nextAction.to}>{tr(nextAction.action)}<IconArrowRight size={15} aria-hidden="true" /></Link>
+          </section>}
           <div className="qa-content-grid">
             {layout.order
               .filter((id) => !layout.hidden.includes(id))
@@ -799,18 +807,6 @@ export function QualityAnalyticsDashboard() {
               <IconInfoCircle size={16} />
               {tr("method")}
             </button>
-            {canReview && (
-              <button
-                className="qa-text-link"
-                onClick={() => {
-                  setReviewOpen(true);
-                  review.mutate(String(projectId));
-                }}
-              >
-                <IconSparkles size={16} />
-                {tr("review")}
-              </button>
-            )}
             <span>
               {data.evidence.latest_at
                 ? tr("freshMethod", {

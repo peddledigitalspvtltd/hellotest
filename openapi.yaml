@@ -2674,6 +2674,49 @@ paths:
       responses:
         "200":
           description: Sanitized allowlisted HTML plus integration and human-review provenance
+  /feedback/ai-improve-preview:
+    post:
+      tags: [Defects]
+      summary: Preview improvements to an existing or unsaved Defect using selected Test Cases
+      description: Requires feedback.manage for a saved issue_id, feedback.create for an unsaved form, and testcase.view. No writes occur. Run, Story, URL and image context inputs are excluded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, intent, evidence, linked_test_case_ids]
+              properties:
+                project_id: { type: string }
+                issue_id: { type: string }
+                intent: { type: string, minLength: 2, maxLength: 4000 }
+                evidence: { type: string, maxLength: 12000 }
+                linked_test_case_ids: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+                integration_id: { type: string }
+                prompt_guidance: { type: string, maxLength: 4000 }
+      responses:
+        "200": { description: "Editable proposal with provenance and evidence gaps for explicit field review" }
+  /issues/ai-improve-preview:
+    post:
+      tags: [Defects]
+      summary: Alias for the read-only Defect improvement endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, intent, evidence, linked_test_case_ids]
+              properties:
+                project_id: { type: string }
+                issue_id: { type: string }
+                intent: { type: string, minLength: 2, maxLength: 4000 }
+                evidence: { type: string, maxLength: 12000 }
+                linked_test_case_ids: { type: array, minItems: 1, maxItems: 10, items: { type: string } }
+                integration_id: { type: string }
+                prompt_guidance: { type: string, maxLength: 4000 }
+      responses:
+        "200": { description: "Reviewable Defect improvement proposal" }
   /feedback/ai-draft-preview:
     post:
       tags: [Defects]
@@ -4693,6 +4736,172 @@ paths:
         "403": { $ref: "#/components/responses/ErrorResponse" }
         "404": { $ref: "#/components/responses/ErrorResponse" }
         "405": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/catalog:
+    get:
+      tags: [Agents]
+      summary: List executable browser agents and bounded Test Engine readiness
+      description: Requires agentic_workflow.view and current project membership. Readiness checks connection and browser binary availability; actual launch is verified by each run.
+      parameters:
+        - { in: query, name: project_id, required: true, schema: { type: string } }
+        - { in: query, name: app_type_id, schema: { type: string } }
+      responses:
+        "200":
+          description: Five agent presets, limits and live capabilities preflight
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/plan:
+    post:
+      tags: [Agents]
+      summary: Propose a bounded typed journey for explicit review
+      description: Requires agentic_workflow.run. No DOM is observed during planning. Model suggestions use only goal-supplied or authorized saved selectors. Unavailable or unsupported planning returns an honest editable preset proposal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/QualityAgentStart" }
+                - type: object
+                  properties:
+                    llm_integration_id: { type: string }
+                    steps:
+                      type: array
+                      maxItems: 12
+                      items: { $ref: "#/components/schemas/QualityJourneyStep" }
+      responses:
+        "200": { description: Editable typed plan, model/preset source, authorized locator grounding and explicit limitations }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/runs:
+    get:
+      tags: [Agents]
+      summary: Read durable project-scoped browser review history
+      parameters:
+        - { in: query, name: project_id, required: true, schema: { type: string } }
+        - { in: query, name: app_type_id, schema: { type: string } }
+      responses:
+        "200":
+          description: At most fifty saved reviews in items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/QualityAgentRun" } }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+    post:
+      tags: [Agents]
+      summary: Queue a durable bounded browser review
+      description: Requires agentic_workflow.run. Explicit engine selection also requires integration.view. A nonempty web goal requires reviewed concrete steps. Repeated actor/project idempotency keys return the same accepted review; changed input conflicts.
+      parameters:
+        - { in: header, name: Idempotency-Key, schema: { type: string, maxLength: 160 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QualityAgentStart" }
+      responses:
+        "202":
+          description: Persisted review accepted before engine dispatch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QualityAgentRun" }
+        "400": { $ref: "#/components/responses/ErrorResponse" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "422": { $ref: "#/components/responses/ErrorResponse" }
+        "429": { $ref: "#/components/responses/ErrorResponse" }
+        "503": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/runs/{id}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    get:
+      tags: [Agents]
+      summary: Read saved browser evidence and actual engine stages
+      responses:
+        "200":
+          description: Authorized saved review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QualityAgentRun" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/runs/{id}/cancel:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    post:
+      tags: [Agents]
+      summary: Persist cancellation and request a bounded remote stop
+      description: Requires agentic_workflow.run. Late engine responses cannot overwrite a cancelled result. Remote work is also limited by its browser deadline.
+      responses:
+        "200":
+          description: Saved review state after cancellation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QualityAgentRun" }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/runs/{id}/artifacts/{artifactId}:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+      - { in: path, name: artifactId, required: true, schema: { type: string } }
+    get:
+      tags: [Agents]
+      summary: Download an authorized manifest artifact with SHA256 verification
+      responses:
+        "200":
+          description: Verified evidence, bounded to eight MiB
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            application/json: { schema: { type: string, format: binary } }
+            text/plain: { schema: { type: string } }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "502": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/baselines:
+    get:
+      tags: [Agents]
+      summary: List explicitly reviewed immutable visual baselines
+      parameters:
+        - { in: query, name: project_id, required: true, schema: { type: string } }
+        - { in: query, name: app_type_id, schema: { type: string } }
+      responses:
+        "200": { description: Project/application-scoped reviewed baselines in items }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/runs/{id}/baseline:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    post:
+      tags: [Agents]
+      summary: Approve a completed visual screenshot and durably copy its PNG
+      description: Requires agentic_workflow.manage. Reviewer identity comes from the authenticated user. Repeated source screenshot approval returns the existing baseline.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [artifact_id]
+              properties:
+                artifact_id: { type: string }
+                label: { type: string, maxLength: 120 }
+      responses:
+        "201": { description: Reviewed baseline with exact scope, target, viewport, masks, SHA256 and reviewer }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "409": { $ref: "#/components/responses/ErrorResponse" }
+        "502": { $ref: "#/components/responses/ErrorResponse" }
+  /agentic-quality/baselines/{id}/artifact:
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string } }
+    get:
+      tags: [Agents]
+      summary: Read the durably stored and hash-verified reviewed baseline PNG
+      responses:
+        "200":
+          description: Authorized reviewed image
+          content:
+            image/png: { schema: { type: string, format: binary } }
+        "403": { $ref: "#/components/responses/ErrorResponse" }
+        "404": { $ref: "#/components/responses/ErrorResponse" }
+        "502": { $ref: "#/components/responses/ErrorResponse" }
   /repository-agents:
     get:
       tags: [Agents]
@@ -7060,6 +7269,120 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    QualityJourneyStep:
+      type: object
+      required: [action]
+      description: Supported typed actions only. Click/fill/assert_text require a CSS selector; fill requires a non-secret value; assert_text requires text; assert_url requires a same-origin URL.
+      properties:
+        id: { type: string }
+        label: { type: string, maxLength: 120 }
+        action: { type: string, enum: [click, fill, assert_text, assert_url] }
+        selector: { type: string, maxLength: 240 }
+        value: { type: string, maxLength: 500 }
+        text: { type: string, maxLength: 500 }
+        url: { type: string, format: uri }
+    QualityAgentOptions:
+      type: object
+      properties:
+        timeout_ms: { type: integer, minimum: 5000, maximum: 120000, default: 60000 }
+        max_pages: { type: integer, minimum: 1, maximum: 5, default: 1, description: Only Web Journey accepts more than one page. }
+        viewport:
+          type: object
+          properties:
+            width: { type: integer, minimum: 320, maximum: 1920, default: 1280 }
+            height: { type: integer, minimum: 240, maximum: 1200, default: 800 }
+        wait_until: { type: string, enum: [domcontentloaded, load], default: domcontentloaded }
+        masks: { type: array, maxItems: 20, items: { type: string, maxLength: 240 } }
+        max_diff_ratio: { type: number, minimum: 0, maximum: 1, default: 0.005 }
+        pixel_threshold: { type: integer, minimum: 0, maximum: 255, default: 16 }
+        budgets:
+          type: object
+          properties:
+            navigation_ms: { type: number, minimum: 100, maximum: 120000 }
+            lcp_ms: { type: number, minimum: 100, maximum: 120000 }
+            cls: { type: number, minimum: 0, maximum: 10 }
+            resource_count: { type: number, minimum: 1, maximum: 250 }
+            transfer_bytes: { type: number, minimum: 1000, maximum: 100000000 }
+    QualityAgentStart:
+      type: object
+      required: [project_id, kind, target_url]
+      properties:
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        integration_id: { type: string, description: Active project-scoped or unscoped Test Engine integration. Explicit selection requires integration.view. }
+        kind: { type: string, enum: [web, security, performance, accessibility, visual] }
+        target_url: { type: string, format: uri, maxLength: 2000 }
+        goal: { type: string, maxLength: 1500 }
+        options: { $ref: "#/components/schemas/QualityAgentOptions" }
+        baseline_id: { type: string }
+        idempotency_key: { type: string, maxLength: 160 }
+        reviewed_plan:
+          type: object
+          required: [reviewed, goal, steps]
+          properties:
+            reviewed: { type: boolean, enum: [true] }
+            goal: { type: string, maxLength: 1500 }
+            steps: { type: array, maxItems: 12, items: { $ref: "#/components/schemas/QualityJourneyStep" } }
+    QualityAgentRun:
+      type: object
+      required: [id, transaction_id, project_id, kind, target_url, status, stages, findings, metrics, artifacts, limitations]
+      properties:
+        id: { type: string }
+        transaction_id: { type: string }
+        project_id: { type: string }
+        app_type_id: { type: string, nullable: true }
+        kind: { type: string, enum: [web, security, performance, accessibility, visual] }
+        target_url: { type: string, format: uri }
+        goal: { type: string }
+        options: { $ref: "#/components/schemas/QualityAgentOptions" }
+        status: { type: string, enum: [queued, running, completed, failed, cancelled] }
+        outcome: { type: string, nullable: true, enum: [passed, findings, needs_review, error] }
+        cancellation_requested: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        stages:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              status: { type: string, enum: [pending, running, completed, failed] }
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              category: { type: string }
+              severity: { type: string, enum: [critical, high, medium, low, info] }
+              description: { type: string }
+              evidence: { type: string }
+              selector: { type: string }
+              recommendation: { type: string }
+        metrics: { type: object, additionalProperties: true, description: Primitive values from actual engine observations; unavailable metrics are null. }
+        limitations: { type: array, items: { type: string } }
+        artifacts:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              type: { type: string, enum: [screenshot, visual_diff, report] }
+              content_type: { type: string, enum: [image/png, application/json, text/plain] }
+              bytes: { type: integer, minimum: 0, maximum: 8388608 }
+              sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+              download_path: { type: string }
+        error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: string }
+            message: { type: string }
     WorkflowConnectionSettings:
       type: object
       required: [name, url, project_id]

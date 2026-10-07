@@ -1,0 +1,128 @@
+{
+  "release": "Product experience redesign",
+  "date": "2026-10-06",
+  "input_archive": "QAIra-main.zip",
+  "environment": {
+    "node": "24.19.0",
+    "platform": "Linux",
+    "browser": "Playwright Chromium headless shell",
+    "browser_data": "Isolated synthetic API fixtures with actual React components"
+  },
+  "checks": [
+    {
+      "command": "npm run test:frontend",
+      "result": "passed",
+      "tests": 668,
+      "passed": 668,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run test:backend",
+      "result": "passed",
+      "tests": 1372,
+      "passed": 1370,
+      "failed": 0,
+      "skipped": 2,
+      "skip_reason": "PostgreSQL Story catalog and knowledge canonical-history integration tests need an external integration database URL."
+    },
+    {
+      "command": "npm run test:testengine",
+      "result": "passed",
+      "tests": 77,
+      "passed": 77,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run test:architecture",
+      "result": "passed",
+      "tests": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run test:product-ux",
+      "result": "passed",
+      "files": 11,
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "duration_seconds": 41.13
+    },
+    {
+      "command": "npm run build:frontend",
+      "result": "passed",
+      "scope": "TypeScript check and production builds for workspace and admin"
+    },
+    {
+      "command": "npm run build:testengine",
+      "result": "passed"
+    },
+    {
+      "command": "npm run audit:source-layout",
+      "result": "passed"
+    },
+    {
+      "command": "npm run audit:modules",
+      "result": "passed",
+      "modules": 941,
+      "unresolved_imports": 0,
+      "orphaned_production_sources": 0
+    },
+    {
+      "command": "npm run validate:architecture",
+      "result": "passed",
+      "services": 16,
+      "file_inventory": "filesystem"
+    },
+    {
+      "command": "npm run check:boundaries",
+      "result": "passed",
+      "packages": 11,
+      "declared_cross_package_imports": 1851
+    }
+  ],
+  "browser_journeys": [
+    "Actual app entry, guest authentication, stored session, deferred workspace loading, logout and mobile navigation",
+    "Form labels, contextual help, action menu keyboard navigation and nested dialog focus/Escape",
+    "Workspace capability discovery and project-scoped navigation",
+    "Agent workflow studio graph editing and run validation",
+    "Knowledge source ingestion, collections, mobile layout and refresh controls",
+    "Defect creation with partial attachment failure and failed-file-only retry",
+    "AI authoring context/progress/review and structured Gherkin preservation",
+    "Knowledge assistant stage delivery, answer deltas, Stop, retry and responsive reading",
+    "Workspace/admin sign-in and configured Google provider controls"
+  ],
+  "additional_focused_validation": "Feature-specific contract and browser tests were run during implementation; aggregate counts above use the final integrated root suites only.",
+  "performance": {
+    "change": "Workspace shell is dynamically loaded after authentication; route code prefetch runs on user intent.",
+    "workspace_entry_js_kb_before": 712.25,
+    "workspace_entry_js_kb_after": 586.63,
+    "workspace_entry_js_gzip_kb_before": 213.89,
+    "workspace_entry_js_gzip_kb_after": 180.15,
+    "entry_reduction_percent": 17.64,
+    "measurement": "Vite production entry asset sizes. These are not live response-time or total application payload measurements.",
+    "remaining": "Inherited large aggregate CSS and some route bundles still emit Vite size advisories."
+  },
+  "ai_delivery": {
+    "chat": "Live execution-stage events and validated persisted answer segments, strict identity/sequence checks and bounded same-turn reconnect.",
+    "structured_authoring": "Complete validated artifacts for review/apply; not raw model token streaming.",
+    "stop": "Browser cancellation and late-response suppression; remote provider processing or billing may continue after acceptance."
+  },
+  "limitations": [
+    "No production database, live LLM credentials, target applications, execution workers or native devices were supplied.",
+    "Live provider quality, production throughput, deployment integration and external/native execution require configured-environment validation.",
+    "The complete inherited application remains included. Specialized administration, telemetry, automation and integration journeys were not all independently redesigned or visually reviewed.",
+    "Catalog-only standalone Test Plans, Quality Gates and Automation Assets are not newly implemented."
+  ],
+  "summary": {
+    "tests": 2163,
+    "passed": 2161,
+    "failed": 0,
+    "skipped": 2,
+    "integrated_browser_files": 11
+  }
+}

@@ -336,3 +336,9 @@
 .repository-agent-receipt-status { display: flex; align-items: center; gap: 10px; }
 .repository-agent-receipt-status .icon-button { padding: 7px; min-height: 30px; }
 .repository-agents-workspace .repository-agent-upload > label { color: var(--text-primary, #172b4d); background: var(--panel-strong, #fff); border-color: var(--line, #dcdfe4); }
+.repository-agent-source-support > summary { cursor: pointer; font-size: .74rem; font-weight: 600; color: var(--text-secondary, #5d6b82); }
+.repository-agent-source-support > summary:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: 4px; }
+.repository-agent-upload { transition: background-color .15s, border-color .15s; min-height: 195px; }
+.repository-agent-upload.is-dragging { border-style: solid; border-color: var(--agent-accent); background: color-mix(in srgb, var(--agent-accent) 12%, var(--panel-strong, #fff)); }
+.repository-agent-upload > .text-button { font-size: .7rem; color: var(--text-secondary, #5d6b82); }
+@media (prefers-reduced-motion: reduce) { .repository-agent-upload { transition: none; } }

@@ -69,8 +69,8 @@ export function DefectTriageDialog({ projectId, issues, canViewIntegrations, onC
     <div className="defect-triage-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={dialogRef} tabIndex={-1} onClick={event => event.stopPropagation()}>
       <header className="defect-triage-header">
         <span className="defect-triage-mark"><IconSparkles size={23} aria-hidden="true" /></span>
-        <div><span className="defect-triage-eyebrow">DEFECT REVIEW</span><h2 id={titleId}>AI triage</h2><p>Review classification, priority signals, and missing evidence before editing a Defect.</p></div>
-        <DialogCloseButton label="Close AI triage" onClick={onClose} />
+        <div><span className="defect-triage-eyebrow">DEFECT REVIEW</span><h2 id={titleId}>AI Defect Triage</h2><p>Review classification, priority signals, and missing evidence before editing a Defect.</p></div>
+        <DialogCloseButton label="Close AI Defect Triage" onClick={onClose} />
       </header>
       <div className="defect-triage-body">
         <section className="defect-triage-setup" aria-label="Triage setup">

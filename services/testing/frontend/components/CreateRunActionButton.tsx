@@ -52,12 +52,12 @@ export function CreateRunActionButton({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const canCreateManualRuns = hasPermission(session, "run.create", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.manual.runs"]);
-  const canCreateLocalRuns = hasPermission(session, "automation.run.local", permissionProjectId)
+  const canCreateLocalRuns = source === "TEST_RUNS" && hasPermission(session, "automation.run.local", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.local_execution"]);
-  const canCreateRemoteRuns = hasPermission(session, "automation.run.remote", permissionProjectId)
+  const canCreateRemoteRuns = source === "TEST_RUNS" && hasPermission(session, "automation.run.remote", permissionProjectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.automation.workspace", "hellotest.automation.remote_execution"]);
   const primaryMode: CreateRunMode = canCreateManualRuns ? "MANUAL" : canCreateLocalRuns ? "LOCAL" : "REMOTE";
-  const primaryLabel = canCreateManualRuns ? label : canCreateLocalRuns ? "Create Local Run" : "Create Remote Run";
+  const primaryLabel = canCreateManualRuns ? label : canCreateLocalRuns ? "Local Automation Run" : "Remote Automation Run";
   const hasAlternateMode = canCreateManualRuns ? canCreateLocalRuns || canCreateRemoteRuns : canCreateLocalRuns && canCreateRemoteRuns;
   const canOpenMenu = !disabled && hasAlternateMode;
   const { menuStyle, menuPlacement } = useSplitActionMenu(isOpen && canOpenMenu, triggerRef, menuRef);
@@ -112,11 +112,11 @@ export function CreateRunActionButton({
     >
       {canCreateLocalRuns ? (<button disabled={!canCreateLocalRuns} onClick={() => handleSelect("LOCAL")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
-        <strong>Local Run</strong>
+        <strong>Local Automation Run</strong>
       </button>) : null}
       {canCreateRemoteRuns ? (<button disabled={!canCreateRemoteRuns} onClick={() => handleSelect("REMOTE")} role="menuitem" type="button">
         <span className="run-action-option-icon"><PlayIcon /></span>
-        <strong>Remote Run</strong>
+        <strong>Remote Automation Run</strong>
       </button>) : null}
     </div>
   ) : null;

@@ -57,7 +57,19 @@ test("authoring parses visible content blocks and preserves the input format whe
   assert.match(prompt, /Requested output format: Structured steps/);
   assert.match(prompt, /LIVE_INPUT/);
   assert.doesNotMatch(prompt, /STALE_CACHE/);
+  assert.match(fixture.calls[0].policy.contextFallbackContent, /LIVE_INPUT/);
+  assert.match(fixture.calls[0].policy.contextFallbackContent, /AC_SENTINEL/);
   assert.equal(fixture.calls[0].options.signal, undefined, "The shared provider deadline owns cancellation");
+});
+
+test("authoring includes complete reviewed context within its UI budget and rejects oversized evidence", async () => {
+  const fixture = providerFixture(validCase);
+  const service = load("aiCaseAuthoring.service", fixture.overrides);
+  const reviewed = "x".repeat(12_000) + "REVIEWED_CONTEXT_END";
+  await service.previewCaseAuthoring({ requirement: story, appType, test_case: {}, additional_context: reviewed });
+  assert.match(fixture.calls[0].body.messages[1].content, /REVIEWED_CONTEXT_END/);
+  await assert.rejects(service.previewCaseAuthoring({ requirement: story, appType, test_case: {}, additional_context: "x".repeat(18_001) }), { code: "AI_INPUT_BUDGET_EXCEEDED", statusCode: 422 });
+  assert.equal(fixture.calls.length, 1, "Over-budget authored context is not silently sliced before dispatch");
 });
 
 test("Story create and completion accept provider text blocks without falling back", async () => {
@@ -336,4 +348,13 @@ test("assurance routes forward the live draft, selected provider, prompt and loc
   for (const args of captured) { assert.equal(args.integrationId, "provider"); assert.equal(args.promptGuidance, body.prompt_guidance); assert.equal(args.additionalContext, body.additional_context); assert.deepEqual(args.assuranceBaseline, body.assurance_baseline); assert.deepEqual(args.proposedChange, body.proposed_change); }
   assert.equal(validations[0].schema.prompt_guidance.maxLength, 12000);
   await assert.rejects(handlers.get("/requirements/:id/ai-impact-preview")({ user, params: { id: "record" }, body: { project_id: "foreign" } }), error => error.statusCode === 400);
+});
+
+test("Defect improvement rejects missing or foreign Test Case context before calling a model", async () => {
+  const fixture = providerFixture({ draft: { title: "Unsupported proposal" } });
+  const service = load("aiBugDraft.service", { ...fixture.overrides,
+    "../db": { prepare: sql => ({ get: async () => /FROM projects/.test(sql) ? { id: "project" } : null, all: async () => [] }) }
+  });
+  await assert.rejects(service.preview({ user, project_id: "project", intent: "Improve the current defect", evidence: "Recorded failure", linked_test_case_ids: ["missing-or-foreign-case"], require_case_context: true }), error => error.statusCode === 400 && /context is unavailable/.test(error.message));
+  assert.deepEqual(fixture.calls, [], "Unusable context does not spend model requests or produce a proposal");
 });

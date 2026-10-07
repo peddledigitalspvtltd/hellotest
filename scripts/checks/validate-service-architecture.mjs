@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { access } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { enumerateRepositoryFiles } from "./repository-files.mjs";
 
-const root = resolve(new URL("../..", import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const catalog = JSON.parse(await readFile(resolve(root, "services/catalog.json"), "utf8"));
 const capabilities = JSON.parse(await readFile(resolve(root, "services/capabilities.json"), "utf8"));
 const requiredProfiles = new Set(Object.keys(capabilities.dependencies));
@@ -28,11 +29,10 @@ for (const service of services) {
 }
 for (const profile of requiredProfiles) failures.push(`missing API profile in catalog: ${profile}`);
 
-const trackedDependencies = execFileSync("git", ["ls-files", "--", "**/node_modules/**"], { cwd: root, encoding: "utf8" }).trim();
-if (trackedDependencies) failures.push("node_modules files are tracked; run git rm --cached -r **/node_modules");
-const trackedGenerated = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
-  .split("\n")
-  .filter((file) => /(^|\/)(?:dist|coverage|\.cache)(\/|$)|\.tsbuildinfo$/.test(file));
+const inventory = await enumerateRepositoryFiles(root);
+const trackedFiles = inventory.source === "git" ? inventory.files : [];
+if (trackedFiles.some(file => /(^|\/)node_modules\//.test(file))) failures.push("node_modules files are tracked; run git rm --cached -r **/node_modules");
+const trackedGenerated = trackedFiles.filter((file) => /(^|\/)(?:dist|coverage|\.cache)(\/|$)|\.tsbuildinfo$/.test(file));
 if (trackedGenerated.length) failures.push(`generated files are tracked: ${trackedGenerated.slice(0, 5).join(", ")}`);
 const routeManifest = await readFile(resolve(root, "services/platform/backend/src/routes/manifest.js"), "utf8");
 if (!routeManifest.includes("serviceManifests.flatMap")) failures.push("API route manifest does not aggregate service manifests");
@@ -65,4 +65,4 @@ if (failures.length) {
   console.error(JSON.stringify({ ok: false, failures }, null, 2));
   process.exit(1);
 }
-console.log(JSON.stringify({ ok: true, services: services.length, profiles: [...new Set(services.map((service) => service.profile).filter(Boolean))] }, null, 2));
+console.log(JSON.stringify({ ok: true, file_inventory: inventory.source, services: services.length, profiles: [...new Set(services.map((service) => service.profile).filter(Boolean))] }, null, 2));

@@ -6,6 +6,7 @@ const TestCaseChangeImpactDialog = capabilityView<import("react").ComponentProps
 import { TestCaseSuiteTransferModal, type SuiteTransferAction } from "../components/TestCaseSuiteTransferModal";
 import { StepKindIconBadge } from "../components/StepKindIconBadge";
 import "../components/ScopedRunCreation.css";
+import "../components/AuthoringExperience.css";
 import { AiReviewControls } from "@hellotest/ai/frontend/components/AiReviewControls";
 import { useAiLlmDefault } from "@hellotest/integration/frontend/hooks/useAiLlmDefault";
 import { AuthoringDataSetPanel } from "@hellotest/platform/frontend/src/platform/components/AuthoringDataSetPanel";
@@ -43,6 +44,8 @@ import { ExternalReferencesField } from "@hellotest/manual/frontend/components/E
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
+import { ContextSelect } from "@hellotest/platform/frontend/src/shared/components/ContextSelect";
+import { AuthoringContextMenu } from "@hellotest/platform/frontend/src/shared/components/AuthoringContextMenu";
 import { RunPlanningFields } from "../components/RunPlanningFields";
 import { buildGherkinFromSteps, GherkinEditor } from "../components/GherkinEditor";
 import { composeGherkinDocument, gherkinToStructuredCase, mergeGherkinStepMetadata, normalizeGherkinParameterReferences, sanitizeGherkinDocumentText, setGherkinFeatureTitle, splitGherkinDocument, structuredCaseToGherkin } from "../lib/gherkin";
@@ -2088,7 +2091,7 @@ export function TestCasesPage() {
 	  const [projectId, setProjectId] = useCurrentProject();
 	  const [appTypeId, setAppTypeId] = useCurrentAppType(projectId);
 	  const featureFlagsQuery = useFeatureFlags(Boolean(session));
-  const { can } = useCapabilityAccess(projectId);
+  const { can, isLoading: isCapabilityLoading } = useCapabilityAccess(projectId);
 	  const canCreateTestCases = can("testcase.create");
 	  const canImportTestCases = can("testcase.import");
 	  const canUpdateTestCases = can("testcase.update");
@@ -2754,13 +2757,23 @@ export function TestCasesPage() {
   });
   const deleteTestCase = useMutation({ mutationFn: api.testCases.delete });
   const importTestCases = useMutation({ mutationFn: api.testCases.bulkImport });
-  const previewCaseAuthoring = useMutation({ mutationFn: api.testCases.previewCaseAuthoring });
+  const aiCaseAuthoringControllerRef = useRef<AbortController | null>(null);
+  const aiDesignControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    aiCaseAuthoringControllerRef.current?.abort();
+    aiDesignControllerRef.current?.abort();
+  }, [projectId, appTypeId]);
+  const previewCaseAuthoring = useMutation({
+    mutationFn: ({ input, signal }: { input: Parameters<typeof api.testCases.previewCaseAuthoring>[0]; signal: AbortSignal }) => api.testCases.previewCaseAuthoring(input, { signal })
+  });
   const previewTestCaseImpact = useMutation({
     mutationFn: ({ testCaseId, input }: { testCaseId: string; input: Parameters<typeof api.testCases.previewImpact>[1] }) =>
       api.testCases.previewImpact(testCaseId, input)
   });
   const rephraseStepWithAi = useMutation({ mutationFn: api.testCases.rephraseStep });
-  const previewDesignedCases = useMutation({ mutationFn: api.testCases.previewDesignedCases });
+  const previewDesignedCases = useMutation({
+    mutationFn: ({ input, signal }: { input: Parameters<typeof api.testCases.previewDesignedCases>[0]; signal: AbortSignal }) => api.testCases.previewDesignedCases(input, { signal })
+  });
   const acceptDesignedCases = useMutation({ mutationFn: api.testCases.acceptDesignedCases });
   const buildSingleAutomation = useMutation({
     mutationFn: ({ testCaseId }: { testCaseId: string }) =>
@@ -3134,6 +3147,12 @@ export function TestCasesPage() {
     setExpandedStepGroupIds([]);
   };
 
+  useEffect(() => {
+    if (!isCreating) return;
+    const frame = requestAnimationFrame(() => caseSectionRef.current?.querySelector<HTMLInputElement>("[data-autofocus=true]")?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [isCreating]);
+
   const updateCaseDeliveryScope = (release: string, sprint: string) => {
     setCaseDeliveryRelease(release);
     setCaseDeliverySprint(sprint);
@@ -3295,7 +3314,8 @@ export function TestCasesPage() {
       return;
     }
 
-    if (isCreating || selectedTestCaseId || !appTypeId) {
+    // Do not consume a deep-linked draft while session and project access are still resolving.
+    if (isCapabilityLoading || isCreating || selectedTestCaseId || !appTypeId) {
       return;
     }
 
@@ -3375,6 +3395,7 @@ export function TestCasesPage() {
     }, { replace: true });
   }, [
     appTypeId,
+    isCapabilityLoading,
     canViewDeliveryScopes,
     canViewRequirements,
     deliveryIterationsQuery.isPending,
@@ -7593,8 +7614,12 @@ export function TestCasesPage() {
 	      return;
 	    }
 
+    if (previewDesignedCases.isPending) return;
+    aiDesignControllerRef.current?.abort();
+    const controller = new AbortController();
+    aiDesignControllerRef.current = controller;
     try {
-      const response = await previewDesignedCases.mutateAsync({
+      const response = await previewDesignedCases.mutateAsync({ signal: controller.signal, input: {
         app_type_id: appTypeId,
         requirement_ids: aiRequirementIds,
         integration_id: integrationId || undefined,
@@ -7603,15 +7628,17 @@ export function TestCasesPage() {
         additional_context: aiAdditionalContext || undefined,
         external_links: parseExternalLinks(aiExternalLinksText),
         images: aiReferenceImages
-      });
+      } });
+      if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
 
       setAiPreviewCases(response.cases);
       setAiPreviewTone("success");
       setAiPreviewMessage(`${response.context_reduced ? `${response.context_reduction_reason} ` : ""}${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
+      if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
       setAiPreviewTone("error");
       setAiPreviewMessage(formatAiStudioErrorMessage(error, "Unable to preview AI-generated test cases right now."));
-    }
+    } finally { if (aiDesignControllerRef.current === controller) aiDesignControllerRef.current = null; }
   };
 
   const formatAiStudioErrorMessage = (error: unknown, fallback: string) => {
@@ -7650,8 +7677,12 @@ export function TestCasesPage() {
       return;
     }
 
+    if (previewCaseAuthoring.isPending) return;
+    aiCaseAuthoringControllerRef.current?.abort();
+    const controller = new AbortController();
+    aiCaseAuthoringControllerRef.current = controller;
     try {
-      const response = await previewCaseAuthoring.mutateAsync({
+      const response = await previewCaseAuthoring.mutateAsync({ signal: controller.signal, input: {
         app_type_id: appTypeId,
         requirement_id: aiCaseAuthoringRequirementId,
         authoring_mode: authoringMode,
@@ -7660,7 +7691,8 @@ export function TestCasesPage() {
         external_links: parseExternalLinks(aiCaseAuthoringExternalLinksText),
         images: aiCaseAuthoringReferenceImages,
         test_case: aiCaseAuthoringSourceDraft
-      });
+      } });
+      if (controller.signal.aborted || aiCaseAuthoringControllerRef.current !== controller) return;
 
       setAiCaseAuthoringPreview(response.case);
       setAiCaseAuthoringTone("success");
@@ -7670,9 +7702,10 @@ export function TestCasesPage() {
           : `Prepared ${response.case.step_count} assisted step${response.case.step_count === 1 ? "" : "s"} from the selected Story and current draft. Review before applying.`
       );
     } catch (error) {
+      if (controller.signal.aborted || aiCaseAuthoringControllerRef.current !== controller) return;
       setAiCaseAuthoringTone("error");
       setAiCaseAuthoringMessage(formatAiStudioErrorMessage(error, "Unable to preview AI authoring right now."));
-    }
+    } finally { if (aiCaseAuthoringControllerRef.current === controller) aiCaseAuthoringControllerRef.current = null; }
   };
 
 	  const handleApplyAiCaseAuthoring = async () => {
@@ -8773,22 +8806,7 @@ export function TestCasesPage() {
         {selectedTestCase ? (
           <div className="test-case-workspace-run-action">
             <TestCaseSplitActionButton
-              actions={canUseAutomationWorkspace ? [
-                {
-                  label: isSelectedCaseLocalRunning ? "Starting local…" : selectedCaseLocalRunLabel,
-                  description: isSelectedCasePureApi ? "Use local Test Engine API execution." : "Use the local runner on this machine.",
-                  disabled: isSelectedCaseLocalRunDisabled,
-                  icon: <TestCaseRunIcon />,
-                  onClick: () => openRunBuilder([selectedTestCase.id], "local")
-                },
-                {
-                  label: isSelectedCaseRemoteRunning ? "Starting remote…" : "Run remotely",
-                  description: "Use the configured remote Test Engine.",
-                  disabled: isSelectedCaseRemoteRunDisabled,
-                  icon: <TestCaseRunIcon />,
-                  onClick: () => openRunBuilder([selectedTestCase.id], "remote")
-                }
-              ] : []}
+              actions={[]}
               disabled={isSelectedCaseManualRunDisabled}
               icon={<TestCaseRunIcon />}
               label={isSelectedCaseRunning ? "Creating…" : "Run manually"}
@@ -9199,27 +9217,13 @@ export function TestCasesPage() {
               }]
             : []),
           {
-            label: isFailedCase ? "Re-run manually" : "Run manually",
+            label: "Run manually",
             description: "Create a manual execution run for this test case.",
             icon: <TestCaseRunIcon />,
             onClick: () => openRunBuilder([testCase.id]),
             disabled: isRunningCase || isRunningLocalCase || reviewingCaseIds.includes(testCase.id) || !canCreateRuns || !projectId || !appTypeId || !session?.user.id,
             featureKeys: ["hellotest.manual.runs"],
             requiredPermissions: ["run.create"],
-            tone: "primary" as const
-          },
-          {
-            label: isApiOnlyCase ? "Run API locally" : isLocalExecutionTypeKnown ? "Run local Playwright" : "Run locally",
-            description: isApiOnlyCase
-              ? "Start this API case against the local Test Engine API runner."
-              : isLocalExecutionTypeKnown
-                ? "Start this automated case against the local Playwright runner."
-                : "Verify this case's execution type and start its supported local runner.",
-            icon: <TestCaseRunIcon />,
-            onClick: () => openRunBuilder([testCase.id], "local"),
-            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalAutomation || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-            featureKeys: ["hellotest.automation.workspace", "hellotest.automation.local_execution"],
-            requiredPermissions: ["automation.run.local"],
             tone: "primary" as const
           },
           {
@@ -10027,24 +10031,7 @@ export function TestCasesPage() {
                     menuLabel="Open selected test case run options"
                     tone="green"
                     onClick={() => openRunBuilder(selectedActionTestCaseIds)}
-                    actions={canUseAutomationWorkspace ? [
-                      {
-                        label: "Run local automation",
-                        description: "Start a local execution run for selected automated cases.",
-                        icon: <TestCaseRunIcon />,
-                        visible: canRunLocalAutomation,
-                    disabled: !selectedActionTestCaseIds.length || !canRunLocalAutomation || !projectId || !appTypeId || !session?.user.id,
-                        onClick: () => openRunBuilder(selectedActionTestCaseIds, "local")
-                      },
-                      {
-                        label: "Run remote automation",
-                        description: "Start a remote execution run for selected automated cases.",
-                        icon: <TestCaseRunIcon />,
-                        visible: canRunRemoteAutomation,
-                    disabled: !selectedActionTestCaseIds.length || !canRunRemoteAutomation || !projectId || !appTypeId || !session?.user.id,
-                        onClick: () => openRunBuilder(selectedActionTestCaseIds, "remote")
-                      }
-                    ] : []}
+                    actions={[]}
                   />
               </>
               <TestCaseSplitActionButton
@@ -10466,7 +10453,7 @@ export function TestCasesPage() {
                         ]
                         : []),
                       {
-                        label: isFailedCase ? "Re-run manually" : "Run manually",
+                        label: "Run manually",
                         description: "Create a manual execution run for this test case.",
 		                        icon: <TestCaseRunIcon />,
                         onClick: () => openRunBuilder([testCase.id]),
@@ -10478,20 +10465,6 @@ export function TestCasesPage() {
                       ...(isPendingSchedulerCase
                         ? []
                         : [
-                          {
-                            label: isApiOnlyCase ? "Run API locally" : isLocalExecutionTypeKnown ? "Run local Playwright" : "Run locally",
-                            description: isApiOnlyCase
-                              ? "Start this API case against the local Test Engine API runner."
-                              : isLocalExecutionTypeKnown
-                                ? "Start this automated case against the local Playwright runner."
-                                : "Verify this case's execution type and start its supported local runner.",
-		                            icon: <TestCaseRunIcon />,
-                            onClick: () => openRunBuilder([testCase.id], "local"),
-		                            disabled: isRunningLocalCase || createLocalRun.isPending || !canRunLocalAutomation || !canRunLocalCase || !projectId || !appTypeId || !session?.user.id,
-		                            featureKeys: ["hellotest.automation.workspace", "hellotest.automation.local_execution"],
-		                            requiredPermissions: ["automation.run.local"],
-	                            tone: "primary" as const
-	                          },
                           {
                             label: "Clone case",
 	                            description: "Create a copy with the same steps, Test Params, and linked Data Set.",
@@ -10899,7 +10872,7 @@ export function TestCasesPage() {
                       summary={caseSectionSummary}
                       title={caseSectionTitleContent}
                     >
-                      <form className="form-grid test-case-details-form" onSubmit={(event) => void handleSaveCase(event)}>
+                      <form id="test-case-authoring-form" className="form-grid test-case-details-form" onInvalidCapture={event => { let panel = (event.target as HTMLElement).closest("details"); while (panel) { panel.open = true; panel = panel.parentElement?.closest("details") || null; } }} onSubmit={(event) => void handleSaveCase(event)}>
                         {!isCreating && selectedTestCase ? (
                           <div className="test-case-detail-identity-card">
                             <span>Test case ID</span>
@@ -11008,6 +10981,8 @@ export function TestCasesPage() {
                           <div className="test-case-title-field">
                             <FormField label="Title" required>
                               <input
+                                data-autofocus={isCreating ? "true" : undefined}
+                                placeholder="Name the behavior…"
                                 required
                                 value={caseDraft.title}
                                 onChange={(event) => setCaseDraft((current) => ({ ...current, title: event.target.value }))}
@@ -11032,18 +11007,18 @@ export function TestCasesPage() {
                               onChange={(description) => setCaseDraft((current) => ({ ...current, description }))}
                             />
                           </FormField>
-                          <FormField className="form-field--compact-enum test-case-status-field" label="Status">
-                            <select
+                          <FormField className="form-field--compact-enum test-case-status-field authoring-property-field" label="Status">
+                            <ContextSelect label="Status"
                               value={caseDraft.status}
                               onChange={(event) => setCaseDraft((current) => ({ ...current, status: event.target.value }))}
                             >
                               {testCaseStatusOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
-                            </select>
+                            </ContextSelect>
                           </FormField>
-                          <FormField className="form-field--compact-enum test-case-priority-field" label="Priority">
-                            <select
+                          <FormField className="form-field--compact-enum test-case-priority-field authoring-property-field" label="Priority">
+                            <ContextSelect label="Priority"
                               value={caseDraft.priority}
                               onChange={(event) => setCaseDraft((current) => ({ ...current, priority: Number(event.target.value) || 3 }))}
                             >
@@ -11052,8 +11027,11 @@ export function TestCasesPage() {
                               <option value={3}>3 - Medium</option>
                               <option value={4}>4 - Low</option>
                               <option value={5}>5 - Lowest</option>
-                            </select>
+                            </ContextSelect>
                           </FormField>
+                          <details id="test-case-context-properties" className="test-case-context-properties authoring-disclosure" open={!caseDraft.author_id}>
+                            <summary><span>Properties & linked work</span><small>{caseDraft.requirement_id ? "Story linked" : caseDraft.module_id ? "Module linked" : caseDraft.test_case_type || "Functional"}</small></summary>
+                            <div className="authoring-disclosure-body record-grid">
                           <FormField className="form-field--compact-enum" label="Test case type">
                             <select
                               aria-describedby="test-case-type-hint"
@@ -11172,14 +11150,17 @@ export function TestCasesPage() {
                               onChange={(labelsText) => setCaseDraft((current) => ({ ...current, labelsText }))}
                             />
                           </div>
+                            </div>
+                          </details>
                         </div>
+                        <AuthoringContextMenu sections={[{ id: "test-case-context-properties", label: "Properties & linked work", icon: <TestCaseIcon size={16} />, summary: "Ownership, scope and labels" }, { id: "test-case-advanced-properties", label: "Advanced details", icon: <PencilIcon size={16} />, disabled: !(canUseAutomationWorkspace || hasReadableCasePreview || (!isCreating && selectedTestCase && canReviewSelectedTestCase)) }]} disabled={isTestCaseWorkspaceMutationPending} />
                         <ExternalReferencesField
                           value={caseDraft.externalReferencesText}
                           onChange={(externalReferencesText) => setCaseDraft((current) => ({ ...current, externalReferencesText }))}
                         />
 
                         {canUseAutomationWorkspace || hasReadableCasePreview || (!isCreating && selectedTestCase && canReviewSelectedTestCase) ? (
-                          <details className="test-case-details-advanced">
+                          <details id="test-case-advanced-properties" className="test-case-details-advanced">
                             <summary>
                               <span>
                                 <strong>Advanced details</strong>
@@ -12733,6 +12714,13 @@ export function TestCasesPage() {
             setAiCaseAuthoringPreview(null);
             setAiCaseAuthoringMessage("");
           }}
+          onCancel={() => {
+            aiCaseAuthoringControllerRef.current?.abort();
+            aiCaseAuthoringControllerRef.current = null;
+            previewCaseAuthoring.reset();
+            setAiCaseAuthoringTone("success");
+            setAiCaseAuthoringMessage("Stopped waiting. Existing drafts are unchanged.");
+          }}
           onGenerate={(authoringMode) => void handlePreviewAiCaseAuthoring(authoringMode)}
           onIntegrationIdChange={(value) => {
             setIntegrationId(value);
@@ -12816,6 +12804,13 @@ export function TestCasesPage() {
           onAuthoringModeChange={() => {
             setAiPreviewCases([]);
             setAiPreviewMessage("");
+          }}
+          onCancel={() => {
+            aiDesignControllerRef.current?.abort();
+            aiDesignControllerRef.current = null;
+            previewDesignedCases.reset();
+            setAiPreviewTone("success");
+            setAiPreviewMessage("Stopped waiting. Existing drafts are unchanged.");
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setAiPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}
@@ -13210,6 +13205,9 @@ function TestCaseExecutionModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const [dataSetValid, setDataSetValid] = useState(!selectedDataSetId);
+  const [selectedCaseSearch, setSelectedCaseSearch] = useState("");
+  const deferredSelectedCaseSearch = useDeferredValue(selectedCaseSearch);
+  const visibleSelectedCases = testCases.filter(item => `${item.title} ${item.display_id || item.id}`.toLowerCase().includes(deferredSelectedCaseSearch.trim().toLowerCase()));
   const { can } = useCapabilityAccess(projectId);
   const dialogRef = useDialogFocus<HTMLDivElement>({ closeDisabled: isSubmitting, onClose });
   return (
@@ -13236,6 +13234,7 @@ function TestCaseExecutionModal({
           </div>
 
           <div className="execution-create-body scoped-run-create-body">
+            <fieldset disabled={isSubmitting} className="scoped-run-authoring-fields">
             <aside className="scoped-run-config-pane" aria-label="Run configuration">
               <div className="scoped-run-pane-heading"><strong>Run Configuration</strong><span>Settings and reusable test data</span></div>
             {isPreparingOptions ? <p className="inline-message" role="status">Preparing Release and Sprint options… You can continue configuring this run.</p> : null}
@@ -13262,7 +13261,9 @@ function TestCaseExecutionModal({
             <RunDataSetup onValidityChange={setDataSetValid} dataOptions={dataOptions} onDataOptionsChange={onDataOptionsChange} projectId={projectId} appTypeId={appTypeId}
               cases={testCases} dataSetId={selectedDataSetId} onDataSetChange={onDataSetChange} environmentId={selectedEnvironmentId} configurationId={selectedConfigurationId} disabled={isSubmitting} />
 
-            <div className="execution-create-grid execution-create-grid--metadata">
+            <details className="authoring-disclosure" open={Boolean(executionRelease || executionSprint || executionBuild)}>
+              <summary><span>Delivery context</span><small>Release, Sprint and build</small></summary>
+              <div className="authoring-disclosure-body execution-create-grid execution-create-grid--metadata">
               {can("requirement_iteration.view") ? <FormField label="Release">
                 <select value={executionRelease} onChange={(event) => onExecutionReleaseChange(event.target.value)}>
                   <option value="">No release</option>
@@ -13288,6 +13289,7 @@ function TestCaseExecutionModal({
               </FormField>
             </div>
 
+            </details>
             <div className="detail-summary">
               <strong>{selectedProject || "Select a project to continue"}</strong>
               <span>{selectedAppType || "Choose an app type"}</span>
@@ -13353,29 +13355,34 @@ function TestCaseExecutionModal({
                 <div className="selection-summary-header">
                   <div>
                     <strong>{testCases.length ? `${testCases.length} test cases selected` : "No test cases selected yet"}</strong>
-                    <span>Click a test case to remove it.</span>
+                    <span>Review the scope before creating your run.</span>
                   </div>
                 </div>
 
+                {testCases.length > 8 || selectedCaseSearch ? <input aria-label="Search selected test cases" className="scoped-run-selected-search" placeholder="Find a selected test case…" value={selectedCaseSearch} onChange={event => setSelectedCaseSearch(event.target.value)} type="search" /> : null}
                 {testCases.length ? (
-                  <div className="selection-chip-row">
-                    {testCases.map((testCase) => (
-                      <button key={testCase.id} className="selection-chip" disabled={isSubmitting} onClick={() => onRemoveTestCase(testCase.id)} type="button">
-                        {testCase.title}
-                      </button>
+                  <div className="scoped-run-selected-list">
+                    {visibleSelectedCases.map((testCase) => (
+                      <div key={testCase.id} className="scoped-run-selected-item">
+                        <TestCaseIcon size={16} />
+                        <span><strong>{testCase.title}</strong>{testCase.display_id ? <small>{testCase.display_id}</small> : null}</span>
+                        <button aria-label={`Remove ${testCase.title} from this run`} className="ghost-button" disabled={isSubmitting} onClick={() => onRemoveTestCase(testCase.id)} title="Remove from run" type="button"><span aria-hidden="true">×</span></button>
+                      </div>
                     ))}
+                    {!visibleSelectedCases.length ? <div className="empty-state compact">No selected cases match. <button className="text-button" onClick={() => setSelectedCaseSearch("")} type="button">Clear search</button></div> : null}
                   </div>
-                ) : null}
+                ) : <p className="inline-message" role="status">Choose at least one test case to create a run.</p>}
               </div>
             </FormField>
             </section>
+            </fieldset>
           </div>
 
           <div className="action-row execution-create-actions">
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel
             </button>
-            <button className="primary-button" disabled={!canCreateExecution || isSubmitting || isPreparingOptions || !dataSetValid} type="submit">
+            <button className="primary-button" disabled={!testCases.length || !canCreateExecution || isSubmitting || isPreparingOptions || !dataSetValid} type="submit">
               {isSubmitting
                 ? "Creating…"
                 : executionStartMode === "local"

@@ -236,6 +236,10 @@
     {
       "requirement_id": "sample-v3-feature-support-guidance",
       "test_case_id": "sample-v7-ht-case-support-guidance"
+    },
+    {
+      "requirement_id": "sample-v3-feature-browser-quality-agents",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents"
     }
   ]
 }

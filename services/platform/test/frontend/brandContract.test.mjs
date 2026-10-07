@@ -15,11 +15,12 @@ test("the shared brand lockup renders the HelloTest target mark and wordmark", a
   assert.doesNotMatch(wordmark, />Q<\/span>/);
 });
 
-test("the login page uses the supplied HelloTest platform tagline", async () => {
+test("the login page preserves the shared HelloTest identity without requiring a marketing subtitle", async () => {
   const authPage = await readSource("../../frontend/pages/AuthPage.tsx");
   const index = await readSource("../../frontend/index.html");
 
-  assert.match(authPage, /subtitle="AI Agentic Test Platform"/);
+  assert.match(authPage, /<BrandWordmark\s+className="auth-card-brand"[^>]*\/>/);
+  assert.match(authPage, /aria-label="Discover HelloTest"/);
   assert.match(authPage, /Sign in to HelloTest/);
   assert.doesNotMatch(authPage, /Secure workspace access/);
   assert.match(index, /<title>HelloTest<\/title>/);
@@ -27,10 +28,11 @@ test("the login page uses the supplied HelloTest platform tagline", async () => 
 
 test("brand styling keeps the full and compact lockups responsive", async () => {
   const styles = await readSource("../../frontend/src/styles.css");
+  const authStyles = await readSource("../../frontend/pages/AuthPage.css");
 
   assert.match(styles, /\.hellotest-brand-icon/);
   assert.match(styles, /\.hellotest-brand-test \{[\s\S]*?linear-gradient/);
   assert.match(styles, /\.sidebar\.is-collapsed[\s\S]*?\.hellotest-brand-wordmark\.is-mark-only/);
-  assert.match(styles, /@media \(max-width: 560px\)/);
-  assert.match(styles, /\.auth-page \.left\.auth-aside \{\s+display: none/);
+  assert.match(authStyles, /\.auth-card-brand\.hellotest-brand-wordmark/);
+  assert.match(authStyles, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.right\.auth-main\s*\{\s*order: -1/);
 });

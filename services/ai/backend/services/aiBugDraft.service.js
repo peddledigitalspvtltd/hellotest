@@ -463,7 +463,7 @@ const buildProcessingSnapshot = ({ evidenceSources, generationMode, gaps, fallba
   ]
 });
 
-exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance } = {}) => {
+exports.preview = async ({ user, project_id, intent, evidence, additional_context, external_links, reference_photos, linked_test_run_id, linked_test_case_ids, linked_requirement_ids, integration_id, prompt_guidance, require_case_context = false } = {}) => {
   const projectId = normalizeText(project_id, 255);
   const normalizedIntent = normalizeText(intent, 4_000);
   if (!projectId || !normalizedIntent) throw new Error("project_id and intent are required");
@@ -484,6 +484,7 @@ exports.preview = async ({ user, project_id, intent, evidence, additional_contex
     prompt_guidance: normalizeText(prompt_guidance, 4_000)
   };
   const rawContext = await loadEvidence({ projectId, runId: input.linked_test_run_id, testCaseIds: input.linked_test_case_ids, requirementIds: input.linked_requirement_ids });
+  if (require_case_context && !rawContext.cases.length) throw Object.assign(new Error("Selected Test Case context is unavailable in this project. Choose an accessible Test Case."), { statusCode: 400 });
   rawContext.boundaries.requested.external_links = requestedExternalLinks.length;
   rawContext.boundaries.requested.reference_images = requestedReferenceImages.length;
   rawContext.boundaries.included.external_links = input.external_links.length;

@@ -34,26 +34,31 @@ function RecordLinks({ label, options, value, onChange, disabled }: { label: str
   </details>;
 }
 
-export function AutomationCaseMetadata({ value, onChange, manualCases, requirements, modules, suites, dataSets, disabled = false }: {
+export function AutomationCaseMetadata({ value, onChange, manualCases, requirements, modules, suites, dataSets, disabled = false, compact = false }: {
   value: AutomationMetadata; onChange: (change: Partial<AutomationMetadata>) => void;
-  manualCases: LinkOption[]; requirements: LinkOption[]; modules: LinkOption[]; suites: LinkOption[]; dataSets: LinkOption[]; disabled?: boolean;
+  manualCases: LinkOption[]; requirements: LinkOption[]; modules: LinkOption[]; suites: LinkOption[]; dataSets: LinkOption[]; disabled?: boolean; compact?: boolean;
 }) {
   const id = useId();
   const statuses = useDomainOptions("test_cases.statuses", ["active", "draft", "ready", "retired"].map(value => ({ value, label: value[0].toUpperCase() + value.slice(1) })), [value.status]);
-  return <div className="automation-metadata-form">
+  const advanced = <>
+      <div className="automation-metadata-enums">
+        <label className="form-field"><span>Status</span><select disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{statuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="form-field"><span>Priority</span><select disabled={disabled} onChange={(event) => onChange({ priority: event.target.value })} value={value.priority}>{[1, 2, 3, 4, 5].map((priority) => <option key={priority} value={priority}>P{priority}</option>)}</select></label>
+      </div>
+      <div className="automation-metadata-links" aria-label="Automation case links">
+        <RecordLinks disabled={disabled} label="Stories" onChange={(requirementIds) => onChange({ requirementIds })} options={requirements} value={value.requirementIds} />
+        <RecordLinks disabled={disabled} label="Modules" onChange={(moduleIds) => onChange({ moduleIds })} options={modules} value={value.moduleIds} />
+        <RecordLinks disabled={disabled} label="Suites" onChange={(suiteIds) => onChange({ suiteIds })} options={suites} value={value.suiteIds} />
+      </div>
+      <label className="form-field"><span>Linked data set</span><select disabled={disabled} onChange={(event) => onChange({ dataSetId: event.target.value })} value={value.dataSetId}><option value="">No linked data set</option>{dataSets.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+    </>;
+  return <div className={`automation-metadata-form${compact ? " automation-metadata-form--compact" : ""}`}>
     <div className="automation-metadata-primary">
       <label className="form-field"><span>Automation case name</span><input autoComplete="off" disabled={disabled} onChange={(event) => onChange({ title: event.target.value })} placeholder="e.g. Customer completes checkout" required value={value.title} /></label>
-      <label className="form-field"><span>Status</span><select disabled={disabled} onChange={(event) => onChange({ status: event.target.value })} value={value.status}>{statuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label className="form-field"><span>Priority</span><select disabled={disabled} onChange={(event) => onChange({ priority: event.target.value })} value={value.priority}>{[1, 2, 3, 4, 5].map((priority) => <option key={priority} value={priority}>P{priority}</option>)}</select></label>
     </div>
     <div className="form-field"><label htmlFor={`${id}-description`}>Description</label><RichTextEditor aria-label="Automation case description" appearance="canonical" disabled={disabled} id={`${id}-description`} onChange={(description) => onChange({ description })} placeholder="What should this automation verify?" rows={2} value={value.description} /></div>
-    <div className="automation-metadata-links" aria-label="Automation case links">
-      <RecordLinks disabled={disabled} label="Test cases" onChange={(manualCaseIds) => onChange({ manualCaseIds })} options={manualCases} value={value.manualCaseIds} />
-      <RecordLinks disabled={disabled} label="Stories" onChange={(requirementIds) => onChange({ requirementIds })} options={requirements} value={value.requirementIds} />
-      <RecordLinks disabled={disabled} label="Modules" onChange={(moduleIds) => onChange({ moduleIds })} options={modules} value={value.moduleIds} />
-      <RecordLinks disabled={disabled} label="Suites" onChange={(suiteIds) => onChange({ suiteIds })} options={suites} value={value.suiteIds} />
-    </div>
-    <label className="form-field"><span>Linked data set</span><select disabled={disabled} onChange={(event) => onChange({ dataSetId: event.target.value })} value={value.dataSetId}><option value="">No linked data set</option>{dataSets.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+    <RecordLinks disabled={disabled} label="Test cases" onChange={(manualCaseIds) => onChange({ manualCaseIds })} options={manualCases} value={value.manualCaseIds} />
+    {compact ? <details className="automation-metadata-advanced"><summary>Coverage, status & test data</summary>{advanced}</details> : advanced}
   </div>;
 }
 

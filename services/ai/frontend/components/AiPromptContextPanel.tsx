@@ -8,6 +8,8 @@ import {
   AI_CONTEXT_PACK_LIMIT,
   buildFileContextSection,
   buildRequirementContextSection,
+  manualContextInstructions,
+  updateManualContextInstructions,
   replaceTemplateContextPack,
   replaceSmartContextPack,
   stripSmartContextPack
@@ -94,11 +96,15 @@ export function AiPromptContextPanel({
   const [isBuildingContext, setIsBuildingContext] = useState(false);
   const [contextMessage, setContextMessage] = useState("");
   const [contextMessageTone, setContextMessageTone] = useState<"info" | "warning">("info");
+  const [instructionError, setInstructionError] = useState("");
   const [activeContextTab, setActiveContextTab] = useState<"text" | "files" | "links" | "images">(showPromptEditor ? "text" : "files");
   const promptContextCopy = PROMPT_CONTEXT_COPY[promptScope];
   const externalLinkCount = externalLinksText.split(/\r?\n/).filter((value) => value.trim()).length;
+  const instructions = manualContextInstructions(additionalContext);
+  const hasReviewedContext = /\[HELLOTEST_SMART_CONTEXT_START\][\s\S]*?\[HELLOTEST_SMART_CONTEXT_END\]/.test(additionalContext);
+  const hasTemplateContext = /\[HELLOTEST_TEMPLATE_CONTEXT_START\][\s\S]*?\[HELLOTEST_TEMPLATE_CONTEXT_END\]/.test(additionalContext);
   const contextTabs = [
-    ...(showPromptEditor ? [{ id: "text" as const, label: "Text", count: additionalContext.trim() ? 1 : 0 }] : []),
+    ...(showPromptEditor ? [{ id: "text" as const, label: "Text", count: instructions.trim() ? 1 : 0 }] : []),
     { id: "files" as const, label: "Files", count: contextFiles.length },
     { id: "links" as const, label: "Links", count: externalLinkCount },
     { id: "images" as const, label: "Images", count: referenceImages.length }
@@ -192,7 +198,7 @@ export function AiPromptContextPanel({
       </div>
 
       <div aria-label="Additional context" className="ai-prompt-context-head">
-        <span>Context engine</span>
+        <span>Project evidence</span>
         <div className="ai-prompt-context-head-actions">
           <SmartContextWorkbench
             appTypeId={appTypeId}
@@ -219,6 +225,11 @@ export function AiPromptContextPanel({
         </div>
       </div>
 
+      {!showPromptEditor && (hasReviewedContext || hasTemplateContext) ? <div className="ai-context-pack-summary" aria-label="Included context packs">
+        <span>{hasReviewedContext ? "Reviewed evidence included" : "Template included"}</span>
+        <details><summary>Inspect</summary><pre>{additionalContext}</pre></details>
+        <button disabled={disabled} onClick={() => { onAdditionalContextChange(instructions); setInstructionError(""); }} type="button">Remove packs</button>
+      </div> : null}
       {showPromptEditor ? (
         <div
           aria-labelledby={`${tabIdPrefix}-text-tab`}
@@ -227,15 +238,28 @@ export function AiPromptContextPanel({
           id={`${tabIdPrefix}-text-panel`}
           role="tabpanel"
         >
-          <FormField className="ai-prompt-copy-field" label="Additional instructions">
+          <FormField className="ai-prompt-copy-field" error={instructionError} label="Additional instructions">
             <textarea
               disabled={disabled}
               placeholder={promptContextCopy.promptPlaceholder}
               rows={5}
-              value={additionalContext}
-              onChange={(event) => onAdditionalContextChange(event.target.value)}
+              value={instructions}
+              onChange={(event) => {
+                try {
+                  onAdditionalContextChange(updateManualContextInstructions(additionalContext, event.target.value));
+                  setInstructionError("");
+                } catch (error) {
+                  setInstructionError(error instanceof Error ? error.message : "Unable to update instructions.");
+                }
+              }}
             />
           </FormField>
+          {hasReviewedContext || hasTemplateContext ? <div className="ai-context-pack-summary" aria-label="Included context packs">
+            <span>{hasReviewedContext ? "Reviewed evidence included" : "Template included"}</span>
+            <details><summary>Inspect</summary><pre>{additionalContext}</pre></details>
+            <button disabled={disabled} onClick={() => { onAdditionalContextChange(instructions); setInstructionError(""); }} type="button">Remove packs</button>
+          </div> : null}
+          <small className="ai-context-budget">{additionalContext.length.toLocaleString()} / {AI_CONTEXT_PACK_LIMIT.toLocaleString()} context characters</small>
         </div>
       ) : null}
 
@@ -249,7 +273,7 @@ export function AiPromptContextPanel({
         <div className="ai-smart-context-card">
           <div>
             <strong>Smart context pack</strong>
-            <span>{promptContextCopy.smartContext}</span>
+            <span>Add files, then select Smart Context to review and include their contents.</span>
           </div>
           <div className="ai-smart-context-actions">
             <label className="ghost-button compact ai-context-file-button">

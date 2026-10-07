@@ -11,10 +11,10 @@ export function compactAiRequestBody(body: string): string | null {
   delete compact.external_links;
   delete compact.requirement_context;
   if (typeof compact.additional_context === "string") compact.additional_context = compact.additional_context.slice(0, 2000);
-  if (compact.test_case && typeof compact.test_case === "object") {
-    const draft = compact.test_case as Record<string, unknown>;
-    compact.test_case = { title: typeof draft.title === "string" ? draft.title.slice(0, 500) : "", authoring_mode: draft.authoring_mode };
-  }
+  // The existing authored artifact is mandatory evidence for improvement.
+  // Dropping its steps, Examples or data declarations changes the task into
+  // generation from a title and can cause a reviewed replacement to lose work.
+  // Only optional supporting context is eligible for this inbound-size retry.
   const next = JSON.stringify(compact);
   return next.length < body.length ? next : null;
 }
@@ -33,7 +33,7 @@ export async function requestAiWithShorterContext<T extends object>(
     return {
       ...response,
       context_reduced: true,
-      context_reduction_reason: "The request exceeded the size limit. Images, linked context and long draft text were omitted for this preview. Review against the original Story before accepting."
+      context_reduction_reason: "The request exceeded the size limit. Optional images and linked context were omitted, and additional instructions were shortened. The original authored content was preserved. Review against the original Story before accepting."
     };
   }
 }

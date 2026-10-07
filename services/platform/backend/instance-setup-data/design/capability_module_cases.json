@@ -236,6 +236,10 @@
     {
       "module_id": "sample-v7-ht-module-platform",
       "test_case_id": "sample-v7-ht-case-support-guidance"
+    },
+    {
+      "module_id": "sample-v7-ht-module-agentic",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents"
     }
   ]
 }

@@ -3745,6 +3745,64 @@
           }
         }
       }
+    },
+    {
+      "id": "sample-v3-feature-browser-quality-agents",
+      "display_id": "HTDEMO3-R60",
+      "project_id": "sample-project",
+      "title": "Execute reviewed browser quality checks with traceable evidence",
+      "description": "As a Quality Engineer, I want to run reviewed web, security, performance, accessibility and visual checks against an explicitly scoped application.\n\nA typed browser plan is reviewed before execution. Durable scoped jobs return recorded stages, measured metrics, findings and authenticated screenshot artifacts. Findings can become reviewed Defects and visual captures can become explicitly approved baselines.\n\nAcceptance criteria\n1. Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.\n2. Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.\n3. Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.\n4. Review and edit a finding-derived Defect draft before saving through the authorized Defects API.\n\nFailure and scope boundary\nMissing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.\n\nSample acceptance backlog: reviewable product requirements, not executed test evidence.",
+      "priority": 2,
+      "status": "ready",
+      "labels": [
+        "sample",
+        "hellotest-core",
+        "intelligence",
+        "quality-agents"
+      ],
+      "scrum_team": "HelloTest Intelligence",
+      "iteration_id": "sample-v3-ht-sprint-intelligence",
+      "sprint": "HT 06 · Grounded intelligence",
+      "release": "HelloTest Intelligence & Operations · sample",
+      "fix_version": "demo-intelligence-1.0",
+      "dev_completion_target_date": "2026-12-04T09:00:00.000Z",
+      "qa_completion_target_date": "2026-12-06T09:00:00.000Z",
+      "specification_format": "gherkin",
+      "specification_content": "Feature: Execute reviewed browser quality checks with traceable evidence\n\n  Scenario: 1. Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal\n    Given I am an authorized Quality Engineer in the intended HelloTest scope\n    And the required feature and configured browser services are available\n    When I use the reviewed browser quality checks workflow\n    Then select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.\n\n  Scenario: 2. Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state\n    Given I am an authorized Quality Engineer in the intended HelloTest scope\n    And the required feature and configured browser services are available\n    When I use the reviewed browser quality checks workflow\n    Then inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.\n\n  Scenario: 3. Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity\n    Given I am an authorized Quality Engineer in the intended HelloTest scope\n    And the required feature and configured browser services are available\n    When I use the reviewed browser quality checks workflow\n    Then compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.\n\n  Scenario: 4. Review and edit a finding-derived Defect draft before saving through the authorized Defects API\n    Given I am an authorized Quality Engineer in the intended HelloTest scope\n    And the required feature and configured browser services are available\n    When I use the reviewed browser quality checks workflow\n    Then review and edit a finding-derived Defect draft before saving through the authorized Defects API.\n\n  Scenario: Preserve scope and failure boundaries\n    Given I am reviewing browser quality evidence in the selected application\n    When the documented failure or scope boundary is reached\n    Then missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.",
+      "gherkin_scenarios": [
+        "Scenario: 1. Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal\n  Given I am an authorized Quality Engineer in the intended HelloTest scope\n  And the required feature and configured browser services are available\n  When I use the reviewed browser quality checks workflow\n  Then select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.",
+        "Scenario: 2. Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state\n  Given I am an authorized Quality Engineer in the intended HelloTest scope\n  And the required feature and configured browser services are available\n  When I use the reviewed browser quality checks workflow\n  Then inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.",
+        "Scenario: 3. Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity\n  Given I am an authorized Quality Engineer in the intended HelloTest scope\n  And the required feature and configured browser services are available\n  When I use the reviewed browser quality checks workflow\n  Then compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.",
+        "Scenario: 4. Review and edit a finding-derived Defect draft before saving through the authorized Defects API\n  Given I am an authorized Quality Engineer in the intended HelloTest scope\n  And the required feature and configured browser services are available\n  When I use the reviewed browser quality checks workflow\n  Then review and edit a finding-derived Defect draft before saving through the authorized Defects API.",
+        "Scenario: Preserve scope and failure boundaries\n  Given I am reviewing browser quality evidence in the selected application\n  When the documented failure or scope boundary is reached\n  Then missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression."
+      ],
+      "external_references": [],
+      "additional_fields": {
+        "assignee_id": "__SETUP_ACTOR_ID__",
+        "original_dev_id": null,
+        "original_qa_id": null,
+        "effort_story_points": 8,
+        "sample_blueprint_version": 3,
+        "feature_key": "browser-quality-agents",
+        "feature_area": "intelligence",
+        "acceptance_criteria": [
+          "Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.",
+          "Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.",
+          "Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.",
+          "Review and edit a finding-derived Defect draft before saving through the authorized Defects API."
+        ],
+        "boundary": "Missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.",
+        "source_files": [
+          "services/agentic/frontend/quality/QualityAgentLab.tsx",
+          "services/agentic/backend/services/qualityAgents.service.js",
+          "testengine/backend/src/lib/qualityAgents/runtime.ts"
+        ],
+        "execution_evidence": false
+      },
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-10-06T09:00:00.000Z",
+      "updated_at": "2026-10-06T09:00:00.000Z"
     }
   ]
 }

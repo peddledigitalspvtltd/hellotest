@@ -9,7 +9,7 @@ const actor={user:{id:'user-a',role:'member'},projectId:'project-a',clientId:'ho
 const permit=async(a)=>{if(a.projectId!=='project-a')throw Object.assign(new Error('Denied'),{statusCode:403,code:'DENIED'});};
 const fakeDb={prepare:()=>({run:async()=>{},get:async()=>undefined,all:async()=>[]})};
 const backplane={catalog:async a=>({owner:a.user.id,project:a.projectId}),describe:async()=>({}),read:async()=>({}),context:async a=>({packet:{evidence:[]},owner:a.user.id}),graph:async()=>({}),prepare:async()=>({state:'requires_authorization'}),execute:async()=>({state:'requires_authorization'}),status:async()=>({state:'requires_authorization'}),bounded:value=>value,auditFailure:()=>{}};
-const server=load('server',{'./backplane':backplane,'./projections':{entities:{projects:{}},schema:async()=>({}),query:async()=>({})},'./auth':{permit,fail:(message,statusCode=403,code='DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message})},'../db':fakeDb});
+const server=load('mcpServer',{'./backplane':backplane,'./projections':{entities:{projects:{}},schema:async()=>({}),query:async()=>({})},'./auth':{permit,fail:(message,statusCode=403,code='DENIED')=>Object.assign(new Error(message),{statusCode,code,publicMessage:message})},'../db':fakeDb});
 const meta={'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientCapabilities':{}};
 function request(body,headers={}){return new Request('http://localhost/mcp',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',...headers},body:JSON.stringify(body)});}
 const auth={authInfo:{token:'test',clientId:'host',scopes:[],extra:{actor}}};
@@ -54,4 +54,10 @@ test('MCP redaction retains ContextPacket ACL provenance without retaining crede
  const real=load('backplane',{'../db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})}});
  const safe=real.bounded({authorization:{project_scope_enforced:true,source_acl_enforced:true,allowed_record_permissions:['testcase.view'],token:'private',headers:{Authorization:'private'}},authorization_coverage:{fully_visible_objects:2,partially_visible_objects:0,unavailable_objects:1,secret:'private'},headers:{authorization:'Bearer private'}});
  assert.deepEqual(safe.authorization,{project_scope_enforced:true,source_acl_enforced:true,allowed_record_permissions:['testcase.view']});assert.equal(safe.authorization_coverage.fully_visible_objects,2);assert.ok(!JSON.stringify(safe).includes('private'));
+});
+
+test('catalog discovery avoids repeated permission queries and rechecks permissions on the next request',async()=>{
+ let checks=0,allowed=true;const operations=[{id:'a',method:'GET',path:'/test-cases',permission:'testcase.view'},{id:'b',method:'GET',path:'/test-cases/:id',permission:'testcase.view'}];
+ const real=load('backplane',{'../db':fakeDb,'./auth':{permit,fail:(message,statusCode,code)=>Object.assign(new Error(message),{statusCode,code})},'./registry':{all:()=>operations,revision:()=> 'revision'},'../../services/permission.service':{hasPermission:async()=>{checks++;return allowed;}}});
+ assert.equal((await real.catalog(actor,{query:'test-cases'})).operations.length,2);assert.equal(checks,1);allowed=false;assert.equal((await real.catalog(actor,{query:'test-cases'})).operations.length,0);assert.equal(checks,2);
 });

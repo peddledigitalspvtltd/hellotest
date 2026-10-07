@@ -46,3 +46,22 @@ node --test testengine/backend/test/browser/automationMcpFlow.test.mjs testengin
 Browser checks use isolated fixtures; they do not verify a customer's LLM credentials, private application, Android device or remote recorder deployment. After changing the recorder or shared locator runtime, run `npm --prefix testengine/backend run package:inspection-agent` so downloaded local agents receive the same behavior.
 
 The [workflow and runtime design](../../docs/architecture/automation-workflow.md) covers the authoring layout, context handoff, reuse and execution contracts, and current boundaries. Agent instructions are optional when a saved behavior plan is present. Native recorder selection follows the targeted step or unique native runtime in a mixed plan and preserves the other platforms when saving.
+
+## Command workspace and run readiness
+
+Automation cases open on the saved plan. The Capture, Generate, Review and Run rail keeps the next action visible; metadata, data profiles, hooks, objects and run evidence stay in secondary navigation. Creation starts with a behavior brief and method, with coverage/status/data in a disclosure. Build activity exposes observed phases and processed case counts. Generated sections can be compared against the saved source from before generation. A completed build is output to review, not a passed test.
+
+Bulk commands use only explicitly selected cases. Build review checks the current saved behavior, and run review checks executable mappings and API request structure. Empty, retired, unsupported, entirely skipped or incomplete plans block dispatch. Unsaved sections must be saved or discarded. Checks re-read the exact selected IDs and application before dispatch; a changed revision, saved timestamp or step program requires another review. Runners whose role hides source retain run access: the engine checks their executable source without revealing it in the dialog.
+
+Engine dispatch compiles each frozen JavaScript body without evaluating it before allocating eligible jobs. Missing or syntactically invalid bodies cannot be queued merely because the case summary says Ready. Runtime execution remains responsible for selector behavior, assertions, credentials, configuration and the target application's current state. Readiness is not a test outcome.
+
+A failed remote start retains the already-created execution. Retry checks its durable status first and starts the same ID only if still queued; an already-started execution opens its evidence. Zero or partial engine handoff is shown as a recovery result, with the original run available to inspect. Batch build results retain every failed or unattempted case ID, including cases beyond the failure threshold. Retry reviews only unfinished targets and never regenerates successful cases. Returning from an open case to the catalog consumes the URL selection once, avoiding the previous close/reopen race. Draft sections now have an explicit Discard changes action.
+
+Reproduce the focused checks after setup:
+
+```sh
+node --test services/automation/test/frontend/automationReadiness.test.mjs services/automation/test/backend/automationReadiness.test.js
+npm run test:product-ux -- --filter automation
+```
+
+The browser checks exercise the actual page with mocked API responses: explicit selection, blocked empty plans, unsaved source preservation, a concurrent program change, remote-start recovery, exact unfinished build retries, guided creation, all four runtime editors/recorders, and narrow dark layouts. They do not substitute for live TestEngine, provider, device or application checks.

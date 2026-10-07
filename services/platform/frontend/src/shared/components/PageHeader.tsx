@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { InfoTooltip } from "./InfoTooltip";
 
 type PageHeaderMetaItem = {
   label: string;
@@ -24,8 +25,10 @@ export function PageHeaderText({
   return (
     <div className={["page-header-text", className].filter(Boolean).join(" ")}>
       {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
-      <div className="page-header-title-row"><h1 className="page-header-title">{title}</h1></div>
-      {description ? <div className="page-header-copy">{description}</div> : null}
+      <div className="page-header-title-row">
+        <h1 className="page-header-title">{title}</h1>
+        {description ? <InfoTooltip content={description} label="About this page" className="page-header-help" /> : null}
+      </div>
       {textAside ? <div className="page-header-text-aside">{textAside}</div> : null}
     </div>
   );

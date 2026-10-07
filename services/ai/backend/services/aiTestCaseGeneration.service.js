@@ -5,6 +5,7 @@ const requirementDesignService = require("@hellotest/manual/backend/services/req
 const testCaseService = require("@hellotest/testing/backend/services/testCase.service");
 const workspaceTransactionService = require("@hellotest/platform/backend/services/workspaceTransaction.service");
 const { normalizeStoredReferenceList } = require("@hellotest/platform/backend/src/utils/externalReferences");
+const { isAiCapacityError, isRetryableLlmError } = require("./aiGenerationRetryPolicy");
 
 const DEFAULT_CASES_PER_REQUIREMENT = 3;
 const DEFAULT_PARALLEL_REQUIREMENTS = 1;
@@ -287,29 +288,8 @@ const chunkRequirements = (requirements = [], size = REQUIREMENT_BATCH_LIMIT) =>
   return chunks;
 };
 
-const isRetryableLlmError = (error) => {
-  const statusCode = Number(error?.statusCode || 0);
-
-  if ([408, 409, 425, 429, 500, 502, 503, 504].includes(statusCode)) {
-    return true;
-  }
-
-  const message = String(error?.message || "").toLowerCase();
-  return message.includes("rate limit") || message.includes("temporarily") || message.includes("timeout");
-};
-
-const isAiCapacityError = (error) => {
-  const statusCode = Number(error?.statusCode || 0);
-  const message = String(error?.message || "").toLowerCase();
-  return statusCode === 429
-    || message.includes("rate limit")
-    || message.includes("too many requests")
-    || message.includes("token")
-    || message.includes("quota");
-};
-
 const resolveRetryDelayMs = (error, attempt) => {
-  const retryAfterMs = Number(error?.retryAfterMs || 0);
+  const retryAfterMs = Number(error?.retryAfterMs || (Number(error?.retryAfterSeconds || 0) * 1_000));
 
   if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
     return isAiCapacityError(error)
@@ -494,7 +474,9 @@ async function generateCasesForRequirementWithRetry({ job, requirement, appType,
     try {
       return await generateCasesForRequirement({ job, requirement, appType, assertLease });
     } catch (error) {
-      if (attempt >= MAX_LLM_RETRY_ATTEMPTS || !isRetryableLlmError(error)) {
+      // Capacity recovery belongs to the durable queue. Never keep this worker
+      // and its lease occupied for an hour while unrelated jobs are waiting.
+      if (isAiCapacityError(error) || attempt >= MAX_LLM_RETRY_ATTEMPTS || !isRetryableLlmError(error)) {
         throw error;
       }
 

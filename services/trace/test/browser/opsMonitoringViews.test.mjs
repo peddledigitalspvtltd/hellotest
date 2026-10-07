@@ -59,6 +59,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<QueryClientProvider
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     const url = `${process.env.VITE_TEST_URL || 'http://127.0.0.1:5191'}/${name}.html`;
     await page.goto(url);
+    await page.locator('iframe[title="Grafana runtime dashboard"]').waitFor();
+    const tabs = await page.getByRole("tab").allTextContents();
+    assert.ok(tabs.indexOf("AI calls") < tabs.indexOf("Alerts"));
+    await page.getByRole("tab", {name:"AI calls",exact:true}).click();
     await page.getByRole('button', { name:'Story assurance',exact:true }).waitFor();
     await page.getByRole('button', { name:'Story assurance',exact:true }).click();
     await page.getByText('Request to model',{exact:true}).waitFor();

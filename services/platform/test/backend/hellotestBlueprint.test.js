@@ -133,3 +133,29 @@ test('portable artifacts match installed content and lexical knowledge keeps exa
   assert.equal(index.indexed_chunk_count, chunks.length);
   assert.ok(rows('ai_knowledge_security_bindings').some(item => item.source_id === 'sample-v3-source-hellotest' && item.principal_id === PROJECT && item.effect === 'ALLOW'));
 });
+
+test('new browser agent acceptance is connected and remains unreviewed and unexecuted', () => {
+  const storyId = featureId('browser-quality-agents');
+  const caseId = 'sample-v7-ht-case-browser-quality-agents';
+  const story = rows('requirements').find(item => item.id === storyId);
+  const testCase = rows('test_cases').find(item => item.id === caseId);
+  assert.equal(story.additional_fields.execution_evidence, false);
+  assert.equal(testCase.status, 'draft');
+  assert.equal(testCase.review_status, 'not_requested');
+  assert.deepEqual(testCase.review_history, []);
+  assert.equal(testCase.automated, 'no');
+  assert.equal(testCase.ai_quality_score, null);
+  const steps = rows('test_steps').filter(item => item.test_case_id === caseId);
+  assert.equal(steps.length, 6);
+  assert.equal(steps.at(-1).expected_result, featuresByKey.get('browser-quality-agents').boundary);
+  assert.ok(rows('suite_test_cases').some(item => item.test_case_id === caseId && item.suite_id === testCase.suite_id));
+  assert.ok(rows('test_case_module_cases').some(item => item.test_case_id === caseId && item.module_id === 'sample-v7-ht-module-agentic'));
+  for (const table of ['execution_results', 'execution_case_snapshots', 'execution_step_snapshots']) {
+    assert.equal(rows(table).some(item => item.test_case_id === caseId), false, `Authored acceptance must not invent ${table}`);
+  }
+  const intelligence = rows('ai_knowledge_chunks').find(item => item.id === 'sample-v3-chunk-hellotest-intelligence');
+  assert.ok(intelligence.content.includes('#### browser-quality-agents:'));
+  const document = rows('ai_knowledge_documents').find(item => item.id === intelligence.document_id);
+  assert.equal(document.char_count, document.content.length);
+  assert.equal(document.checksum_sha256, require('node:crypto').createHash('sha256').update(document.content).digest('hex'));
+});

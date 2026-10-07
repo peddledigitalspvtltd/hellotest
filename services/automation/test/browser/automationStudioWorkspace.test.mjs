@@ -12,6 +12,7 @@ const root = new URL('../../../platform/frontend/', import.meta.url);
 test('automation studio preserves section drafts, precondition order, AI scope and a single execution handoff', {timeout: 90000}, async () => {
   const template = await readFile(new URL('../../../testing/test/browser/testCaseDataSets.test.mjs', import.meta.url), 'utf8');
   let fixture = runInNewContext(template.match(/const fixture\s*=\s*(`[\s\S]*?`);/)[1]);
+  fixture += "\nimport '/src/product-experience.css';";
   fixture = fixture.replace("import {TestCasesPage} from '/services/testing/frontend/pages/TestCasesPage';", "import {AutomationPage} from '/services/automation/frontend/pages/AutomationPage';").replace('element:<TestCasesPage/>', 'element:<AutomationPage/>');
   fixture = fixture.replace("const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>}]", "const router=createMemoryRouter([{path:'/test-cases',element:<AutomationPage/>},{path:'/executions',element:<div>Execution destination</div>}]" );
   fixture = fixture.replace('const client=new QueryClient', `item.automated='yes';item.automation_status='ready';steps.forEach(step=>step.automation_code='await web.click("Login.Submit");');
@@ -23,7 +24,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     api.testCases.queueAutomationGenerator=async(id,input)=>{window.calls.push({kind:'build',id,input});return {transaction_id:'build-job'};};
     api.executions.createLocalRun=async input=>{window.calls.push({kind:'local',input});if(window.failRun)throw new Error('Local Test Engine unavailable');return {id:'local-run'};};
     api.executions.create=async input=>{window.calls.push({kind:'remote',input});return {id:'remote-run'};};
-    api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};
+    api.executions.start=async()=>{throw new Error('Duplicate start must never be called');};api.executions.get=async id=>({id,project_id:'p',app_type_id:'a',status:'running'});
     const client=new QueryClient`);
   const name = 'automation-studio-' + randomUUID(), html = new URL(name + '.html', root), tsx = new URL(name + '.tsx', root);
   let browser, page;
@@ -79,7 +80,7 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     await context.getByRole('button',{name:'Done',exact:true}).click();
     await page.getByRole('button',{name:'Prioritize assertions',exact:true}).click();
     await expect(page.getByLabel('Build instructions (optional)',{exact:true})).toHaveValue('Prioritize assertions.');
-    await page.screenshot({path:screenshotRoot+'/studio-ai-desktop.png',fullPage:true});
+    const headerBounds=await page.locator('.automation-build-header h3').boundingBox();const launchBounds=await page.getByRole('button',{name:/Open quality agents/}).boundingBox();assert.ok(launchBounds.x>=headerBounds.x+headerBounds.width||launchBounds.y>=headerBounds.y+headerBounds.height,'quality launcher does not overlap the studio title');await page.screenshot({path:screenshotRoot+'/studio-ai-desktop.png',fullPage:true});
     for(const width of [768,390]) {
       await page.setViewportSize({width,height:844});
       await expect(page.locator('.automation-ai-studio')).toBeVisible();
@@ -97,9 +98,9 @@ test('automation studio preserves section drafts, precondition order, AI scope a
     // Use a fresh saved plan to exercise both dispatch paths independently.
     for(const mode of ['local','remote']) {
       await page.reload();
-      await page.getByRole('button',{name:mode==='local'?'Run local':'Run remote',exact:true}).click();
-      const run = page.getByRole('dialog',{name:'Run automation',exact:true});
-      await expect(run.getByRole('button',{name:mode==='local'?/^Local/:/^Remote/})).toHaveAttribute('aria-pressed','true');
+      await page.getByRole('button',{name:mode==='local'?'Review & run':'Run remote',exact:true}).click();
+      const run = page.getByRole('dialog',{name:'Ready to execute?',exact:true});
+      await expect(run.getByRole('button',{name:`Start ${mode} run`,exact:true})).toBeVisible();await run.getByText('Execution profile',{exact:true}).click();
       await run.getByLabel('Test environment',{exact:true}).selectOption('qa');
       await run.getByLabel('Test configuration',{exact:true}).selectOption('chrome');
       await page.setViewportSize({width:390,height:844});
@@ -107,11 +108,11 @@ test('automation studio preserves section drafts, precondition order, AI scope a
       await run.screenshot({path:screenshotRoot+'/studio-run-'+mode+'-mobile.png'});
       if(mode==='local') {
         await page.evaluate(()=>window.failRun=true);
-        await run.getByRole('button',{name:'Start run',exact:true}).click();
+        await run.getByRole('button',{name:`Start ${mode} run`,exact:true}).click();
         await expect(run.getByRole('alert')).toHaveText('Local Test Engine unavailable');
         await page.evaluate(()=>window.failRun=false);
       }
-      await run.getByRole('button',{name:'Start run',exact:true}).click();
+      await run.getByRole('button',{name:`Start ${mode} run`,exact:true}).click();
       await page.getByText('Execution destination',{exact:true}).waitFor();
       const calls=await page.evaluate(mode=>window.calls.filter(call=>call.kind===('local'===mode?'local':'remote')), mode);
       assert.equal(calls.length,mode==='local'?2:1);assert.deepEqual(calls.at(-1).input.test_case_ids,['case1']);

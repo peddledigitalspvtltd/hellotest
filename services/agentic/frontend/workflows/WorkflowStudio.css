@@ -756,14 +756,20 @@
     grid-template-columns: 205px minmax(0, 1fr);
   }
   .studio-workspace.has-library.has-inspector > .studio-inspector {
-    display: none;
+    display: flex;
+    grid-column: 1 / -1;
+    max-height: 520px;
+    border-top: 1px solid var(--border);
   }
+  .studio-workspace.has-library.has-inspector { height: auto; }
+  .studio-workspace.has-library.has-inspector .studio-canvas-workspace { height: 480px; }
   .studio-workspace.has-library.has-inspector > .studio-inspector.is-expanded {
     display: flex;
   }
   .studio-execution .studio-workspace.has-library.has-inspector {
     grid-template-columns: 180px minmax(0, 1fr) 290px;
   }
+  .studio-execution .studio-workspace.has-library.has-inspector > .studio-inspector { grid-column: auto; max-height: none; border-top: 0; }
   .studio-execution .studio-workspace > .studio-inspector {
     display: flex;
   }
@@ -1097,3 +1103,37 @@
 .studio-history-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .studio-history-filter label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .studio-history-filter select { width: auto; min-width: 150px; }
+
+/* Calm editing tools, readable input feedback and a visible execution lifecycle. */
+.workflow-studio { --studio-accent: var(--accent, #5068dd); border-radius: 18px; }
+.studio-header { padding: 18px 22px; }
+.studio-title h2 { letter-spacing: -.035em; font-weight: 650; }
+.studio-canvas-actions { align-items: center; flex-wrap: wrap; max-width: calc(100% - 32px); padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--studio-paper); box-shadow: 0 4px 20px #172b4d0a; }
+.studio-canvas-actions button { min-height: 34px; box-shadow: none; }
+.studio-canvas-actions .primary-button { border-radius: 8px; }
+.studio-history-actions { display: flex; gap: 2px; padding-right: 5px; border-right: 1px solid var(--border); }
+.studio-history-actions .studio-icon-button { color: var(--studio-muted); }
+.studio-tools > button { display: inline-flex; align-items: center; gap: 5px; }
+.studio-tools > button[data-invalid="true"] { color: var(--danger, #bd304a); }
+.studio-input-drawer textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.7; resize: vertical; }
+.studio-input-drawer textarea[aria-invalid="true"] { border-color: var(--danger, #bd304a); }
+.studio-input-feedback { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 12px; color: var(--studio-muted); }
+.studio-input-feedback [role="alert"] { color: var(--danger, #bd304a); }
+.studio-input-help { margin-top: 10px; color: var(--studio-muted); font-size: 11px; }
+.studio-input-help summary { cursor: pointer; }
+.studio-input-help p { line-height: 1.7; }
+.studio-run-progress { padding: 0 22px 14px; display: flex; align-items: center; gap: 12px; color: var(--studio-muted); font-size: 11px; }
+.studio-run-progress progress { width: min(340px, 55%); height: 5px; accent-color: var(--studio-accent); }
+.studio-export-notice { padding: 10px 22px; margin: 0; color: var(--success, #26836b); font-size: 12px; background: color-mix(in srgb, var(--success, #26836b) 5%, var(--studio-paper)); }
+.studio-status[data-status="running"], .studio-status[data-status="queued"] { color: var(--studio-accent); border-color: color-mix(in srgb, var(--studio-accent) 30%, var(--border)); background: color-mix(in srgb, var(--studio-accent) 6%, var(--studio-paper)); }
+.studio-status[data-status="failed"], .studio-status[data-status="interrupted"] { color: var(--danger, #bd304a); }
+.studio-status[data-status="needs_review"] { color: var(--warning, #9c6918); background: color-mix(in srgb, var(--warning, #9c6918) 7%, var(--studio-paper)); }
+@media (max-width: 800px) {
+  .studio-header { padding: 14px; }
+  .studio-canvas-actions { top: 10px; left: 10px; max-width: calc(100% - 20px); gap: 3px; }
+  .studio-canvas-actions > .ghost-button { padding-inline: 8px; }
+  .studio-workspace.has-library.has-inspector .studio-canvas-workspace { height: 420px; }
+  .studio-execution .studio-workspace.has-library.has-inspector > .studio-inspector { max-height: 660px; }
+  .studio-input-feedback { align-items: flex-start; flex-direction: column; }
+  .studio-header-actions .primary-button { flex: 1; justify-content: center; }
+}

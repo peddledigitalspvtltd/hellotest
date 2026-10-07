@@ -3,6 +3,7 @@ const DefectTriageDialog = capabilityView<import("react").ComponentProps<typeof 
 const StoryAiStudioShell = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/StoryAiStudioShell")["StoryAiStudioShell"]> & {}>("ai", "StoryAiStudioShell", () => import("@hellotest/ai/frontend/components/StoryAiStudioShell"), "ai");
 const DefectAiDraftWorkspace = capabilityView<import("react").ComponentProps<typeof import("@hellotest/ai/frontend/components/DefectAiDraftWorkspace")["DefectAiDraftWorkspace"]> & {}>("ai", "DefectAiDraftWorkspace", () => import("@hellotest/ai/frontend/components/DefectAiDraftWorkspace"), "ai");
 import { formatDefectFieldLabel, formatRecordKindLabel } from "../lib/defectTerminology";
+import { createPortal } from "react-dom";
 import { FormEvent, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,9 @@ import { CatalogViewToggle } from "@hellotest/platform/frontend/src/shared/compo
 import { DataTable, type DataTableColumn } from "@hellotest/platform/frontend/src/shared/components/DataTable";
 import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/components/DisplayIdBadge";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
+import { ContextSelect } from "@hellotest/platform/frontend/src/shared/components/ContextSelect";
+import { AuthoringContextMenu } from "@hellotest/platform/frontend/src/shared/components/AuthoringContextMenu";
+import { IconChecklist, IconLink, IconPaperclip, IconSettings, IconTarget, IconWorld } from "@tabler/icons-react";
 import { JiraAttachmentIcon, JiraAttachmentPanel } from "@hellotest/integration/frontend/components/JiraAttachmentPanel";
 import { IssueActivityPanel } from "../components/IssueActivityPanel";
 import { JiraRequiredFields } from "@hellotest/integration/frontend/components/JiraRequiredFields";
@@ -70,6 +74,8 @@ import type { AiBugDraftEditableField, AiBugDraftPreview, AiDesignImageInput, Ai
 import { IssueImportDialog } from "../components/IssueImportDialog";
 import { buildIssueImportTemplate } from "../lib/issueImport";
 import "./IssuesPage.css";
+import "../components/AuthoringExperience.css";
+import { uploadAttachmentBatch } from "../lib/attachmentUploadBatch";
 
 const MAX_AI_BUG_TRIAGE_ITEMS = 10;
 const BULK_BUG_DELETE_BATCH_SIZE = 20;
@@ -487,6 +493,7 @@ function IssueEditorSurface({
         closeDisabled={closeDisabled}
         onClose={onClose}
       >
+        {actions}
         {children}
       </ReportBugModal>
     );
@@ -498,7 +505,7 @@ function IssueEditorSurface({
       title={title}
     >
       <header className="issue-detail-header">
-        <WorkspaceBackButton label={backLabel} onClick={onClose} />
+        <WorkspaceBackButton disabled={closeDisabled} label={backLabel} onClick={onClose} />
         <span aria-hidden="true" className="issue-detail-header-icon">
           <BugIcon size={20} strokeWidth={1.8} />
         </span>
@@ -599,6 +606,8 @@ export function IssuesPage() {
   const qaRootCauseOptions = getDomainOptions(domainMetadataQuery.data, "issues.qa_root_causes", ISSUE_QA_ROOT_CAUSE_OPTIONS.map(value => ({ value, label: value })), [draft.qa_root_cause]);
   const bugTypeOptions = getDomainOptions(domainMetadataQuery.data, "issues.bug_types", ISSUE_BUG_TYPE_OPTIONS.map(value => ({ value, label: value })), [draft.bug_type]);
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const [isSavingIssue, setIsSavingIssue] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isPendingAttachmentDragActive, setIsPendingAttachmentDragActive] = useState(false);
   const pendingAttachmentInputRef = useRef<HTMLInputElement>(null);
   const [duplicateCandidates, setDuplicateCandidates] = useState<Issue[]>([]);
@@ -627,6 +636,11 @@ export function IssuesPage() {
     return () => window.clearTimeout(timeout);
   }, [deferredIssueSearch]);
   const [isAiBugDraftOpen, setIsAiBugDraftOpen] = useState(false);
+  const [aiBugMode, setAiBugMode] = useState<"create" | "improve">("create");
+  const aiImproveTarget = useRef<{ projectId: string; issueId: string; signature: string } | null>(null);
+  const [aiImproveFields, setAiImproveFields] = useState<string[]>(["title", "message", "steps_to_reproduce", "expected_result", "actual_result", "severity", "priority", "environment", "build", "labels"]);
+  const canUseAiBugImprove = (isCreating ? canCreateBugs : canManageBugs) && canViewTestCases && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.bug_triage"]);
+  const canUseCurrentAiDraft = aiBugMode === "improve" ? canUseAiBugImprove : canUseAiBugDraft;
   const aiBugRequestSequence = useRef(0);
   const aiBugProjectRef = useRef(projectId);
   aiBugProjectRef.current = projectId;
@@ -897,7 +911,8 @@ export function IssuesPage() {
     const lookup = new Map([...testCaseItems, ...resolved].map((item) => [item.id, item]));
     const requirementIds = uniqueIds.flatMap((id) => { const item = lookup.get(id); return item?.requirement_ids || (item?.requirement_id ? [item.requirement_id] : []); });
     setAiLinkedCaseIds(uniqueIds);
-    setAiLinkedRequirementIds((current) => [...new Set([...current, ...requirementIds])]);
+    if (aiBugMode === "create") setAiLinkedRequirementIds((current) => [...new Set([...current, ...requirementIds])]);
+    else setAiLinkedRequirementIds([]);
   };
   const requirementImpactOptions = useMemo<ImpactPickerOption[]>(
     () =>
@@ -1440,7 +1455,7 @@ export function IssuesPage() {
     ]);
   };
 
-  const previewAiBugDraft = useMutation({ mutationFn: api.issues.previewAiDraft });
+  const previewAiBugDraft = useMutation({ mutationFn: (input: Parameters<typeof api.issues.previewAiDraft>[0] & { issue_id?: string }) => aiBugMode === "improve" ? api.issues.previewAiImprove(input) : api.issues.previewAiDraft(input) });
 
   const openManualBugReport = () => {
     if (!canCreateBugs) return;
@@ -1458,6 +1473,8 @@ export function IssuesPage() {
   };
 
   const openAiBugReport = () => {
+    setAiBugMode("create");
+    aiImproveTarget.current = null;
     if (!canUseAiBugDraft || isAiBugContextBusy) return;
     const contextualTitle = String(searchParams.get("title") || "").trim();
     const contextualMessage = String(searchParams.get("message") || "").trim();
@@ -1506,6 +1523,18 @@ export function IssuesPage() {
       : null;
     setHasAppliedAiBugContextDefaults(false);
     setIsAiBugDraftOpen(true);
+  };
+
+  const openAiBugImprove = () => {
+    if (!canUseAiBugImprove || !draft.title.trim() || isAiBugContextBusy) return;
+    aiImproveTarget.current = { projectId, issueId: selectedIssueId, signature: JSON.stringify(draft) };
+    setAiBugMode("improve"); setAiDraftPreview(null); setAiDraftMessage("");
+    setAiImproveFields(["title", "message", "steps_to_reproduce", "expected_result", "actual_result", "severity", "priority", "environment", "build", "labels"]);
+    setAiIntent(`Improve this Defect: ${draft.title}`);
+    setAiEvidence(JSON.stringify({ title: draft.title, description: draft.message, steps_to_reproduce: draft.steps_to_reproduce, expected_result: draft.expected_result, actual_result: draft.actual_result, severity: draft.severity, priority: draft.priority, environment: draft.environment, build: draft.build, labels: draft.labelsText }));
+    setAiLinkedCaseIds(draft.linked_test_case_ids.slice()); setAiLinkedRunId(""); setAiLinkedRequirementIds([]);
+    setAiAdditionalContext(""); setAiExternalLinksText(""); setAiReferenceImages([]);
+    setHasAppliedAiBugContextDefaults(true); setIsAiBugEvidenceSetupOpen(false); setIsAiBugDraftEvidenceOpen(false); setIsAiBugDraftOpen(true);
   };
 
   const openSelectedBugTriage = () => {
@@ -1622,7 +1651,8 @@ export function IssuesPage() {
   };
 
   const handlePreviewAiBugDraft = async () => {
-    if (!canUseAiBugDraft || isAiBugContextBusy) return;
+    if (!canUseCurrentAiDraft || isAiBugContextBusy) return;
+    if (aiBugMode === "improve" && (!aiLinkedCaseIds.length || aiLinkedCaseIds.length > 10)) { setAiDraftMessage("Select one to ten Test Cases as context."); setAiDraftMessageTone("error"); return; }
     if (aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError) {
       setAiDraftMessageTone("error");
       setAiDraftMessage(aiCasePrefillQuery.isError
@@ -1643,6 +1673,7 @@ export function IssuesPage() {
     try {
       const response = await previewAiBugDraft.mutateAsync({
         project_id: projectId,
+        issue_id: aiBugMode === "improve" ? aiImproveTarget.current?.issueId || undefined : undefined,
         intent: aiIntent.trim(),
         evidence: aiEvidence.trim(),
         additional_context: aiAdditionalContext,
@@ -1671,6 +1702,19 @@ export function IssuesPage() {
       return;
     }
     const candidate = aiDraftPreview.draft;
+    if (aiBugMode === "improve") {
+      const target = aiImproveTarget.current;
+      if (!target || target.projectId !== projectId || target.issueId !== selectedIssueId || target.signature !== JSON.stringify(draft)) { setAiDraftMessage("The Defect changed. Close this proposal and generate again from the current form."); setAiDraftMessageTone("error"); return; }
+      const patch: Partial<IssueDraft> = {};
+      for (const field of aiImproveFields) {
+        if (field === "labels") patch.labelsText = candidate.labels.join(", ");
+        else if (["title", "message", "steps_to_reproduce", "expected_result", "actual_result", "severity", "priority", "environment", "build"].includes(field)) Object.assign(patch, { [field]: candidate[field as keyof typeof candidate] });
+      }
+      setDraft(current => ({ ...current, ...patch }));
+      setIsAiBugDraftOpen(false); setIsAiBugDraftEvidenceOpen(false); setIsAiBugEvidenceSetupOpen(false); setAiDraftPreview(null);
+      setMessageTone("success"); setMessage("Selected AI improvements applied to the form. Review and save the Defect.");
+      return;
+    }
     const humanEditedFieldCount = aiDraftPreview.client_review?.human_edited_fields.length || 0;
     const contextualCaseIds = parseQueryIdList(searchParams.get("linked_test_case_ids"), searchParams.get("testCase"));
     const isHierarchyScopedContext = !contextualCaseIds.length && Boolean(
@@ -1834,43 +1878,71 @@ export function IssuesPage() {
       return;
     }
 
-    if (isCreating || !selectedItem) {
-      const duplicateScope = items.filter((item) => {
-        const sameCase = draft.linked_test_case_ids.some((id) => (item.linked_test_case_ids || []).includes(id));
-        const sameModule = draft.linked_module_ids.some((id) => (item.linked_module_ids || []).includes(id));
-        return (sameCase || sameModule) && bugTitleSimilarity(item.title, draft.title) >= 0.6;
-      });
-      if (duplicateScope.length && !duplicateReviewAccepted) {
-        setDuplicateCandidates(duplicateScope);
-        setMessageTone("error");
-        setMessage(`${duplicateScope.length} possible duplicate Defect${duplicateScope.length === 1 ? "" : "s"} found in the selected Test Case or Module scope. Review them or continue creating.`);
+    if (isSavingIssue || isUploadingAttachments || createIssue.isPending || updateIssue.isPending) return;
+    if (!draft.title.trim()) { setMessageTone("error"); setMessage("Enter a Defect title."); return; }
+    setIsSavingIssue(true);
+    try {
+      if (isCreating || !selectedItem) {
+        const duplicateScope = items.filter((item) => {
+          const sameCase = draft.linked_test_case_ids.some((id) => (item.linked_test_case_ids || []).includes(id));
+          const sameModule = draft.linked_module_ids.some((id) => (item.linked_module_ids || []).includes(id));
+          return (sameCase || sameModule) && bugTitleSimilarity(item.title, draft.title) >= 0.6;
+        });
+        if (duplicateScope.length && !duplicateReviewAccepted) {
+          setDuplicateCandidates(duplicateScope);
+          setMessageTone("error");
+          setMessage(`${duplicateScope.length} possible duplicate Defect${duplicateScope.length === 1 ? "" : "s"} found. Review the matches before creating.`);
+          return;
+        }
+        const response = await createIssue.mutateAsync(buildIssuePayload({ ...draft, title: draft.title.trim() }, session.user.id, projectId, can));
+        // Creation is committed even if an independent file upload fails. Open
+        // the saved record before uploading so Retry never creates a duplicate.
+        syncIssueSearchParams(response.id);
+        setSelectedIssueId(response.id);
+        setIsCreating(false);
+        setDuplicateCandidates([]);
+        setDuplicateReviewAccepted(false);
+        if (pendingAttachments.length) {
+          const result = await uploadAttachmentBatch(pendingAttachments, (file) => api.attachments.upload({ project_id: projectId, entity_type: "issue", entity_id: response.id }, file));
+          setPendingAttachments(result.failed);
+          await queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", projectId, "issue"] });
+          if (result.failed.length) {
+            setMessageTone("error");
+            setMessage(`Defect created. ${result.failed.length} attachment${result.failed.length === 1 ? "" : "s"} could not upload. Retry the retained files below. ${result.firstError}`);
+          }
+        }
         return;
       }
-      const response = await createIssue.mutateAsync(buildIssuePayload(draft, session.user.id, projectId, can));
-      if (pendingAttachments.length) {
-        await Promise.all(pendingAttachments.map((file) => api.attachments.upload({ project_id: projectId, entity_type: "issue", entity_id: response.id }, file)));
-      }
-      syncIssueSearchParams(response.id);
-      setSelectedIssueId(response.id);
-      setIsCreating(false);
-      setPendingAttachments([]);
-      setDuplicateCandidates([]);
-      setDuplicateReviewAccepted(false);
-      return;
-    }
+      await updateIssue.mutateAsync({
+        id: selectedItem.id,
+        input: { ...buildIssuePayload({ ...draft, title: draft.title.trim() }, selectedItem.user_id, projectId, can), expected_revision: selectedItem.revision }
+      });
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "The Defect could not be saved. Your draft is still here.");
+    } finally { setIsSavingIssue(false); }
+  };
 
-    await updateIssue.mutateAsync({
-      id: selectedItem.id,
-      input: { ...buildIssuePayload(draft, selectedItem.user_id, projectId, can), expected_revision: selectedItem.revision }
-    });
+  const retryPendingAttachments = async () => {
+    if (!selectedItem || !canCreateAttachments || isUploadingAttachments || isSavingIssue) return;
+    setIsUploadingAttachments(true);
+    try {
+      const result = await uploadAttachmentBatch(pendingAttachments, (file) => api.attachments.upload({ project_id: projectId, entity_type: "issue", entity_id: selectedItem.id }, file));
+      setPendingAttachments(result.failed);
+      await queryClient.invalidateQueries({ queryKey: ["hellotest-attachments", projectId, "issue"] });
+      setMessageTone(result.failed.length ? "error" : "success");
+      setMessage(result.failed.length ? `${result.failed.length} attachment${result.failed.length === 1 ? "" : "s"} still need retry. ${result.firstError}` : "Attachments uploaded.");
+    } finally { setIsUploadingAttachments(false); }
   };
 
   const closeIssueWorkspace = () => {
+    if (isSavingIssue || isUploadingAttachments || createIssue.isPending || updateIssue.isPending) return;
     if (isCreating) setMessage("");
     closedIssueIdRef.current = selectedIssueId;
     setSelectedIssueId("");
     setIsCreating(false);
     setDraft(emptyDraft);
+    setPendingAttachments([]);
     if (bugReturnTo) {
       navigate(bugReturnTo);
       return;
@@ -1886,7 +1958,7 @@ export function IssuesPage() {
     if (bugReturnTo && !isCreating && !selectedIssueId) navigate(bugReturnTo);
   };
   const aiBugDialogRef = useDialogFocus<HTMLDivElement>({
-    active: isAiBugDraftOpen && canUseAiBugDraft,
+    active: isAiBugDraftOpen && canUseCurrentAiDraft,
     closeDisabled: previewAiBugDraft.isPending,
     onClose: closeAiBugReport
   });
@@ -1943,7 +2015,7 @@ export function IssuesPage() {
         onClose={() => setIsAiBugTriageOpen(false)}
         onOpenIssue={id => { setIsAiBugTriageOpen(false); openIssueWorkspace(id); }}
       /> : null}
-      {isAiBugDraftOpen && canUseAiBugDraft ? (
+      {isAiBugDraftOpen && canUseCurrentAiDraft ? createPortal(
         <div className="modal-backdrop story-ai-workbench-backdrop" onClick={() => !previewAiBugDraft.isPending && closeAiBugReport()} role="presentation">
           <div
             aria-labelledby="ai-bug-draft-title"
@@ -1955,12 +2027,15 @@ export function IssuesPage() {
             tabIndex={-1}
           >
             <StoryAiStudioShell
-              mode="create"
+              mode={aiBugMode}
               entityLabel="Defect"
-              studioTitle="Report Defect using AI"
+              studioTitle={aiBugMode === "improve" ? "AI Defect Improve" : "Report Defect using AI"}
               titleId="ai-bug-draft-title"
               descriptionId="ai-bug-draft-description"
               studioDescription="Describe the failure, add supporting context, and review a Defect proposal before accepting it into the form."
+              mission={aiIntent}
+              onMissionChange={value => { setAiIntent(value); invalidateAiBugDraft(); }}
+              missionPlaceholder="What failed, what should happen, and who is affected?"
               showIncludeGherkin={false}
               showOutputFormat={false}
               processProfile="bug-create"
@@ -1974,7 +2049,7 @@ export function IssuesPage() {
               outputLabel="Editable Defect draft with reproduction evidence"
               approvalLabel="Accept into form, then review before create"
               primaryGenerateLabel={previewAiBugDraft.isPending ? "Generating draft…" : aiDraftMessageTone === "error" && aiDraftMessage ? "Retry draft generation" : aiDraftPreview ? "Regenerate draft" : "Generate draft"}
-              primaryGenerateDisabled={!canUseAiBugDraft || !projectId || !aiIntent.trim() || previewAiBugDraft.isPending || isAiBugContextBusy || aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
+              primaryGenerateDisabled={!canUseCurrentAiDraft || (aiBugMode === "improve" && (!aiLinkedCaseIds.length || aiLinkedCaseIds.length > 10)) || !projectId || !aiIntent.trim() || previewAiBugDraft.isPending || isAiBugContextBusy || aiCasePrefillQuery.isFetching || aiCasePrefillQuery.isError || Boolean(can("integration.view") && aiBugIntegrationId && !aiBugIntegrations.some(item => item.id === aiBugIntegrationId))}
               onPrimaryGenerate={() => void handlePreviewAiBugDraft()}
               onClose={closeAiBugReport}
               closeDisabled={previewAiBugDraft.isPending}
@@ -1989,11 +2064,10 @@ export function IssuesPage() {
                   }}
               settingsPane={<div className="story-studio-settings-content">
                 <StoryAiSettingsGroup title="Defect Intent" description="Observed failure and expected behavior">
-                  <FormField label="What failed?" required><textarea disabled={previewAiBugDraft.isPending} onChange={event => { setAiIntent(event.target.value); invalidateAiBugDraft(); }} placeholder="Describe what failed, where it failed, the expected behavior, and why the impact matters." rows={4} value={aiIntent} /></FormField>
-                  <p className="defect-studio-context-note"><strong>{hasInheritedAiBugContext ? "Auto-selected context" : "Context"}</strong> · {aiBugContextSource}</p>
+                  <p className="defect-studio-context-note"><strong>{hasInheritedAiBugContext ? "Auto-selected context" : "Context"}</strong> · {aiBugMode === "improve" ? "Select one to ten Test Cases" : aiBugContextSource}</p>
                   <AiEvidenceButton count={aiBugEvidenceSourceCount} label="Review evidence setup" onClick={() => setIsAiBugEvidenceSetupOpen(true)} />
                 </StoryAiSettingsGroup>
-                <StoryAiSettingsGroup title="Generation Context" description="Supporting evidence">
+                {aiBugMode === "create" ? <StoryAiSettingsGroup title="Generation Context" description="Supporting evidence">
                     <AiPromptContextPanel
                       additionalContext={aiAdditionalContext}
                       disabled={previewAiBugDraft.isPending}
@@ -2018,7 +2092,7 @@ export function IssuesPage() {
                       referenceImages={aiReferenceImages}
                       requirements={requirementItems.filter((requirement) => aiLinkedRequirementIds.includes(requirement.id))}
                     />
-                </StoryAiSettingsGroup>
+                </StoryAiSettingsGroup> : null}
                 <StoryAiSettingsGroup title="Intelligence Engine" description="Provider for this draft">
                   <AiLlmSelect scopeKey={projectId} defaultIntegrationId={aiBugDefaultIntegrationId} disabled={previewAiBugDraft.isPending} integrations={aiBugIntegrations} value={aiBugIntegrationId} onChange={value => { setAiBugIntegrationId(value); invalidateAiBugDraft(); }} />
                 </StoryAiSettingsGroup>
@@ -2037,6 +2111,7 @@ export function IssuesPage() {
                         <AiEvidenceButton count={aiDraftPreview.evidence_sources.length} label="View evidence" onClick={() => setIsAiBugDraftEvidenceOpen(true)} />
                       </div>
                     </div>
+                    {aiBugMode === "improve" ? <fieldset className="ai-defect-field-review"><legend>Apply selected fields</legend>{["title", "message", "steps_to_reproduce", "expected_result", "actual_result", "severity", "priority", "environment", "build", "labels"].map(field => <label key={field}><input type="checkbox" checked={aiImproveFields.includes(field)} onChange={event => setAiImproveFields(current => event.target.checked ? [...current,field] : current.filter(value => value !== field))}/>{formatDefectFieldLabel(field, field === "message" ? "Description" : field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, " "))}</label>)}</fieldset> : null}
                     {aiDraftPreview.provenance.fallback_used ? (
                       <p className="inline-message warning-message" role="status">
                         {aiDraftPreview.provenance.generation_mode === "hybrid" ? "Some proposal fields used evidence-bound deterministic values." : "HelloTest used the evidence-bound deterministic drafting path."} {aiDraftPreview.provenance.fallback_reason || "Review every field before accepting it."}
@@ -2192,7 +2267,7 @@ export function IssuesPage() {
               </DefectAiDraftWorkspace>}
               commandBar={<>
                 {aiDraftPreview ? <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={() => { setIsAiBugDraftEvidenceOpen(false); setAiDraftPreview(null); }} type="button">Discard draft</button> : <button className="ghost-button" disabled={previewAiBugDraft.isPending} onClick={closeAiBugReport} type="button">Cancel</button>}
-                {aiDraftPreview ? <button className="story-studio-accept-button" disabled={previewAiBugDraft.isPending || !aiDraftPreview.draft.title.trim()} onClick={applyAiBugDraft} type="button">Accept into Defect form</button> : null}
+                {aiDraftPreview ? <button className="story-studio-accept-button" disabled={previewAiBugDraft.isPending || !aiDraftPreview.draft.title.trim() || (aiBugMode === "improve" && !aiImproveFields.length)} onClick={applyAiBugDraft} type="button">{aiBugMode === "improve" ? "Apply selected fields" : "Accept into Defect form"}</button> : null}
               </>}
             />
                 <AiEvidenceFlyout
@@ -2224,7 +2299,7 @@ export function IssuesPage() {
                       />
                     </FormField>
                     <div className="issue-form-grid issue-form-grid--triple ai-bug-scope-grid">
-                      <FormField label="Impacted Test Run">
+                      {aiBugMode === "create" ? <FormField label="Impacted Test Run">
                         <select
                           disabled={previewAiBugDraft.isPending || !canViewRuns}
                           onChange={(event) => {
@@ -2238,7 +2313,7 @@ export function IssuesPage() {
                             <option key={execution.id} value={execution.id}>{runLabelById.get(execution.id) || execution.id}</option>
                           ))}
                         </select>
-                      </FormField>
+                      </FormField> : null}
                       <TestCasePicker
                         projectId={projectId}
                         disabled={previewAiBugDraft.isPending || !canViewTestCases}
@@ -2252,7 +2327,7 @@ export function IssuesPage() {
                         }}
                         selectedIds={aiLinkedCaseIds}
                       />
-                      <ImpactCheckboxPicker
+                      {aiBugMode === "create" ? <ImpactCheckboxPicker
                         disabled={previewAiBugDraft.isPending || !canViewStories}
                         emptyText="No stories are available for this project."
                         items={requirementImpactOptions}
@@ -2263,14 +2338,14 @@ export function IssuesPage() {
                         }}
                         placeholder="Search stories..."
                         selectedIds={aiLinkedRequirementIds}
-                      />
+                      /> : null}
                     </div>
                   </div>
                 </AiEvidenceFlyout>
 
           </div>
         </div>
-      ) : null}
+      , document.body) : null}
       <PageHeader
         className={isCreating || selectedItem ? "page-header--workspace-context" : ""}
         eyebrow="Defect Management"
@@ -2387,7 +2462,7 @@ export function IssuesPage() {
                     type="button"
                   >
                     <SparkIcon />
-                    <span>AI triage</span>
+                    <span>AI Defect Triage</span>
                   </button>
                 ) : null}
                 {canManageBugs ? (
@@ -2584,9 +2659,13 @@ export function IssuesPage() {
         )}
         detailView={(
           <IssueEditorSurface
-            actions={!isCreating && selectedItem && canCreateTestCases ? (
+            actions={(
+              <div className="defect-ai-form-actions">
+                  {canUseAiBugImprove ? <button className="ghost-button" disabled={!draft.title.trim() || isAiBugContextBusy || isSavingIssue} onClick={openAiBugImprove} type="button"><SparkIcon/>AI Defect Improve</button> : null}
+                  {!isCreating && selectedItem && canUseAiBugTriage ? <button className="ghost-button" onClick={() => { setTriageIssues([selectedItem]); setIsAiBugTriageOpen(true); }} type="button"><SparkIcon/>AI Defect Triage</button> : null}
+                {!isCreating && selectedItem && canCreateTestCases ? (
               <button
-                className="issue-detail-convert-button"
+                className="ghost-button issue-detail-convert-button"
                 onClick={() => {
                   sessionStorage.setItem(
                     BUG_TO_TEST_CASE_STORAGE_KEY,
@@ -2599,12 +2678,14 @@ export function IssuesPage() {
                 <TestCaseIcon size={15} />
                 <span>Convert to Test Case</span>
               </button>
-            ) : null}
+                ) : null}
+              </div>
+            )}
             backLabel={bugReturnTo ? `Back to ${bugReturnLabel}` : "Back to defect tiles"}
-            closeDisabled={createIssue.isPending}
+            closeDisabled={isSavingIssue || isUploadingAttachments || createIssue.isPending || updateIssue.isPending}
             isCreating={isCreating}
             onClose={closeIssueWorkspace}
-            subtitle="Capture the Defect in a HelloTest-ready structure with run context, reproduction evidence, ownership, and root cause."
+            subtitle="Describe the failure, capture evidence and connect the affected work."
             title={isCreating ? "Report defect" : selectedItem ? "Defect details" : "Defect editor"}
           >
             {!isCreating && selectedIssueId && selectedIssueQuery.isLoading ? <LoadingState label="Loading defect details" /> : null}
@@ -2615,11 +2696,16 @@ export function IssuesPage() {
             {(isCreating || (selectedItem && (!selectedIssueQuery.isLoading || selectedIssueQuery.isError))) ? (
               <form
                 className={isCreating ? "issue-report-form report-defect-modal-form" : "issue-report-form issue-detail-form"}
+                onInvalidCapture={(event) => {
+                  let panel = (event.target as HTMLElement).closest("details");
+                  while (panel) { panel.open = true; panel = panel.parentElement?.closest("details") || null; }
+                }}
                 onSubmit={(event) => void handleSave(event)}
               >
                 <div className={isCreating ? "report-bug-modal-body" : "issue-report-fields issue-detail-body"}>
-                {isCreating && message ? (
-                  <p className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p>
+                <fieldset disabled={isSavingIssue || isUploadingAttachments || createIssue.isPending || updateIssue.isPending} className="issue-authoring-fields">
+                {message ? (
+                  <p role={messageTone === "error" ? "alert" : "status"} className={messageTone === "error" ? "inline-message error-message" : "inline-message success-message"}>{message}</p>
                 ) : null}
                 {!isCreating && selectedItem ? (
                   <div className="requirement-detail-id-row">
@@ -2667,7 +2753,7 @@ export function IssuesPage() {
                   <div className="issue-form-grid">
                     <FormField className="bug-field-title" label="Defect Title" required>
                       <input
-                        disabled={!canEditBugFields}
+                        disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
                         data-autofocus={isCreating ? "true" : undefined}
                         placeholder="Brief summary of the defect"
                         required
@@ -2678,47 +2764,111 @@ export function IssuesPage() {
                   </div>
 
                   <div className="issue-form-compact-grid issue-form-classification-grid">
-                    <FormField className="form-field--compact-enum bug-field-status" label="Status">
-                      <select disabled={!canEditBugFields} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                    <FormField className="form-field--compact-enum bug-field-status authoring-property-field" label="Status">
+                      <ContextSelect label="Status" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
                         {activeBugStatusOptions.map((option) => (
                           <option key={option.value} value={option.value}>{jiraStatusOptionLabel(option)}</option>
                         ))}
-                      </select>
+                      </ContextSelect>
                     </FormField>
-                    <FormField className="form-field--compact-enum bug-field-severity" label="Severity">
-                      <select disabled={!canEditBugFields} value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value }))}>
+                    <FormField className="form-field--compact-enum bug-field-severity authoring-property-field" label="Severity">
+                      <ContextSelect label="Severity" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.severity} onChange={(event) => setDraft((current) => ({ ...current, severity: event.target.value }))}>
                         {ISSUE_SEVERITY_OPTIONS.map((option) => (
                           <option key={option.value || "none"} value={option.value}>{option.label}</option>
                         ))}
-                      </select>
+                      </ContextSelect>
                     </FormField>
-                    <FormField className="form-field--compact-enum bug-field-priority" label="Priority" required={jiraBugCoreRequired.priority}>
-                      <select disabled={!canEditBugFields} required={jiraBugCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}>
+                    <FormField className="form-field--compact-enum bug-field-priority authoring-property-field" label="Priority" required={jiraBugCoreRequired.priority}>
+                      <ContextSelect label="Priority" disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} required={jiraBugCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}>
                         {ISSUE_PRIORITY_OPTIONS.map((option) => (
                           <option key={option.value || "none"} value={option.value}>{option.label}</option>
                         ))}
-                      </select>
+                      </ContextSelect>
                     </FormField>
-                    <FormField className="bug-field-assignee" label="Assignee" required={jiraBugCoreRequired.assignee}>
-                      <select disabled={!canEditBugFields || !canViewProjectMembers} required={jiraBugCoreRequired.assignee} value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
+                    <FormField className="bug-field-assignee authoring-property-field" label="Assignee" required={jiraBugCoreRequired.assignee}>
+                      <ContextSelect label="Assignee" disabled={!canEditBugFields || !canViewProjectMembers} required={jiraBugCoreRequired.assignee} value={draft.assignee_id} onChange={(event) => setDraft((current) => ({ ...current, assignee_id: event.target.value }))}>
                         <option value="">Unassigned</option>
                         {draft.assignee_id && !userItems.some(user => user.id === draft.assignee_id) && <option value={draft.assignee_id}>{selectedItem?.assignee_name || selectedItem?.assignee_email || draft.assignee_id}</option>}
                         {userItems.map((user) => (
                           <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>
                         ))}
-                      </select>
+                      </ContextSelect>
                     </FormField>
                   </div>
 
+                </section>
+
+                <AuthoringContextMenu disabled={isSavingIssue || isUploadingAttachments || !canEditBugFields} sections={[
+                  { id: "defect-reproduction", label: "Reproduction & results", icon: <IconChecklist size={16} /> },
+                  { id: "defect-environment", label: "Environment & run", icon: <IconWorld size={16} /> },
+                  { id: "defect-classification", label: "Delivery & classification", icon: <IconSettings size={16} /> },
+                  { id: "defect-impact", label: "Affected work", icon: <IconLink size={16} /> },
+                  { id: "defect-root-cause", label: "Root cause", icon: <IconTarget size={16} /> },
+                  ...(canCreateAttachments ? [{ id: "defect-attachments", label: "Attach evidence", icon: <IconPaperclip size={16} /> }] : [])
+                ]} />
+                <section className="issue-form-section issue-form-section--evidence">
+                  <div className="issue-form-section-head">
+                    <strong>Failure evidence</strong>
+
+                  </div>
+                  <FormField label="Description" required>
+                    <RichTextEditor
+                      disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
+                      appearance="canonical"
+                      required
+                      rows={6}
+                      value={draft.message}
+                      onChange={(message) => setDraft((current) => ({ ...current, message }))}
+                    />
+                  </FormField>
+                  <details id="defect-reproduction" className="authoring-disclosure defect-reproduction-disclosure" open={Boolean(draft.steps_to_reproduce || draft.expected_result || draft.actual_result)}>
+                    <summary><span>Reproduction & results</span><small>{[draft.steps_to_reproduce, draft.expected_result, draft.actual_result].filter(Boolean).length}/3</small></summary>
+                    <div className="authoring-disclosure-body">
+                  <FormField label="Steps to Reproduce">
+                    <RichTextEditor
+                      disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
+                      appearance="canonical"
+                      rows={6}
+                      value={draft.steps_to_reproduce}
+                      onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
+                    />
+                  </FormField>
+                  <div className="issue-form-grid issue-form-evidence-result-grid">
+                    <FormField label="Expected Result">
+                      <RichTextEditor
+                        disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
+                        appearance="canonical"
+                        rows={5}
+                        value={draft.expected_result}
+                        onChange={(expected_result) => setDraft((current) => ({ ...current, expected_result }))}
+                      />
+                    </FormField>
+                    <FormField label="Actual Result">
+                      <RichTextEditor
+                        disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
+                        appearance="canonical"
+                        rows={5}
+                        value={draft.actual_result}
+                        onChange={(actual_result) => setDraft((current) => ({ ...current, actual_result }))}
+                      />
+                    </FormField>
+                  </div>
+                    </div>
+                  </details>
+                </section>
+
+                <details id="defect-environment" className="issue-form-section authoring-disclosure" open={Boolean(draft.environment || draft.build || draft.linked_test_run_id)}>
+                  <summary><span>Environment & run</span><small>{draft.environment || draft.build || (draft.linked_test_run_id ? "Run linked" : "Optional")}</small></summary>
+                  <div className="authoring-disclosure-body">
                   <div className="issue-form-compact-grid issue-form-context-grid">
                     <FormField className="bug-field-environment" label="Environment">
-                      <select disabled={!canEditBugFields} value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))}>
+                      <select disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.environment} onChange={(event) => setDraft((current) => ({ ...current, environment: event.target.value }))}>
                         <option value="">No environment</option>
                         {environmentOptions.map((environment) => <option key={environment} value={environment}>{environment}</option>)}
                       </select>
                     </FormField>
                     <FormField className="bug-field-build" label="Build">
-                      <input disabled={!canEditBugFields} placeholder="2026.07.02" value={draft.build} onChange={(event) => setDraft((current) => ({ ...current, build: event.target.value }))} />
+                      <input disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} placeholder="2026.07.02" value={draft.build} onChange={(event) => setDraft((current) => ({ ...current, build: event.target.value }))} />
                     </FormField>
                     <FormField className="bug-field-linked-run" label="Linked Test Run">
                       <select disabled={!canEditBugFields || !canViewRuns} value={draft.linked_test_run_id} onChange={(event) => setDraft((current) => ({ ...current, linked_test_run_id: event.target.value }))}>
@@ -2732,13 +2882,62 @@ export function IssuesPage() {
                       </select>
                     </FormField>
                   </div>
-                </section>
-
-                <section className="issue-form-section issue-form-section--impact">
-                  <div className="issue-form-section-head">
-                    <strong>Impact Analysis</strong>
-                    <small className="bug-impact-auto-link-note">Selecting an impacted Test Case automatically includes its associated Modules and Stories.</small>
                   </div>
+                </details>
+
+                <details id="defect-classification" className="issue-form-section issue-form-section--classification authoring-disclosure" open={jiraBugCoreRequired.labels || jiraBugCoreRequired.sprint || jiraBugCoreRequired.release || !draft.user_id}>
+                  <summary><span>Delivery & classification</span><small>{draft.release || draft.sprint || "Optional"}</small></summary>
+                  <div className="authoring-disclosure-body">
+                  <div className="issue-form-grid issue-form-grid--triple">
+                    <FormField label="Defect Type">
+                      <select disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.bug_type} onChange={(event) => setDraft((current) => ({ ...current, bug_type: event.target.value }))}>
+                        <option value="">Not set</option>
+                        {bugTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
+                      </select>
+                    </FormField>
+                    <label className="checkbox-field bug-regression-field">
+                      <input disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} checked={draft.regression} onChange={(event) => setDraft((current) => ({ ...current, regression: event.target.checked }))} type="checkbox" />
+                      <span>Regression</span>
+                    </label>
+                    <LabelsField
+                      disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
+                      options={issueLabelOptions}
+                      placeholder="Select or add label"
+                      required={jiraBugCoreRequired.labels}
+                      value={draft.labelsText}
+                      onChange={(labelsText) => setDraft((current) => ({ ...current, labelsText }))}
+                    />
+                    <FormField label="Sprint" required={jiraBugCoreRequired.sprint}>
+                      <select disabled={!canEditBugFields || !canViewDeliveryScopes} required={jiraBugCoreRequired.sprint} value={draft.sprint} onChange={(event) => setDraft((current) => ({ ...current, sprint: event.target.value }))}>
+                        <option value="">No sprint</option>
+                        {sprintOptions.map((option) => (
+                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Release / Fix version" required={jiraBugCoreRequired.release}>
+                      <select disabled={!canEditBugFields || !canViewDeliveryScopes} required={jiraBugCoreRequired.release} value={draft.release} onChange={(event) => setDraft((current) => ({ ...current, release: event.target.value }))}>
+                        <option value="">No release</option>
+                        {releaseOptions.map((option) => (
+                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField label="Reported by" required>
+                      <select aria-label="Reported by" disabled={!canEditBugFields || !canViewProjectMembers} required value={draft.user_id} onChange={(event) => setDraft((current) => ({ ...current, user_id: event.target.value }))}>
+                        <option value="" disabled>Select a user</option>
+                        {draft.user_id && !userItems.some(user => user.id === draft.user_id) && <option value={draft.user_id}>{selectedItem?.user_name || selectedItem?.user_email || draft.user_id}</option>}
+                        {userItems.map(user => <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>)}
+                      </select>
+                    </FormField>
+                  </div>
+                  </div>
+                </details>
+
+                <details id="defect-impact" className="issue-form-section issue-form-section--impact authoring-disclosure" open={!isCreating || Boolean(draft.linked_test_case_ids.length || draft.linked_requirement_ids.length || draft.linked_module_ids.length || draft.linked_test_suite_ids.length)}>
+                  <summary><span>Connect affected work</span><small>{draft.linked_test_case_ids.length ? `${draft.linked_test_case_ids.length} linked test cases` : "Suites, modules, test cases and Stories"}</small></summary>
+                  <div className="authoring-disclosure-body">
+                    <small className="bug-impact-auto-link-note">Test cases also link their Modules and Stories.</small>
                   <div className="issue-form-grid issue-form-impact-grid">
                     <ImpactCheckboxPicker
                       disabled={!canEditBugFields || !canViewSuites}
@@ -2778,56 +2977,8 @@ export function IssuesPage() {
                       selectedIds={draft.linked_requirement_ids}
                     />
                   </div>
-                </section>
-
-                <section className="issue-form-section issue-form-section--classification">
-                  <div className="issue-form-section-head">
-                    <strong>Classification</strong>
                   </div>
-                  <div className="issue-form-grid issue-form-grid--triple">
-                    <FormField label="Defect Type">
-                      <select disabled={!canEditBugFields} value={draft.bug_type} onChange={(event) => setDraft((current) => ({ ...current, bug_type: event.target.value }))}>
-                        <option value="">Not set</option>
-                        {bugTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
-                      </select>
-                    </FormField>
-                    <label className="checkbox-field bug-regression-field">
-                      <input disabled={!canEditBugFields} checked={draft.regression} onChange={(event) => setDraft((current) => ({ ...current, regression: event.target.checked }))} type="checkbox" />
-                      <span>Regression</span>
-                    </label>
-                    <LabelsField
-                      disabled={!canEditBugFields}
-                      options={issueLabelOptions}
-                      placeholder="Select or add label"
-                      required={jiraBugCoreRequired.labels}
-                      value={draft.labelsText}
-                      onChange={(labelsText) => setDraft((current) => ({ ...current, labelsText }))}
-                    />
-                    <FormField label="Sprint" required={jiraBugCoreRequired.sprint}>
-                      <select disabled={!canEditBugFields || !canViewDeliveryScopes} required={jiraBugCoreRequired.sprint} value={draft.sprint} onChange={(event) => setDraft((current) => ({ ...current, sprint: event.target.value }))}>
-                        <option value="">No sprint</option>
-                        {sprintOptions.map((option) => (
-                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </FormField>
-                    <FormField label="Release / Fix version" required={jiraBugCoreRequired.release}>
-                      <select disabled={!canEditBugFields || !canViewDeliveryScopes} required={jiraBugCoreRequired.release} value={draft.release} onChange={(event) => setDraft((current) => ({ ...current, release: event.target.value }))}>
-                        <option value="">No release</option>
-                        {releaseOptions.map((option) => (
-                          <option key={`${option.source}:${option.sourceId || option.value}`} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </FormField>
-                    <FormField label="Reported by" required>
-                      <select aria-label="Reported by" disabled={!canEditBugFields || !canViewProjectMembers} required value={draft.user_id} onChange={(event) => setDraft((current) => ({ ...current, user_id: event.target.value }))}>
-                        <option value="" disabled>Select a user</option>
-                        {draft.user_id && !userItems.some(user => user.id === draft.user_id) && <option value={draft.user_id}>{selectedItem?.user_name || selectedItem?.user_email || draft.user_id}</option>}
-                        {userItems.map(user => <option key={user.id} value={user.id}>{user.name || user.email || user.id}</option>)}
-                      </select>
-                    </FormField>
-                  </div>
-                </section>
+                </details>
 
                 {(isCreating ? bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError : bugEditMetadataQuery.isLoading || bugEditMetadataQuery.isError) || requiredJiraBugFields.length ? (
                   <section className="issue-form-section issue-form-section--required-fields">
@@ -2843,7 +2994,7 @@ export function IssuesPage() {
                       <p className="inline-message error-message">HelloTest could not verify this Defect {isCreating ? "create" : "edit"} form. Refresh or ask a workspace administrator to check field-metadata access.</p>
                     ) : (
                       <JiraRequiredFields
-                        disabled={!canEditBugFields}
+                        disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments}
                         fields={requiredJiraBugFields}
                         issueTypeName="Defect"
                         mode={isCreating ? "create" : "edit"}
@@ -2855,77 +3006,32 @@ export function IssuesPage() {
                   </section>
                 ) : null}
 
-                <section className="issue-form-section issue-form-section--evidence">
-                  <div className="issue-form-section-head">
-                    <strong>Failure evidence</strong>
-                    <span>Description, reproduction steps, expected result, and actual result.</span>
-                  </div>
-                  <FormField label="Description" required>
-                    <RichTextEditor
-                      disabled={!canEditBugFields}
-                      appearance="canonical"
-                      required
-                      rows={6}
-                      value={draft.message}
-                      onChange={(message) => setDraft((current) => ({ ...current, message }))}
-                    />
-                  </FormField>
-                  <FormField label="Steps to Reproduce">
-                    <RichTextEditor
-                      disabled={!canEditBugFields}
-                      appearance="canonical"
-                      rows={6}
-                      value={draft.steps_to_reproduce}
-                      onChange={(steps_to_reproduce) => setDraft((current) => ({ ...current, steps_to_reproduce }))}
-                    />
-                  </FormField>
-                  <div className="issue-form-grid issue-form-evidence-result-grid">
-                    <FormField label="Expected Result">
-                      <RichTextEditor
-                        disabled={!canEditBugFields}
-                        appearance="canonical"
-                        rows={5}
-                        value={draft.expected_result}
-                        onChange={(expected_result) => setDraft((current) => ({ ...current, expected_result }))}
-                      />
-                    </FormField>
-                    <FormField label="Actual Result">
-                      <RichTextEditor
-                        disabled={!canEditBugFields}
-                        appearance="canonical"
-                        rows={5}
-                        value={draft.actual_result}
-                        onChange={(actual_result) => setDraft((current) => ({ ...current, actual_result }))}
-                      />
-                    </FormField>
-                  </div>
-                </section>
-
-                <section className="issue-form-section issue-form-section--root-cause">
-                  <div className="issue-root-cause-grid">
+                <details id="defect-root-cause" className="issue-form-section issue-form-section--root-cause authoring-disclosure" open={Boolean(draft.root_cause || draft.qa_root_cause)}>
+                  <summary><span>Root cause analysis</span><small>{draft.root_cause || "Add findings when investigation is complete"}</small></summary>
+                  <div className="authoring-disclosure-body issue-root-cause-grid">
                     <FormField label="Primary Root Cause">
-                      <select disabled={!canEditBugFields} value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
+                      <select disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.root_cause} onChange={(event) => setDraft((current) => ({ ...current, root_cause: event.target.value }))}>
                         <option value="">Not determined</option>
                         {rootCauseOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
                       </select>
                     </FormField>
                     <FormField label="QA Root Cause">
-                      <select disabled={!canEditBugFields} value={draft.qa_root_cause} onChange={(event) => setDraft((current) => ({ ...current, qa_root_cause: event.target.value }))}>
+                      <select disabled={!canEditBugFields || isSavingIssue || isUploadingAttachments} value={draft.qa_root_cause} onChange={(event) => setDraft((current) => ({ ...current, qa_root_cause: event.target.value }))}>
                         <option value="">Not determined</option>
                         {qaRootCauseOptions.map(option => <option key={option.value} value={option.value}>{option.label}{option.current ? " · current" : ""}</option>)}
                       </select>
                     </FormField>
                   </div>
-                </section>
-                {isCreating && canCreateAttachments ? (
-                  <section className="jira-attachment-panel" aria-label="Attachments for new Defect">
-                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{pendingAttachments.length} ready to upload when this Defect is created</span></div></div>
+                </details>
+                {(isCreating || pendingAttachments.length > 0) && canCreateAttachments ? (
+                  <section id="defect-attachments" className="jira-attachment-panel" aria-label={isCreating ? "Attachments for new Defect" : "Retry failed Defect attachments"}>
+                    <div className="jira-attachment-head"><div><strong>Attachments</strong><span>{isCreating ? `${pendingAttachments.length} ready to upload after creation` : `${pendingAttachments.length} files retained for retry`}</span></div></div>
                     <div
                       className={isPendingAttachmentDragActive ? "jira-attachment-dropzone is-dragging" : "jira-attachment-dropzone"}
-                      onDragEnter={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(true); }}
+                      onDragEnter={(event) => { event.preventDefault(); if (!isSavingIssue && !isUploadingAttachments) setIsPendingAttachmentDragActive(true); }}
                       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsPendingAttachmentDragActive(false); }}
                       onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(false); setPendingAttachments((current) => [...current, ...Array.from(event.dataTransfer.files)].slice(0, 10)); }}
+                      onDrop={(event) => { event.preventDefault(); setIsPendingAttachmentDragActive(false); if (isSavingIssue || isUploadingAttachments) return; setPendingAttachments((current) => [...current, ...Array.from(event.dataTransfer.files)].slice(0, 10)); }}
                     >
                       <input hidden multiple onChange={(event) => setPendingAttachments((current) => [...current, ...Array.from(event.target.files || [])].slice(0, 10))} ref={pendingAttachmentInputRef} type="file" />
                       <JiraAttachmentIcon />
@@ -2941,10 +3047,12 @@ export function IssuesPage() {
                         </article>
                       ))}
                     </div>
-                    {!pendingAttachments.length ? <div className="empty-state compact">No attachments yet.</div> : null}
+                    {!pendingAttachments.length ? <div className="empty-state compact">Drop a screenshot or log to add evidence.</div> : null}
+                    {!isCreating && pendingAttachments.length ? <button className="primary-button" disabled={isUploadingAttachments || isSavingIssue} onClick={() => void retryPendingAttachments()} type="button">{isUploadingAttachments ? "Uploading…" : "Retry file uploads"}</button> : null}
                   </section>
                 ) : null}
                 {!isCreating && selectedItem ? (
+                  <div id={pendingAttachments.length ? undefined : "defect-attachments"}>
                   <JiraAttachmentPanel
                     canDelete={canDeleteAttachments}
                     canUpload={canCreateAttachments}
@@ -2954,6 +3062,7 @@ export function IssuesPage() {
                     issueKey={selectedItem.jira_bug_key || selectedItem.id}
                     projectId={projectId}
                   />
+                  </div>
                 ) : null}
                 {!isCreating && selectedItem ? (
                   <IssueActivityPanel canComment={canCommentOnBugs} issueId={selectedItem.id} issueKey={selectedItem.display_id || selectedItem.id} key={selectedItem.id} projectId={projectId} />
@@ -2967,20 +3076,21 @@ export function IssuesPage() {
                     </div>
                   </section>
                 ) : null}
+                </fieldset>
                 </div>
                 {isCreating ? (
                   <footer className="report-bug-modal-footer">
                     <button
-                      className="report-bug-modal-cancel-button"
-                      disabled={createIssue.isPending}
+                      className="report-bug-modal-cancel-button ghost-button"
+                      disabled={isSavingIssue || isUploadingAttachments || createIssue.isPending}
                       onClick={closeIssueWorkspace}
                       type="button"
                     >
                       Cancel
                     </button>
                     {canCreateBugs ? (<button
-                      className="report-bug-modal-save-button"
-                      disabled={!canCreateBugs || createIssue.isPending || bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError}
+                      className="report-bug-modal-save-button primary-button"
+                      disabled={!draft.title.trim() || !canCreateBugs || isSavingIssue || createIssue.isPending || bugCreateMetadataQuery.isLoading || bugCreateMetadataQuery.isError}
                       type="submit"
                     >
                       <BugIcon />
@@ -3002,8 +3112,8 @@ export function IssuesPage() {
                     <div className="issue-detail-footer-actions">
                       {selectedItem && canManageBugs ? (
                         <button
-                          className="issue-detail-delete-button"
-                          disabled={deleteIssue.isPending}
+                          className="issue-detail-delete-button ghost-button danger"
+                          disabled={isSavingIssue || isUploadingAttachments || deleteIssue.isPending}
                           onClick={async () => {
                             if (await confirmDelete({ message: `Delete Defect "${selectedItem.title}" from HelloTest? Historical test-run snapshots stay preserved, but this Defect and its live links will be removed.` })) {
                               void deleteIssue.mutateAsync(selectedItem.id);
@@ -3016,8 +3126,8 @@ export function IssuesPage() {
                         </button>
                       ) : null}
                       {canManageBugs ? (<button
-                        className="issue-detail-save-button"
-                        disabled={!canManageBugs || updateIssue.isPending || bugEditMetadataQuery.isLoading || bugEditMetadataQuery.isError}
+                        className="issue-detail-save-button primary-button"
+                        disabled={!draft.title.trim() || !canManageBugs || isSavingIssue || isUploadingAttachments || updateIssue.isPending || bugEditMetadataQuery.isLoading || bugEditMetadataQuery.isError}
                         type="submit"
                       >
                         <BugIcon size={14} strokeWidth={1.8} />

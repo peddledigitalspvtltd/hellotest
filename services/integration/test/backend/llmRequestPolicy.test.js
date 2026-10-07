@@ -83,6 +83,23 @@ test('truncation, refusal and malformed JSON fail clearly without paid regenerat
   }
 });
 
+test('unsolicited or malformed tool calls cannot count as successful feature output', async t => {
+  const toolCall = argumentsText => completion('', { message: { content: null,
+    tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'lookup', arguments: argumentsText } }] } });
+  const tools = [{ type: 'function', function: { name: 'lookup', parameters: { type: 'object' } } }];
+  for (const [request, responseBody, code] of [
+    [init(), toolCall('{}'), 'AI_UNEXPECTED_TOOL_CALL'],
+    [init({ tools }), toolCall('{"query":'), 'AI_INVALID_TOOL_ARGUMENTS'],
+    [init({ tools }), toolCall('[]'), 'AI_INVALID_TOOL_ARGUMENTS']
+  ]) {
+    const { url, requests } = await provider(t, () => ({ body: responseBody }));
+    await assert.rejects(fetchLlmWithRetry(url, request), { code });
+    assert.equal(requests.length, 1);
+  }
+  const valid = await provider(t, () => ({ body: toolCall('{"query":"Checkout"}') }));
+  assert.equal((await fetchLlmWithRetry(valid.url, init({ tools }))).status, 200);
+});
+
 test('failed credentials and rate limits are not replayed by compatibility handling', async t => {
   for (const status of [401, 429]) {
     const { url, requests } = await provider(t, () => ({ status, body: { error: 'max_tokens use max_completion_tokens' } }));

@@ -1,22 +1,22 @@
 import { LoadingState } from "../../shared/components/LoadingState";
-import { IconChevronRight, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconLanguage, IconSearch } from "@tabler/icons-react";
+import { IconChevronRight, IconFolder, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconSearch } from "@tabler/icons-react";
 import { useDialogFocus } from "../../shared/hooks/useDialogFocus";
 import { WorkspaceProjectSwitcher } from "./WorkspaceProjectSwitcher";
 import { ProjectDeletionRecovery } from "./ProjectDeletionRecovery";
 import "./workspace-shell.css";
 import "./workspace-surfaces.css";
 import type { ReactNode } from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigation } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import productManagementIcon from "../../assets/product-management-icon.png";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { useLocalization } from "../../context/LocalizationContext";
 import { AppErrorBoundary } from "./AppErrorBoundary";
-import { AiAgentsIcon, BacklogIcon, RefreshIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
+import { DatabaseConfigurationIcon, AiAgentStudioIcon, TestAutomationIcon, ProjectOverviewIcon, TestPlanIcon, TestRunsResultsIcon, AiAgentsIcon, BacklogIcon, ReleaseIcon, SprintIcon, StoryIcon, TestCaseIcon, TestDataIcon, TestSuiteIcon } from "./AppIcons";
 import { BrandWordmark } from "./BrandWordmark";
 import { WorkspacePageSkeleton } from "./WorkspacePageSkeleton";
 import { UserProfileDialog } from "./UserProfileDialog";
+import { WorkspacePreferencesMenu } from "./WorkspacePreferencesMenu";
 import { capabilityView } from "../capabilities/CapabilityView";
 const GroundedAssistant = capabilityView("chatbot", "GroundedAssistant", () => import("@hellotest/chatbot/frontend/components/GroundedAssistant"), "Ask HelloTest");
 import "./module-navigation.css";
@@ -37,6 +37,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { optionalQueryView } from "../../shared/lib/optionalQueryView";
 import { availableWorkspaceProjects } from "../lib/workspaceSwitcher";
 import { preloadWorkspaceRoute } from "../lib/routePrefetch";
+import { capabilityForDestination, recentCapabilityKey, recordRecentCapability } from "../lib/workspaceDiscovery";
 import {
   PREFERENCES_UPDATED_EVENT,
   readSidebarMode,
@@ -54,6 +55,7 @@ import {
   TEST_AUTHORING_SECTION_ITEMS,
   TEST_ENVIRONMENT_SECTION_ITEMS,
   TEST_RUNS_SECTION_ITEMS,
+  TEST_PLAN_SECTION_ITEMS,
   TESTOPS_SECTION_ITEMS,
   WORKSPACE_LIBRARY_PATHS,
   WORKSPACE_PAGE_LABELS,
@@ -71,11 +73,11 @@ const navigation = [
     label: "Workspace",
     items: [
       { id: "overview", to: WORKSPACE_ROUTES.home, label: "Home", shortLabel: "Home", icon: DashboardIcon, matchPaths: [WORKSPACE_ROUTES.home], featureKeys: ["hellotest.analytics.dashboards"] },
-      { id: "projects", to: WORKSPACE_ROUTES.projects, label: "Projects", shortLabel: "Projects", icon: FolderIcon, countKey: "projects", featureKeys: ["hellotest.ops.projects"] }
+      { id: "projects", to: WORKSPACE_ROUTES.projects, label: "Project Overview", shortLabel: "Project Overview", icon: ProjectOverviewIcon, countKey: "projects", featureKeys: ["hellotest.ops.projects"] }
     ]
   },
   {
-    label: "Create",
+    label: "Build",
     items: [
       {
         id: "product-management",
@@ -101,29 +103,45 @@ const navigation = [
       {
         id: "automation",
         to: WORKSPACE_ROUTES.automation,
-        label: "Automation",
-        shortLabel: "Auto",
-        icon: AutomationIcon,
+        label: "Test Automation",
+        shortLabel: "Test Automation",
+        icon: TestAutomationIcon,
         matchPaths: AUTOMATION_SECTION_ITEMS.map((item) => item.to),
         featureKeys: ["hellotest.automation.workspace"],
         disabledWhenNoProjects: true
       },
       {
+        id: "environment",
+        to: WORKSPACE_ROUTES.testEnvironments,
+        label: "Test Data & Configuration",
+        shortLabel: "Test Data & Configuration",
+        icon: DatabaseConfigurationIcon,
+        matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
+        featureKeys: ["hellotest.manual.environments"],
+        disabledWhenNoProjects: true
+      },
+      { id: "test-plan", to: WORKSPACE_ROUTES.design, label: "Test Plan", shortLabel: "Test Plan", icon: TestPlanIcon, matchPaths: ["/design"], featureKeys: ["hellotest.manual.suites", "hellotest.manual.runs"], featureMatch: "any", disabledWhenNoProjects: true },
+      {
         id: "agentic-workflows",
         matchPaths: [WORKSPACE_ROUTES.agenticWorkflows, WORKSPACE_ROUTES.mcpServers],
         to: WORKSPACE_ROUTES.agenticWorkflows,
-        label: "Agentic Studio",
-        shortLabel: "Agents",
-        icon: AiAgentsIcon,
+        label: "AI Agent Studio",
+        shortLabel: "AI Agent Studio",
+        icon: AiAgentStudioIcon,
         featureKeys: ["hellotest.ai.agentic_workflows"],
         disabledWhenNoProjects: true
-      },
+      }
+    ]
+  },
+  {
+    label: "Validate",
+    items: [
       {
         id: "runs",
         to: WORKSPACE_ROUTES.executions,
-        label: "Runs",
-        shortLabel: "Runs",
-        icon: PlayIcon,
+        label: "Test Runs & Results",
+        shortLabel: "Test Runs & Results",
+        icon: TestRunsResultsIcon,
         matchPaths: ["/executions"],
         featureKeys: ["hellotest.manual.runs"],
         disabledWhenNoProjects: true
@@ -131,7 +149,7 @@ const navigation = [
       { id: "issues", to: WORKSPACE_ROUTES.issues, label: "Defects", shortLabel: "Defects", icon: BugIcon, featureKeys: ["hellotest.manual.bugs"] },
       {
         id: "testops",
-        to: WORKSPACE_ROUTES.testOps,
+        to: WORKSPACE_ROUTES.opsTelemetry,
         label: "TestOps",
         shortLabel: "TestOps",
         icon: ActivityIcon,
@@ -140,16 +158,7 @@ const navigation = [
         featureMatch: "any",
         disabledWhenNoProjects: true
       },
-      {
-        id: "environment",
-        to: WORKSPACE_ROUTES.testEnvironments,
-        label: "Environments",
-        shortLabel: "Env",
-        icon: ServerIcon,
-        matchPaths: TEST_ENVIRONMENT_SECTION_ITEMS.map((item) => item.to),
-        featureKeys: ["hellotest.manual.environments"],
-        disabledWhenNoProjects: true
-      },
+
       { id: "knowledge", to: WORKSPACE_ROUTES.knowledgeRepo, label: "Knowledge Repo", shortLabel: "Knowledge", icon: OpenBookIcon, featureKeys: ["hellotest.ai.knowledge"] }
     ]
   },
@@ -201,6 +210,7 @@ function WorkspaceLocalizationLoader() {
 
 function ReadyAppShell() {
   const location = useLocation();
+  const queryClient = useQueryClient();
   useWorkspaceScrollRestoration();
   const routeNavigation = useNavigation();
   const { session, error, clearError, logout } = useAuth();
@@ -233,6 +243,7 @@ function ReadyAppShell() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isNavigatorOpen, setIsNavigatorOpen] = useState(false);
   const [isRegionalDialogOpen, setIsRegionalDialogOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   useEffect(() => {
     const openNavigator = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k" && !event.altKey && !document.querySelector("[role=dialog][aria-modal=true]")) {
@@ -250,6 +261,11 @@ function ReadyAppShell() {
   const currentProjectName =
     projects.find((project) => String(project.id) === String(sidebarProjectId))?.name ||
     (hasNoProjects ? t("shell.noProject", "No active project") : t("switcher.chooseProject", "Choose project"));
+
+  useEffect(() => {
+    const capability = capabilityForDestination(location.pathname, location.search);
+    if (capability && session?.user.id) recordRecentCapability(recentCapabilityKey(session.user.id, sidebarProjectId), capability.id);
+  }, [location.pathname, location.search, session?.user.id, sidebarProjectId]);
   const navCounts = {
     projects: projects.length
   };
@@ -382,7 +398,9 @@ function ReadyAppShell() {
     return areFeatureFlagsEnabled(featureFlagsQuery.data, keys);
   };
 
+  const sidebarNavigationRef = useRef<HTMLElement>(null);
   const shouldCollapseSidebar = !isMobileViewport && isCollapsed;
+  useLayoutEffect(() => { if (shouldCollapseSidebar && sidebarNavigationRef.current) sidebarNavigationRef.current.scrollTop = 0; }, [shouldCollapseSidebar]);
   const sidebarClassName = `${shouldCollapseSidebar ? "sidebar is-collapsed" : "sidebar"}${isMobileSidebarOpen ? " is-mobile-open" : ""}`;
 
   useEffect(() => {
@@ -442,7 +460,7 @@ function ReadyAppShell() {
   };
 
   const resolveSidebarSubItems = (item: { id: string }) => {
-    const items = item.id === "overview"
+    const items = item.id === "test-plan" ? TEST_PLAN_SECTION_ITEMS : item.id === "overview"
       ? DASHBOARD_SECTION_ITEMS
       : item.id === "product-management"
       ? PRODUCT_MANAGEMENT_SECTION_ITEMS
@@ -468,7 +486,15 @@ function ReadyAppShell() {
     : t(WORKSPACE_SECTION_LABEL_KEYS[location.pathname] || "shell.workspace", currentSection);
   const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K";
 
-  const refreshCurrentScreen = () => window.location.reload();
+  const refreshCurrentScreen = async () => {
+    setIsRefreshing(true);
+    try {
+      // Refetch mounted data without discarding an open editor or unsaved form.
+      await queryClient.invalidateQueries({ refetchType: "active" });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   const prefetchNavigationTarget = (target: string, disabled = false) => {
     if (!disabled) {
       preloadWorkspaceRoute(target);
@@ -539,16 +565,18 @@ function ReadyAppShell() {
           />
         </div>
 
-        <nav className="nav-list" aria-label="Main navigation">
+        <nav className="nav-list" aria-label="Main navigation" ref={sidebarNavigationRef}>
           {navigation.map((group) => (
             <div className="nav-group" key={group.label}>
-              {!shouldCollapseSidebar && group.label !== "Create" ? (
+              {!shouldCollapseSidebar ? (
                 <p className="nav-group-label">
                   {group.label === "Workspace"
                     ? t("nav.section.main", group.label)
                     : group.label === "Connect"
                       ? t("nav.section.administration", group.label)
-                      : t("nav.section.settings", group.label)}
+                      : group.label === "Settings"
+                        ? t("nav.section.settings", group.label)
+                        : t(`nav.section.${group.label.toLowerCase()}`, group.label)}
                 </p>
               ) : null}
               <div className="nav-group-items">
@@ -568,7 +596,8 @@ function ReadyAppShell() {
                     : "countKey" in item
                       ? navCounts[item.countKey as keyof typeof navCounts]
                       : undefined;
-                  const isActive = isNavigationItemActive(item, location.pathname);
+                  const isPlanning = location.pathname === "/executions" && new URLSearchParams(location.search).get("view") === "scheduled-runs";
+                  const isActive = item.id === "test-plan" ? location.pathname === "/design" || isPlanning : item.id === "runs" ? location.pathname === "/executions" && !isPlanning : isNavigationItemActive(item, location.pathname);
                   const subItems = resolveSidebarSubItems(item);
                   const primaryFeatureEnabled = areFeatureFlagsEnabled(
                     featureFlagsQuery.data,
@@ -681,9 +710,7 @@ function ReadyAppShell() {
           </div>
           <div className="workspace-context-actions">
             <button className="workspace-search-trigger" type="button" onClick={() => setIsNavigatorOpen(true)} aria-keyshortcuts="Control+k Meta+k" aria-label={t("shell.find", "Find a capability")}><IconSearch size={17} aria-hidden="true"/><span>{t("shell.find", "Find a capability")}</span><kbd>{searchShortcut}</kbd></button>
-            <button className="workspace-header-icon workspace-refresh" type="button" onClick={refreshCurrentScreen} aria-label={t("shell.refresh", "Refresh current screen")} title={t("shell.refresh", "Refresh current screen")}><RefreshIcon size={18}/></button>
-            <button className="workspace-header-icon" type="button" onClick={() => setIsRegionalDialogOpen(true)} aria-label={t("shell.preferences", "Language & region")} title={t("shell.preferences", "Language & region")}><IconLanguage size={18}/></button>
-            <button className="workspace-header-icon" type="button" onClick={() => setTheme(current => current === "light" ? "dark" : "light")} aria-label={t(theme === "light" ? "shell.darkTheme" : "shell.lightTheme", `Switch to ${theme === "light" ? "dark" : "light"} theme`)} title={t(theme === "light" ? "shell.darkTheme" : "shell.lightTheme", `Switch to ${theme === "light" ? "dark" : "light"} theme`)}>{theme === "light" ? <MoonIcon/> : <SunIcon/>}</button>
+            <WorkspacePreferencesMenu theme={theme} refreshing={isRefreshing} onThemeChange={() => setTheme(current => current === "light" ? "dark" : "light")} onRegionalPreferences={() => setIsRegionalDialogOpen(true)} onRefresh={() => void refreshCurrentScreen()} />
             <button className="workspace-profile-button" type="button" aria-haspopup="dialog" aria-expanded={isProfileDialogOpen} aria-label={t("shell.profile", "Open your profile")} onClick={() => setIsProfileDialogOpen(true)}>
               <span className="workspace-profile-avatar" aria-hidden="true">{session?.user.avatar_data_url ? <img src={session.user.avatar_data_url} alt=""/> : (session?.user.name || session?.user.email || "QA").split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</span>
               <span className="workspace-profile-copy"><strong>{session?.user.name || t("shell.user", "Workspace user")}</strong><small>{t(session?.user.role === "admin" ? "shell.admin" : "shell.member", session?.user.role === "admin" ? "Workspace admin" : "Workspace member")}</small></span>
@@ -726,7 +753,7 @@ function IconFrame({ children }: { children: ReactNode }) {
 }
 
 function DashboardIcon() {
-  return <IconFrame><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></IconFrame>;
+  return <IconFrame><rect x="2.5" y="3" width="19" height="18" rx="2.5" /><path d="M3 6.5h18" /><circle cx="8.5" cy="14" r="3.5" /><path d="M8.5 10.5V14H12M15 17v-2M18 17v-4M20.5 17v-6" /></IconFrame>;
 }
 
 function UsersIcon() {
@@ -735,21 +762,6 @@ function UsersIcon() {
 
 function UserIcon() {
   return <IconFrame><path d="M4 21v-1.6A4.4 4.4 0 0 1 8.4 15h7.2A4.4 4.4 0 0 1 20 19.4V21" /><circle cx="12" cy="8.2" r="3.6" /></IconFrame>;
-}
-
-function FolderIcon() {
-  return <IconFrame><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v9A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5z" /><path d="M9 12v5" /><path d="M13 14v3" /></IconFrame>;
-}
-
-function ProjectScopeIcon() {
-  return (
-    <IconFrame>
-      <rect height="4.5" rx="1" width="4.5" x="4.5" y="5" />
-      <rect height="4.5" rx="1" width="4.5" x="15" y="14.5" />
-      <path d="M9 7.25h3.25a2.5 2.5 0 0 1 2.5 2.5v4.75" />
-      <path d="M7 9.5v4a3 3 0 0 0 3 3h5" />
-    </IconFrame>
-  );
 }
 
 function ServerIcon() {
@@ -769,17 +781,7 @@ function FlaskIcon() {
 }
 
 function ProductManagementIcon() {
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      className="product-management-entity-icon"
-      draggable={false}
-      height={20}
-      src={productManagementIcon}
-      width={20}
-    />
-  );
+  return <svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5" /><path d="M12 12l8 -4.5" /><path d="M12 12l0 9" /><path d="M12 12l-8 -4.5" /></svg>;
 }
 
 function OpenBookIcon() {

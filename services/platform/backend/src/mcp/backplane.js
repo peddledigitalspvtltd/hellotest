@@ -83,8 +83,14 @@ async function invokeOperation(actor,op,args,signal) {
 }
 async function catalog(actor,{query='',offset=0,limit=30}={}) {
  await permit(actor,'project.view');
- const matches=[];
- for(const op of registry.all())if(op.permission&&await permissionService.hasPermission(actor.user,op.permission,actor.projectId)&&`${op.method} ${op.path} ${op.permission}`.toLowerCase().includes(query.toLowerCase()))matches.push(op);
+ const matches=[],access=new Map(),search=query.toLowerCase();
+ // Reuse a permission decision only within this discovery request. Never cache
+ // it between calls: role and membership revocation must take effect immediately.
+ for(const op of registry.all()){
+  if(!op.permission||!`${op.method} ${op.path} ${op.permission}`.toLowerCase().includes(search))continue;
+  if(!access.has(op.permission))access.set(op.permission,await permissionService.hasPermission(actor.user,op.permission,actor.projectId));
+  if(access.get(op.permission))matches.push(op);
+ }
  return {catalog_revision:registry.revision(),total:matches.length,operations:matches.slice(offset,offset+limit),next_offset:offset+limit<matches.length?offset+limit:null,coverage:{registered:registry.all().length,discoverable:matches.length},contract_note:'Domain APIs validate bodies. Operations marked requires_domain_wrapper cannot be executed through the generic tool.'};
 }
 async function describe(actor,{operation_id}) {const op=registry.get(operation_id);if(!op.permission)throw fail('This operation is not delegable.');await permit(actor,op.permission);return {catalog_revision:registry.revision(),...op};}

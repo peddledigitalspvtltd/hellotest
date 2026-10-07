@@ -21,7 +21,7 @@ import { TestCasesPage } from '/services/testing/frontend/pages/TestCasesPage';
 import { ExecutionsPage } from '/services/testing/frontend/pages/ExecutionsPage';
 import { api, sessionStorage } from '/src/lib/api';
 import { setCurrentScope } from '/src/platform/hooks/useCurrentProject';
-import '/src/styles.css';
+import '/src/styles.css';import '/src/product-experience.css';
 import '/src/dark-theme.css';
 import '/src/modal-system.css';
 import '/src/workspace-layout.css';
@@ -230,6 +230,12 @@ const artifacts=process.env.BROWSER_SCREENSHOT_DIR||'/tmp/qaira-test-case-catalo
   assert.equal(await page.evaluate(()=>window.suiteCreates[0].name),'Shared suite from Test Cases');
   assert.deepEqual(await page.evaluate(()=>window.suiteCreates[0].test_case_ids),['case-1','case-60']);assert.equal(await page.evaluate(()=>window.suiteAssignments.length),0,'Suite membership is saved atomically');
   await cards.getByRole('checkbox').check();
+  assert.equal(await page.getByRole('button', {name:'Open selected test case run options',exact:true}).count(),0);
+  const runPalette = await page.getByRole('button',{name:'Run manually',exact:true}).evaluate(button => {
+    const probe=document.createElement('span');probe.style.color='var(--app-accent)';document.body.append(probe);
+    const result={actual:getComputedStyle(button).backgroundColor,expected:getComputedStyle(probe).color};probe.remove();return result;
+  });
+  assert.equal(runPalette.actual,runPalette.expected,'Manual run uses the shared button accent');
   await page.getByRole('button',{name:'Run manually',exact:true}).click();
   await page.waitForFunction(()=>typeof window.releaseAuthoring==='function');
   const run=page.getByRole('dialog',{name:'Create new run',exact:true});

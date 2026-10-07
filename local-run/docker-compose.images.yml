@@ -229,6 +229,33 @@ services:
     deploy:
       replicas: ${TESTENGINE_WEB_REPLICAS:-1}
 
+  testengine-quality-worker:
+    image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
+    expose:
+      - "4301"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      PORT: 4301
+      NODE_ENV: development
+      ENGINE_NAME: hellotest-local-quality-worker
+      TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
+      TESTENGINE_QUEUE_REQUIRED: "false"
+      QUALITY_AGENT_DATA_DIR: /quality-data
+      QUALITY_AGENT_ALLOWED_PRIVATE_HOSTS: ${QUALITY_AGENT_ALLOWED_PRIVATE_HOSTS:-}
+      QUALITY_AGENT_ALLOWED_ORIGINS: ${QUALITY_AGENT_ALLOWED_ORIGINS:-}
+      QUALITY_AGENT_RETENTION_DAYS: ${QUALITY_AGENT_RETENTION_DAYS:-7}
+    volumes:
+      - hellotest-local-quality-data:/quality-data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    stop_grace_period: 35s
+    deploy:
+      replicas: 1
+
   testengine-android-worker:
     image: ${HELLOTEST_TESTENGINE_IMAGE:-jayarajumetta/hellotest-testengine:latest}
     expose:
@@ -271,6 +298,9 @@ services:
       - "${TESTENGINE_BIND:-127.0.0.1}:${TESTENGINE_PORT:-4301}:4301"
     volumes:
       - ./testengine-gateway/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      testengine-quality-worker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:4301/health/ready >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -312,5 +342,6 @@ volumes:
   hellotest-local-redis-data:
   hellotest-local-postgres-data:
   hellotest-local-testengine-artifacts:
+  hellotest-local-quality-data:
   hellotest-local-minio-data:
   hellotest-local-qdrant-data:

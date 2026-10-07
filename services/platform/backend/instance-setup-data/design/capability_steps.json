@@ -3304,6 +3304,73 @@
       "group_id": "sample-v7-ht-case-support-guidance-checks",
       "group_name": "Acceptance and scope checks",
       "group_kind": "local"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-session",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 1,
+      "action": "Open HelloTest as @s.actor_email and select @s.project_name.",
+      "expected_result": "The intended project is selected and its saved role grants apply.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-pre",
+      "group_name": "Preconditions",
+      "group_kind": "reusable",
+      "reusable_group_id": "sample-v7-ht-shared-session"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-step-2",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 2,
+      "action": "Open @t.target_route; select each published agent to inspect its checks and limits. Choose an authorized target and create a Web Journey plan; review its concrete selectors, assertions and navigation bound before starting.",
+      "expected_result": "Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-checks",
+      "group_name": "Acceptance and scope checks",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-step-3",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 3,
+      "action": "With a configured live engine, start the reviewed plan and inspect recorded stages, measurements, findings and screenshot manifests. Start a separate bounded review, stop it while queued or running, and refresh its saved receipt.",
+      "expected_result": "Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-checks",
+      "group_name": "Acceptance and scope checks",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-step-4",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 4,
+      "action": "Run an initial visual capture and inspect the candidate screenshot. Explicitly approve it as a baseline, then compare the same target, application, viewport and masks. Inspect the reviewer identity, SHA256 and image difference evidence.",
+      "expected_result": "Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-checks",
+      "group_name": "Acceptance and scope checks",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-step-5",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 5,
+      "action": "Choose an observed finding, open its Defect draft, review and edit its title, description and severity, and save only through an authorized explicit action.",
+      "expected_result": "Review and edit a finding-derived Defect draft before saving through the authorized Defects API.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-checks",
+      "group_name": "Acceptance and scope checks",
+      "group_kind": "local"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents-step-6",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "step_order": 6,
+      "action": "Exercise an unavailable browser, an incomplete web goal and another project/application reference. Inspect the passive security, navigation performance and accessibility limits, and inspect the first visual capture before approval.",
+      "expected_result": "Missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.",
+      "step_type": "web",
+      "group_id": "sample-v7-ht-case-browser-quality-agents-checks",
+      "group_name": "Acceptance and scope checks",
+      "group_kind": "local"
     }
   ]
 }

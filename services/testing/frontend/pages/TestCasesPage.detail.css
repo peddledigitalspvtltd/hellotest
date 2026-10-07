@@ -37,3 +37,28 @@
 @media (max-width: 700px) {
   .page-content--test-cases .test-case-workspace-shell .test-case-workspace-tabs { padding-right: 10px; padding-left: 10px; }
 }
+
+/* Metadata yields to the step canvas; the commit action stays within reach. */
+.page-content--test-cases .test-case-details-form > .record-grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 8px; }
+.page-content--test-cases .test-case-details-form .test-case-title-field, .page-content--test-cases .test-case-details-form .test-case-description-field, .page-content--test-cases .test-case-details-form .test-case-context-properties { flex: 1 0 100%; width: 100%; min-width: 0; }
+.page-content--test-cases .test-case-details-form .test-case-title-field .form-field-label { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.page-content--test-cases .test-case-details-form .test-case-title-field input { padding: 2px 0; border: 0; background: transparent; border-radius: 0; color: var(--app-text, #182b35); font: 600 22px/1.4 "Hanken Grotesk", Inter, sans-serif; box-shadow: none; }
+.page-content--test-cases .test-case-details-form .test-case-title-field input:focus-visible { outline: none !important; box-shadow: none; }
+.page-content--test-cases .test-case-details-form .test-case-context-properties { padding: 0; border: 0; border-top: 1px solid var(--app-border, #dce5e8); border-radius: 0; background: transparent; }
+.page-content--test-cases .test-case-context-properties > summary { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 10px 0; list-style: none; color: var(--app-text-muted, #5d6f79); cursor: pointer; }
+.page-content--test-cases .test-case-context-properties > summary::-webkit-details-marker { display: none; }
+.page-content--test-cases .test-case-context-properties > summary > span { font-size: 12px; font-weight: 550; }
+.page-content--test-cases .test-case-context-properties > summary > small { margin-left: auto; font-size: 10px; }
+.page-content--test-cases .test-case-context-properties > .authoring-disclosure-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 10px 0; }
+.page-content--test-cases .test-case-details-form .test-case-inline-save-actions { display: none; }
+:root body .page-content--test-cases .test-case-details-form > .record-grid { display: flex !important; gap: 12px 8px !important; }
+:root body .page-content--test-cases .test-case-details-form .test-case-inline-save-actions { display: none !important; }
+:root body .page-content--test-cases .test-case-details-form .test-case-title-field input { padding: 2px 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; font: 600 22px/1.4 "Hanken Grotesk", Inter, sans-serif !important; box-shadow: none !important; }
+@media (max-width: 700px) {
+  :root body .page-content--test-cases .test-case-detail-grid > .test-case-detail-sidebar { grid-column: 1 !important; grid-row: 1 !important; order: -1; }
+  :root body .page-content--test-cases .test-case-detail-grid > .test-case-detail-primary { grid-column: 1 !important; grid-row: 2 !important; }
+}
+/* The page also owns its height when embedded outside the complete AppShell. */
+:root body .page-content--test-cases.page-content--workspace-focus { height: calc(100dvh - 48px) !important; }
+:root .app-shell.app-layout > .workspace-main > .page-content--test-cases.page-content--workspace-focus { height: 100% !important; }
+:root body .page-content--test-cases .test-case-workspace-shell { --test-case-canvas: var(--app-canvas); --test-case-subcanvas: var(--app-surface-muted); --test-case-input: var(--app-surface); --test-case-ink: var(--app-text); --test-case-primary-bg: var(--app-accent); --test-case-primary-hover: var(--app-accent-hover); --test-case-border: var(--app-border); --test-case-soft-border: var(--app-border); }

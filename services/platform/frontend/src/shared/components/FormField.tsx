@@ -29,7 +29,11 @@ export function FormField({
   required?: boolean;
 }) {
   const generatedId = useId().replace(/:/g, "");
-  const id = inputId || `field-${label.toLowerCase().replace(/\s+/g, "-")}-${generatedId}`;
+  // An existing control id is authoritative: clicking its label must focus it.
+  const control = !composite && Children.count(children) === 1 && isValidElement(children)
+    ? children as ReactElement<Record<string, unknown>>
+    : null;
+  const id = (control?.props.id as string | undefined) || inputId || `field-${label.toLowerCase().replace(/\s+/g, "-")}-${generatedId}`;
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
   const describedBy = mergeAriaDescribedBy(error ? errorId : undefined, hint ? hintId : undefined);

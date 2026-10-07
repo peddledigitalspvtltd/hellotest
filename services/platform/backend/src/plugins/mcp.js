@@ -6,7 +6,7 @@ const backplane=require('../mcp/backplane');
 module.exports=fp(async function mcpPlugin(app){
  backplane.configure(app);
  app.addHook('onRoute',registry.register);
- const {handler,tools}=require('../mcp/server');
+ const {handler,tools}=require('../mcp/mcpServer');
  const publicUrl=process.env.HELLOTEST_MCP_PUBLIC_URL;
  if(process.env.HELLOTEST_MCP_SIGNING_KEY&&Buffer.byteLength(process.env.HELLOTEST_MCP_SIGNING_KEY)<32)throw new Error('HELLOTEST_MCP_SIGNING_KEY must contain at least 32 bytes.');
  if(publicUrl&&(!/^https:\/\//.test(publicUrl)&&process.env.NODE_ENV==='production'))throw new Error('HELLOTEST_MCP_PUBLIC_URL must use HTTPS in production.');

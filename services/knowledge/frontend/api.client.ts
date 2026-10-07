@@ -15,9 +15,9 @@ refresh: {
   run: (projectId: string) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`, { method: "POST" }),
   configure: (projectId: string, input: { enabled: boolean; interval_ms: number }) => request<KnowledgeRefresh>(`/projects/${projectId}/knowledge/refresh`, { method: "PUT", body: JSON.stringify(input) })
 },
-list: (projectId: string) => request<any[]>(`/projects/${projectId}/knowledge`),
-overview: (projectId: string) =>
-      request<KnowledgeOverview>(`/projects/${projectId}/knowledge/overview`),
+list: (projectId: string, options?: { signal?: AbortSignal }) => request<any[]>(`/projects/${projectId}/knowledge`, { signal: options?.signal }),
+overview: (projectId: string, options?: { signal?: AbortSignal }) =>
+      request<KnowledgeOverview>(`/projects/${projectId}/knowledge/overview`, { signal: options?.signal }),
 search: (input: {
       project_id: string;
       query: string;
@@ -29,8 +29,8 @@ search: (input: {
       body: JSON.stringify(input),
       signal: options?.signal
     }),
-sources: (projectId: string, options?: { includeArchived?: boolean }) =>
-      request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId, include_archived: options?.includeArchived || undefined })}`),
+sources: (projectId: string, options?: { includeArchived?: boolean; signal?: AbortSignal }) =>
+      request<KnowledgeSource[]>(`/knowledge/sources${toQueryString({ project_id: projectId, include_archived: options?.includeArchived || undefined })}`, { signal: options?.signal }),
 sourceDetail: (id: string, query?: { revision_id?: string; as_of?: string }) =>
       request<KnowledgeSourceDetail>(`/knowledge/sources/${id}${toQueryString(query)}`),
 sourceRevisions: (id: string) =>
@@ -69,8 +69,8 @@ ingestions: {
       retry: (id: string) => request<KnowledgeIngestionResponse>(`/knowledge/ingestions/${id}/retry`, { method: "POST" })
     },
 collections: {
-      list: (projectId: string) =>
-        request<KnowledgeCollection[]>(`/knowledge/collections${toQueryString({ project_id: projectId })}`),
+      list: (projectId: string, options?: { signal?: AbortSignal }) =>
+        request<KnowledgeCollection[]>(`/knowledge/collections${toQueryString({ project_id: projectId })}`, { signal: options?.signal }),
       get: (id: string) => request<KnowledgeCollection>(`/knowledge/collections/${id}`),
       create: (input: { project_id: string; app_type_id?: string | null; name: string; description?: string; color?: string }) =>
         request<KnowledgeCollection>("/knowledge/collections", {

@@ -1,26 +1,13 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { access, readdir, readFile, stat } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
+import { access, readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, extname, relative, resolve } from "node:path";
+import { enumerateRepositoryFiles, listFilesystemSourceFiles } from "./repository-files.mjs";
 
 const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceExtensions = new Set([".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".css", ".scss", ".json"]);
-const ignoredDirectories = new Set([
-  ".git",
-  ".cache",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-  ".playwright-browsers",
-  "dist-admin",
-  ".qaira",
-  ".hellotest",
-  ".firecrawl"
-]);
 const intentionallyRepeatedNames = new Set([
   "README.md",
   "index.js",
@@ -135,44 +122,19 @@ const failures = [];
 const warnings = [];
 const intentionalRepeatedBasenames = [];
 
-async function collectFiles(directory, extensions = sourceExtensions) {
-  const result = [];
-  let entries = [];
-  try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch {
-    return result;
-  }
-  for (const entry of entries) {
-    if (ignoredDirectories.has(entry.name)) continue;
-    const absolute = resolve(directory, entry.name);
-    if (relativePath(absolute) === "local-run/artifacts") continue;
-    if (/\.tsbuildinfo$/.test(entry.name) || entry.name === ".env" || (entry.name.startsWith(".env.") && entry.name !== ".env.example")) continue;
-    if (entry.isDirectory()) {
-      result.push(...await collectFiles(absolute, extensions));
-      continue;
-    }
-    if (extensions === null) {
-      result.push(absolute);
-      continue;
-    }
-    const dot = entry.name.lastIndexOf(".");
-    if (dot > 0 && extensions.has(entry.name.slice(dot))) result.push(absolute);
-  }
-  return result;
-}
-
 function relativePath(file) {
   return relative(root, file).replaceAll("\\", "/");
 }
 
-const files = (await Promise.all(scanRoots.map((directory) => collectFiles(resolve(root, directory)))))
-  .flat()
-  .sort();
+const inventory = await enumerateRepositoryFiles(root);
 // Repository scans include dotfiles, Dockerfiles, executable assets, and all
 // other maintained files. Local secrets, browser downloads, and generated
-// output are excluded by ignoredDirectories above.
-const repositoryFiles = await collectFiles(root, null);
+// output are excluded from the filesystem inventory.
+const maintainedPaths = inventory.source === "filesystem" ? inventory.files : await listFilesystemSourceFiles(root);
+const repositoryFiles = maintainedPaths.map(file => resolve(root, file));
+const files = maintainedPaths
+  .filter(file => scanRoots.some(directory => file.startsWith(`${directory}/`)) && sourceExtensions.has(extname(file)))
+  .map(file => resolve(root, file));
 
 // Exact content duplicates are safe to identify mechanically. Generated run artifacts
 // and dependency trees are excluded above, so any result here needs an owner decision.
@@ -295,8 +257,7 @@ for (const file of files) {
 }
 
 // Every API route implementation must be owned exactly once by a service manifest.
-const routeFiles = (await collectFiles(resolve(root, "services")))
-  .filter((file) => /\/routes\/[^/]+\.routes\.js$/.test(file));
+const routeFiles = repositoryFiles.filter(file => relativePath(file).startsWith("services/") && /\/routes\/[^/]+\.routes\.js$/.test(file));
 const routeManifest = require(resolve(root, "services/platform/backend/src/routes/manifest.js"));
 const routeOwners = new Map();
 for (const route of routeManifest.routeModules || []) {
@@ -336,9 +297,7 @@ for (const service of apiProfiles) {
   }
 }
 
-const trackedFiles = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
-  .split("\n")
-  .filter(Boolean);
+const trackedFiles = inventory.source === "git" ? inventory.files : [];
 const isForbiddenEnvironmentFile = (file) => {
   const basename = file.slice(file.lastIndexOf("/") + 1);
   return basename === ".env" || (basename.startsWith(".env.") && basename !== ".env.example");
@@ -375,6 +334,7 @@ const noExtensionFiles = repositoryFiles
 
 const result = {
   ok: failures.length === 0,
+  file_inventory: inventory.source,
   files_scanned: files.length,
   repository_files_scanned: repositoryFiles.length,
   file_categories: fileCategories,

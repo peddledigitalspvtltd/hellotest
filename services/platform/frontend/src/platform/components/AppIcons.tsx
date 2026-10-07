@@ -659,3 +659,41 @@ export function MoveIcon({ size, strokeWidth }: IconProps) {
     </IconFrame>
   );
 }
+
+export function TestRunsResultsIcon({size=20}: IconProps) {
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4.1a1.5 1.5 0 0 1 2.25-1.3l13 7.9a1.5 1.5 0 0 1 0 2.6l-13 7.9A1.5 1.5 0 0 1 5 19.9Z"/></svg>;
+}
+export function TestPlanIcon({size=20}: IconProps) {
+ return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+  <rect x="1.5" y="2" width="7" height="6" rx="1"/><path d="M1.5 4h7M3.5 1v2m3-2v2M4 6h2"/>
+  <path d="m17 2-2 2 2 2m4-4 2 2-2 2m-2-4-1 4"/>
+  <rect x="9" y="9" width="9" height="13" rx="1"/><path d="m11 13 1 1 2-2m-3 6 1 1 2-2M16 13h.1"/>
+  <circle cx="4.5" cy="16" r="2.5"/><path d="M4.5 11v2m0 6v2M0 16h2m5 0h2M1 12.5l1.7 1.7m4 4 1.3 1.3M1 19.5l1.7-1.7m4-4L8 12.5"/>
+  <path d="M21 10v9l-1 2-1-2v-9Z"/>
+ </svg>;
+}
+export function ProjectOverviewIcon({size=20}: IconProps) {
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 2h20v15H2ZM2 5h20M12 17v5m-5 0 5-5 5 5"/><path d="M8 7v4h4a4 4 0 1 1-4-4ZM15 8h4m-4 3h4m-4 3 1 1 3-3"/></svg>;
+}
+
+export function AiAgentStudioIcon({size=20}: IconProps) {
+ return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+  <rect x="2" y="4" width="8" height="8" rx="2"/><path d="M6 4V2M0 8h2m8 0h2M4 10h4"/><circle cx="4" cy="7" r=".6" fill="currentColor" stroke="none"/><circle cx="8" cy="7" r=".6" fill="currentColor" stroke="none"/>
+  <rect x="15" y="2" width="7" height="4" rx=".7"/><path d="M18.5 6v3m-3 0h6m-6 0v2m6-2v2"/><rect x="13" y="11" width="4" height="4" rx=".7"/><rect x="19" y="11" width="4" height="4" rx=".7"/>
+  <path d="M6 12v6h3"/><rect x="9" y="18" width="13" height="5" rx="1"/><path d="M12 20.5h7"/>
+ </svg>;
+}
+export function TestAutomationIcon({size=20}: IconProps) {
+ return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+  <path d="M7 2h7l4 4v15H7Z M14 2v5h4m-8 3-2 2 2 2m4-4 2 2-2 2M10 18h5"/>
+  <circle cx="3.5" cy="12" r="2"/><path d="M3.5 8v2m0 4v2M0 12h1.5m4 0H7M1 9.5l1 1m2.5 3 1 1M1 14.5l1-1"/>
+  <path d="M21 7h1v12l-.5 2-.5-2Z"/>
+ </svg>;
+}
+
+export function DatabaseConfigurationIcon({size=20}: IconProps) {
+ return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 26 26" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+  <ellipse cx="9" cy="5" rx="7" ry="3"/><path d="M2 5v12c0 2 3 3 7 3m7-15v4M2 10c0 2 3 3 7 3h2M2 15c0 2 3 3 7 3"/>
+  <path d="m16 11 3 0 .5 2 1.5 1 1.5-.5 1 2-1.5 1v2l1.5 1-1 2-1.5-.5-1.5 1-.5 2h-3l-.5-2-1.5-1-1.5.5-1-2 1.5-1v-2l-1.5-1 1-2 1.5.5 1.5-1Z"/><circle cx="17.5" cy="17.5" r="2.5"/>
+ </svg>;
+}

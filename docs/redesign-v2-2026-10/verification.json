@@ -1,0 +1,151 @@
+{
+  "release": "QAIra agentic V2",
+  "date": "2026-10-06",
+  "based_on": "QAIra-improved.zip",
+  "checks": [
+    {
+      "command": "npm run test:frontend",
+      "result": "passed",
+      "tests": 681,
+      "passed": 681,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run test:backend",
+      "result": "passed",
+      "tests": 1402,
+      "passed": 1400,
+      "failed": 0,
+      "skipped": 2
+    },
+    {
+      "command": "npm run test:testengine",
+      "result": "passed",
+      "tests": 82,
+      "passed": 82,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run test:architecture",
+      "result": "passed",
+      "tests": 33,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run build:frontend",
+      "result": "passed",
+      "scope": "TypeScript and production workspace/admin builds"
+    },
+    {
+      "command": "npm --prefix testengine/backend run package:inspection-agent",
+      "result": "passed",
+      "scope": "Rebuilt compiled engine and inspection installer asset"
+    },
+    {
+      "command": "npm run audit:modules",
+      "result": "passed"
+    },
+    {
+      "command": "npm run validate:architecture",
+      "result": "passed"
+    },
+    {
+      "command": "npm run check:boundaries",
+      "result": "passed"
+    },
+    {
+      "command": "npm run test:product-ux",
+      "result": "passed",
+      "files": 21,
+      "tests": 26,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "npm run audit:source-layout",
+      "result": "passed"
+    }
+  ],
+  "production_bundle_evidence": [
+    {
+      "path": "services/platform/frontend/dist/assets/AgenticWorkflowsPage-D_EV_egj.js",
+      "bytes": 253320,
+      "sha256": "ac082114080bb958ec583eee19ae008098dae5a5f133567bdc6c6134e5c6d6e8"
+    },
+    {
+      "path": "services/platform/frontend/dist/assets/index-CD9On7UF.js",
+      "bytes": 588780,
+      "sha256": "ec38021d8b27f91a4de19675d793fd348f83958f1f8223cb5fc84b930769b2fb"
+    },
+    {
+      "path": "services/platform/frontend/dist/assets/index-yrlgAd5t.js",
+      "bytes": 13052,
+      "sha256": "8610f6623db614b39ff115071566c86e97d25f7f07e16b6c926eb679d914992c"
+    },
+    {
+      "path": "services/platform/frontend/dist-admin/assets/admin-Butkga5l.js",
+      "bytes": 251657,
+      "sha256": "9bc9f2b2a6543124217bd88d1e8aa148e07c693faffb9ce9292fca462163a12c"
+    },
+    {
+      "path": "services/platform/frontend/dist-admin/assets/admin-CqMOk3Kn.js",
+      "bytes": 251256,
+      "sha256": "5c0dcd8e0bdf651402ad0f550c741780d183130e28af92d9cdc4503f62e65d27"
+    },
+    {
+      "path": "services/platform/frontend/dist-admin/assets/admin-D_YnPjyV.js",
+      "bytes": 251256,
+      "sha256": "5c0dcd8e0bdf651402ad0f550c741780d183130e28af92d9cdc4503f62e65d27"
+    }
+  ],
+  "browser_execution": {
+    "engine": "Playwright Chromium headless shell",
+    "engine_targets": "Actual isolated local HTTP fixtures with explicitly allowed loopback host",
+    "ui_data": "Representative API fixtures with actual React components",
+    "default_agents": [
+      "web",
+      "security",
+      "performance",
+      "accessibility",
+      "visual"
+    ],
+    "axe_version": "4.14.0"
+  },
+  "limitations": [
+    "Two guarded PostgreSQL tests skipped because no integration database URL was supplied. New lease and baseline transaction behavior was verified using a recording adapter; production Postgres deployment still needs configured integration testing.",
+    "No live model credentials or external application target were supplied; provider quality and external/native execution are not claimed validated.",
+    "Compose was parsed and worker-affinity/storage invariants tested. Docker containers were not launched; Docker is unavailable.",
+    "Security is passive posture; performance is single-navigation measurement; automated accessibility requires manual review; visual regression uses explicitly approved matching viewport baselines.",
+    "Existing large workspace/CSS chunks remain a performance opportunity; no unmeasured latency or throughput claim is made."
+  ],
+  "skip_reason": "PostgreSQL Story catalog and knowledge canonical-history integration suites require an external integration database URL.",
+  "sources": [
+    {
+      "purpose": "Passive response security policy checks",
+      "url": "https://owasp.org/projects/secure-headers-project/"
+    },
+    {
+      "purpose": "Automated accessibility evaluation limits",
+      "url": "https://www.w3.org/WAI/test-evaluate/tools/selecting/"
+    },
+    {
+      "purpose": "Browser navigation measurement",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming"
+    },
+    {
+      "purpose": "Deterministic screenshot capture controls",
+      "url": "https://playwright.dev/docs/api/class-page#page-screenshot"
+    }
+  ],
+  "totals": {
+    "tests": 2224,
+    "passed": 2222,
+    "skipped": 2,
+    "failed": 0
+  }
+}

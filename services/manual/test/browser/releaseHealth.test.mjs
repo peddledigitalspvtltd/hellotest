@@ -18,7 +18,7 @@ import { LocalizationProvider } from '/src/context/LocalizationContext';
 import { ReleasesPage } from '/services/manual/frontend/pages/ReleasesPage';
 import { api, sessionStorage } from '/src/lib/api';
 import { setCurrentScope } from '/src/platform/hooks/useCurrentProject';
-import '/src/styles.css';
+import '/src/styles.css';import '/src/product-experience.css';
 import '/src/dark-theme.css';
 import '/src/modal-system.css';
 import '/src/workspace-layout.css';

@@ -4,6 +4,8 @@ Agent workflows, repository inspection, specialist agents and their runtime asse
 
 The [Agentic Studio guide](../../docs/product/agentic-studio.md) covers the editor, source templates, node execution, saved results and runtime boundaries. Workflow UI components live together in `frontend/workflows/`.
 
+The [Quality Agents guide](../../docs/product/quality-agents.md) describes the five executable browser presets, reviewed journeys, durable run history, permissions and visual baseline approval. These checks use the project's active Test Engine connection; an LLM can propose a bounded journey but does not produce execution evidence.
+
 - `frontend/`: screens, components, hooks and the owning API client. `entry.ts` exposes lazy release views.
 - `backend/`: API routes, use cases and owning workers. `server.cjs` starts this profile through the shared runtime.
 - `test/`: focused backend, frontend and browser checks where available.

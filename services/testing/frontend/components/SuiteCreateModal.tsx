@@ -3,7 +3,6 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { TagIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
-import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { RichTextEditor } from "@hellotest/platform/frontend/src/platform/components/RichTextEditor";
 import { RunDataSetup } from "./RunDataSetup";
 import { TestCasePicker } from "./TestCasePicker";
@@ -15,6 +14,7 @@ import { formatReferenceList, parseReferenceList } from "@hellotest/platform/fro
 import type { TestCase, TestSuite } from "@hellotest/platform/frontend/src/types";
 import "./suite-authoring-reference.css";
 import "./create-suite-modal.css";
+import "./AuthoringExperience.css";
 
 export type SuiteCreateInput = {
   name: string;
@@ -45,11 +45,13 @@ export type SuiteCreateModalProps = {
 function SuiteLabelsField({
   value,
   onChange,
-  availableLabels
+  availableLabels,
+  disabled = false
 }: {
   value: string;
   onChange: (value: string) => void;
   availableLabels: string[];
+  disabled?: boolean;
 }) {
   const suggestedLabels = useDomainSuggestions("test_suites.labels", availableLabels);
   const [draftLabel, setDraftLabel] = useState("");
@@ -79,7 +81,7 @@ function SuiteLabelsField({
   const commitLabel = (label: string) => {
     const normalizedLabel = resolveDomainSuggestionValue(label, suggestedLabels);
 
-    if (!normalizedLabel) {
+    if (disabled || !normalizedLabel) {
       return;
     }
 
@@ -92,6 +94,7 @@ function SuiteLabelsField({
   };
 
   const removeLabel = (labelToRemove: string) => {
+    if (disabled) return;
     onChange(formatReferenceList(selectedLabels.filter((label) => label.toLowerCase() !== labelToRemove.toLowerCase())));
   };
 
@@ -101,6 +104,7 @@ function SuiteLabelsField({
         <div className="requirement-label-combobox">
           <div className="requirement-label-entry">
             <input
+              disabled={disabled}
               aria-autocomplete="list"
               aria-expanded={isMenuOpen}
               aria-label="Select or add suite labels"
@@ -125,7 +129,7 @@ function SuiteLabelsField({
               }}
             />
             {draftLabel.trim() ? (
-              <button className="ghost-button requirement-label-add-button" onClick={() => commitLabel(draftLabel)} type="button">
+              <button className="ghost-button requirement-label-add-button" disabled={disabled} onClick={() => commitLabel(draftLabel)} type="button">
                 Add
               </button>
             ) : null}
@@ -150,7 +154,7 @@ function SuiteLabelsField({
             {selectedLabels.map((label) => (
               <span className="requirement-label-chip" key={label}>
                 <span>{label}</span>
-                <button aria-label={`Remove ${label}`} onClick={() => removeLabel(label)} type="button">x</button>
+                <button aria-label={`Remove ${label}`} disabled={disabled} onClick={() => removeLabel(label)} type="button">x</button>
               </span>
             ))}
           </div>
@@ -225,9 +229,9 @@ export function SuiteCreateModal({
           className="form-grid suite-modal-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!dataSetValid) return;
+            if (isSaving || !dataSetValid || !name.trim()) return;
             onSubmit({
-              name,
+              name: name.trim(),
               description,
               labels: parseReferenceList(labelsText),
               parallel_enabled: canConfigureParallelAutomation && parallelEnabled,
@@ -267,6 +271,7 @@ export function SuiteCreateModal({
               {/* Expand children, while the unsaved selection supplies this suite's own cases. */}
               <RunDataSetup onValidityChange={setDataSetValid} parameterValues={suite?.parameter_values} suiteContextId={suite?.id} dataOptions={dataOptions} onDataOptionsChange={setDataOptions} suiteMode projectId={projectId} appTypeId={appTypeId} suites={childSuites} cases={selectedCases} dataSetId={dataSetId} onDataSetChange={setDataSetId} disabled={isSaving} />
               <SuiteLabelsField
+                disabled={isSaving}
                 availableLabels={availableLabels}
                 value={labelsText}
                 onChange={setLabelsText}
@@ -293,16 +298,7 @@ export function SuiteCreateModal({
                   </FormField>
                 </details>
               ) : null}
-              <aside className="suite-reference-pro-tip">
-                <InfoTooltip
-                  content="Suites can be exported to the connected workspace after creation. Keep labels aligned with your project tags."
-                  label="Suite creation tip"
-                />
-                <div>
-                  <strong>Pro Tip</strong>
-                  <p>Suites can be exported to the connected workspace after creation. Ensure the labels match your project tags.</p>
-                </div>
-              </aside>
+
             </section>
 
             <div className="suite-modal-picker-shell">
@@ -313,7 +309,7 @@ export function SuiteCreateModal({
                 allowReorder
                 disabled={isSaving}
                 emptyMessage="No test cases available in this app type yet."
-                heading="Test Case Selection"
+                heading="Choose test cases"
                 presentation="inline"
                 selectionContext="suite"
                 onChange={setLocalSelectedIds}

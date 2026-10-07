@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendKnowledgeProgressEvent, consumeKnowledgeAssistantStream, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeProgressDescription, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../../frontend/lib/knowledgeAssistantStream.ts";
+import { appendKnowledgeProgressEvent, consumeKnowledgeAssistantStream, isKnowledgeAnswerDelta, KnowledgeStreamError, knowledgeTurnNotice, knowledgeProgressLabel, knowledgeProgressDescription, knowledgeModelFailureMessage, knowledgeElapsedLabel, resumePendingKnowledgeTurn } from "../../frontend/lib/knowledgeAssistantStream.ts";
 
 const progress = { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "LEXICAL_SEARCH", status: "IN_PROGRESS", message: "Searching café notes" };
 const result = { assistant_message: { id: "answer", role: "assistant", content: "Answer", citations: [] } };
@@ -113,4 +113,52 @@ test("provider retry progress stays in the same SSE request and resolves only th
   const answer = await consumeKnowledgeAssistantStream(streamed(`${event("progress", retry)}${event("result", result)}`), { onProgress: (item) => events.push(item) });
   assert.deepEqual(answer, result);
   assert.deepEqual(events, [retry]);
+});
+
+const delta = (text, sequence = 0, answerId = "answer") => ({ contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: answerId, sequence, text });
+
+test("checked answer delivery preserves split Unicode and completes only with the matching saved result", async () => {
+  const final = { assistant_message: { ...result.assistant_message, content: "Café 🧪 evidence" } };
+  const received = [];
+  const answer = await consumeKnowledgeAssistantStream(streamed(`${event("answer_delta", delta("Café 🧪 "))}${event("answer_delta", delta("evidence", 1))}${event("result", final)}`), { onAnswerDelta: item => received.push(item) });
+  assert.equal(received.map(item => item.text).join(""), final.assistant_message.content);
+  assert.deepEqual(answer, final);
+});
+
+test("unchecked, reordered, mixed-answer and mismatched deltas never complete a turn", async () => {
+  assert.equal(isKnowledgeAnswerDelta({ ...delta("text"), verification: "pending" }), false);
+  assert.equal(isKnowledgeAnswerDelta({ ...delta("text"), sequence: 0.5 }), false);
+  assert.equal(isKnowledgeAnswerDelta({ ...delta("text"), text: "x".repeat(4097) }), false);
+  for (const source of [
+    event("answer_delta", { ...delta("Answer"), verification: "pending" }),
+    event("answer_delta", delta("Answer", 1)),
+    event("answer_delta", delta("An")) + event("answer_delta", delta("swer", 1, "another-answer")),
+    event("answer_delta", delta("Another")) + event("result", result),
+    event("answer_delta", delta("Answer")) + event("result", { pending: true })
+  ]) await assert.rejects(consumeKnowledgeAssistantStream(streamed(source)), error => error instanceof KnowledgeStreamError);
+  await assert.rejects(consumeKnowledgeAssistantStream(streamed(event("answer_delta", delta("Answer")))), error => error.code === "STREAM_INTERRUPTED");
+});
+
+test("unknown extension events are ignored and terminal result closes the reader immediately", async () => {
+  const source = `event: future-extension\ndata: plain extension data\n\n${event("result", result)}event: error\ndata: invalid trailing data\n\n`;
+  assert.deepEqual(await consumeKnowledgeAssistantStream(streamed(source, 1000)), result);
+});
+
+test("connection recovery checks the same turn once and never retries authorization failures", async () => {
+  let calls = 0, reconnects = 0;
+  const answer = await resumePendingKnowledgeTurn(async () => { calls++; if (calls === 1) throw new KnowledgeStreamError("Disconnected", "STREAM_INTERRUPTED"); return result; }, { maxConnectionRetries: 1, connectionRetryDelayMs: 0, onReconnecting: () => reconnects++ });
+  assert.deepEqual(answer, result);
+  assert.equal(calls, 2);
+  assert.equal(reconnects, 1);
+  calls = 0;
+  await assert.rejects(resumePendingKnowledgeTurn(async () => { calls++; throw new KnowledgeStreamError("Denied", "HTTP_403", false); }, { maxConnectionRetries: 1 }), error => error.code === "HTTP_403");
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(resumePendingKnowledgeTurn(async () => { calls++; throw new KnowledgeStreamError("Disconnected", "STREAM_INTERRUPTED"); }, { maxConnectionRetries: 1, connectionRetryDelayMs: 0 }), error => error.code === "STREAM_INTERRUPTED");
+  assert.equal(calls, 2);
+});
+
+test("an underlying reader failure is classified as an interrupted connection for same-turn recovery", async () => {
+  const response = new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Socket closed")); } }));
+  await assert.rejects(consumeKnowledgeAssistantStream(response), error => error instanceof KnowledgeStreamError && error.code === "STREAM_INTERRUPTED");
 });

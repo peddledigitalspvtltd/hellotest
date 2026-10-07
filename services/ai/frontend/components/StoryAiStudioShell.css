@@ -85,12 +85,26 @@ html body .modal-backdrop > .modal-card.story-ai-workbench-dialog {
 .story-studio-shell .ai-smart-context-card { background: #f1f3ff !important; border-color: #c3c6d6 !important; }
 
 .story-studio-review-actions { display: contents; border: 0; padding: 0; margin: 0; }
+.story-studio-shell { --story-studio-text: var(--app-text, #172433); --story-studio-text-subtle: var(--app-text-muted, #64737e); color: var(--app-text, #172433); background: var(--app-surface, #fff); }
+.story-studio-shell .story-studio-workbench,
+.story-studio-shell .story-studio-workbench.is-intelligence-open { grid-template-columns: 320px minmax(0, 1fr); }
+.story-studio-shell .story-studio-workbench.is-context-collapsed { grid-template-columns: minmax(0, 1fr); }
+.story-studio-shell .story-studio-flow-pane { position: absolute; z-index: 8; inset: 0 0 0 auto; width: min(330px, 100%); color: var(--app-text, #172433); background: var(--app-surface, #fff); border-color: var(--app-border, #dce5e4); box-shadow: -18px 0 40px rgb(20 40 40 / .08); }
+.story-studio-shell .story-studio-output-workspace > .ai-generation-progress { margin: 16px 20px; }
+@media (max-width: 1000px) {
+  .story-studio-shell .story-studio-workbench,
+  .story-studio-shell .story-studio-workbench.is-intelligence-open { grid-template-columns: 280px minmax(0, 1fr); }
+  .story-studio-shell .story-studio-workbench.is-context-collapsed { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .story-studio-shell .story-studio-settings-pane:not([hidden]) { position: absolute; z-index: 7; inset: 0; background: var(--app-surface, #fff); }
+}
 .story-studio-gherkin-inclusion-note { margin: 12px 16px; color: #434654; font-size: 12px; line-height: 18px; }
 html body .story-studio-shell .ai-test-generator-header__actions input { height: 20px !important; min-height: 20px !important; padding: 0 !important; background: transparent !important; background-color: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
 /* Match the rendered Test Case workbench's inner frame and fixed rows. */
 @media (min-width: 721px) {
-  html body .modal-backdrop > .modal-card.story-ai-workbench-dialog { padding: 18px !important; background: #fff !important; }
-  .story-studio-shell { gap: 14px; background: #fff; }
+  html body .modal-backdrop > .modal-card.story-ai-workbench-dialog { padding: 18px !important; background: var(--app-surface, #fff) !important; }
+  .story-studio-shell { gap: 14px; background: var(--app-surface, #fff); }
   .story-studio-shell .story-studio-main-pane { grid-template-rows: 76px auto minmax(0, 1fr) 84px; }
   .story-studio-shell .story-studio-queue { grid-template-rows: 52px minmax(0, 1fr); }
 }
@@ -101,28 +115,29 @@ html body .story-studio-shell .ai-test-generator-header__actions input { height:
 html body .story-ai-workbench-dialog .story-studio-shell .ai-test-generator-header__actions label > input.story-studio-search { background: transparent !important; background-color: transparent !important; min-height: 20px !important; padding: 0 !important; border-radius: 0 !important; border: 0 !important; box-shadow: none !important; }
 
 .story-ai-workbench-dialog {
-  --dialog-canvas: #faf9ff;
-  --dialog-surface: #fff;
-  --dialog-surface-subtle: #f1f3ff;
-  --dialog-ink: #051a3e;
-  --dialog-text: #051a3e;
-  --dialog-muted: #434654;
-  --dialog-divider: #c3c6d6;
-  --text-primary: #051a3e;
-  --text-secondary: #434654;
-  --surface-color: #faf9ff;
-  --border-color: #c3c6d6;
-  color-scheme: light;
+  --dialog-canvas: var(--app-surface-muted, #f5f8f7);
+  --dialog-surface: var(--app-surface, #fff);
+  --dialog-surface-subtle: var(--app-surface-muted, #f5f8f7);
+  --dialog-ink: var(--app-text, #172433);
+  --dialog-text: var(--app-text, #172433);
+  --dialog-muted: var(--app-text-muted, #64737e);
+  --dialog-divider: var(--app-border, #dce5e4);
+  --text-primary: var(--app-text, #172433);
+  --text-secondary: var(--app-text-muted, #64737e);
+  --surface-color: var(--app-surface, #fff);
+  --border-color: var(--app-border, #dce5e4);
 }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell :is(h1, h2, h3, label, .form-field-label, .ai-llm-select) { color: #051a3e !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell .ai-test-generator-header h1 { color: #003d9b !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(h1, h2, h3, label, .form-field-label, .ai-llm-select) { color: var(--app-text, #172433) !important; }
 html body .story-ai-workbench-dialog .story-studio-shell .ai-prompt-context-panel { background: transparent !important; background-image: none !important; box-shadow: none !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"])) { color: #051a3e !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell :is(input, textarea)::placeholder { color: #687389 !important; opacity: 1; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"])) { color: var(--app-text, #172433) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(input, textarea)::placeholder { color: var(--app-text-muted, #64737e) !important; opacity: 1; }
 .story-studio-shell .story-studio-rovo-provider { grid-template-columns: auto minmax(0, 1fr); }
 .story-studio-shell .story-studio-rovo-provider > :is(.rovo-provider-state, .rovo-provider-actions, .rovo-provider-checked) { grid-column: 2; justify-self: start; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"]):not(.story-studio-search)) { background: #fff !important; background-color: #fff !important; border-color: #c3c6d6 !important; color: #051a3e !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell .story-studio-rovo-provider { background: #f1f3ff !important; border-color: #c3c6d6 !important; color: #051a3e !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell .rovo-provider-copy :is(strong, span, small),
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell .rovo-provider-checked { color: #434654 !important; }
-html:root[data-theme="dark"] .story-ai-workbench-dialog .story-studio-shell .ai-prompt-template-trigger { background: #e1e8ff !important; border-color: #c3c6d6 !important; color: #434654 !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(textarea, select, input:not([type="checkbox"]):not(.story-studio-search)) { background: var(--app-surface, #fff) !important; border-color: var(--app-border, #dce5e4) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(.story-studio-rovo-provider, .ai-smart-context-card, .ai-prompt-template-trigger) { background: var(--app-surface-muted, #f5f8f7) !important; border-color: var(--app-border, #dce5e4) !important; color: var(--app-text, #172433) !important; }
+html body .story-ai-workbench-dialog .story-studio-shell :is(.rovo-provider-copy, .rovo-provider-checked, .story-studio-gherkin-inclusion-note) { color: var(--app-text-muted, #64737e) !important; }
+/* Allow long generated proposals to scroll without losing the action footer. */
+.story-studio-shell .story-studio-main-pane { grid-template-rows:auto auto auto minmax(0,1fr) auto; }
+.story-studio-shell .story-studio-output-workspace { overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.story-studio-shell .story-studio-output-workspace :is(.story-studio-inspector,.story-studio-queue) { min-width:0; }
+.story-studio-shell .story-studio-output-workspace :is(pre,p,textarea) { overflow-wrap:anywhere; }

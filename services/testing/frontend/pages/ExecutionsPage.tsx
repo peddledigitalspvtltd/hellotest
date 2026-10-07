@@ -64,7 +64,6 @@ import { EntityIdBadge } from "@hellotest/platform/frontend/src/shared/component
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
 import { ExecutionContextSelector } from "../components/ExecutionContextSelector";
 import { EvidenceFlipCard } from "@hellotest/platform/frontend/src/shared/components/EvidenceFlipCard";
-import { RunEditDialog } from "../components/RunEditDialog";
 import { RunResultChart } from "../components/RunResultChart";
 import { RunReviewDialog } from "../components/RunReviewDialog";
 import { CaseRunAttachmentPanel } from "../components/CaseRunAttachmentPanel";
@@ -1483,7 +1482,6 @@ export function ExecutionsPage() {
   const [expandedExecutionStepSections, setExpandedExecutionStepSections] = useState({ preconditions: true, testSteps: true });
   const [expandedExecutionStepIds, setExpandedExecutionStepIds] = useState<string[]>([]);
   const [bulkSelectedStepIds, setBulkSelectedStepIds] = useState<string[]>([]);
-  const [editingRunId, setEditingRunId] = useState("");
   const [runConfigurationResource, setRunConfigurationResource] = useState<RunConfigurationResource | null>(null);
   const [isRunEvidenceAnalysisOpen, setIsRunEvidenceAnalysisOpen] = useState(false);
   const [isRunWorkflowOpen, setIsRunWorkflowOpen] = useState(false);
@@ -2185,6 +2183,12 @@ export function ExecutionsPage() {
     setScheduleModalMode("create");
     setIsCreateScheduleModalOpen(true);
   };
+
+  useEffect(() => {
+    if (searchParams.get("create_plan") !== "1" || !canCreateSchedules || !projectId || testRunsView !== "scheduled-runs") return;
+    openCreateScheduleBuilder();
+    setSearchParams(current => { const next = new URLSearchParams(current); next.delete("create_plan"); return next; }, {replace:true});
+  }, [searchParams, canCreateSchedules, projectId, testRunsView]);
 
   const openEditScheduleBuilder = (schedule: ExecutionSchedule) => {
     if (!canUpdateSchedules) {
@@ -5477,26 +5481,26 @@ export function ExecutionsPage() {
         : !selectedExecution;
   const runLibraryTitle =
     testRunsView === "suite-runs"
-        ? "Suite runs"
+        ? "Runs"
         : testRunsView === "local-runs"
-          ? "Local runs"
+          ? "Runs"
         : testRunsView === "scheduled-runs"
-          ? "Scheduled runs"
+          ? "Test Plans"
           : "Batch process";
   const runLibrarySubtitle =
     testRunsView === "suite-runs"
-        ? "Browse suite and individual case runs, inspect their results, and update active run plans."
+        ? "Review suite, local and schedule-triggered runs and their results."
         : testRunsView === "local-runs"
-          ? "Review runs launched directly against your local Playwright runner without using the Test Engine queue."
+          ? "Review suite, local and schedule-triggered runs and their results."
         : testRunsView === "scheduled-runs"
-          ? "Keep recurring release checks separate from live runs, then launch one instantly when the team is ready."
+          ? "Plan recurring checks and launch them when the team is ready."
           : "Track imports, exports, AI generation, and other long-running background work in one place.";
   const runLibrarySearchPlaceholder =
     testRunsView === "scheduled-runs"
-      ? "Search scheduled runs"
+      ? "Search test plans"
       : testRunsView === "batch-process"
         ? "Search batch process records"
-        : `Search ${testRunsView === "local-runs" ? "local runs" : "suite runs"}`;
+        : "Search runs";
   const runLibrarySearchTitle =
     testRunsView === "scheduled-runs"
       ? "Filter scheduled runs"
@@ -5644,32 +5648,8 @@ export function ExecutionsPage() {
       return true;
     });
   }, [deferredExecutionSearch, executionEvidenceFilter, executionIdsWithEvidence, executionIssueFilter, executionStatusFilter, executionSummaryById, executions, projectNameById]);
-  const filteredSuiteExecutions = useMemo(
-    () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs"),
-    [filteredExecutions]
-  );
-  const filteredLocalExecutions = useMemo(
-    () => filteredExecutions.filter((execution) => resolveExecutionRunBucket(execution) === "local-runs"),
-    [filteredExecutions]
-  );
-  const activeExecutionCatalogRows = useMemo(
-    () =>
-      testRunsView === "suite-runs"
-          ? filteredSuiteExecutions
-          : testRunsView === "local-runs"
-            ? filteredLocalExecutions
-          : [],
-    [filteredLocalExecutions, filteredSuiteExecutions, testRunsView]
-  );
-  const availableExecutionCatalogRows = useMemo(
-    () =>
-      testRunsView === "suite-runs"
-          ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "suite-runs")
-          : testRunsView === "local-runs"
-            ? executions.filter((execution) => resolveExecutionRunBucket(execution) === "local-runs")
-          : [],
-    [executions, testRunsView]
-  );
+  const activeExecutionCatalogRows = isExecutionRunsView(testRunsView) ? filteredExecutions : [];
+  const availableExecutionCatalogRows = isExecutionRunsView(testRunsView) ? executions : [];
 
   const filteredSchedules = useMemo(() => {
     const search = deferredExecutionSearch.trim().toLowerCase();
@@ -5831,10 +5811,7 @@ export function ExecutionsPage() {
       ? selectedActionScheduleIds
       : selectedActionOperationIds;
   const areAllFilteredRunLibraryItemsSelected = visibleRunLibraryIds.length > 0 && visibleRunLibraryIds.every((id) => selectedRunLibraryActionIds.includes(id));
-  const runSelectedForEditing = isExecutionRunsView(testRunsView) && selectedActionExecutionIds.length === 1
-    ? availableExecutionCatalogRows.find((execution) => execution.id === selectedActionExecutionIds[0]) || null
-    : null;
-  const canEditSelectedRun = Boolean(canUpdateRuns && runSelectedForEditing && !isRunFinished(runSelectedForEditing));
+
 
   useEffect(() => {
     setSelectedActionExecutionIds([]);
@@ -6124,7 +6101,6 @@ export function ExecutionsPage() {
     { key: "startDate", label: "Start date", render: (execution) => execution.start_date?.slice(0, 10) || "Not planned" },
     { key: "endDate", label: "End date", render: (execution) => execution.end_date?.slice(0, 10) || "Not planned" },
     { key: "duration", label: "Duration", render: (execution) => formatDuration(execution.metrics?.duration_ms ?? executionSummaryById[execution.id]?.totalDurationMs ?? 0, "0s") },
-    { key: "edit", label: "Actions", render: (execution) => (canUpdateRuns ? (<button aria-label={`Edit ${execution.name || "run"}`} className="ghost-button" disabled={!canUpdateRuns || isRunFinished(execution)} onClick={(event) => { event.stopPropagation(); setEditingRunId(execution.id); }} type="button"><IconPencil size={16} />Edit run</button>) : null) }
   ], [canUpdateRuns, executionImpactSummaryById, liveNow]);
   const executionScheduleListColumns = useMemo<Array<DataTableColumn<ExecutionSchedule>>>(() => [
     {
@@ -6816,7 +6792,6 @@ export function ExecutionsPage() {
 
           <div className="execution-command-actions" aria-label="Execution actions">
             {canExportRunReports ? (<button className="execution-command-button" disabled={!canExportRunReports || htmlReportMutation.isPending} type="button" onClick={() => void handleOpenHtmlReport()}><IconExternalLink size={18} aria-hidden="true" /><span>{htmlReportMutation.isPending ? "Preparing report…" : "Detailed report"}</span></button>) : null}
-            {canUpdateRuns ? (<button className="execution-command-button" disabled={!canUpdateRuns || isRunFinished(selectedExecution)} onClick={() => setEditingRunId(selectedExecution.id)} type="button"><IconPencil size={18} /><span>Edit run</span></button>) : null}
             <button
               className="execution-command-button is-primary"
               disabled={primaryActionDisabled}
@@ -7557,14 +7532,14 @@ export function ExecutionsPage() {
               <ExecutionEditIcon />
               <span>Edit schedule</span>
             </button>) : null}
-            {canCreateSchedules ? (<button
+            {testRunsView === "scheduled-runs" && canCreateSchedules ? (<button
               className="execution-command-button"
               disabled={!canCreateSchedules}
               onClick={openCreateScheduleBuilder}
               type="button"
             >
               <AddIcon />
-              <span>New schedule</span>
+              <span>Add test plan</span>
             </button>) : null}
             {canDeleteSchedules ? (<button
               className="execution-command-button is-danger"
@@ -7834,14 +7809,14 @@ export function ExecutionsPage() {
       {showExecutionListHeader ? (
         <>
           <PageHeader
-            eyebrow="Test Runs"
+            eyebrow={testRunsView === "scheduled-runs" ? "Test Plan" : "Test Runs & Results"}
             title={
               testRunsView === "suite-runs"
-                  ? "Suite Runs"
+                  ? "Runs"
                   : testRunsView === "local-runs"
-                    ? "Local Runs"
+                    ? "Runs"
                   : testRunsView === "scheduled-runs"
-                    ? "Scheduled Runs"
+                    ? "Test Plans"
                     : "Batch Process"
             }
             description={
@@ -7976,28 +7951,20 @@ export function ExecutionsPage() {
                   }}
                   selectedCount={selectedRunLibraryActionIds.length}
                 />
-                {isExecutionRunsView(testRunsView) ? (
-                  <button
-                    aria-label="Edit selected run"
-                    className="ghost-button"
-                    disabled={!canEditSelectedRun}
-                    onClick={() => { if (canEditSelectedRun && runSelectedForEditing) setEditingRunId(runSelectedForEditing.id); }}
-                    title={!runSelectedForEditing ? "Select one run to edit" : isRunFinished(runSelectedForEditing) ? "Finished runs cannot be edited" : !canUpdateRuns ? "Permission required to edit runs" : `Edit ${runSelectedForEditing.name || "selected run"}`}
-                    type="button"
-                  ><IconPencil aria-hidden="true" size={16} />Edit Run</button>
-                ) : null}
+
               </div>
               {testRunsView !== "batch-process" ? (
                 <div className="catalog-toolbar-actions executions-run-actions" aria-label="Run actions">
-                  {canCreateSchedules ? (<button
+                  {testRunsView === "scheduled-runs" && canCreateSchedules ? (<button
                     className="ghost-button"
                     disabled={!canCreateSchedules}
                     onClick={openCreateScheduleBuilder}
                     type="button"
                   >
                     <CalendarIcon />
-                    Schedule Run
+                    Add test plan
                   </button>) : null}
+                  {isExecutionRunsView(testRunsView) ? (
                   <CreateRunActionButton
                     projectId={projectId}
                     source="TEST_RUNS"
@@ -8005,6 +7972,7 @@ export function ExecutionsPage() {
                     onCreateLocalRun={() => openExecutionBuilder("local")}
                     onCreateRemoteRun={() => openExecutionBuilder("remote")}
                   />
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -8023,8 +7991,6 @@ export function ExecutionsPage() {
                   ? activeExecutionCatalogRows.map((execution) => (
                       <ExecutionListCard
                         key={execution.id}
-                        canEdit={canUpdateRuns && !isRunFinished(execution)}
-                        onEdit={() => setEditingRunId(execution.id)}
                         execution={execution}
                         isActive={selectedExecution?.id === execution.id}
                         isSelected={selectedActionExecutionIds.includes(execution.id)}
@@ -8356,7 +8322,7 @@ export function ExecutionsPage() {
                     </button>
                     <button className="ghost-button" onClick={openCreateScheduleBuilder} type="button">
                       <CalendarIcon />
-                      <span>New schedule</span>
+                      <span>Add test plan</span>
                     </button>
                     <button className="primary-button" onClick={() => void handleRunExecutionSchedule(selectedSchedule.id)} type="button">
                       Run now
@@ -8372,7 +8338,7 @@ export function ExecutionsPage() {
                   <div className="action-row">
                     <button className="ghost-button" onClick={openCreateScheduleBuilder} type="button">
                       <CalendarIcon />
-                      <span>Create schedule</span>
+                      <span>Add test plan</span>
                     </button>
                   </div>
                 </div>
@@ -9886,7 +9852,6 @@ export function ExecutionsPage() {
 
       {historyResult ? <ExecutionAttemptDialog result={historyResult} runName={executionById[historyResult.execution_id]?.name || "Case run history"} canViewEvidence={canViewRunEvidence} onClose={() => setHistoryResult(null)} /> : null}
 
-      {editingRunId ? <RunEditDialog executionId={editingRunId} assigneeOptions={assigneeOptions} canRunLocalAutomation={canRunLocalAutomation} canRunRemoteAutomation={canRunRemoteAutomation} canConfigureParallelAutomation={canConfigureParallelAutomation} onClose={() => setEditingRunId("")} onSaved={() => { setMessage("Run updated."); setMessageTone("success"); }} /> : null}
       {selectedExecution && runConfigurationResource ? <RunConfigurationDialog resource={runConfigurationResource} projectId={selectedExecution.project_id} appTypeId={selectedExecution.app_type_id} resourceId={runConfigurationResource === "environment" ? selectedExecution.test_environment?.id : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.id : selectedExecutionCaseSnapshot?.test_data_set_id || selectedExecution.test_data_set?.id} snapshot={runConfigurationResource === "environment" ? selectedExecution.test_environment?.snapshot : runConfigurationResource === "configuration" ? selectedExecution.test_configuration?.snapshot : selectedExecutionCaseSnapshot?.test_data_set_snapshot || selectedExecution.test_data_set?.snapshot} onClose={() => setRunConfigurationResource(null)} /> : null}
 
       {selectedExecution && isExecutionContextModalOpen ? (
@@ -10556,7 +10521,7 @@ function resolveExecutionAssigneeSummary(execution?: Pick<Execution, "assigned_u
 
 export function ExecutionListCard({ execution, summary, impactSummary, liveNow, isActive, isSelected, onSelect, onToggleSelected }: {
   execution: Execution; summary: ExecutionRunSummary; impactSummary: ExecutionRunImpactSummary; liveNow: number;
-  isActive: boolean; isSelected: boolean; canEdit: boolean; onSelect: () => void; onToggleSelected: () => void; onEdit: () => void;
+  isActive: boolean; isSelected: boolean; onSelect: () => void; onToggleSelected: () => void;
 }) {
   const totalScopedCases = execution.metrics?.total_cases ?? (executionScopeCaseCount(execution) || summary.caseCount || 0);
   const expectedOutcomeCount = execution.case_snapshots?.length ? executionExpectedOutcomeCount(execution) : totalScopedCases * executionDataIterationCount(execution);
@@ -13563,7 +13528,7 @@ function CreateExecutionScheduleModal({
           <div className="execution-create-header">
             <div className="execution-create-title">
               <p className="dialog-context-label">Scheduled runs</p>
-              <h2 className="dialog-title" id="create-execution-schedule-title">{isEditing ? "Edit schedule" : "Create schedule"}</h2>
+              <h2 className="dialog-title" id="create-execution-schedule-title">{isEditing ? "Edit schedule" : "Add test plan"}</h2>
               <p>{isEditing ? "Adjust the recurring run without losing its run history or current scope." : "Save a recurring run separately from the live run board, then launch it when needed."}</p>
             </div>
             <button aria-label={`Close ${isEditing ? "edit" : "create"} schedule dialog`} className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
@@ -13690,7 +13655,7 @@ function CreateExecutionScheduleModal({
 
           <div className="action-row execution-create-actions">
             <button className="primary-button" disabled={!projectId || !appTypeId || !selectedSuiteIds.length || !nextRunAt || isSubmitting} type="submit">
-              {isSubmitting ? "Saving…" : isEditing ? "Save schedule" : "Create schedule"}
+              {isSubmitting ? "Saving…" : isEditing ? "Save schedule" : "Add test plan"}
             </button>
             <button className="ghost-button" disabled={isSubmitting} onClick={onClose} type="button">
               Cancel

@@ -2,7 +2,7 @@
 
 Reusable acceptance backlog for the current implemented product. Demo releases and sprint dates are illustrative planning metadata, not production commitments or executed test results.
 
-59 acceptance stories · 7 sprints · 3 illustrative releases
+60 acceptance stories · 7 sprints · 3 illustrative releases
 
 Authored with AI assistance and reviewed against repository sources. No model response, test execution or production release is fabricated by installation.
 
@@ -945,6 +945,26 @@ Acceptance criteria:
 - Respect disabled AI feature controls even when a prompt template exists.
 
 Boundary: Do not embed real provider credentials in reusable sample prompts or claim a live model response when none ran.
+
+#### browser-quality-agents: Execute reviewed browser quality checks with traceable evidence
+
+As a Quality Engineer, I want to run reviewed web, security, performance, accessibility and visual checks against an explicitly scoped application.
+
+A typed browser plan is reviewed before execution. Durable scoped jobs return recorded stages, measured metrics, findings and authenticated screenshot artifacts. Findings can become reviewed Defects and visual captures can become explicitly approved baselines.
+
+- Status: ready; priority: P2; effort: 8 story points.
+- Sprint: HT 06 · Grounded intelligence. Release: HelloTest Intelligence & Operations · sample; fix version: demo-intelligence-1.0.
+- Team: HelloTest Intelligence. Labels: sample, hellotest-core, intelligence, quality-agents.
+- Sources: `services/agentic/frontend/quality/QualityAgentLab.tsx`, `services/agentic/backend/services/qualityAgents.service.js`, `testengine/backend/src/lib/qualityAgents/runtime.ts`.
+
+Acceptance criteria:
+
+- Select one of five default agents, a scoped target URL and bounded browser settings; review concrete journey steps before running a web goal.
+- Inspect actual execution stages, measurements, findings and screenshots; stop a queued or running job without late responses replacing its cancelled state.
+- Compare matching visual captures against a human-approved baseline; preserve viewport, target, masks, reviewer and screenshot integrity.
+- Review and edit a finding-derived Defect draft before saving through the authorized Defects API.
+
+Boundary: Missing browser infrastructure or incomplete steps block execution. Passive security, single-navigation performance and automated accessibility checks disclose their limits; an unapproved visual capture cannot claim a passed regression.
 
 ### Insights and operations
 

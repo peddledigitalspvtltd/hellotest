@@ -5,6 +5,7 @@ import { resolveServiceBase } from "@hellotest/platform/frontend/src/platform/li
 import { API_BASE_URL, request, requestBlob, requestForm, toQueryString } from "@hellotest/platform/frontend/src/lib/httpClient";
 
 import type { AgentDefinition, ProjectAgent } from "./agents/agentDefinitions";
+import type { QualityAgentBaseline, QualityAgentCatalog, QualityAgentKind, QualityAgentLaunch, QualityAgentPlan, QualityAgentPlanInput, QualityAgentRun } from "./lib/qualityAgentContracts";
 
 type AgenticApiAgentTestInput = {
   project_id: string;
@@ -24,6 +25,18 @@ export const agenticApi = {
     revoke: (projectId:string,id:string) => request(`/agentic-workflows/mcp/credentials/${encodeURIComponent(id)}${toQueryString({project_id:projectId})}`,{method:"DELETE"}),
     plans: (projectId:string) => request<Array<{id:string;client_id:string;operation_id:string;operation:{method:string;path:string;permission:string};arguments:Record<string,unknown>;digest:string;state:string;expires_at:string;receipt?:Record<string,unknown>}>>(`/agentic-workflows/mcp/plans${toQueryString({project_id:projectId})}`),
     authorize: (projectId:string,id:string,digest:string) => request(`/agentic-workflows/mcp/plans/${encodeURIComponent(id)}/authorize`,{method:"POST",body:JSON.stringify({project_id:projectId,digest})}),
+  },
+  qualityAgents: {
+    catalog: (scope: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<QualityAgentCatalog>(`/agentic-quality/catalog${toQueryString(scope)}`, { signal: options?.signal }),
+    plan: (input: QualityAgentPlanInput, options?: { signal?: AbortSignal }) => request<QualityAgentPlan>("/agentic-quality/plan", { method: "POST", body: JSON.stringify(input), signal: options?.signal }, AI_REQUEST_TIMEOUT_MS),
+    list: (scope: { project_id: string; app_type_id?: string; limit?: number }, options?: { signal?: AbortSignal }) => request<{ items: QualityAgentRun[] }>(`/agentic-quality/runs${toQueryString(scope)}`, { signal: options?.signal, cache: "no-store" }),
+    get: (id: string, options?: { signal?: AbortSignal }) => request<QualityAgentRun>(`/agentic-quality/runs/${encodeURIComponent(id)}`, { signal: options?.signal, cache: "no-store" }),
+    start: (input: QualityAgentLaunch, options?: { signal?: AbortSignal; idempotencyKey?: string }) => request<QualityAgentRun>("/agentic-quality/runs", { method: "POST", body: JSON.stringify(input), signal: options?.signal, headers: options?.idempotencyKey ? { "Idempotency-Key": options.idempotencyKey } : undefined }),
+    cancel: (id: string, options?: { signal?: AbortSignal }) => request<QualityAgentRun>(`/agentic-quality/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", signal: options?.signal }),
+    artifact: (id: string, artifactId: string, options?: { signal?: AbortSignal }) => requestBlob(`/agentic-quality/runs/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`, { signal: options?.signal }),
+    baselines: (scope: { project_id: string; app_type_id?: string }, options?: { signal?: AbortSignal }) => request<{ items: QualityAgentBaseline[] }>(`/agentic-quality/baselines${toQueryString(scope)}`, { signal: options?.signal, cache: "no-store" }),
+    baselineImage: (id: string, options?: { signal?: AbortSignal }) => requestBlob(`/agentic-quality/baselines/${encodeURIComponent(id)}/artifact`, { signal: options?.signal }),
+    approveBaseline: (id: string, input: { artifact_id: string; label?: string }, options?: { signal?: AbortSignal }) => request<QualityAgentBaseline>(`/agentic-quality/runs/${encodeURIComponent(id)}/baseline`, { method: "POST", body: JSON.stringify(input), signal: options?.signal }),
   },
   agentDefinitions: {
     list: (projectId: string, options?: { signal?: AbortSignal }) => request<ProjectAgent[]>(`/agentic-workflows/agents${toQueryString({ project_id: projectId })}`, { signal: options?.signal }),

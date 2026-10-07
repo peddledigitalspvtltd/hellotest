@@ -11,10 +11,10 @@ import type { OpsMonitoringSection } from "@hellotest/platform/frontend/src/type
 import "./OpsMonitoringWorkspace.css";
 
 const tabs = [
-  { id: "ai", label: "AI calls", description: "Model requests, responses, errors and performance for this project", admin: false },
   { id: "dashboard", label: "Dashboard", description: "Live and historical runtime metrics", admin: true },
   { id: "logs", label: "Infrastructure logs", description: "Container and TestGrid worker logs across the deployment", admin: true },
   { id: "traces", label: "Distributed traces", description: "Follow requests across services", admin: true },
+  { id: "ai", label: "AI calls", description: "Model requests, responses, errors and performance for this project", admin: false },
   { id: "alerts", label: "Alerts", description: "Active and suppressed operational alerts", admin: true },
   { id: "health", label: "Service health", description: "Application readiness and monitoring component health", admin: false }
 ] as const;
@@ -58,9 +58,9 @@ export function OpsMonitoringWorkspace({ projectId }: { projectId: string }) {
   const { session } = useAuth();
   const [params, setParams] = useSearchParams();
   const visibleTabs = tabs.filter(tab => !tab.admin || session?.user.role === "admin");
-  const requested = params.get("monitoring") || "ai";
+  const requested = params.get("monitoring") || visibleTabs[0].id;
   const canonical = requested === "grafana" ? "dashboard" : requested === "project" ? "logs" : requested;
-  const selected = visibleTabs.some(tab => tab.id === canonical) ? canonical : "ai";
+  const selected = visibleTabs.some(tab => tab.id === canonical) ? canonical : visibleTabs[0].id;
   const select = (id: string) => setParams(current => { const next = new URLSearchParams(current); next.set("monitoring", id); return next; }, { replace: true });
   useEffect(() => { if (requested !== selected) select(selected); }, [requested, selected]);
   return <section className="panel card ops-monitoring-workspace" aria-label="OPS telemetry workspace">

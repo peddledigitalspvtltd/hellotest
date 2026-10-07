@@ -7,6 +7,7 @@ import { agentFromSpecialist, definitionNode, newAgentDefinition, type AgentDefi
 import type { AgenticWorkflowNodeData } from '@hellotest/platform/frontend/src/types';
 import type { WorkflowSkill } from '../workflows/specialistProfiles';
 import './AgentDefinitionEditor.css';
+import { validateAgentDefinition } from './agentDefinitionValidation';
 
 const scopes = [['stories', 'Stories'], ['test-cases', 'Test cases'], ['runs', 'Runs'], ['bugs', 'Defects'], ['automation', 'Automation'], ['knowledge', 'Knowledge']];
 export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, providers, busy, error, onClose, onSave }: {
@@ -23,19 +24,20 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
     ...(patch.allowedTools ? { allowed_tools: patch.allowedTools as string[] } : {}),
     ...(patch.guardrails !== undefined ? { guardrails: String(patch.guardrails) } : {}),
   });
-  const valid = Boolean(draft.name.trim() && draft.objective.trim());
+  const issues = validateAgentDefinition(draft);
+  const valid = issues.length === 0;
   return <AiEvidenceFlyout open onClose={() => { if (!busy) onClose(); }} eyebrow="Agentic Studio / Agent builder"
     title={agent ? `Edit ${agent.definition.name}` : 'Create an AI agent'}
-    description="Define the outcome, choose permitted evidence and set the checks for a reviewable result."
-    footer={<div className="agent-editor-footer"><span>{agent ? `Saving creates version ${agent.current_version + 1}. Existing runs keep their version.` : 'Saved to the current project. Activation makes this agent available in workflows.'}</span><div><button type="button" className="ghost-button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="ghost-button" disabled={busy || !valid} onClick={() => onSave(draft, false)}>Save draft</button><button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onSave(draft, true)}>{busy ? 'Saving…' : 'Save and activate'}</button></div></div>}>
+    description="Purpose, evidence and a clear completion contract."
+    footer={<div className="agent-editor-footer">{issues.length ? <button type="button" className="agent-editor-validation" disabled={busy} onClick={() => setTab(issues[0].tab)}>{issues[0].message}{issues.length > 1 ? ` +${issues.length - 1} more` : ''}</button> : <span>{agent ? `Next version: ${agent.current_version + 1}` : 'Saved to this project'} · Activate to make available in workflows.</span>}<div><button type="button" className="ghost-button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="ghost-button" disabled={busy || !valid} onClick={() => onSave(draft, false)}>Save draft</button><button type="button" className="primary-button" disabled={busy || !valid} onClick={() => onSave(draft, true)}>{busy ? 'Saving…' : 'Save and activate'}</button></div></div>}>
     <div className="agent-definition-editor">
-      <div className="agent-model-contract"><IconBrain size={21} /><div><strong>LLM required for every AI run</strong><p>A model failure stops the run. Completion checks and evidence remain visible for review.</p></div></div>
+      <div className="agent-model-contract"><IconBrain size={21} /><div><strong>Model-backed, evidence-driven</strong><p>Runs use your configured LLM. Results include evidence and completion checks.</p></div></div>
       <nav aria-label="Agent configuration">{[['purpose', '1. Purpose'], ['skills', '2. Skills & evidence'], ['completion', '3. Completion & limits']].map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}</nav>
       {error && <div className="agent-editor-error" role="alert">{error}</div>}
       <fieldset disabled={busy}>
         {tab === 'purpose' && <>
           {!agent && <label><span>Start from</span><select defaultValue="" onChange={event => { const source = HELLOTEST_AGENT_CATALOG.find(item => item.id === event.target.value); setDraft(source ? agentFromSpecialist(source.id, source.name) : newAgentDefinition()); setRequiredInputText(""); }}><option value="">Blank agent</option>{HELLOTEST_AGENT_CATALOG.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><small>Use a specialist's skills and context as a starting point.</small></label>}
-          <label><span>Agent name <b>*</b></span><input autoFocus value={draft.name} maxLength={120} onChange={event => change({ name: event.target.value })} placeholder="Release evidence reviewer" /></label>
+          <label><span>Agent name <b>*</b></span><input autoFocus data-autofocus="true" required value={draft.name} maxLength={120} onChange={event => change({ name: event.target.value })} placeholder="Release evidence reviewer" /></label>
           <label><span>Objective <b>*</b></span><textarea value={draft.objective} maxLength={2000} rows={4} onChange={event => change({ objective: event.target.value })} placeholder="Describe the result this agent should produce and who will use it." /></label>
           <label><span>Description</span><input value={draft.description} maxLength={600} onChange={event => change({ description: event.target.value })} placeholder="A short description for the agent library" /></label>
           <label><span>Model connection</span><select value={draft.integration_id} onChange={event => change({ integration_id: event.target.value })}>{providers.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>Activation validates the connection configuration. Each run must receive a valid model response.</small></label>
@@ -46,7 +48,7 @@ export function AgentDefinitionEditor({ agent, initial, projectId, appTypeId, pr
           <section><h3>Evidence scope</h3><p>Only permitted records in this project can be retrieved.</p><div className="agent-scope-grid">{scopes.map(([id, label]) => <label key={id}><input type="checkbox" checked={draft.context_scopes.includes(id)} onChange={event => change({ context_scopes: event.target.checked ? [...draft.context_scopes, id] : draft.context_scopes.filter(value => value !== id) })} /><span>{label}</span></label>)}</div></section>
           {draft.allowed_tools.includes('knowledge_search') && draft.context_scopes.includes('knowledge') && <section><h3>Knowledge sources</h3><p>{draft.source_ids.length ? `${draft.source_ids.length} selected sources. Retrieval uses their current permitted content.` : 'Search all permitted project knowledge, or choose specific sources.'}</p><SmartContextWorkbench projectId={projectId} appTypeId={appTypeId} initialQuery={draft.objective} buttonLabel="Choose knowledge sources" disabled={busy} onApply={selection => change({ source_ids: selection.sourceIds, source_kinds: selection.sourceKinds })} />{draft.source_ids.length > 0 && <button type="button" className="ghost-button" onClick={() => change({ source_ids: [], source_kinds: [] })}>Clear source selection</button>}</section>}
           <label><span>Domain context and examples</span><textarea rows={5} maxLength={4000} value={draft.context} onChange={event => change({ context: event.target.value })} placeholder="Glossary, reviewed examples, assumptions and known limitations." /><small>Context is supplied data. It cannot override tool permissions or platform rules.</small></label>
-          <label><span>Required run inputs</span><input value={requiredInputText} onChange={event => { setRequiredInputText(event.target.value); change({ required_inputs: event.target.value.split(',').map(item => item.trim()).filter(Boolean) }); }} placeholder="release_id, environment" /><small>Comma-separated field names. Provide their values in the task inputs or workflow input JSON.</small></label>
+          <label><span>Required run inputs</span><input value={requiredInputText} aria-describedby="agent-required-input-help" onChange={event => { setRequiredInputText(event.target.value); change({ required_inputs: [...new Set(event.target.value.split(',').map(item => item.trim()).filter(Boolean))] }); }} placeholder="release_id, environment" /><small id="agent-required-input-help">Comma-separated names. Supply values in the task inputs or workflow JSON.</small></label>
         </>}
         {tab === 'completion' && <>
           <section className="agent-completion-contract"><h3><IconShieldCheck size={19} />Completion rules</h3><p>These checks run in application code. A model's claim of success cannot override them.</p>

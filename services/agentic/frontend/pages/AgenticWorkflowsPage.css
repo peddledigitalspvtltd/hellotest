@@ -595,3 +595,9 @@
   .workflow-review-progress { flex-wrap: wrap; }
   .workflow-review-steps { grid-template-columns: minmax(0,1fr); }
 }
+.workflow-catalog-container { display:contents; }
+.workflow-history-dialog { position:relative; width:min(1200px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; padding:24px; }
+.workflow-history-close { float:right; margin-bottom:12px; }
+.workflow-history-dialog .agentic-workflows-toolbar { justify-content:flex-start !important; align-items:center; flex-wrap:wrap; gap:10px; }
+.workflow-history-dialog .catalog-toolbar-discovery { flex:0 1 auto; display:flex; align-items:center; gap:10px; }
+.workflow-history-dialog .catalog-toolbar-actions { margin-left:0 !important; }

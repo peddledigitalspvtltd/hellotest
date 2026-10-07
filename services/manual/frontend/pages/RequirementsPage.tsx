@@ -65,6 +65,8 @@ import { StoryRelatedItemsPanel as RequirementRelatedItemsPanel } from "../compo
 import { DisplayIdBadge } from "@hellotest/platform/frontend/src/shared/components/DisplayIdBadge";
 import { ExternalReferencesField } from "../components/ExternalReferencesField";
 import { FormField } from "@hellotest/platform/frontend/src/shared/components/FormField";
+import { ContextSelect } from "@hellotest/platform/frontend/src/shared/components/ContextSelect";
+import { AuthoringContextMenu } from "@hellotest/platform/frontend/src/shared/components/AuthoringContextMenu";
 import { GherkinEditor } from "@hellotest/testing/frontend/components/GherkinEditor";
 import { InfoTooltip } from "@hellotest/platform/frontend/src/shared/components/InfoTooltip";
 import { HierarchyQuickInsights } from "@hellotest/testing/frontend/components/HierarchyQuickInsights";
@@ -156,6 +158,7 @@ import { readDefaultCatalogViewMode } from "@hellotest/platform/frontend/src/sha
 import type { AiDesignImageInput, AiDesignedTestCaseCandidate, Execution, ExecutionResult, Integration, Issue, Requirement, RequirementDefectLink, RequirementIteration, RequirementRelatedItem, RequirementRelease, StoryGroomingPreviewResponse, TestCase, User } from "@hellotest/platform/frontend/src/types";
 import "./RequirementsPage.ai.css";
 import "./RequirementsPage.import.css";
+import "./RequirementsPage.authoring.css";
 
 type RequirementDraft = {
   title: string;
@@ -1375,9 +1378,11 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     mutationFn: ({ requirementId, requirementIds }: { requirementId: string; requirementIds: string[] }) =>
       api.requirements.replaceRelatedRequirements(requirementId, requirementIds)
   });
+  const aiDesignControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => { aiDesignControllerRef.current?.abort(); }, [projectId, appTypeId]);
   const previewDesignedCases = useMutation({
-    mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1] }) =>
-      api.requirements.previewDesignedTestCases(requirementId, input)
+    mutationFn: ({ requirementId, input, signal }: { requirementId: string; input: Parameters<typeof api.requirements.previewDesignedTestCases>[1]; signal: AbortSignal }) =>
+      api.requirements.previewDesignedTestCases(requirementId, input, { signal })
   });
   const acceptDesignedCases = useMutation({
     mutationFn: ({ requirementId, input }: { requirementId: string; input: Parameters<typeof api.requirements.acceptDesignedTestCases>[1] }) =>
@@ -3079,6 +3084,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
     } : emptyRequirementDraft);
     setCreateRequirementReleaseId(release?.id || "");
     setCreateRelatedRequirementIds([]);
+    setMessage("");
     setIsCreateModalOpen(true);
   };
 
@@ -3283,6 +3289,12 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
   const handleCreateRequirement = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (createRequirement.isPending || appendRequirementReleaseScope.isPending) return;
+    if (!createDraft.title.trim()) {
+      showError(null, "Enter a Story title.");
+      return;
+    }
+
     if (!canCreateRequirements) {
       showError(null, "Permission required to create Stories.");
       return;
@@ -3322,10 +3334,10 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
       const createSprintAssignment = resolveRequirementSprintAssignment(createDraft.sprint, requirementIterations);
       const response = await createRequirement.mutateAsync({
         project_id: projectId,
-        title: createDraft.title,
+        title: createDraft.title.trim(),
         description: createDraft.description || undefined,
         acceptance_criteria: parseStoryAcceptanceCriteria(createDraft.acceptanceCriteriaText),
-        gherkin_scenarios: parseGherkinScenarios(createDraft.gherkinScenariosText),
+        gherkin_scenarios: createDraft.gherkinScenariosText.trim() === STORY_GHERKIN_TEMPLATE.trim() ? [] : parseGherkinScenarios(createDraft.gherkinScenariosText),
         external_references: parseReferenceList(createDraft.externalReferencesText),
         labels: parseReferenceList(createDraft.labelsText),
         ...createSprintAssignment.input,
@@ -3336,7 +3348,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         qa_completion_target_date: toSprintDateTimeIsoValue(createDraft.qaCompletionTargetDate) || undefined,
         scrum_team: createDraft.scrumTeam || undefined,
         specification_format: createDraft.specificationFormat,
-        specification_content: createDraft.specificationContent || undefined,
+        specification_content: createDraft.specificationContent.trim() === STORY_SPECKIT_TEMPLATE.trim() ? undefined : createDraft.specificationContent || undefined,
         priority: createDraft.priority,
         status: createDraft.status,
         additional_fields: createDraft.additionalFields,
@@ -3350,7 +3362,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           project_id: projectId,
           title: createDraft.title,
           description: createDraft.description || null,
-          gherkin_scenarios: parseGherkinScenarios(createDraft.gherkinScenariosText),
+          gherkin_scenarios: createDraft.gherkinScenariosText.trim() === STORY_GHERKIN_TEMPLATE.trim() ? [] : parseGherkinScenarios(createDraft.gherkinScenariosText),
           external_references: parseReferenceList(createDraft.externalReferencesText),
           labels: parseReferenceList(createDraft.labelsText),
           sprint: targetIteration.jira_sprint_name || targetIteration.name,
@@ -4391,8 +4403,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
 	      return;
 	    }
 
+    if (previewDesignedCases.isPending) return;
+    aiDesignControllerRef.current?.abort();
+    const controller = new AbortController();
+    aiDesignControllerRef.current = controller;
     try {
       const response = await previewDesignedCases.mutateAsync({
+        signal: controller.signal,
         requirementId: aiRequirement.id,
         input: {
           app_type_id: appTypeId,
@@ -4405,13 +4422,15 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
         }
       });
 
+      if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
       setPreviewCases(response.cases);
       setPreviewTone("success");
       setPreviewMessage(`${response.generated} ${authoringMode === "gherkin" ? "Gherkin" : "structured"} draft case${response.generated === 1 ? "" : "s"} prepared. Review and edit each draft before accepting.`);
     } catch (error) {
+      if (controller.signal.aborted || aiDesignControllerRef.current !== controller) return;
       setPreviewTone("error");
       setPreviewMessage(error instanceof Error ? error.message : "Unable to preview AI-generated test cases");
-    }
+    } finally { if (aiDesignControllerRef.current === controller) aiDesignControllerRef.current = null; }
   };
 
 	  const handleAcceptDesignedCases = async (selectedClientIds?: string[]) => {
@@ -6326,23 +6345,23 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         <FormField className="story-detail-floating-field story-detail-title-field story-create-floating-field story-create-title-field has-value" label="Story Title" required>
                           <input required value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
                         </FormField>
-                        <FormField className="form-field--compact-enum story-detail-floating-field story-detail-priority-field story-create-floating-field story-create-priority-field has-value" label="Priority" required={jiraRequirementEditCoreRequired.priority}>
-                          <select required={jiraRequirementEditCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: Number(event.target.value) || 3 }))}>
+                        <FormField className="form-field--compact-enum story-detail-floating-field story-detail-priority-field authoring-property-field story-create-floating-field story-create-priority-field has-value" label="Priority" required={jiraRequirementEditCoreRequired.priority}>
+                          <ContextSelect label="Priority" required={jiraRequirementEditCoreRequired.priority} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: Number(event.target.value) || 3 }))}>
                             <option value={1}>1 - Critical</option>
                             <option value={2}>2 - High</option>
                             <option value={3}>3 - Medium</option>
                             <option value={4}>4 - Low</option>
                             <option value={5}>5 - Lowest</option>
-                          </select>
+                          </ContextSelect>
                         </FormField>
-                        <FormField className="form-field--compact-enum story-detail-floating-field story-detail-status-field story-create-floating-field story-create-status-field has-value" label="Status">
-                          <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
+                        <FormField className="form-field--compact-enum story-detail-floating-field story-detail-status-field authoring-property-field story-create-floating-field story-create-status-field has-value" label="Status">
+                          <ContextSelect label="Status" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value }))}>
                             {editRequirementStatusOptions.map((status) => (
                               <option key={status.value} value={status.value}>
                                 {status.label}{status.category_name && status.category_name.toLowerCase() !== status.label.toLowerCase() ? ` · ${status.category_name}` : ""}{status.current ? " · current" : ""}
                               </option>
                             ))}
-                          </select>
+                          </ContextSelect>
                         </FormField>
                         <FormField className="story-detail-floating-field story-detail-sprint-field story-create-floating-field story-create-sprint-field has-value" label="Sprint" required={jiraRequirementEditCoreRequired.sprint}>
                           <select
@@ -6646,8 +6665,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               <DialogCloseButton disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending} label="Close create Story" onClick={closeCreateRequirementModal} />
             </div>
 
-            <form className="requirement-create-modal-form story-create-dialog-form" onSubmit={(event) => void handleCreateRequirement(event)}>
+            <form className="requirement-create-modal-form story-create-dialog-form" onInvalidCapture={(event) => {
+              // Reveal optional panels before native validation moves focus.
+              let panel = (event.target as HTMLElement).closest("details");
+              while (panel) { panel.open = true; panel = panel.parentElement?.closest("details") || null; }
+            }} onSubmit={(event) => void handleCreateRequirement(event)}>
               <div className="requirement-create-modal-body requirement-create-modal-body--stacked story-create-dialog-body">
+                <fieldset className="story-authoring-fields" disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending}>
+                {message && messageTone === "error" ? <p className="inline-message error-message story-authoring-feedback" role="alert">{message}</p> : null}
                 <div className="form-grid requirement-create-details-grid story-create-dialog-content">
                   <div className="record-grid requirement-detail-metadata-grid story-create-core-grid">
                     <FormField
@@ -6660,18 +6685,18 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         autoFocus
                         data-autofocus="true"
                         id="create-requirement-title-input"
-                        placeholder=" "
+                        placeholder="Name the outcome…"
                         required
                         value={createDraft.title}
                         onChange={(event) => setCreateDraft((current) => ({ ...current, title: event.target.value }))}
                       />
                     </FormField>
                     <FormField
-                      className="form-field--compact-enum story-create-floating-field story-create-priority-field has-value"
+                      className="form-field--compact-enum story-create-floating-field story-create-priority-field has-value authoring-property-field"
                       label="Priority"
                       required={jiraRequirementCoreRequired.priority}
                     >
-                      <select
+                      <ContextSelect label="Priority"
                         required={jiraRequirementCoreRequired.priority}
                         value={createDraft.priority}
                         onChange={(event) => setCreateDraft((current) => ({ ...current, priority: Number(event.target.value) || 3 }))}
@@ -6681,13 +6706,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                         <option value={3}>3 - Medium</option>
                         <option value={4}>4 - Low</option>
                         <option value={5}>5 - Lowest</option>
-                      </select>
+                      </ContextSelect>
                     </FormField>
                     <FormField
-                      className={["form-field--compact-enum", "story-create-floating-field", "story-create-status-field", createDraft.status ? "has-value" : ""].filter(Boolean).join(" ")}
+                      className={["form-field--compact-enum", "story-create-floating-field", "story-create-status-field", "authoring-property-field", createDraft.status ? "has-value" : ""].filter(Boolean).join(" ")}
                       label="Status"
                     >
-                      <select
+                      <ContextSelect label="Status"
                         value={createDraft.status}
                         onChange={(event) => setCreateDraft((current) => ({ ...current, status: event.target.value }))}
                       >
@@ -6696,23 +6721,28 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                             {status.label}{status.category_name && status.category_name.toLowerCase() !== status.label.toLowerCase() ? ` · ${status.category_name}` : ""}
                           </option>
                         ))}
-                      </select>
+                      </ContextSelect>
                     </FormField>
                     <FormField
-                      className="story-create-floating-field story-create-sprint-field has-value"
+                      className="story-create-floating-field story-create-sprint-field has-value authoring-property-field"
                       label="Sprint"
                       required={jiraRequirementCoreRequired.sprint}
                     >
-                      <select
+                      <ContextSelect label="Sprint"
                         required={jiraRequirementCoreRequired.sprint}
                         value={createDraft.sprint}
                         onChange={(event) => setCreateStorySprintSelection(event.target.value)}
                       >
                         <option value="">No sprint</option>
                         {createStorySprintOptions.map((sprint) => <option disabled={!canUpdateRequirementIterations && isNativeRequirementSprint(sprint.iteration)} key={sprint.value} value={sprint.value}>{sprintOptionLabel(sprint)}{!canUpdateRequirementIterations && isNativeRequirementSprint(sprint.iteration) ? " · update permission required" : ""}</option>)}
-                      </select>
+                      </ContextSelect>
                     </FormField>
                   </div>
+                  <AuthoringContextMenu disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending} sections={[
+                    { id: "story-create-planning", label: "Planning & ownership", icon: <IconFlagCheck size={16} />, summary: "Release, labels and team" },
+                    { id: "story-create-specification", label: "Acceptance specification", icon: <IconBraces size={16} />, summary: "Gherkin or Spec Kit" },
+                    { id: "story-create-links", label: "Related work", icon: <IconLink size={16} />, summary: createRelatedRequirementIds.length ? `${createRelatedRequirementIds.length} linked Stories` : "Stories and references" }
+                  ]} />
                   <FormField
                     className="story-create-description-field"
                     label="Description"
@@ -6722,6 +6752,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     <RichTextEditor
                       appearance="canonical"
                       className="story-create-description-editor"
+                      disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending}
                       id="create-requirement-description-input"
                       aiRephraseTitle="Rephrase Story description with AI"
                       onAiRephrase={(html, plainText, smartContext) => rephraseRequirementDescriptionWithAi(html, plainText, "create", smartContext)}
@@ -6733,6 +6764,9 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     />
                   </FormField>
                   <FormField className="story-acceptance-criteria-field" label="Acceptance Criteria" hint="One observable completion rule per line."><textarea rows={3} maxLength={50000} value={createDraft.acceptanceCriteriaText} onChange={event => setCreateDraft(current => ({...current, acceptanceCriteriaText:event.target.value}))} placeholder="Given a valid account, when I sign in, then my workspace opens." /></FormField>
+                  <details id="story-create-planning" className="authoring-disclosure story-authoring-disclosure" open={jiraRequirementCoreRequired.labels || jiraRequirementCoreRequired.release || Boolean(createDraft.labelsText || createStoryReleaseSelection || createDraft.scrumTeam || createDraft.devCompletionTargetDate || createDraft.qaCompletionTargetDate)}>
+                    <summary><span>Planning and ownership</span><small>Labels, release, dates and team</small></summary>
+                    <div className="authoring-disclosure-body">
                   <div className="record-grid requirement-compact-metadata-grid story-create-secondary-grid">
                     <RequirementLabelsField
                       className="story-create-labels-field"
@@ -6768,12 +6802,17 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                     <ScrumTeamField value={createDraft.scrumTeam} onChange={scrumTeam => setCreateDraft(current => ({ ...current, scrumTeam }))} />
                   </div>
                   <StoryPlanningFields additionalFields={createDraft.additionalFields} onChange={(field, value) => updateAdditionalRequirementField("create", field, value)} users={users} />
-                  <StoryCreateRelatedPicker projectId={projectId} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
+                    </div>
+                  </details>
+                  <details id="story-create-specification" className="authoring-disclosure story-authoring-disclosure">
+                    <summary><span>Acceptance specification</span><small>Gherkin or structured specification</small></summary>
+                    <div className="authoring-disclosure-body">
+
                   <section aria-labelledby="story-create-specification-title" className={`story-specification-editor is-${createDraft.specificationFormat}`}>
                     <div className="story-specification-head">
                       <div className="story-specification-copy">
                         <strong id="story-create-specification-title">Acceptance specification</strong>
-                        <span>Choose a format, then replace the guidance with reviewable behavior.</span>
+                        <span></span>
                       </div>
                       <StorySpecificationFormatSwitch
                         idPrefix="story-create-specification"
@@ -6793,18 +6832,26 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                       )}
                     </div>
                   </section>
+                    </div>
+                  </details>
+                  <details id="story-create-links" className="authoring-disclosure story-authoring-disclosure">
+                    <summary><span>Related work and references</span><small>{createRelatedRequirementIds.length ? `${createRelatedRequirementIds.length} linked Stories` : "Link Stories and external sources"}</small></summary>
+                    <div className="authoring-disclosure-body">
+                      <StoryCreateRelatedPicker projectId={projectId} onChange={setCreateRelatedRequirementIds} selectedIds={createRelatedRequirementIds} />
                   <ExternalReferencesField
                     className="story-create-external-references"
                     placeholder="Paste work-item links or external IDs here and press Enter..."
                     value={createDraft.externalReferencesText}
                     onChange={(externalReferencesText) => setCreateDraft((current) => ({ ...current, externalReferencesText }))}
                   />
+                    </div>
+                  </details>
                   {requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError || requiredJiraRequirementFields.length ? (
                     <section className="issue-form-section">
                       <div className="issue-form-section-head">
                         <strong>Required Story fields</strong>
                         <span>
-                          These fields come from this project’s Story create screen. HelloTest collects them before creating the Story so work-item validation stays aligned with your project configuration.
+                          Required by this project.
                         </span>
                       </div>
                       {requirementCreateMetadataQuery.isLoading ? (
@@ -6825,13 +6872,14 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
                   ) : null}
                 </div>
 
+                </fieldset>
               </div>
 
               <div className="action-row requirement-create-modal-actions">
                 <button className="ghost-button story-create-cancel-button" disabled={createRequirement.isPending || appendRequirementReleaseScope.isPending} onClick={closeCreateRequirementModal} type="button">
                   Cancel
                 </button>
-                {canCreateRequirements ? (<button className="primary-button story-create-submit-button" disabled={!canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || createRequirement.isPending || appendRequirementReleaseScope.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError} type="submit">
+                {canCreateRequirements ? (<button className="primary-button story-create-submit-button" disabled={!createDraft.title.trim() || !canCreateRequirements || Boolean(createStoryRequiresIterationUpdate && !canUpdateRequirementIterations) || createRequirement.isPending || appendRequirementReleaseScope.isPending || requirementCreateMetadataQuery.isLoading || requirementCreateMetadataQuery.isError} type="submit">
                   <span aria-hidden="true" className="story-create-submit-icon"><AddIcon size={14} strokeWidth={2} /></span>
                   <span>{createRequirement.isPending ? "Creating…" : requirementCreateMetadataQuery.isLoading ? "Checking Story fields…" : "Create Story"}</span>
                 </button>) : null}
@@ -7428,6 +7476,7 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
               reviewStatus={storyAiReviewStatus}
               inspectorContent={(
                 <StoryAiDraftInspector
+                  baseline={requirementAiMode === "improve" && aiCompleteRequirementDetailQuery.data ? { title: aiCompleteRequirementDetailQuery.data.title, description: aiCompleteRequirementDetailQuery.data.description || "" } : undefined}
                   draft={storyAiActiveDraft}
                   editable={!isStoryAiGenerateBusy && (requirementAiMode === "create"
                     ? Boolean(storyAiActiveDraft)
@@ -8339,6 +8388,13 @@ export function RequirementsPage({ workspaceMode = "backlog" }: { workspaceMode?
           onAuthoringModeChange={() => {
             setPreviewCases([]);
             setPreviewMessage("");
+          }}
+          onCancel={() => {
+            aiDesignControllerRef.current?.abort();
+            aiDesignControllerRef.current = null;
+            previewDesignedCases.reset();
+            setPreviewTone("success");
+            setPreviewMessage("Stopped waiting. Existing drafts are unchanged.");
           }}
           onPreview={(authoringMode) => void handlePreviewDesignedCases(authoringMode)}
           onPreviewCaseChange={(clientId, next) => setPreviewCases((current) => current.map((candidate) => candidate.client_id === clientId ? next : candidate))}

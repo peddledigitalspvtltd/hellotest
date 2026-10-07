@@ -6,7 +6,7 @@ import { runInNewContext } from 'node:vm';
 import { randomUUID } from 'node:crypto';
 
 const require = createRequire(new URL('../../../../../testengine/backend/package.json', import.meta.url));
-const { chromium } = require('playwright');
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = new URL('../../', import.meta.url);
 
 test('AI improvement preserves current Gherkin when requesting structured output and retains edited step counts', { timeout: 90000 }, async () => {
@@ -19,12 +19,13 @@ api.integrations.list=async()=>[{id:'llm',name:'Author LLM',type:'llm',is_active
 window.authoringRequests=[];
 api.testCases.previewCaseAuthoring=async input=>{window.authoringRequests.push(structuredClone(input));return {case:{title:'Improved checkout',description:'A purchase completes',authoring_mode:input.authoring_mode,parameter_values:{},parameter_count:0,gherkin_document:input.authoring_mode==='gherkin'?'Feature: Checkout\\nScenario: Purchase\\nWhen the customer buys\\nThen a receipt appears':null,steps:input.authoring_mode==='gherkin'?[]:[{step_order:1,action:'Buy',expected_result:'Receipt appears'}],step_count:input.authoring_mode==='gherkin'?2:1}}};
 const client=new QueryClient`);
+  fixture += "\nimport '/src/product-experience.css';";
   const name = 'authoring-formats-' + randomUUID();
   let browser;
   try {
     await writeFile(new URL(name + '.tsx', root), fixture);
     await writeFile(new URL(name + '.html', root), `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
-    browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -36,18 +37,22 @@ const client=new QueryClient`);
     assert.equal(await dialog.getByRole('radio', { name: 'Gherkin', exact: true }).getAttribute('aria-checked'), 'true');
     await dialog.getByRole('radio', { name: 'Structured', exact: true }).click();
     await dialog.getByRole('button', { name: 'Generate drafts', exact: true }).click();
-    await dialog.getByText('Improved checkout', { exact: true }).waitFor();
+    await dialog.getByRole('heading', {name: 'Improved checkout', exact: true}).waitFor();
+    await dialog.getByRole('button',{name:'Compare',exact:true}).click();
+    const comparison=dialog.getByRole('region',{name:'Current and proposed content',exact:true});
+    await comparison.waitFor();assert.match(await comparison.innerText(), /Scenario Outline: A purchase/);assert.match(await comparison.innerText(), /Buy/);
+    await dialog.getByRole('button',{name:'Hide comparison',exact:true}).click();
     const request = await page.evaluate(() => window.authoringRequests[0]);
     assert.equal(request.authoring_mode, 'structured');
     assert.equal(request.test_case.authoring_mode, 'gherkin');
     assert.match(request.test_case.gherkin_document, /Scenario Outline: A purchase/);
     await dialog.getByRole('radio', { name: 'Gherkin', exact: true }).click();
     await dialog.getByRole('button', { name: 'Generate drafts', exact: true }).click();
-    await dialog.getByText('2 scenario lines · 1 Story link', { exact: true }).waitFor();
+    await dialog.locator('.ai-artifact-item small').filter({hasText:'2 scenario lines'}).waitFor();
     await dialog.getByRole('button', { name: 'Edit draft', exact: true }).click();
     await dialog.getByRole('textbox', { name: 'Test case title', exact: true }).fill('Reviewed checkout');
     await dialog.getByRole('button', { name: 'Finish editing draft', exact: true }).click();
-    assert.equal(await dialog.getByText('2 scenario lines · 1 Story link', { exact: true }).count(), 1);
+    assert.equal(await dialog.locator('.ai-artifact-item small').filter({hasText:'2 scenario lines'}).count(), 1);
     assert.deepEqual(errors, []);
   } finally {
     await browser?.close();

@@ -1,7 +1,12 @@
+import { Panel } from "@hellotest/platform/frontend/src/shared/components/Panel";
+import { CatalogSearchFilter } from "@hellotest/platform/frontend/src/shared/components/CatalogSearchFilter";
+import { DataTable, type DataTableColumn } from "@hellotest/platform/frontend/src/shared/components/DataTable";
+import { StatusBadge } from "@hellotest/platform/frontend/src/shared/components/StatusBadge";
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { IconPlugConnected, IconSearch, IconPlus, IconArrowRight, IconShieldCheck, IconCode, IconKey, IconTrash, IconCopy } from "@tabler/icons-react";
+import { IconPlugConnected, IconPlus, IconShieldCheck, IconCode, IconKey, IconTrash, IconCopy } from "@tabler/icons-react";
+import { CatalogViewToggle } from "@hellotest/platform/frontend/src/shared/components/CatalogViewToggle";
+import { CatalogSelectionControls } from "@hellotest/platform/frontend/src/shared/components/CatalogSelectionControls";
 import { PageHeader } from "@hellotest/platform/frontend/src/shared/components/PageHeader";
 import { DialogCloseButton } from "@hellotest/platform/frontend/src/shared/components/DialogCloseButton";
 import { useDialogFocus } from "@hellotest/platform/frontend/src/shared/hooks/useDialogFocus";
@@ -13,10 +18,21 @@ import "./AgenticWorkflowsPage.css";
 import "../agents/AgentWorkspace.css";
 import "./McpServersPage.css";
 
+type McpCatalogRecord = { id: string; name: string; description: string; status: string; tools: number; transport: string; access: string; builtin: boolean };
+const serverColumns: DataTableColumn<McpCatalogRecord>[] = [
+ {key:"name",label:"Server",minWidth:240,sortValue:row=>row.name,render:row=><div className="agentic-table-primary" title={row.description}><strong>{row.name}</strong><span>{row.description}</span></div>},
+ {key:"status",label:"Status",width:120,sortValue:row=>row.status,render:row=><StatusBadge value={row.status}/>},
+ {key:"tools",label:"Tools",width:90,sortValue:row=>row.tools,render:row=>row.tools},
+ {key:"transport",label:"Transport",width:160,sortValue:row=>row.transport,render:row=>row.transport},
+ {key:"access",label:"Access",minWidth:180,sortValue:row=>row.access,render:row=>row.access}
+];
+
 export function McpServersPage() {
  const [projectId]=useCurrentProject();const activeProject=useRef(projectId);activeProject.current=projectId;const {can}=useCapabilityAccess(projectId);const client=useQueryClient();
+ const [viewMode,setViewMode]=useState<"tile"|"list">("tile");
+ const [selectedIds,setSelectedIds]=useState<string[]>([]);
  const [search,setSearch]=useState("");const [editor,setEditor]=useState<string|null>(null);const [builtinOpen,setBuiltinOpen]=useState(false);const [token,setToken]=useState("");const [notice,setNotice]=useState("");
- useEffect(()=>{setEditor(null);setBuiltinOpen(false);setToken("");setNotice("");},[projectId]);
+ useEffect(()=>{setEditor(null);setBuiltinOpen(false);setToken("");setNotice("");setSelectedIds([]);},[projectId]);
  const builtin=useQuery({queryKey:["hellotest-mcp-server",projectId],queryFn:()=>agenticApi.mcp.server(projectId),enabled:Boolean(projectId)&&can("agentic_workflow.view")});
  const external=useQuery({queryKey:["workflow-admin-connections",projectId],queryFn:()=>agenticApi.workflowConnections.list(projectId),enabled:Boolean(projectId)&&can("integration.view")});
  const credentials=useQuery({queryKey:["mcp-credentials",projectId],queryFn:()=>agenticApi.mcp.credentials(projectId),enabled:Boolean(projectId)&&builtinOpen});
@@ -27,19 +43,45 @@ export function McpServersPage() {
  const editorRef=useDialogFocus<HTMLDivElement>({active:editor!==null||builtinOpen,onClose:()=>{setEditor(null);setBuiltinOpen(false);setToken("");}});
  const rows=(external.data||[]).filter(row=>row.kind==="mcp"&&[row.name,row.url].join(" ").toLowerCase().includes(search.toLowerCase()));
  const showBuiltin=builtin.data&&("hellotest built-in knowledge api database".includes(search.toLowerCase()));
+ const visibleIds=[...(showBuiltin?["hellotest"]:[]),...rows.map(row=>row.id)];
+ const toggleSelection=(id:string)=>setSelectedIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
+ const catalogRecords: McpCatalogRecord[] = [
+  ...(showBuiltin ? [{id:"hellotest",name:"HelloTest",description:"Current APIs, authorized PostgreSQL projections, knowledge and project evidence.",status:"active",tools:builtin.data!.tools.length,transport:"Streamable HTTP",access:"Signed-in user · Project permissions",builtin:true}] : []),
+  ...rows.map(row=>({id:row.id,name:row.name,description:row.url,status:row.enabled?"active":"inactive",tools:row.tools.length,transport:row.transport || "Streamable HTTP",access:row.authenticated?"Configured":"None",builtin:false}))
+ ];
+ const openServer=(row:McpCatalogRecord)=>{if(row.builtin)setBuiltinOpen(true);else setEditor(row.id);};
  const endpoint=builtin.data?.endpoint?new URL(builtin.data.endpoint,window.location.origin).href:"";
- if(!can("agentic_workflow.view"))return <div className="empty-state">Agent Studio access is required.</div>;
- return <div className="page page-agentic-workflows agent-directory mcp-server-page">
-  <PageHeader eyebrow="Agent Studio" title="MCP Servers" description="Connect tools and project context to your AI hosts." />
-  <nav className="agent-hub-nav" aria-label="Agent workspace navigation"><Link to="/agentic-workflows?view=agents">AI agents</Link><Link to="/agentic-workflows?view=workflows">Workflows</Link><Link to="/mcp-servers" aria-current="page">MCP Servers</Link></nav>
+ if(!can("agentic_workflow.view"))return <div className="empty-state">AI Agent Studio access is required.</div>;
+ return <div className="page-content page-agentic-workflows agent-directory mcp-server-page">
+  <PageHeader eyebrow="AI Agent Studio" title="MCP Servers" description="Connect tools and project context to your AI hosts." />
   {!projectId?<div className="empty-state">Select a project to manage its MCP servers.</div>:<>
-  <section className="agent-directory-toolbar"><label className="agent-library-search"><IconSearch size={17}/><input aria-label="Search MCP servers" placeholder="Search servers, tools or context…" value={search} onChange={event=>setSearch(event.target.value)}/></label>{can("integration.manage")?<button className="primary-button" onClick={()=>setEditor("")} type="button"><IconPlus size={16}/>Create MCP server</button>:null}</section>
-  {builtin.isError||external.isError?<p role="alert">Server information could not be loaded. <button type="button" onClick={()=>{void builtin.refetch();void external.refetch();}}>Retry</button></p>:null}
-  {builtin.isLoading?<p role="status">Loading MCP servers…</p>:null}
-  <div className="agent-library-grid">
-   {showBuiltin?<article className="agent-library-card mcp-builtin-card"><header><span className="agent-library-icon"><IconPlugConnected/></span><span className="agent-library-kind">Built in</span><IconShieldCheck size={17}/></header><div className="agent-library-copy"><h3>HelloTest</h3><p>Current APIs, authorized PostgreSQL projections, knowledge and project evidence.</p></div><dl><div><dt>Tools</dt><dd>{builtin.data!.tools.length} discoverable tools</dd></div><div><dt>Access</dt><dd>Signed-in user · Project permissions</dd></div></dl><footer><small>Streamable HTTP</small><button className="ghost-button" type="button" onClick={()=>setBuiltinOpen(true)}>Connect & inspect<IconArrowRight size={15}/></button></footer></article>:null}
-   {rows.map(row=><article className="agent-library-card" key={row.id}><header><span className="agent-library-icon"><IconPlugConnected/></span><span className="agent-library-kind">{row.enabled?"Enabled":"Inactive"}</span></header><div className="agent-library-copy"><h3>{row.name}</h3><p>{row.url}</p></div><dl><div><dt>Tools</dt><dd>{row.tools.length} enabled</dd></div><div><dt>Authentication</dt><dd>{row.authenticated?"Configured":"None"}</dd></div></dl><footer><small>{row.transport}</small><button className="ghost-button" type="button" onClick={()=>setEditor(row.id)}>Inspect server<IconArrowRight size={15}/></button></footer></article>)}
-  </div>{!builtin.isLoading&&!showBuiltin&&!rows.length?<p className="empty-state">No servers match your search.</p>:null}
+  <Panel title="MCP servers" titleVariant="eyebrow" className="agentic-workflows-panel mcp-catalog-panel">
+   <div className="design-list-toolbar catalog-command-toolbar agentic-workflows-toolbar">
+    <div className="catalog-toolbar-discovery" aria-label="MCP server views, search, and selection">
+     <CatalogViewToggle value={viewMode} onChange={setViewMode}/>
+     <CatalogSearchFilter activeFilterCount={search.trim()?1:0} ariaLabel="Search MCP servers" placeholder="Search MCP servers" title="Filter MCP servers" type="search" value={search} onChange={setSearch}>
+      <div className="catalog-filter-grid"><label className="catalog-filter-field"><span>Search</span><input value={search} onChange={event=>setSearch(event.target.value)}/></label><div className="catalog-filter-actions"><button className="ghost-button" disabled={!search} onClick={()=>setSearch("")} type="button">Clear filters</button></div></div>
+     </CatalogSearchFilter>
+     <CatalogSelectionControls allSelected={Boolean(visibleIds.length)&&visibleIds.every(id=>selectedIds.includes(id))} canSelectAll={Boolean(visibleIds.length)} selectedCount={selectedIds.length} clearLabel="Clear all" onClear={()=>setSelectedIds([])} onSelectAll={()=>setSelectedIds(current=>Array.from(new Set([...current,...visibleIds])))}/>
+    </div>
+    {can("integration.manage")?<div className="catalog-toolbar-actions" aria-label="MCP server actions"><button className="primary-button catalog-selection-button" onClick={()=>setEditor("")} type="button"><IconPlus size={16}/><span>Create MCP server</span></button></div>:null}
+   </div>
+   {builtin.isError||external.isError?<p role="alert">Server information could not be loaded. <button className="ghost-button" type="button" onClick={()=>{void builtin.refetch();void external.refetch();}}>Retry</button></p>:null}
+   {builtin.isLoading||external.isLoading?<p role="status">Loading MCP servers…</p>:null}
+   <div className={`agentic-catalog-stage mcp-server-catalog ${viewMode === "list" ? "is-list" : "is-grid"}`} data-tab="servers" data-view={viewMode}>
+    {viewMode === "list" ? <DataTable columns={serverColumns} rows={catalogRecords} emptyMessage="No servers match your search." enableColumnResize enableHeaderColumnReorder enableRowSelection selectedRowKeys={selectedIds} onSelectedRowKeysChange={setSelectedIds} getRowKey={row=>row.id} hideToolbarCopy onRowClick={openServer} storageKey="mcp-servers-list-columns"/> : <div className="tile-browser-grid agentic-workflow-grid">
+     {catalogRecords.map(row=><button key={row.id} type="button" aria-label={row.builtin?"Connect & inspect":`Inspect server ${row.name}`} className={`record-card tile-card agentic-workflow-card mcp-server-card${selectedIds.includes(row.id)?" is-active":""}`} onClick={()=>openServer(row)}>
+      <div className="tile-card-main">
+       <div className="tile-card-select-row"><label className="checkbox-field" onClick={event=>event.stopPropagation()}><input type="checkbox" aria-label={`Select ${row.name}`} checked={selectedIds.includes(row.id)} onChange={()=>toggleSelection(row.id)}/><span className="sr-only">Select server</span></label></div>
+       <div className="tile-card-header"><span className="agentic-type-badge" aria-hidden="true"><IconPlugConnected size={14}/></span><div className="tile-card-title-group"><span className="tile-card-kicker">{row.builtin?"Built in":"External"}</span><strong>{row.name}</strong></div><StatusBadge value={row.status}/></div>
+       <div className="rich-text-content tile-card-description" title={row.description}><p>{row.description}</p></div>
+       <div className="tile-card-facts"><span><strong>{row.tools}</strong><small>Tools</small></span><span><strong>{row.transport}</strong><small>Transport</small></span><span><strong>{row.builtin?<IconShieldCheck size={16}/>:row.access}</strong><small>{row.builtin?"Project permissions":"Authentication"}</small></span></div>
+      </div>
+     </button>)}
+     {!builtin.isLoading&&!external.isLoading&&!catalogRecords.length?<div className="empty-state compact">No servers match your search.</div>:null}
+    </div>}
+   </div>
+  </Panel>
   </>}
   {editor!==null||builtinOpen?<div className="modal-backdrop" onClick={()=>{setEditor(null);setBuiltinOpen(false);setToken("");}}><div ref={editorRef} role="dialog" aria-modal="true" aria-label={builtinOpen?"HelloTest MCP server":editor?"Edit MCP server":"Create MCP server"} className="modal-card mcp-server-dialog" onClick={event=>event.stopPropagation()} tabIndex={-1}><header><h2>{builtinOpen?"HelloTest MCP server":editor?"Edit MCP server":"Create MCP server"}</h2><DialogCloseButton onClick={()=>{setEditor(null);setBuiltinOpen(false);setToken("");}}/></header>
    {builtinOpen&&builtin.data?<div className="mcp-server-dialog-body"><section><h3><IconCode size={16}/>Endpoint</h3><code>{endpoint}</code><button className="ghost-button compact" type="button" onClick={()=>void navigator.clipboard.writeText(endpoint)}><IconCopy size={14}/>Copy endpoint</button><p>Use a project-bound bearer credential. This host must support Streamable HTTP. Production connections use the configured HTTPS endpoint.</p></section>

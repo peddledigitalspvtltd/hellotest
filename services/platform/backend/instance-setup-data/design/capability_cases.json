@@ -2821,6 +2821,48 @@
       "updated_by": "__SETUP_ACTOR_ID__",
       "created_at": "2026-09-21T09:00:00.000Z",
       "updated_at": "2026-09-23T12:00:00.000Z"
+    },
+    {
+      "id": "sample-v7-ht-case-browser-quality-agents",
+      "display_id": "HT7-T60",
+      "app_type_id": "sample-app-web",
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "requirement_id": "sample-v3-feature-browser-quality-agents",
+      "title": "Verify reviewed browser quality checks and evidence boundaries",
+      "description": "As a Quality Engineer, I want to run reviewed web, security, performance, accessibility and visual checks against an explicitly scoped application.\n\nPreconditions: an authorized project/application session, agentic workflow grants, a configured live Test Engine with Chromium and an explicitly permitted QA target. Installation does not start these checks.\n\nA typed browser plan is reviewed before execution. Durable scoped jobs return recorded stages, measured metrics, findings and authenticated screenshot artifacts. Findings can become reviewed Defects and visual captures can become explicitly approved baselines.\n\nThis acceptance case is unexecuted and has not received a human review.",
+      "external_references": [],
+      "labels": [
+        "sample",
+        "hellotest",
+        "agentic",
+        "browser-quality-agents"
+      ],
+      "parameter_values": {
+        "actor_email": "qa.lead@example.test",
+        "role": "QA Lead",
+        "project_name": "HelloTest Launchpad",
+        "target_route": "/agentic-workflows?view=quality",
+        "feature_key": "hellotest.ai.agentic_workflows"
+      },
+      "test_data_options": {
+        "override_shared_steps": false
+      },
+      "automated": "no",
+      "automation_status": "not_automated",
+      "authoring_mode": "structured",
+      "test_case_type": "functional",
+      "gherkin_document": "",
+      "priority": 2,
+      "status": "draft",
+      "reviewer_id": null,
+      "review_status": "not_requested",
+      "review_history": [],
+      "ai_quality_score": null,
+      "author_id": "__SETUP_ACTOR_ID__",
+      "created_by": "__SETUP_ACTOR_ID__",
+      "updated_by": "__SETUP_ACTOR_ID__",
+      "created_at": "2026-10-06T09:00:00.000Z",
+      "updated_at": "2026-10-06T09:00:00.000Z"
     }
   ]
 }

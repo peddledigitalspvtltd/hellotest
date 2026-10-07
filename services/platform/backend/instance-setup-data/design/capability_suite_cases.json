@@ -295,6 +295,11 @@
       "suite_id": "sample-v7-ht-suite-platform",
       "test_case_id": "sample-v7-ht-case-support-guidance",
       "sort_order": 59
+    },
+    {
+      "suite_id": "sample-v7-ht-suite-agentic",
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "sort_order": 60
     }
   ]
 }

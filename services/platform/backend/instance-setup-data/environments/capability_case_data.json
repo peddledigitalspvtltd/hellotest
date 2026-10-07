@@ -236,6 +236,10 @@
     {
       "test_case_id": "sample-v7-ht-case-support-guidance",
       "test_data_set_id": "sample-v7-ht-data-access"
+    },
+    {
+      "test_case_id": "sample-v7-ht-case-browser-quality-agents",
+      "test_data_set_id": "sample-v7-ht-data-access"
     }
   ]
 }

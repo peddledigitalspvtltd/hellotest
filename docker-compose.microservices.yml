@@ -257,7 +257,13 @@ services:
       HELLOTEST_API_BASE_URL: ${TESTENGINE_API_BASE_URL:-http://automation-api:3000}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}
+      QUALITY_AGENT_DATA_DIR: /quality-data
+      QUALITY_AGENT_ALLOWED_PRIVATE_HOSTS: ${QUALITY_AGENT_ALLOWED_PRIVATE_HOSTS:-}
+      QUALITY_AGENT_ALLOWED_ORIGINS: ${QUALITY_AGENT_ALLOWED_ORIGINS:-}
+      QUALITY_AGENT_RETENTION_DAYS: ${QUALITY_AGENT_RETENTION_DAYS:-7}
     ports: ["127.0.0.1:4301:4301"]
+    volumes:
+      - microservices-quality-data:/quality-data
     networks:
       default:
         aliases: [testengine]
@@ -281,3 +287,4 @@ services:
 volumes:
   microservices-postgres:
   microservices-minio:
+  microservices-quality-data:

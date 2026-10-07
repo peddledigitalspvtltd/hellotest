@@ -16,7 +16,9 @@ test('active destinations retain their identity when filters and selections chan
  assert.equal(isNavigationDestinationActive('/?view=readiness','/','?release=Autumn&view=readiness'),true);
  assert.equal(isNavigationDestinationActive('/executions?view=suite-runs','/executions','?execution=case-run'),true);
  assert.equal(isNavigationDestinationActive('/executions?view=local-runs','/executions','?execution=case-run'),false);
- assert.equal(isNavigationDestinationActive('/agentic-workflows?view=workflows','/agentic-workflows',''),true);
+ assert.equal(isNavigationDestinationActive('/agentic-workflows?view=quality','/agentic-workflows',''),true);
+ assert.equal(isNavigationDestinationActive('/agentic-workflows?view=workflows','/agentic-workflows',''),false);
+ assert.equal(isNavigationDestinationActive('/agentic-workflows?view=quality','/agentic-workflows','?surface=quality&run=one'),true);
  assert.equal(isNavigationDestinationActive('/test-cases','/test-cases','?case=case-1'),true);
  assert.equal(isNavigationDestinationActive('/test-cases','/design',''),false);
 });

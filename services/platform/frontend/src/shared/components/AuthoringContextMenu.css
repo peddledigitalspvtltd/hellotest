@@ -1,0 +1,5 @@
+.authoring-context-menu { justify-self: start; }
+.authoring-context-menu .catalog-action-menu-custom-trigger { display: inline-flex; align-items: center; gap: 6px; width: auto; height: auto; min-height: 34px; padding: 5px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--app-text-muted, #5d6f79); font: inherit; font-size: 12px; box-shadow: none; }
+.authoring-context-menu .catalog-action-menu-custom-trigger:hover { background: var(--app-surface-muted, #f1f5f6); color: var(--app-accent, #087e83); }
+:root body .authoring-context-menu .catalog-action-menu-custom-trigger { display: inline-flex !important; flex-direction: row; align-items: center; white-space: nowrap; width: auto !important; min-width: 112px; height: auto !important; min-height: 34px; padding: 5px 9px !important; }
+:root body .authoring-context-menu .catalog-action-menu-custom-trigger svg { display: block; width: 15px; height: 15px; flex: 0 0 15px; }

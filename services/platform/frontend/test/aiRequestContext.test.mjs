@@ -38,3 +38,17 @@ test('only rejected 413 requests retry once and the preview discloses the reduce
   }, { body: JSON.stringify({ images: ['large'] }) }));
   assert.equal(upstreamCalls, 1);
 });
+
+test('size reduction preserves the full source artifact for improvement', () => {
+  const source = {
+    id: 'case-identity', title: 'Checkout', description: 'Preserve the existing business flow',
+    authoring_mode: 'gherkin', gherkin_document: 'Feature: Checkout\nScenario Outline: Pay\nWhen I pay <amount>\nThen a receipt appears\nExamples:\n| amount |\n| 10 |',
+    parameter_values: { amount: '10' }, steps: [{ action: 'Pay', expected_result: 'Receipt' }],
+    automation_status: 'automated', test_data_set_ids: ['existing-data']
+  };
+  const compact = JSON.parse(compactAiRequestBody(JSON.stringify({ test_case: source, images: ['large'], additional_context: 'x'.repeat(3000) })));
+  assert.deepEqual(compact.test_case, source);
+  assert.equal(compact.images, undefined);
+  assert.equal(compactAiRequestBody(JSON.stringify({ test_case: source })), null,
+    'Oversized mandatory evidence must fail clearly instead of silently changing the task');
+});

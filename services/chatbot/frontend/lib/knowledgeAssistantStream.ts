@@ -14,15 +14,35 @@ export class KnowledgeStreamError extends Error {
 export function isKnowledgeRetrievalEvent(value: unknown): value is KnowledgeRetrievalEvent {
   if (!value || typeof value !== "object") return false;
   const event = value as Record<string, unknown>;
-  return event.contract_type === "RetrievalEvent" && ["1.0", "RetrievalEvent.v1"].includes(String(event.contract_version)) && typeof event.stage === "string" && event.stage.length <= 100
-    && (event.message === undefined || typeof event.message === "string") && (event.status === undefined || typeof event.status === "string")
-    && (event.sequence === undefined || (typeof event.sequence === "number" && Number.isFinite(event.sequence)));
+  return event.contract_type === "RetrievalEvent" && ["1.0", "RetrievalEvent.v1"].includes(String(event.contract_version)) && typeof event.stage === "string" && event.stage.length > 0 && event.stage.length <= 100
+    && (event.message === undefined || (typeof event.message === "string" && event.message.length <= 10_000)) && (event.status === undefined || (typeof event.status === "string" && event.status.length <= 100))
+    && (event.sequence === undefined || (typeof event.sequence === "number" && Number.isSafeInteger(event.sequence) && event.sequence >= 0));
+}
+
+/** The server sends checked answer text, never unvalidated provider output. */
+export type KnowledgeAnswerDelta = {
+  contract_type: "AnswerDelta";
+  contract_version: "1.0";
+  verification: "complete";
+  answer_id: string;
+  sequence: number;
+  text: string;
+};
+
+export function isKnowledgeAnswerDelta(value: unknown): value is KnowledgeAnswerDelta {
+  if (!value || typeof value !== "object") return false;
+  const delta = value as Record<string, unknown>;
+  return delta.contract_type === "AnswerDelta" && delta.contract_version === "1.0" && delta.verification === "complete"
+    && typeof delta.answer_id === "string" && delta.answer_id.length > 0 && delta.answer_id.length <= 255
+    && typeof delta.sequence === "number" && Number.isSafeInteger(delta.sequence) && delta.sequence >= 0
+    && typeof delta.text === "string" && delta.text.length > 0 && delta.text.length <= 4_096;
 }
 
 /** Parse authenticated fetch SSE, including split UTF-8 characters and CRLF boundaries. */
 export async function consumeKnowledgeAssistantStream(response: Response, options: {
   signal?: AbortSignal;
   onProgress?: (event: KnowledgeRetrievalEvent) => void;
+  onAnswerDelta?: (delta: KnowledgeAnswerDelta) => void;
 } = {}): Promise<KnowledgeAssistantMessageResponse> {
   if (!response.body) throw new KnowledgeStreamError("The answer stream is unavailable. Retry this turn.");
   const reader = response.body.getReader();
@@ -32,11 +52,18 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
   let data: string[] = [];
   let result: KnowledgeAssistantMessageResponse | undefined;
   let eventSize = 0;
+  let answerId = "";
+  let answerText = "";
+  let answerSequence = 0;
   const abort = () => { void reader.cancel().catch(() => undefined); };
   options.signal?.addEventListener("abort", abort, { once: true });
   const checkAborted = () => { if (options.signal?.aborted) throw new DOMException("Answer stopped", "AbortError"); };
   const dispatch = () => {
     if (!data.length) { eventName = "message"; return; }
+    // SSE permits new event types. Ignore them without interpreting their data.
+    if (!["error", "progress", "retrieval_progress", "answer_delta", "result"].includes(eventName)) {
+      eventName = "message"; data = []; eventSize = 0; return;
+    }
     let value: unknown;
     try { value = JSON.parse(data.join("\n")); }
     catch { throw new KnowledgeStreamError("The answer stream contained an invalid event. Retry this turn.", "INVALID_STREAM_EVENT"); }
@@ -48,11 +75,20 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
     if (["progress", "retrieval_progress"].includes(eventName)) {
       if (!isKnowledgeRetrievalEvent(value)) throw new KnowledgeStreamError("This answer stream uses an unsupported progress contract.", "UNSUPPORTED_CONTRACT", false);
       options.onProgress?.(value);
+    } else if (eventName === "answer_delta") {
+      if (!isKnowledgeAnswerDelta(value)) throw new KnowledgeStreamError("The assistant sent an unsupported answer delivery contract.", "UNSUPPORTED_ANSWER_DELTA", false);
+      if (value.sequence !== answerSequence || (answerId && value.answer_id !== answerId)) throw new KnowledgeStreamError("The answer delivery sequence was interrupted. Resume this turn.", "INVALID_ANSWER_SEQUENCE");
+      answerId = value.answer_id;
+      answerText += value.text;
+      answerSequence += 1;
+      if (answerText.length > 2_000_000) throw new KnowledgeStreamError("The answer exceeded the supported size.", "STREAM_TOO_LARGE", false);
+      options.onAnswerDelta?.(value);
     } else if (eventName === "result") {
       if (!value || typeof value !== "object") throw new KnowledgeStreamError("The answer stream ended with an invalid result.", "INVALID_STREAM_RESULT");
       const response = value as Record<string, unknown>;
       const message = response.assistant_message || response.message;
       if (response.pending !== true && (!message || typeof message !== "object" || typeof (message as Record<string, unknown>).content !== "string")) throw new KnowledgeStreamError("The answer stream ended with an invalid result.", "INVALID_STREAM_RESULT");
+      if (answerId && (response.pending === true || (message as Record<string, unknown>).id !== answerId || (message as Record<string, unknown>).content !== answerText)) throw new KnowledgeStreamError("The completed answer did not match its delivery. Resume this turn to retrieve the saved answer.", "ANSWER_DELIVERY_MISMATCH");
       result = value as KnowledgeAssistantMessageResponse;
     }
     eventName = "message";
@@ -75,7 +111,13 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
   try {
     checkAborted();
     while (!result) {
-      const { value, done } = await reader.read();
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try { chunk = await reader.read(); }
+      catch {
+        checkAborted();
+        throw new KnowledgeStreamError("The connection ended before the answer was complete. Retry this turn to resume it.", "STREAM_INTERRUPTED");
+      }
+      const { value, done } = chunk;
       checkAborted();
       buffer += decoder.decode(value, { stream: !done });
       if (buffer.length > 2_000_000) throw new KnowledgeStreamError("The answer stream exceeded the supported event size.", "STREAM_TOO_LARGE", false);
@@ -84,6 +126,7 @@ export async function consumeKnowledgeAssistantStream(response: Response, option
         if (!done && match[0] === "\r" && match.index === buffer.length - 1) break;
         line(buffer.slice(0, match.index));
         buffer = buffer.slice(match.index + match[0].length);
+        if (result) break;
       }
       if (done) {
         if (buffer) line(buffer);
@@ -175,6 +218,7 @@ const stageLabels: Record<string, string> = {
   VALIDATION: "Checking the answer's citations",
   ANSWER_VALIDATION: "Checking the answer's citations",
   WAITING_FOR_TURN: "Waiting for this turn to finish",
+  CONNECTION_RECOVERY: "Reconnecting to this turn",
   COMPLETE: "Completing your answer"
 };
 
@@ -232,11 +276,26 @@ export async function resumePendingKnowledgeTurn(request: () => Promise<Knowledg
   onPending?: (response: KnowledgeAssistantMessageResponse) => void;
   maxPendingRetries?: number;
   retryDelayMs?: number;
+  maxConnectionRetries?: number;
+  connectionRetryDelayMs?: number;
+  onReconnecting?: () => void;
 } = {}): Promise<KnowledgeAssistantMessageResponse> {
   const maximum = options.maxPendingRetries ?? 5;
+  let connectionRetries = 0;
   for (let attempt = 0; ; attempt += 1) {
     if (options.signal?.aborted) throw new DOMException("Answer stopped", "AbortError");
-    const response = await request();
+    let response: KnowledgeAssistantMessageResponse;
+    try { response = await request(); }
+    catch (error) {
+      const connectionInterrupted = error instanceof KnowledgeStreamError && error.retryable && ["NETWORK_UNAVAILABLE", "STREAM_INTERRUPTED"].includes(error.code);
+      if (!connectionInterrupted || options.signal?.aborted || connectionRetries >= (options.maxConnectionRetries ?? 0)) throw error;
+      connectionRetries += 1;
+      options.onReconnecting?.();
+      await waitForRetry(options.connectionRetryDelayMs ?? 500, options.signal);
+      // Same request and same client_turn_id: reauthorize any persisted result.
+      attempt -= 1;
+      continue;
+    }
     if (!response.pending) return response;
     options.onPending?.(response);
     if (attempt >= maximum) throw new KnowledgeStreamError("This turn is still processing. Check for its answer shortly.", "TURN_PENDING");

@@ -102,7 +102,7 @@ function Fixture() {
 createRoot(document.getElementById("root")).render(<QueryClientProvider client={fixtureQueryClient}><MemoryRouter initialEntries={[new URLSearchParams(location.search).get("route") || "/executions?view=test-case-runs"]}><AuthProvider><Fixture /></AuthProvider></MemoryRouter></QueryClientProvider>);
 `;
 
-test("run review keeps metric evidence, dialogs, hierarchy and catalog editing accessible at every width", { timeout: 240000 }, async () => {
+test("run review keeps metric evidence, dialogs, hierarchy and catalog selection accessible at every width", { timeout: 240000 }, async () => {
   const name = `run-catalog-qa-${randomUUID()}`;
   const htmlPath = new URL(`${name}.html`, frontendRoot);
   const sourcePath = new URL(`${name}.tsx`, frontendRoot);
@@ -145,13 +145,13 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       assert.equal(await controls.last().evaluate(element => document.activeElement === element), true, "Shift+Tab wraps within the modal");
     };
     await page.goto(url);
-    await page.getByRole("heading", { name: "Suite Runs", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Runs", exact: true }).waitFor();
     await page.waitForFunction(() => document.querySelector('[data-testid="location"]').textContent.includes("view=suite-runs"));
     assert.equal(await page.getByRole("heading", { name: "Test Case Runs", exact: true }).count(), 0);
     const direct = page.getByRole("article", { name: "Open run Direct checkout run", exact: true });
     await direct.waitFor();
     assert.equal(await page.getByRole("article", { name: "Open run Suite checkout run", exact: true }).count(), 1);
-    assert.equal(await page.getByRole("article", { name: "Open run Local checkout run", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("article", { name: "Open run Local checkout run", exact: true }).count(), 1);
     assert.doesNotMatch(await direct.innerText(), /RUN-HIDDEN-|HIDDEN-RELEASE|HIDDEN-SPRINT|HIDDEN-BUILD/);
     assert.equal(await direct.locator(".tile-card-title-group").evaluate(element => getComputedStyle(element, "::before").content), "none", "run title has one visible field label");
     assert.equal(await direct.locator('.tile-card-metric').filter({ hasText: "Defects" }).innerText().then(value => value.replace(/\s+/g, " ").trim()), "2 Defects");
@@ -168,43 +168,16 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
     assert.equal(await abortedRun.locator(".tile-card-progress").nth(0).getByRole("progressbar").getAttribute("aria-valuenow"), "83", "Skipped and aborted outcomes complete work; paused outcomes do not");
     assert.deepEqual(await segmentTitles(abortedRun.locator(".tile-card-progress").nth(0)), ["Passed: 1", "Failed: 1", "Blocked: 1", "Skipped: 1", "Aborted: 1", "Paused: 1"]);
     assert.equal(await abortedRun.locator(".tile-card-progress").nth(1).getByRole("progressbar").getAttribute("aria-valuenow"), "33", "Pass rate preserves the passed/failed/blocked denominator");
-    for (const run of ["Direct", "Aborted", "Completed", "Suite", "Active"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).count(), 0, "Tile edit buttons are removed; the selection toolbar owns editing");
+    for (const run of ["Direct", "Aborted", "Completed", "Suite", "Active"]) assert.equal(await page.getByRole("button", { name: `Edit ${run} checkout run`, exact: true }).count(), 0, "Run edit buttons are removed");
 
     for (const view of ["List view", "Tile view"]) {
-      await page.getByRole("button", { name: view, exact: true }).click();
-      const edit = page.getByRole("button", { name: "Edit selected run", exact: true });
-      const clear = page.getByRole("button", { name: "Clear", exact: true });
-      assert.equal(await edit.isDisabled(), true);
-      const selectRun = name => view === "Tile view"
-        ? page.getByRole("checkbox", { name: `Select ${name}`, exact: true })
-        : page.getByRole("row").filter({ hasText: name }).getByRole("checkbox");
-      await selectRun("Suite checkout run").check();
-      assert.equal(await edit.isEnabled(), true, `${view}: one unfinished selected run enables Edit`);
-      const otherView = view === "Tile view" ? "List view" : "Tile view";
-      await page.getByRole("button", { name: otherView, exact: true }).click();
-      const preservedSelection = otherView === "Tile view"
-        ? page.getByRole("checkbox", { name: "Select Suite checkout run", exact: true })
-        : page.getByRole("row").filter({ hasText: "Suite checkout run" }).getByRole("checkbox");
-      assert.equal(await preservedSelection.isChecked(), true, "Selected run survives a tile/list view change");
-      assert.equal(await edit.isEnabled(), true);
-      await page.getByRole("button", { name: view, exact: true }).click();
-      const toolbarOrder = await edit.evaluate(element => {
-        const clear = document.querySelector('[aria-label="Catalog selection"] [aria-label="Clear"]');
-        const schedule = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === "Schedule Run");
-        return Boolean(clear.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING)
-          && Boolean(element.compareDocumentPosition(schedule) & Node.DOCUMENT_POSITION_FOLLOWING);
-      });
-      assert.equal(toolbarOrder, true, "Edit follows Clear and precedes Schedule Run");
-      await edit.click();
-      await page.getByRole("dialog", { name: "Edit run", exact: true }).waitFor();
-      assert.equal(await page.getByRole("textbox", { name: "Run Name", exact: true }).inputValue(), "Suite checkout run");
-      await page.getByRole("button", { name: "Cancel", exact: true }).click();
-      await selectRun("Active checkout run").check();
-      assert.equal(await edit.isDisabled(), true, "Multiple selected runs cannot open the single-run editor");
-      await clear.click();
-      await selectRun("Direct checkout run").check();
-      assert.equal(await edit.isDisabled(), true, "Finished selected runs stay locked");
-      await clear.click();
+      await page.getByRole("button", {name:view,exact:true}).click();
+      assert.equal(await page.getByRole("button", {name:"Edit selected run",exact:true}).count(),0);
+      assert.equal(await page.getByRole("button", {name:/^Edit .*checkout run$/}).count(),0);
+      const selected = view === "Tile view" ? page.getByRole("checkbox", {name:"Select Suite checkout run",exact:true}) : page.getByRole("row").filter({hasText:"Suite checkout run"}).getByRole("checkbox");
+      await selected.check();
+      await page.getByRole("button", {name:"Clear",exact:true}).click();
+      assert.equal(await selected.isChecked(),false);
     }
 
     for (const width of [1440, 1024, 768, 390, 320]) {
@@ -221,13 +194,9 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByRole("checkbox", { name: "Select Suite checkout run", exact: true }).check();
-    await page.getByRole("button", { name: "Edit selected run", exact: true }).click();
-    await page.getByRole("dialog", { name: "Edit run", exact: true }).waitFor();
-    assert.equal(await page.getByRole("textbox", { name: "Run Name", exact: true }).inputValue(), "Suite checkout run");
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await direct.locator(".tile-card-open-button").click();
     await page.getByRole("heading", { name: "Direct checkout run", exact: true }).waitFor();
-    assert.equal(await page.locator(".execution-command-actions").getByRole("button", { name: "Edit run", exact: true }).isDisabled(), true);
+    assert.equal(await page.locator(".execution-command-actions").getByRole("button", { name: "Edit run", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "View evidence for Run Results", exact: true }).locator(":scope > strong").innerText(), "33%", "Run pass rate uses finalized instances");
     assert.match(await page.getByRole("button", { name: "View evidence for Defects", exact: true }).innerText(), /2/);
     assert.match(await page.getByRole("button", { name: "View evidence for Run Impacted Stories", exact: true }).innerText(), /2\/3/);
@@ -257,9 +226,9 @@ test("run review keeps metric evidence, dialogs, hierarchy and catalog editing a
       for (const selector of [".execution-command-actions button", ".execution-command-search input", ".execution-command-case-inspect"]) {
         await assertWheelScrollsPage(page.locator(selector).first());
       }
-      const clippedComposerControls = await page.locator(".execution-command-analysis > .ai-feature-composer").evaluate(composer => {
+      const clippedComposerControls = await page.locator(".execution-command-analysis").evaluate(composer => {
         const bounds = composer.getBoundingClientRect();
-        return [...composer.querySelectorAll(".ai-feature-composer__footer button")].filter(element => {
+        return [...composer.querySelectorAll("button")].filter(element => {
           const rect = element.getBoundingClientRect();
           return rect.width && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1 || element.scrollWidth > element.clientWidth + 1);
         }).map(element => ({ label: element.textContent, right: element.getBoundingClientRect().right, width: element.clientWidth, scrollWidth: element.scrollWidth, composerRight: bounds.right }));
@@ -529,6 +498,11 @@ test("Scheduled Run tile bars show readiness and context counts with their own t
       const bounds = await tile.evaluate(element => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
       assert.ok(bounds.scrollWidth <= bounds.width + 1, JSON.stringify({ width, bounds }));
     }
+    await page.getByRole("button", {name:"Add test plan",exact:true}).first().click();
+    const planDialog = page.getByRole("dialog", {name:"Add test plan",exact:true});
+    await planDialog.waitFor();
+    await planDialog.getByRole("button", {name:"Close create schedule dialog",exact:true}).click();
+    await planDialog.waitFor({state:"hidden"});
     assert.deepEqual(errors, []);
   } finally {
     await browser?.close();

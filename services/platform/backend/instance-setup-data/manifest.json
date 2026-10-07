@@ -7,7 +7,7 @@
   "description": "Repository-owned HelloTest feature backlog and connected synthetic acceptance data. Version 7 covers every implemented feature Story with a case, capability suites, chronological delivery and mixed run evidence, plus independent prompt templates and synthetic agent/chat history. Existing records, dates, custom grants and assignments are retained.",
   "blueprint": {
     "title": "HelloTest core feature and acceptance-story blueprint",
-    "story_count": 59,
+    "story_count": 60,
     "backlog_count": 10,
     "sprint_count": 7,
     "release_count": 3
@@ -242,7 +242,8 @@
         "Specialist selection",
         "Manual triggers",
         "Review outputs",
-        "Prompt templates"
+        "Prompt templates",
+        "Reviewed browser quality agents"
       ],
       "routes": [
         "/agentic-workflows",
@@ -432,7 +433,7 @@
         "workspace.projects"
       ],
       "record_count": 10,
-      "sha256": "fa751c138a7f7f061150fbb6cfe7b484fa5ec2ae0b7463b30b602cdd5e9478d8"
+      "sha256": "9ab582517821f9a5da660b65624a1873f42034cdf2d044bb482f370e54c771a4"
     },
     {
       "key": "knowledge.ai_knowledge_collections",
@@ -488,7 +489,7 @@
         "workspace.projects"
       ],
       "record_count": 2,
-      "sha256": "f3f7e405d3f14cbabb3f0f13804f19312e3692df9f5becc1ff1822a41e053f90"
+      "sha256": "f7413684f074ae1f29a7b113f14994f790a2e117d9bd9e4d9ccd433091234b80"
     },
     {
       "key": "testops.notifications",
@@ -573,8 +574,8 @@
         "planning.requirement_iterations",
         "workspace.projects"
       ],
-      "record_count": 71,
-      "sha256": "d9a3b48337208e8f8c6e856d1b3b77f54a6ea7321b13815f8e3d108b3a2aa3a9"
+      "record_count": 72,
+      "sha256": "ee85765f9678fe527de874cd5bda98bbd3d17a262fd50041e4165765fb99577c"
     },
     {
       "key": "planning.requirements_v5",
@@ -763,7 +764,7 @@
         "testops.workspace_transactions"
       ],
       "record_count": 3,
-      "sha256": "36cc4f71efd9fe9b4c3db78aa57f84976481324654cfd0092753010d0048b7eb"
+      "sha256": "d0e87fae7eb6d067c5cd3d8051dcd4b33091c06949ca00ca937ed39e007f9981"
     },
     {
       "key": "planning.v6_releases",
@@ -986,8 +987,8 @@
         "planning.requirement_releases",
         "planning.requirements"
       ],
-      "record_count": 69,
-      "sha256": "ccae2bb204cacebe50c6a125ca6c2922ab7ebe202bb407e8295ea7967bafa853"
+      "record_count": 70,
+      "sha256": "7212c91db2c210c60401cbbd9095674cf8200ed5bde05a6a0731825ac55473c4"
     },
     {
       "key": "planning.requirement_relations",
@@ -1001,8 +1002,8 @@
       "depends_on": [
         "planning.requirements"
       ],
-      "record_count": 18,
-      "sha256": "26c83a59d6ec243ce848376d6a79068fc1ffbf2925f5a0a3e64c3a1cf258e6c0"
+      "record_count": 19,
+      "sha256": "448c9affc3f08793620d3ba348b54f402714017c3ad897a9c96d71506c4dbf49"
     },
     {
       "key": "planning.requirement_release_items_v5",
@@ -1276,8 +1277,8 @@
         "design.capability_modules",
         "planning.requirements"
       ],
-      "record_count": 59,
-      "sha256": "05d62f75fe9c5a1a44eca972d4cc736dbd9d5d853fd403b337cb45b9646f75b2"
+      "record_count": 60,
+      "sha256": "cc7e22eb11fbd4a597db4a446f79a0918ba0aa0ecabc0638d88262169aa44e5a"
     },
     {
       "key": "agents.capability_history",
@@ -1488,7 +1489,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "a52d3c665b1f809f69ead019bffd63c4b66db22b8ccb0c01b09d99d61b56ba16"
+      "sha256": "56ad86d8868159e1be516b6d8fcb3bd38bdf51c24cea6992316be08e2f548802"
     },
     {
       "key": "automation.test_cases",
@@ -1537,8 +1538,8 @@
         "planning.requirements",
         "workspace.app_types"
       ],
-      "record_count": 59,
-      "sha256": "c505e38a27eb3bf832ba9d7e3bde61252f0244d1b1cc3e6bd0367ef4acbe259e"
+      "record_count": 60,
+      "sha256": "f6d6cf99b2eb42e359a32ab1b46aef7077503923a49d145694205e47bf15f044"
     },
     {
       "key": "design.test_case_versions",
@@ -1804,7 +1805,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "bd71c38e6ccf9597f67b3c66645961009df31b423f715eee36309cf4732e20f3"
+      "sha256": "b85fa9700672e3a5291d3832f4fb77c82d7ca897a9c1d037e9a4b2317cc89a72"
     },
     {
       "key": "automation.automation_case_links",
@@ -1948,8 +1949,8 @@
         "design.capability_cases",
         "design.capability_shared_groups"
       ],
-      "record_count": 295,
-      "sha256": "9fe01cf6c9fca8543b19015660f790668d554b8bcf7ff95dc0b55234fcac4dc7"
+      "record_count": 301,
+      "sha256": "2c476ccab7263cc354ddb4f89ba87e54f28dba8b6b5db282ce463f03a2793ccd"
     },
     {
       "key": "design.capability_story_cases",
@@ -1964,8 +1965,8 @@
         "design.capability_cases",
         "planning.requirements"
       ],
-      "record_count": 59,
-      "sha256": "872ad600014aea18df7d4c7789c0a3604a464a47b5f661dd4cf153f40b8b2bf5"
+      "record_count": 60,
+      "sha256": "db6e30f281daf7d4f3565f091af13ef7943f4bc15cac382a5eb3da89f933f2c3"
     },
     {
       "key": "design.capability_suite_cases",
@@ -1980,8 +1981,8 @@
         "design.capability_cases",
         "design.capability_suites"
       ],
-      "record_count": 59,
-      "sha256": "a87e2bd02428bb85c3b97e821801697c78a6a93a9bb19c65534c7c7389d2658f"
+      "record_count": 60,
+      "sha256": "7f3c57c34533c1708d5f32abcc692d3b09015181becd3d5acb3457f95681039d"
     },
     {
       "key": "design.capability_module_cases",
@@ -1996,8 +1997,8 @@
         "design.capability_cases",
         "design.capability_modules"
       ],
-      "record_count": 59,
-      "sha256": "4a6e719b174ddcffc792bffa8ddf36c9fa77a7727cd0a473d9fdb3109dcf6cd3"
+      "record_count": 60,
+      "sha256": "ca78f4f2c6b6dacb30a40245280c0c5703709bc41955ae125c7b92c4687743fa"
     },
     {
       "key": "environments.capability_case_data",
@@ -2012,8 +2013,8 @@
         "design.capability_cases",
         "design.capability_data_sets"
       ],
-      "record_count": 59,
-      "sha256": "b115374d923331a2747b5136c7b4076f6d9539f8064b6a9d71cf00bdd057e04a"
+      "record_count": 60,
+      "sha256": "41e86ed25db52af6836233e2cd4b48e2a1d935b06770e7cb4489de90234f3094"
     },
     {
       "key": "execution.capability_runs",
@@ -2196,7 +2197,7 @@
         "workspace.projects"
       ],
       "record_count": 4,
-      "sha256": "d2bb7ef362a33093598a036ec5720c20acacb16bbc95ed1e1356af3035eae384"
+      "sha256": "3ac5208e195760c1d2bdc096e6990ccbfc05f270177c8a6b5a5818ff8bb7e5dd"
     },
     {
       "key": "knowledge.ai_knowledge_collection_sources",
@@ -2394,7 +2395,7 @@
         "workspace.projects"
       ],
       "record_count": 10,
-      "sha256": "463316f040ad20b20bd5352e403bb31714b379e67e8b22f131b18cf6aced4b4a"
+      "sha256": "36a8f8c8406d73c373ccee15cd52f1a707c9045e329777fcdf4112f7bad391ab"
     },
     {
       "key": "knowledge.ai_knowledge_index_states",

@@ -92,7 +92,22 @@ const validateChatResponse = async (response, payload) => {
   if (choice?.finish_reason === 'content_filter' || choice?.message?.refusal) {
     throw policyError('The LLM declined this request. Revise the supplied content or choose another configured model.', 'AI_PROVIDER_REFUSAL');
   }
-  if (choice?.message?.tool_calls?.length) return true;
+  if (choice?.message?.tool_calls?.length) {
+    const allowedTools = new Set((Array.isArray(payload.tools) ? payload.tools : [])
+      .filter(tool => tool?.type === 'function').map(tool => tool.function?.name).filter(Boolean));
+    for (const call of choice.message.tool_calls) {
+      if (call?.type !== 'function' || !allowedTools.has(call.function?.name)) {
+        throw policyError('The LLM returned an unexpected tool call instead of the requested output. Check the selected model and try again.', 'AI_UNEXPECTED_TOOL_CALL');
+      }
+      try {
+        const argumentsValue = JSON.parse(call.function.arguments);
+        if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) throw new Error('object required');
+      } catch {
+        throw policyError('The LLM returned incomplete tool arguments. Try again with a smaller scope.', 'AI_INVALID_TOOL_ARGUMENTS');
+      }
+    }
+    return true;
+  }
   const content = getCompletionContent(result);
   if (typeof content !== 'string' || !content.trim()) {
     throw policyError('The LLM returned no usable content. Check the selected model and try again.', 'AI_EMPTY_RESPONSE');

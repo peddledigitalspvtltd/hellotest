@@ -16,6 +16,7 @@ import "./catalog-list.css";
 import "./modal-system.css";
 import "./execution-run-builder.css";
 import "./workspace-layout.css";
+import "./product-experience.css";
 
 installCapabilityHost();
 

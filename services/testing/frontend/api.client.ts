@@ -174,6 +174,8 @@ issues: {
       method: "POST",
       body: JSON.stringify(input)
     }),
+    previewAiImprove: (input: { project_id: string; issue_id?: string; intent: string; evidence?: string; linked_test_case_ids?: string[]; integration_id?: string; prompt_guidance?: string }) =>
+      request<import("@hellotest/platform/frontend/src/types").AiBugDraftPreview>("/feedback/ai-improve-preview", { method: "POST", body: JSON.stringify(input) }),
     previewAiTriage: (input: {
       project_id: string;
       issue_ids: string[];
@@ -297,9 +299,10 @@ testCases: {
           expected_result?: string | null;
         }>;
       };
-    }) =>
+    }, options?: { signal?: AbortSignal }) =>
       requestAiPreview<AiCaseAuthoringPreviewResponse>("/test-cases/ai-authoring-preview", {
         method: "POST",
+        signal: options?.signal,
         body: JSON.stringify(input)
       }),
     rephraseStep: (input: {
@@ -323,9 +326,10 @@ testCases: {
         method: "POST",
         body: JSON.stringify(input)
       }),
-    previewDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }) =>
+    previewDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; integration_id?: string; max_cases?: number; authoring_mode?: "structured" | "gherkin"; additional_context?: string; external_links?: string[]; images?: AiDesignImageInput[] }, options?: { signal?: AbortSignal }) =>
       requestAiPreview<AiDesignPreviewResponse>("/test-cases/design-test-cases-preview", {
         method: "POST",
+        signal: options?.signal,
         body: JSON.stringify(input)
       }),
     acceptDesignedCases: (input: { app_type_id: string; requirement_ids: string[]; status?: string; cases: Array<{ title: string; description?: string | null; priority?: number; requirement_ids?: string[]; authoring_mode?: "structured" | "gherkin"; gherkin_document?: string | null; parameter_values?: Record<string, string>; steps?: Array<{ step_order?: number; step_type?: TestStep["step_type"]; action?: string | null; expected_result?: string | null }> }> }) =>

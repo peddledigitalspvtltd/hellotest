@@ -118,7 +118,7 @@ test("Defect conversion creation persists all links and links the created Test C
   ]);
 
   assert.match(issues, /buildBugToTestCaseDraft\(selectedItem\)/);
-  assert.match(issues, /actions=\{!isCreating && selectedItem[\s\S]*issue-detail-convert-button[\s\S]*Convert to Test Case/);
+  assert.match(issues, /actions=\{\([\s\S]*!isCreating && selectedItem && canCreateTestCases[\s\S]*issue-detail-convert-button[\s\S]*Convert to Test Case/);
   assert.ok(
     issues.indexOf("issue-detail-convert-button") < issues.indexOf('className="issue-detail-footer"'),
     "Defect conversion must be available in the top detail header before the sticky footer"

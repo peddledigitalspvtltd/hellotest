@@ -9,7 +9,7 @@ const { chromium } = require('playwright');
 const root = new URL('../../../platform/frontend/', import.meta.url);
 const fixture = `import React from 'react';import{createRoot}from'react-dom/client';import{createMemoryRouter,RouterProvider}from'react-router-dom';import{QueryClient,QueryClientProvider}from'@tanstack/react-query';
 import{RequirementsPage}from'/services/manual/frontend/pages/RequirementsPage';import{InfoTooltip}from'/src/shared/components/InfoTooltip';import{AuthProvider}from'/src/auth/AuthContext';import{LocalizationProvider}from'/src/context/LocalizationContext';import{api,sessionStorage}from'/src/lib/api';import{setCurrentScope}from'/src/platform/hooks/useCurrentProject';
-import'/src/styles.css';import'/src/modal-system.css';import'/src/workspace-layout.css';import'/src/catalog-list.css';import'/src/dark-theme.css';
+import'/src/styles.css';import '/src/product-experience.css';import'/src/modal-system.css';import'/src/workspace-layout.css';import'/src/catalog-list.css';import'/src/dark-theme.css';
 const session={token:'isolated-sprint-health',user:{id:'planner',name:'Planner',role:'admin',email:'planner@example.test'}};sessionStorage.write(session);setCurrentScope('project','app');
 function stub(value){for(const[key,entry]of Object.entries(value)){if(typeof entry==='function')value[key]=async()=>[];else if(entry&&typeof entry==='object')stub(entry)}}stub(api);
 api.auth.session=async()=>session;api.settings.getLocalization=async()=>({strings:{}});api.settings.getWorkspacePreferences=async()=>({preferences:{}});api.featureFlags.snapshot=async()=>({flags:new Proxy({},{get:()=>true})});

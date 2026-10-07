@@ -255,6 +255,19 @@ export const replaceTemplateContextPack = (current: string, templatePrompt: stri
   return result;
 };
 
+/** Keeps reviewed evidence intact while editing only the author's instructions. */
+export const manualContextInstructions = (value: string) => value
+  .replace(/(?:\n\n---\n\n)?\[HELLOTEST_(SMART|TEMPLATE)_CONTEXT_START\][\s\S]*?\[HELLOTEST_\1_CONTEXT_END\](?:\n\n---\n\n)?/g, "");
+
+export const updateManualContextInstructions = (current: string, instructions: string) => {
+  const packs = current.match(/\[HELLOTEST_(SMART|TEMPLATE)_CONTEXT_START\][\s\S]*?\[HELLOTEST_\1_CONTEXT_END\]/g) || [];
+  const result = [instructions, ...packs].filter(Boolean).join("\n\n---\n\n");
+  if (result.length > AI_CONTEXT_PACK_LIMIT) {
+    throw new Error("Shorten your instructions or remove a context pack to stay within the context budget.");
+  }
+  return result;
+};
+
 export const parseExternalLinks = (value: string) =>
   value
     .split(/\r?\n/)

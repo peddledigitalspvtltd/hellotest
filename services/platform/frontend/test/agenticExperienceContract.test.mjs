@@ -87,7 +87,7 @@ test("shared AI surfaces reuse the governed process rail", async () => {
     readSource("../../../testing/frontend/pages/ExecutionsPage.tsx")
   ]);
 
-  for (const [index, source] of files.entries()) assert.match(source, index === 2 ? /<StoryAiStudioShell/ : /AgenticProcessRail/);
+  for (const [index, source] of files.entries()) assert.match(source, index === 2 ? /<StoryAiStudioShell/ : index === 0 ? /<AiGenerationProgress/ : /AgenticProcessRail/);
   assert.match(files[2], /processProfile="bug-create"/);
 });
 
@@ -135,9 +135,9 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   ]);
 
   assert.match(experience, /Agent run brief/);
-  assert.match(storyShell, /Evidence context/);
-  assert.match(storyShell, /Output contract/);
-  assert.match(storyShell, /Human gate/);
+  assert.match(storyShell, /contextLabel/);
+  assert.match(storyShell, /ai-test-generator-authoring-tabs/);
+  assert.match(storyShell, /Saved changes require your review/);
 
   assert.match(executions, /briefItems=/);
   for (const prop of ["contextLabel", "outputLabel", "approvalLabel"]) assert.match(bugs, new RegExp(`${prop}=`));
@@ -148,7 +148,8 @@ test("feature AI surfaces expose an explicit run brief and avoid duplicate missi
   assert.match(testImprove, /<AiDesignStudioModal/);
   assert.match(testImprove, /allowMultipleRequirements=\{false\}/);
   assert.match(testImprove, /sourceCase=\{sourceCase\}/);
-  assert.match(testCreate, /showPromptEditor\s*\/>/);
+  assert.match(testCreate, /<AiIntentCanvas/);
+  assert.match(testCreate, /showPromptEditor=\{false\}/);
   assert.match(testCreate, /Generation Context/);
   assert.match(contextPanel, /showPromptEditor \? \(/);
 });
@@ -172,7 +173,7 @@ test("core AI authoring flows share the compact context, draft, and generation-f
 
   assert.match(storyShell, /story-studio-workbench/);
   assert.match(storyShell, /story-studio-output-workspace/);
-  assert.match(storyShell, /orientation="vertical"/);
+  assert.match(storyShell, /<AiGenerationProgress/);
   assert.match(storyShell, /Proposal ready/);
   assert.match(storyShell, /ai-test-generator-authoring-tabs/);
   assert.match(storyShell, /is-intelligence-collapsed/);
@@ -241,23 +242,25 @@ test("AI authoring settings use visible context and engine sections", async () =
   assert.match(stories, /title="Generation Context"/);
   assert.match(testCreate, /ai-test-generator-context/);
   assert.match(testCreate, /ai-test-generator-workspace/);
-  assert.match(testCreate, /ai-test-generator-intelligence/);
+  assert.match(testCreate, /<AiContextPeek[^>]*open=\{contextOpen\}/);
   assert.match(testImprove, /<AiDesignStudioModal/);
   assert.match(testImprove, /studioTitle=\{isCreating \? "AI Draft Test Case" : "AI Improve Test Case"\}/);
   assert.match(testImprove, /sourceCase=\{sourceCase\}/);
 });
 
-test("Story drafts stay inline while Intelligence is optional", async () => {
+test("Story drafts use a focused artifact outline with cited evidence in the inspector", async () => {
   const [shell, content, styles] = await Promise.all([
     readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
     readSource("../../../ai/frontend/components/StoryAiStudioContent.tsx"),
     readSource("../../../ai/frontend/components/StoryAiStudioShell.css")
   ]);
   assert.match(shell, /useState\(false\)/);
-  assert.match(shell, /aria-expanded=\{intelligenceOpen\}/);
+  assert.doesNotMatch(shell, /intelligenceOpen|Intelligence Status/);
+  assert.match(shell, /evidencePlacement: "inspector"/);
   assert.match(shell, /activeContent: inspector/);
-  assert.match(content, /expanded && activeContent/);
-  assert.match(content, /ai-test-generator-draft__body/);
+  assert.match(content, /ai-artifact-outline/);
+  assert.match(content, /ai-artifact-detail story-studio-inspector-scroll/);
+  assert.match(content, /onActivateDraft\(draft\.id\)/);
   assert.match(styles, /grid-template-columns: 300px minmax\(0, 1fr\)/);
   assert.match(shell, /statusContent: null/);
   assert.match(shell, /ai-test-generator-toast/);
@@ -284,7 +287,8 @@ test("compact AI workspaces show four focused phases with evidence in an on-dema
   assert.match(experience, /<AiEvidenceFlyout/);
   assert.match(experience, /View full run evidence/);
   assert.doesNotMatch(experience, /<details[^>]*agent-process-rail__details/);
-  for (const source of [storyShell, insights]) assert.match(source, /presentation="focused"/);
+  assert.match(insights, /presentation="focused"/);
+  assert.match(storyShell, /<AiGenerationProgress/);
   assert.match(bugs, /<StoryAiStudioShell/);
 });
 
@@ -313,7 +317,7 @@ test("Defect authoring defers supporting evidence and draft reasoning until requ
   assert.doesNotMatch(bugs, /<details className="ai-bug-input-disclosure">/);
   assert.doesNotMatch(bugs, /<details className="ai-bug-review-details">/);
   assert.doesNotMatch(bugs, /<summary>Evidence and reasoning<\/summary>/);
-  assert.match(bugs, /aiDraftPreview \? <button[^>]*>Accept into Defect form<\/button> : null/);
+  assert.match(bugs, /aiBugMode === "improve" \? "Apply selected fields" : "Accept into Defect form"/);
 });
 
 test("Shared AI insight review groups findings, actions, and run details into accessible tabs", async () => {

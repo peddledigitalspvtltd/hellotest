@@ -88,11 +88,13 @@ test("human edits invalidate generated Defect field evidence before acceptance",
 });
 
 test("Defect authoring controls expose checkbox semantics, stable pane focus, contrast, and mobile safe area", async () => {
-  const [issues, issueStyles, modalStyles, shell] = await Promise.all([
+  const [issues, issueStyles, modalStyles, shell, peek, focus] = await Promise.all([
     readSource("../../../testing/frontend/pages/IssuesPage.tsx"),
     readSource("../../../testing/frontend/pages/IssuesPage.css"),
     readSource("../src/modal-system.css"),
-    readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx")
+    readSource("../../../ai/frontend/components/StoryAiStudioShell.tsx"),
+    readSource("../../../ai/frontend/components/AiContextPeek.tsx"),
+    readSource("../src/shared/hooks/useDialogFocus.ts")
   ]);
 
   assert.match(issues, /aria-labelledby=\{labelId\} className="impact-checkbox-list" role="group"/);
@@ -100,8 +102,10 @@ test("Defect authoring controls expose checkbox semantics, stable pane focus, co
   assert.match(issues, /<StoryAiStudioShell/);
   assert.match(issues, /entityLabel="Defect"/);
   assert.match(issues, /showOutputFormat=\{false\}/);
-  assert.match(shell, /aria-controls=\{`\$\{titleId\}-intelligence`\}/);
-  assert.match(shell, /intelligenceToggle\.current\?\.focus\(\)/);
+  assert.doesNotMatch(shell, /Intelligence Status|intelligenceOpen/);
+  assert.match(shell, /<AiContextPeek[^>]*open=\{contextOpen\}/);
+  assert.match(peek, /useDialogFocus<HTMLElement>\(\{ active: open, onClose \}\)/);
+  assert.match(focus, /previouslyFocused\.focus\(\)/);
   assert.match(issueStyles, /:root\[data-theme="dark"\] \.ai-bug-evidence-sources article > span \{\s*color: #85b8ff;/);
   assert.match(modalStyles, /\.ai-authoring-dialog--bugs \.ai-bug-draft-footer \{\s*padding-bottom: max\(10px, env\(safe-area-inset-bottom\)\) !important;/);
 });
@@ -114,7 +118,7 @@ test("Defect creation is project scoped and AI review can yield space to finding
   ]);
 
   assert.match(issues, /const buildIssuePayload = \(draft: IssueDraft, userId: string, projectId: string, can: \(permission: string\) => boolean\) => \(\{\s*project_id: projectId,/);
-  assert.match(issues, /buildIssuePayload\(draft, session\.user\.id, projectId, can\)/);
+  assert.match(issues, /buildIssuePayload\(\{ \.\.\.draft, title: draft\.title\.trim\(\) \}, session\.user\.id, projectId, can\)/);
   assert.match(issues, /value=\{selectedItem\.display_id \|\| selectedItem\.jira_bug_key \|\| selectedItem\.id\}/);
   assert.match(issues, /closedIssueIdRef\.current = selectedIssueId/);
   assert.match(issues, /closedIssueIdRef\.current === requestedIssueId/);

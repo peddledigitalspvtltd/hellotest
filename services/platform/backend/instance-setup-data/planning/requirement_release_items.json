@@ -345,6 +345,11 @@
       "release_id": "sample-v4-metrics-release",
       "requirement_id": "sample-v4-metrics-story-not-applicable",
       "source": "sprint"
+    },
+    {
+      "release_id": "sample-v3-ht-release-intelligence",
+      "requirement_id": "sample-v3-feature-browser-quality-agents",
+      "source": "sprint"
     }
   ]
 }

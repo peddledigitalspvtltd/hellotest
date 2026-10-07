@@ -161,7 +161,7 @@
       "start_date": "2026-11-23T09:00:00.000Z",
       "end_date": "2026-12-06T09:00:00.000Z",
       "assignee_id": "__SETUP_ACTOR_ID__",
-      "effort_points": 31,
+      "effort_points": 39,
       "original_dev_id": null,
       "original_qa_id": null,
       "created_by": "__SETUP_ACTOR_ID__",

@@ -41,6 +41,9 @@ test('project agent drafts activate into the library and workflow picker with sk
     await editor.getByLabel('Objective', {exact:false}).fill('Review the supplied release evidence and identify missing coverage.');
     await editor.getByLabel('Model connection',{exact:false}).selectOption('model');
     await editor.getByRole('button',{name:'2. Skills & evidence',exact:true}).click();
+    await editor.getByLabel('Required run inputs',{exact:false}).fill('constructor');
+    assert.equal(await editor.getByRole('button',{name:'Save draft',exact:true}).isDisabled(),true,'invalid input identifiers cannot be saved');
+    await editor.getByLabel('Required run inputs',{exact:false}).fill('');
     await editor.getByLabel('Required run inputs',{exact:false}).pressSequentially('release_id, environment');
     await editor.getByRole('button',{name:'Choose or create skill',exact:true}).click();
     await page.locator('.ai-prompt-template-card').filter({hasText:'Review boundaries'}).getByRole('button',{name:'Use',exact:true}).click();
@@ -50,6 +53,9 @@ test('project agent drafts activate into the library and workflow picker with sk
     await page.screenshot({path:output+'/01-skills-dark.png',fullPage:true});
     await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
     await editor.getByRole('button',{name:'3. Completion & limits',exact:true}).click();
+    await editor.getByLabel('Time limit (seconds)',{exact:true}).fill('0');
+    assert.equal(await editor.getByRole('button',{name:'Save and activate',exact:true}).isDisabled(),true,'out-of-range limits cannot activate an agent');
+    await editor.getByLabel('Time limit (seconds)',{exact:true}).fill('70');
     await editor.getByLabel('Stop for missing evidence',{exact:true}).check();
     await page.setViewportSize({width:390,height:900});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);

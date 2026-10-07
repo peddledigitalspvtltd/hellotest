@@ -1,3 +1,4 @@
+import { IconFolder } from "@tabler/icons-react";
 import { metricTitle } from "../lib/metricTitle";
 import type { ReactNode } from "react";
 import { TestSuiteIcon } from "../../platform/components/AppIcons";
@@ -310,13 +311,7 @@ export function TileCardHierarchyIcon() {
 }
 
 export function TileCardProjectIcon() {
-  return (
-    <TileCardIconShell>
-      <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H10l2 2h6.5A2.5 2.5 0 0 1 21 10.5v8A2.5 2.5 0 0 1 18.5 21h-13A2.5 2.5 0 0 1 3 18.5z" />
-      <path d="M9 12h6" />
-      <path d="M9 16h4" />
-    </TileCardIconShell>
-  );
+  return <IconFolder size={17} stroke={1.8} aria-hidden="true" />;
 }
 
 export function TileCardUsersIcon() {

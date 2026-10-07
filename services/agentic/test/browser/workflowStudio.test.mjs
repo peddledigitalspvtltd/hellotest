@@ -129,6 +129,13 @@ test('Agentic Studio supports templates, node authoring, actual step IO, executi
   await page.locator('.studio-execution-steps button').filter({hasText:'Story assurance'}).click();await page.getByRole('button',{name:'Input',exact:true}).click();await page.getByRole('button',{name:'Fields',exact:true}).click();await page.getByText('$input.records.0.passed',{exact:true}).waitFor();await page.getByText('Input context and prompt',{exact:true}).click();await page.getByText(/Actual specialist prompt/).waitFor();
   await page.evaluate(()=>{window.finishRun();window.queryClient.invalidateQueries({queryKey:['agentic-workflow-run']});});
   await page.getByRole('button',{name:'Output',exact:true}).click();await page.getByText('Checkout acceptance needs one boundary review.',{exact:true}).waitFor();
+  const downloadPromise=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Download execution snapshot',exact:true}).click();
+  const downloaded=await downloadPromise;
+  const exported=JSON.parse(await readFile(await downloaded.path(),'utf8'));
+  assert.ok(exported.run.workflow_snapshot.nodes.some(node=>node.id==='task-story'));
+  assert.ok(exported.run.node_results.some(step=>step.node_id==='task-story'&&step.status==='completed'),'export contains the observed step result');
+  assert.ok(!Number.isNaN(Date.parse(exported.exported_at)));
   await page.getByRole('button',{name:'Table',exact:true}).click();
   assert.equal(await page.getByRole('cell',{name:'false',exact:true}).count(),1);
   await page.getByRole('button',{name:'Execution log',exact:true}).click();
@@ -163,7 +170,7 @@ function RouteObserver()`);
  try {
   await writeFile(html,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
   await writeFile(tsx,selectionFixture);
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true,...(process.env.CHROME_EXECUTABLE?{executablePath:process.env.CHROME_EXECUTABLE}:{})});
   const page=await browser.newPage({viewport:{width:1512,height:1050}});page.setDefaultTimeout(10000);
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`${process.env.VITE_TEST_URL||'http://127.0.0.1:5294'}/${name}.html?route=${encodeURIComponent('/agentic-workflows?view=workflows')}`);

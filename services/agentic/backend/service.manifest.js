@@ -5,6 +5,7 @@ module.exports = {
   routes: [
     defineRoute("agentic", "agentic", "agenticWorkflows.routes.js"),
     defineRoute("agentic", "agentic", "repositoryAgents.routes.js"),
-    defineRoute("agentic", "agentic", "repositoryInspection.routes.js")
+    defineRoute("agentic", "agentic", "repositoryInspection.routes.js"),
+    defineRoute("agentic", "agentic", "qualityAgents.routes.js")
   ]
 };

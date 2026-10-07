@@ -1,0 +1,146 @@
+/* Workflow-specific refinements inherit the workspace's shared color tokens. */
+.issue-authoring-fields,
+.scoped-run-authoring-fields {
+  display: contents;
+  padding: 0;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+}
+.issue-authoring-fields > .inline-message { order: -1; }
+.authoring-disclosure {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--hellotest-dialog-border, var(--line, #e4e8ef));
+  border-radius: 12px;
+  background: var(--hellotest-dialog-surface, #fff);
+}
+.authoring-disclosure > summary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.authoring-disclosure > summary::-webkit-details-marker { display: none; }
+.authoring-disclosure > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  opacity: .55;
+}
+.authoring-disclosure[open] > summary::before { transform: rotate(45deg); }
+.authoring-disclosure > summary > span { font-size: 13px; font-weight: 650; }
+.authoring-disclosure > summary > small {
+  margin-left: auto;
+  color: var(--hellotest-dialog-muted, var(--text-secondary, #667085));
+  font-size: 11px;
+  text-align: right;
+}
+.authoring-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: -3px;
+  border-radius: 10px;
+}
+.authoring-disclosure > .authoring-disclosure-body {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  padding: 4px 14px 14px;
+}
+.issue-detail-shell .issue-form-section.authoring-disclosure,
+.report-bug-modal .issue-form-section.authoring-disclosure { padding: 0 !important; }
+.scoped-run-selected-search { width: 100%; margin-block: 12px; }
+.scoped-run-selected-list { display: grid; gap: 8px; margin-top: 12px; }
+.scoped-run-selected-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hellotest-dialog-border, var(--line, #e4e8ef));
+  border-radius: 10px;
+  background: var(--hellotest-dialog-surface, #fff);
+}
+.scoped-run-selected-item > svg { flex: 0 0 16px; color: var(--accent, #2563eb); }
+.scoped-run-selected-item > span { display: grid; min-width: 0; flex: 1; gap: 3px; }
+.scoped-run-selected-item strong { font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.scoped-run-selected-item small { color: var(--text-secondary, #667085); font-size: 11px; }
+.scoped-run-selected-item > button {
+  display: grid;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  font-size: 22px;
+}
+.scoped-run-selected-item > button:hover:not(:disabled) { background: var(--surface-secondary, #f3f5fa); }
+@media (max-width: 640px) {
+  .authoring-disclosure > summary { flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .authoring-disclosure > summary > small { width: 100%; margin-left: 18px; text-align: left; }
+}
+.report-bug-modal {
+  --report-bug-surface: var(--app-surface, var(--surface, #fff));
+  --report-bug-surface-low: var(--app-surface-muted, #f1f5f6);
+  --report-bug-surface-toolbar: var(--app-surface-muted, #f1f5f6);
+  --report-bug-ink: var(--app-text, var(--text, #182b35));
+  --report-bug-text: var(--app-text, var(--text, #182b35));
+  --report-bug-muted: var(--app-text-muted, var(--text-secondary, #5d6f79));
+  --report-bug-border: var(--app-border, var(--line, #dce5e8));
+  --report-bug-primary: var(--app-accent, var(--accent, #087e83));
+}
+
+/* The failure narrative leads; optional context opens exactly where needed. */
+.report-bug-modal-backdrop { display: flex; justify-content: center; align-items: center; padding: 16px; background: #102b3940; backdrop-filter: blur(3px); }
+.report-bug-modal-backdrop .report-bug-modal { width: min(900px, calc(100vw - 32px)); max-width: none; height: calc(100dvh - 32px); max-height: none; margin: 0; border-radius: 16px; }
+.report-bug-modal .report-bug-modal-header { min-height: 68px; padding: 20px 28px; }
+.report-bug-modal .report-bug-modal-back-button { display: none; }
+.report-bug-modal .report-bug-modal-title-row h2 { margin: 0; font-size: 18px; }
+.report-bug-modal .report-bug-modal-body { padding: 28px 40px; }
+.issue-report-form .issue-form-section--summary .issue-form-section-head { display: none; }
+.issue-report-form .bug-field-title .form-field-label { position: absolute; width: 1px; height: 1px; padding: 0; clip-path: inset(50%); overflow: hidden; }
+.issue-report-form .bug-field-title input { min-height: 44px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--app-text, #182b35); font: 600 26px/1.4 "Hanken Grotesk", Inter, sans-serif; letter-spacing: -.02em; box-shadow: none; }
+.issue-report-form .bug-field-title input:focus-visible { outline: none !important; box-shadow: none; }
+.issue-report-form .issue-form-classification-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.issue-report-form .issue-form-section--evidence .issue-form-section-head { display: none; }
+.issue-report-form .authoring-disclosure { background: transparent; border: 0; border-top: 1px solid var(--app-border, #dce5e8); border-radius: 0; }
+.issue-report-form .authoring-disclosure > summary { min-height: 40px; padding: 10px 0; }
+.issue-report-form .authoring-disclosure > .authoring-disclosure-body { padding: 6px 0 12px; }
+.issue-report-form .issue-form-section { padding-inline: 0 !important; border-radius: 0; }
+.issue-report-form .jira-attachment-panel .jira-attachment-dropzone { min-height: 70px; }
+.issue-report-form .jira-attachment-panel > .empty-state { display: none; }
+.report-bug-modal .report-bug-modal-footer { flex: 0 0 auto; min-height: 76px; padding: 16px 28px; }
+@media (max-width: 640px) {
+  .report-bug-modal-backdrop { padding: 0; }
+  .report-bug-modal-backdrop .report-bug-modal { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .report-bug-modal .report-bug-modal-header { min-height: 60px; padding: 16px 20px; }
+  .report-bug-modal .report-bug-modal-body { padding: 24px 20px; }
+  .issue-report-form .bug-field-title input { font-size: 24px; }
+  .report-bug-modal .report-bug-modal-footer { min-height: 72px; padding: 14px 20px calc(14px + env(safe-area-inset-bottom)); }
+}
+:root body .modal-backdrop.report-bug-modal-backdrop { justify-content: center !important; align-items: center !important; padding: 16px !important; }
+:root body .report-bug-modal-backdrop .report-bug-modal { width: min(900px, calc(100vw - 32px)) !important; height: calc(100dvh - 32px) !important; max-height: none !important; }
+@media (max-width: 640px) {
+  :root body .modal-backdrop.report-bug-modal-backdrop { padding: 0 !important; }
+  :root body .report-bug-modal-backdrop .report-bug-modal { width: 100% !important; height: 100dvh !important; max-width: 100% !important; border-radius: 0 !important; }
+}
+:root body .report-bug-modal-backdrop .report-bug-modal { margin: 0 !important; }
+:root body .report-bug-modal .report-bug-modal-back-button { display: none !important; }
+:root body .issue-report-form .issue-form-classification-grid { display: flex !important; gap: 8px !important; }
+:root body .issue-report-form .issue-form-section--summary .issue-form-section-head,
+:root body .issue-report-form .issue-form-section--evidence > .issue-form-section-head { display: none !important; }
+:root body .issue-report-form .bug-field-title input { min-height: 44px !important; height: auto !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; font: 600 26px/1.4 "Hanken Grotesk", Inter, sans-serif !important; letter-spacing: -.02em !important; box-shadow: none !important; }
+:root body .report-bug-modal .report-bug-modal-body { padding: 28px 40px !important; }
+@media (max-width: 640px) { :root body .report-bug-modal .report-bug-modal-body { padding: 24px 20px !important; } :root body .issue-report-form .bug-field-title input { font-size: 24px !important; } }
+:root body .report-bug-modal .issue-report-form .issue-form-section--summary .bug-field-title input { font-size: 26px !important; font-family: "Hanken Grotesk", Inter, sans-serif !important; font-weight: 600 !important; }
+@media (max-width: 640px) { :root body .report-bug-modal .issue-report-form .issue-form-section--summary .bug-field-title input { font-size: 24px !important; } }

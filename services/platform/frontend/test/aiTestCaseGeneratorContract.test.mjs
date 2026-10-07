@@ -5,26 +5,28 @@ import test from "node:test";
 
 const readSource = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
-test("AI Test Case Generator exposes the reference workbench and live draft actions", async () => {
-  const [modal, styles] = await Promise.all([
+test("AI Test Case Generator exposes an intent canvas, focused proposal outline, and live draft actions", async () => {
+  const [modal, styles, peek] = await Promise.all([
     readSource("../../../ai/frontend/components/AiDesignStudioModal.tsx"),
-    readSource("../../../ai/frontend/components/TestCaseAiStudioModal.css")
+    readSource("../../../ai/frontend/components/AgenticAuthoringCanvas.css"),
+    readSource("../../../ai/frontend/components/AiContextPeek.tsx")
   ]);
 
-  for (const marker of ["Context Setup", "Test Case Drafts", "Intelligence Status", "Grounding Analysis", "Session Log"]) {
+  for (const marker of ["AiIntentCanvas", "Test Case Drafts", "AiGenerationProgress", "ai-test-generator-toast", "Review before saving"]) {
     assert.match(modal, new RegExp(marker));
   }
   for (const action of ["Select all", "Clear selection", "Decline all", "Regenerate", "Accept"] ) {
     assert.match(modal, new RegExp(action, "i"));
   }
-  assert.match(modal, /is-\$\{viewMode\}/);
-  assert.match(modal, /setViewMode\("list"\)/);
-  assert.match(modal, /setViewMode\("grid"\)/);
-  assert.match(styles, /width:\s*min\(1480px, calc\(100vw - 48px\)\)/);
-  assert.match(styles, /height:\s*min\(860px, calc\(100dvh - 48px\)\)/);
-  assert.match(styles, /grid-template-columns:\s*300px minmax\(600px, 1fr\) 280px/);
-  assert.match(modal, /intelligenceOpen/);
-  assert.match(modal, /Show.*intelligence status/);
+  assert.match(modal, /aria-label="Proposal outline"/);
+  assert.match(modal, /setExpandedIds\(\[draft\.client_id\]\)/);
+  assert.match(modal, /onPreviewCaseChange\?\.\(draft\.client_id, updated\)/);
+  assert.match(styles, /\.ai-artifact-workspace[^}]*grid-template-columns: 220px minmax\(0, 1fr\)/);
+  assert.match(peek, /hidden=\{!open\}/);
+  assert.match(peek, /createPortal\(peek, document\.body\)/);
+  assert.match(peek, /useDialogFocus<HTMLElement>\(\{ active: open, onClose \}\)/);
+  assert.doesNotMatch(modal, /intelligenceOpen/);
+  assert.doesNotMatch(modal, /Show.*intelligence status/);
   assert.match(styles, /ai-test-generator-status-footer/);
 });
 

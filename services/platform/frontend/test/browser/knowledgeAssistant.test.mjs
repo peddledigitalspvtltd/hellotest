@@ -23,6 +23,7 @@ import "/src/catalog-list.css";
 import "/src/modal-system.css";
 import "/src/execution-run-builder.css";
 import "/src/workspace-layout.css";
+import "/src/product-experience.css";
 const session = { token: "fixture-only", user: { id: "qa", role: "admin", name: "QA", email: "fixture@example.test" } };
 sessionStorage.write(session);
 localStorage.setItem("hellotest.current_project_id", "qa-project");
@@ -36,7 +37,7 @@ api.knowledgeRepo.sourceDetail = knowledgeApi.knowledgeRepo.sourceDetail = async
 api.knowledgeRepo.sourceRevisions = knowledgeApi.knowledgeRepo.sourceRevisions = async () => ({ source_id: "knowledge-source", revisions: [] });
 const citation = { id: "e1", evidence_id: "e1", source_id: "knowledge-source", title: "Checkout release review", source_kind: "document", freshness: { current: true }, visibility: { state: "FULL" } };
 const answer = (provider = false) => ({ assistant_message: { id: "answer-" + Date.now(), role: "assistant", content: "The checkout review identifies an untested refund scenario.", grounding_status: provider ? "provider_unavailable" : "partially_grounded", safety: { extractive_grounded_fallback: provider }, citations: [citation], context_packet: { contract_version: "1.0", packet_id: "qa", evidence: [citation], retrieval: { status: "PARTIAL" } }, answer_contract: { contract_type: "AnswerContract", contract_version: "1.0", status: provider ? "provider_unavailable" : "answered", summary: "The checkout review identifies an untested refund scenario.", claims: [{ statement: "**Checkout risk:** the refund scenario is untested.\\n- Verify declined refunds\\n- Verify retry behavior", classification: "SUPPORTED", evidence_ids: ["e1"] }], citation_ids: ["e1"], evidence_gaps: ["The latest test execution was unavailable."], limitations: { retrieval_status: "PARTIAL", unavailable_sources: 1 }, presentation: { recommended_type: "TEXT", structured_payload: {} } }, retrieval: { provider_error_code: provider ? "MODEL_AUTHENTICATION_FAILED" : undefined, processing_trace: [{ stage: "LEXICAL_SEARCH", status: "COMPLETE", message: "Found one release review." }, { stage: "GENERATION", status: provider ? "FAILED" : "COMPLETE", message: provider ? "Model connection not accepted." : "Answer completed." }] } } });
-window.qa = { mode: "stream", calls: [], finish: null, progress: null, cancelled: 0 };
+window.qa = { mode: "stream", calls: [], finish: null, deliver: null, progress: null, cancelled: 0 };
 api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
   window.qa.calls.push({ id, ...input });
   window.qa.progress = options.onProgress;
@@ -49,8 +50,14 @@ api.knowledgeRepo.assistant.streamMessage = async (id, input, options) => {
     let transport;
     const response = new Response(new ReadableStream({ start(controller) { transport = controller; }, cancel() { window.qa.cancelled++; } }));
     const emit = (name, value) => transport.enqueue(new TextEncoder().encode("event: " + name + "\\ndata: " + JSON.stringify(value) + "\\n\\n"));
+    const checked = answer();
     window.qa.progress = (value) => emit("progress", value);
-    window.qa.finish = () => { emit("result", answer()); transport.close(); };
+    window.qa.deliver = () => {
+      const text = checked.assistant_message.content;
+      emit("answer_delta", { contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: checked.assistant_message.id, sequence: 0, text: text.slice(0, 24) });
+      emit("answer_delta", { contract_type: "AnswerDelta", contract_version: "1.0", verification: "complete", answer_id: checked.assistant_message.id, sequence: 1, text: text.slice(24) });
+    };
+    window.qa.finish = () => { emit("result", checked); transport.close(); };
     return consumeKnowledgeAssistantStream(response, options);
   }
   return new Promise((resolve, reject) => {
@@ -89,12 +96,19 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await page.getByRole("tooltip").getByText(/Explore coverage, investigate failures/).waitFor();
     await page.keyboard.press("Escape");
     assert.equal(await page.getByRole("dialog", { name: "HelloTest grounded project assistant" }).count(), 1);
+    const contextControl = page.locator(".grounded-assistant-context-control");
+    await contextControl.locator("summary").click();
+    assert.equal(await contextControl.getAttribute("open"), "", "Source scope opens as optional controls");
+    await page.keyboard.press("Escape");
+    assert.equal(await contextControl.getAttribute("open"), null, "Escape dismisses source scope before closing the assistant");
+    assert.equal(await page.getByRole("dialog", { name: "HelloTest grounded project assistant" }).count(), 1);
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-welcome.png"), animations: "disabled" });
     await input.fill("What should we verify before the checkout release?");
     await page.getByRole("button", { name: "Send message", exact: true }).click();
     await page.getByRole("region", { name: "Answer progress" }).waitFor();
     await input.fill("Keep this next question");
-    assert.equal(await page.getByRole("button", { name: "Send message", exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "Send message", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Stop answer", exact: true }).isVisible(), true);
     await page.evaluate(() => window.qa.progress({ contract_type: "RetrievalEvent", contract_version: "1.0", sequence: 2, stage: "GENERATION", status: "IN_PROGRESS", message: "Preparing an answer from the release review.", metrics: { elapsed_ms: 1200 } }));
     await page.locator(".grounded-assistant-progress-heading").getByText("Writing an answer from the evidence", { exact: true }).waitFor();
     await page.evaluate(() => {
@@ -115,12 +129,20 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     assert.equal(await page.getByRole("region", { name: "Answer progress" }).evaluate((node) => node.scrollWidth <= node.clientWidth + 1), true);
     if (process.env.BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, "knowledge-assistant-retry-390.png"), animations: "disabled" });
     await page.setViewportSize({ width: 1440, height: 1050 });
+    await page.evaluate(() => window.qa.deliver());
+    await page.getByRole("article", { name: "Receiving checked answer" }).waitFor();
+    assert.equal(await page.locator(".is-delivering").getAttribute("aria-busy"), "true", "Answer delivery stays pending until the saved result arrives");
     await page.evaluate(() => window.qa.finish());
-    await page.getByText("What the evidence shows", { exact: true }).waitFor();
+    await page.locator(".knowledge-answer-paragraphs").waitFor();
     assert.equal(await input.inputValue(), "Keep this next question");
     assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);
     assert.equal(await page.locator(".grounded-assistant-message.is-assistant").count(), 1, "all provider attempts resolve into one visible answer");
     assert.equal(await page.evaluate(() => window.qa.calls.length), 1);
+    await page.context().grantPermissions(["clipboard-write", "clipboard-read"]);
+    await page.getByRole("button", { name: "Copy answer with sources", exact: true }).click();
+    await page.getByRole("button", { name: "Answer copied", exact: true }).waitFor();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    assert.match(copied, /Checkout release review/);
     const sourceButton = page.getByRole("button", { name: /Show source 1: Checkout release review/ });
     assert.equal(await sourceButton.count(), 1);
     assert.equal(await page.locator(".knowledge-answer-paragraphs strong").getByText("Checkout risk:", { exact: true }).count(), 1, "Markdown emphasis is presented as readable content");
@@ -155,7 +177,7 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     await page.evaluate(() => { window.qa.mode = "pending"; });
     await page.getByRole("button", { name: "Retry this turn", exact: true }).click();
     await page.locator(".grounded-assistant-progress-heading").getByText("Waiting for this turn to finish", { exact: true }).waitFor();
-    await page.getByText("What the evidence shows", { exact: true }).waitFor();
+    await page.locator(".knowledge-answer-paragraphs").waitFor();
     assert.equal(await page.evaluate(() => window.qa.calls.at(-1).client_turn_id), timeoutTurn);
     assert.equal(await page.locator(".grounded-assistant-message.is-user").count(), 1);
 
@@ -189,7 +211,7 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
     assert.equal(await page.getByRole("button", { name: /Show source 1: Checkout release review/ }).count(), 1);
     await page.evaluate(() => { window.qa.mode = "success"; });
     await page.getByRole("button", { name: "Retry this turn", exact: true }).click();
-    await page.getByText("What the evidence shows", { exact: true }).waitFor();
+    await page.locator(".knowledge-answer-paragraphs").waitFor();
     const retriedProviderCall = await page.evaluate(() => window.qa.calls.at(-1));
     assert.equal(retriedProviderCall.client_turn_id, stoppedTurn, "provider retry reuses and replaces the failed server turn");
     assert.equal(retriedProviderCall.retry_provider, true);
@@ -209,6 +231,80 @@ test("assistant preserves turns and drafts through progress, pending, Stop, retr
   } catch (error) {
     const body = page && !page.isClosed() ? await page.locator("body").innerText().catch(() => "<body unavailable>") : "<body unavailable>";
     throw new Error(`${error.message}\nConsole errors: ${JSON.stringify(browserErrors)}\nBody:\n${body.slice(0, 5000)}`, { cause: error });
+  } finally {
+    await browser?.close();
+    await Promise.all([unlink(html).catch(() => {}), unlink(source).catch(() => {})]);
+  }
+});
+
+test("assistant focus canvas searches history, protects drafts and exports cited answers", { timeout: 60000 }, async () => {
+  const name = `assistant-canvas-${randomUUID()}`;
+  const html = new URL(`${name}.html`, frontendRoot);
+  const source = new URL(`${name}.tsx`, frontendRoot);
+  let browser;
+  let page;
+  const sampleCode = "await page.getByRole('button', { name: 'Pay' }).click();";
+  try {
+    await writeFile(html, `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module" src="/${name}.tsx"></script></body></html>`);
+    await writeFile(source, fixture + `
+api.knowledgeRepo.assistant.listSessions = async () => [{ id: "history-1", title: "Checkout release", project_id: "qa-project", updated_at: "2026-10-06T08:00:00Z" }, { id: "history-2", title: "Coverage review", project_id: "qa-project" }];
+window.qa.mode = "success";
+const originalAnswer = api.knowledgeRepo.assistant.streamMessage;
+api.knowledgeRepo.assistant.streamMessage = async (...args) => { const reply = await originalAnswer(...args); reply.assistant_message.answer_contract.claims.push({ statement: ${JSON.stringify("```ts\n" + sampleCode + "\n```")}, classification: "INTERPRETATION", evidence_ids: ["e1"] }); return reply; };
+`);
+    browser = await chromium.launch({ headless: true, ...(process.env.CHROME_EXECUTABLE ? { executablePath: process.env.CHROME_EXECUTABLE } : {}) });
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.route("**/api/**", route => route.fulfill({ status: 503, contentType: "application/json", body: '{"message":"Unexpected fixture request"}' }));
+    await page.goto(`${process.env.VITE_TEST_URL || "http://127.0.0.1:5173"}/${name}.html`);
+    await page.getByRole("button", { name: "Open HelloTest grounded assistant", exact: true }).click();
+    const panel = page.getByRole("dialog", { name: "HelloTest grounded project assistant" });
+    await panel.waitFor();
+    assert.equal(await panel.evaluate(node => node.classList.contains("is-focus-mode")), true);
+    const input = page.getByRole("textbox", { name: "Ask about this HelloTest project" });
+    await input.fill("Keep this draft while changing the view");
+    await page.getByRole("button", { name: "Use compact assistant" }).click();
+    assert.equal(await panel.evaluate(node => node.classList.contains("is-focus-mode")), false);
+    assert.equal(await input.inputValue(), "Keep this draft while changing the view");
+    await page.getByRole("button", { name: "Focus assistant" }).click();
+    await page.locator(".grounded-assistant-history-picker > summary").click();
+    await page.getByRole("textbox", { name: "Search conversations" }).fill("checkout");
+    await page.getByRole("button", { name: /Checkout release/ }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Coverage review", exact: true }).isVisible().catch(() => false), false);
+    await page.keyboard.press("Escape");
+    assert.equal(await panel.isVisible(), true);
+    assert.equal(await page.locator(".grounded-assistant-history-picker").getAttribute("open"), null);
+    assert.equal(await input.inputValue(), "Keep this draft while changing the view");
+    await input.fill("Which checkout risk remains?");
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.locator(".knowledge-answer-paragraphs").waitFor();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copy code block" }).click();
+    await page.getByRole("button", { name: "Copy code block" }).getByText("Copied", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), sampleCode);
+    await input.fill("My next question");
+    assert.equal(await page.getByRole("button", { name: "Trace evidence", exact: true }).isDisabled(), true, "Follow-up starters cannot overwrite an authored draft");
+    await input.fill("");
+    await page.getByRole("button", { name: "Trace evidence", exact: true }).click();
+    assert.match(await input.inputValue(), /Show the evidence behind the last answer/);
+    const downloadEvent = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export conversation" }).click();
+    const download = await downloadEvent;
+    const bytes = await import("node:fs/promises").then(fs => download.path().then(path => fs.readFile(path, "utf8")));
+    assert.match(bytes, /Which checkout risk remains/);
+    assert.match(bytes, /Checkout release review/);
+    assert.match(bytes, /knowledge-repo\?source_id=knowledge-source/);
+    assert.ok(bytes.includes(sampleCode), "Export includes the reviewed code artifact, not just the raw answer summary");
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 950 });
+      await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+      const geometry = await panel.evaluate(node => ({ fits: node.getBoundingClientRect().right <= innerWidth + 1 && node.getBoundingClientRect().left >= -1, overflow: [...node.querySelectorAll(".grounded-assistant-header,.grounded-assistant-composer-shell")].some(el => el.scrollWidth > el.clientWidth + 1) }));
+      assert.equal(geometry.fits, true);
+      assert.equal(geometry.overflow, false);
+      if (process.env.BROWSER_SCREENSHOT_DIR && width !== 320) await page.screenshot({ path: join(process.env.BROWSER_SCREENSHOT_DIR, `assistant-canvas-dark-${width}.png`), animations: "disabled" });
+    }
+    assert.deepEqual(errors, []);
   } finally {
     await browser?.close();
     await Promise.all([unlink(html).catch(() => {}), unlink(source).catch(() => {})]);

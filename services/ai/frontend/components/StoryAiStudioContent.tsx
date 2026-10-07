@@ -11,6 +11,7 @@ import {
   IconTrash
 } from "@tabler/icons-react";
 import { AiEvidenceButton, AiEvidenceFlyout } from "@hellotest/agentic/frontend/components/AgenticExperience";
+import { AiProposalCompare } from "./AiProposalCompare";
 import { SelectionToggleIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import type { AiStoryEvidenceSource } from "@hellotest/platform/frontend/src/lib/api";
 import "./StoryAiStudioContent.css";
@@ -82,8 +83,6 @@ export function StoryAiDraftQueue({
   selectAllLabel?: string;
   selectedDraftIds: string[];
 }) {
-  const [collapsedId, setCollapsedId] = useState<string | null>(null);
-  useEffect(() => setCollapsedId(null), [activeDraftId]);
   const selectableDrafts = drafts.filter(draft => allowSelection && (isDraftSelectable?.(draft) ?? true));
   const allSelected = Boolean(selectableDrafts.length) && selectableDrafts.every(draft => selectedDraftIds.includes(draft.id));
   const visibleDrafts = drafts.filter(draft => `${draft.title} ${draft.description}`.toLowerCase().includes(searchQuery.toLowerCase().trim()));
@@ -91,29 +90,23 @@ export function StoryAiDraftQueue({
     if (visibleDrafts.length && !visibleDrafts.some(draft => draft.id === activeDraftId)) onActivateDraft(visibleDrafts[0].id);
   }, [activeDraftId, visibleDrafts, onActivateDraft]);
   return <section className="story-studio-queue" aria-label={queueTitle || `${itemNoun} drafts`}>
-    <div className="ai-test-generator-selection-bar">
-      {allowSelection ? <><label><input checked={allSelected} disabled={!selectableDrafts.length} onChange={event => onSelectAll?.(event.target.checked)} type="checkbox" />{selectAllLabel}</label><button disabled={!selectedDraftIds.length} onClick={onClearSelection} type="button"><SelectionToggleIcon checked={false} />Clear selection</button></> : <strong>{queueTitle || `Generated ${itemNoun} proposal`}</strong>}
-      <span>{drafts.length} {drafts.length === 1 ? "draft" : "drafts"} · Review before saving</span>
-    </div>
-    <div className={`ai-test-generator-drafts is-${viewMode}`}>
-      {!drafts.length ? activeContent || <div className="ai-test-generator-empty"><IconSparkles size={32} /><h3>{emptyHeading}</h3><p>{emptyMessage}</p></div> : null}
-      {drafts.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><h3>No matching drafts</h3><p>Change the search to see the generated drafts.</p></div> : null}
-      {visibleDrafts.map(draft => {
-        const expanded = draft.id === activeDraftId && collapsedId !== draft.id;
-        const selectable = allowSelection && (isDraftSelectable?.(draft) ?? true);
-        const activate = () => { if (draft.id === activeDraftId) setCollapsedId(expanded ? draft.id : null); else { setCollapsedId(null); onActivateDraft(draft.id); } };
-        return <article aria-current={draft.id === activeDraftId ? "true" : undefined} className={`ai-test-generator-draft story-studio-draft-tile${expanded ? " is-expanded" : ""}`} key={draft.id}>
-          <header>
-            {allowSelection ? <input aria-label={`Select ${draft.title}`} checked={selectedDraftIds.includes(draft.id)} disabled={!selectable} onChange={event => onToggleDraft?.(draft.id, event.target.checked)} type="checkbox" /> : <IconChecklist size={18} />}
-            <span className={`ai-test-generator-priority p${draft.priority || 3}`}>P{draft.priority || 3}</span>
-            <div className="ai-test-generator-draft__identity"><button aria-expanded={expanded} className="story-studio-draft-tile__activation" onClick={activate} type="button"><strong>{draft.title}</strong><small>{itemMeta || `${draft.acceptanceCriteria?.length || 0} acceptance criteria · ${draft.gherkinScenarios?.length || 0} scenarios`}</small></button></div>
-            <span className="ai-test-generator-ai-badge"><IconSparkles size={13} />{draft.generated ? "AI Draft" : `Current ${itemNoun}`}</span>
-            <button aria-label={expanded ? `Collapse ${draft.title}` : `Expand ${draft.title}`} onClick={activate} type="button"><IconChevronDown className={expanded ? "is-expanded" : ""} size={18} /></button>
-          </header>
-          {expanded && activeContent ? <div className="ai-test-generator-draft__body story-studio-inspector-scroll">{activeContent}</div> : null}
-        </article>;
-      })}
-    </div>
+    {!drafts.length ? activeContent || <div className="ai-test-generator-empty"><IconSparkles size={32} /><h3>{emptyHeading}</h3><p>{emptyMessage}</p></div> : null}
+    {drafts.length && !visibleDrafts.length ? <div className="ai-test-generator-empty"><h3>No matching drafts</h3><p>Change the search to see the generated drafts.</p></div> : null}
+    {visibleDrafts.length ? <div className="ai-artifact-workspace">
+      <nav aria-label={`${itemNoun} proposal outline`} className="ai-artifact-outline">
+        <div className="ai-artifact-outline__tools">
+          {allowSelection ? <><label><input checked={allSelected} disabled={!selectableDrafts.length || !onSelectAll} onChange={event => onSelectAll?.(event.target.checked)} type="checkbox" />{selectAllLabel}</label><button disabled={!selectedDraftIds.length} onClick={onClearSelection} type="button">Clear selection</button></> : <strong>{drafts.length} proposal{drafts.length === 1 ? "" : "s"}</strong>}
+        </div>
+        {visibleDrafts.map((draft, index) => <article aria-current={draft.id === activeDraftId ? "true" : undefined} className="story-studio-draft-tile ai-artifact-item" key={draft.id}>
+          {allowSelection ? <input aria-label={`Select ${draft.title}`} checked={selectedDraftIds.includes(draft.id)} disabled={!(isDraftSelectable?.(draft) ?? true)} onChange={event => onToggleDraft?.(draft.id, event.target.checked)} type="checkbox" /> : null}
+          <button aria-current={draft.id === activeDraftId ? "true" : undefined} onClick={() => onActivateDraft(draft.id)} onKeyDown={event => {
+            const next = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? visibleDrafts.length - 1 : -1;
+            if (next >= 0 && next < visibleDrafts.length) { event.preventDefault(); onActivateDraft(visibleDrafts[next].id); event.currentTarget.closest("nav")?.querySelectorAll<HTMLButtonElement>(".ai-artifact-item > button")[next]?.focus(); }
+          }} type="button"><strong>{draft.title || "Untitled proposal"}</strong><small>{itemMeta || `P${draft.priority || 3} · ${draft.acceptanceCriteria?.length || 0} criteria · ${draft.gherkinScenarios?.length || 0} scenarios`}</small></button>
+        </article>)}
+      </nav>
+      {activeContent ? <article aria-label={`Review ${visibleDrafts.find(draft => draft.id === activeDraftId)?.title || itemNoun}`} className="ai-artifact-detail story-studio-inspector-scroll">{activeContent}</article> : null}
+    </div> : null}
   </section>;
 }
 
@@ -139,6 +132,7 @@ function propertyValue(value: string | number | null | undefined) {
 
 export function StoryAiDraftInspector({
   draft,
+  baseline,
   editable = false,
   evidencePlacement = "inspector",
   emptyAction,
@@ -158,6 +152,7 @@ export function StoryAiDraftInspector({
   statusContent
 }: {
   draft?: StoryAiStudioDraft | null;
+  baseline?: { title: string; description: string };
   editable?: boolean;
   evidencePlacement?: "inspector" | "intelligence";
   emptyAction?: ReactNode;
@@ -178,9 +173,11 @@ export function StoryAiDraftInspector({
 }) {
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [editingScenarioIndex, setEditingScenarioIndex] = useState<number | null>(null);
+  const [comparing, setComparing] = useState(false);
 
   useEffect(() => {
     setEditingScenarioIndex(null);
+    setComparing(false);
   }, [draft?.id]);
 
   if (!draft) {
@@ -234,6 +231,7 @@ export function StoryAiDraftInspector({
         <div className="story-studio-inspector__badges">
           <span>{draft.generated ? `DRAFT #${draft.sequence || 1}` : draft.displayId || "SELECTED STORY"}</span>
           <span><IconSparkles size={14} stroke={1.9} />{draft.generated ? "AI Generated" : "Existing context"}</span>
+          {baseline ? <button aria-pressed={comparing} className="ai-context-chip" onClick={() => setComparing(current => !current)} type="button">{comparing ? "Hide comparison" : "Compare changes"}</button> : null}
         </div>
         {evidencePlacement === "inspector" ? <StoryAiEvidenceReview draft={draft} /> : null}
         <section className="story-studio-card story-studio-title-card">
@@ -261,6 +259,7 @@ export function StoryAiDraftInspector({
           </div>
         </section>
       </header>
+      {baseline && comparing ? <AiProposalCompare fields={[{ label: "Title", before: baseline.title, after: draft.title }, { label: "Description", before: baseline.description, after: draft.description }]} /> : null}
 
       {outputFormat === "structured" ? <><section className="story-studio-card story-studio-description-card">
         <div className="story-studio-card__toolbar">
@@ -349,7 +348,7 @@ export function StoryAiDraftInspector({
       ) : null}
 
       {showProperties && outputFormat === "structured" ? (
-        <details open className="story-studio-card story-studio-disclosure-card story-studio-properties-card">
+        <details className="story-studio-card story-studio-disclosure-card story-studio-properties-card">
           <summary><span><strong>Story properties</strong><small>Status, priority, delivery scope, and references</small></span><IconChevronDown aria-hidden="true" size={17} stroke={1.9} /></summary>
           <dl>
             <div><dt>Status</dt><dd>{propertyValue(draft.status)}</dd></div>

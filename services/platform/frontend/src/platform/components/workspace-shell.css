@@ -167,3 +167,17 @@ body:has(.workspace-experience-v2):has([role="dialog"][aria-modal="true"]:not([a
   :root[dir="rtl"] body .workspace-experience-v2 > .sidebar.is-mobile-open { transform: translateX(0); }
 }
 @media(prefers-reduced-motion:reduce) { :root body .workspace-experience-v2 *, :root body .workspace-experience-v2 *::before { scroll-behavior: auto; transition: none !important; animation: none !important; } }
+
+/* Appearance, locale and data refresh belong to the options disclosure; search
+   and the active project remain the primary destinations in the app bar. */
+.workspace-preferences-menu { position: relative; flex-shrink: 0; }
+:root body .workspace-experience-v2 .workspace-preferences-popover { position: absolute; inset-block-start: calc(100% + 10px); inset-inline-end: 0; z-index: 60; width: 240px; padding: 6px; border: 1px solid var(--workspace-border); border-radius: 12px; background: var(--workspace-panel); color: var(--workspace-ink); box-shadow: 0 12px 40px rgb(18 35 48 / 12%); }
+:root body .workspace-experience-v2 .workspace-preferences-popover button { display: flex; align-items: center; justify-content: flex-start; gap: 11px; width: 100%; min-height: 42px; padding: 10px; border: 0 !important; background: transparent !important; color: var(--workspace-ink) !important; font-size: 12px; border-radius: 7px !important; text-align: start; }
+:root body .workspace-experience-v2 .workspace-preferences-popover button:hover,
+:root body .workspace-experience-v2 .workspace-preferences-popover button:focus-visible { background: var(--workspace-canvas) !important; }
+.workspace-menu-divider { height: 1px; background: var(--workspace-border); margin: 5px 8px; }
+:root body .workspace-experience-v2 .nav-list { gap: 20px; }
+:root body .workspace-experience-v2 .nav-group:has(> .nav-group-items:empty) { display: none; }
+@media(max-width:768px) {
+  :root body .workspace-experience-v2 .workspace-preferences-popover { width: min(240px, calc(100vw - 24px)); }
+}

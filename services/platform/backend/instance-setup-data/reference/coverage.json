@@ -1,7 +1,7 @@
 {
   "version": 1,
   "dataset_version": 7,
-  "as_of": "2026-09-25",
+  "as_of": "2026-10-06",
   "features": [
     {
       "key": "project-applications",
@@ -683,6 +683,17 @@
       "routes": [
         "/support"
       ]
+    },
+    {
+      "key": "browser-quality-agents",
+      "feature_keys": [
+        "hellotest.ai.agentic_workflows"
+      ],
+      "story_id": "sample-v3-feature-browser-quality-agents",
+      "case_id": "sample-v7-ht-case-browser-quality-agents",
+      "routes": [
+        "/agentic-workflows?view=quality"
+      ]
     }
   ],
   "reserved_features": [
@@ -698,7 +709,8 @@
   "live_only": [
     "Provider latency and usage require a configured LLM.",
     "TestGrid heartbeat, device sessions, logs, traces and infrastructure alerts require live services.",
-    "Synthetic saved evidence is not proof of live execution."
+    "Synthetic saved evidence is not proof of live execution.",
+    "Quality Agent browser runs and screenshot comparisons require a configured live Test Engine; the authored acceptance case remains unexecuted."
   ],
   "metrics": {
     "stories": [

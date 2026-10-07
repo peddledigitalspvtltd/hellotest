@@ -507,7 +507,8 @@ exports.previewCaseAuthoring = async ({
     parameter_values: normalizeParameterValues(boundedCase.parameter_values),
     steps: normalizeSteps(boundedCase.steps, fallbackStepType)
   };
-  const additionalContext = normalizeRichText(additional_context)?.slice(0, 8000);
+  const additionalContext = normalizeRichText(additional_context);
+  if (additionalContext?.length > 18_000) throw Object.assign(new Error("Shorten the authoring context to 18,000 characters before generating."), { statusCode: 422, code: "AI_INPUT_BUDGET_EXCEEDED" });
   const externalLinks = normalizeTextList(external_links, 10, 500);
   const safeImages = normalizeAiReferenceImages(images);
   const integration = await resolveIntegration(integration_id, {
@@ -525,11 +526,14 @@ exports.previewCaseAuthoring = async ({
     images: safeImages
   });
   const contextState = { reduced: false };
+  // A rejected optional-evidence budget may be reduced. The linked Story and
+  // current authored artifact remain the source of truth for an improvement;
+  // never degrade this operation into drafting from their titles alone.
   const fallbackContent = buildPrompt({
-    requirement: { title: String(requirement.title || "").slice(0, 500) },
-    appType: { name: "Selected application", type: appType.type },
-    currentCase: { title: String(currentCase.title || "").slice(0, 500), steps: [], parameter_values: {} },
-    authoringMode, additionalContext: "Only titles are available after a provider size limit. This is a proposal for human review; do not claim omitted acceptance criteria are verified.",
+    requirement,
+    appType,
+    currentCase,
+    authoringMode, additionalContext: undefined,
     externalLinks: [], images: []
   });
   const content = await requestChatCompletion({ integration, prompt, images: safeImages, fallbackContent, contextState });
@@ -551,7 +555,7 @@ exports.previewCaseAuthoring = async ({
       name: appType.name
     },
     context_reduced: contextState.reduced,
-    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. This proposal used Story and Test Case titles only; review all generated steps against the original requirements." : null,
+    context_reduction_reason: contextState.reduced ? "The provider rejected the full context size. Optional instructions, images and URL pointers were omitted; the Story and existing authored content were preserved. Review against the original requirements before applying." : null,
     case: preview
   };
 };

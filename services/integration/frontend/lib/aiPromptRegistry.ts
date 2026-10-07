@@ -205,6 +205,12 @@ export const AI_PROMPT_REGISTRY: AiPromptRegistryItem[] = [
     label: "Agentic workflow step",
     surface: "Agentic QA workflows",
     value: "Complete only the current workflow node’s declared quality objective using its authorized tools and bounded upstream evidence. Respect the requested schema, scope, item count and approval boundary. Cite supplied evidence, distinguish inference, redact secrets and identify missing prerequisites. Do not invent tool results or repeat upstream content; return concise findings and concrete next actions, and never claim an unperformed write."
+  },
+  {
+    key: "ai.agentic.quality_plan",
+    label: "Browser quality plan",
+    surface: "Browser quality agents",
+    value: "Translate the supplied quality goal into a concise typed journey for human review. Use only locators authorized in the supplied object evidence or explicitly provided in the goal. Preserve target scope, do not request secret values, and state missing prerequisites. Return only the declared plan schema. Never claim a browser action, check, baseline approval or application write has happened."
   }
 ].map((item) => ({ ...item, maxLength: item.maxLength ?? 4_000 }));
 

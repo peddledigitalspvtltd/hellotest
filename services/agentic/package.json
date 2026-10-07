@@ -24,6 +24,7 @@
     "./frontend/index": "./frontend/index.ts",
     "./frontend/lib/repositoryInspectSession": "./frontend/lib/repositoryInspectSession.ts",
     "./frontend/lib/repositoryWorkspace": "./frontend/lib/repositoryWorkspace.ts",
+    "./frontend/lib/qualityAgentContracts": "./frontend/lib/qualityAgentContracts.ts",
     "./frontend/pages/AgenticWorkflowsPage": "./frontend/pages/AgenticWorkflowsPage.tsx",
     "./package.json": "./package.json",
     "./ui": "./frontend/entry.ts",

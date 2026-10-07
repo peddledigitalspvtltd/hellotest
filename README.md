@@ -1,5 +1,7 @@
 # HelloTest
 
+This improved build includes a modern AI workspace, focused forms, recovered automation flows and five executable browser quality agents. Start with the [agentic V2 release guide](docs/redesign-v2-2026-10/README.md) for setup, screenshots and validation results.
+
 HelloTest is a QA workspace for stories, manual and automated cases, reusable steps, test data, suites, runs and evidence. Its React workspace and administration portal use a Fastify API. TestEngine executes structured API requests, Playwright browser automation and Android/iOS flows through a native provider.
 
 | Your task | Start here |

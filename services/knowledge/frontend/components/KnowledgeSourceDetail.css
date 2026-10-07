@@ -27,3 +27,36 @@
 .knowledge-source-detail-body > footer { border-top: 1px solid var(--border-subtle); padding-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .knowledge-source-detail-body > footer p { flex-basis: 100%; font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
 @media (max-width: 540px) { .knowledge-source-detail-header, .knowledge-source-detail-body { padding: 16px; } .knowledge-source-facts { grid-template-columns: 1fr; } .knowledge-source-index > div { grid-template-columns: 1fr; } }
+
+.knowledge-source-detail.modal-card { background: var(--app-surface, var(--surface, #fff)); color: var(--app-text, var(--text-primary)); border-color: var(--app-border, var(--border-subtle)); border-radius: 18px; box-shadow: var(--app-shadow, 0 24px 72px rgb(12 29 40 / .2)); width: min(860px, calc(100vw - 32px)); }
+.knowledge-source-detail-backdrop { backdrop-filter: blur(4px); background: rgb(10 25 36 / .48); }
+.knowledge-source-detail-header { padding: 22px 26px; background: var(--app-surface, var(--surface, #fff)); border-color: var(--app-border, var(--border-subtle)); }
+.knowledge-source-detail h2 { font-size: 22px; letter-spacing: -.035em; }
+.knowledge-source-detail-body { gap: 20px; padding: 24px 26px; }
+.knowledge-source-detail .eyebrow { font-size: 10px; font-weight: 500; color: var(--app-text-muted, var(--text-secondary)); letter-spacing: .075em; }
+.knowledge-source-detail-toolbar .badge { font-weight: 500; }
+.knowledge-source-detail summary { font-size: 13px; line-height: 1.5; }
+.knowledge-source-metadata > summary { color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-source-metadata .knowledge-source-facts { padding-top: 14px; }
+.knowledge-source-detail dt, .knowledge-source-detail dd { font-size: 12px; }
+.knowledge-source-detail dt { color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-source-index { padding: 16px; background: var(--app-surface-muted, var(--panel-strong)); border-color: var(--app-border, var(--border-subtle)); border-radius: 12px; }
+.knowledge-source-index span { font-size: 12px; color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-source-index strong { font-size: 13px; color: var(--app-text, var(--text-primary)); font-weight: 500; }
+.knowledge-passages-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.knowledge-passages-heading > span { font-size: 12px; color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-passages-heading h3 { font-size: 15px; margin: 0; }
+.knowledge-passages-search { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--app-border, var(--border-subtle)); border-radius: 9px; color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-passages-search input { border: 0; background: transparent; min-height: 42px; width: 100%; min-width: 0; padding: 0; outline: none; font: inherit; font-size: 13px; color: var(--app-text, var(--text-primary)); }
+.knowledge-passages-search:focus-within { border-color: var(--app-accent, #0d9488); box-shadow: 0 0 0 3px var(--app-accent-soft, #e6f5f2); }
+.knowledge-source-passages { gap: 12px; }
+.knowledge-source-passages details { padding: 14px 16px; border-color: var(--app-border, var(--border-subtle)); border-radius: 10px; }
+.knowledge-source-passages details[open] { background: var(--app-surface-muted, var(--panel-strong)); }
+.knowledge-source-passages summary { font-weight: 500; overflow-wrap: anywhere; }
+.knowledge-source-passages summary small { font-weight: 400; }
+.knowledge-source-passages .knowledge-formatted-text { color: var(--app-text, var(--text-primary)); font-size: 14px; line-height: 1.8; }
+.knowledge-source-passages > p { font-size: 13px; color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-source-provenance { color: var(--app-text-muted, var(--text-secondary)); }
+.knowledge-source-detail-body > footer { border-color: var(--app-border, var(--border-subtle)); }
+.knowledge-source-detail-body > footer p { color: var(--app-text-muted, var(--text-secondary)); }
+@media (max-width: 540px) { .knowledge-source-detail-header, .knowledge-source-detail-body { padding: 18px; } .knowledge-source-detail h2 { font-size: 19px; } .knowledge-source-index > div { grid-template-columns: repeat(2, 1fr); } .knowledge-source-passages details { padding: 12px; } }

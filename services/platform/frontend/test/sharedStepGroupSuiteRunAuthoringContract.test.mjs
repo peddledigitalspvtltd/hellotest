@@ -111,7 +111,7 @@ test("approved Suite, Module, and AI Agent artwork is centralized and reused", a
 
   for (const asset of ["test-suite-icon.png", "module-icon.png", "ai-agents-icon.png"]) assert.match(icons, new RegExp(asset.replace(".", "\\.")));
   assert.match(tiles, /<TestSuiteIcon size=\{18\}/);
-  assert.match(shell, /icon: AiAgentsIcon/);
+  assert.match(shell, /icon: AiAgentStudioIcon/);
   assert.match(shell, /case "suites":[\s\S]*return TestSuiteIcon/);
   assert.match(cases, /test-case-create-module-title-icon"><ModuleIcon/);
   assert.match(agents, /HELLOTEST_AGENT_CATALOG\.map\(agent => \(\{[^}]*icon: agent\.icon/);

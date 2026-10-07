@@ -6,13 +6,20 @@ import {
   IconAlertTriangle,
   IconBook2,
   IconChevronDown,
+  IconArrowDown,
+  IconCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconHistory,
   IconArrowRight,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconSearch,
   IconArchive,
   IconMessageCircle,
   IconPlus,
+  IconPlayerStop,
   IconRobot,
   IconSend,
   IconShieldCheck,
@@ -46,8 +53,9 @@ import { KnowledgeFormattedText } from "./KnowledgeFormattedText";
 import { KnowledgeProcessingTrace } from "./KnowledgeProcessingTrace";
 import { KnowledgeSourceDetail } from "@hellotest/knowledge/frontend/components/KnowledgeSourceDetail";
 import { knowledgeCitationHref, knowledgeCitationLocation, validateKnowledgeAnswer } from "../lib/knowledgeAnswer";
-import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice } from "../lib/knowledgeAssistantStream";
+import { appendKnowledgeProgressEvent, KnowledgeStreamError, knowledgeModelFailureMessage, knowledgeTurnNotice, resumePendingKnowledgeTurn, type KnowledgeTurnNotice, type KnowledgeAnswerDelta } from "../lib/knowledgeAssistantStream";
 import { KnowledgeTurnProgress } from "./KnowledgeTurnProgress";
+import { assistantConversationMarkdown, assistantMessageMarkdown, findAssistantConversations } from "../lib/assistantExperience";
 import "./GroundedAssistant.css";
 
 const EMPTY_CITATIONS: KnowledgeCitation[] = [];
@@ -56,9 +64,9 @@ const RETRIEVAL_ONLY_INTEGRATION = "__retrieval_only__";
 type AssistantRetryTurn = { clientTurnId: string; integrationId: string; prompt: string; smartContext: SmartContextSelection | null; filters: KnowledgeSearchFilters; responseMode: "answer" | "evidence"; retryProvider?: boolean };
 
 const starterPrompts = [
-  "Summarize the current project and its main quality risks.",
-  "Which Stories do not have enough test coverage?",
-  "What failed recently and what evidence supports the answer?"
+  { title: "Release confidence", detail: "Find risks that need attention", question: "Summarize the current project and its main quality risks." },
+  { title: "Coverage gaps", detail: "See Stories that need more tests", question: "Which Stories do not have enough test coverage?" },
+  { title: "Investigate failures", detail: "Connect recent failures to evidence", question: "What failed recently and what evidence supports the answer?" }
 ];
 
 function createClientTurnId() {
@@ -156,6 +164,8 @@ export function GroundedAssistant() {
   const featureFlagsQuery = useFeatureFlags(Boolean(session));
   const { query: promptRegistryQuery } = useAiPromptRegistry(Boolean(session));
   const [isOpen, setIsOpen] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(true);
+  const [historySearch, setHistorySearch] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<KnowledgeAssistantMessage[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -174,16 +184,40 @@ export function GroundedAssistant() {
   const userSelectedIntegration = useRef(false);
   const [smartContext, setSmartContext] = useState<SmartContextSelection | null>(null);
   const [activeRequestIntegrationId, setActiveRequestIntegrationId] = useState("");
+  const [answerDelivery, setAnswerDelivery] = useState<{ id: string; text: string } | null>(null);
+  const [copiedAnswerId, setCopiedAnswerId] = useState("");
+  const [copyError, setCopyError] = useState("");
+  const [showLatest, setShowLatest] = useState(false);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+  const followConversationRef = useRef(true);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contextControlRef = useRef<HTMLDetailsElement | null>(null);
+  const historyControlRef = useRef<HTMLDetailsElement | null>(null);
+  const historySearchRef = useRef<HTMLInputElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const requestControllerRef = useRef<AbortController | null>(null);
   const scopeGenerationRef = useRef(0);
-  const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen, onClose: () => setIsOpen(false) });
+  const dialogRef = useDialogFocus<HTMLElement>({ active: isOpen, onClose: () => {
+    if (contextControlRef.current?.open) {
+      contextControlRef.current.open = false;
+      contextControlRef.current.querySelector("summary")?.focus();
+      return;
+    }
+    if (historyControlRef.current?.open) {
+      historyControlRef.current.open = false;
+      historyControlRef.current.querySelector("summary")?.focus();
+      return;
+    }
+    setIsOpen(false);
+  } });
 
   const canUseAssistant = Boolean(projectId)
     && hasPermission(session, "knowledge.view", projectId)
     && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.knowledge", "hellotest.ai.chatbot"]);
   const canReviewHistory = hasPermission(session, "knowledge.manage", projectId);
+  const canUseQualityAgents = hasPermission(session, "agentic_workflow.view", projectId)
+    && areFeatureFlagsEnabled(featureFlagsQuery.data, ["hellotest.ai.agentic_workflows"]);
 
   const integrationsQuery = useQuery({
     queryKey: ["knowledge-assistant-integrations", projectId],
@@ -225,7 +259,7 @@ export function GroundedAssistant() {
       }, { signal })
   });
   const sendMessageMutation = useMutation({
-    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void }) =>
+    mutationFn: ({ clientTurnId, id, integrationId, message, filters, smartContext, responseMode, retryProvider, signal, onProgress, onAnswerDelta }: { clientTurnId: string; id: string; integrationId: string; message: string; filters: KnowledgeSearchFilters; smartContext?: { query?: string; source_ids?: string[]; source_kinds?: string[]; reviewed_context?: string }; responseMode: "answer" | "evidence"; retryProvider?: boolean; signal: AbortSignal; onProgress: (event: KnowledgeRetrievalEvent) => void; onAnswerDelta: (delta: KnowledgeAnswerDelta) => void }) =>
       chatbotApi.assistant.streamMessage(id, {
         message,
         client_turn_id: clientTurnId,
@@ -234,7 +268,7 @@ export function GroundedAssistant() {
         filters,
         response_mode: responseMode,
         smart_context: smartContext
-      }, { signal, onProgress })
+      }, { signal, onProgress, onAnswerDelta })
   });
   const downloadCitationMutation = useMutation({
     mutationFn: async (citation: KnowledgeCitation) => ({
@@ -280,6 +314,12 @@ export function GroundedAssistant() {
     setSessionError("");
     setSelectedCitation(null);
     setIsRestoringSession(false);
+    setSourceKinds(DEFAULT_ASSISTANT_SOURCE_KINDS);
+    setAnswerDelivery(null);
+    setCopyError("");
+    setCopiedAnswerId("");
+    followConversationRef.current = true;
+    setShowLatest(false);
   }, [projectId, appTypeId, session?.user.id]);
 
   useEffect(() => {
@@ -303,7 +343,19 @@ export function GroundedAssistant() {
     if (isOpen) void promptRegistryQuery.refetch();
   }, [isOpen]);
 
-  useEffect(() => () => { scopeGenerationRef.current += 1; requestControllerRef.current?.abort(); }, []);
+  useEffect(() => {
+    if (!isOpen) return;
+    const dismissContext = (event: PointerEvent) => {
+      const control = contextControlRef.current;
+      if (control?.open && event.target instanceof Node && !control.contains(event.target)) control.open = false;
+      const history = historyControlRef.current;
+      if (history?.open && event.target instanceof Node && !history.contains(event.target)) history.open = false;
+    };
+    document.addEventListener("pointerdown", dismissContext);
+    return () => document.removeEventListener("pointerdown", dismissContext);
+  }, [isOpen]);
+
+  useEffect(() => () => { scopeGenerationRef.current += 1; requestControllerRef.current?.abort(); if (copyTimerRef.current) clearTimeout(copyTimerRef.current); }, []);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -316,8 +368,10 @@ export function GroundedAssistant() {
   }, [canUseAssistant]);
 
   useEffect(() => {
-    conversationEndRef.current?.scrollIntoView({ block: "nearest" });
-  }, [messages, isSending]);
+    if (!isOpen) return;
+    if (followConversationRef.current) conversationEndRef.current?.scrollIntoView({ block: "nearest" });
+    else setShowLatest(true);
+  }, [messages, isSending, answerDelivery, progressEvents, isOpen]);
 
   useEffect(() => {
     const input = composerRef.current;
@@ -343,6 +397,10 @@ export function GroundedAssistant() {
     setKnowledgeAsOf("");
     setProgressEvents([]);
     setSessionError("");
+    setAnswerDelivery(null);
+    setCopyError("");
+    followConversationRef.current = true;
+    setShowLatest(false);
     requestAnimationFrame(() => composerRef.current?.focus());
   };
 
@@ -363,7 +421,10 @@ export function GroundedAssistant() {
       setExpandedSources({});
       setPrompt("");
       setSmartContext(null);
-      if (restored.filters?.source_kinds) setSourceKinds(restored.filters.source_kinds.filter((kind) => DEFAULT_ASSISTANT_SOURCE_KINDS.includes(kind)));
+      setSourceKinds(restored.filters?.source_kinds ? restored.filters.source_kinds.filter((kind) => DEFAULT_ASSISTANT_SOURCE_KINDS.includes(kind)) : DEFAULT_ASSISTANT_SOURCE_KINDS);
+      setAnswerDelivery(null);
+      followConversationRef.current = true;
+      setShowLatest(false);
       if (canReviewHistory && restored.filters?.as_of) {
         const value = new Date(restored.filters.as_of);
         setKnowledgeAsOf(new Date(value.getTime() - value.getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
@@ -407,6 +468,9 @@ export function GroundedAssistant() {
     setActiveRequestIntegrationId(requestIntegrationId);
     setRequestStartedAt(Date.now());
     setProgressEvents([]);
+    setAnswerDelivery(null);
+    followConversationRef.current = true;
+    setShowLatest(false);
     const isStale = () => controller.signal.aborted || requestGeneration !== scopeGenerationRef.current;
 
     const userMessage: KnowledgeAssistantMessage = {
@@ -469,9 +533,19 @@ export function GroundedAssistant() {
         onProgress: (progress) => {
           if (isStale()) return;
           setProgressEvents((current) => appendKnowledgeProgressEvent(current, progress));
+        },
+        onAnswerDelta: (delta) => {
+          if (isStale()) return;
+          setAnswerDelivery((current) => ({ id: delta.answer_id, text: (current?.id === delta.answer_id ? current.text : "") + delta.text }));
         }
       }), {
         signal: controller.signal,
+        maxConnectionRetries: 1,
+        onReconnecting: () => {
+          if (isStale()) return;
+          setAnswerDelivery(null);
+          setProgressEvents((current) => [...current, { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "CONNECTION_RECOVERY", status: "IN_PROGRESS", message: "Checking the original turn after a connection interruption. Your question will not be duplicated." }]);
+        },
         onPending: () => {
           if (isStale()) return;
           setProgressEvents((current) => [...current.filter((item) => item.stage !== "WAITING_FOR_TURN"), { contract_type: "RetrievalEvent", contract_version: "1.0", stage: "WAITING_FOR_TURN", status: "PENDING", message: "This turn is already being prepared. Checking for its answer without sending a duplicate question." }]);
@@ -515,6 +589,7 @@ export function GroundedAssistant() {
         requestControllerRef.current = null;
         setActiveRequestIntegrationId("");
         setRequestStartedAt(null);
+        setAnswerDelivery(null);
       }
     }
   };
@@ -526,6 +601,34 @@ export function GroundedAssistant() {
       userSelectedIntegration.current = true;
     }
     requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  const copyAnswer = async (message: KnowledgeAssistantMessage) => {
+    setCopyError("");
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Copy is unavailable in this browser. Select the answer text to copy it.");
+      await navigator.clipboard.writeText(assistantMessageMarkdown(message));
+      setCopiedAnswerId(message.id);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopiedAnswerId(""), 2_000);
+    } catch (error) { setCopyError(error instanceof Error ? error.message : "The answer could not be copied. Select its text to copy it."); }
+  };
+
+  const jumpToLatest = () => {
+    followConversationRef.current = true;
+    setShowLatest(false);
+    conversationEndRef.current?.scrollIntoView({ block: "nearest" });
+  };
+
+  const exportConversation = () => {
+    const url = URL.createObjectURL(new Blob([assistantConversationMarkdown(messages)], { type: "text/markdown;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "hellotest-conversation.md";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -544,10 +647,12 @@ export function GroundedAssistant() {
       </button>
 
       {isOpen ? (
+        <>
+        <div aria-hidden="true" className="grounded-assistant-backdrop" onClick={() => setIsOpen(false)} />
         <aside
           aria-label="HelloTest grounded project assistant"
           aria-modal="true"
-          className="grounded-assistant-panel"
+          className={`grounded-assistant-panel${isFocusMode ? " is-focus-mode" : ""}`}
           ref={dialogRef}
           role="dialog"
           tabIndex={-1}
@@ -589,6 +694,9 @@ export function GroundedAssistant() {
               <button aria-label="Start a new assistant chat" className="ghost-button grounded-assistant-icon-button" disabled={isSending} onClick={startNewChat} title="New chat" type="button">
                 <IconPlus size={18} />
               </button>
+              <button aria-label={isFocusMode ? "Use compact assistant" : "Focus assistant"} aria-pressed={isFocusMode} className="ghost-button grounded-assistant-icon-button grounded-assistant-focus-toggle" onClick={() => setIsFocusMode(value => !value)} title={isFocusMode ? "Compact view" : "Focus view"} type="button">
+                {isFocusMode ? <IconArrowsMinimize size={17} /> : <IconArrowsMaximize size={17} />}
+              </button>
               <button aria-label="Close grounded assistant" className="ghost-button grounded-assistant-icon-button" onClick={() => setIsOpen(false)} type="button">
                 <IconX size={19} />
               </button>
@@ -597,24 +705,37 @@ export function GroundedAssistant() {
 
           <div className="grounded-assistant-scope-bar">
             <div className="grounded-assistant-history-controls">
-              <label><IconHistory size={14} /><span className="sr-only">Conversation history</span><select aria-label="Conversation history" disabled={isSending || isRestoringSession || sessionsQuery.isLoading} onChange={(event) => void openConversation(event.target.value)} value={sessionId}>
-                <option value="">New conversation</option>
-                {sessionId && !visibleSessions.some((item) => item.id === sessionId) ? <option value={sessionId}>Current conversation</option> : null}
-                {visibleSessions.map((item) => <option key={item.id} value={item.id}>{item.title || "Project conversation"}{item.updated_at ? ` · ${new Date(item.updated_at).toLocaleDateString()}` : ""}</option>)}
-              </select></label>
+              <details className="grounded-assistant-history-picker" ref={historyControlRef} onToggle={event => {
+                if (event.currentTarget.open) requestAnimationFrame(() => historySearchRef.current?.focus());
+              }}>
+                <summary aria-label="Conversation history" aria-disabled={isSending || isRestoringSession} onClick={event => { if (isSending || isRestoringSession) event.preventDefault(); }}><IconHistory size={14} /><span>{visibleSessions.find(item => item.id === sessionId)?.title || (sessionId ? "Current conversation" : "Conversations")}</span><IconChevronDown size={13} /></summary>
+                <div className="grounded-assistant-history-popover" role="region" aria-label="Choose a conversation">
+                  <label><IconSearch aria-hidden="true" size={15} /><input aria-label="Search conversations" placeholder="Find a conversation…" ref={historySearchRef} value={historySearch} onChange={event => setHistorySearch(event.target.value)} /></label>
+                  <button className="grounded-assistant-history-new" disabled={isSending || isRestoringSession} onClick={() => { historyControlRef.current?.removeAttribute("open"); startNewChat(); }} type="button"><IconPlus size={15} />New conversation</button>
+                  <div className="grounded-assistant-history-list">
+                    {sessionsQuery.isLoading ? <LoadingState label="Loading history" /> : findAssistantConversations(visibleSessions, historySearch).map(item => <button aria-current={item.id === sessionId ? "true" : undefined} disabled={isSending || isRestoringSession} key={item.id} onClick={() => { historyControlRef.current?.removeAttribute("open"); if (item.id !== sessionId) void openConversation(item.id); }} type="button"><span>{item.title || "Project conversation"}</span>{item.updated_at ? <time>{new Date(item.updated_at).toLocaleDateString()}</time> : null}</button>)}
+                    {!sessionsQuery.isLoading && !findAssistantConversations(visibleSessions, historySearch).length ? <p>{historySearch ? "No matching conversations." : "Your conversations will appear here."}</p> : null}
+                  </div>
+                </div>
+              </details>
+              <button aria-label="Export conversation" className="ghost-button grounded-assistant-icon-button" disabled={!messages.length || isSending || isRestoringSession} onClick={exportConversation} title="Download conversation with sources" type="button"><IconDownload size={15} /></button>
               {sessionId ? <button aria-label="Archive this conversation" className="ghost-button grounded-assistant-icon-button" disabled={isSending || isRestoringSession} onClick={() => void archiveConversation()} title="Archive conversation" type="button"><IconArchive size={15} /></button> : null}
               {sessionsQuery.isError ? <button className="grounded-assistant-retry" onClick={() => void sessionsQuery.refetch()} type="button">Retry history</button> : null}
             </div>
           </div>
 
-          <div className="grounded-assistant-conversation" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions">
+          <div className="grounded-assistant-conversation" ref={conversationRef} onScroll={(event) => {
+            const element = event.currentTarget;
+            followConversationRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+            if (followConversationRef.current) setShowLatest(false);
+          }} role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions">
             {isRestoringSession ? <LoadingState label="Loading conversation" /> : null}
             {sessionError ? <p className="grounded-assistant-download-error" role="alert">{sessionError}</p> : null}
             {!messages.length ? (
               <div className="grounded-assistant-welcome">
                 <span className="grounded-assistant-welcome-icon"><IconBook2 size={26} /></span>
                 <div className="grounded-assistant-welcome-heading">
-                  <h3>Your project, with the evidence in reach.</h3>
+                  <h3>From evidence<br />to your next move.</h3>
                   <InfoTooltip label="About your project assistant" content={<>
                     <p>Explore coverage, investigate failures, or find a decision in your documents. Each answer connects its findings to the sources you can review.</p>
                     <p>Sources are limited to this project{appTypeId ? " and the current application" : " across its applications"}. {knowledgeAsOf ? `Knowledge as of ${new Date(knowledgeAsOf).toLocaleString()}.` : "Uses the current searchable knowledge."}</p>
@@ -622,12 +743,14 @@ export function GroundedAssistant() {
                 </div>
                 <div className="grounded-assistant-starters">
                   {starterPrompts.map((item) => (
-                    <button key={item} onClick={() => prepareQuestion(item)} type="button">
+                    <button key={item.title} onClick={() => prepareQuestion(item.question)} type="button">
                       <IconMessageCircle size={16} />
-                      <span>{item}</span>
+                      <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                      <IconArrowRight size={15} />
                     </button>
                   ))}
                 </div>
+                {canUseQualityAgents ? <a className="grounded-assistant-agent-handoff" href="/agentic-workflows?view=quality"><IconRobot size={17} /><span>Test a live application</span><IconArrowRight size={15} /></a> : null}
               </div>
             ) : null}
 
@@ -749,25 +872,28 @@ export function GroundedAssistant() {
                     </details>
                   ) : null}
                   {isAssistant && !notice && !["failed", "cancelled", "pending"].includes(message.status || "") ? <div className="grounded-assistant-follow-ups" aria-label="Continue this answer">
-                    <span>{modelUnavailable ? "Continue with the sources" : "Take the next step"}</span>
-                    {citations.length ? <button onClick={() => setExpandedSources((current) => ({ ...current, [message.id]: true }))} type="button"><IconBook2 size={13} />Review {citations.length} source{citations.length === 1 ? "" : "s"}</button> : null}
+                    <button aria-label={copiedAnswerId === message.id ? "Answer copied" : "Copy answer with sources"} onClick={() => void copyAnswer(message)} type="button">{copiedAnswerId === message.id ? <IconCheck size={14} /> : <IconCopy size={14} />}{copiedAnswerId === message.id ? "Copied" : "Copy"}</button>
                     <button disabled={isSending} onClick={() => prepareQuestion(modelUnavailable ? "Show the project evidence relevant to my previous question." : validatedAnswer?.partial || !citations.length ? "What specific evidence is missing to answer my previous question?" : "What should I verify next based on this evidence?", modelUnavailable)} type="button">{modelUnavailable ? "Ask with evidence only" : validatedAnswer?.partial || !citations.length ? "Explore missing evidence" : "What should I verify next?"}<IconArrowRight size={13} /></button>
                   </div> : null}
                 </article>
               );
             })}
 
-            {isSending && requestStartedAt !== null ? <KnowledgeTurnProgress events={progressEvents} onStop={() => requestControllerRef.current?.abort()} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
+            {isSending && answerDelivery ? <article className="grounded-assistant-message is-assistant is-delivering" aria-label="Receiving checked answer" aria-busy="true"><div className="grounded-assistant-message-label"><IconSparkles size={14} /><span>HelloTest</span><span className="grounding-chip"><IconShieldCheck size={13} />Receiving answer</span></div><div className="grounded-assistant-message-content"><KnowledgeFormattedText text={answerDelivery.text} /></div></article> : null}
+            {isSending && requestStartedAt !== null && !answerDelivery ? <KnowledgeTurnProgress events={progressEvents} opening={createSessionMutation.isPending} startedAt={requestStartedAt} /> : null}
 
             {citationDownloadError ? <div className="grounded-assistant-download-error" role="alert">{citationDownloadError}</div> : null}
+            {copyError ? <p className="grounded-assistant-download-error" role="alert">{copyError}</p> : null}
             <div ref={conversationEndRef} />
           </div>
 
           <footer className="grounded-assistant-composer-shell">
+            {showLatest ? <button className="grounded-assistant-jump-latest" onClick={jumpToLatest} type="button"><IconArrowDown size={14} />Latest answer</button> : null}
             {integrationsQuery.isError ? <div className="grounded-assistant-model-error" role="status"><span>Answer models could not be loaded.</span><button onClick={() => void integrationsQuery.refetch()} type="button">Retry models</button><button onClick={() => { setSelectedIntegrationId(RETRIEVAL_ONLY_INTEGRATION); userSelectedIntegration.current = true; }} type="button">Use evidence only</button></div> : null}
+            {!isSending && !isRestoringSession && messages.some(message => message.role === "assistant" && message.status === "complete") ? <div className="grounded-assistant-next-moves" aria-label="Continue from the answer"><button disabled={Boolean(prompt.trim())} onClick={() => prepareQuestion("Show the evidence behind the last answer and identify anything still unverified.")} type="button"><IconBook2 size={13} />Trace evidence</button><button disabled={Boolean(prompt.trim())} onClick={() => prepareQuestion("Turn the findings in the last answer into prioritized, reviewable testing actions. Cite the supporting evidence.")} type="button"><IconSparkles size={13} />Make a test brief</button>{canUseQualityAgents ? <a href="/agentic-workflows?view=quality"><IconRobot size={13} />Run browser checks<IconArrowRight size={12} /></a> : null}</div> : null}
             <div className="grounded-assistant-context-row">
-              <details className="grounded-assistant-context-control">
-                <summary>Context scope · {sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "live project + all Knowledge Repository sources" : `live matching records + ${sourceKinds.length} Knowledge Repository source types`}</summary>
+              <details className="grounded-assistant-context-control" ref={contextControlRef}>
+                <summary><IconBook2 size={14} />{sourceKinds.length === DEFAULT_ASSISTANT_SOURCE_KINDS.length ? "All project sources" : `${sourceKinds.length} source types`}<IconChevronDown size={13} /></summary>
                 <div>
                   {[
                     ["requirement", "Stories"],
@@ -796,7 +922,7 @@ export function GroundedAssistant() {
               <SmartContextWorkbench
                 appTypeId={appTypeId}
                 buttonClassName="ghost-button compact grounded-assistant-smart-context"
-                buttonLabel={smartContext ? `Smart Context · ${smartContext.resultCount}` : "Smart Context"}
+                buttonLabel={smartContext ? `Selected context · ${smartContext.resultCount}` : "Add context"}
                 disabled={isSending || isRestoringSession}
                 initialQuery={prompt}
                 onApply={setSmartContext}
@@ -812,7 +938,8 @@ export function GroundedAssistant() {
                 data-autofocus="true"
                 disabled={isRestoringSession}
                 id="grounded-assistant-input"
-                maxLength={4_000}
+                aria-describedby="grounded-assistant-input-hint"
+                maxLength={8_000}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !isSending) {
@@ -820,19 +947,17 @@ export function GroundedAssistant() {
                     void submitPrompt();
                   }
                 }}
-                placeholder={isSending ? "Draft your next question while the answer is prepared…" : messages.length ? "Ask a follow-up about this evidence…" : "Ask about your project, its tests, runs, defects, or HelloTest usage…"}
+                placeholder={isSending ? "Draft your next question…" : messages.length ? "Ask a follow-up…" : "Ask about your project…"}
                 ref={composerRef}
                 rows={2}
                 value={prompt}
               />
-              <button aria-label="Send message" disabled={!prompt.trim() || !selectedIntegrationId || isSending || isRestoringSession || !sourceKinds.length} type="submit">
-                <IconSend size={18} />
-              </button>
+              {isSending ? <button key="stop" aria-label="Stop answer" onClick={(event) => { event.preventDefault(); requestControllerRef.current?.abort(); }} type="button"><IconPlayerStop size={17} /></button> : <button key="send" aria-label="Send message" disabled={!prompt.trim() || !selectedIntegrationId || isRestoringSession || !sourceKinds.length} type="submit"><IconSend size={18} /></button>}
             </form>
-            <div className="grounded-assistant-composer-hint"><span>{isSending ? "Your next draft stays here while this answer is prepared." : "Enter to send · Shift + Enter for a new line"}</span>{prompt.length > 3500 ? <span>{prompt.length}/4,000</span> : null}</div>
-            <p className="grounded-assistant-privacy"><IconShieldCheck size={13} /> Answers use sources you can access in this project.</p>
+            <div id="grounded-assistant-input-hint" className="grounded-assistant-composer-hint"><span>{!sourceKinds.length ? "Choose at least one source type." : isSending ? "Your next draft stays here." : "Enter to send · Shift + Enter for a new line"}</span>{prompt.length > 7500 ? <span>{prompt.length.toLocaleString()}/8,000</span> : <span title="Answers use only sources you can access"><IconShieldCheck size={12} />Project scoped</span>}</div>
           </footer>
         </aside>
+        </>
       ) : null}
       {isOpen && selectedCitation?.source_id ? <KnowledgeSourceDetail canManage={canReviewHistory} initialRevisionId={selectedCitation.freshness?.current === false ? selectedCitation.knowledge_id : undefined} key={selectedCitation.evidence_id || selectedCitation.id} onChanged={() => undefined} onClose={() => setSelectedCitation(null)} projectId={projectId} sourceId={selectedCitation.source_id} /> : null}
     </>

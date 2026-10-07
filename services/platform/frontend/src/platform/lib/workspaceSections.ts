@@ -45,7 +45,6 @@ export const PRODUCT_MANAGEMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 export const TEST_AUTHORING_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: WORKSPACE_ROUTES.testCases, label: "Cases", shortLabel: "Cases", icon: "cases", featureKeys: ["hellotest.manual.test_cases"] },
   { to: WORKSPACE_ROUTES.sharedSteps, label: "Shared Step Groups", shortLabel: "Groups", icon: "shared", featureKeys: ["hellotest.manual.suites"] },
-  { to: WORKSPACE_ROUTES.design, label: "Suites", shortLabel: "Suites", icon: "suites", featureKeys: ["hellotest.manual.suites"] }
 ];
 
 export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
@@ -55,33 +54,32 @@ export const TEST_ENVIRONMENT_SECTION_ITEMS: WorkspaceSectionItem[] = [
 ];
 
 export const AUTOMATION_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: WORKSPACE_ROUTES.automation, label: "Automation", shortLabel: "Auto", icon: "automation", featureKeys: ["hellotest.automation.workspace"] },
+  { to: WORKSPACE_ROUTES.automation, label: "Test Automation", shortLabel: "Test Automation", icon: "automation", featureKeys: ["hellotest.automation.workspace"] },
   { to: WORKSPACE_ROUTES.objectRepository, label: "Objects", shortLabel: "Objects", icon: "repository", featureKeys: ["hellotest.automation.workspace", "hellotest.automation.object_repository"] }
 ];
 
 export const TESTOPS_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: WORKSPACE_ROUTES.testOps, label: "Jobs", shortLabel: "Jobs", icon: "ops", featureKeys: ["hellotest.automation.batch_process"] },
-  { to: WORKSPACE_ROUTES.opsTelemetry, label: "Telemetry", shortLabel: "Telemetry", icon: "telemetry", featureKeys: ["hellotest.ops.telemetry"] }
+  { to: WORKSPACE_ROUTES.opsTelemetry, label: "OPS Telemetry", shortLabel: "Telemetry", icon: "telemetry", featureKeys: ["hellotest.ops.telemetry"] },
+  { to: WORKSPACE_ROUTES.testOps, label: "Jobs", shortLabel: "Jobs", icon: "ops", featureKeys: ["hellotest.automation.batch_process"] }
 ];
 
 export const AGENTIC_WORKFLOW_SECTION_ITEMS: WorkspaceSectionItem[] = [
   { to: WORKSPACE_ROUTES.mcpServers, label: "MCP Servers", shortLabel: "MCP", icon: "agents", featureKeys: ["hellotest.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=agents`, label: "AI Agents", shortLabel: "Agents", icon: "agents", featureKeys: ["hellotest.ai.agentic_workflows"] },
   { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=workflows`, label: "Workflows", shortLabel: "Flows", icon: "traces", featureKeys: ["hellotest.ai.agentic_workflows"] },
-  { to: `${WORKSPACE_ROUTES.agenticWorkflows}?view=runs`, label: "Workflow Runs", shortLabel: "Runs", icon: "executions", featureKeys: ["hellotest.ai.agentic_workflows"] }
 ];
 
-export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [
-  { to: `${WORKSPACE_ROUTES.executions}?view=suite-runs`, label: "Suite Runs", shortLabel: "Suites", icon: "suites", featureKeys: ["hellotest.manual.runs"] },
-  { to: `${WORKSPACE_ROUTES.executions}?view=local-runs`, label: "Local Runs", shortLabel: "Local", icon: "playwright", featureKeys: ["hellotest.manual.runs", "hellotest.automation.workspace", "hellotest.automation.local_execution"] },
-  { to: `${WORKSPACE_ROUTES.executions}?view=scheduled-runs`, label: "Scheduled Runs", shortLabel: "Scheduled", icon: "executions", featureKeys: ["hellotest.manual.runs"] }
+export const TEST_RUNS_SECTION_ITEMS: WorkspaceSectionItem[] = [];
+export const TEST_PLAN_SECTION_ITEMS: WorkspaceSectionItem[] = [
+  { to: WORKSPACE_ROUTES.design, label: "Test Suites", icon: "suites", featureKeys: ["hellotest.manual.suites"] },
+  { to: `${WORKSPACE_ROUTES.executions}?view=scheduled-runs`, label: "Test Plans", icon: "executions", featureKeys: ["hellotest.manual.runs"] }
 ];
 
 export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/": "Home",
-  "/projects": "Projects",
+  "/projects": "Project Overview",
   "/stories": "Stories",
-  "/agentic-workflows": "Agentic Studio",
+  "/agentic-workflows": "AI Agent Studio",
   "/mcp-servers": "MCP Servers",
   "/knowledge-repo": "Knowledge Repo",
   "/requirements": "Backlog",
@@ -92,7 +90,7 @@ export const WORKSPACE_PAGE_LABELS: Record<string, string> = {
   "/shared-steps": "Shared Step Groups",
   "/design": "Suites",
   "/executions": "Runs",
-  "/automation": "Automation",
+  "/automation": "Test Automation",
   "/object-repository": "Objects",
   "/testops": "Jobs",
   "/ops-telemetry": "Telemetry",
@@ -124,6 +122,7 @@ export const WORKSPACE_SECTION_LABEL_KEYS: Record<string, string> = {
   "/issues": "page.issues",
   "/feedback": "page.feedback",
   "/agentic-workflows?view=agents": "workspace.aiAgents",
+  "/agentic-workflows?view=quality": "workspace.browserQuality",
   "/agentic-workflows?view=workflows": "workspace.workflows",
   "/agentic-workflows?view=runs": "workspace.workflowRuns",
   "/executions?view=suite-runs": "workspace.suiteRuns",

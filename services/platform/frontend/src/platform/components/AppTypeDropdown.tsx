@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import type { AppType } from "../../types";
 import { LayersIcon } from "./AppIcons";
@@ -27,6 +28,8 @@ type AppTypeDropdownProps = {
 };
 
 type MenuPosition = {
+  top: number;
+  left: number;
   width: number;
   maxHeight: number;
 };
@@ -196,6 +199,7 @@ export function AppTypeDropdown({
   "aria-invalid": ariaInvalid
 }: AppTypeDropdownProps) {
   const listboxId = useId();
+  const triggerId = useId();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -219,11 +223,14 @@ export function AppTypeDropdown({
 
     const triggerBounds = triggerRef.current.getBoundingClientRect();
     const width = Math.min(triggerBounds.width, window.innerWidth - VIEWPORT_PADDING * 2);
-    const maxHeight = Math.max(168, window.innerHeight - triggerBounds.bottom - VIEWPORT_PADDING);
-
+    const below = window.innerHeight - triggerBounds.bottom - VIEWPORT_PADDING - 6;
+    const above = triggerBounds.top - VIEWPORT_PADDING - 6;
+    const openAbove = below < 168 && above > below;
+    const maxHeight = Math.max(0, Math.min(320, openAbove ? above : below));
     setMenuPosition({
-      width,
-      maxHeight
+      width, maxHeight,
+      left: Math.max(VIEWPORT_PADDING, Math.min(triggerBounds.left, window.innerWidth - width - VIEWPORT_PADDING)),
+      top: openAbove ? Math.max(VIEWPORT_PADDING, triggerBounds.top - maxHeight - 6) : triggerBounds.bottom + 6
     });
   };
 
@@ -339,8 +346,9 @@ export function AppTypeDropdown({
       return;
     }
 
-    if (event.key === "Escape") {
+    if (event.key === "Escape" || event.key === "Tab") {
       event.preventDefault();
+      event.stopPropagation();
       setIsOpen(false);
       triggerRef.current?.focus();
     }
@@ -354,13 +362,15 @@ export function AppTypeDropdown({
       }
     : menuPosition
       ? {
-        position: "absolute",
-        top: "calc(100% + 0.35rem)",
-        left: 0,
+        position: "fixed",
+        top: menuPosition.top,
+        left: menuPosition.left,
+        zIndex: 12000,
         width: `${menuPosition.width}px`,
         maxHeight: `${menuPosition.maxHeight}px`
       }
       : undefined;
+  const renderMenu = (menu: ReactNode) => inlineMenu ? menu : createPortal(menu, document.body);
   const triggerLabel = selectedOption?.label || (options.length ? placeholder : emptyLabel);
   const isPlaceholder = !selectedOption;
 
@@ -377,7 +387,8 @@ export function AppTypeDropdown({
         aria-label={ariaLabel}
         className={["app-type-dropdown-trigger", isPlaceholder ? "is-placeholder" : ""].filter(Boolean).join(" ")}
         disabled={disabled || !options.length}
-        id={id}
+        id={id || triggerId}
+        data-dialog-popover-owner={id || triggerId}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={handleTriggerKeyDown}
         type="button"
@@ -399,9 +410,10 @@ export function AppTypeDropdown({
         </span>
       </button>
 
-      {isOpen && menuStyle ? (
+      {isOpen && menuStyle ? renderMenu(
         <div
           ref={menuRef}
+          data-dialog-popover-owner={id || triggerId}
           aria-label={ariaLabel}
           className={inlineMenu ? "app-type-dropdown-menu is-inline" : "app-type-dropdown-menu"}
           id={listboxId}

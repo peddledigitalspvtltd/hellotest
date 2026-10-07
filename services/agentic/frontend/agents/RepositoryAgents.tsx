@@ -154,6 +154,7 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
   const canRun = enabled && hasPermission(session, "agentic_workflow.run", projectId);
   const [sourceType, setSourceType] = useState<"zip" | "github">("zip");
   const [file, setFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [ref, setRef] = useState("");
   const [integrationId, setIntegrationId] = useState("");
@@ -270,6 +271,14 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
     }, onError: (error) => reportError(error, "review")
   });
   const busy = start.isPending || cancel.isPending || retry.isPending || publish.isPending;
+  const chooseArchive = (archive?: File) => {
+    if (!archive) return;
+    if (!/\.zip$/i.test(archive.name) || archive.size === 0 || archive.size > maxBytes) {
+      reportError(new Error(`Choose a nonempty .zip repository archive up to ${formatBytes(maxBytes)}.`));
+      return;
+    }
+    setFile(archive); setMessage("");
+  };
   const submit = (event: FormEvent) => {
     event.preventDefault(); setMessage("");
     if (!canStart) return;
@@ -322,15 +331,24 @@ export function RepositoryAgents({ projectId, appTypeId, scopeLabel, agentType, 
           <header><span className="repository-agent-symbol">{agent.icon}</span><div><span className="repository-agent-eyebrow">01 · Source</span><h2>Choose your repository</h2></div></header>
           <p>{agent.description}</p>
           <p className="repository-agent-inline-note">Source extraction runs without an LLM. Findings remain proposals until you review and publish them.</p>
-          <div className="repository-agent-source-support"><strong>Supported source</strong><p>{SOURCE_GUIDANCE[agentType].supported}</p><small>{SOURCE_GUIDANCE[agentType].limit}</small></div>
+          <details className="repository-agent-source-support"><summary>Supported source & limits</summary><p>{SOURCE_GUIDANCE[agentType].supported}</p><small>{SOURCE_GUIDANCE[agentType].limit}</small></details>
           <div className="repository-agent-source-switch" role="group" aria-label="Repository source type">
             <button aria-pressed={sourceType === "zip"} type="button" disabled={start.isPending} onClick={() => setSourceType("zip")}><IconUpload size={16} aria-hidden="true" /> ZIP archive</button>
             <button aria-pressed={sourceType === "github"} type="button" disabled={start.isPending} onClick={() => setSourceType("github")}><IconBrandGithub size={16} aria-hidden="true" /> GitHub</button>
           </div>
-          {sourceType === "zip" ? <div className="repository-agent-upload">
+          {sourceType === "zip" ? <div className={`repository-agent-upload${dragActive ? " is-dragging" : ""}`}
+            onDragOver={event => { event.preventDefault(); if (canRun && !start.isPending) setDragActive(true); }}
+            onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragActive(false); }}
+            onDrop={event => {
+              event.preventDefault(); setDragActive(false);
+              if (!canRun || start.isPending) return;
+              if (event.dataTransfer.files.length !== 1) { reportError(new Error("Drop one repository ZIP archive at a time.")); return; }
+              chooseArchive(event.dataTransfer.files[0]);
+            }}>
             <IconFileCode size={30} aria-hidden="true" /><strong>{file?.name || "Add a repository archive"}</strong>
-            <span>{file ? formatBytes(file.size) : `.zip · up to ${formatBytes(maxBytes)}`}</span>
-            <label className="ghost-button compact">{file ? "Choose another file" : "Choose ZIP file"}<input ref={fileInput} aria-label="Repository ZIP archive" type="file" accept=".zip,application/zip" disabled={!canRun || start.isPending} onChange={(event) => { setFile(event.target.files?.[0] || null); setMessage(""); }} /></label>
+            <span>{file ? formatBytes(file.size) : `Drop a .zip here · up to ${formatBytes(maxBytes)}`}</span>
+            <label className="ghost-button compact">{file ? "Choose another file" : "Choose ZIP file"}<input ref={fileInput} aria-label="Repository ZIP archive" type="file" accept=".zip,application/zip" disabled={!canRun || start.isPending} onChange={(event) => chooseArchive(event.target.files?.[0])} /></label>
+            {file && <button className="text-button" type="button" disabled={start.isPending} onClick={() => { setFile(null); if (fileInput.current) fileInput.current.value = ""; }} aria-label={`Remove ${file.name}`}>Remove file</button>}
             <small>Source files are analyzed without running repository commands.</small>
           </div> : <div className="repository-agent-fields">
             <label>Repository URL<input type="url" value={repositoryUrl} placeholder="https://github.com/owner/repository" disabled={start.isPending} onChange={(event) => setRepositoryUrl(event.target.value)} required={sourceType === "github"} /></label>

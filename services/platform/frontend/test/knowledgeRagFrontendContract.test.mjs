@@ -66,9 +66,9 @@ test("Context Studio builds exact application-record scopes and distinguishes st
   for (const state of ["extractable", "needs_caption", "needs_transcript", "needs_text", "unsupported", "too_large"]) {
     assert.match(studio, new RegExp(`"${state}"`));
   }
-  assert.match(studio, /URLs are stored as references only/);
-  assert.match(studio, /A stored file is not marked searchable until text has been extracted, chunked, embedded, and indexed/);
-  assert.match(studio, /Process context/);
+  assert.match(studio, /Stores the reference only; page content is not fetched/);
+  assert.match(studio, /Sources become searchable when processing completes/);
+  assert.match(studio, /Index sources/);
   assert.match(studio, /selected_records: selectedRecords/);
   assert.doesNotMatch(studio, /integration_id: selectedIntegration\?\.id/);
 });
@@ -77,11 +77,11 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   const studio = await readSource("../../../knowledge/frontend/components/KnowledgeContextStudio.tsx");
 
   assert.match(studio, /"hybrid"/);
-  assert.match(studio, /Search & validate/);
+  assert.match(studio, /\["search", "Search", IconSearch\]/);
   assert.match(studio, /Citable source/);
   assert.match(studio, /Save .*source.* to collection/);
-  assert.match(studio, /Context collections/);
-  assert.match(studio, /Source inventory/);
+  assert.match(studio, /\["collections", "Collections", IconFolders\]/);
+  assert.match(studio, /\["sources", "Sources", IconFileText\]/);
   assert.match(studio, /Indexed & searchable/);
   assert.match(studio, /Caption required/);
   assert.match(studio, /Transcript required/);
@@ -98,9 +98,9 @@ test("Context Studio exposes hybrid retrieval, citations, reusable collections, 
   assert.match(studio, /buildAttemptRef/);
   assert.match(studio, /max_extractable_bytes/);
   assert.match(studio, /result\.source_kind !== "product_help"/);
-  assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\)/);
+  assert.match(studio, /setSelectedSearchSources\(\[\]\);[\s\S]*searchMutation\.mutate\(\{ request, signal: controller\.signal \}\)/);
   assert.match(studio, /<LoadingState/);
-  assert.match(studio, /Recent embedding fallback/);
+  assert.match(studio, /Some sources used local search/);
   assert.match(studio, /Context refresh recommended/);
   assert.doesNotMatch(studio, /loading-state-spinner/);
   assert.doesNotMatch(studio, /job\.error(?!s)/);
@@ -116,7 +116,7 @@ test("Floating assistant selects project-safe configured models and renders grou
   assert.match(assistant, /areFeatureFlagsEnabled\(featureFlagsQuery\.data, \["hellotest\.ai\.knowledge", "hellotest\.ai\.chatbot"\]\)/);
   assert.match(assistant, /if \(!canUseAssistant\) return null/);
   assert.match(assistant, /Sources are limited to this project/);
-  assert.match(assistant, /live project \+ all Knowledge Repository sources/);
+  assert.match(assistant, /All project sources/);
   assert.match(assistant, /<KnowledgeTurnProgress events=\{progressEvents\}/);
   assert.match(assistant, /chatbotApi\.assistant\.streamMessage/);
   assert.match(assistant, /message\.retrieval\.context_route\?\.input_type/);
@@ -200,7 +200,9 @@ test("Smart Context is reviewable, project-governed, and restricted to approved 
   assert.match(issues, /<AiPromptContextPanel[\s\S]*promptScope="bug_creation"/);
   assert.doesNotMatch(issues, /<SmartContextWorkbench/);
   assert.doesNotMatch(issues, /aiBugTriageSmartContext/);
-  assert.match(storyStudio, /\{settingsPane\}/);
+  assert.match(storyStudio, /\{contextOnly\(settingsPane\)\}/);
+  assert.match(storyStudio, /child\.type === AiPromptContextPanel/);
+  assert.match(storyStudio, /showPromptEditor: false/);
   assert.match(promptPanel, /<SmartContextWorkbench/);
   assert.match(executions, /label="Change intent"[\s\S]*Smart Run Drafts/);
   assert.doesNotMatch(executions.slice(executions.indexOf("export function ExecutionCreateModal"), executions.indexOf("function CreateExecutionScheduleModal")), /agentName="Smart Run Planner"/);
@@ -239,6 +241,6 @@ test("Knowledge retrieval reuses the governed LLM configuration without separate
   assert.match(assistantStyles, /@media \(max-width: 620px\)/);
   assert.match(assistantStyles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(assistantStyles, /\.grounded-assistant-model-select/);
-  assert.match(assistantStyles, /\.grounded-assistant-agent-status/);
-  assert.match(assistantStyles, /position: sticky/);
+  assert.match(assistantStyles, /\.grounded-assistant-turn-progress/);
+  assert.match(assistantStyles, /grid-template-rows: auto auto minmax\(0, 1fr\) auto/);
 });

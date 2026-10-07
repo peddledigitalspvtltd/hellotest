@@ -3461,6 +3461,7 @@ exports.buildAutomationBatch = async ({
       stopped_by_failure_threshold: stoppedByThreshold,
       progress_percent: 100,
       output_test_case_ids: created.map((result) => result.test_case_id),
+      retry_test_case_ids: targetIds.filter(id => !created.some(result => result.test_case_id === id)),
       sample_errors: errors.slice(0, 10)
     },
     completed_at: new Date().toISOString()

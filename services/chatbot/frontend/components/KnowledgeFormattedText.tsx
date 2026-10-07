@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { IconCheck, IconCopy } from "@tabler/icons-react";
 import "./KnowledgeFormattedText.css";
 
 // Render a deliberately small Markdown vocabulary as React elements. Source
@@ -24,6 +25,24 @@ const listItem = (line: string) => line.match(/^\s*(?:([-*+])|\d+[.)])\s+(.+)$/)
 const tableCells = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
 const tableSeparator = (line: string) => line.includes("|") && tableCells(line).every((cell) => /^:?-{3,}:?$/.test(cell));
 
+function KnowledgeCodeBlock({ code, language }: { code: string; language: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => { setState("idle"); }, [code]);
+  useEffect(() => {
+    if (state !== "copied") return;
+    const timer = setTimeout(() => setState("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [state]);
+  return <div className="knowledge-code-artifact">
+    <header><span>{language || "Code"}</span><button aria-label="Copy code block" onClick={async () => {
+      try { await navigator.clipboard.writeText(code); setState("copied"); }
+      catch { setState("failed"); }
+    }} type="button">{state === "copied" ? <IconCheck aria-hidden="true" size={14} /> : <IconCopy aria-hidden="true" size={14} />}{state === "copied" ? "Copied" : "Copy"}</button></header>
+    <pre><code>{code}</code></pre>
+    {state === "failed" ? <span className="knowledge-code-copy-error" role="status">Copy unavailable. Select the code to copy it.</span> : null}
+  </div>;
+}
+
 export function KnowledgeFormattedText({ text, className = "" }: { text: string; className?: string }) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
@@ -33,11 +52,12 @@ export function KnowledgeFormattedText({ text, className = "" }: { text: string;
     const key = index;
     if (!line) { index++; continue; }
     if (line.startsWith("```")) {
+      const language = line.slice(3).trim().slice(0, 40);
       const code: string[] = [];
       index++;
       while (index < lines.length && !lines[index].trim().startsWith("```")) code.push(lines[index++]);
       if (index < lines.length) index++;
-      blocks.push(<pre key={key}><code>{code.join("\n")}</code></pre>);
+      blocks.push(<KnowledgeCodeBlock code={code.join("\n")} key={key} language={language} />);
       continue;
     }
     const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?$/);

@@ -62,7 +62,7 @@ export function useDialogFocus<T extends HTMLElement>({
     openDialogStack.push(dialog);
 
     const frameId = window.requestAnimationFrame(() => {
-      const canReceiveFocus = (target: HTMLElement | null) => Boolean(target && !target.closest("[inert], [aria-hidden='true']"));
+      const canReceiveFocus = (target: HTMLElement | null) => Boolean(target && target.getClientRects().length && !target.closest("[inert], [aria-hidden='true']"));
       const preferredCandidate = dialog.querySelector<HTMLElement>("[data-autofocus='true']");
       const preferredTarget = canReceiveFocus(preferredCandidate) ? preferredCandidate : null;
       const fallbackTarget = Array.from(dialog.querySelectorAll<HTMLElement>(FALLBACK_FOCUSABLE_SELECTOR)).find(canReceiveFocus) || null;
@@ -81,7 +81,7 @@ export function useDialogFocus<T extends HTMLElement>({
       const activePopover = document.activeElement?.closest<HTMLElement>("[data-dialog-popover-owner]");
       const popoverOwnerId = activePopover?.dataset.dialogPopoverOwner;
       const popoverOwner = popoverOwnerId ? document.getElementById(popoverOwnerId) : null;
-      if (popoverOwner && dialog.contains(popoverOwner) && popoverOwner.getAttribute("aria-expanded") === "true" && popoverOwner.getAttribute("aria-haspopup") === "listbox" && (event.key === "Escape" || event.key === "Tab")) {
+      if (popoverOwner && dialog.contains(popoverOwner) && popoverOwner.getAttribute("aria-expanded") === "true" && ["listbox", "menu"].includes(popoverOwner.getAttribute("aria-haspopup") || "") && (event.key === "Escape" || event.key === "Tab")) {
         return;
       }
 

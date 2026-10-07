@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { WorkflowExecutionLog, executionDuration } from "./WorkflowExecutionLog";
-import { IconArrowLeft, IconRefresh } from "@tabler/icons-react";
+import { IconArrowLeft, IconDownload, IconRefresh } from "@tabler/icons-react";
 import type {
   AgenticWorkflowNode,
   AgenticWorkflowEdge,
@@ -11,6 +11,16 @@ import { WorkflowCanvas } from "./WorkflowCanvas";
 import { WorkflowNodeInspector } from "./WorkflowNodeInspector";
 import { decorateFlowEdge } from "./workflowGraph";
 import "./WorkflowStudio.css";
+
+function LiveDuration({ start, end, active }: { start?: string | null; end?: string | null; active: boolean }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => tick(value => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [active, start]);
+  return <>{executionDuration(start, end)}</>;
+}
 
 export function WorkflowExecutionView({
   run,
@@ -40,7 +50,19 @@ export function WorkflowExecutionView({
   const [tab, setTab] = useState<"steps" | "summary" | "logs">("steps"),
     [selectedId, setSelectedId] = useState(""),
     [expanded, setExpanded] = useState(false);
+  const [exportNotice, setExportNotice] = useState("");
+  const active = ["running", "queued"].includes(run.status);
   useEffect(() => { setSelectedId(""); setExpanded(false); }, [run.id]);
+  useEffect(() => setExportNotice(""), [run.id]);
+  const exportRun = () => {
+    const blob = new Blob([JSON.stringify({ exported_at: new Date().toISOString(), run }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = `workflow-run-${run.id.replace(/[^a-zA-Z0-9_-]/g, '')}.json`;
+    document.body.append(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setExportNotice('Execution snapshot downloaded.');
+  };
   const logs = run.node_results.flatMap(result => (Array.isArray(result.logs) ? result.logs : []).map(entry => ({ ...entry as Record<string, unknown>, node_id: result.node_id, node_name: result.node_name })))
     .sort((a, b) => String((a as Record<string, unknown>).at || "").localeCompare(String((b as Record<string, unknown>).at || "")));
   const nodes = (
@@ -91,9 +113,10 @@ export function WorkflowExecutionView({
           <span>Agentic Studio / Executions</span>
           <h2>{run.workflow_name}</h2>
         </div>
-        <span className="studio-status" role="status">
+        <span className="studio-status" role="status" data-status={run.status}>
           {run.status.replace(/_/g, " ")}
         </span>
+        <button type="button" className="studio-icon-button" aria-label="Download execution snapshot" title="Download execution snapshot" onClick={exportRun} disabled={run.summary_only}><IconDownload size={18} /></button>
         {onRetry && canRun && !["running", "queued"].includes(run.status) && (
           <button className="ghost-button" type="button" onClick={onRetry}>
             <IconRefresh size={16} />
@@ -138,6 +161,7 @@ export function WorkflowExecutionView({
           </button>
         )}
       </div>
+      {exportNotice && <p className="studio-export-notice" role="status">{exportNotice}</p>}
       {error && (
         <p className="studio-notice" role="alert">
           {error}{" "}
@@ -155,11 +179,12 @@ export function WorkflowExecutionView({
         )}
       </p>
       <div className="studio-run-metrics" aria-label="Execution metrics">
-        <span><strong>{executionDuration(run.started_at || run.created_at, run.completed_at)}</strong>elapsed</span>
+        <span><strong><LiveDuration start={run.started_at || run.created_at} end={run.completed_at} active={active} /></strong>elapsed</span>
         <span><strong>{run.node_results.filter(item => item.status === "completed").length}/{run.node_results.length}</strong>completed</span>
         <span><strong>{run.node_results.filter(item => item.status === "failed").length}</strong>failed</span>
         <span><strong>{run.node_results.filter(item => item.status === "skipped").length}</strong>skipped</span>
       </div>
+      {active && <div className="studio-run-progress"><progress aria-label="Recorded execution progress" max={Math.max(1, run.node_results.length)} value={run.summary_only || !run.node_results.length ? undefined : run.node_results.filter(item => ["completed", "failed", "skipped", "cancelled", "interrupted"].includes(String(item.status))).length} /><span>{run.status === "queued" ? "Waiting for a worker" : "Execution in progress"}</span></div>}
       {tab === "logs" ? <div className="studio-run-log"><WorkflowExecutionLog logs={logs} onSelectNode={id => { setSelectedId(id); setTab("steps"); }} /></div> : tab === "summary" ? (
         <div className="studio-review-summary">
           <WorkflowReviewSummary

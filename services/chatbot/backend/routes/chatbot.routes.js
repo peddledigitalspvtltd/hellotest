@@ -1,6 +1,6 @@
 const knowledgeAssistantService = require("../services/knowledgeAssistant.service");
 const execution = require("@hellotest/knowledge/backend/services/knowledgeExecution.service");
-const { streamKnowledge } = require("@hellotest/platform/backend/src/utils/knowledgeStream");
+const { streamAssistant } = require("../http/assistantStream");
 
 
 const { validateAppTypeScope, prepareKnowledgeRequest, createProjectAccess } = require("@hellotest/knowledge/backend/http/requestScope");
@@ -64,7 +64,7 @@ module.exports = async function (fastify) {
 
   fastify.post("/knowledge/assistant/sessions/:id/messages/stream", async (req, reply) => {
     const input = await prepareTurn(req, reply);
-    return streamKnowledge(req, reply, (stream) => knowledgeAssistantService.respond({ ...input, ...stream }));
+    return streamAssistant(req, reply, (stream) => knowledgeAssistantService.respond({ ...input, ...stream }));
   });
 
   fastify.post("/knowledge/assistant/sessions/:id/messages", async (req, reply) => {

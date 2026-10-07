@@ -1,9 +1,12 @@
+import { useKnowledgeCatalog } from "../hooks/useKnowledgeCatalog";
 import { KnowledgeRefreshControl } from "./KnowledgeRefreshControl";
 import { formatRecordKindLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
 import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
-import { DragEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  IconPlus,
+  IconAdjustmentsHorizontal,
   IconAlertTriangle,
   IconArrowRight,
   IconBook2,
@@ -12,7 +15,6 @@ import {
   IconChevronRight,
   IconClock,
   IconDatabase,
-  IconFile,
   IconFileDescription,
   IconFileText,
   IconFolders,
@@ -35,6 +37,8 @@ import { useFeatureFlags } from "@hellotest/platform/frontend/src/platform/hooks
 import { hasCapability } from "@hellotest/platform/frontend/src/platform/lib/capabilityAccess";
 import { SelectionToggleIcon } from "@hellotest/platform/frontend/src/platform/components/AppIcons";
 import { KnowledgeSourceDetail } from "./KnowledgeSourceDetail";
+import { KnowledgeCollectionDialog } from "./KnowledgeCollectionDialog";
+import { knowledgeApi } from "../api.client";
 import { asArray } from "@hellotest/platform/frontend/src/shared/lib/collectionGuards";
 import type {
   Execution,
@@ -56,6 +60,8 @@ import "./KnowledgeContextStudio.css";
 type StudioTab = "build" | "search" | "sources" | "collections" | "activity";
 type RecordKind = keyof KnowledgeSelectedRecords;
 type PasteKind = "text" | "chat" | "url";
+type BuildKind = "records" | "files" | "notes";
+type SearchRequest = { project_id: string; query: string; mode: KnowledgeSearchMode; limit: number; filters: { app_type_id: string | null; collection_ids: string[]; source_kinds: string[]; as_of?: string } };
 type StagedFileStatus = "extractable" | "needs_caption" | "needs_transcript" | "needs_text" | "unsupported" | "too_large";
 
 type StagedFile = {
@@ -252,7 +258,17 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const buildAttemptRef = useRef<{ fingerprint: string; key: string } | null>(null);
-  const [requestedTab, setActiveTab] = useState<StudioTab>(initialSourceId ? "sources" : "search");
+  const [requestedTab, setActiveTab] = useState<StudioTab>("sources");
+  const [buildKind, setBuildKind] = useState<BuildKind>("files");
+  const [showSearchFilters, setShowSearchFilters] = useState(false);
+  const [showSourceFilters, setShowSourceFilters] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
+  const [collectionDialogId, setCollectionDialogId] = useState<string | null>(null);
+  const [sourceCollectionId, setSourceCollectionId] = useState("");
+  const [sourceSort, setSourceSort] = useState("updated");
+  const [submittedSearch, setSubmittedSearch] = useState<SearchRequest | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => searchAbortRef.current?.abort(), []);
   const activeTab = requestedTab === "build" && !canManage ? "search" : requestedTab;
   const { session } = useAuth();
   const featureFlags = useFeatureFlags(Boolean(session));
@@ -284,55 +300,35 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const [searchAsOf, setSearchAsOf] = useState("");
   const [selectedDetailSourceId, setSelectedDetailSourceId] = useState(initialSourceId);
   const [selectedDetailRevisionId, setSelectedDetailRevisionId] = useState(initialRevisionId);
+  useEffect(() => { if (initialSourceId) { setSelectedDetailSourceId(initialSourceId); setSelectedDetailRevisionId(initialRevisionId); setActiveTab("sources"); } }, [initialSourceId, initialRevisionId]);
   const [searchSourceKinds, setSearchSourceKinds] = useState<string[]>([]);
   const [searchCollectionId, setSearchCollectionId] = useState("");
   const [selectedSearchSources, setSelectedSearchSources] = useState<string[]>([]);
   const [sourceSearch, setSourceSearch] = useState("");
   const [sourceStatus, setSourceStatus] = useState("");
-  const [newCollectionName, setNewCollectionName] = useState("");
-  const [newCollectionDescription, setNewCollectionDescription] = useState("");
-  const [newCollectionColor, setNewCollectionColor] = useState("#4f46e5");
   const [armedCollectionDeleteId, setArmedCollectionDeleteId] = useState("");
   const [armedSourceDeleteId, setArmedSourceDeleteId] = useState("");
 
-  const overviewQuery = useQuery({
-    queryKey: ["knowledge-overview", projectId],
-    queryFn: () => api.knowledgeRepo.overview(projectId),
-    enabled: Boolean(projectId),
-    refetchInterval: (query) => {
-      const jobs = query.state.data?.recent_jobs || query.state.data?.recent_ingestions || [];
-      return jobs.some((job) => !["completed", "completed_with_warnings", "failed"].includes(String(job.status))) ? 3_000 : false;
-    }
-  });
-  const collectionsQuery = useQuery({
-    queryKey: ["knowledge-collections", projectId],
-    queryFn: () => api.knowledgeRepo.collections.list(projectId),
-    enabled: Boolean(projectId)
-  });
-  const sourcesQuery = useQuery({
-    queryKey: ["knowledge-sources", projectId, canManage],
-    queryFn: () => api.knowledgeRepo.sources(projectId, { includeArchived: canManage }),
-    enabled: Boolean(projectId)
-  });
+  const { overviewQuery, collectionsQuery, sourcesQuery } = useKnowledgeCatalog(projectId, canManage);
   const requirementsQuery = useQuery({
     queryKey: ["knowledge-builder-requirements", projectId],
     queryFn: () => api.requirements.list({ project_id: projectId, projection: "summary", limit: 250 }),
-    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.requirements)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && buildKind === "records" && activeRecordKind === "requirements" && readableRecords.requirements)
   });
   const testCasesQuery = useQuery({
     queryKey: ["knowledge-builder-test-cases", projectId, appTypeId],
     queryFn: () => api.testCases.list({ project_id: projectId, app_type_id: appTypeId || undefined, projection: "summary", limit: 250 }),
-    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.test_cases)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && buildKind === "records" && activeRecordKind === "test_cases" && readableRecords.test_cases)
   });
   const executionsQuery = useQuery({
     queryKey: ["knowledge-builder-executions", projectId, appTypeId],
     queryFn: () => api.executions.list({ project_id: projectId, app_type_id: appTypeId || undefined, page_size: 250 }),
-    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.executions)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && buildKind === "records" && activeRecordKind === "executions" && readableRecords.executions)
   });
   const bugsQuery = useQuery({
     queryKey: ["knowledge-builder-bugs", projectId],
     queryFn: () => api.issues.list({ project_id: projectId, projection: "summary", page_size: 250 }),
-    enabled: Boolean(projectId && canManage && activeTab === "build" && readableRecords.bugs)
+    enabled: Boolean(projectId && canManage && activeTab === "build" && buildKind === "records" && activeRecordKind === "bugs" && readableRecords.bugs)
   });
   const collections = asArray(collectionsQuery.data);
   const overview = overviewQuery.data;
@@ -372,19 +368,37 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   const embeddingConfigured = overview?.capabilities?.embedding?.configured === true;
   const vectorStore = overview?.capabilities?.vector_store;
   const vectorSearchUnavailable = typeof vectorStore === "object" && vectorStore?.circuit_open === true;
+  const allSources = asArray<KnowledgeSource>(sourcesQuery.data);
   const visibleSources = useMemo(() => {
     const query = sourceSearch.trim().toLowerCase();
-    return asArray<KnowledgeSource>(sourcesQuery.data).filter((source) => {
-      if (sourceStatus && source.extraction_status !== sourceStatus) return false;
-      if (!query) return true;
-      return [source.title, source.file_name, source.source_kind, source.source_ref_id, source.extraction_status]
+    const filtered = asArray<KnowledgeSource>(sourcesQuery.data).filter((source) => {
+      if (sourceStatus === "attention" && !["needs_extraction", "failed"].includes(source.extraction_status)) return false;
+      if (sourceStatus && sourceStatus !== "attention" && source.extraction_status !== sourceStatus) return false;
+      if (!sourceStatus && source.extraction_status === "archived") return false;
+      if (sourceCollectionId && !source.collection_ids?.includes(sourceCollectionId)) return false;
+      return !query || [source.title, source.file_name, source.source_kind, source.source_ref_id, source.extraction_status]
         .filter(Boolean).join(" ").toLowerCase().includes(query);
     });
-  }, [sourceSearch, sourceStatus, sourcesQuery.data]);
+    return filtered.sort((a, b) => sourceSort === "title"
+      ? a.title.localeCompare(b.title)
+      : (new Date(b.updated_at || b.created_at || 0).getTime() || 0) - (new Date(a.updated_at || a.created_at || 0).getTime() || 0));
+  }, [sourceSearch, sourceStatus, sourceCollectionId, sourceSort, sourcesQuery.data]);
+  const recordQuery = ({ requirements: requirementsQuery, test_cases: testCasesQuery, executions: executionsQuery, bugs: bugsQuery })[activeRecordKind];
+  const sourceFilterCount = Number(Boolean(sourceSearch.trim())) + Number(Boolean(sourceStatus)) + Number(Boolean(sourceCollectionId));
+  const searchFilterCount = searchSourceKinds.length + Number(Boolean(searchCollectionId)) + Number(Boolean(searchAsOf)) + Number(searchMode !== "hybrid");
+  const invalidChunking = !Number.isFinite(chunking.chunk_size) || chunking.chunk_size < 100 || chunking.chunk_size > 1000 || !Number.isFinite(chunking.chunk_overlap) || chunking.chunk_overlap < 0 || chunking.chunk_overlap >= chunking.chunk_size;
+  const searchChanged = Boolean(submittedSearch && (
+    submittedSearch.query !== searchQuery.trim() || submittedSearch.mode !== searchMode ||
+    submittedSearch.filters.collection_ids[0] !== (searchCollectionId || undefined) ||
+    submittedSearch.filters.source_kinds.join(",") !== searchSourceKinds.join(",") ||
+    (submittedSearch.filters.as_of || "") !== (canManage && searchAsOf ? new Date(searchAsOf).toISOString() : "")
+  ));
 
   const buildMutation = useMutation({
     mutationFn: async () => {
       if (!canManage) throw new Error("Knowledge management permission is required.");
+      if (invalidChunking) throw new Error("Choose 100–1,000 target tokens and overlap below the target.");
+      if (!projectId || !sourceCount) throw new Error("Choose at least one source to index.");
       const inputs: KnowledgeIngestionInput[] = hasPastedInput ? [{
         kind: pasteKind,
         title: pasteTitle.trim() || (pasteKind === "chat" ? "Conversation context" : pasteKind === "url" ? "Web reference" : "Context note"),
@@ -459,44 +473,19 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
   });
 
   const searchMutation = useMutation({
-    mutationFn: () => api.knowledgeRepo.search({
-      project_id: projectId,
-      query: searchQuery.trim(),
-      mode: searchMode,
-      limit: 20,
-      filters: {
-        app_type_id: appTypeId || null,
-        collection_ids: searchCollectionId ? [searchCollectionId] : [],
-        source_kinds: searchSourceKinds,
-        ...(canManage && searchAsOf ? { as_of: new Date(searchAsOf).toISOString() } : {})
-      }
-    }),
-    onError: (error) => onError(error, "Knowledge search failed.")
+    mutationFn: ({ request, signal }: { request: SearchRequest; signal: AbortSignal }) => knowledgeApi.knowledgeRepo.search(request, { signal }),
+    onError: (error) => {
+      if (!(error instanceof Error && error.name === "AbortError")) onError(error, "Knowledge search failed.");
+    }
   });
   const results = searchResults(searchMutation.data);
-
-  const createCollectionMutation = useMutation({
-    mutationFn: () => api.knowledgeRepo.collections.create({
-      project_id: projectId,
-      app_type_id: appTypeId || null,
-      name: newCollectionName.trim(),
-      description: newCollectionDescription.trim(),
-      color: newCollectionColor
-    }),
-    onSuccess: (collection) => {
-      setNewCollectionName("");
-      setNewCollectionDescription("");
-      setCollectionId(collection.id);
-      void queryClient.invalidateQueries({ queryKey: ["knowledge-collections", projectId] });
-      onSuccess(`Collection “${collection.name}” created.`);
-    },
-    onError: (error) => onError(error, "Unable to create collection.")
-  });
 
   const deleteCollectionMutation = useMutation({
     mutationFn: (id: string) => api.knowledgeRepo.collections.delete(id),
     onSuccess: () => {
       setArmedCollectionDeleteId("");
+      if (deleteCollectionMutation.variables === searchCollectionId) setSearchCollectionId("");
+      if (deleteCollectionMutation.variables === sourceCollectionId) setSourceCollectionId("");
       void queryClient.invalidateQueries({ queryKey: ["knowledge-collections", projectId] });
       onSuccess("Collection deleted. Indexed sources remain available unless separately removed.");
     },
@@ -542,15 +531,20 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
 
   const addFiles = (candidateFiles: File[]) => {
     const maximum = overview?.capabilities?.max_files_per_ingestion || 20;
+    const identity = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
+    const known = new Set(files.map((item) => identity(item.file)));
+    const unique = candidateFiles.filter((file) => {
+      const key = identity(file);
+      if (known.has(key)) return false;
+      known.add(key);
+      return true;
+    });
     const available = Math.max(0, maximum - files.length);
-    const next = candidateFiles.slice(0, available).map((file, index) => ({
-      id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
-      file,
-      ...classifyFile(file, overview),
-      extractedText: ""
+    const next = unique.slice(0, available).map((file) => ({
+      id: identity(file), file, ...classifyFile(file, overview), extractedText: ""
     }));
     setFiles((current) => [...current, ...next]);
-    if (candidateFiles.length > available) onError(null, `A context build accepts up to ${maximum} files.`);
+    if (unique.length > available) onError(null, `A context build accepts up to ${maximum} files.`);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -569,79 +563,49 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
-    if (searchQuery.trim()) {
-      setSelectedSearchSources([]);
-      searchMutation.mutate();
-    }
+    if (!searchQuery.trim() || !projectId) return;
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const request: SearchRequest = {
+      project_id: projectId, query: searchQuery.trim(), mode: searchMode, limit: 20,
+      filters: { app_type_id: appTypeId || null, collection_ids: searchCollectionId ? [searchCollectionId] : [], source_kinds: [...searchSourceKinds], ...(canManage && searchAsOf ? { as_of: new Date(searchAsOf).toISOString() } : {}) }
+    };
+    setSubmittedSearch(request);
+    setSelectedSearchSources([]);
+    searchMutation.mutate({ request, signal: controller.signal });
   };
 
   return (
     <section className="knowledge-studio" aria-label="Knowledge context studio">
-      <div className="knowledge-studio-hero">
-        <div className="knowledge-studio-hero-copy">
-          <div className="knowledge-studio-hero-icon"><IconDatabase size={26} /></div>
-          <div>
-            <span className="eyebrow">Project context</span>
-            <h2>Your project knowledge, connected</h2>
-            <p>Search evidence, organize sources and keep AI answers connected to current project data.</p>
-          </div>
+      <div className="knowledge-repo-commandbar">
+        <div className="knowledge-repo-status" role="status">
+          <span className={`knowledge-status-dot ${indexedSourceCount ? "is-ready" : ""}`} />
+          {overviewQuery.isPending ? "Checking sources…" : overviewQuery.isError ? "Status unavailable" : <span>{indexedSourceCount.toLocaleString()} searchable<span className="knowledge-status-long-label"> sources</span></span>}
+          {Number(counts?.processing_sources || 0) > 0 ? <button type="button" onClick={() => setActiveTab("activity")}>{counts?.processing_sources} processing</button> : null}
+          {Number(counts?.failed_sources || 0) > 0 ? <button type="button" onClick={() => { setSourceStatus("attention"); setActiveTab("sources"); }}>{counts?.failed_sources} need attention</button> : null}
         </div>
-        <div className="knowledge-studio-health" aria-label="Source indexing status">
-          {overviewQuery.isLoading ? <LoadingState label="Checking indexing status" /> : overviewQuery.isError ? <span className="is-warning"><i /> Indexing status unavailable</span> : <>
-            <span className={indexedSourceCount ? "is-ready" : "is-neutral"} title="Successfully processed sources available for project retrieval.">
-              <i /> {indexedSourceCount.toLocaleString()} source{indexedSourceCount === 1 ? "" : "s"} indexed
-            </span>
-            <span className={embeddingFallbackJobs || !embeddingConfigured ? "is-warning" : "is-neutral"} title={embeddingFallbackJobs ? "Recent processing jobs recorded an embedding fallback. Review Processing activity for the affected jobs." : embeddingConfigured ? "An embedding provider is configured. This setting does not verify whether a model request will succeed." : "Keyword search and local vectors are available; semantic matches may be less precise."}>
-              <i /> {embeddingFallbackJobs ? "Recent embedding fallback" : embeddingConfigured ? "Embedding provider configured" : "Local search fallback"}
-            </span>
-            <span className={vectorSearchUnavailable ? "is-warning" : "is-neutral"}>
-              <i /> {vectorSearchUnavailable ? "Vector search temporarily unavailable" : overview?.capabilities?.hybrid_search ? "Hybrid retrieval enabled" : "Keyword retrieval enabled"}
-            </span>
-            <span className={overview?.capabilities?.context_processing?.refresh_recommended ? "is-warning" : "is-neutral"} title={overview?.capabilities?.context_processing?.hierarchy_strategy}>
-              <i /> {overview?.capabilities?.context_processing?.refresh_recommended
-                ? "Context refresh recommended"
-                : overview?.capabilities?.context_processing?.average_score !== null && overview?.capabilities?.context_processing?.average_score !== undefined
-                  ? `Context quality ${overview.capabilities.context_processing.average_score}/100`
-                  : "Structure-aware context"}
-            </span>
-          </>}
+        <div className="knowledge-command-actions">
+          <button aria-expanded={showHealth} aria-controls="knowledge-health-details" aria-label="Repository health and retrieval details" className="ghost-button compact" onClick={() => setShowHealth(!showHealth)} type="button"><IconInfoCircle size={17} /><span>Health</span></button>
+          {canManage ? <button className="primary-button" disabled={!projectId} onClick={() => setActiveTab("build")} type="button"><IconPlus size={17} />Add sources</button> : null}
         </div>
       </div>
-
-      <div hidden={!overviewQuery.isError && !embeddingFallbackJobs && !vectorSearchUnavailable} className={`knowledge-indexing-notice${overviewQuery.isError || embeddingFallbackJobs || vectorSearchUnavailable ? " is-warning" : ""}`} role="status">
-        <IconInfoCircle size={18} aria-hidden="true" />
-        <div>
-          {overviewQuery.isError ? <strong>Could not refresh source indexing status.</strong> : embeddingFallbackJobs ? <strong>{embeddingFallbackJobs} recent processing job{embeddingFallbackJobs === 1 ? "" : "s"} used local search fallback.</strong> : null}
-          <span>{overviewQuery.isError ? "Refresh to check the current source counts and processing results." : embeddingFallbackJobs ? "Indexed sources remain searchable by keywords. Semantic matches may be less precise; review the affected jobs before rebuilding their indexes." : "Source indexing and answer generation have separate status. A searchable source can be retrieved while a chat model is unavailable."}</span>
-        </div>
-        {overviewQuery.isError ? <button className="ghost-button compact" disabled={overviewQuery.isFetching} onClick={() => void overviewQuery.refetch()} type="button">Refresh status</button> : embeddingFallbackJobs ? <button className="ghost-button compact" onClick={() => setActiveTab("activity")} type="button">Review processing</button> : null}
-      </div>
-
-      <div className="knowledge-studio-metrics" role="group" aria-label="Knowledge repository metrics">
-        {[
-          [counts?.sources || 0, "Sources", "Project evidence registered"],
-          [counts?.documents || 0, "Documents", "Extracted and normalized"],
-          [counts?.chunks || 0, "Chunks", "Stored context passages"],
-          [counts?.collections || collections.length, "Collections", "Reusable context scopes"],
-          [counts?.processing_sources || 0, "Processing", "Queued or indexing"]
-        ].map(([value, label, helper]) => (
-          <div className="knowledge-studio-metric" key={String(label)}>
-            <strong>{overviewQuery.isPending || overviewQuery.isError ? "—" : value}</strong>
-            <span>{label}</span>
-            <small>{helper}</small>
-          </div>
-        ))}
-      </div>
+      {showHealth ? <div className="knowledge-health-details" id="knowledge-health-details">
+        <div className="knowledge-health-metrics"><span><strong>{counts?.sources ?? "—"}</strong> sources</span><span><strong>{counts?.documents ?? "—"}</strong> documents</span><span><strong>{counts?.chunks ?? "—"}</strong> passages</span><span><strong>{collections.length}</strong> collections</span></div>
+        <p><IconShieldCheck size={16} />Only permitted, indexed revisions are used by AI.</p>
+        <p>{embeddingConfigured ? "Embedding provider configured" : "Local search fallback"} · {vectorSearchUnavailable ? "Vector search temporarily unavailable" : overview?.capabilities?.hybrid_search ? "Hybrid search enabled" : "Keyword search enabled"}</p>
+        {overview?.capabilities?.context_processing?.refresh_recommended ? <p>Context refresh recommended.</p> : null}
+      </div> : null}
+      {overviewQuery.isError || embeddingFallbackJobs || vectorSearchUnavailable ? <div className="knowledge-indexing-notice is-warning" role="status"><IconInfoCircle size={17} /><div><strong>{overviewQuery.isError ? "Index status unavailable" : embeddingFallbackJobs ? "Some sources used local search" : "Semantic search is recovering"}</strong><span>{overviewQuery.isError ? "Retry to check the latest processing state." : "Keyword retrieval remains available. Review processing for details."}</span></div><button className="ghost-button compact" onClick={() => overviewQuery.isError ? void overviewQuery.refetch() : setActiveTab("activity")} type="button">{overviewQuery.isError ? "Retry" : "Review"}</button></div> : null}
 
       <KnowledgeRefreshControl key={projectId} projectId={projectId} canManage={canManage} />
 
-      <div className="knowledge-studio-tabs" role="tablist" aria-label="Knowledge workflows">
+      <div hidden={activeTab === "build"} className="knowledge-studio-tabs" role="tablist" aria-label="Knowledge workflows">
         {([
-          ["build", "Build context", IconStack2],
-          ["search", "Search & validate", IconSearch],
-          ["sources", "Source inventory", IconFileText],
+          ["sources", "Sources", IconFileText],
+          ["search", "Search", IconSearch],
           ["collections", "Collections", IconFolders],
-          ["activity", "Processing", IconClock]
+          ["activity", "Activity", IconClock]
         ] as Array<[StudioTab, string, typeof IconStack2]>).filter(([tab]) => tab !== "build" || canManage).map(([tab, label, Icon]) => (
           <button
             aria-controls={`knowledge-panel-${tab}`}
@@ -675,43 +639,26 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
       </div>
 
       {activeTab === "build" && canManage ? (
-        <div aria-labelledby="knowledge-tab-build" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">
+        <div aria-labelledby="knowledge-add-sources-title" className="knowledge-builder" id="knowledge-panel-build" role="tabpanel">
           {!canManage ? (
             <div className="knowledge-studio-readonly" role="status"><IconInfoCircle size={18} /> You can search and use project knowledge, but your role cannot ingest or organize sources.</div>
           ) : null}
           <div className="knowledge-builder-heading">
             <div>
-              <span className="eyebrow">1 · Choose evidence</span>
-              <h3>Build a bounded context set</h3>
-              <p>Select exact application records, add durable notes or conversations, and upload source files. Nothing is indexed until processing completes.</p>
+              <h3 id="knowledge-add-sources-title">Add sources</h3>
+              <p>Choose evidence for your project assistant.</p>
             </div>
-            <span className="knowledge-selection-total">{sourceCount} source{sourceCount === 1 ? "" : "s"} selected</span>
+            <div className="knowledge-command-actions"><span className="knowledge-selection-total">{sourceCount} selected</span><button className="ghost-button compact" disabled={buildMutation.isPending} onClick={() => setActiveTab("sources")} type="button"><IconX size={16} />Close</button></div>
           </div>
 
           <div className="knowledge-builder-grid">
-            <nav className="knowledge-source-nav" aria-label="Context source types">
-              <span className="knowledge-builder-section-label">HelloTest records</span>
-              {availableRecordKinds.map(({ key, label, description, icon: Icon }) => (
-                <button className={activeRecordKind === key ? "is-active" : ""} key={key} onClick={() => setActiveRecordKind(key)} type="button">
-                  <span className="knowledge-source-icon"><Icon size={18} /></span>
-                  <span><strong>{label}</strong><small>{description}</small></span>
-                  <span className="knowledge-source-count">{selectedRecords[key].length || recordsByKind[key].length}</span>
-                  <IconChevronRight className="knowledge-source-chevron" size={16} />
-                </button>
-              ))}
-              <div className="knowledge-source-nav-divider" />
-              <div className="knowledge-source-capability">
-                <IconFile size={18} />
-                <div><strong>Files & media</strong><small>PDF, Office, text, images, audio, and video with extractable text</small></div>
-              </div>
-              <div className="knowledge-source-capability">
-                <IconMessageCircle size={18} />
-                <div><strong>Text & chats</strong><small>Paste notes, decisions, transcripts, or a safe web reference</small></div>
-              </div>
+            <nav className="knowledge-source-nav" aria-label="Choose source type">
+              {([ ["files", "Files & media", "Documents, screenshots, transcripts", IconUpload], ["notes", "Notes & conversations", "Rules, decisions or URL references", IconMessageCircle], ["records", "Project records", "Stories, cases, runs and defects", IconDatabase] ] as Array<[BuildKind, string, string, typeof IconUpload]>).filter(([kind]) => kind !== "records" || availableRecordKinds.length).map(([kind, title, description, Icon]) => <button aria-pressed={buildKind === kind} className={buildKind === kind ? "is-active" : ""} key={kind} onClick={() => setBuildKind(kind)} type="button"><span className="knowledge-source-icon"><Icon size={19} /></span><span><strong>{title}</strong><small>{description}</small></span><IconChevronRight className="knowledge-source-chevron" size={15} /></button>)}
+              {buildKind === "records" ? <div className="knowledge-record-kind-tabs">{availableRecordKinds.map(({ key, label, icon: Icon }) => <button aria-pressed={activeRecordKind === key} className={activeRecordKind === key ? "is-active" : ""} key={key} onClick={() => { setActiveRecordKind(key); setRecordSearch(""); }} type="button"><Icon size={16} />{label}{selectedRecords[key].length ? <span>{selectedRecords[key].length}</span> : null}</button>)}</div> : null}
             </nav>
 
             <div className="knowledge-source-workspace">
-              {availableRecordKinds.length ? <section className="knowledge-record-picker">
+              {buildKind === "records" && availableRecordKinds.length ? <section className="knowledge-record-picker">
                 <div className="knowledge-picker-header">
                   <div>
                     <span className="knowledge-builder-section-label">{recordKinds.find((item) => item.key === activeRecordKind)?.label}</span>
@@ -752,31 +699,34 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                       </label>
                     );
                   })}
-                  {!visibleRecords.length ? <div className="knowledge-picker-empty">No matching records in the current project scope.</div> : null}
+                  {recordQuery.isPending ? <LoadingState label="Loading project records" /> : recordQuery.isError ? <div className="knowledge-inline-error" role="alert">Could not load records.<button className="ghost-button compact" onClick={() => void recordQuery.refetch()} type="button">Retry</button></div> : !visibleRecords.length ? <div className="knowledge-picker-empty">{recordSearch ? "No records match your search." : "No records in this project scope."}</div> : null}
+                  {visibleRecords.length > 200 ? <p className="knowledge-picker-limit">Showing 200 of {visibleRecords.length} loaded records. Refine your search to find a specific record.</p> : null}
                 </div>
               </section> : null}
 
-              <section className="knowledge-paste-section">
+              {buildKind === "notes" ? <section className="knowledge-paste-section">
                 <div className="knowledge-section-title">
-                  <div><span className="knowledge-builder-section-label">Unstructured input</span><strong>Add text, conversation, or URL pointer</strong></div>
+                  <div><span className="knowledge-builder-section-label">Unstructured input</span><strong>{pasteKind === "chat" ? "Add a conversation" : pasteKind === "url" ? "Add a URL reference" : "Add a note"}</strong></div>
                   <div className="knowledge-mini-tabs" aria-label="Pasted input type" role="group">
                     {(["text", "chat", "url"] as PasteKind[]).map((kind) => <button aria-pressed={pasteKind === kind} className={pasteKind === kind ? "is-active" : ""} key={kind} onClick={() => setPasteKind(kind)} type="button">{kind === "text" ? "Text" : kind === "chat" ? "Chat" : "URL"}</button>)}
                   </div>
                 </div>
-                <input disabled={!canManage} onChange={(event) => setPasteTitle(event.target.value)} placeholder={pasteKind === "chat" ? "Conversation title" : pasteKind === "url" ? "Reference title" : "Note title"} type="text" value={pasteTitle} />
+                <input aria-label="Source title" disabled={!canManage} onChange={(event) => setPasteTitle(event.target.value)} placeholder={pasteKind === "chat" ? "Conversation title" : pasteKind === "url" ? "Reference title" : "Note title"} type="text" value={pasteTitle} />
                 <textarea
+                  aria-label={pasteKind === "chat" ? "Conversation text" : pasteKind === "url" ? "Reference URL" : "Note content"}
                   disabled={!canManage}
                   onChange={(event) => setPasteContent(event.target.value)}
                   placeholder={pasteKind === "chat" ? "Paste the relevant conversation. Remove secrets and unrelated personal information first…" : pasteKind === "url" ? "https://docs.example.com/relevant-page" : "Paste product rules, decisions, glossary terms, or other durable context…"}
                   rows={5}
                   value={pasteContent}
                 />
-                <small>{pasteContent.length.toLocaleString()} characters · URLs are stored as references only; HelloTest does not fetch remote page content. The server applies project scoping and sensitive-field redaction before indexing.</small>
-              </section>
+                <small>{pasteContent.length.toLocaleString()} characters{pasteKind === "url" ? " · Stores the reference only; page content is not fetched." : " · Include facts relevant to this project."}</small>
+                {pasteKind === "url" && pasteContent.trim() && !hasPastedInput ? <p className="knowledge-inline-error" role="alert">Enter a URL beginning with https:// or http://.</p> : null}
+              </section> : null}
 
-              <section className="knowledge-file-section">
+              {buildKind === "files" ? <section className="knowledge-file-section">
                 <div className="knowledge-section-title">
-                  <div><span className="knowledge-builder-section-label">Documents & media</span><strong>Upload files with an extraction path</strong></div>
+                  <div><span className="knowledge-builder-section-label">Documents & media</span><strong>Upload project files</strong></div>
                   <span>{files.length}/{overview?.capabilities?.max_files_per_ingestion || 20}</span>
                 </div>
                 <div
@@ -801,7 +751,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     type="file"
                   />
                 </div>
-                <p className="knowledge-file-support">Maximum {formatBytes(overview?.capabilities?.extraction?.max_file_bytes || overview?.capabilities?.max_file_bytes || 50 * 1024 * 1024)} each. A stored file is not marked searchable until text has been extracted, chunked, embedded, and indexed.</p>
+                <p className="knowledge-file-support">Maximum {formatBytes(overview?.capabilities?.extraction?.max_file_bytes || overview?.capabilities?.max_file_bytes || 50 * 1024 * 1024)} each. Images need a caption; audio and video need a transcript.</p>
                 {files.length ? (
                   <div className="knowledge-file-queue">
                     {files.map((item) => {
@@ -829,13 +779,12 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     })}
                   </div>
                 ) : null}
-              </section>
+              </section> : null}
             </div>
 
             <aside className="knowledge-build-summary">
-              <span className="knowledge-builder-section-label">2 · Process & save</span>
-              <h3>Context build</h3>
-              <p>Each source keeps its provenance and project boundary. Re-ingested material remains traceable to the processing job that created it.</p>
+              <h3>Ready to index</h3>
+              <p>Sources become searchable when processing completes.</p>
               <label>
                 <span>Build name</span>
                 <input disabled={!canManage} onChange={(event) => setBatchTitle(event.target.value)} placeholder="e.g. Checkout release context" type="text" value={batchTitle} />
@@ -862,14 +811,15 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                   <label><span>Overlap tokens</span><input max={333} min={0} onChange={(event) => setChunking((current) => ({ ...current, chunk_overlap: Number(event.target.value) }))} step={10} type="number" value={chunking.chunk_overlap} /></label>
                 </div>
               ) : null}
-              <div className="knowledge-pipeline-preview" aria-label="Context processing pipeline">
+              <details className="knowledge-pipeline-disclosure"><summary>How processing works</summary><div className="knowledge-pipeline-preview" aria-label="Context processing pipeline">
                 {[["Extract", "Parse usable text"], ["Protect", "Scope and redact"], ["Chunk", "Preserve meaning"], ["Embed", "Create vectors"], ["Index", "Enable retrieval"]].map(([label, helper], index) => (
                   <div key={label}><span>{index + 1}</span><div><strong>{label}</strong><small>{helper}</small></div>{index < 4 ? <IconArrowRight size={13} /> : null}</div>
                 ))}
-              </div>
-              <button className="primary-button knowledge-build-submit" disabled={!canManage || !sourceCount || buildMutation.isPending} onClick={() => buildMutation.mutate()} type="button">
+              </div></details>
+              {invalidChunking ? <p className="knowledge-inline-error" role="alert">Use 100–1,000 target tokens and an overlap below the target.</p> : null}
+              <button className="primary-button knowledge-build-submit" disabled={!canManage || !sourceCount || invalidChunking || buildMutation.isPending} onClick={() => buildMutation.mutate()} type="button">
                 {buildMutation.isPending ? <LoadingState label="Starting context processing" /> : <IconSparkles size={17} />}
-                {buildMutation.isPending ? "Starting processing…" : "Process context"}
+                {buildMutation.isPending ? "Starting processing…" : "Index sources"}
               </button>
               {!sourceCount ? <small className="knowledge-build-empty-note">Select at least one record, valid pasted input, or file with an extraction path.</small> : null}
             </aside>
@@ -880,24 +830,28 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
       {activeTab === "search" ? (
         <div aria-labelledby="knowledge-tab-search" className="knowledge-search-workspace" id="knowledge-panel-search" role="tabpanel">
           <div className="knowledge-search-heading">
-            <div><span className="eyebrow">Retrieval quality check</span><h3>Search what the assistant can ground</h3><p>Hybrid mode combines semantic similarity with exact-keyword matching. Inspect scores and citations before relying on a context set.</p></div>
+            <div><h3>Search your knowledge</h3><p>Find evidence the assistant can use.</p></div>
           </div>
           <form className="knowledge-search-form" onSubmit={submitSearch}>
-            <div className="knowledge-search-input"><IconSearch size={20} /><input aria-label="Search indexed project context" autoFocus placeholder="Ask a project question or search for an exact term…" onChange={(event) => setSearchQuery(event.target.value)} value={searchQuery} /><button className="primary-button" disabled={!searchQuery.trim() || searchMutation.isPending} type="submit">{searchMutation.isPending ? "Searching…" : "Search"}</button></div>
-            <div className="knowledge-search-filters">
+            <div className="knowledge-search-input"><IconSearch size={20} /><input aria-label="Search indexed project context" placeholder="Ask a project question or search for an exact term…" onChange={(event) => setSearchQuery(event.target.value)} value={searchQuery} /><button className="primary-button" disabled={!searchQuery.trim() || searchMutation.isPending} type="submit">{searchMutation.isPending ? "Searching…" : "Search"}</button></div>
+            <div className="knowledge-search-options"><button className="ghost-button compact" aria-controls="knowledge-search-filters" aria-expanded={showSearchFilters} onClick={() => setShowSearchFilters(!showSearchFilters)} type="button"><IconAdjustmentsHorizontal size={16} />Filters{searchFilterCount ? <span className="badge badge-neutral">{searchFilterCount}</span> : null}</button><span>{searchCollectionId ? collections.find((item) => item.id === searchCollectionId)?.name : "All sources"} · {humanize(searchMode)}</span>{searchFilterCount ? <button className="ghost-button compact" onClick={() => { setSearchCollectionId(""); setSearchSourceKinds([]); setSearchAsOf(""); setSearchMode("hybrid"); }} type="button">Reset</button> : null}</div>
+            {showSearchFilters ? <div className="knowledge-search-filters" id="knowledge-search-filters">
               <label><span>Retrieval</span><select onChange={(event) => setSearchMode(event.target.value as KnowledgeSearchMode)} value={searchMode}><option value="hybrid">Hybrid · recommended</option><option value="semantic">Semantic</option><option value="keyword">Exact keyword</option></select></label>
               <label><span>Collection</span><select onChange={(event) => setSearchCollectionId(event.target.value)} value={searchCollectionId}><option value="">All collections</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
               {canManage ? <label><span>Knowledge as of</span><input aria-label="Historical knowledge date; leave empty for current" onChange={(event) => setSearchAsOf(event.target.value)} type="datetime-local" value={searchAsOf} />{searchAsOf ? <button className="ghost-button compact" onClick={() => setSearchAsOf("")} type="button">Use current</button> : null}</label> : null}
               <fieldset><legend>Source types</legend>{[["requirement", "Stories"], ["test_case", "Cases"], ["execution", "Runs"], ["bug", "Defects"], ["file", "Files"], ["text", "Notes"]].map(([value, label]) => <label className={searchSourceKinds.includes(value) ? "is-active" : ""} key={value}><input checked={searchSourceKinds.includes(value)} onChange={(event) => setSearchSourceKinds((current) => event.target.checked ? [...current, value] : current.filter((kind) => kind !== value))} type="checkbox" />{label}</label>)}</fieldset>
-            </div>
+            </div> : null}
           </form>
+          {searchChanged && searchMutation.data ? <p className="knowledge-search-stale" role="status">Results for “{submittedSearch?.query}”. Search again to apply your changes.</p> : null}
+          {searchMutation.isPending ? <LoadingState label="Searching project knowledge" /> : null}
+          {searchMutation.isError ? <div className="knowledge-inline-error" role="alert">Search could not complete. Try again or use keyword search.</div> : null}
           {searchMutation.data ? (
             <div className="knowledge-search-summary">
               <span><strong>{results.length}</strong> matching passages</span>
-              <span>{searchAsOf ? `Historical · ${new Date(searchAsOf).toLocaleString()}` : "Current searchable revisions"}</span>
+              <span>{submittedSearch?.filters.as_of ? `Historical · ${new Date(submittedSearch.filters.as_of).toLocaleString()}` : "Current searchable revisions"}</span>
               <span>{searchMutation.data.retrieval?.candidate_count || results.length} candidates evaluated</span>
-              <span>{searchMutation.data.retrieval?.vector_mode || searchMode} retrieval</span>
-              {canManage && searchCollectionId && selectedSearchSources.length ? <button className="ghost-button" disabled={addSearchSourcesMutation.isPending} onClick={() => addSearchSourcesMutation.mutate()} type="button">Save {selectedSearchSources.length} source{selectedSearchSources.length === 1 ? "" : "s"} to collection</button> : null}
+              <span>{searchMutation.data.retrieval?.vector_mode || submittedSearch?.mode} retrieval</span>
+              {canManage && searchCollectionId && selectedSearchSources.length && !searchChanged ? <button className="ghost-button" disabled={addSearchSourcesMutation.isPending} onClick={() => addSearchSourcesMutation.mutate()} type="button">Save {selectedSearchSources.length} source{selectedSearchSources.length === 1 ? "" : "s"} to collection</button> : null}
             </div>
           ) : null}
           <div className="knowledge-search-results">
@@ -915,20 +869,20 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     </div>
                     <p>{result.excerpt || result.content || "No preview text returned."}</p>
                     <div className="knowledge-search-result-meta">
-                      {result.source_id ? <button className="ghost-button compact" onClick={() => { setSelectedDetailRevisionId(searchAsOf ? result.knowledge_id || result.document_id || "" : ""); setSelectedDetailSourceId(String(result.source_id)); }} type="button">Inspect source<IconChevronRight size={13} /></button> : null}
+                      {result.source_id ? <button className="ghost-button compact" onClick={() => { setSelectedDetailRevisionId(submittedSearch?.filters.as_of ? result.knowledge_id || result.document_id || "" : ""); setSelectedDetailSourceId(String(result.source_id)); }} type="button">Inspect source<IconChevronRight size={13} /></button> : null}
                       <span><IconShieldCheck size={14} /> Citable source</span>
                       {score !== null ? <span><strong>{score}%</strong> relevance</span> : null}
-                      {normalizedScore(result.semantic_score) !== null ? <span>{normalizedScore(result.semantic_score)}% semantic</span> : null}
+                      <details className="knowledge-result-signals"><summary>Match details</summary><div>{normalizedScore(result.semantic_score) !== null ? <span>{normalizedScore(result.semantic_score)}% semantic</span> : null}
                       {normalizedScore(result.lexical_score ?? result.keyword_score) !== null ? <span>{normalizedScore(result.lexical_score ?? result.keyword_score)}% lexical</span> : null}
                       {result.citation?.location?.page ? <span>Page {result.citation.location.page}</span> : result.citation?.location?.heading ? <span>{result.citation.location.heading}</span> : result.citation?.location?.chunk_index !== undefined && result.citation?.location?.chunk_index !== null ? <span>Chunk {result.citation.location.chunk_index + 1}</span> : null}
-                      <code>{result.chunk_id || result.id}</code>
+                      <code>{result.chunk_id || result.id}</code></div></details>
                     </div>
                   </div>
                 </article>
               );
             })}
-            {searchMutation.data && !results.length ? <div className="knowledge-no-results"><IconAlertTriangle size={24} /><strong>Insufficient indexed context</strong><p>No permitted source supports this query. Try a precise project term, broaden filters, or add missing evidence—do not infer an answer.</p></div> : null}
-            {!searchMutation.data && !searchMutation.isPending ? <div className="knowledge-search-placeholder"><IconSearch size={28} /><strong>Validate retrieval before using context</strong><p>Search for a fact you expect the project assistant to know, then inspect the supporting chunks and relevance signals.</p></div> : null}
+            {searchMutation.data && !results.length ? <div className="knowledge-no-results"><IconAlertTriangle size={24} /><strong>No matching evidence</strong><p>Try a specific term or broaden your filters.</p>{canManage ? <button className="ghost-button" onClick={() => setActiveTab("build")} type="button"><IconPlus size={16} />Add a source</button> : null}</div> : null}
+            {!searchMutation.data && !searchMutation.isPending ? <div className="knowledge-search-placeholder"><IconSearch size={28} /><strong>What would you like to find?</strong><p>Search a project question, product rule or exact phrase.</p><div className="knowledge-search-suggestions">{["Acceptance criteria", "Release sign-off", "Known defects"].map((query) => <button className="ghost-button compact" key={query} onClick={() => setSearchQuery(query)} type="button">{query}<IconArrowRight size={14} /></button>)}</div></div> : null}
           </div>
         </div>
       ) : null}
@@ -936,7 +890,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
       {activeTab === "sources" ? (
         <div aria-labelledby="knowledge-tab-sources" className="knowledge-sources-workspace" id="knowledge-panel-sources" role="tabpanel">
           <div className="knowledge-sources-heading">
-            <div><span className="eyebrow">Traceable source registry</span><h3>Source inventory</h3><p>See whether each item is merely stored, has usable extracted text, or is fully chunked and searchable. Files that still need a caption, transcript, or extracted text stay clearly blocked.</p></div>
+            <div><h3>Sources</h3><p>Your evidence, ready for AI.</p></div>
             <button className="ghost-button" disabled={sourcesQuery.isFetching} onClick={() => sourcesQuery.refetch()} type="button">Refresh</button>
           </div>
           <div className="knowledge-source-toolbar">
@@ -946,9 +900,17 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
               <input onChange={(event) => setSourceSearch(event.target.value)} placeholder="Search source, file, record ID, or kind" type="search" value={sourceSearch} />
               {sourceSearch ? <button aria-label="Clear source search" onClick={() => setSourceSearch("")} type="button"><IconX size={15} /></button> : null}
             </label>
-            <label><span>Status</span><select onChange={(event) => setSourceStatus(event.target.value)} value={sourceStatus}><option value="">All readiness states</option><option value="ready">Ready</option><option value="processing">Processing</option><option value="needs_extraction">Needs text</option><option value="failed">Failed</option><option value="archived">Archived</option></select></label>
+            <button aria-controls="knowledge-source-filter-panel" aria-expanded={showSourceFilters} aria-label="Source filters" className="ghost-button compact" onClick={() => setShowSourceFilters(!showSourceFilters)} type="button"><IconAdjustmentsHorizontal size={16} />Filters{sourceFilterCount ? <span className="badge badge-neutral">{sourceFilterCount}</span> : null}</button>
+            <label><span className="sr-only">Sort</span><select aria-label="Source sort order" onChange={(event) => setSourceSort(event.target.value)} value={sourceSort}><option value="updated">Recently updated</option><option value="title">Name A–Z</option></select></label>
             <span>{visibleSources.length} source{visibleSources.length === 1 ? "" : "s"}</span>
           </div>
+          {showSourceFilters ? <div className="knowledge-source-filter-panel" id="knowledge-source-filter-panel" role="group" aria-label="Source filter options">
+            <label><span>Status</span><select aria-label="Source status" onChange={(event) => setSourceStatus(event.target.value)} value={sourceStatus}><option value="">Current sources</option><option value="attention">Needs attention</option><option value="ready">Ready</option><option value="processing">Processing</option><option value="needs_extraction">Needs text</option><option value="failed">Failed</option><option value="archived">Archived</option></select></label>
+            <label><span>Collection</span><select aria-label="Source collection" onChange={(event) => setSourceCollectionId(event.target.value)} value={sourceCollectionId}><option value="">All collections</option>{collections.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            {sourceFilterCount ? <button className="ghost-button compact" onClick={() => { setSourceSearch(""); setSourceStatus(""); setSourceCollectionId(""); }} type="button">Reset</button> : null}
+          </div> : null}
+          {sourcesQuery.isPending ? <LoadingState label="Loading knowledge sources" /> : null}
+          {sourcesQuery.isError ? <div className="knowledge-inline-error" role="alert">Sources could not be loaded.<button className="ghost-button compact" onClick={() => void sourcesQuery.refetch()} type="button">Retry</button></div> : null}
           <div className="knowledge-source-inventory">
             {visibleSources.map((source) => {
               const indexed = source.extraction_status === "ready" && Number(source.chunk_count || 0) > 0;
@@ -960,7 +922,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 <article className={`knowledge-source-inventory-row is-${source.extraction_status}`} key={source.id}>
                   <div className="knowledge-inventory-kind"><IconFileText size={19} /></div>
                   <div className="knowledge-inventory-copy">
-                    <div><span className="badge badge-neutral">{humanize(formatRecordKindLabel(source.source_kind))}</span><button className="knowledge-source-title-button" onClick={() => setSelectedDetailSourceId(source.id)} type="button">{source.title}</button></div>
+                    <div><span className="badge badge-neutral">{humanize(formatRecordKindLabel(source.source_kind))}</span><button className="knowledge-source-title-button" onClick={() => { setSelectedDetailRevisionId(""); setSelectedDetailSourceId(source.id); }} type="button">{source.title}</button></div>
                     <small>{source.file_name || source.source_ref_id || source.id}{source.mime_type ? ` · ${source.mime_type}` : ""}{source.size_bytes ? ` · ${formatBytes(source.size_bytes)}` : ""}</small>
                     {collectionNames.length ? <span className="knowledge-inventory-collections">{collectionNames.map((name) => <i key={name}>{name}</i>)}</span> : null}
                   </div>
@@ -968,7 +930,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                     <span className={`is-${indexed ? "indexed" : extracted ? "extracted" : needsText ? "action" : source.extraction_status === "failed" ? "failed" : "stored"}`}><i /> {readiness}</span>
                     <small>{source.document_count || 0} document{source.document_count === 1 ? "" : "s"} · {source.chunk_count || 0} chunk{source.chunk_count === 1 ? "" : "s"}</small>
                   </div>
-                  <button className="ghost-button compact knowledge-source-inspect" onClick={() => setSelectedDetailSourceId(source.id)} type="button">Details<IconChevronRight size={14} /></button>
+                  <button className="ghost-button compact knowledge-source-inspect" onClick={() => { setSelectedDetailRevisionId(""); setSelectedDetailSourceId(source.id); }} type="button">Details<IconChevronRight size={14} /></button>
                   {canManage && source.extraction_status !== "archived" ? <button
                     aria-label={armedSourceDeleteId === source.id ? `Confirm archive of ${source.title}` : `Archive ${source.title}`}
                     className={`knowledge-source-remove${armedSourceDeleteId === source.id ? " is-armed" : ""}`}
@@ -983,36 +945,29 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 </article>
               );
             })}
-            {!visibleSources.length && !sourcesQuery.isPending ? <div className="knowledge-source-inventory-empty"><IconFileText size={28} /><strong>No matching sources</strong><p>Build context from project records, text, or supported files to populate this registry.</p></div> : null}
+            {!visibleSources.length && !sourcesQuery.isPending && !sourcesQuery.isError ? <div className="knowledge-source-inventory-empty"><IconFileText size={28} /><strong>{sourceFilterCount ? "No matching sources" : "Give your assistant project context"}</strong><p>{sourceFilterCount ? "Try another search or reset your filters." : "Add documents, notes or project records to get started."}</p>{sourceFilterCount ? <button className="ghost-button" onClick={() => { setSourceSearch(""); setSourceStatus(""); setSourceCollectionId(""); }} type="button">Reset filters</button> : canManage ? <button className="primary-button" onClick={() => setActiveTab("build")} type="button"><IconPlus size={16} />Add sources</button> : null}</div> : null}
           </div>
         </div>
       ) : null}
 
       {activeTab === "collections" ? (
         <div aria-labelledby="knowledge-tab-collections" className="knowledge-collections-workspace" id="knowledge-panel-collections" role="tabpanel">
-          <div className="knowledge-collections-heading"><div><span className="eyebrow">Reusable retrieval scopes</span><h3>Context collections</h3><p>Group related sources without duplicating their underlying indexed content. Collections make prompts and assistant retrieval intentionally narrow.</p></div></div>
+          <div className="knowledge-collections-heading"><div><h3>Collections</h3><p>Keep related sources together.</p></div>{canManage ? <button className="ghost-button" onClick={() => setCollectionDialogId("new")} type="button"><IconPlus size={16} />New collection</button> : null}</div>
+          {collectionsQuery.isPending ? <LoadingState label="Loading collections" /> : null}
+          {collectionsQuery.isError ? <div className="knowledge-inline-error" role="alert">Collections could not be loaded.<button className="ghost-button compact" onClick={() => void collectionsQuery.refetch()} type="button">Retry</button></div> : null}
           <div className="knowledge-collections-grid">
-            {canManage ? (
-              <form className="knowledge-new-collection" onSubmit={(event) => { event.preventDefault(); if (newCollectionName.trim()) createCollectionMutation.mutate(); }}>
-                <span className="knowledge-new-collection-icon"><IconFolders size={22} /></span>
-                <div><span className="knowledge-builder-section-label">New collection</span><h4>Create a focused context scope</h4></div>
-                <label><span>Name</span><input maxLength={120} onChange={(event) => setNewCollectionName(event.target.value)} placeholder="e.g. Payments release 2026" required value={newCollectionName} /></label>
-                <label><span>Description</span><textarea onChange={(event) => setNewCollectionDescription(event.target.value)} placeholder="What belongs in this collection and how should it be used?" rows={3} value={newCollectionDescription} /></label>
-                <label className="knowledge-color-field"><span>Color</span><input aria-label="Collection color" onChange={(event) => setNewCollectionColor(event.target.value)} type="color" value={newCollectionColor} /><code>{newCollectionColor}</code></label>
-                <button className="primary-button" disabled={!newCollectionName.trim() || createCollectionMutation.isPending} type="submit">Create collection</button>
-              </form>
-            ) : null}
             <div className="knowledge-collection-list">
               {collections.map((collection: KnowledgeCollection) => (
                 <article className="knowledge-collection-card" key={collection.id}>
-                  <span className="knowledge-collection-accent" style={{ backgroundColor: collection.color || "#4f46e5" }} />
-                  <div className="knowledge-collection-card-head"><div><span className="badge badge-neutral">{collection.status || (collection.is_active === false ? "inactive" : "active")}</span><h4>{collection.name}</h4></div>{canManage ? <button aria-label={`Delete ${collection.name}`} className={armedCollectionDeleteId === collection.id ? "is-armed" : ""} disabled={deleteCollectionMutation.isPending} onClick={() => { if (armedCollectionDeleteId === collection.id) deleteCollectionMutation.mutate(collection.id); else setArmedCollectionDeleteId(collection.id); }} title={armedCollectionDeleteId === collection.id ? "Click again to delete collection" : "Delete collection"} type="button"><IconTrash size={16} /></button> : null}</div>
-                  <p>{collection.description || "No collection purpose has been documented."}</p>
+                  <span className="knowledge-collection-accent" style={{ backgroundColor: collection.color || "#0d9488" }} />
+                  <div className="knowledge-collection-card-head"><div><span className="badge badge-neutral">{collection.status || (collection.is_active === false ? "inactive" : "active")}</span><h4>{collection.name}</h4></div>{canManage ? <button aria-label={`Delete ${collection.name}`} className={armedCollectionDeleteId === collection.id ? "is-armed" : ""} disabled={deleteCollectionMutation.isPending} onBlur={() => { if (armedCollectionDeleteId === collection.id) setArmedCollectionDeleteId(""); }} onClick={() => { if (armedCollectionDeleteId === collection.id) deleteCollectionMutation.mutate(collection.id); else setArmedCollectionDeleteId(collection.id); }} title={armedCollectionDeleteId === collection.id ? "Click again to delete collection" : "Delete collection"} type="button"><IconTrash size={16} /></button> : null}</div>
+                  {collection.description ? <p>{collection.description}</p> : null}
                   <div className="knowledge-collection-metrics"><span><strong>{collection.source_count || 0}</strong> sources</span><span><strong>{collection.document_count || 0}</strong> documents</span><span><strong>{collection.chunk_count || 0}</strong> chunks</span></div>
+                  {canManage ? <button className="ghost-button compact" onClick={() => setCollectionDialogId(collection.id)} type="button">Manage sources</button> : null}
                   <button className="ghost-button" onClick={() => { setSearchCollectionId(collection.id); setActiveTab("search"); }} type="button">Search collection <IconArrowRight size={15} /></button>
                 </article>
               ))}
-              {!collections.length && !collectionsQuery.isPending ? <div className="knowledge-collection-empty"><IconFolders size={28} /><strong>No context collections yet</strong><p>Create one to save a reusable, intentionally bounded retrieval scope.</p></div> : null}
+              {!collections.length && !collectionsQuery.isPending && !collectionsQuery.isError ? <div className="knowledge-collection-empty"><IconFolders size={28} /><strong>Keep related context together</strong><p>Create a collection for a feature, release or workflow.</p>{canManage ? <button className="ghost-button" onClick={() => setCollectionDialogId("new")} type="button">New collection</button> : null}</div> : null}
             </div>
           </div>
         </div>
@@ -1020,7 +975,9 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
 
       {activeTab === "activity" ? (
         <div aria-labelledby="knowledge-tab-activity" className="knowledge-activity-workspace" id="knowledge-panel-activity" role="tabpanel">
-          <div className="knowledge-activity-heading"><div><span className="eyebrow">Observable ingestion</span><h3>Processing activity</h3><p>Track each source through extraction, protection, chunking, embedding, and indexing. Failed or incomplete media is never presented as retrieval-ready.</p></div><button className="ghost-button" disabled={overviewQuery.isFetching} onClick={() => overviewQuery.refetch()} type="button">Refresh</button></div>
+          <div className="knowledge-activity-heading"><div><h3>Activity</h3><p>Track indexing and retry interrupted sources.</p></div><button className="ghost-button" disabled={overviewQuery.isFetching} onClick={() => overviewQuery.refetch()} type="button">Refresh</button></div>
+          {overviewQuery.isPending ? <LoadingState label="Loading processing activity" /> : null}
+          {overviewQuery.isError ? <div className="knowledge-inline-error" role="alert">Activity could not be loaded.<button className="ghost-button compact" onClick={() => void overviewQuery.refetch()} type="button">Retry</button></div> : null}
           <div className="knowledge-activity-list">
             {processingJobs.map((job) => {
               const status = String(job.status || job.stage || "queued");
@@ -1055,7 +1012,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
                 </article>
               );
             })}
-            {!processingJobs.length && !overviewQuery.isPending ? <div className="knowledge-activity-empty"><IconClock size={27} /><strong>No recent processing jobs</strong><p>New context builds appear here with extraction and indexing status.</p></div> : null}
+            {!processingJobs.length && !overviewQuery.isPending && !overviewQuery.isError ? <div className="knowledge-activity-empty"><IconClock size={27} /><strong>No recent processing jobs</strong><p>New context builds appear here with extraction and indexing status.</p></div> : null}
           </div>
           <div className="knowledge-processing-legend">
             <strong>Readiness states</strong>
@@ -1066,6 +1023,7 @@ export function KnowledgeContextStudio({ appTypeId, canManage, onError, onSucces
           </div>
         </div>
       ) : null}
+      {collectionDialogId && canManage ? <KnowledgeCollectionDialog appTypeId={appTypeId} collectionId={collectionDialogId} onClose={() => setCollectionDialogId(null)} onSaved={() => { void queryClient.invalidateQueries({ queryKey: ["knowledge-collections", projectId] }); void queryClient.invalidateQueries({ queryKey: ["knowledge-sources", projectId] }); }} projectId={projectId} sources={allSources} /> : null}
       {selectedDetailSourceId ? <KnowledgeSourceDetail canManage={canManage} initialRevisionId={selectedDetailRevisionId} key={`${selectedDetailSourceId}:${selectedDetailRevisionId}`} onChanged={() => { void sourcesQuery.refetch(); void overviewQuery.refetch(); }} onClose={() => { setSelectedDetailSourceId(""); setSelectedDetailRevisionId(""); }} projectId={projectId} sourceId={selectedDetailSourceId} /> : null}
     </section>
   );

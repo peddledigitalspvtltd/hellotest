@@ -2,6 +2,14 @@
   min-width: 0;
 }
 
+.ai-context-pack-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; color: var(--app-text, #172433); background: var(--app-accent-soft, #edf6f5); border: 1px solid var(--app-border, #dce5e4); border-radius: 10px; font-size: 12px; }
+.ai-context-pack-summary > span { flex: 1 0 100%; font-weight: 600; }
+.ai-context-pack-summary summary { color: var(--app-accent, #18786d); cursor: pointer; }
+.ai-context-pack-summary details[open] { order: 3; flex-basis: 100%; }
+.ai-context-pack-summary pre { max-height: 200px; overflow: auto; margin: 10px 0 0; padding: 12px; color: var(--app-text, #172433); background: var(--app-surface, #fff); border-radius: 8px; font: 12px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-context-pack-summary > button { padding: 4px 6px; color: var(--app-text-muted, #64737e); background: transparent; border: 0; cursor: pointer; font-size: 11px; }
+.ai-context-budget { justify-self: end; color: var(--app-text-muted, #64737e); font-size: 10px; font-variant-numeric: tabular-nums; }
+
 .ai-prompt-context-panel .ai-prompt-context-head {
   display: flex;
   min-height: 34px;

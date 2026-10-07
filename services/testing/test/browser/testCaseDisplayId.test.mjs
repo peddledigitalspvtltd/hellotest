@@ -23,7 +23,7 @@ import '/src/dark-theme.css';
 import '/src/modal-system.css';
 import '/src/workspace-layout.css';
 import '/src/catalog-list.css';
-import '/src/execution-run-builder.css';
+import '/src/execution-run-builder.css';import '/src/product-experience.css';
 const session={token:'test-case-catalog-browser',user:{id:'reviewer',name:'QA Reviewer',email:'reviewer@example.test',role:'admin'}};
 sessionStorage.write(session);setCurrentScope('case-project','case-app');
 localStorage.setItem('hellotest.default_catalog_view_mode','tile');

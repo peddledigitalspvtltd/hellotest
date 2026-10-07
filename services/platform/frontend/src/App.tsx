@@ -11,7 +11,6 @@ import { Suspense, lazy, useEffect, useRef } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AppErrorState } from "./platform/components/AppErrorBoundary";
-import { AppShell } from "./platform/components/AppShell";
 import { WorkspacePageSkeleton } from "./platform/components/WorkspacePageSkeleton";
 import { LocalizationProvider, useLocalization } from "./context/LocalizationContext";
 import {
@@ -28,15 +27,18 @@ import { createAppQueryClient } from "./platform/lib/appQueryClient";
 
 const queryClient = createAppQueryClient();
 
+// Sign-in should not download workspace chrome and assistant code before it is
+// needed. Authenticated destinations keep the existing route-level splitting.
+const AppShell = lazy(() => import("./platform/components/AppShell").then((module) => ({ default: module.AppShell })));
 const AuthPage = lazy(() => import("@hellotest/platform/frontend/pages/AuthPage").then((module) => ({ default: module.AuthPage })));
 
 const PAGE_TITLES: Record<string, { key?: string; fallback: string }> = {
   [WORKSPACE_ROUTES.home]: { key: "page.overview", fallback: "Overview" },
   "/people": { key: "page.people", fallback: "People" },
   "/admin-space": { key: "page.adminSpace", fallback: "Admin Space" },
-  "/projects": { key: "page.projects", fallback: "Projects" },
+  "/projects": { key: "page.projects", fallback: "Project Overview" },
   "/integrations": { key: "page.integrations", fallback: "Integrations" },
-  "/design": { key: "page.design", fallback: "Test Design" },
+  "/design": { key: "page.design", fallback: "Test Plan" },
   "/requirements": { key: "page.requirements", fallback: "Backlog" },
   "/backlog": { fallback: "Backlog" },
   "/sprints": { fallback: "Sprints" },

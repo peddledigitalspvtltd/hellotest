@@ -37,6 +37,7 @@ type AiCaseAuthoringModalProps = {
   onGenerate: (authoringMode: AuthoringMode) => void;
   onApply: () => void;
   onClose: () => void;
+  onCancel?: () => void;
   onPreviewChange?: (preview: AiAuthoredTestCasePreview | null) => void;
   onPreviewMessageDismiss: () => void;
   isPreviewing: boolean;
@@ -93,7 +94,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     sourceDraft, preview, previewMessage, previewTone, onRequirementChange, onIntegrationIdChange,
     onAdditionalContextChange, onExternalLinksTextChange, onAddImages, onRemoveImage, onGenerate, onApply, onClose,
     onPreviewChange, onPreviewMessageDismiss, isPreviewing, isApplying, closeDisabled, disableGenerate, disableApply,
-    applyLabel, hasAutomationWarning, isCreating, appTypeName = "Current application", promptTemplateProjectId, promptTemplateAppTypeId
+    applyLabel, hasAutomationWarning, isCreating, appTypeName = "Current application", promptTemplateProjectId, promptTemplateAppTypeId, onCancel
   } = props;
   const selectedRequirement = requirements.find((requirement) => requirement.id === requirementId) || null;
   const previewCases = useMemo(() => preview ? [toCandidate(preview, selectedRequirement)] : [], [preview, selectedRequirement]);
@@ -136,6 +137,7 @@ export function AiCaseAuthoringModal(props: AiCaseAuthoringModalProps) {
     onAdditionalContextChange={onAdditionalContextChange}
     onAuthoringModeChange={() => onPreviewChange?.(null)}
     onClose={onClose}
+    onCancel={onCancel}
     onExternalLinksTextChange={onExternalLinksTextChange}
     onIntegrationIdChange={onIntegrationIdChange}
     onMaxCasesChange={() => undefined}

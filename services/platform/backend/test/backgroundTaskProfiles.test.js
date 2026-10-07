@@ -11,7 +11,7 @@ const expected = {
   manual: [],
   knowledge: ['knowledgeRag'], chatbot: [],
   automation: ['aiAutomationBuilder'],
-  agentic: ['repositoryAgents'],
+  agentic: ['repositoryAgents', 'qualityAgents'],
   dashboard: [], ai: ['aiTestCaseGeneration', 'requirementWorkspace', 'qualityGraphChanges'], trace: [], integration: ['projectSync']
 };
 

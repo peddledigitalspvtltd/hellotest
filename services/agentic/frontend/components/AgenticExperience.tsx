@@ -1,14 +1,15 @@
+import { AiProposalCompare } from "@hellotest/ai/frontend/components/AiProposalCompare";
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
 import specialistProfiles from "../../shared/workflowSpecialists.json";
 import { useAiLlmAutoSelection, useAiLlmDefault } from "@hellotest/integration/frontend/hooks/useAiLlmDefault";
 import { smartContextKindsForScopes } from "@hellotest/ai/frontend/lib/smartContext";
 import { formatRecordKindLabel } from "@hellotest/testing/frontend/lib/defectTerminology";
-import { LoadingState } from "@hellotest/platform/frontend/src/shared/components/LoadingState";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   IconActivity,
+  IconAdjustmentsHorizontal,
   IconArrowRight,
   IconBrain,
   IconCheck,
@@ -20,6 +21,7 @@ import {
   IconDownload,
   IconFileSearch,
   IconMessageCircle,
+  IconLoader2,
   IconPlayerPlay,
   IconPlus,
   IconRobot,
@@ -230,6 +232,14 @@ export function AgenticCommandComposer({
   const selectIntegration = useAiLlmAutoSelection({ integrations, value: integrationId, onChange: onIntegrationChange, defaultIntegrationId, scopeKey: projectId, disabled: disabled || running });
   const selectedAgent = agents.find((agent) => agent.id === agentId) || agents[0];
   const contextDetailsRef = useRef<HTMLDetailsElement>(null);
+  const optionsDetailsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const closeMenus = (event: PointerEvent) => {
+      for (const element of [contextDetailsRef.current, optionsDetailsRef.current]) if (element?.open && !element.contains(event.target as Node)) element.open = false;
+    };
+    document.addEventListener("pointerdown", closeMenus);
+    return () => document.removeEventListener("pointerdown", closeMenus);
+  }, []);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!disabled && !running && prompt.trim()) onSubmit();
@@ -249,8 +259,9 @@ export function AgenticCommandComposer({
           <strong>{selectedAgent?.name || "HelloTest Agent"}</strong>
           <small>{mode === "chat" ? "Focused question" : "Structured evidence review"}</small>
         </div>
-        <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Governed</span>
+        <span className="agent-command-composer__governed"><IconShieldCheck size={15} stroke={1.9} />Review before apply</span>
       </div>
+      {contextScopes.length ? <div className="agent-command-attached-context" aria-label="Included context sources">{contextScopes.map(scope => <button aria-label={`Remove ${AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope} context`} disabled={disabled || running} key={scope} onClick={() => toggleScope(scope)} type="button"><IconDatabase size={12} aria-hidden="true" />{AGENT_CONTEXT_OPTIONS.find(option => option.id === scope)?.label || scope}<span aria-hidden="true">×</span></button>)}</div> : null}
       <textarea
         aria-label="Ask or delegate to HelloTest AI"
         disabled={disabled || running}
@@ -261,7 +272,7 @@ export function AgenticCommandComposer({
             if (!disabled && !running && prompt.trim()) onSubmit();
           }
         }}
-        placeholder="Describe the decision, scope and constraints. Include the evidence you want the specialist to examine."
+        placeholder="What outcome do you want? Add the constraints that matter."
         rows={4}
         value={prompt}
       />
@@ -275,13 +286,6 @@ export function AgenticCommandComposer({
               <IconRobot size={16} stroke={1.9} />Review brief
             </button>
           </div>
-          <label className="agent-command-select">
-            <IconSparkles aria-hidden="true" size={16} stroke={1.9} />
-            <select aria-label="Specialist agent" disabled={disabled || running} onChange={(event) => onAgentChange(event.target.value)} value={agentId}>
-              {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.shortName}</option>)}
-            </select>
-            <IconChevronDown aria-hidden="true" size={14} stroke={1.9} />
-          </label>
           <details className="agent-command-context" ref={contextDetailsRef}>
             <summary>
               <IconDatabase size={16} stroke={1.9} />
@@ -302,7 +306,6 @@ export function AgenticCommandComposer({
               }} type="button">Use all context</button>
             </div>
           </details>
-          <button aria-label="Add context" className="agent-command-add" onClick={() => contextDetailsRef.current?.setAttribute("open", "")} title="Add workspace context" type="button"><IconPlus size={18} stroke={1.9} /></button>
           {onSmartContextChange ? (
             <SmartContextWorkbench
               appTypeId={appTypeId}
@@ -317,6 +320,16 @@ export function AgenticCommandComposer({
           ) : null}
         </div>
         <div className="agent-command-composer__submit-group">
+          <details className="agent-command-options" ref={optionsDetailsRef} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); optionsDetailsRef.current?.removeAttribute("open"); optionsDetailsRef.current?.querySelector<HTMLElement>("summary")?.focus(); } }}>
+            <summary><IconAdjustmentsHorizontal size={16} aria-hidden="true" /><span>Options</span></summary>
+            <div className="agent-command-options__menu"><strong>Specialist & model</strong>
+          <label className="agent-command-select">
+            <IconSparkles aria-hidden="true" size={16} stroke={1.9} />
+            <select aria-label="Specialist agent" disabled={disabled || running} onChange={(event) => onAgentChange(event.target.value)} value={agentId}>
+              {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.shortName}</option>)}
+            </select>
+            <IconChevronDown aria-hidden="true" size={14} stroke={1.9} />
+          </label>
           {onIntegrationChange ? (
             <label className="agent-command-provider">
               <span className="sr-only">AI provider</span>
@@ -330,9 +343,13 @@ export function AgenticCommandComposer({
               <IconChevronDown size={14} stroke={1.9} />
             </label>
           ) : <span className="agent-command-auto"><IconRobot size={15} stroke={1.9} />Auto</span>}
+
+              <small>Applied to the next request.</small>
+            </div>
+          </details>
           <span className="agent-command-divider" aria-hidden="true" />
           <button aria-label={running ? "Review in progress" : mode === "chat" ? "Ask specialist" : "Start review"} className="agent-command-send" disabled={disabled || running || !prompt.trim()} type="submit">
-            {running ? <LoadingState label="Processing your request" /> : <IconSend size={19} stroke={1.9} />}
+            {running ? <IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={18} /> : <IconSend size={19} stroke={1.9} />}
             <span>{running ? "Reviewing…" : mode === "chat" ? "Ask specialist" : "Start review"}</span>
           </button>
         </div>
@@ -556,7 +573,7 @@ export function AiFeatureComposer({
             onClick={embedded ? () => onSubmit() : undefined}
             type={embedded ? "button" : "submit"}
           >
-            {running ? <LoadingState label="Processing your request" /> : <IconSend size={18} stroke={1.9} />}
+            {running ? <IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={18} /> : <IconSend size={18} stroke={1.9} />}
             <span aria-live="polite">{running ? "Working" : effectiveSubmitLabel}</span>
           </button>
         </div>
@@ -787,7 +804,7 @@ export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Age
         <span><IconActivity size={16} stroke={1.9} /><strong>{orientation === "vertical" ? profileDefinition.heading : agentName}</strong></span>
         <em>{orientation === "vertical" ? `${agentName} · ` : ""}{processing?.status_label || (status === "running" ? "Request in progress" : status === "completed" ? "Ready for review" : status === "failed" ? "Needs attention" : "Run plan")}</em>
       </div>
-      {isIndeterminate ? <LoadingState label="Processing request" /> : (
+      {isIndeterminate ? <p aria-live="polite" className="agent-process-rail__waiting" role="status"><IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={16} />Waiting for reported stages</p> : (
         <div
           aria-label={`${completeCount} of ${totalCount} workflow phases complete`}
           className="agent-process-rail__progress"
@@ -818,7 +835,7 @@ export function AgenticProcessRail({ status = "idle", agentName = "HelloTest Age
               }}
               type="button"
             >
-              {stageStatus === "running" ? <LoadingState label={stage.label} /> : <span>{stageStatus === "complete" ? <IconCheck size={14} stroke={2.2} /> : <IconCircle size={11} stroke={2} />}</span>}
+              {stageStatus === "running" ? <span><IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={14} /></span> : <span>{stageStatus === "complete" ? <IconCheck size={14} stroke={2.2} /> : <IconCircle size={11} stroke={2} />}</span>}
               <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
             </button>
           );
@@ -920,7 +937,7 @@ export function AgentActivityTimeline({ events = [], running = false, activeAgen
           const details = toDetailsList(item.details);
           return (
             <article className="agent-activity-event" data-status={item.status} key={item.id}>
-              {item.status === "running" ? <LoadingState label={item.message} /> : <span className="agent-activity-event__marker">{item.status === "complete" ? <IconCheck size={14} stroke={2.2} /> : item.status === "failed" ? <IconCircle size={12} /> : <IconClock size={13} stroke={1.9} />}</span>}
+              {item.status === "running" ? <span className="agent-activity-event__marker"><IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={14} /></span> : <span className="agent-activity-event__marker">{item.status === "complete" ? <IconCheck size={14} stroke={2.2} /> : item.status === "failed" ? <IconCircle size={12} /> : <IconClock size={13} stroke={1.9} />}</span>}
               <div>
                 <header><strong>{phaseLabels[item.phase] || item.phase.replace(/_/g, " ")}</strong>{item.createdAt ? <time>{formatActivityTime(item.createdAt)}</time> : null}</header>
                 <p>{item.message}</p>
@@ -996,6 +1013,9 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const [editing, setEditing] = useState(false);
   const [exportNotice, setExportNotice] = useState("");
   const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("summary");
+  const [comparing, setComparing] = useState(false);
+  const surfaceId = useId();
   const groundedCitations = result.citation_ids?.length
     ? citations.filter((citation) => result.citation_ids?.includes(citation.id))
     : [];
@@ -1010,6 +1030,8 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
     setSelectedRecommendationIndexes(result.recommendations.map((_, index) => index));
     setAccepted(false);
     setEditing(false);
+    setActiveSection("summary");
+    setComparing(false);
     setExportNotice("");
   }, [result]);
 
@@ -1040,26 +1062,28 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <div><span>Agent outcome · {contextRouteLabel}</span><strong>{result.headline || "Ready for human review"}</strong></div>
         <span className="agent-brief-readiness" data-readiness={readiness || "unverified"}>{readiness === "ready_for_review" ? "Ready for review" : readiness === "limited_evidence" ? "Limited evidence" : readiness === "insufficient_evidence" ? "More evidence needed" : "Review required"}</span>
       </header>
-      <div className="agent-brief-tools">
-        <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"} · {groundedCitations.length} cited sources</span>
-        <button className="ghost-button compact" type="button" aria-pressed={editing} onClick={() => setEditing(value => !value)}>{editing ? "Finish editing" : "Edit brief"}</button>
-        <button className="ghost-button compact" type="button" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={15} aria-hidden="true" />Copy</button>
-        <button className="ghost-button compact" type="button" onClick={() => { const blob = new Blob([briefText()], { type: "text/markdown;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={15} aria-hidden="true" />Download brief</button>
-      </div>
+      <nav className="agent-artifact-navigation" aria-label="Output sections" role="tablist">{[
+        { id: "summary", label: "Overview", count: undefined },
+        ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
+        ...(deliverables.length ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length }] : []),
+        { id: "details", label: "Full brief", count: undefined },
+        ...(draftRecommendations.length ? [{ id: "actions", label: "Next actions", count: draftRecommendations.length }] : [])
+      ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
+        const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
+        if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
+      }} role="tab" tabIndex={activeSection === section.id ? 0 : -1} type="button">{section.label}{typeof section.count === "number" ? <span>{section.count}</span> : null}</button>)}</nav>
+
       {result.model_execution?.trace_id && <a className="ghost-button compact" href={`/ops-telemetry?monitoring=ai&llm_trace=${encodeURIComponent(result.model_execution.trace_id)}`}>View model call</a>}
       {result.automation_repair&&<AutomationRepairReview summary={result.automation_repair}/>}
       {result.quality_assessment && <QualityEvidencePanel key={result.quality_assessment.snapshot_hash} report={result.quality_assessment} />}
       {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
       {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
       {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
-      {result.executive_summary ? (
-        <section className="agent-outcome-executive-summary">
-          <span>Decision summary</span>
-          <p>{result.executive_summary}</p>
-        </section>
-      ) : null}
+      <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary" && !editing} id={`${surfaceId}-summary`} role="tabpanel">
+        <span>Decision summary</span><p>{result.executive_summary || draftResponse}</p>
+      </section>
       {findings.length ? (
-        <section className="agent-outcome-findings" aria-label="Agent findings">
+        <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings" && !editing} id={`${surfaceId}-findings`} role="tabpanel">
           <header><span>Evidence-backed findings</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
           <div>{findings.map((finding, index) => (
             <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
@@ -1071,7 +1095,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         </section>
       ) : null}
       {deliverables.length ? (
-        <section className="agent-outcome-deliverables" aria-label="Specialist deliverables">
+        <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" aria-label="Specialist deliverables" hidden={activeSection !== "deliverables" && !editing} id={`${surfaceId}-deliverables`} role="tabpanel">
           <header><span>Specialist deliverables</span><strong>Use as a reviewable starting point</strong></header>
           <div>{deliverables.map((deliverable, index) => (
             <article key={`${deliverable.title}:${index}`}>
@@ -1082,9 +1106,9 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           ))}</div>
         </section>
       ) : null}
-      <div className="agent-outcome-response-editor">
-        <label htmlFor={editing ? "agent-outcome-response" : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
-        {editing ? <textarea id="agent-outcome-response" onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div className="agent-brief-body">{draftResponse}</div>}
+      <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details" && !editing} id={`${surfaceId}-details`} role="tabpanel">
+        <label htmlFor={editing ? `${surfaceId}-response` : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
+        {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div className="agent-brief-body">{draftResponse}</div>}
       </div>
       <details className="agent-brief-diagnostics"><summary>{result.evaluation.label || "Evidence review diagnostics"}</summary><p>These diagnostics describe the review and its available evidence. They do not measure execution success or release readiness.</p><div className="agent-outcome-scores">
         {metrics.map(([key, label]) => (
@@ -1094,14 +1118,14 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       <p className="agent-outcome-rationale"><IconShieldCheck size={17} stroke={1.9} />{result.evaluation.rationale}</p>
       </details>
       {draftRecommendations.length ? (
-        <div className="agent-outcome-section agent-outcome-recommendation-review">
+        <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions" && !editing} id={`${surfaceId}-actions`} role="tabpanel">
           <strong>Recommended next actions</strong>
           {editing ? <div>{draftRecommendations.map((item, index) => (
             <label data-selected={selectedRecommendationIndexes.includes(index) || undefined} key={`${index}:${result.recommendations[index]}`}>
               <input checked={selectedRecommendationIndexes.includes(index)} onChange={(event) => { setSelectedRecommendationIndexes((current) => event.target.checked ? [...new Set([...current, index])] : current.filter((itemIndex) => itemIndex !== index)); setAccepted(false); }} type="checkbox" />
               <textarea aria-label={`Edit next action ${index + 1}`} onChange={(event) => { setDraftRecommendations((current) => current.map((recommendation, itemIndex) => itemIndex === index ? event.target.value : recommendation)); setAccepted(false); }} rows={2} value={item} />
             </label>
-          ))}</div> : <ol className="agent-brief-next-actions">{selectedRecommendationIndexes.map(index => <li key={index}>{draftRecommendations[index]}</li>)}</ol>}
+          ))}</div> : <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); setAccepted(false); }} type="checkbox" /><span>{item}</span></label>)}</div>}
         </div>
       ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
@@ -1112,6 +1136,14 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         <span><IconRoute size={16} stroke={1.9} /><strong>{contextRouteLabel}</strong> route</span>
         <AiEvidenceButton label="View outcome evidence" onClick={() => setIsEvidenceOpen(true)} />
       </div>
+      <div className="agent-outcome-action-dock">
+      <div className="agent-brief-tools">
+        <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"} · {groundedCitations.length} cited sources</span>
+        <button className="ghost-button compact" type="button" aria-pressed={editing} onClick={() => { setEditing(value => !value); setActiveSection("details"); }}>{editing ? "Finish editing" : "Edit brief"}</button>
+        <button className="ghost-button compact" type="button" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={15} aria-hidden="true" />Copy</button>
+        <button className="ghost-button compact" type="button" onClick={() => { const blob = new Blob([briefText()], { type: "text/markdown;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={15} aria-hidden="true" />Download brief</button>
+      </div>
+      {editing ? <button aria-pressed={comparing} className="ghost-button compact" onClick={() => setComparing(value => !value)} type="button">{comparing ? "Hide comparison" : "Compare edits"}</button> : null}
       <footer className="agent-outcome-review-actions">
         <span>{onAccept ? accepted ? "Reviewed proposal accepted." : "Review the edited selection before accepting." : "Edits apply to your copied or downloaded brief. Use the destination workspace to save application changes."}</span>
         <button className="ghost-button" disabled={draftResponse === result.response && draftRecommendations.every((item, index) => item === result.recommendations[index]) && selectedRecommendationIndexes.length === result.recommendations.length && selectedRecommendationIndexes.every((value, index) => value === index)} onClick={() => {
@@ -1126,6 +1158,8 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           setAccepted(true);
         }} type="button">Accept agent output</button>}
       </footer>
+      </div>
+      {comparing ? <AiProposalCompare fields={[{ label: "Brief", before: result.response, after: draftResponse }, { label: "Next actions", before: result.recommendations.join("\n"), after: selectedRecommendationIndexes.map(index => draftRecommendations[index]).join("\n") }]} /> : null}
       <AiEvidenceFlyout
         description="Review the sources, guardrails, provider, and approval boundary behind this editable outcome."
         eyebrow="Agent outcome · Evidence"
