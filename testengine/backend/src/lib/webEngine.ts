@@ -3069,6 +3069,7 @@ export const createWebRunSession = (envelope: EngineRunEnvelope, capturedValues:
           captures,
           web_detail: await collectWebDetail(),
           line_results: lineResults,
+          evidence: envelope.artifact_policy?.screenshot_on_success ? await session.screenshot(`step-${step.order}-passed`).catch(() => undefined) : undefined,
           recovery_attempted: recoveryAttempted,
           recovery_succeeded: recoverySucceeded
         };

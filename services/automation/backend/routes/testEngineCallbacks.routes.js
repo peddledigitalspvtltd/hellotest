@@ -34,10 +34,11 @@ const captureRawCallbackBody = async (req, _reply, payload) => {
 };
 
 module.exports = async function (fastify) {
-  fastify.post("/api/testengine/callbacks/runs", {
+  const options = {
     bodyLimit: config.http.largeBodyLimitBytes,
     preParsing: captureRawCallbackBody
-  }, async (req) => {
+  };
+  const handler = async (req) => {
     fastify.validate({
       engine_run_id: { required: true, type: "string" },
       hellotest_run_id: { required: false, type: "string" },
@@ -56,7 +57,9 @@ module.exports = async function (fastify) {
       payload: req.body,
       rawPayload: req.rawBody || null
     });
-  });
+  };
+  fastify.post("/testengine/callbacks/runs", options, handler);
+  fastify.post("/api/testengine/callbacks/runs", options, handler);
 };
 
 module.exports.captureRawCallbackBody = captureRawCallbackBody;

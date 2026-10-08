@@ -223,6 +223,14 @@ For visible host recording, the recommended local recorder values are:
 - Engine base URL: `http://host.docker.internal:4311`
 - Recorder public base URL: `http://localhost:4311`
 
+Local runs post directly to the configured Playwright runner and return signed step results through the HelloTest gateway. Passing and failing web steps capture screenshots; unexecuted steps after a failure are blocked. Test Runs refreshes once more when the run finishes so the final evidence is visible.
+
+`HELLOTEST_LOCAL_RUN_ENGINE_URL` is the runner address **reachable from the API**. `HELLOTEST_LOCAL_CALLBACK_BASE_URL` is the HelloTest gateway address **reachable from the runner**. For a native runner on the same computer, the callback defaults to `http://localhost:8080`; `host.docker.internal` is a container-side hostname and may not resolve in a native process. The callback base may already end in `/api`; that prefix is added only once. Both public gateway and legacy direct API callback routes are supported.
+
+For a runner on another machine, configure its exact HTTP(S) origin in `HELLOTEST_LOCAL_RUN_ENGINE_URL` and configure the publicly reachable HelloTest gateway in `HELLOTEST_LOCAL_CALLBACK_BASE_URL`. Do not use `localhost` or Docker-only hostnames for that return path. Keep the configured dispatch and callback credentials available to the runner; do not send credentials as URL parameters. The browser UI lets the API select this configured runner instead of forcing a hard-coded local port.
+
+A reporting outage does not turn a passed browser case into a failed test. The runner retains its signed-report payload privately under `ARTIFACT_ROOT/.callbacks` without persisting the signing secret. Transient final delivery failures receive bounded retries. The authenticated runner endpoint `POST /api/v1/runs/{engine_run_id}/callbacks/retry` replays the retained report without executing the browser again. It requires the original callback credential (from the in-memory envelope, or configured environment after a restart). Already delivered reports are not replayed; duplicate callbacks are acknowledged without adding a result or artifact again. Run details on the runner expose `callback_delivery` separately from the actual execution state. Include the private `.callbacks` directory when maintaining runner artifact storage.
+
 For Docker embedded fallback, use:
 
 - Engine base URL: `http://testengine:4301`

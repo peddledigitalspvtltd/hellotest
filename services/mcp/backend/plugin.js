@@ -14,12 +14,17 @@ module.exports=fp(async function mcpPlugin(app){
   if(!['http:','https:'].includes(endpoint.protocol)||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||!endpoint.pathname.endsWith('/mcp'))throw new Error('HELLOTEST_MCP_PUBLIC_URL must be an HTTP(S) MCP endpoint without credentials, query or fragment.');
   if(endpoint.protocol!=='https:'&&process.env.NODE_ENV==='production')throw new Error('HELLOTEST_MCP_PUBLIC_URL must use HTTPS in production.');
  }
- const hosts=new Set((process.env.HELLOTEST_MCP_ALLOWED_HOSTS||'localhost,127.0.0.1,api,hellotest-local-api').split(',').map(value=>value.trim()));
- if(publicUrl)hosts.add(new URL(publicUrl).hostname);
+ const hostname=value=>{try{const url=new URL(`http://${value}`);if(url.username||url.password||url.pathname!=='/'||url.search||url.hash)return null;return url.hostname.toLowerCase().replace(/\.$/,'');}catch{return null;}};
+ const hosts=new Set((process.env.HELLOTEST_MCP_ALLOWED_HOSTS||'localhost,127.0.0.1,api,hellotest-local-api').split(',').map(value=>hostname(value.trim())).filter(Boolean));
+ if(publicUrl)hosts.add(hostname(new URL(publicUrl).host));
  const origins=new Set((process.env.CORS_ORIGIN||'http://localhost:8080,http://localhost:5173').split(',').map(value=>value.trim()));
+ if(publicUrl)origins.add(new URL(publicUrl).origin);
+ const acceptsHost=req=>hosts.has(hostname(req.hostname));
+ const acceptsOrigin=req=>!req.headers.origin||origins.has(req.headers.origin);
  let inFlight=0;const capacity=Math.min(64,Math.max(1,Number(process.env.HELLOTEST_MCP_MAX_CONCURRENT)||16));
  app.route({method:['POST','GET','DELETE'],url:'/mcp',bodyLimit:128*1024,handler:async(req,reply)=>{
-  if(!hosts.has(req.hostname)||req.headers.origin&&!origins.has(req.headers.origin))return reply.code(403).send({error:'MCP origin or host denied.'});
+  if(!acceptsHost(req))return reply.code(403).send({code:'MCP_HOST_DENIED',error:'MCP origin or host denied.'});
+  if(!acceptsOrigin(req))return reply.code(403).send({code:'MCP_ORIGIN_DENIED',error:'MCP origin or host denied.'});
   if(req.method!=='POST')return reply.code(405).header('Allow','POST').send({error:'This stateless MCP endpoint accepts POST only.'});
   if(inFlight>=capacity)return reply.code(429).header('Retry-After','2').send({error:'MCP capacity reached.'});
   inFlight++;const controller=new AbortController();const disconnected=()=>{if(!reply.raw.writableEnded)controller.abort();};req.raw.once('aborted',disconnected);reply.raw.once('close',disconnected);
@@ -41,7 +46,7 @@ module.exports=fp(async function mcpPlugin(app){
   return require('./mcpDeadline').withDeadline(async signal=>{
    const actor=await access(req,req.query.project_id);
    const tools=await require('./mcpServer').inspectLocal(actor,signal);
-   return {status:'connected',transport:'streamable-http',protocol_version:'2026-07-28',tool_count:tools.length,catalog_revision:registry.revision(),checked_at:new Date().toISOString()};
+   return {status:'connected',transport:'streamable-http',protocol_version:'2026-07-28',tool_count:tools.length,catalog_revision:registry.revision(),checked_at:new Date().toISOString(),external_transport:{public_endpoint_configured:Boolean(publicUrl),request_host_allowed:acceptsHost(req),request_origin_allowed:acceptsOrigin(req)}};
   },{timeoutMs:8000,timeoutMessage:'The built-in MCP status check timed out. Retry.'});
  });
  app.get('/agentic-workflows/mcp/credentials',async(req)=>{const actor=await access(req,req.query.project_id);return db.prepare('SELECT id,client_id,expires_at,revoked_at,created_at FROM mcp_credentials WHERE user_id=? AND project_id=? ORDER BY created_at DESC LIMIT 50').all(actor.user.id,actor.projectId);});

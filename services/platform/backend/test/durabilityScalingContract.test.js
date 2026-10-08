@@ -21,7 +21,7 @@ class FakePool extends EventEmitter {
     this.endCalls = 0;
     this.failRollback = false;
     this.failSavepointRollback = false;
-    this.client = {
+    this.client = Object.assign(new EventEmitter(), {
       query: async (query) => {
         const text = typeof query === "string" ? query : query.text;
         this.queries.push(text);
@@ -32,7 +32,7 @@ class FakePool extends EventEmitter {
         return { rows: [], rowCount: 0 };
       },
       release: (destroy) => this.releaseArguments.push(Boolean(destroy))
-    };
+    });
   }
 
   async connect() {
@@ -150,4 +150,27 @@ test("runtime migrations, queues, schedules, and recurring workers use durable c
   assert.match(schema, /idx_ai_test_case_generation_jobs_idempotency/);
   assert.match(schema, /idx_executions_source_idempotency/);
   assert.match(schema, /idx_execution_schedules_due_claim/);
+});
+
+test("a disconnect on a checked-out transaction connection rejects work without crashing or replaying writes", async () => {
+  const errors = [];
+  const adapter = createPostgresAdapter({poolConfig:{max:5}, PoolClass:FakePool, onPoolError:error=>errors.push(error)});
+  const disconnected = Object.assign(new Error("Connection terminated unexpectedly"), {code:"ECONNRESET"});
+  await assert.rejects(adapter.transaction(async()=>{
+    adapter.pool.client.emit("error", disconnected);
+    await adapter.query("INSERT INTO fixture VALUES (1)");
+  })(), error=>error===disconnected);
+  assert.deepEqual(adapter.pool.releaseArguments,[true]);
+  assert.ok(!adapter.pool.queries.some(sql=>sql.startsWith("INSERT") || sql==='COMMIT'));
+  assert.equal(errors[0],disconnected);
+  assert.equal(adapter.pool.client.listenerCount("error"),0);
+  await adapter.transaction(async()=>adapter.query("SELECT 1"))();
+  assert.deepEqual(adapter.pool.releaseArguments,[true,false]);
+});
+test("a disconnect during commit remains an unknown transaction outcome and is never automatically retried", async()=>{
+ const adapter=createPostgresAdapter({poolConfig:{max:5},PoolClass:FakePool,onPoolError:()=>{}});
+ const original=adapter.pool.client.query;const error=new Error('Connection terminated unexpectedly');let commits=0;
+ adapter.pool.client.query=async query=>{if(query==='COMMIT'){commits++;adapter.pool.client.emit('error',error);throw error;}return original(query);};
+ await assert.rejects(adapter.transaction(async()=>adapter.query('SELECT 1'))(), failure=>failure===error&&failure.transactionOutcomeUnknown===true);
+ assert.equal(commits,1);assert.deepEqual(adapter.pool.releaseArguments,[true]);
 });

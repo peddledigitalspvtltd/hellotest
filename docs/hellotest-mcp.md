@@ -80,6 +80,14 @@ Run normal migrations before production verification mode. Keep TLS at the trust
 
 The built-in authentication flow is **manual resource-bound bearer credentials**. An OAuth authorization server, automatic client onboarding and federated SSO are not implemented or claimed. Hosts that require OAuth-only onboarding need a separate identity-provider integration. The default local endpoint is not a public production deployment. Retain MCP audit/plan records under the deployment's database backup and retention policy; no automatic audit purging is enabled.
 
+## Cloud host/origin troubleshooting
+
+A built-in status check verifies the in-process MCP protocol. It does not traverse the public reverse proxy. The status response includes `external_transport` flags for the request Host/Origin and advertised endpoint configuration; these flags are diagnostics, not a public reachability test.
+
+For `https://app.hellotest.ai/api/mcp`, configure the cloud API process with `HELLOTEST_MCP_PUBLIC_URL=https://app.hellotest.ai/api/mcp`. Its hostname and own origin are included in the MCP policy. Add any internal hostname actually sent by your trusted reverse proxy to `HELLOTEST_MCP_ALLOWED_HOSTS`, or preserve the public Host with `proxy_set_header Host $host`. Do not rely on arbitrary forwarded headers to authorize a host. The launcher derives the MCP URL from a configured HTTPS public API URL when no explicit or retained MCP URL is available.
+
+External server-side clients may omit Origin and still require a valid delegated bearer credential. Browser clients that send Origin must use an exact origin included in `CORS_ORIGIN`, for example the actual client website's `https://...` origin. Do not add wildcard origins or confuse the client Origin with the HelloTest endpoint hostname. Recreate the API container after changing its environment; an env-file edit alone does not update a running process. A request without a token should reach HTTP 401 after the Host/Origin rules are correct, rather than HTTP 403. New error responses distinguish `MCP_HOST_DENIED` from `MCP_ORIGIN_DENIED`.
+
 ## Validation
 
 ```sh
@@ -131,3 +139,21 @@ Remaining deliberate limits: manual bearer onboarding only; no OAuth authorizati
 The shared AI gateway leaves the original text/image messages intact and inserts authorized MCP evidence immediately before the relevant user request. Enrichment is limited to eight seconds and at most one third of the model request's timeout; the model timeout includes retrieval time. A stalled optional read is cancelled and represented as an explicit evidence gap, while user cancellation stops generation. Chatbot and Smart Context forward their request signals through the SDK and the existing knowledge execution stages. Authorization failures and foreign-project packets are never bypassed with a broader fallback.
 
 Regression evidence includes real PostgreSQL project evidence delivered into the shared LLM HTTP request with a controlled model response, and a check that internal retrieval creates no host credential rows. Gateway tests cover model integrations bound to background user/project scope, multimodal authoring, request cancellation and stalled retrieval. Browser fixtures cover visible status success/error feedback, both copy labels returning after two seconds, and clipboard errors. These checks prove context delivery and application behavior; they do not claim to evaluate a live model provider's answer quality.
+
+## Repeatable local-stack rebuilds behind a cloud gateway
+
+On the first startup, configure the public gateway URL:
+
+```sh
+HELLOTEST_PUBLIC_URL=https://app.hellotest.ai TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
+```
+
+For this HTTPS gateway the launcher defaults the public API to `/api`, advertises `/api/mcp`, and uses the public API for local-run callbacks. Public URLs, exact `CORS_ORIGIN` values, MCP settings, configured local/remote runner URLs, callback URLs and credential keys are retained in the generated stack environment. Explicit environment or `--config` values override retained settings. Configure the actual external browser client's exact origin in `CORS_ORIGIN` when required; the launcher does not trust arbitrary websites automatically.
+
+Later rebuilds can use:
+
+```sh
+TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
+```
+
+Keep the generated environment directory across deployments. Use a configured runner callback URL reachable from that runner. This command rebuilds Compose services; a native host Playwright helper has its own startup lifecycle. Updating source and rebuilding on the cloud host is required to apply code changes there.

@@ -722,7 +722,7 @@ const resolveDirectCallbackBaseUrl = (integration) =>
   normalizeText(process.env.HELLOTEST_LOCAL_CALLBACK_BASE_URL)
   || normalizeText(process.env.HELLOTEST_PUBLIC_API_BASE_URL)
   || normalizeText(integration?.config?.local_callback_base_url)
-  || (process.env.HELLOTEST_DEPLOYMENT_MODE === "docker" ? "http://host.docker.internal:8080" : "http://localhost:8080");
+  || "http://localhost:8080";
 
 const resolveCallbackSecret = (integration) =>
   resolveTestEngineSecret(
@@ -731,9 +731,12 @@ const resolveCallbackSecret = (integration) =>
   );
 
 const buildDirectCallback = (integration) => {
-  const baseUrl = resolveDirectCallbackBaseUrl(integration).replace(/\/+$/, "");
+  const baseUrl = new URL(resolveDirectCallbackBaseUrl(integration));
+  if (!["http:", "https:"].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) throw new Error("Configure a runner-reachable callback base URL without credentials, query or fragment.");
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  baseUrl.pathname = `${basePath.endsWith("/api") ? basePath : `${basePath}/api`}/testengine/callbacks/runs`;
   return {
-    url: `${baseUrl}/api/testengine/callbacks/runs`,
+    url: baseUrl.toString(),
     signing_secret: resolveCallbackSecret(integration)
   };
 };
@@ -1173,6 +1176,7 @@ const buildEngineEnvelope = async ({
       trace_mode: normalizeText(integrationConfig.trace_mode) || "off",
       video_mode: normalizeText(integrationConfig.video_mode) || "off",
       screenshot_on_failure: true,
+      screenshot_on_success: integration?.config?.screenshot_on_success !== false,
       capture_console: integrationConfig.capture_console !== false,
       capture_network: integrationConfig.capture_network !== false,
       artifact_retention_days: Math.max(1, normalizeInteger(integrationConfig.artifact_retention_days, 7) ?? 7),
@@ -1652,6 +1656,7 @@ async function runExecutionDirectLocal({ plan, integration, initiatedBy, engineB
       headless: false,
       video_mode: "on",
       trace_mode: "on",
+      max_video_attachment_mb: 16,
       web_session_mode: "new",
       web_session_reuse_key: null,
       connect_over_cdp_endpoint: null,

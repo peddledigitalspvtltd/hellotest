@@ -1,5 +1,5 @@
-import { createHash, createHmac } from "node:crypto";
-import { requestEngineService } from "./engineHttpClient.js";
+import { createHash } from "node:crypto";
+import { deliverRunCallback } from "./callbackDelivery.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -128,9 +128,6 @@ const stringifyError = (error: unknown, fallback = "Step execution failed.") => 
   return String(error || fallback);
 };
 
-const buildCallbackSignature = (secret: string, payload: string) =>
-  createHmac("sha256", secret).update(payload).digest("hex");
-
 const writeArtifactFile = async (relativePath: string | null | undefined, content: string) => {
   if (!relativePath) {
     return null;
@@ -142,26 +139,7 @@ const writeArtifactFile = async (relativePath: string | null | undefined, conten
   return fullPath;
 };
 
-const emitCallback = async (envelope: EngineRunEnvelope, payload: EngineCallbackPayload) => {
-  if (!envelope.callback?.url || !envelope.callback?.signing_secret) {
-    throw new Error("This run does not include a HelloTest callback target.");
-  }
-
-  const serialized = JSON.stringify(payload);
-  const signature = buildCallbackSignature(envelope.callback.signing_secret, serialized);
-
-  await requestEngineService({
-    url: envelope.callback.url,
-    service: "HelloTest execution callback",
-    timeoutMs: 15_000,
-    responseType: "none",
-    init: {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-testengine-signature": signature },
-      body: serialized
-    }
-  });
-};
+const emitCallback = deliverRunCallback;
 
 const persistRunSummary = async (
   run: EngineRunRecord,
@@ -416,6 +394,15 @@ const markRunState = (
     updated_at: nowIso()
   }));
 
+const completeStepOutcomes = (envelope: EngineRunEnvelope, outcomes: EngineStepOutcome[], status: EngineStepOutcomeStatus): EngineStepOutcome[] => {
+  if (status === "passed") return outcomes;
+  const completed = new Set(outcomes.map(item => item.step_id));
+  return [...outcomes, ...envelope.steps.filter(step => !completed.has(step.id)).map(step => ({
+    step_id: step.id, status: "blocked" as const, started_at: null, ended_at: null, duration_ms: null,
+    note: "Not executed because an earlier step or run setup failed."
+  }))];
+};
+
 const buildFinalCallback = ({
   envelope,
   run,
@@ -457,12 +444,12 @@ const buildFinalCallback = ({
   deterministic_attempted: true,
   healing_attempted: Boolean(healingAttempted),
   healing_succeeded: Boolean(healingSucceeded),
-  step_outcomes: stepOutcomes,
+  step_outcomes: completeStepOutcomes(envelope, stepOutcomes, status),
   case_result: {
     status,
     duration_ms: durationMs,
     error: errorMessage || null,
-    logs: buildLogsPayload(stepOutcomes, stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
+    logs: buildLogsPayload(completeStepOutcomes(envelope, stepOutcomes, status), stepSummaries, stepCaptures, stepWebDetails, stepAutomationDetails)
   },
   artifact_bundle: run.artifact_bundle,
   patch_proposals: run.patch_proposals,

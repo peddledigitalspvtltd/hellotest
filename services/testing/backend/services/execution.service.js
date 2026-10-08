@@ -412,13 +412,17 @@ async function canReachLocalEngine(baseUrl) {
 }
 
 async function resolveLocalEngineBaseUrl(preferredUrl) {
-  const candidates = [
+  const localOrigins = new Set(["http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311", "http://[::1]:4311"]);
+  const selected = preferredUrl || process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;
+  const selectedUrl = selected ? normalizeLocalEngineBaseUrl(selected) : null;
+  // A configured remote runner must never silently fall back to a different host.
+  const candidates = (selectedUrl && !localOrigins.has(new URL(selectedUrl).origin) ? [selectedUrl] : [
     preferredUrl,
+    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL,
     "http://host.docker.internal:4311",
     "http://127.0.0.1:4311",
-    "http://localhost:4311",
-    process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL
-  ].filter(value => { if (!value) return false; try { return !['testengine','testengine-gateway'].includes(new URL(value).hostname) && new URL(value).port !== '4301'; } catch { return false; } });
+    "http://localhost:4311"
+  ]).filter(value => { if (!value) return false; try { return !['testengine','testengine-gateway'].includes(new URL(value).hostname) && new URL(value).port !== '4301'; } catch { return false; } });
   const normalizedCandidates = [];
 
   candidates.forEach((candidate) => {
@@ -1974,8 +1978,8 @@ exports.startExecution = async (id, options = {}) => {
           config: {
             ...(testEngineIntegration.config || {}),
             execution_mode: "local",
-            public_base_url: "http://localhost:4301",
-            live_view_url: "http://localhost:4301/api/v1/live-session?provider=playwright"
+            public_base_url: localEngineBaseUrl,
+            live_view_url: `${localEngineBaseUrl}/api/v1/live-session?provider=playwright`
           }
         };
       }
@@ -1990,8 +1994,8 @@ exports.startExecution = async (id, options = {}) => {
             headless: false,
             video_mode: "retain-on-failure",
             trace_mode: "retain-on-failure",
-            public_base_url: "http://localhost:4301",
-            live_view_url: "http://localhost:4301/api/v1/live-session?provider=playwright"
+            public_base_url: localEngineBaseUrl,
+            live_view_url: `${localEngineBaseUrl}/api/v1/live-session?provider=playwright`
           }
         };
       }

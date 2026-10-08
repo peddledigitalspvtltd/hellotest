@@ -250,4 +250,32 @@ grep -Fx 'HELLOTEST_MCP_PUBLIC_URL=https://qa.example.test/api/mcp' "$HELLOTEST_
 grep -Fx 'HELLOTEST_MCP_ALLOWED_HOSTS=qa.example.test,api' "$HELLOTEST_ENV_DIR/local.env" >/dev/null || fail 'MCP allowed hosts must survive subsequent launcher commands'
 printf 'PASS: credential encryption key and MCP deployment settings persist across launcher commands\n'
 
+reset_case
+HELLOTEST_ENV_DIR="$TEST_DIR/cloud-config" HELLOTEST_OPS_ENABLED=false HELLOTEST_PUBLIC_URL=https://app.hellotest.ai \
+  "$ROOT_DIR/hellotest.sh" up --stack platform redis > "$TEST_DIR/output" 2>&1
+grep -Fx 'HELLOTEST_MCP_PUBLIC_URL=https://app.hellotest.ai/api/mcp' "$TEST_DIR/cloud-config/platform.env" >/dev/null || fail 'HTTPS public API must advertise its MCP endpoint by default'
+printf 'PASS: HTTPS cloud gateway supplies the default external MCP authority\n'
+
+reset_case
+HELLOTEST_ENV_DIR="$TEST_DIR/cloud-local" HELLOTEST_OPS_ENABLED=false \
+  HELLOTEST_PUBLIC_URL=https://app.hellotest.ai \
+  CORS_ORIGIN=https://app.hellotest.ai,https://client.example.test \
+  HELLOTEST_LOCAL_RUN_ENGINE_URL=https://runner.example.test \
+  TESTENGINE_WEB_REPLICAS=1 "$ROOT_DIR/hellotest.sh" up --build --stack local --no-cache > "$TEST_DIR/output" 2>&1
+assert_trace 'pull --ignore-buildable --include-deps --policy missing
+build --no-cache
+up -d' 'cloud local stack uses the exact uncached build command'
+HELLOTEST_ENV_DIR="$TEST_DIR/cloud-local" HELLOTEST_OPS_ENABLED=false \
+  TESTENGINE_WEB_REPLICAS=1 "$ROOT_DIR/hellotest.sh" up --build --stack local --no-cache > "$TEST_DIR/output" 2>&1
+for expected_setting in \
+  'HELLOTEST_PUBLIC_URL=https://app.hellotest.ai' \
+  'HELLOTEST_API_PUBLIC_URL=https://app.hellotest.ai/api' \
+  'HELLOTEST_MCP_PUBLIC_URL=https://app.hellotest.ai/api/mcp' \
+  'CORS_ORIGIN=https://app.hellotest.ai,https://client.example.test' \
+  'HELLOTEST_LOCAL_RUN_ENGINE_URL=https://runner.example.test' \
+  'HELLOTEST_LOCAL_CALLBACK_BASE_URL=https://app.hellotest.ai/api'; do
+  grep -Fx "$expected_setting" "$TEST_DIR/cloud-local/local.env" >/dev/null || fail "cloud setting must survive rebuild: $expected_setting"
+done
+printf 'PASS: exact local rebuild retains public endpoint, browser origins, and remote runner callback configuration\n'
+
 printf 'Startup regression checks completed without contacting Docker or starting services.\n'

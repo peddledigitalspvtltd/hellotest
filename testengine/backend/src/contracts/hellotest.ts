@@ -126,6 +126,7 @@ export type EngineRunArtifactPolicy = {
   trace_mode: EngineTraceMode;
   video_mode: EngineVideoMode;
   screenshot_on_failure: boolean;
+  screenshot_on_success?: boolean;
   capture_console: boolean;
   capture_network: boolean;
   artifact_retention_days: number;
@@ -449,6 +450,7 @@ export type EngineRunRecord = {
   patch_proposals: EnginePatchProposal[];
   created_at: string;
   updated_at: string;
+  callback_delivery?: { status: "pending" | "delivered" | "failed"; attempts: number; event: string; error_code?: string; http_status?: number; updated_at: string };
 };
 
 export type EngineCallbackEventType =

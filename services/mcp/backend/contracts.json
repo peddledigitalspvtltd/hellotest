@@ -968,48 +968,6 @@
         "additionalProperties": true
       }
     },
-    "POST /api/testengine/callbacks/runs": {
-      "body": {
-        "type": "object",
-        "properties": {
-          "engine_run_id": {
-            "type": "string"
-          },
-          "hellotest_run_id": {
-            "type": "string"
-          },
-          "hellotest_execution_id": {
-            "type": "string"
-          },
-          "hellotest_test_case_id": {
-            "type": "string"
-          },
-          "event": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string"
-          },
-          "emitted_at": {
-            "type": "string"
-          },
-          "case_result": {
-            "type": "object"
-          },
-          "artifact_bundle": {
-            "type": "object"
-          }
-        },
-        "required": [
-          "engine_run_id",
-          "hellotest_test_case_id"
-        ],
-        "additionalProperties": true
-      }
-    },
     "POST /app-types": {
       "body": {
         "type": "object",

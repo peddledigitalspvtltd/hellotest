@@ -6181,7 +6181,7 @@ export function TestCasesPage() {
         execution_mode: executionStartMode === "local" && canRunLocalAutomation
           ? "local"
           : executionStartMode === "remote" && canRunRemoteAutomation ? "remote" : "manual",
-        engine_base_url: executionStartMode === "local" && canRunLocalAutomation ? "http://host.docker.internal:4301" : undefined,
+        engine_base_url: undefined,
         assigned_to_ids: selectedExecutionAssigneeIds.length ? selectedExecutionAssigneeIds : undefined,
         release: canViewDeliveryScopes ? executionRelease.trim() || undefined : undefined,
         sprint: canViewDeliveryScopes ? executionSprint.trim() || undefined : undefined,
@@ -7988,7 +7988,7 @@ export function TestCasesPage() {
 	          test_environment_id: can("environment.view") ? selectedExecutionEnvironmentId || undefined : undefined,
           test_configuration_id: can("configuration.view") ? selectedExecutionConfigurationId || undefined : undefined,
           test_data_set_id: resolvedRunDataSetId,
-          engine_base_url: "http://host.docker.internal:4311"
+          engine_base_url: undefined
         });
 
         await Promise.all([

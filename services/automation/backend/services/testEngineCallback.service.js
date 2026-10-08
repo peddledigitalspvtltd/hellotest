@@ -456,9 +456,9 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
   }
 
   const execution = await executionService.getExecution(executionId);
-  let integration;
+  let integration, boundTransaction;
   if(execution.trigger === "local") {
-    const dispatch=await workspaceTransactionService.findTransactionByRelated({related_kind:"testengine_run",related_id:engineRunId});
+    const dispatch=boundTransaction=await workspaceTransactionService.findTransactionByRelated({related_kind:"testengine_run",related_id:engineRunId});
     if(!dispatch || dispatch.project_id!==execution.project_id || dispatch.metadata?.source!=="hellotest.local-run" || dispatch.metadata?.queue_mode!=="direct-local" || dispatch.metadata?.execution_id!==execution.id || dispatch.metadata?.test_case_id!==testCaseId)throw new Error("This local callback does not match a dispatched run.");
     integration={config:{}};
   } else integration=await integrationService.getActiveIntegrationByTypeForProject("testengine", execution.project_id);
@@ -485,6 +485,12 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     error.statusCode = 401;
     throw error;
   }
+
+  boundTransaction ||= await workspaceTransactionService.findTransactionByRelated({related_kind:"testengine_run",related_id:engineRunId});
+  const callbackId = crypto.createHash("sha256").update(serializedPayload).digest("hex");
+  const receipt = boundTransaction?.metadata?.callback_receipts?.find(item => item.id === callbackId);
+  if (receipt) return { accepted: true, duplicate: true, execution_id: execution.id, execution_result_id: receipt.result_id, transaction_id: boundTransaction.id };
+  if (boundTransaction?.metadata?.callback_final_received && !FINAL_ENGINE_EVENTS.has(event)) return { accepted: true, stale: true, execution_id: execution.id, transaction_id: boundTransaction.id };
 
   const caseSnapshot = (execution.case_snapshots || []).find((snapshot) => snapshot.test_case_id === testCaseId);
 
@@ -577,7 +583,7 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
           fileName: normalizeText(latestStepOutcome.evidence_image.file_name) || undefined,
           mimeType: normalizeText(latestStepOutcome.evidence_image.mime_type) || undefined
         }
-      : null;
+      : mergedLogs.stepEvidence[normalizeText(latestStepOutcome?.step_id) || ""] || null;
 
   try {
     await opsTelemetryService.emitExecutionHierarchyEvents({
@@ -620,7 +626,9 @@ exports.handleRunCallback = async ({ headers, payload, rawPayload }) => {
     deterministic_attempted: Boolean(payload.deterministic_attempted),
     artifact_bundle: isPlainObject(payload.artifact_bundle) ? payload.artifact_bundle : {},
     patch_proposals: Array.isArray(payload.patch_proposals) ? payload.patch_proposals : [],
-    attached_artifacts: attachedArtifacts
+    attached_artifacts: attachedArtifacts.length ? attachedArtifacts : transaction.metadata?.attached_artifacts || [],
+    callback_receipts: [...(transaction.metadata?.callback_receipts || []), { id: callbackId, result_id: result.id }].slice(-128),
+    callback_final_received: FINAL_ENGINE_EVENTS.has(event) || Boolean(transaction.metadata?.callback_final_received)
   };
 
   await workspaceTransactionService.appendTransactionEvent(transaction.id, {

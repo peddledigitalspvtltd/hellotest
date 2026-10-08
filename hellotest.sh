@@ -199,6 +199,15 @@ resolve_stack() {
 }
 
 resolve_defaults() {
+  # Explicit environment/config values win; otherwise retain deployment settings.
+  for deployment_setting in HELLOTEST_PUBLIC_URL HELLOTEST_API_PUBLIC_URL HELLOTEST_ADMIN_URL CORS_ORIGIN HELLOTEST_LOCAL_RUN_ENGINE_URL HELLOTEST_LOCAL_CALLBACK_BASE_URL; do
+    export "$deployment_setting"
+    deployment_value="$(printenv "$deployment_setting" || true)"
+    if [ -z "$deployment_value" ]; then
+      deployment_value="$(generated_env_value "$deployment_setting" || true)"
+    fi
+    export "$deployment_setting=$deployment_value"
+  done
   DOCKER_NAMESPACE="${DOCKER_NAMESPACE:-jayarajumetta}"
   IMAGE_TAG="${IMAGE_TAG:-latest}"
   PLATFORM="${PLATFORM:-linux/amd64}"
@@ -281,7 +290,12 @@ resolve_defaults() {
       ;;
     *)
       HELLOTEST_PUBLIC_URL="${HELLOTEST_PUBLIC_URL:-$(origin_with_port "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$FRONTEND_PORT")}"
-      HELLOTEST_API_PUBLIC_URL="${HELLOTEST_API_PUBLIC_URL:-$(origin_with_port "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$API_PORT")}"
+      if [ -z "$HELLOTEST_API_PUBLIC_URL" ]; then
+        case "$HELLOTEST_PUBLIC_URL" in
+          https://*) HELLOTEST_API_PUBLIC_URL="${HELLOTEST_PUBLIC_URL%/}/api" ;;
+          *) HELLOTEST_API_PUBLIC_URL="$(origin_with_port "$PUBLIC_SCHEME" "$PUBLIC_HOST" "$API_PORT")" ;;
+        esac
+      fi
       HELLOTEST_ADMIN_URL="${HELLOTEST_ADMIN_URL:-${HELLOTEST_API_PUBLIC_URL%/}/admin}"
       ;;
   esac
@@ -290,6 +304,13 @@ resolve_defaults() {
   MOBILE_ENGINE_URL="${MOBILE_ENGINE_URL:-http://mobile-engine:4312}"
   APPIUM_SERVER_URL="${APPIUM_SERVER_URL:-http://host.docker.internal:4723}"
   CORS_ORIGIN="${CORS_ORIGIN:-$HELLOTEST_PUBLIC_URL,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://localhost:8081}"
+  HELLOTEST_LOCAL_RUN_ENGINE_URL="${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://host.docker.internal:4311}"
+  if [ -z "$HELLOTEST_LOCAL_CALLBACK_BASE_URL" ]; then
+    case "$HELLOTEST_PUBLIC_URL" in
+      https://*) HELLOTEST_LOCAL_CALLBACK_BASE_URL="${HELLOTEST_API_PUBLIC_URL%/}" ;;
+      *) HELLOTEST_LOCAL_CALLBACK_BASE_URL="${HELLOTEST_PUBLIC_URL%/}" ;;
+    esac
+  fi
   ADMIN_FRONTEND_INTERNAL_URL="${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}"
 
   DATABASE_URL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}}"
@@ -337,6 +358,13 @@ write_env_file() {
     fi
     export "$mcp_setting=$mcp_value"
   done
+  # A configured HTTPS gateway is also the advertised external MCP authority.
+  # Retained or explicitly supplied MCP endpoints continue to take precedence.
+  if [ -z "$HELLOTEST_MCP_PUBLIC_URL" ]; then
+    case "$HELLOTEST_API_PUBLIC_URL" in
+      https://*) export HELLOTEST_MCP_PUBLIC_URL="${HELLOTEST_API_PUBLIC_URL%/}/mcp" ;;
+    esac
+  fi
   mkdir -p "$ENV_DIR"
   chmod 700 "$ENV_DIR"
   RESOLVED_ENV_FILE="$ENV_DIR/${STACK}.env"
@@ -350,6 +378,8 @@ write_env_file() {
     printf 'HELLOTEST_API_INTERNAL_URL=%s\n' "$HELLOTEST_API_INTERNAL_URL"
     printf 'HELLOTEST_WORKER_API_BASE_URL=%s\n' "$HELLOTEST_WORKER_API_BASE_URL"
     printf 'ADMIN_FRONTEND_INTERNAL_URL=%s\n' "$ADMIN_FRONTEND_INTERNAL_URL"
+    printf 'HELLOTEST_LOCAL_RUN_ENGINE_URL=%s\n' "$HELLOTEST_LOCAL_RUN_ENGINE_URL"
+    printf 'HELLOTEST_LOCAL_CALLBACK_BASE_URL=%s\n' "$HELLOTEST_LOCAL_CALLBACK_BASE_URL"
     printf 'ENGINE_PUBLIC_URL=%s\n' "$ENGINE_PUBLIC_URL"
     printf 'MOBILE_ENGINE_URL=%s\n' "$MOBILE_ENGINE_URL"
     printf 'APPIUM_SERVER_URL=%s\n' "$APPIUM_SERVER_URL"

@@ -48,3 +48,12 @@ test('MCP authentication failures carry safe error codes and release capacity',a
   const result=await app.inject({method:'POST',url:'/mcp',headers:{host:'localhost'},payload});assert.equal(result.statusCode,401);assert.equal(result.json().code,'MCP_UNAUTHORIZED');assert.ok(!result.body.includes('private-signing-details'));assert.match(result.headers['www-authenticate'],/Bearer/);
  }
 });
+
+test('public MCP authority accepts normalized hosts but requires explicit external browser origins',async t=>{
+ const previous={public:process.env.HELLOTEST_MCP_PUBLIC_URL,cors:process.env.CORS_ORIGIN};process.env.HELLOTEST_MCP_PUBLIC_URL='https://app.hellotest.ai/api/mcp';process.env.CORS_ORIGIN='https://trusted-client.example';
+ t.after(()=>{for(const[key,value]of [['HELLOTEST_MCP_PUBLIC_URL',previous.public],['CORS_ORIGIN',previous.cors]]){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+ const app=Fastify();app.register(plugin(async()=>{throw Object.assign(new Error('Missing credential'),{statusCode:401});}));await app.ready();t.after(()=>app.close());
+ for(const headers of [{host:'app.hellotest.ai'},{host:'APP.HELLOTEST.AI:443'},{host:'app.hellotest.ai',origin:'https://app.hellotest.ai'},{host:'app.hellotest.ai',origin:'https://trusted-client.example'}])assert.equal((await app.inject({method:'POST',url:'/mcp',headers,payload})).statusCode,401,'Allowed transport must reach authentication');
+ const origin=await app.inject({method:'POST',url:'/mcp',headers:{host:'app.hellotest.ai',origin:'https://untrusted.example'},payload});assert.equal(origin.statusCode,403);assert.equal(origin.json().code,'MCP_ORIGIN_DENIED');
+ const host=await app.inject({method:'POST',url:'/mcp',headers:{host:'app.hellotest.ai.evil.example'},payload});assert.equal(host.statusCode,403);assert.equal(host.json().code,'MCP_HOST_DENIED');
+});

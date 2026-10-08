@@ -1,3 +1,4 @@
+import { retryRunCallbacks } from "./lib/callbackDelivery.js";
 import { registerAutomationMcp } from "./lib/automationMcp.js";
 import { registerQualityAgentRoutes } from "./lib/qualityAgents/routes.js";
 import Fastify from "fastify";
@@ -292,6 +293,16 @@ app.post("/api/v1/runs", { preHandler: privilegedRunGuard }, async (request, rep
     state: accepted.state,
     summary: accepted.summary
   };
+});
+
+app.post("/api/v1/runs/:id/callbacks/retry", { preHandler: privilegedRunGuard }, async (request, reply) => {
+  try {
+    const delivery = await retryRunCallbacks((request.params as {id: string}).id);
+    return { callback_delivery: delivery };
+  } catch {
+    reply.code(409);
+    return { message: "No retained callback can be retried with the current runner credential." };
+  }
 });
 
 app.post("/api/v1/runs/:id/retry", { preHandler: privilegedRunGuard }, async (request, reply) => {

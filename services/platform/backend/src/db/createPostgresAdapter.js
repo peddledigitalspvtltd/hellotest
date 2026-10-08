@@ -168,7 +168,7 @@ function createPostgresAdapter({
   };
   let closePromise = null;
 
-  pool.on?.("error", (error, client) => {
+  const reportConnectionError = (error, client) => {
     poolState.backgroundErrorCount += 1;
     poolState.lastBackgroundErrorAt = new Date().toISOString();
     poolState.lastBackgroundErrorCode = typeof error?.code === "string" ? error.code : null;
@@ -177,7 +177,8 @@ function createPostgresAdapter({
     } catch (handlerError) {
       defaultPoolErrorHandler(handlerError);
     }
-  });
+  };
+  pool.on?.("error", reportConnectionError);
 
   const compileSql = (sql) => {
     const cached = placeholderCache.get(sql);
@@ -199,6 +200,8 @@ function createPostgresAdapter({
   const getExecutor = () => transactionContext.getStore()?.client || pool;
 
   const execute = (text, params = [], name) => {
+    const connectionError = transactionContext.getStore()?.connectionError;
+    if (connectionError) return Promise.reject(connectionError);
     const values = params.map(serializeParam);
     return name
       ? getExecutor().query({ name, text, values })
@@ -258,13 +261,23 @@ function createPostgresAdapter({
     let transactionStarted = false;
     let commitAttempted = false;
     let destroyClient = false;
+    const store = { client, savepointCounter: 0, connectionError: null };
+    // pg forwards idle connection errors to the pool, but a checked-out client
+    // emits its own error while application code awaits work between queries.
+    const onClientError = error => {
+      store.connectionError ||= error;
+      destroyClient = true;
+      reportConnectionError(error, client);
+    };
+    client.on?.("error", onClientError);
     try {
       await client.query("BEGIN");
       transactionStarted = true;
       const result = await transactionContext.run(
-        { client, savepointCounter: 0 },
+        store,
         () => callback(...args)
       );
+      if (store.connectionError) throw store.connectionError;
       commitAttempted = true;
       await client.query("COMMIT");
       return result;
@@ -284,7 +297,8 @@ function createPostgresAdapter({
       }
       throw error;
     } finally {
-      client.release(destroyClient);
+      try { client.release(destroyClient); }
+      finally { client.removeListener?.("error", onClientError); }
     }
   };
 

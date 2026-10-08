@@ -101,6 +101,7 @@ services:
       args:
         HELLOTEST_DEBUG_SOURCEMAPS: "true"
     container_name: hellotest-local-api
+    restart: unless-stopped
     ports:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     environment:
@@ -128,7 +129,7 @@ services:
       ADMIN_PORTAL_PORT: ${ADMIN_PORTAL_PORT:-8081}
       ADMIN_FRONTEND_INTERNAL_URL: ${ADMIN_FRONTEND_INTERNAL_URL:-http://frontend:81}
       HELLOTEST_LOCAL_RUN_ENGINE_URL: ${HELLOTEST_LOCAL_RUN_ENGINE_URL:-http://host.docker.internal:4311}
-      HELLOTEST_LOCAL_CALLBACK_BASE_URL: ${HELLOTEST_LOCAL_CALLBACK_BASE_URL:-http://host.docker.internal:8080}
+      HELLOTEST_LOCAL_CALLBACK_BASE_URL: ${HELLOTEST_LOCAL_CALLBACK_BASE_URL:-${HELLOTEST_PUBLIC_API_BASE_URL:-http://localhost:8080}}
       HELLOTEST_TESTENGINE_SECRET: ${HELLOTEST_TESTENGINE_SECRET:-hellotest-testengine-dev-secret}
       TESTENGINE_SHARED_SECRET: ${TESTENGINE_SHARED_SECRET:-hellotest-testengine-dev-secret}
       MOBILE_ENGINE_SHARED_SECRET: ${MOBILE_ENGINE_SHARED_SECRET:-hellotest-mobile-engine-dev-secret}

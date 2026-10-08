@@ -1705,6 +1705,14 @@ export function ExecutionsPage() {
       ? EXECUTION_POLL_INTERVAL_MS
       : false
   }), can("result.view"));
+  // Completion may arrive between the run poll and the result poll. Fetch the final
+  // step statuses/evidence once more before polling stops on a terminal run.
+  useEffect(() => {
+    if (selectedExecutionId && ["completed", "failed", "cancelled", "stopped"].includes(String(selectedExecutionQuery.data?.status || ""))) {
+      void queryClient.invalidateQueries({ queryKey: ["execution-results", selectedExecutionId, projectId], exact: true });
+    }
+  }, [selectedExecutionId, projectId, selectedExecutionQuery.data?.status, queryClient]);
+
   const allExecutionResultsQuery = optionalQueryView(useQuery({
     queryKey: ["execution-results", "all", projectId],
     queryFn: () => api.executionResults.list({ project_id: projectId, limit: 5000 }),

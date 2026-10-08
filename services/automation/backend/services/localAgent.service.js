@@ -5,6 +5,12 @@ const { readBoundedResponseJson } = require("@hellotest/platform/backend/src/uti
 const { resilientHttpRequest } = require("@hellotest/platform/backend/src/utils/resilientHttpClient");
 
 const DEFAULT_WEB_URLS = ["http://localhost:4311", "http://127.0.0.1:4311", "http://host.docker.internal:4311"];
+const webCandidates = () => {
+  const configured = process.env.HELLOTEST_LOCAL_RUN_ENGINE_URL;
+  if (!configured) return DEFAULT_WEB_URLS;
+  const normalized = normalizeBaseUrl(configured);
+  return DEFAULT_WEB_URLS.includes(normalized) ? [normalized, ...DEFAULT_WEB_URLS] : [normalized];
+};
 const DEFAULT_MOBILE_URLS = ["http://localhost:4312", "http://127.0.0.1:4312", "http://mobile-engine:4312"];
 const DEFAULT_APPIUM_URLS = ["http://localhost:4723", "http://127.0.0.1:4723", "http://host.docker.internal:4723"];
 
@@ -64,7 +70,7 @@ const withTimeout = async (url, timeoutMs = 900) => {
 };
 
 const probeCandidates = async (kind, candidates) => {
-  const normalizedCandidates = [...new Set(candidates.map(normalizeBaseUrl).filter(Boolean))];
+  const normalizedCandidates = [...new Set(candidates.filter(Boolean).map(normalizeBaseUrl).filter(Boolean))];
   const attempts = [];
 
   for (const baseUrl of normalizedCandidates) {
@@ -143,7 +149,7 @@ const launchHostRecorder = () => {
 
 exports.getStatus = async () => {
   const [web, mobile, appium] = await Promise.all([
-    probeCandidates("playwright", DEFAULT_WEB_URLS),
+    probeCandidates("playwright", webCandidates()),
     probeCandidates("mobile-engine", DEFAULT_MOBILE_URLS),
     probeCandidates("appium", DEFAULT_APPIUM_URLS)
   ]);
@@ -172,7 +178,7 @@ exports.start = async ({ target } = {}) => {
     };
   }
 
-  const existing = await probeCandidates("playwright", DEFAULT_WEB_URLS);
+  const existing = await probeCandidates("playwright", webCandidates());
 
   if (existing.ready) {
     return {
