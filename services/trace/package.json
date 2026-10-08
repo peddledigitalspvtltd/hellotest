@@ -18,7 +18,8 @@
     "./frontend/components/OpsMonitoringWorkspace": "./frontend/components/OpsMonitoringWorkspace.tsx",
     "./frontend/index": "./frontend/index.ts",
     "./package.json": "./package.json",
-    "./ui": "./frontend/entry.ts"
+    "./ui": "./frontend/entry.ts",
+    "./frontend/components/ModelCallDetails": "./frontend/components/ModelCallDetails.tsx"
   },
   "scripts": {
     "build": "node ../../scripts/build/capability-ui.mjs trace",

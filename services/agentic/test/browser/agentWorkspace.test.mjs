@@ -27,7 +27,11 @@ sessionStorage.write(session); setCurrentScope('project', 'app');
 const realAsk = api.agenticWorkflows.ask; const realGetSession = api.agenticWorkflows.getSession;
 window.realWorkspaceTransactions = { ...api.workspaceTransactions };
 for (const methods of Object.values(api)) if (methods && typeof methods === 'object') for (const [name, value] of Object.entries(methods)) if (typeof value === 'function') methods[name] = async () => [];
+window.proposalReceipts = [];
 window.workspaceCalls = { sessions: [], lookups: [], events: [], providers: [], writes: [] };
+api.agentProposals.list = async () => window.proposalReceipts;
+api.agentProposals.accept = async (sessionId,input) => { window.workspaceCalls.writes.push({sessionId,...input});const receipt={id:'saved-proposal-'+input.index,kind:input.artifact.kind,updated:false,proposal_index:input.index,saved:true};window.proposalReceipts.push({proposal_index:input.index,receipt});return receipt; };
+api.llmTraces.detail = async (projectId,id) => ({id,project_id:projectId,status:'succeeded',request_id:'req-'+id,content_access:true,capture:{redacted:true},request_payload:{messages:[{role:'user',content:'Review checkout with original findings'}]},response_payload:{choices:[{message:{content:'Polished checkout proposal'}}]}});
 api.auth.session = async () => session;
 api.settings.getWorkspacePreferences = async () => ({ preferences: {} });
 api.featureFlags.snapshot = async () => ({ flags: new Proxy({}, { get: () => true }) });
@@ -67,7 +71,7 @@ const specialists = [
 const result = {
   headline: 'Checkout coverage needs one targeted review',
   artifacts:[{kind:'story',title:'Complete checkout retry behavior',description:'Preserve one order when a user retries checkout.',priority:'P2',citation_ids:['story-checkout'],acceptance_criteria:['Given an existing checkout request, when the customer retries, then one order is retained.']},{kind:'test_case',title:'Verify a duplicate submission',description:'Check the observed order count after a retry.',priority:'P2',citation_ids:['story-checkout'],prerequisites:['An approved checkout state exists'],steps:[{action:'Submit the same checkout request twice',expected_result:'Exactly one order is retained'}]}],
-  agent_chain:[{agent_id:'quality-evaluator',name:'Quality Evaluator',status:'completed'},{agent_id:'story-architect',name:'Story Architect',status:'completed'}],
+  agent_chain:[{agent_id:'quality-evaluator',name:'Quality Evaluator',status:'completed',trace_id:'primary-call'},{agent_id:'story-architect',name:'Story Architect',status:'completed',trace_id:'followup-call'}],
   executive_summary: 'The retry boundary is documented; the duplicate-order outcome needs confirmation.',
   response: 'Review the checkout retry behavior against the linked story before adding a case.\n\n## Design rationale\nUse negative paths and retry boundaries to verify one order.\n\n| Action | Expected result |\n| --- | --- |\n| Submit again | One order |\n\n' + Array.from({length:35},(_,index)=>`Review obligation ${index+1}: preserve the approved retry behavior.`).join('\n\n') + '\n\nFinal verification: one order remains.',
   recommendations: ['Review the retry acceptance boundary.', 'Add a duplicate-order scenario after confirming the contract.'],
@@ -81,7 +85,7 @@ const result = {
 };
 function response(id = 'review-created', agent = 'test-designer') {
   const citations = [{ scope: 'stories', id: 'story-checkout', label: 'Checkout retry acceptance' }];
-  const events = [{ id: 'event-context', transaction_id: id, phase: 'context', level: 'info', message: 'Retrieved the permitted checkout story.', details: { permitted_sources: 1 }, created_at: '2026-09-10T10:00:00Z' }];
+  const events = [{ id: 'event-context', transaction_id: id, phase: 'context', level: 'info', message: 'Retrieved the permitted checkout story.', details: { permitted_sources: 1, trace_id: 'primary-call' }, created_at: '2026-09-10T10:00:00Z' }];
   const metadata = { agent_id: agent, agent_name: 'Test Design Agent', prompt: 'Review checkout retry coverage.', result, citations, guardrails: ['Project-scoped evidence only.'], generation_mode: 'deterministic' };
   return { transaction: { id, project_id: 'project', app_type_id: 'app', title: 'Checkout retry review', category: 'ai_agent', status: 'completed', metadata, event_count: 1, created_at: '2026-09-10T10:00:00Z' }, result, citations, guardrails: metadata.guardrails, events, provenance: { provider: 'Evidence engine', generation_mode: 'deterministic', requires_human_review: true, context_route: { input_type: 'test_design', priority_scopes: ['stories', 'test-cases'], deliverable_contract: 'Reviewable scenario brief' } } };
 }
@@ -186,17 +190,19 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     await page.getByText('Limited evidence', { exact: true }).waitFor();
     const proposals=page.getByRole('region',{name:'Structured agent proposals'});await page.getByRole('heading',{name:'Proposals for review'}).waitFor();await page.getByText('Acceptance Criteria:',{exact:true}).waitFor();await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Verify a duplicate submission/}).click();assert.equal(await page.getByLabel('Expected result 1',{exact:true}).inputValue(),'Exactly one order is retained');await page.getByRole('navigation',{name:'Choose proposal'}).getByRole('button',{name:/Complete checkout retry behavior/}).click();
-    await proposals.getByRole('button',{name:'Decline',exact:true}).click();await proposals.getByText('Proposal declined. No application changes were saved.',{exact:true}).waitFor();
-    await proposals.getByRole('button',{name:'Accept draft',exact:true}).click();await proposals.getByRole('button',{name:'Continue in Stories',exact:true}).waitFor();
-    await page.getByLabel('Story title',{exact:true}).fill('Reviewed checkout retry behavior');assert.equal(await proposals.getByRole('button',{name:'Accept draft',exact:true}).isEnabled(),true,'Editing invalidates the prior acceptance');await proposals.getByRole('button',{name:'Accept draft',exact:true}).click();
+    await proposals.getByRole('button',{name:'Decline',exact:true}).click();await proposals.getByText('Proposal declined. No changes were saved.',{exact:true}).waitFor();
+    await page.getByLabel('Story title',{exact:true}).fill('Reviewed checkout retry behavior');
+    await proposals.getByRole('button',{name:'Accept and create',exact:true}).click();await proposals.getByRole('button',{name:'Open saved Story',exact:true}).waitFor();
+    assert.equal(await proposals.getByRole('button',{name:'Saved',exact:true}).isDisabled(),true,'Saved proposal cannot be accepted twice');
     await capture(page,screenshots+'/09-next-actions-story-desktop.png');await fit(page,390);await capture(page,screenshots+'/10-next-actions-story-mobile.png');await fit(page,1440);
-    assert.deepEqual(await page.evaluate(()=>window.workspaceCalls.writes),[],'Accepting a draft does not silently mutate a domain record');
+    assert.equal((await page.evaluate(()=>window.workspaceCalls.writes)).length,1,'Explicit acceptance sends one domain proposal write');
     await page.getByText(result.evidence_gaps[0], { exact: true }).waitFor();
     const outcome=page.locator('.agent-outcome-panel');const outputTabs=outcome.getByRole('tablist',{name:'Output sections'});
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).focus();await page.keyboard.press('ArrowRight');
     assert.equal(await outputTabs.getByRole('tab',{name:/Findings/}).getAttribute('aria-selected'),'true');
     await outcome.getByText(result.findings[0].detail,{exact:true}).waitFor();assert.equal(await outcome.getByRole('tabpanel').count(),1,'One output section is presented at a time');
-    await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Next actions/}).evaluate(element=>element===document.activeElement),true);
+    await page.keyboard.press('End');assert.equal(await outputTabs.getByRole('tab',{name:/Model calls/}).evaluate(element=>element===document.activeElement),true);
+    await outputTabs.getByRole('tab',{name:/Next items/}).click();
     const nextAction=outcome.locator('.agent-brief-action-selection input').first();await nextAction.uncheck();assert.equal(await nextAction.isChecked(),false,'Next actions can be selected before entering editing');await nextAction.check();
     await outputTabs.getByRole('tab',{name:'Full brief',exact:true}).click();
     const completeOutput = outcome.getByRole('region',{name:'Complete specialist output'});
@@ -208,23 +214,21 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await completeOutput.evaluate(element=>element.scrollWidth<=element.clientWidth+1),true);
     await outputTabs.getByRole('tab',{name:'Overview',exact:true}).click();
     await capture(page, screenshots + '/04-specialist-result.png');
-    await page.getByRole('button', { name: 'Edit brief', exact: true }).click();
-    await page.getByRole('textbox',{name:/Detailed specialist output/}).fill('Edited review: confirm one order after an approved retry.');
-    await page.getByLabel('Edit next action 1', { exact: true }).fill('Review the approved retry contract with the product owner.');
-    await page.locator('.agent-outcome-recommendation-review input[type=checkbox]').nth(1).uncheck();
-    await page.getByRole('button',{name:'Compare edits',exact:true}).click();const comparison=outcome.getByRole('region',{name:'Current and proposed content'});await comparison.getByText('Edited review: confirm one order after an approved retry.',{exact:true}).waitFor();assert.match(await comparison.innerText(),/Changed/);await page.getByRole('button',{name:'Hide comparison',exact:true}).click();
+    assert.equal(await page.getByRole('button',{name:'Edit brief',exact:true}).count(),0);
+    assert.equal(await page.locator('.agent-outcome-action-dock').count(),0);
+    await outputTabs.getByRole('tab',{name:/Next items/}).click();
+    await outcome.locator('.agent-brief-action-selection input').nth(1).uncheck();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download brief', exact: true }).click();
     const download = await downloadPromise;
     assert.equal(download.suggestedFilename(), 'specialist-review.md');
     const exported = await readFile(await download.path(), 'utf8');
-    assert.match(exported, /Edited review: confirm one order/); assert.match(exported, /Review the approved retry contract with the product owner/);
+    assert.match(exported, /Review the checkout retry behavior/); assert.match(exported, /Review the retry acceptance boundary/);
     assert.doesNotMatch(exported, /Add a duplicate-order scenario after confirming the contract\./);
     assert.ok(exported.includes(result.deliverables[0].detail));
     assert.ok(exported.includes(result.findings[0].detail));
     assert.match(exported, /Checkout retry acceptance/); assert.match(exported, /No runtime retry trace/);
-    assert.deepEqual(await page.evaluate(() => window.workspaceCalls.writes), []);
-    await page.getByRole('button', { name: 'Finish editing', exact: true }).click();
+    assert.equal((await page.evaluate(() => window.workspaceCalls.writes)).length,1);
     await page.getByRole('button', { name: 'Sources', exact: true }).click();
     await page.getByRole('dialog', { name: 'Outcome evidence', exact: true }).waitFor();
     await page.getByText('Checkout retry acceptance', { exact: true }).waitFor();
@@ -311,8 +315,10 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByText('Plan a reusable workflow', {exact:true}).count(),0);
     assert.equal(await page.getByText('Evidence review diagnostics', {exact:true}).count(),0);
     assert.equal(await page.getByText('cited references', {exact:false}).count(),0);
-    await page.getByRole('button',{name:'Model calls',exact:true}).click();
-    await page.getByRole('heading',{name:'Model execution',exact:true}).waitFor();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Model calls/}).click();
+    await page.getByText('Request to model',{exact:true}).waitFor();
+    await page.getByRole('navigation',{name:'Choose activity model call'}).getByRole('button',{name:'Story Architect',exact:true}).click();
+    await page.getByText('followup-call',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Review brief',exact:true}).click();
     await page.goto(baseUrl + '?readonly=true&route=' + encodeURIComponent('/agentic-workflows?view=workbench&agent=test-designer&session=viewer-review'));
     await page.getByText(result.headline, { exact: true }).waitFor();
@@ -321,6 +327,7 @@ test('agent library and specialists provide scoped, editable evidence reviews wi
     assert.equal(await page.getByRole('button', { name: 'Accept agent output', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Create workflow draft', exact: true }).count(), 0);
     await page.locator('.agent-outcome-panel').getByRole('tab',{name:'Overview',exact:true}).click();
+    await page.locator('.agent-outcome-panel').getByRole('tab',{name:/Next items/}).click();
     await page.getByRole('button', { name: 'Download brief', exact: true }).waitFor();
     assert.deepEqual(errors, []);
   } finally {

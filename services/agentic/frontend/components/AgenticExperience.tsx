@@ -1,6 +1,6 @@
+import { AgentModelCalls, ModelCallDetails } from '../agents/AgentModelCalls';
 import { FormattedText } from "@hellotest/platform/frontend/src/shared/components/FormattedText";
 import { AgentArtifactReview } from "../agents/AgentArtifactReview";
-import { AiProposalCompare } from "@hellotest/ai/frontend/components/AiProposalCompare";
 import { AutomationRepairReview } from "@hellotest/ai/frontend/components/AutomationRepairReview";
 import { QualityEvidencePanel } from "@hellotest/ai/frontend/components/QualityEvidencePanel";
 import specialistProfiles from "../../shared/workflowSpecialists.json";
@@ -204,9 +204,11 @@ type AgenticCommandComposerProps = {
   running?: boolean;
   scopeLabel?: string;
   smartContext?: SmartContextSelection | null;
+  evidenceScopeControl?: ReactNode;
 };
 
 export function AgenticCommandComposer({
+  evidenceScopeControl,
   appTypeId,
   agents = HELLOTEST_AGENT_CATALOG,
   agentId,
@@ -308,6 +310,7 @@ export function AgenticCommandComposer({
               projectId={projectId}
             />
           ) : null}
+          {evidenceScopeControl}
         </div>
         <div className="agent-command-composer__submit-group">
           <details className="agent-command-options" ref={optionsDetailsRef} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); optionsDetailsRef.current?.removeAttribute("open"); optionsDetailsRef.current?.querySelector<HTMLElement>("summary")?.focus(); } }}>
@@ -894,7 +897,7 @@ const runningTrace = [
   { phase: "evaluation", message: "Grounding, completeness, traceability, and risk control will be scored." }
 ];
 
-export function AgentActivityTimeline({ events = [], running = false, activeAgentName = "HelloTest Agent" }: { events?: WorkspaceTransactionEvent[]; running?: boolean; activeAgentName?: string }) {
+export function AgentActivityTimeline({ events = [], running = false, activeAgentName = "HelloTest Agent", projectId }: { events?: WorkspaceTransactionEvent[]; running?: boolean; activeAgentName?: string; projectId?: string }) {
   const [evidenceEventId, setEvidenceEventId] = useState<string | null>(null);
 
   const items = events.length ? events.map((event, index) => ({
@@ -909,7 +912,7 @@ export function AgentActivityTimeline({ events = [], running = false, activeAgen
     id: `${event.phase}-${index}`,
     ...event,
     level: "info",
-    details: {},
+    details: {} as Record<string, unknown>,
     createdAt: undefined,
     status: index === 0 && running ? "running" : "queued"
   }));
@@ -929,8 +932,9 @@ export function AgentActivityTimeline({ events = [], running = false, activeAgen
             <article className="agent-activity-event" data-status={item.status} key={item.id}>
               {item.status === "running" ? <span className="agent-activity-event__marker"><IconLoader2 aria-hidden="true" className="agent-inline-spinner" size={14} /></span> : <span className="agent-activity-event__marker">{item.status === "complete" ? <IconCheck size={14} stroke={2.2} /> : item.status === "failed" ? <IconCircle size={12} /> : <IconClock size={13} stroke={1.9} />}</span>}
               <div>
-                <header><strong>{phaseLabels[item.phase] || item.phase.replace(/_/g, " ")}</strong>{item.createdAt ? <time>{formatActivityTime(item.createdAt)}</time> : null}</header>
+                <header><strong>{phaseLabels[item.phase] || item.phase.replace(/[._-]/g, " ")}</strong>{item.createdAt ? <time>{formatActivityTime(item.createdAt)}</time> : null}</header>
                 <p>{item.message}</p>
+                {projectId && typeof item.details?.trace_id === 'string' && <ModelCallDetails projectId={projectId} traceId={item.details.trace_id} />}
                 {details.length ? (
                   <AiEvidenceButton label="Inspect activity evidence" onClick={() => setEvidenceEventId(item.id)} />
                 ) : null}
@@ -974,7 +978,8 @@ const toDetailsList = (details: Record<string, unknown>) => Object.entries(detai
   .slice(0, 6)
   .map(([key, value]) => [key, typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : JSON.stringify(value)] as [string, string]);
 
-export function AgenticOutcomePanel({ result, citations = [], guardrails = [], provenance, onAccept }: {
+export function AgenticOutcomePanel({ result, citations = [], guardrails = [], provenance, sessionId }: {
+  sessionId?: string;
   result: AgenticAssistantResult;
   citations?: AgenticAssistantCitation[];
   guardrails?: string[];
@@ -994,17 +999,14 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       deliverable_contract?: string;
     } | null;
   };
-  onAccept?: (proposal: { response: string; recommendations: string[] }) => void;
 }) {
-  const [draftResponse, setDraftResponse] = useState(result.response);
-  const [draftRecommendations, setDraftRecommendations] = useState(result.recommendations);
+  const [projectId] = useCurrentProject();
+  const draftResponse = result.response;
+  const draftRecommendations = result.recommendations;
   const [selectedRecommendationIndexes, setSelectedRecommendationIndexes] = useState(result.recommendations.map((_, index) => index));
-  const [accepted, setAccepted] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [exportNotice, setExportNotice] = useState("");
   const [isEvidenceOpen, setIsEvidenceOpen] = useState(false);
   const [activeSection, setActiveSection] = useState("summary");
-  const [comparing, setComparing] = useState(false);
   const surfaceId = useId();
   const groundedCitations = result.citation_ids?.length
     ? citations.filter((citation) => result.citation_ids?.includes(citation.id))
@@ -1015,13 +1017,8 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
   const contextRouteLabel = provenance?.context_route?.input_type?.replace(/_/g, " ") || "specialist task";
 
   useEffect(() => {
-    setDraftResponse(result.response);
-    setDraftRecommendations(result.recommendations);
     setSelectedRecommendationIndexes(result.recommendations.map((_, index) => index));
-    setAccepted(false);
-    setEditing(false);
     setActiveSection(result.artifacts?.length ? "actions" : "summary");
-    setComparing(false);
     setExportNotice("");
   }, [result]);
 
@@ -1052,7 +1049,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         ...(findings.length ? [{ id: "findings", label: "Findings", count: findings.length }] : []),
         ...(deliverables.length ? [{ id: "deliverables", label: "Artifacts", count: deliverables.length }] : []),
         { id: "details", label: "Full brief", count: undefined },
-        ...((draftRecommendations.length || result.artifacts?.length || (result.agent_chain?.length || 0) > 1) ? [{ id: "actions", label: "Next actions", count: result.artifacts?.length || draftRecommendations.length }] : [])
+        { id: "actions", label: "Next items", count: result.artifacts?.length || draftRecommendations.length || undefined }, { id: "calls", label: "Model calls", count: result.model_call_records?.length || result.agent_chain?.filter(call => call.trace_id).length || undefined }
       ].map((section, index, sections) => <button aria-controls={`${surfaceId}-${section.id}`} aria-selected={activeSection === section.id} id={`${surfaceId}-tab-${section.id}`} key={section.id} onClick={() => setActiveSection(section.id)} onKeyDown={event => {
         const next = event.key === "ArrowRight" ? (index + 1) % sections.length : event.key === "ArrowLeft" ? (index + sections.length - 1) % sections.length : event.key === "Home" ? 0 : event.key === "End" ? sections.length - 1 : -1;
         if (next >= 0) { event.preventDefault(); setActiveSection(sections[next].id); event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus(); }
@@ -1064,11 +1061,11 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
       {result.verification && <details className="agent-brief-limitations" open={result.verification.status !== "passed"}><summary>Completion checks · {result.verification.status === "passed" ? "passed · human review required" : "more input needed"}</summary><ul>{result.verification.checks.map(check => <li key={check.id}>{check.passed ? "Passed" : "Unmet"}: {check.label}</li>)}</ul>{result.verification.limitations.map(item => <p key={item}>{item}</p>)}{result.model_execution && <p>Model: {result.model_execution.effective_model} · {result.model_execution.model_calls}/{result.model_execution.max_model_calls} calls · agent v{result.model_execution.agent_version}</p>}</details>}
       {exportNotice && <p className="agent-brief-export-notice" role="status">{exportNotice}</p>}
       {result.readiness?.limitations?.length ? <div className="agent-brief-limitations"><strong>Review limitations</strong><ul>{result.readiness.limitations.map(item => <li key={item}>{item}</li>)}</ul></div> : null}
-      <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary" && !editing} id={`${surfaceId}-summary`} role="tabpanel">
+      <section aria-labelledby={`${surfaceId}-tab-summary`} className="agent-outcome-executive-summary" hidden={activeSection !== "summary"} id={`${surfaceId}-summary`} role="tabpanel">
         <span>Decision summary</span><p>{result.executive_summary || draftResponse}</p>
       </section>
       {findings.length ? (
-        <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings" && !editing} id={`${surfaceId}-findings`} role="tabpanel">
+        <section aria-labelledby={`${surfaceId}-tab-findings`} className="agent-outcome-findings" aria-label="Agent findings" hidden={activeSection !== "findings"} id={`${surfaceId}-findings`} role="tabpanel">
           <header><span>Evidence-backed findings</span><strong>{findings.length} item{findings.length === 1 ? "" : "s"}</strong></header>
           <div>{findings.map((finding, index) => (
             <article data-priority={finding.priority || "info"} key={`${finding.title}:${index}`}>
@@ -1080,7 +1077,7 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
         </section>
       ) : null}
       {deliverables.length ? (
-        <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" aria-label="Specialist deliverables" hidden={activeSection !== "deliverables" && !editing} id={`${surfaceId}-deliverables`} role="tabpanel">
+        <section aria-labelledby={`${surfaceId}-tab-deliverables`} className="agent-outcome-deliverables" aria-label="Specialist deliverables" hidden={activeSection !== "deliverables"} id={`${surfaceId}-deliverables`} role="tabpanel">
           <header><span>Specialist deliverables</span><strong>Use as a reviewable starting point</strong></header>
           <div>{deliverables.map((deliverable, index) => (
             <article key={`${deliverable.title}:${index}`}>
@@ -1091,53 +1088,22 @@ export function AgenticOutcomePanel({ result, citations = [], guardrails = [], p
           ))}</div>
         </section>
       ) : null}
-      <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details" && !editing} id={`${surfaceId}-details`} role="tabpanel">
-        <label htmlFor={editing ? `${surfaceId}-response` : undefined}><span>Detailed specialist output</span><em>{editing ? "Editing export copy" : "Review brief"}</em></label>
-        {editing ? <textarea id={`${surfaceId}-response`} onChange={(event) => { setDraftResponse(event.target.value); setAccepted(false); }} rows={10} value={draftResponse} /> : <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>}
+      <div aria-labelledby={`${surfaceId}-tab-details`} className="agent-outcome-response-editor" hidden={activeSection !== "details"} id={`${surfaceId}-details`} role="tabpanel">
+        <div><span>Detailed specialist output</span><em>Review brief</em></div>
+        <div aria-label="Complete specialist output" className="agent-brief-body" role="region" tabIndex={0}><FormattedText text={draftResponse} /></div>
       </div>
-      {(draftRecommendations.length || result.artifacts?.length || (result.agent_chain?.length || 0) > 1) ? (
-        <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions" && !editing} id={`${surfaceId}-actions`} role="tabpanel">
-          <header className="agent-next-actions-heading"><div><h3>Next actions</h3><p>{result.artifacts?.length ? 'The applicable specialists prepared these outcomes from the primary review. Review and accept or decline each draft.' : 'Follow-up work is shown only when the findings support it.'}</p></div></header>
+        <div aria-labelledby={`${surfaceId}-tab-actions`} className="agent-outcome-section agent-outcome-recommendation-review" hidden={activeSection !== "actions"} id={`${surfaceId}-actions`} role="tabpanel">
+          <header className="agent-next-actions-heading"><div><h3>Next items</h3><p>{result.artifacts?.length ? 'The applicable specialists prepared these outcomes from the primary review. Review and accept or decline each draft.' : 'Follow-up work is shown only when the findings support it.'}</p></div><div className="agent-brief-icon-actions"><AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} /><button className="ghost-button compact" type="button" aria-label="Copy brief" title="Copy brief" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={17} /></button><button className="ghost-button compact" type="button" aria-label="Download brief" title="Download brief" onClick={() => { const url = URL.createObjectURL(new Blob([briefText()], { type: "text/markdown;charset=utf-8" })); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={17} /></button></div></header>
           {(result.agent_chain?.length || 0) > 1 && <ol className="agent-handoff-list" aria-label="Agent handoffs">{result.agent_chain!.slice(1).map((step, index) => <li key={`${step.agent_id}-${index}`} data-status={step.status}><div><strong>{step.name}</strong><span>{step.status === 'completed' ? `${step.artifact_count || 'Structured'} proposal${step.artifact_count === 1 ? '' : 's'} ready` : 'Needs follow-up'}</span></div><p>{step.reason || 'Prepared proposals from the review findings.'}</p>{step.detail && <p>{step.detail}</p>}</li>)}</ol>}
-          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} /> : null}
+          {result.artifacts?.length ? <AgentArtifactReview artifacts={result.artifacts} chain={result.agent_chain || []} sessionId={sessionId} /> : null}
           {draftRecommendations.length > 0 && <h4>Remaining review considerations</h4>}
-          {editing ? <div className="agent-recommendation-editor">{draftRecommendations.map((item, index) => (
-            <label data-selected={selectedRecommendationIndexes.includes(index) || undefined} key={`${index}:${result.recommendations[index]}`}>
-              <input checked={selectedRecommendationIndexes.includes(index)} onChange={(event) => { setSelectedRecommendationIndexes((current) => event.target.checked ? [...new Set([...current, index])] : current.filter((itemIndex) => itemIndex !== index)); setAccepted(false); }} type="checkbox" />
-              <textarea aria-label={`Edit next action ${index + 1}`} onChange={(event) => { setDraftRecommendations((current) => current.map((recommendation, itemIndex) => itemIndex === index ? event.target.value : recommendation)); setAccepted(false); }} rows={2} value={item} />
-            </label>
-          ))}</div> : <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); setAccepted(false); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>}
+          <div className="agent-brief-action-selection">{draftRecommendations.map((item, index) => <label key={index}><input checked={selectedRecommendationIndexes.includes(index)} onChange={event => { setSelectedRecommendationIndexes(current => event.target.checked ? [...new Set([...current, index])] : current.filter(itemIndex => itemIndex !== index)); }} type="checkbox" /><div className="agent-next-action-copy"><FormattedText text={item} /></div></label>)}</div>
         </div>
-      ) : null}
       {result.assumptions.length ? <details className="agent-outcome-details"><summary>Assumptions to verify ({result.assumptions.length})</summary><ul>{result.assumptions.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
       {evidenceGaps.length ? <details className="agent-outcome-details is-evidence-gap" open><summary>Evidence gaps ({evidenceGaps.length})</summary><ul>{evidenceGaps.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
-      <AiEvidenceButton label="Sources" onClick={() => setIsEvidenceOpen(true)} />
-      <div className="agent-outcome-action-dock" hidden={activeSection === "actions" && Boolean(result.artifacts?.length) && !editing}>
-      <div className="agent-brief-tools">
-        <span>{provenance?.generation_mode === "llm" ? "Model-assisted review" : "Evidence summary"}</span>
-        <button className="ghost-button compact" type="button" aria-pressed={editing} onClick={() => { setEditing(value => !value); setActiveSection("details"); }}>{editing ? "Finish editing" : "Edit brief"}</button>
-        <button className="ghost-button compact" type="button" onClick={async () => { try { await navigator.clipboard.writeText(briefText()); setExportNotice("Brief copied."); } catch { setExportNotice("Copy is unavailable. Download the brief instead."); } }}><IconCopy size={15} aria-hidden="true" />Copy</button>
-        <button className="ghost-button compact" type="button" onClick={() => { const blob = new Blob([briefText()], { type: "text/markdown;charset=utf-8" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "specialist-review.md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); setExportNotice("Review brief downloaded."); }}><IconDownload size={15} aria-hidden="true" />Download brief</button>
-      </div>
-      {editing ? <button aria-pressed={comparing} className="ghost-button compact" onClick={() => setComparing(value => !value)} type="button">{comparing ? "Hide comparison" : "Compare edits"}</button> : null}
-      <footer className="agent-outcome-review-actions">
-        <span>{onAccept ? accepted ? "Reviewed proposal accepted." : "Review the edited selection before accepting." : "Edits apply to your copied or downloaded brief. Use the destination workspace to save application changes."}</span>
-        <button className="ghost-button" disabled={draftResponse === result.response && draftRecommendations.every((item, index) => item === result.recommendations[index]) && selectedRecommendationIndexes.length === result.recommendations.length && selectedRecommendationIndexes.every((value, index) => value === index)} onClick={() => {
-          setDraftResponse(result.response);
-          setDraftRecommendations(result.recommendations);
-          setSelectedRecommendationIndexes(result.recommendations.map((_, index) => index));
-          setAccepted(false);
-        }} type="button">Reset</button>
-        {onAccept && <button className="primary-button" disabled={!draftResponse.trim() || accepted} onClick={() => {
-          const recommendations = selectedRecommendationIndexes.map((index) => draftRecommendations[index]?.trim()).filter(Boolean);
-          onAccept?.({ response: draftResponse.trim(), recommendations });
-          setAccepted(true);
-        }} type="button">Accept agent output</button>}
-      </footer>
-      </div>
-      {comparing ? <AiProposalCompare fields={[{ label: "Brief", before: result.response, after: draftResponse }, { label: "Next actions", before: result.recommendations.join("\n"), after: selectedRecommendationIndexes.map(index => draftRecommendations[index]).join("\n") }]} /> : null}
+      <section role="tabpanel" aria-labelledby={`${surfaceId}-tab-calls`} id={`${surfaceId}-calls`} hidden={activeSection !== "calls"}><AgentModelCalls projectId={projectId} chain={result.agent_chain} records={result.model_call_records} sessionId={sessionId} /></section>
       <AiEvidenceFlyout
-        description="Review the sources, guardrails, provider, and approval boundary behind this editable outcome."
+        description="Review the sources, guardrails, provider, and approval boundary behind this outcome."
         eyebrow="Agent outcome · Evidence"
         facts={[
           { label: "References", value: groundedCitations.length },

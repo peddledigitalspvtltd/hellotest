@@ -7,7 +7,7 @@ module.exports=fp(async function mcpPlugin(app){
  backplane.configure(app);
  app.addHook('onRoute',registry.register);
  const {handler,tools}=require('./mcpServer');
- const publicUrl=process.env.HELLOTEST_MCP_PUBLIC_URL;
+ const publicUrl=process.env.HELLOTEST_MCP_PUBLIC_URL || (/^https:\/\//.test(process.env.HELLOTEST_API_PUBLIC_URL || '') ? `${process.env.HELLOTEST_API_PUBLIC_URL.replace(/\/$/,'')}/mcp` : /^https:\/\//.test(process.env.HELLOTEST_PUBLIC_URL || '') ? `${process.env.HELLOTEST_PUBLIC_URL.replace(/\/$/,'')}/api/mcp` : undefined);
  if(process.env.HELLOTEST_MCP_SIGNING_KEY&&Buffer.byteLength(process.env.HELLOTEST_MCP_SIGNING_KEY)<32)throw new Error('HELLOTEST_MCP_SIGNING_KEY must contain at least 32 bytes.');
  if(publicUrl){
   const endpoint=new URL(publicUrl);
@@ -23,8 +23,8 @@ module.exports=fp(async function mcpPlugin(app){
  const acceptsOrigin=req=>!req.headers.origin||origins.has(req.headers.origin);
  let inFlight=0;const capacity=Math.min(64,Math.max(1,Number(process.env.HELLOTEST_MCP_MAX_CONCURRENT)||16));
  app.route({method:['POST','GET','DELETE'],url:'/mcp',bodyLimit:128*1024,handler:async(req,reply)=>{
-  if(!acceptsHost(req))return reply.code(403).send({code:'MCP_HOST_DENIED',error:'MCP origin or host denied.'});
-  if(!acceptsOrigin(req))return reply.code(403).send({code:'MCP_ORIGIN_DENIED',error:'MCP origin or host denied.'});
+  if(!acceptsHost(req))return reply.code(403).send({code:'MCP_HOST_DENIED',error:'MCP origin or host denied.',message:'Configure HELLOTEST_MCP_PUBLIC_URL for this public endpoint or add the exact server hostname to HELLOTEST_MCP_ALLOWED_HOSTS, then recreate the API container. The reverse proxy must preserve the public Host.'});
+  if(!acceptsOrigin(req))return reply.code(403).send({code:'MCP_ORIGIN_DENIED',error:'MCP origin or host denied.',message:'Add the external browser client’s exact Origin to CORS_ORIGIN, then recreate the API container. Server-to-server clients may omit Origin.'});
   if(req.method!=='POST')return reply.code(405).header('Allow','POST').send({error:'This stateless MCP endpoint accepts POST only.'});
   if(inFlight>=capacity)return reply.code(429).header('Retry-After','2').send({error:'MCP capacity reached.'});
   inFlight++;const controller=new AbortController();const disconnected=()=>{if(!reply.raw.writableEnded)controller.abort();};req.raw.once('aborted',disconnected);reply.raw.once('close',disconnected);

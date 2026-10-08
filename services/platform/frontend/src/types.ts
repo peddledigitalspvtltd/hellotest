@@ -2915,6 +2915,7 @@ export type AutomationRepairSummary = {id?:string;project_id?:string;status:stri
 export type AgentStructuredArtifact = {target_id?:string;target_revision?:number;kind:"story"|"test_case"|"defect";title:string;description:string;priority:string;citation_ids:string[];acceptance_criteria?:string[];prerequisites?:string[];steps?:Array<{action:string;expected_result:string}>;reproduction_steps?:string[];expected_result?:string;actual_result?:string;severity?:string};
 export type AgenticAssistantResult = {
   artifacts?: AgentStructuredArtifact[];
+  model_call_records?: Array<{name:string;trace_id:string|null;status:string;attempt:number}>;
   agent_chain?: Array<{agent_id:string;name:string;status:string;trace_id?:string|null;kind?:AgentStructuredArtifact["kind"];reason?:string;detail?:string;artifact_count?:number}>;
   automation_repair?: AutomationRepairSummary;
   quality_assessment?: QualityEvidenceReport;

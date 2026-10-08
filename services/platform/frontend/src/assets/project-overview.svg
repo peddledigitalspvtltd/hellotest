@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <mask id="details" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+      <rect width="32" height="32" fill="#fff"/>
+      <g fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 8l4-4h13v24H1M18 7h3v21M25 12h1a5 5 0 0 0 5-5"/>
+        <circle cx="10.5" cy="10" r="3.3"/>
+        <path d="m8.2 12.4-2.6 2.7"/>
+        <circle cx="5.5" cy="18.5" r="1.8"/>
+        <circle cx="5.5" cy="24.5" r="1.8"/>
+        <path d="M10 17.5h5M10 20h5M10 23.5h5M10 26h5"/>
+      </g>
+    </mask>
+  </defs>
+  <g fill="#000" mask="url(#details)">
+    <path d="M6 1h20a5 5 0 0 1 0 10h-1v17h-4V7H6Z"/>
+    <path d="M25 11h1a5 5 0 0 0 5-5v16a6 6 0 0 1-6 6Z"/>
+    <path d="M4 7h17v24H4Z"/>
+    <path d="M1 8l4-4h13v24H1Z"/>
+  </g>
+</svg>

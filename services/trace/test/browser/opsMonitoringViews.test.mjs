@@ -65,6 +65,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<QueryClientProvider
     await page.getByRole("tab", {name:"AI calls",exact:true}).click();
     await page.getByRole('button', { name:'Story assurance',exact:true }).waitFor();
     await page.getByRole('button', { name:'Story assurance',exact:true }).click();
+    const drawer=page.getByRole('dialog',{name:'Model call',exact:true});await drawer.waitFor();
+    const bounds=await drawer.boundingBox();assert.ok(bounds.x>0&&Math.abs(bounds.x+bounds.width-1440)<2,'Call details open at the right edge');
     await page.getByText('Request to model',{exact:true}).waitFor();
     await page.getByText(/Review the checkout criteria/).waitFor();
     assert.match(await page.getByRole('region',{name:'Selected AI call'}).innerText(),/Missing a boundary test/);
@@ -80,6 +82,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<QueryClientProvider
     await page.screenshot({path:'/tmp/hellotest-ai-traces-dark.png',fullPage:true});
     await page.evaluate(()=>document.documentElement.removeAttribute('data-theme'));
 
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog',{name:'Model call',exact:true}).waitFor({state:'detached'});
+    assert.equal(await page.getByRole('dialog',{name:'Model call',exact:true}).count(),0);
     await page.getByRole('searchbox',{name:'Search calls'}).fill('no-match');
     await page.getByText(/No model calls match this scope/).waitFor();
     await page.getByRole('tab', { name: 'Dashboard', exact: true }).click();
@@ -122,6 +127,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<QueryClientProvider
     await page.goto(`${url}?role=member`);
     await page.getByRole('button',{name:'Story assurance',exact:true}).click();
     await page.getByText('Workspace administrator access is required to inspect prompt and response content.').waitFor();
+    await page.getByRole('button',{name:'Close details',exact:true}).click();
     assert.equal(await page.getByRole('tab',{name:'Infrastructure logs',exact:true}).count(),0);
     assert.equal(await page.getByRole('tab',{name:'Dashboard',exact:true}).count(),0);
     await page.getByRole('tab', { name: 'Service health', exact: true }).click();

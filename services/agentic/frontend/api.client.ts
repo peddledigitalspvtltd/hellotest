@@ -1,3 +1,4 @@
+import type { AgentStructuredArtifact } from '@hellotest/platform/frontend/src/types';
 import { AI_REQUEST_TIMEOUT_MS } from "@hellotest/platform/frontend/src/platform/lib/requestTimeout";
 import type { RepositoryAgentCatalog, RepositoryAgentPublishResult, RepositoryAgentRun, RepositoryAgentRunInput, RepositoryAgentRunPage } from "./agents/agentTypes";
 import type { AgenticAssistantMode, AgenticAssistantSessionResponse, AgenticAssistantSavedSessionResponse, AgenticWorkflow, AgenticWorkflowRun, AgenticWorkflowReadiness, RecorderSessionResponse, WorkspaceTransaction } from "@hellotest/platform/frontend/src/types";
@@ -17,9 +18,14 @@ type AgenticApiAgentTestInput = {
   credential?: Record<string, unknown> | null;
 };
 
+export type AgentProposalReceipt = { id: string; kind: 'story' | 'test_case' | 'defect'; updated: boolean; proposal_index: number; saved: boolean; reused?: boolean };
 export const agenticApi = {
+  agentProposals: {
+    list: (sessionId: string) => request<Array<{ proposal_index: number; receipt: AgentProposalReceipt }>>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals`, { cache: 'no-store' }),
+    accept: (sessionId: string, input: { index: number; artifact: AgentStructuredArtifact; app_type_id?: string }) => request<AgentProposalReceipt>(`/agentic-assistant/sessions/${encodeURIComponent(sessionId)}/proposals/accept`, { method: 'POST', body: JSON.stringify(input) })
+  },
   mcp: {
-    status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
+    status: (projectId:string) => request<{status:string;tool_count:number;checked_at:string;external_transport?:{public_endpoint_configured:boolean;request_host_allowed:boolean;request_origin_allowed:boolean}}>(`/agentic-workflows/mcp/status${toQueryString({project_id:projectId})}`,{cache:"no-store"},10000),
     server: (projectId:string) => request<{id:string;name:string;endpoint:string;operation_count:number;tools:Array<{name:string;description:string;read_only:boolean}>}>(`/agentic-workflows/mcp/server${toQueryString({project_id:projectId})}`),
     credentials: (projectId:string) => request<Array<{id:string;client_id:string;expires_at:string;revoked_at:string|null}>>(`/agentic-workflows/mcp/credentials${toQueryString({project_id:projectId})}`),
     issue: (projectId:string) => request<{id:string;token:string;expires_at:string}>("/agentic-workflows/mcp/credentials",{method:"POST",body:JSON.stringify({project_id:projectId,client_id:"external-host"})}),

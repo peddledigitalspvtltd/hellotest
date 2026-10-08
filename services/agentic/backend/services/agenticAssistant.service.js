@@ -499,13 +499,13 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
 
   const headers = { "Content-Type": "application/json" };
   if (integrationService.isUsableApiCredential(integration.api_key)) headers.Authorization = `Bearer ${integration.api_key}`;
-  const request = (jsonMode) => {
+  const request = async (jsonMode) => {
     execution.assertActive();
     if (budget.used >= budget.max) throw agentContract.fail("The model call budget is exhausted. Review the output contract or increase the permitted calls.", "AGENT_MODEL_BUDGET");
     budget.used += 1;
     const remaining = deadline - Date.now();
     if (remaining < 1_000) throw agentError("The model review deadline was reached.", 504);
-    return fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
+    const response = await fetchLlmWithRetry(resolveChatCompletionsUrl(integration.base_url), {
     method: "POST",
     headers,
     signal: execution.current()?.signal,
@@ -528,6 +528,8 @@ const requestLlmResult = async ({ integration, agent, mode, prompt, context, cit
       maxOutputTokens: agent.limits?.max_output_tokens || 4000,
       maxResponseBytes: 512 * 1024
     });
+    if (budget.onCall) await budget.onCall({ name: agent.name, trace_id: response.headers?.get?.("x-hellotest-llm-trace-id") || null, status: response.ok ? "response_received" : "failed", attempt: budget.used });
+    return response;
   };
 
   let response = await request(true);
@@ -862,6 +864,11 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       details: { provider: integration.name, model: integration.model, decision_summary: agent.objective, progress: 68 } });
     const deadline = Math.min(Date.now() + MODEL_TIMEOUT_MS, startedAt + (definition?.limits.timeout_ms || SESSION_TIMEOUT_MS));
     const budget = policy.model_budget || { used: 0, max: agent.limits.max_model_calls };
+    const modelCallRecords = [];
+    budget.onCall = async record => {
+      modelCallRecords.push(record);
+      await appendEvent(transactionId,{phase:"model.call",level:record.status === "failed" ? "warning" : "info",message:`${record.name} · model call ${record.attempt} ${record.status === "failed" ? "failed" : "response received"}.`,details:{name:record.name,trace_id:record.trace_id,attempt:record.attempt}});
+    };
     const boundedPayload = JSON.parse(buildBoundedAgentPromptPayload({ mode: normalizedMode, prompt: normalizedPrompt, context, citations, contextRoute, knowledgeRetrieval }));
     const suppliedIds = new Set(Object.values(boundedPayload.bounded_workspace_context).flat().map(item => item.citation?.id || item.id));
     const suppliedCitations = citations.filter(citation => suppliedIds.has(citation.id));
@@ -937,6 +944,7 @@ const respond = async ({ user, project_id, app_type_id, mode, agent_id, prompt, 
       result.verification.checks.push({id:"typed_repair",passed:typed,label:typed?"A typed locator proposal preserves the authored assertions; runner verification is still required.":"No supported typed repair was produced. Supply current failure evidence or author the unsupported change."});
       if (!typed) { result.readiness.status="insufficient_evidence"; result.verification.status="needs_input"; }
     }
+    result.model_call_records = modelCallRecords;
     result.model_execution = { ...modelObservation, model_calls: budget.used, max_model_calls: budget.max, max_output_tokens: agent.limits.max_output_tokens,
       agent_version: registered?.version || 1, agent_definition_hash: registered?.definition_hash || fingerprint(specialistProfiles[normalizedAgentId] || {}), prompt_template_version: "agent-review/2", verifier_version: featureProfile?.verifier || "agent-contract/1", generation_mode: "llm" };
     if (!result.readiness.task_evidence_count) result.grounding_status = "insufficient_context";

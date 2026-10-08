@@ -157,3 +157,12 @@ TESTENGINE_WEB_REPLICAS=1 ./hellotest.sh up --build --stack local --no-cache
 ```
 
 Keep the generated environment directory across deployments. Use a configured runner callback URL reachable from that runner. This command rebuilds Compose services; a native host Playwright helper has its own startup lifecycle. Updating source and rebuilding on the cloud host is required to apply code changes there.
+
+The server also derives its MCP authority from an explicitly configured HTTPS
+`HELLOTEST_API_PUBLIC_URL` or `HELLOTEST_PUBLIC_URL` when the MCP-specific URL is
+unset. Compose forwards these settings to the API. Host denials return
+`MCP_HOST_DENIED`; browser-origin denials return `MCP_ORIGIN_DENIED`, each with
+configuration guidance. An internal status check is not a public gateway test.
+Server-to-server clients can connect using the endpoint and a fresh MCP bearer
+credential without an Origin; browser clients must use an explicitly trusted
+`CORS_ORIGIN`. Untrusted hosts/origins remain rejected.

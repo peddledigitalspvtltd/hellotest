@@ -67,8 +67,13 @@ async function withServer(
     });
     if (response.status === 401)
       throw Object.assign(connections.fail("MCP authentication failed (HTTP 401). For HelloTest, create a fresh host credential in HelloTest → Connect & inspect and enter only the mcp1. token in the Bearer credential field. Login tokens and API keys are not MCP credentials.", 502), {code:"MCP_UNAUTHORIZED"});
-    if (response.status === 403)
-      throw Object.assign(connections.fail("MCP access denied (HTTP 403). Check the server's allowed hostname and Origin, and the credential user's project access.", 502), {code:"MCP_ACCESS_DENIED"});
+    if (response.status === 403) {
+      let code; try { code = JSON.parse(response.body).code; } catch { /* Do not display an untrusted server response. */ }
+      const message = code === "MCP_HOST_DENIED" ? "MCP server hostname denied. Configure HELLOTEST_MCP_PUBLIC_URL to the public endpoint, preserve the proxy Host, and recreate the API container."
+        : ["MCP_ORIGIN_DENIED", "CORS_ORIGIN_DENIED"].includes(code) ? "MCP browser Origin denied. Add the client's exact website origin to CORS_ORIGIN and recreate the API container."
+        : "MCP access denied (HTTP 403). Check the server's allowed hostname and Origin, and the credential user's project access.";
+      throw Object.assign(connections.fail(message, 502), { code: ["MCP_HOST_DENIED", "MCP_ORIGIN_DENIED", "CORS_ORIGIN_DENIED"].includes(code) ? code : "MCP_ACCESS_DENIED" });
+    }
     if (response.status < 200 || response.status >= 300)
       throw connections.fail(
         `MCP server returned HTTP ${response.status}. Check the connection.`,

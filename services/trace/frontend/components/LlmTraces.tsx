@@ -1,3 +1,4 @@
+import { ModelCallDrawer } from './ModelCallDetails';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -22,11 +23,8 @@ export function LlmTraces({ projectId }: { projectId: string }) {
     queryFn: ({ signal }) => traceApi.llmTraces.list({ project_id: projectId, search: filter, status, since, cursor: cursors.at(-1), run_id: runId, session_id: sessionId }, signal),
     enabled: Boolean(projectId), retry: false, staleTime: 10000, refetchInterval: 15000, refetchIntervalInBackground: false
   });
-  const detail = useQuery({ queryKey: ['llm-trace', projectId, selected], queryFn: ({ signal }) => traceApi.llmTraces.detail(projectId, selected, signal), enabled: Boolean(projectId && selected), retry: false,
-    refetchInterval: query => query.state.data?.status === 'running' ? 5000 : false });
   const select = (id: string) => setParams(current => { const next = new URLSearchParams(current); if (id) next.set('llm_trace', id); else next.delete('llm_trace'); return next; }, { replace: true });
   const summary = query.data?.summary;
-  const trace = detail.data;
   return <section className="llm-traces" aria-label="AI request traces">
     <div className="llm-traces-toolbar">
       <label>Search calls<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Feature, model, request or run ID" /></label>
@@ -50,15 +48,6 @@ export function LlmTraces({ projectId }: { projectId: string }) {
       <td>{duration(item.duration_ms)}</td><td>{item.usage?.total_tokens?.toLocaleString() ?? '—'}</td><td>{new Date(item.started_at).toLocaleString()}</td>
     </tr>)}</tbody></table></div>}
     <div className="llm-traces-pagination"><button className="ghost-button compact" type="button" disabled={cursors.length === 1 || query.isFetching} onClick={() => setCursors(previous => previous.slice(0, -1))}>Previous</button><span>Page {cursors.length}</span><button className="ghost-button compact" type="button" disabled={!query.data?.next_cursor || query.isFetching} onClick={() => setCursors(previous => [...previous, query.data!.next_cursor!])}>Next</button></div>
-    {selected && <section className="llm-trace-detail" aria-label="Selected AI call">
-      <header><h3>Request &amp; response</h3><button className="ghost-button compact" type="button" onClick={() => select('')}>Close details</button></header>
-      {detail.isLoading && <p role="status">Loading call details…</p>}{detail.isError && <p role="alert">This trace is unavailable or has expired. <button className="ghost-button compact" type="button" onClick={() => void detail.refetch()}>Retry details</button></p>}
-      {trace && <>
-        <dl className="llm-trace-facts">{Object.entries({ 'Call ID': trace.id, 'Request ID': trace.request_id, 'Distributed trace': trace.trace_id, 'Workflow run': trace.run_id, 'Node': trace.node_id, 'Agent session': trace.session_id, 'Provider request': trace.provider_request_id, 'HTTP status': trace.http_status, 'Error': trace.error_code, 'Correction of': trace.correction_of }).filter(([, value]) => value != null).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
-        {trace.capture?.redacted && <p className="llm-traces-note">Sensitive fields and hidden provider reasoning have been removed from this capture.</p>}
-        {(trace.capture?.request_truncated || trace.capture?.response_truncated) && <p role="status">This capture reached the display storage limit. The provider call used the original payload.</p>}
-        {trace.content_access ? <div className="llm-trace-payloads"><details open><summary>Request to model</summary><pre>{JSON.stringify(trace.request_payload, null, 2)}</pre></details><details open><summary>Response from model</summary><pre>{trace.response_payload == null ? 'No response body was received.' : JSON.stringify(trace.response_payload, null, 2)}</pre></details></div> : <p>Workspace administrator access is required to inspect prompt and response content.</p>}
-      </>}
-    </section>}
+    {selected && <ModelCallDrawer projectId={projectId} traceId={selected} onClose={() => select('')} />}
   </section>;
 }

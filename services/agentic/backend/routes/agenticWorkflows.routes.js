@@ -66,6 +66,19 @@ module.exports = async function (fastify) {
     return review;
   });
 
+  fastify.get("/agentic-assistant/sessions/:id/proposals", async req => {
+    await fastify.authenticate(req);
+    const review = await agenticAssistantService.getSession(req.params.id, req.user);
+    return require('@hellotest/platform/backend/src/db').prepare('SELECT proposal_index,receipt FROM agent_proposal_acceptances WHERE session_id=? AND project_id=? ORDER BY proposal_index').all(req.params.id, review.transaction.project_id);
+  });
+  fastify.post("/agentic-assistant/sessions/:id/proposals/accept", { bodyLimit: 128 * 1024 }, async req => {
+    await fastify.authenticate(req);
+    if (req.apiKey) throw Object.assign(new Error('Use your signed-in session to accept a proposal.'), { statusCode: 403 });
+    const review = await agenticAssistantService.getSession(req.params.id, req.user);
+    if (review.session_state !== 'completed') throw Object.assign(new Error('Wait for the review to complete.'), { statusCode: 409 });
+    return require('../services/agentProposal.service').accept(fastify, req, review);
+  });
+
   const registry = require("../agents/agentRegistry.service");
   const agentAccess = async (req, permission, projectId) => {
     await fastify.authenticate(req);

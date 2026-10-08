@@ -16,6 +16,9 @@ import releaseNotesIcon from "../../assets/release-notes-icon.png";
 import testSuiteIcon from "../../assets/test-suite-icon.png";
 import moduleIcon from "../../assets/module-icon.png";
 import aiAgentsIcon from "../../assets/ai-agents-icon.png";
+import agenticStudioIcon from "../../assets/agentic-ai-studio.svg";
+import projectOverviewIcon from "../../assets/project-overview.svg";
+import testPlanIcon from "../../assets/test-plan.svg";
 
 type IconProps = {
   size?: number;
@@ -23,6 +26,9 @@ type IconProps = {
 };
 
 function AssetMaskIcon({ source, size = 16 }: { source: string; size?: number }) {
+  // Vite inlines SVGs as data URLs containing quotes and parentheses. CSS url()
+  // must be quoted or the browser discards the mask and shows a solid square.
+  const maskUrl = `url("${source.replace(/"/g, '%22')}")`;
   return (
     <span
       aria-hidden="true"
@@ -31,11 +37,11 @@ function AssetMaskIcon({ source, size = 16 }: { source: string; size?: number })
         display: "inline-block",
         flex: "0 0 auto",
         height: size,
-        maskImage: `url(${source})`,
+        maskImage: maskUrl,
         maskPosition: "center",
         maskRepeat: "no-repeat",
         maskSize: "contain",
-        WebkitMaskImage: `url(${source})`,
+        WebkitMaskImage: maskUrl,
         WebkitMaskPosition: "center",
         WebkitMaskRepeat: "no-repeat",
         WebkitMaskSize: "contain",
@@ -665,68 +671,18 @@ export function MoveIcon({ size, strokeWidth }: IconProps) {
 export function TestRunsResultsIcon({size=20}: IconProps) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4.1a1.5 1.5 0 0 1 2.25-1.3l13 7.9a1.5 1.5 0 0 1 0 2.6l-13 7.9A1.5 1.5 0 0 1 5 19.9Z"/></svg>;
 }
-/** Reference clipboard, pencil and clock, enlarged without the outer frame. */
-export function TestPlanIcon({ size = 24, strokeWidth = 2.6 }: IconProps) {
-  const clockMaskId = useId();
-  return (
-    <IconFrame size={size} strokeWidth={strokeWidth} viewBox="12 11 40 40">
-      <defs>
-        <mask id={clockMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64" stroke="none">
-          <rect width="64" height="64" fill="white" />
-          <circle cx="23" cy="45" r="5.5" fill="black" />
-        </mask>
-      </defs>
-      <g mask={`url(#${clockMaskId})`}>
-        <path d="M30.5 18.5h-6v31h21.5v-31h-6M26.5 18.5V47h17V18.5" />
-        <path d="m28.5 26 1.5 1.5 2-2.5m-3.5 8 1.5 1.5 2-2.5m-3.5 8 1.5 1.5 2-2.5M33 27h9m-9 7h9m-9 7h9" />
-      </g>
-      <path d="M30.5 16.5h3v-1.7a1.4 1.4 0 0 1 2.8 0v1.7h3v4h-8.8Z" />
-      <path d="M33.5 16.5v.5a1.4 1.4 0 0 0 2.8 0v-.5" />
-      <path d="M18 33V18a2 2 0 0 1 4 0v15l-2 4ZM18 18.5h4M18 33h4" />
-      <circle cx="23" cy="45" r="4.8" />
-      <path d="M23 43v2l1.8 1.8" />
-    </IconFrame>
-  );
+/** A configurable checklist and pencil, with clearance around the paper edge. */
+export function TestPlanIcon({ size = 24 }: IconProps) {
+  return <AssetMaskIcon size={size} source={testPlanIcon} />;
 }
-export function ProjectOverviewIcon({size=20}: IconProps) {
-  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 2h20v15H2ZM2 5h20M12 17v5m-5 0 5-5 5 5"/><path d="M8 7v4h4a4 4 0 1 1-4-4ZM15 8h4m-4 3h4m-4 3 1 1 3-3"/></svg>;
+/** Search and status details over a project plan, with transparent cutouts. */
+export function ProjectOverviewIcon({ size = 24 }: IconProps) {
+  return <AssetMaskIcon size={size} source={projectOverviewIcon} />;
 }
 
-function StudioReferenceAgent({ x, y }: { x: number; y: number }) {
-  return (
-    <g transform={`translate(${x} ${y})`}>
-      <circle cx="8" cy="-4" r="2" />
-      <path d="M8-2v2M0 4h-1a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h1m16-6h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1" />
-      <rect width="16" height="12" rx="5" />
-      <circle cx="5" cy="5" r=".9" fill="currentColor" stroke="none" />
-      <circle cx="11" cy="5" r=".9" fill="currentColor" stroke="none" />
-      <path d="M5 9h6M-1 18a9 6 0 0 1 18 0Z" />
-    </g>
-  );
-}
-
-/** The three-agent triangle from the supplied illustration, without its text. */
-export function AiAgentStudioIcon({ size = 24, strokeWidth = 3 }: IconProps) {
-  const triangleMaskId = useId();
-  return (
-    <IconFrame size={size} strokeWidth={strokeWidth} viewBox="0 0 64 64">
-      <defs>
-        <mask id={triangleMaskId} maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64" stroke="none">
-          <rect width="64" height="64" fill="white" />
-          <g fill="black">
-            <rect x="24" y="9" width="16" height="12" rx="5" />
-            <rect x="4" y="39" width="16" height="12" rx="5" />
-            <rect x="44" y="39" width="16" height="12" rx="5" />
-            <path d="M23 27a9 6 0 0 1 18 0ZM3 57a9 6 0 0 1 18 0Zm40 0a9 6 0 0 1 18 0Z" />
-          </g>
-        </mask>
-      </defs>
-      <path d="M32 21 12 46h40Z" mask={`url(#${triangleMaskId})`} />
-      <StudioReferenceAgent x={24} y={9} />
-      <StudioReferenceAgent x={4} y={39} />
-      <StudioReferenceAgent x={44} y={39} />
-    </IconFrame>
-  );
+/** Reference AI processor and face, with subtle repeated profile outlines. */
+export function AiAgentStudioIcon({ size = 24 }: IconProps) {
+  return <AssetMaskIcon size={size} source={agenticStudioIcon} />;
 }
 
 /** Full reference composition: clockwise arrow, four-line document and pencil. */

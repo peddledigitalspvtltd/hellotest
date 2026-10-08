@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <mask id="pencil-clearance" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+      <rect width="32" height="32" fill="#fff" stroke="none"/>
+      <path d="m21.5 25 .5-4.5L28 9l3 1.5L25 22Z" fill="#000" stroke="#000" stroke-width="4"/>
+    </mask>
+  </defs>
+  <g mask="url(#pencil-clearance)">
+    <path d="M3 2h16l7 7v21H3ZM19 2v7h7"/>
+    <path d="M8.90 6.15 9.19 4.86 10.81 4.86 11.10 6.15 11.94 6.50 13.06 5.79 14.21 6.94 13.50 8.06 13.85 8.90 15.14 9.19 15.14 10.81 13.85 11.10 13.50 11.94 14.21 13.06 13.06 14.21 11.94 13.50 11.10 13.85 10.81 15.14 9.19 15.14 8.90 13.85 8.06 13.50 6.94 14.21 5.79 13.06 6.50 11.94 6.15 11.10 4.86 10.81 4.86 9.19 6.15 8.90 6.50 8.06 5.79 6.94 6.94 5.79 8.06 6.50Z"/>
+    <circle cx="10" cy="10" r="1.7"/>
+    <rect x="6" y="19" width="3" height="3" rx=".2"/>
+    <rect x="6" y="25" width="3" height="3" rx=".2"/>
+    <path d="M12 20.5h7M12 26.5h7"/>
+  </g>
+  <path d="m21.5 25 .5-4.5L28 9l3 1.5L25 22ZM22 20.5l3 1.5m2-11 3 1.5"/>
+</svg>

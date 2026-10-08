@@ -274,3 +274,5 @@
 .agent-proposal-notice { padding-inline: 20px; }
 .agent-structured-steps { padding-left: 22px; }
 @media(max-width:700px) { .agent-structured-layout footer > div { width: 100%; } .agent-structured-layout footer button { flex: 1 1 auto; } }
+
+.agent-proposal-tools { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }

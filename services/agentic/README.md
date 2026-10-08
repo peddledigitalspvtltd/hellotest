@@ -24,3 +24,21 @@ npm run build --workspace @hellotest/agentic
 Run `npm run setup` first. Development uses the shared shell; the API requires configured foundation infrastructure. Cross-owner imports use declared `@hellotest/...` exports. This private workspace still depends on repository runtime adapters and the shared schema.
 
 Read [CONTRIBUTING](../../CONTRIBUTING.md) for setup/debugging and [capability packaging](../../docs/architecture/capability-packaging.md) for selection, flags, permissions and release compatibility.
+
+### Reviewed specialist outcomes
+
+Specialists keep their intent-specific brief, findings and original evidence when
+handing work to applicable Story, Test Case and Defect authors. Next items displays
+editable native proposals; explicit acceptance saves them through the native
+domain routes. The project, proposal kind and existing Story identity/revision
+come from the recorded review. Current access is checked again on acceptance.
+Native writes and a durable proposal receipt share a transaction, so repeated or
+concurrent accepts do not create duplicates. Decline does not save a domain record.
+
+Model calls sit alongside Next items. Recorded activity events link to their own
+request/response capture, including correction and compatibility attempts.
+Browser mission model calls are scoped to the mission transaction. The AI calls
+catalog opens its selected call in a right-side dialog with focus containment and
+Escape/close behavior. Capture content retains the existing administrator access
+restriction and redaction policy. Copy/download tools sit in Next items; the
+separate brief-editing footer is removed.

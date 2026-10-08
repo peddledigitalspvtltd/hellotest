@@ -57,3 +57,18 @@ test('public MCP authority accepts normalized hosts but requires explicit extern
  const origin=await app.inject({method:'POST',url:'/mcp',headers:{host:'app.hellotest.ai',origin:'https://untrusted.example'},payload});assert.equal(origin.statusCode,403);assert.equal(origin.json().code,'MCP_ORIGIN_DENIED');
  const host=await app.inject({method:'POST',url:'/mcp',headers:{host:'app.hellotest.ai.evil.example'},payload});assert.equal(host.statusCode,403);assert.equal(host.json().code,'MCP_HOST_DENIED');
 });
+
+test('configured public application/API URLs supply an exact external MCP authority without trusting arbitrary hosts',async t=>{
+ const names=['HELLOTEST_MCP_PUBLIC_URL','HELLOTEST_PUBLIC_URL','HELLOTEST_API_PUBLIC_URL'];const previous=Object.fromEntries(names.map(key=>[key,process.env[key]]));
+ t.after(()=>{for(const key of names)if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];});
+ for(const settings of [{HELLOTEST_PUBLIC_URL:'https://app.hellotest.ai'},{HELLOTEST_API_PUBLIC_URL:'https://api.example.test/api'}]){
+  for(const key of names)delete process.env[key];Object.assign(process.env,settings);
+  const authority=new URL(Object.values(settings)[0]).host;
+  const app=Fastify();app.register(plugin(async()=>{throw Object.assign(new Error('credential required'),{statusCode:401});}));await app.ready();
+  try{
+   const own=await app.inject({method:'POST',url:'/mcp',headers:{host:authority},payload});assert.equal(own.statusCode,401,own.body);
+   const wrong=await app.inject({method:'POST',url:'/mcp',headers:{host:'invented.example.test'},payload});assert.equal(wrong.statusCode,403);assert.equal(wrong.json().code,'MCP_HOST_DENIED');assert.match(wrong.json().message,/HELLOTEST_MCP_PUBLIC_URL/);
+   const origin=await app.inject({method:'POST',url:'/mcp',headers:{host:authority,origin:'https://invented.example.test'},payload});assert.equal(origin.statusCode,403);assert.equal(origin.json().code,'MCP_ORIGIN_DENIED');assert.match(origin.json().message,/CORS_ORIGIN/);
+  }finally{await app.close();}
+ }
+});

@@ -23,7 +23,8 @@
     "agentic": [
       "automation",
       "knowledge",
-      "integration"
+      "integration",
+      "trace"
     ],
     "chatbot": [
       "knowledge",

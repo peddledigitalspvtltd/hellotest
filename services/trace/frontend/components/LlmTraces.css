@@ -25,3 +25,11 @@
 .llm-trace-payloads summary { font-size: 13px; font-weight: 600; cursor: pointer; padding: 8px 0; }
 .llm-trace-payloads pre { max-height: 440px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-muted, var(--surface)); border: 1px solid var(--border); padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.6; margin: 0; }
 @media(max-width: 700px) { .llm-traces-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .llm-trace-payloads, .llm-trace-facts { grid-template-columns: minmax(0,1fr); } .llm-trace-detail { padding: 12px; } }
+
+.llm-call-drawer-backdrop { position: fixed; inset: 0; z-index: 1400; background: #142a3b55; display: flex; justify-content: flex-end; }
+.llm-call-drawer { width: min(760px, 96vw); height: 100dvh; display: flex; flex-direction: column; gap: 16px; padding: 24px; box-sizing: border-box; overflow-y: auto; background: var(--app-surface, var(--card-bg)); color: var(--text); box-shadow: -12px 0 40px #0003; }
+.llm-call-drawer > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.llm-call-drawer h2 { margin: 0; }
+.llm-call-drawer .llm-trace-payloads { grid-template-columns: minmax(0, 1fr); }
+.llm-call-drawer .llm-trace-payloads pre { max-height: none; }
+@media(max-width: 700px) { .llm-call-drawer { width: 100%; padding: 16px; } }

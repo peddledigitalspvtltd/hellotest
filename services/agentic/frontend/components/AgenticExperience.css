@@ -1596,3 +1596,14 @@ html body .agent-outcome-panel { min-width: 0; padding: 24px; border: 1px solid 
 .agent-next-action-copy { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .agent-next-action-copy .formatted-text > :first-child { margin-top: 0; }
 .agent-outcome-action-dock[hidden] { display: none !important; }
+
+.agent-outcome-panel [role="tabpanel"][hidden] { display: none !important; }
+.agent-brief-icon-actions, .agent-model-calls > nav { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.agent-next-actions-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.agent-model-calls { display: grid; gap: 16px; min-width: 0; }
+.agent-command-evidence-scope { position: relative; }
+.agent-command-evidence-scope > summary { display: flex; align-items: center; cursor: pointer; min-height: 32px; padding: 6px 10px; font-size: 12px; }
+.agent-command-evidence-scope__menu { position: absolute; z-index: 20; inset-inline-start: 0; top: calc(100% + 8px); width: min(340px, 80vw); max-height: 65vh; overflow-y: auto; display: grid; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--app-surface, var(--card-bg)); box-shadow: var(--shadow); }
+.agent-command-evidence-scope__menu label { display: grid; gap: 4px; }
+.agent-command-evidence-scope__menu input { width: 100%; box-sizing: border-box; }
+.agent-activity-event .llm-trace-detail { margin-top: 12px; }

@@ -1,6 +1,13 @@
 // Kept with the agent control plane; the application's normal transactional
 // schema bootstrap owns applying these additive statements.
 module.exports = [
+  `CREATE TABLE IF NOT EXISTS agent_proposal_acceptances (
+    session_id TEXT NOT NULL, proposal_index INTEGER NOT NULL CHECK(proposal_index BETWEEN 0 AND 7),
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    actor_id TEXT REFERENCES users(id) ON DELETE SET NULL, request_hash TEXT NOT NULL,
+    receipt JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(session_id,proposal_index)
+  )`,
   ...require("../workflows/temporal/durableSchema"),
   `CREATE TABLE IF NOT EXISTS workflow_operation_receipts (
     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

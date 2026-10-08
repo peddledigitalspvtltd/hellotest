@@ -6,7 +6,7 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
  try{
   await require('../../src/migrate').migrate();
   await db.query("INSERT INTO roles(id,name) VALUES ('mcp-fixture-role','MCP Fixture')");
-  await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'mcp-fixture-role',id FROM permissions WHERE code IN ('project.view','app_type.view','testcase.view','testcase.create','knowledge.view','agentic_workflow.view','environment.view','configuration.view')");
+  await db.query("INSERT INTO role_permissions(role_id,permission_id) SELECT 'mcp-fixture-role',id FROM permissions WHERE code IN ('project.view','app_type.view','testcase.view','testcase.create','knowledge.view','agentic_workflow.view','environment.view','configuration.view','requirement.view','requirement.create','requirement.update','feedback.view','feedback.create')");
   await db.query("INSERT INTO users(id,email,password_hash,name,default_role_id) VALUES ('mcp-a','mcp-a@example.test','unused','A','mcp-fixture-role'),('mcp-b','mcp-b@example.test','unused','B','mcp-fixture-role')");
   await db.query("INSERT INTO projects(id,name,visibility,created_by) VALUES ('mcp-p-a','Project A','private','mcp-a'),('mcp-p-b','Project B','private','mcp-b')");
   await db.query("INSERT INTO project_members(id,project_id,user_id,role_id) VALUES ('mcp-aa','mcp-p-a','mcp-a','mcp-fixture-role'),('mcp-ab','mcp-p-b','mcp-a','mcp-fixture-role'),('mcp-bb','mcp-p-b','mcp-b','mcp-fixture-role')");
@@ -73,6 +73,9 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const forged=await rpc('hellotest_database_query',{entity:'test_cases',sql:'SELECT * FROM users'});assert.equal(forged.result.isError,true);
   assert.equal((await rpc('hellotest_capabilities',{},webToken)).response.statusCode,401);
   assert.equal((await rpc('hellotest_capabilities',{},credential.token,{origin:'https://evil.example'})).response.statusCode,403);
+  const previousNodeEnv=process.env.NODE_ENV;process.env.NODE_ENV='production';
+  try{assert.equal((await rpc('hellotest_capabilities',{},credential.token,{origin:'https://evil.example'})).response.statusCode,403,'Production CORS denials must be forbidden, not internal errors');}finally{if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;}
+
   assert.equal((await rpc('hellotest_capabilities',{},credential.token,{host:'evil.example'})).response.statusCode,403);
   const invalidPlan=await rpc('hellotest_operation_prepare',{operation_id:create.id,arguments:{body:{app_type_id:'mcp-app-a',title:42}}});assert.equal(invalidPlan.result.isError,true);
   const prepare=await rpc('hellotest_operation_prepare',{operation_id:create.id,arguments:{body:{app_type_id:'mcp-app-a',title:'Created through reviewed MCP'}}});const plan=prepare.result.structuredContent.data;assert.equal(plan.state,'requires_authorization');
@@ -85,6 +88,48 @@ test('real PostgreSQL and SDK isolate two actors, execute a reviewed plan once, 
   const uncertainApproval=await app.inject({method:'POST',url:`/agentic-workflows/mcp/plans/${uncertainPlan.plan_id}/authorize`,headers,payload:{project_id:'mcp-p-a',digest:uncertainPlan.digest}});assert.equal(uncertainApproval.statusCode,200);
   const actualInject=app.inject.bind(app);app.inject=async options=>{const response=await actualInject(options);if(options.method==='POST'&&options.url.startsWith('/test-cases?'))throw new Error('Fixture loses receipt after committed create');return response;};
   try{const unknown=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(unknown.result.structuredContent.data.state,'unknown');const repeated=await rpc('hellotest_operation_execute',{plan_id:uncertainPlan.plan_id});assert.equal(repeated.result.structuredContent.data.state,'unknown');assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE title=?').get('Uncertain receipt fixture')).count,1);}finally{app.inject=actualInject;}
+  // Acceptance saves native domain records and a durable receipt atomically.
+  const createdStory=await app.inject({method:'POST',url:'/requirements',headers,payload:{project_id:'mcp-p-a',title:'Recorded retry intent',description:'Preserve exactly one order.',acceptance_criteria:['One order remains.']}});
+  assert.equal(createdStory.statusCode,200,createdStory.body);
+  const storyId=createdStory.json().id;
+  const storyBefore=await app.inject({url:`/requirements/${storyId}`,headers});
+  const proposals=[
+   {kind:'story',title:'New reviewed Story',description:'Preserve customer checkout intent.',priority:'P2',citation_ids:['K-proposal'],acceptance_criteria:['Given checkout, when submitted, then one order remains.']},
+   {kind:'test_case',title:'Reviewed retry Test Case',description:'Test checkout retry boundaries.',priority:'P2',citation_ids:['K-proposal'],prerequisites:['A pending checkout exists.'],steps:[{action:'Retry checkout',expected_result:'Exactly one order exists.'}]},
+   {kind:'defect',title:'Observed duplicate order',description:'Duplicate orders were observed after retry.',priority:'P2',citation_ids:['K-proposal'],severity:'high',reproduction_steps:['Submit the same checkout twice.'],expected_result:'One order.',actual_result:'Two orders.'},
+   {kind:'story',title:'Recorded retry intent clarified',description:'Preserve exactly one order on repeat submission.',priority:'P2',citation_ids:['K-proposal'],target_id:storyId,target_revision:storyBefore.json().revision,acceptance_criteria:['Given an existing request, when repeated, then one order remains.']}
+  ];
+  const transactions=require('../../services/workspaceTransaction.service');
+  const reviewTxn=await transactions.createTransaction({project_id:'mcp-p-a',app_type_id:'mcp-app-a',category:'ai_agent',action:'delegate',title:'Review fixture',status:'running',related_kind:'agentic_assistant_session',created_by:'mcp-a'});
+  await transactions.updateTransaction(reviewTxn.id,{status:'completed',metadata:{context_scopes:['stories','test-cases','bugs'],citations:[{id:'K-proposal',scope:'stories',label:'Recorded checkout evidence'}],result:{response:'Recorded primary review.',recommendations:[],assumptions:[],findings:[],artifacts:proposals}}});
+  const acceptProposal=(index,artifact=proposals[index],extra={})=>app.inject({method:'POST',url:`/agentic-assistant/sessions/${reviewTxn.id}/proposals/accept`,headers,payload:{index,artifact,...extra}});
+  for(const index of [0,1,2,3]){
+   const [first,repeat]=await Promise.all([acceptProposal(index),acceptProposal(index)]);
+   assert.equal(first.statusCode,200,first.body);assert.equal(repeat.statusCode,200,repeat.body);assert.equal(first.json().id,repeat.json().id);
+  }
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM requirements WHERE title=?').get('New reviewed Story')).count,1);
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM test_cases WHERE title=?').get('Reviewed retry Test Case')).count,1);
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM feedback WHERE title=?').get('Observed duplicate order')).count,1);
+  const savedCase=await db.prepare('SELECT id,description FROM test_cases WHERE title=?').get('Reviewed retry Test Case');assert.match(savedCase.description,/pending checkout/);
+  const savedSteps=await db.prepare('SELECT action,expected_result FROM test_steps WHERE test_case_id=? ORDER BY step_order').all(savedCase.id);assert.deepEqual(savedSteps,[{action:'Retry checkout',expected_result:'Exactly one order exists.'}]);
+  const savedDefect=await db.prepare('SELECT steps_to_reproduce,expected_result,actual_result FROM feedback WHERE title=?').get('Observed duplicate order');assert.deepEqual(savedDefect,{steps_to_reproduce:'Submit the same checkout twice.',expected_result:'One order.',actual_result:'Two orders.'});
+
+  assert.equal((await app.inject({url:`/requirements/${storyId}`,headers})).json().title,'Recorded retry intent clarified');
+  const stored=await app.inject({url:`/agentic-assistant/sessions/${reviewTxn.id}/proposals`,headers});assert.equal(stored.statusCode,200,stored.body);assert.equal(stored.json().length,4);
+  assert.equal((await acceptProposal(0,{...proposals[0],title:'Changed after save'})).statusCode,409);
+  assert.equal((await acceptProposal(0,{...proposals[0],citation_ids:['invented']})).statusCode,400);
+  assert.equal((await acceptProposal(0,{...proposals[0],target_id:'outside-story'})).statusCode,400);
+  const foreign=await app.inject({method:'POST',url:`/agentic-assistant/sessions/${reviewTxn.id}/proposals/accept`,headers:{authorization:'Bearer '+createToken({id:'mcp-b',role:'member'})},payload:{index:0,artifact:proposals[0]}});assert.equal(foreign.statusCode,403,foreign.body);
+  const approvedCount=(await db.prepare('SELECT COUNT(*)::int AS count FROM agent_proposal_acceptances').get()).count;assert.equal(approvedCount,4);
+  const extraReview=async artifact=>{const row=await transactions.createTransaction({project_id:'mcp-p-a',app_type_id:'mcp-app-a',category:'ai_agent',action:'delegate',title:'Acceptance failure fixture',status:'running',related_kind:'agentic_assistant_session',created_by:'mcp-a'});await transactions.updateTransaction(row.id,{status:'completed',metadata:{citations:[{id:'K-proposal',scope:'stories',label:'Recorded checkout evidence'}],result:{response:'Recorded primary review.',recommendations:[],assumptions:[],artifacts:[artifact]}}});return row.id;};
+  const staleId=await extraReview(proposals[3]);
+  const stale=await app.inject({method:'POST',url:`/agentic-assistant/sessions/${staleId}/proposals/accept`,headers,payload:{index:0,artifact:proposals[3]}});assert.equal(stale.statusCode,409,stale.body);
+  assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM agent_proposal_acceptances WHERE session_id=?').get(staleId)).count,0);
+  const lostArtifact={...proposals[0],title:'Lost destination acknowledgement'};const lostId=await extraReview(lostArtifact);
+  const domainInject=app.inject.bind(app);app.inject=async options=>{const response=await domainInject(options);if(options.method==='POST'&&options.url==='/requirements'&&options.payload?.title===lostArtifact.title)throw new Error('Fixture loses acknowledgement after domain create');return response;};
+  try{const lost=await app.inject({method:'POST',url:`/agentic-assistant/sessions/${lostId}/proposals/accept`,headers,payload:{index:0,artifact:lostArtifact}});assert.equal(lost.statusCode,500);assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM requirements WHERE title=?').get(lostArtifact.title)).count,0,'Lost internal acknowledgement rolls back the native write and receipt together');}finally{app.inject=domainInject;}
+  const recovered=await app.inject({method:'POST',url:`/agentic-assistant/sessions/${lostId}/proposals/accept`,headers,payload:{index:0,artifact:lostArtifact}});assert.equal(recovered.statusCode,200,recovered.body);assert.equal((await db.prepare('SELECT COUNT(*)::int AS count FROM requirements WHERE title=?').get(lostArtifact.title)).count,1);
+
   const mcpAuth=require('@hellotest/mcp/backend/auth');const cachedActor=await mcpAuth.principal('mcp-a','mcp-p-a');
   await db.query("UPDATE users SET status='suspended' WHERE id='mcp-a'");await assert.rejects(require('@hellotest/mcp/backend/server').invoke(cachedActor,'hellotest_capabilities',{}),{statusCode:403});await db.query("UPDATE users SET status='active' WHERE id='mcp-a'");
   const userB=require('@hellotest/mcp/backend/auth');const b=await userB.issue({id:'mcp-b'},'mcp-p-b');const wrong=await rpc('hellotest_operation_status',{plan_id:plan.plan_id},b.token);assert.equal(wrong.result.isError,true);

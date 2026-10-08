@@ -69,7 +69,7 @@ fastify.addHook("onRequest", async (req, reply) => {
 
 // Improved CORS configuration
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",")
+  ? process.env.CORS_ORIGIN.split(",").map(origin => origin.trim()).filter(Boolean)
   : config.corsOrigins;
 
 fastify.register(cors, {
@@ -77,11 +77,11 @@ fastify.register(cors, {
     if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
       cb(null, true);
     } else {
-      cb(new Error("CORS not allowed"));
+      cb(Object.assign(new Error("CORS origin denied"), { statusCode: 403, code: "CORS_ORIGIN_DENIED", publicMessage: "This browser origin is not allowed. Configure its exact origin in CORS_ORIGIN." }));
     }
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "X-HelloTest-Recorder-Token", "traceparent", "tracestate", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID", "X-Trace-ID", "Idempotency-Key", "X-HelloTest-Recorder-Token", "traceparent", "tracestate", "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID", "Mcp-Method", "Mcp-Name"],
   exposedHeaders: ["X-Request-ID", "X-Trace-ID", "Location", "Retry-After", "traceparent", "MCP-Protocol-Version", "Mcp-Session-Id"],
   credentials: true,
   maxAge: 86400
